@@ -15,7 +15,7 @@ The push must add a commit that changes one of that workflow's paths: pushing a
 commit already on feat-cmux-next (a pin that landed first) starts no run, and the
 workflow cannot be dispatched from feat-cmux-next. When the pin landed first,
 branch ghosttykit-pin/<name> from feat-cmux-next, commit a change to one of those
-paths (a fix to this docstring will do), push it, and run this from that commit
+paths (a fix to this docstring will do; nomerge), push it, and run this from that commit
 with --ios-job ID of a cmux-ci iOS build of feat-cmux-next at the same pin.
 
 Steps (each stops with a message that says what to do):
