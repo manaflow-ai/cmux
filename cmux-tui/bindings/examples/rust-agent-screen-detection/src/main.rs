@@ -345,6 +345,6 @@ fn print_explain_text(value: &serde_json::Value) -> ExitCode {
 
 fn print_help() {
     eprintln!(
-        "usage:\n  cmux-agent-screen-detection\n  cmux-agent-screen-detection list\n  cmux-agent-screen-detection status\n  cmux-agent-screen-detection explain <process> <screen-file> [--title <text>] [--progress <text>] [--format json|text]\n  cmux-agent-screen-detection explain --live <terminal-id-or-title> [--format json|text]\n  cmux-agent-screen-detection update [--url <catalog-url>] [--cache-dir <path>]"
+        "usage:\n  cmux-agent-screen-detection\n  cmux-agent-screen-detection list\n  cmux-agent-screen-detection status\n  cmux-agent-screen-detection explain <process> <screen-file> [--title <text>] [--progress <text>] [--format json|text]\n  cmux-agent-screen-detection explain --live [--session <name>] [--socket <path>] <terminal-id-or-title> [--format json|text]\n  cmux-agent-screen-detection update [--url <catalog-url>] [--cache-dir <path>]"
     );
 }
