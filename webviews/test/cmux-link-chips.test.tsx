@@ -122,7 +122,7 @@ function chats(): SessionHoverStore {
       harness: "claude",
       agentSessionId: SESSION,
       title: "Review the retry fix",
-      host: "gcp-box",
+      host: "build-box",
       hostKind: "cloud",
     } as AcpmuxSessionEntry,
   ]);
@@ -167,10 +167,10 @@ test("the parser reads every cmux link form", () => {
     web: false,
   });
   expect(cmuxLinkTarget(WEB_AGENT)).toEqual({ kind: "agent", harness: "claude", session: SESSION, web: true });
-  expect(cmuxLinkTarget(`https://www.cmux.com/ja/deeplink/agent?host=lane-1&session=${SESSION}`)).toEqual({
+  expect(cmuxLinkTarget(`https://www.cmux.com/ja/deeplink/agent?host=host-1&session=${SESSION}`)).toEqual({
     kind: "agent",
     session: SESSION,
-    host: "lane-1",
+    host: "host-1",
     web: true,
   });
   expect(cmuxLinkTarget("https://cmux.com/deeplink/agent?id=aid-0123456789abcdef0123")).toEqual({
@@ -266,7 +266,7 @@ test("a chat link names its chat from the session list, and a click opens that c
   const chips = [...host.querySelectorAll<HTMLAnchorElement>("[data-cmux-link=chat]")];
   expect(chips.map((chip) => chip.getAttribute("href"))).toEqual([AGENT, WEB_AGENT]);
   expect(chips[0]!.querySelector(".cv-cmux-link__title")?.textContent).toBe("Review the retry fix");
-  expect(chips[0]!.querySelector(".cv-cmux-link__host")?.textContent).toBe("gcp-box");
+  expect(chips[0]!.querySelector(".cv-cmux-link__host")?.textContent).toBe("build-box");
   let prevented = false;
   await act(async () => {
     const click = new window.MouseEvent("click", { bubbles: true, cancelable: true });
@@ -361,7 +361,7 @@ test("the draft draws a known link as its chip and sends the link as pasted", as
   const { field, sent } = await composer(typed);
   expect(titled()).toEqual([
     ["Retry fix", WORKSPACE],
-    ["Review the retry fix · gcp-box", AGENT],
+    ["Review the retry fix · build-box", AGENT],
   ]);
   await act(async () => {
     field.dispatchEvent(
