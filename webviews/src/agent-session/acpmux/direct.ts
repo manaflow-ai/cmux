@@ -4896,6 +4896,8 @@ export class AcpmuxDirectClient {
 
   /// The day's agent chats as working and waiting stretches (`_acpmux/waiting_day`, waiting/waitingModel.ts),
   /// from acpmux's status log: no session log is read.
+  /// The app's pane transport is default deny (AcpmuxPaneMethods.swift): until it lists this method
+  /// the read is refused there and the home draws no lanes.
   waitingDay(params: { since: number; until: number }): Promise<unknown> {
     return this.request("_acpmux/waiting_day", params, 10_000);
   }
