@@ -6864,14 +6864,12 @@ jobs:
           retention-days: 3
           overwrite: true
       - name: Ask for this build's post-publication run
+        # One try, no loop (tests/test_ci_no_github_token_polling.py): a failed dispatch fails this job, which
+        # report-nightly-failure lists, and a retry after an accepted dispatch would start a second tail.
         run: |
           set -euo pipefail
-          for try in 1 2 3; do
-            gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
-              -f nightly_next_post_publish="$(cat "$RUNNER_TEMP/dispatch-input.json")" && exit 0
-            echo "::warning::dispatch try $try failed"; [ "$try" -lt 3 ] && sleep $(( try * 15 ))
-          done
-          exit 1
+          gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+            -f nightly_next_post_publish="$(cat "$RUNNER_TEMP/dispatch-input.json")"
 
   # Where the tail runs (run_tail): a dispatched tail run, or main's, RC's or a manual run's own. The comments
   # wait for the whole-Mac publish jobs, so they never hold the mini while those wait.
