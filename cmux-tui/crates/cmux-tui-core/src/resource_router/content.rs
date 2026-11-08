@@ -111,7 +111,9 @@ fn terminal_screen_read(
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
-    let snapshot = surface.terminal_screen_snapshot().map_err(resource_operation_error)?;
+    let snapshot = surface
+        .terminal_screen_snapshot_with(screen_text(&request.fields)?)
+        .map_err(resource_operation_error)?;
     Ok(json!({
         "text":snapshot.text,
         "cols":snapshot.cols,
@@ -122,6 +124,24 @@ fn terminal_screen_read(
         "revision":snapshot.revision.to_string(),
         "osc_progress":snapshot.osc_progress,
     }))
+}
+
+/// The text a `terminal.screen.read` asks for: `unwrap` joins soft wraps,
+/// `lines` reads the last N lines of scrollback and screen instead of the
+/// viewport (`terminal-read-unwrap-v1`).
+fn screen_text(fields: &Map<String, Value>) -> Result<crate::surface::ScreenText, ResourceError> {
+    let unwrap = fields.get("unwrap").and_then(Value::as_bool).unwrap_or(false);
+    let lines = fields.get("lines").and_then(Value::as_u64);
+    Ok(match lines {
+        Some(count) => crate::surface::ScreenText::LastLines {
+            count: usize::try_from(count).map_err(|_| {
+                validation_error("lines is too large", json!({"field":"lines","value":count}))
+            })?,
+            unwrap,
+        },
+        None if unwrap => crate::surface::ScreenText::Unwrapped,
+        None => crate::surface::ScreenText::Rows,
+    })
 }
 
 fn terminal_state_read(
@@ -227,12 +247,10 @@ fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
             })
         })
         .transpose()?;
-    let check = || -> Result<String, ResourceError> {
-        surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
-            .map_err(resource_operation_error)?
-            .map_err(|error| resource_operation_error(error.into()))
-    };
+    // `new`: only text printed below the cursor's line as the wait starts
+    // counts (`terminal-wait-new-v1`).
+    let wait_text = super::WaitText::start(&surface, &request.fields)?;
+    let check = || wait_text.read();
     let mut observed = surface
         .terminal_stream_revision()
         .map_err(|error| resource_operation_error(error.into()))?;
@@ -279,13 +297,20 @@ fn terminal_wait_exit(
 fn terminal_copy(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
     let mode = required_string(&request.fields, "mode")?;
+    // `unwrap` joins soft-wrapped rows into the lines the program printed
+    // (`terminal-read-unwrap-v1`); a selection keeps the app's own rules.
+    let unwrap = request.fields.get("unwrap").and_then(Value::as_bool).unwrap_or(false);
     let text = match mode {
         "screen" => surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
+            .try_with_terminal(|terminal| {
+                if unwrap { terminal.viewport_text_unwrapped() } else { terminal.viewport_text() }
+            })
             .map_err(resource_operation_error)?
             .map_err(|error| resource_operation_error(error.into()))?,
         "scrollback" => surface
-            .try_with_terminal(|terminal| terminal.plain_text())
+            .try_with_terminal(|terminal| {
+                if unwrap { terminal.plain_text_unwrapped() } else { terminal.plain_text() }
+            })
             .map_err(resource_operation_error)?
             .map_err(|error| resource_operation_error(error.into()))?,
         "selection" => surface.selection_text().ok_or_else(|| {

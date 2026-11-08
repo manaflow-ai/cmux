@@ -2135,7 +2135,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. last_command ({exit_code?: int32, started_at_ms?: decimal, finished_at_ms: decimal}) is the last command the shell finished, from OSC 133 C and D (terminal-exit-status-v1): exit_code is the status D reported and is absent when the shell reported none or the next prompt came without D; the field is absent until a shell with shell integration finishes a command, so its absence never means success. It is present only while the terminal runs, and a read gives the current value. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
@@ -11042,6 +11042,15 @@
               ]
             },
             "default": "screen"
+          },
+          "unwrap": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "For screen and scrollback: join soft-wrapped rows into the logical lines the program printed. A selection keeps its own rules. Capability terminal-read-unwrap-v1."
           }
         },
         "extra": false
@@ -11947,7 +11956,27 @@
           "tab": "optional",
           "terminal": "required"
         },
-        "fields": {},
+        "fields": {
+          "unwrap": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Join soft-wrapped rows into the logical lines the program printed (a line longer than the pane reads back as one line). Default false: one line per row."
+          },
+          "lines": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "description": "Read the last N lines of scrollback and screen together instead of the viewport, oldest first, without the blank rows below the last printed line. With unwrap, N logical lines. The cursor fields still describe the screen. Capability terminal-read-unwrap-v1."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -12220,6 +12249,15 @@
               "kind": "primitive",
               "name": "decimal"
             }
+          },
+          "new": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Match only text printed below the line the cursor is on when the wait starts (soft wraps joined); text is then that new text. The echo of a command typed on that line and older output never match. Output printed before the wait starts is not new: to wait on a command's output, start the wait before the command prints. Capability terminal-wait-new-v1."
           }
         },
         "extra": false

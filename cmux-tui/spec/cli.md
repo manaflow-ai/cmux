@@ -357,7 +357,9 @@ tab <selector> terminal|browser ...
 terminal list
 terminal <selector> show|write|keys|mouse|copy|move|project|attach|close
 terminal <selector> focus <in|out>
-terminal <selector> screen read|wait
+terminal <selector> screen read [--unwrap] [--lines <n>]
+terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]
+terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap]
 terminal <selector> state read
 terminal <selector> history read|clear
 terminal <selector> output read [--after <offset>] [--max-bytes <n>]
@@ -388,6 +390,28 @@ sidebar plugin list|install|use|update|remove
 provider authority install
 
 ```
+
+Terminal text reads break lines where the terminal wrapped them unless asked
+not to (`terminal-read-unwrap-v1`). `screen read --unwrap` (`unwrap`) joins
+rows the terminal soft-wrapped (the program printed past the right edge) into
+the lines the program printed; rows it ended with a newline stay separate.
+`--lines <n>` (`lines`, 1 to 10000) reads the last n lines of scrollback and
+screen together, oldest first, without the blank rows below the last printed
+line: logical lines with `--unwrap`, rows without it; the cursor fields still
+describe the screen. `copy --unwrap` joins soft wraps for `screen` and
+`scrollback`. `screen wait --new` (`new`, `terminal-wait-new-v1`) matches only
+text printed below the line the cursor is on when the wait starts, soft wraps
+joined, and `text` is then that new text: the echo of a command typed on that
+line and older output never match. Output printed before the wait starts is
+not new, so start the wait before the command prints.
+
+With OSC 133 shell integration the terminal record carries
+`extra.last_command` (`terminal-exit-status-v1`): the last command the shell
+finished, with `exit_code` from `D;<code>` (absent when the shell sent none,
+or when the next prompt came without `D`), `finished_at_ms` and
+`started_at_ms` (decimal strings). Without integration the field is absent, so
+its absence never means success. `terminal list` and `terminal <t> show` read
+the current value.
 
 `notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
 work unchanged inside a machine: `--title` (default `Notification`, at most

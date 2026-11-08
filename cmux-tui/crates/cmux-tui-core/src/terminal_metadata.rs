@@ -3,9 +3,10 @@
 //! The OSC string framing state machine is adapted from herdrdev/herdr's
 //! `src/pane/osc.rs`, Apache-2.0, commit
 //! `7b675f42af35508eab66ac42fe1598628597a893`. The cmux implementation is
-//! modified by manaflow: it retains only OSC 9 progress text, applies strict
-//! byte and character bounds, accepts C1 ST, and exposes the result as a
-//! terminal primitive. It has no agent names, manifests, or roster policy.
+//! modified by manaflow: it retains only OSC 9 progress text and the OSC 133
+//! command marks behind the last command's exit status, applies strict byte
+//! and character bounds, accepts C1 ST, and exposes the result as a terminal
+//! primitive. It has no agent names, manifests, or roster policy.
 
 const MAX_OSC_BODY_BYTES: usize = 4096;
 pub(crate) const MAX_PROGRESS_CHARS: usize = 256;
@@ -202,6 +203,8 @@ fn is_string_opener(byte: u8) -> bool {
 pub(crate) struct TerminalMetadata {
     osc: OscCollector,
     progress: String,
+    /// The last command the shell finished (`terminal-exit-status-v1`).
+    command: crate::terminal_command::CommandTracker,
 }
 
 impl TerminalMetadata {
@@ -220,19 +223,40 @@ impl TerminalMetadata {
             return;
         }
         let progress = &mut self.progress;
+        let command = &mut self.command;
         self.osc.observe(bytes, |body| {
             let Some(separator) = body.iter().position(|byte| *byte == b';') else {
                 return;
             };
-            if &body[..separator] != b"9" {
-                return;
+            let data = &body[separator + 1..];
+            match &body[..separator] {
+                b"9" => {
+                    *progress = String::from_utf8_lossy(data)
+                        .chars()
+                        .filter(|character| !character.is_control())
+                        .take(MAX_PROGRESS_CHARS)
+                        .collect();
+                }
+                b"133" => {
+                    if let Some(mark) = crate::terminal_command::ShellMark::parse(data) {
+                        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+                        command.observe(mark, now_ms);
+                    }
+                }
+                _ => {}
             }
-            *progress = String::from_utf8_lossy(&body[separator + 1..])
-                .chars()
-                .filter(|character| !character.is_control())
-                .take(MAX_PROGRESS_CHARS)
-                .collect();
         });
+    }
+
+    /// The last command the shell finished, from OSC 133 marks.
+    pub(crate) fn last_command(&self) -> Option<crate::terminal_command::LastCommand> {
+        self.command.last_command()
+    }
+
+    /// Keep `previous`'s last command when this replacement parser has seen
+    /// none (a reconnect to the same terminal host).
+    pub(crate) fn keep_last_command_of(&mut self, previous: &TerminalMetadata) {
+        self.command.keep_last_command_of(&previous.command);
     }
 
     pub(crate) fn osc_progress(&self) -> &str {
@@ -255,6 +279,29 @@ impl TerminalMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_run_osc_133_exit_code_is_the_last_commands_status_and_plain_output_has_none() {
+        let mut metadata = TerminalMetadata::default();
+        // A shell without integration: output, no marks, no status.
+        metadata.observe_output(b"$ sh -c 'exit 7'\r\n$ ");
+        assert_eq!(metadata.last_command(), None);
+
+        // Ghostty's shell integration: C at Enter, D;<status> before the next A,
+        // split across output chunks.
+        metadata.observe_output(b"\x1b]133;A\x07$ \x1b]133;B\x07sh -c 'exit 7'\r\n\x1b]133;C\x07");
+        metadata.observe_output(b"\x1b]133;D");
+        metadata.observe_output(b";7;aid=12\x07\x1b]133;A\x07$ ");
+        let last = metadata.last_command().expect("a finished command");
+        assert_eq!(last.exit_code, Some(7));
+        assert!(last.started_at_ms.is_some());
+
+        metadata.observe_output(b"\x1b]133;C\x07ok\r\n\x1b]133;D;0\x07\x1b]133;A\x07");
+        assert_eq!(metadata.last_command().unwrap().exit_code, Some(0));
+        // OSC 9 progress still parses next to the marks.
+        metadata.observe_output(b"\x1b]9;4;1;50\x07");
+        assert_eq!(metadata.osc_progress(), "4;1;50");
+    }
 
     #[test]
     fn captures_bel_st_and_c1_osc_progress() {

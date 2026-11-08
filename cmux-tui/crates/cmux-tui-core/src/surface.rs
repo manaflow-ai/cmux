@@ -96,6 +96,20 @@ pub(crate) struct TerminalScreenSnapshot {
     pub(crate) osc_progress: String,
 }
 
+/// Which text a [`TerminalScreenSnapshot`] carries (`terminal.screen.read`
+/// fields `unwrap` and `lines`, `terminal-read-unwrap-v1`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ScreenText {
+    /// The rendered viewport, one line per row (the default).
+    #[default]
+    Rows,
+    /// The rendered viewport with soft wraps joined into logical lines.
+    Unwrapped,
+    /// The last `count` lines of scrollback and screen together; logical
+    /// lines when `unwrap`, else rows.
+    LastLines { count: usize, unwrap: bool },
+}
+
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
@@ -1569,6 +1583,10 @@ impl PtyTerminalRuntime {
 
     fn terminal_osc_progress(&self) -> String {
         self.terminal_metadata.lock().unwrap().osc_progress().to_string()
+    }
+
+    fn terminal_last_command(&self) -> Option<crate::terminal_command::LastCommand> {
+        self.terminal_metadata.lock().unwrap().last_command()
     }
 
     fn begin_terminal_journal_update(&self) -> Option<TerminalJournalUpdateGuard<'_>> {
@@ -3823,7 +3841,13 @@ impl Surface {
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
                             **term = replacement_term;
-                            *pty.terminal_metadata.lock().unwrap() = replacement_metadata;
+                            {
+                                // A reconnect replaces the parser, not the
+                                // shell: keep its last finished command.
+                                let mut metadata = pty.terminal_metadata.lock().unwrap();
+                                replacement_metadata.keep_last_command_of(&metadata);
+                                *metadata = replacement_metadata;
+                            }
                             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                             *geometry = next_geometry;
                             *pty.title.lock().unwrap() = title.clone();
@@ -4880,15 +4904,30 @@ impl Surface {
         Ok(pty.stream_progress.revision())
     }
 
-    /// Capture the viewport, generic terminal metadata, and stream revision
-    /// while the parser lock is held. This is the only screen-read path that
-    /// can safely use the revision as a scheduling watermark.
+    /// [`Self::terminal_screen_snapshot_with`] of the viewport's rows.
+    #[cfg(test)]
     pub(crate) fn terminal_screen_snapshot(&self) -> anyhow::Result<TerminalScreenSnapshot> {
+        self.terminal_screen_snapshot_with(ScreenText::Rows)
+    }
+
+    /// Capture the `text` a `terminal.screen.read` asked for (the viewport's
+    /// rows or logical lines, or the last N lines of scrollback and screen),
+    /// generic terminal metadata, and stream revision while the parser lock
+    /// is held. This is the only screen-read path that can safely use the
+    /// revision as a scheduling watermark.
+    pub(crate) fn terminal_screen_snapshot_with(
+        &self,
+        text: ScreenText,
+    ) -> anyhow::Result<TerminalScreenSnapshot> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         let mut term = pty.term.lock().unwrap();
-        let text = term.viewport_text()?;
+        let text = match text {
+            ScreenText::Rows => term.viewport_text()?,
+            ScreenText::Unwrapped => term.viewport_text_unwrapped()?,
+            ScreenText::LastLines { count, unwrap } => term.last_lines_text(count, unwrap)?,
+        };
         let (cursor_col, cursor_row) = term.cursor_position().unwrap_or((0, 0));
         let cursor_visible = term.mode(25, false);
         // Match the parser's lock order, term -> metadata -> stream progress.
@@ -4905,6 +4944,12 @@ impl Surface {
             revision,
             osc_progress,
         })
+    }
+
+    /// The last command the terminal's shell finished (OSC 133 `D`):
+    /// `extra.last_command` (`terminal-exit-status-v1`).
+    pub(crate) fn terminal_last_command(&self) -> Option<crate::terminal_command::LastCommand> {
+        self.as_pty()?.terminal_last_command()
     }
 
     pub(crate) fn subscribe_terminal_stream_change(
