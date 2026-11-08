@@ -314,7 +314,7 @@ mod tests {
         }
         let owner = Arc::new(());
         let alive = Arc::downgrade(&owner);
-        let counted = generation.clone();
+        let counted = generation;
         let thread = std::thread::spawn(move || {
             run(imp::Socket(reader), || alive.strong_count() > 0, || counted.signal());
         });
