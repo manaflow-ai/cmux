@@ -276,3 +276,26 @@ async fn a_recovering_link_ends_when_its_owner_goes() {
         .unwrap();
     assert!(result.is_err(), "the link started without a daemon");
 }
+
+/// ssh exits 255 both for an unreachable host and for a refused login; only the first is
+/// redialed, so a recovering link never loops on a bad key or a changed host key.
+#[test]
+fn ssh_refusals_are_permanent_and_unreachable_hosts_are_not() {
+    let failure = |stderr: &str| {
+        anyhow::Error::new(BootstrapError::Remote { status: 255, stderr: stderr.into() })
+    };
+    for refused in [
+        "leo@build: Permission denied (publickey).",
+        "Host key verification failed.",
+        "Received disconnect from 10.0.0.2 port 22:2: Too many authentication failures",
+    ] {
+        assert!(!ssh_bootstrap_failure_is_retryable(&failure(refused)), "{refused}");
+    }
+    for unreachable in [
+        "ssh: connect to host build port 22: Network is unreachable",
+        "ssh: connect to host build port 22: Connection refused",
+        "Connection closed by 10.0.0.2 port 22",
+    ] {
+        assert!(ssh_bootstrap_failure_is_retryable(&failure(unreachable)), "{unreachable}");
+    }
+}
