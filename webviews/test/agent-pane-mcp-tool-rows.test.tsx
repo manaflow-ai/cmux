@@ -151,13 +151,13 @@ for (const [count, tag] of [
   test(`${count} MCP send recipients are all reachable with at most 32 mounted rows`, async () => {
     await render([largeSend(count, tag)]);
     // The group of sends starts closed, one line counting every recipient.
-    expect(host.querySelectorAll(".cv-sent")).toHaveLength(0);
+    expect(host.querySelectorAll(".cv-sent-msg")).toHaveLength(0);
     expect(host.querySelector(".cv-message-group__count")?.textContent).toContain(String(count));
     await click(host.querySelector<HTMLButtonElement>(".cv-sent-group__head")!);
     const seen: string[] = [];
     let pages = 0;
     for (;;) {
-      const recipients = [...host.querySelectorAll(".cv-sent .cv-recipient")].map((node) => node.textContent);
+      const recipients = [...host.querySelectorAll(".cv-sent-msg .cv-recipient")].map((node) => node.textContent);
       expect(recipients.length).toBeGreaterThan(0);
       expect(recipients.length).toBeLessThanOrEqual(32);
       seen.push(...(recipients as string[]));
@@ -171,7 +171,7 @@ for (const [count, tag] of [
     expect(seen).toEqual(Array.from({ length: count }, (_, index) => `recipient-${index}`));
     expect(pages).toBe(Math.ceil(count / 32));
     await click(host.querySelector<HTMLButtonElement>('[data-send-page="previous"]')!);
-    expect(host.querySelector(".cv-sent .cv-recipient")?.textContent).toBe(`recipient-${(pages - 2) * 32}`);
+    expect(host.querySelector(".cv-sent-msg .cv-recipient")?.textContent).toBe(`recipient-${(pages - 2) * 32}`);
   });
 }
 
@@ -184,12 +184,13 @@ test("Find reaches an off-page recipient and opens only its full Raw call", asyn
     needle: "recipient-1023",
     repaint: () => {},
   });
-  expect(host.querySelectorAll(".cv-sent")).toHaveLength(32);
-  expect([...host.querySelectorAll(".cv-sent .cv-recipient")].map((node) => node.textContent)).toContain(
+  expect(host.querySelectorAll(".cv-sent-msg")).toHaveLength(32);
+  expect([...host.querySelectorAll(".cv-sent-msg .cv-recipient")].map((node) => node.textContent)).toContain(
     "Recİpient-1023",
   );
-  expect(host.querySelectorAll(".cv-subsession__under")).toHaveLength(1);
-  expect(host.querySelector(".cv-subsession__under")?.textContent).toContain("Recİpient-1023");
+  // Only the match's row opens its Raw: the whole call, where the off-page recipient is.
+  expect(host.querySelectorAll(".cv-sent__raw-body")).toHaveLength(1);
+  expect(host.querySelector(".cv-sent__raw-body")?.textContent).toContain("Recİpient-1023");
 });
 
 for (const [harness, call] of [

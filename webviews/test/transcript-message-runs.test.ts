@@ -12,7 +12,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { hiddenRowFolds, turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { foldMessageRuns } from "../src/agent-session/acpmux/conversation/messageRuns";
+import { toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 
 // Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
 // default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).
@@ -52,11 +52,11 @@ test("a 1024-recipient MCP batch keeps its full summary count and its closed gro
     ]);
   const small = { ...batch(32), foldRun: true };
   const large = { ...batch(1024), foldRun: true };
-  // A second coordination line makes the containing run fold, where its heading must count
-  // every recipient.
+  // With another send beside it, every message is one group of sends that counts each recipient.
   const companion = send("recipient-companion", "hello");
-  const foldedRun = foldMessageRuns([{ ...large, items: [...large.items!, companion] }], new Set());
-  expect(foldedRun[0]?.messageRun?.sent).toBe(1025);
+  const groups = toolGroups([...large.items!, companion]);
+  expect(groups.map((group) => group.type)).toEqual(["sendGroup"]);
+  expect(groups[0]?.type === "sendGroup" && groups[0].entries.length).toBe(1025);
   // Both start as one closed "Sent N messages" line: the estimate does not grow with the receipt.
   expect(layoutConversation([large], 720).heights[0]).toBe(layoutConversation([small], 720).heights[0]);
 });
