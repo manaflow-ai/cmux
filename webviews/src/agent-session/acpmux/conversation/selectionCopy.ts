@@ -4,11 +4,11 @@
 // never takes the pane's dark-theme colors; and the same selection as Markdown for its plain text, so
 // a paste into the composer or a terminal keeps its bullets (richClipboard.ts).
 //
-// It takes over only a selection inside one message's Markdown (`.cv-md`). A selection with math is
-// mathCopy.ts's (the TeX as written), one that holds highlighted code (drawn in a shadow root the
-// copy cannot read) or reaches across messages copies as the page would copy it.
+// Across messages it copies the selected message bodies, including complete code cards, without
+// timestamps or controls. Inside one message, math and code retain their specialized copy paths.
 import { copyHref, htmlMarkdown } from "../richClipboard";
 import { safeHref } from "../replyHref";
+import { transcriptSelectionContents } from "./transcriptSelectionCopy";
 
 const MATH = "[data-tex]";
 /// Attributes the copy keeps; every other one (classes, styles, data, aria) is the transcript's own.
@@ -17,7 +17,6 @@ const KEEP = new Set(["href", "start", "colspan", "rowspan", "src", "alt"]);
 /// image that opens) is unwrapped, its words and picture kept.
 /// A list's drawn number and bullet are the list's own markers in the copy (`<ol>`, `<ul>`).
 const CHROME = "svg, [aria-hidden='true'], [hidden], .sr-only, .cv-li__num, .cv-li__bullet";
-
 /// The document the listener is on: once per page, and again for a new one (a test's next DOM).
 let installedOn: Document | undefined;
 
@@ -35,7 +34,10 @@ function elementOf(node: Node): Element | null {
  * this copy takes. */
 export function selectionHtml(range: Range): string | null {
   const reply = elementOf(range.commonAncestorContainer)?.closest(".cv-md");
-  if (!reply) return null;
+  if (!reply) {
+    const transcript = transcriptSelectionContents(range);
+    return transcript ? cleanSelectionHtml(transcript) : null;
+  }
   // Math is mathCopy.ts's, also a selection that starts or ends inside an equation (its clone
   // leaves out the element that holds the TeX). Code is the page's own copy: highlighted code draws
   // in a shadow root a clone leaves empty, and plain code draws each line as its own element, whose
@@ -66,10 +68,22 @@ export function selectionHtml(range: Range): string | null {
     wrapper.append(...holder.childNodes);
     holder.append(wrapper);
   }
+  return cleanSelectionHtml(holder);
+}
+
+function cleanSelectionHtml(holder: HTMLElement): string {
   for (const element of holder.querySelectorAll(CHROME)) element.remove();
   for (const button of holder.querySelectorAll("button")) button.replaceWith(...button.childNodes);
   for (const element of holder.querySelectorAll("*"))
-    for (const name of element.getAttributeNames()) if (!KEEP.has(name)) element.removeAttribute(name);
+    for (const name of element.getAttributeNames()) {
+      // A fenced code language is content metadata, not the transcript's styling.
+      if (name === "class" && element.tagName === "CODE" && /^language-[\w+#-]+$/.test(element.className)) continue;
+      // Plain prompts rely on pre-wrap for their line ends and indentation. This one safe style
+      // is content layout; no transcript colors or fonts travel with it.
+      if (name === "style" && element.tagName === "SPAN" && element.getAttribute(name) === "white-space: pre-wrap;")
+        continue;
+      if (!KEEP.has(name)) element.removeAttribute(name);
+    }
   // A target goes into another app only where it is safe there (a web or mail link, a web picture).
   for (const link of holder.querySelectorAll("[href]")) {
     const href = copyHref(link.getAttribute("href") ?? "");

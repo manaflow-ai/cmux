@@ -138,13 +138,8 @@ fn workspaces_of_terminals(snapshot: &Value) -> HashMap<String, (String, Option<
 /// The terminals with an unread notification: a turn finished there that
 /// nobody has viewed (done-until-seen). Reading the snapshot clears nothing.
 fn unseen_terminals(snapshot: &Value) -> HashSet<&str> {
-    snapshot["notifications"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|notification| notification["unread"] == true)
-        .filter_map(|notification| notification["terminal_id"].as_str())
-        .collect()
+    let notifications = snapshot["notifications"].as_array().map(Vec::as_slice);
+    super::super::wire::unseen_terminals(notifications.unwrap_or_default())
 }
 
 /// The shared status of a status word: a daemon agent record's state or an
