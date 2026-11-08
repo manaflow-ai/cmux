@@ -183,7 +183,7 @@
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: 20px;
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -233,7 +233,7 @@
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text);
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -1115,7 +1115,7 @@
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text);
   -webkit-font-smoothing: antialiased;
 }
@@ -1410,8 +1410,33 @@
   overflow-x: auto;
   overflow-y: hidden;
 }
+/* The edge with more table past it fades out (sideways.ts marks it): the right edge, and the left
+   once scrolled (user 2026-11-07: "markdown missing fade now"). A mask, so the fade takes the
+   bubble's or the transcript's own background in light and dark; eased stops, so it never bands. */
+.cv-table-wrap {
+  --cv-table-fade-left: 0px;
+  --cv-table-fade-right: 0px;
+}
+.cv-table-wrap[data-more-left] {
+  --cv-table-fade-left: var(--cv-table-fade, 24px);
+}
 .cv-table-wrap[data-more-right] {
-  mask-image: linear-gradient(to left, transparent, #000 32px);
+  --cv-table-fade-right: var(--cv-table-fade, 24px);
+}
+.cv-table-wrap:is([data-more-left], [data-more-right]) {
+  --cv-table-mask: linear-gradient(
+    to right,
+    rgb(0 0 0 / 0) 0,
+    rgb(0 0 0 / 0.45) calc(var(--cv-table-fade-left) * 0.3),
+    rgb(0 0 0 / 0.8) calc(var(--cv-table-fade-left) * 0.6),
+    #000 var(--cv-table-fade-left),
+    #000 calc(100% - var(--cv-table-fade-right)),
+    rgb(0 0 0 / 0.8) calc(100% - var(--cv-table-fade-right) * 0.6),
+    rgb(0 0 0 / 0.45) calc(100% - var(--cv-table-fade-right) * 0.3),
+    rgb(0 0 0 / 0) 100%
+  );
+  -webkit-mask-image: var(--cv-table-mask);
+  mask-image: var(--cv-table-mask);
 }
 /* Columns fit their text (Leo, 2026-10-20: stretching the table to the column left a wide gap
    between a label and its value): the table is no wider than its text, and no wider than the
@@ -1943,7 +1968,7 @@ pre.cv-math-source {
   scroll-padding-bottom: var(--acpmux-dock-space, 0px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
   /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
      each streamed token compete with that correction and produces the one-pixel shake at rest. */
@@ -2246,7 +2271,7 @@ pre.cv-math-source {
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: 20px;
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-activity-text);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
@@ -2738,7 +2763,7 @@ pre.cv-math-source {
   margin: 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
 /* Tool work ends closer to the following reply than a full message does. The row's own min-height
@@ -3952,6 +3977,31 @@ button.cv-video-frames__frame:focus-visible {
     transition: none;
   }
 }
+/* A running background command's page (PreviewChip.tsx): the globe and its address in the accent,
+   as the running line's parts read, at the edge where a running row has no mark. Never wraps; a long
+   address gives way first. */
+.cv-preview-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 24ch;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border-radius: 4px;
+  color: var(--agent-accent);
+  cursor: default;
+}
+.cv-preview-chip__address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-preview-chip:hover .cv-preview-chip__address {
+  text-decoration: underline;
+}
+.cv-preview-chip:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
 .cv-tool__meta {
   margin-left: auto;
@@ -4087,7 +4137,7 @@ button.cv-video-frames__frame:focus-visible {
 .cv-received {
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
   /* The transcript's text tone, as every message row between agents (AgentMessageRow.css "One line,
      inline"; Leo, 2026-11-03: "idk why everything is grey other than the recieving message bubble"). */

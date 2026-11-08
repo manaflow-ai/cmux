@@ -36,8 +36,11 @@ pub(super) enum InboundRefused {
     NotAnEntry,
     /// An owner session that the link refused (who, or which socket).
     Owner(OwnerRefused),
-    /// No acpmux listener on loopback took the `acpmux` stream.
+    /// This link serves no `acpmux` stream.
     AcpmuxUnavailable,
+    /// No live, proven acpmux listener (`acpmux::listener_record`); no byte
+    /// of the stream was sent anywhere.
+    AcpmuxNotLive(acpmux::listener_record::NotLive),
 }
 
 pub(super) use super::paired_streams::Revocations;
