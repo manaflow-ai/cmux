@@ -63,9 +63,18 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
 }
 
 extension TerminalSession {
-    /// Native scroll readback for the bounded terminal flood probe.
-    public var debugScrollIntegrity: [String: Any] {
-        var value: [String: Any] = ["terminal_title": model.title]
+    /// Existing terminal counters and native scroll state for `debug.surfaces`.
+    public func diagnosticFields(_ diagnostics: TerminalSurfaceDiagnostics) -> [String: Any] {
+        var value: [String: Any] = [
+            "terminal_title": model.title,
+            "snapshots": diagnostics.restoredSnapshots,
+            "surface_swaps": diagnostics.swappedSurfaces,
+            "local_history_mismatch": diagnostics.localHistoryMismatches,
+            "local_snapshots": diagnostics.localSnapshots,
+            "skipped_images": diagnostics.skippedImages,
+            "last_frame_holds": diagnostics.lastFrameHolds,
+            "frame_held": diagnostics.holdingFrame,
+        ]
         if let bar = model.scrollbar {
             value["scrollbar"] = ["total_rows": bar.totalRows, "offset_rows": bar.offsetRows,
                                    "visible_rows": bar.visibleRows]
