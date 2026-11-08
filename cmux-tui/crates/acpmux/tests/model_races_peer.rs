@@ -78,7 +78,9 @@ impl Client {
 fn hub(root: &Path) -> Arc<Hub> {
     let mut config: Config = serde_json::from_value(json!({"harnesses":{"fake":{"argv":[
         "python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_race_agent.py")]}},
-        "defaultHarness":"fake", "permissionPolicy":"approve-all"}))
+        "defaultHarness":"fake", "permissionPolicy":"approve-all",
+        // A peer's session/new may use only a known project or a webRoots folder.
+        "webRoots": [root]}))
     .unwrap();
     config.store.mode = StoreMode::Memory;
     config.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
