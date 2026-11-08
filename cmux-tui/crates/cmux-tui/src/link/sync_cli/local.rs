@@ -231,20 +231,47 @@ pub(super) fn collect_files(folder: &Path) -> anyhow::Result<LocalSet> {
 }
 
 /// A folder of git's own state: a bare repository, a `.git` folder by
-/// another name, or a linked worktree's.
+/// another name, or a linked worktree's. Any `HEAD` beside any `objects`,
+/// `refs` or `commondir` counts, a symlink or not, since git takes either.
 fn git_state(dir: &Path) -> bool {
-    std::fs::symlink_metadata(dir.join("HEAD")).is_ok_and(|meta| meta.is_file())
-        && (std::fs::symlink_metadata(dir.join("objects")).is_ok_and(|meta| meta.is_dir())
-            || std::fs::symlink_metadata(dir.join("commondir")).is_ok_and(|meta| meta.is_file()))
+    let has = |name: &str| std::fs::symlink_metadata(dir.join(name)).is_ok();
+    has("HEAD") && (has("objects") || has("refs") || has("commondir"))
+}
+
+/// The top of the working copy `folder` is in, or None when it is in none.
+/// Any other answer (a repository git will not read, for its owner or an
+/// extension it does not know, or `folder` inside git's own folder) is an
+/// error: walking the folder plainly would send what git ignores.
+fn work_tree_top(folder: &Path) -> anyhow::Result<Option<PathBuf>> {
+    let output = Command::new("git")
+        .args(["-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"])
+        .args(["-c", "core.hooksPath=/dev/null", "-C"])
+        .arg(folder)
+        .args(["rev-parse", "--show-toplevel"])
+        .env("LC_ALL", "C")
+        .env("LANGUAGE", "C")
+        .output()
+        .context("cannot run git")?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        if stderr.contains("not a git repository") {
+            return Ok(None);
+        }
+        bail!("git cannot read the repository {} is in: {}", folder.display(), stderr.trim());
+    }
+    let top = String::from_utf8(output.stdout).context("git printed text that is not UTF-8")?;
+    let top = top.trim();
+    if top.is_empty() {
+        bail!("{} is inside a git repository's own folder", folder.display());
+    }
+    Ok(Some(std::fs::canonicalize(top).unwrap_or_else(|_| PathBuf::from(top))))
 }
 
 fn listed_files(folder: &Path) -> anyhow::Result<LocalSet> {
     let skips = Skips::new(folder);
     let mut set =
         LocalSet { files: BTreeMap::new(), links: BTreeMap::new(), skipped: 0, skips, git: false };
-    let inside = git(folder, &["rev-parse", "--is-inside-work-tree"])
-        .is_ok_and(|answer| answer.trim() == "true");
-    if !inside {
+    if work_tree_top(folder)?.is_none() {
         walk_plain(&mut set, Rules::Share, folder, folder)?;
         return Ok(set);
     }
@@ -394,8 +421,7 @@ impl GitDirs {
     /// None outside git. A subfolder of a working copy is refused: its
     /// repository is above it, so pushing it alone would lose the git state.
     pub(super) fn of(folder: &Path) -> anyhow::Result<Option<Self>> {
-        let Ok(top) = git(folder, &["rev-parse", "--show-toplevel"]) else { return Ok(None) };
-        let top = std::fs::canonicalize(top.trim()).unwrap_or_else(|_| PathBuf::from(top.trim()));
+        let Some(top) = work_tree_top(folder)? else { return Ok(None) };
         if top != folder {
             bail!(
                 "{} is inside the git working copy {}; push its top folder",

@@ -593,9 +593,31 @@ fn an_upload_of_a_folder_in_git_keeps_its_ignore_rules_and_runs_none_of_its_conf
         let (ok, answer) = upload(&world, &tmp, &[&bare]);
         assert!(!ok, "a bare repository was uploaded: {answer}");
     }
+    // A bare repository's shape counts with its objects a symlink, too.
+    let linked = plain.join("linked");
+    std::fs::create_dir_all(linked.join("refs")).unwrap();
+    std::fs::create_dir_all(base.join("elsewhere-objects")).unwrap();
+    std::os::unix::fs::symlink(base.join("elsewhere-objects"), linked.join("objects")).unwrap();
+    std::fs::write(linked.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(linked.join("config"), "[remote \"o\"]\nurl = https://fake-git-linked@x/r\n")
+        .unwrap();
     let (ok, sent) = upload(&world, &tmp, &[&plain]);
     assert!(ok, "{sent}");
     assert_eq!(sent["uploads"][0]["files"], 1, "{sent}");
+
+    // A working copy git will not read (an extension it does not know) is
+    // refused, never walked plainly past its ignore rules.
+    let odd = home.join("projects/odd");
+    std::fs::create_dir_all(&odd).unwrap();
+    git(&odd, &["init", "-q"]);
+    std::fs::write(odd.join(".gitignore"), "private.json\n").unwrap();
+    std::fs::write(odd.join("private.json"), "fake-git-private\n").unwrap();
+    git(&odd, &["config", "core.repositoryformatversion", "1"]);
+    git(&odd, &["config", "extensions.cmuxUnknown", "true"]);
+    let before = files_below(&world.machine_home).len();
+    let (ok, answer) = upload(&world, &tmp, &[&odd]);
+    assert!(!ok, "a repository git cannot read was walked: {answer}");
+    assert_eq!(files_below(&world.machine_home).len(), before, "{answer}");
     for bytes in files_below(&world.machine_home) {
         assert!(!String::from_utf8_lossy(&bytes).contains("fake-git"), "an ignored file went");
     }
