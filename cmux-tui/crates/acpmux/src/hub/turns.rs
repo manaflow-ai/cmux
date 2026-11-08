@@ -2382,7 +2382,7 @@ impl Hub {
             self.bg_purge(session).await?;
             session.purged.store(true, Ordering::SeqCst);
             // Its approvals audit entries go too (`audit_log.rs`): an incognito chat keeps none.
-            self.audit_purge(&session.id).await;
+            self.audit_purge(&session.id).await?;
             self.remove_cached_closed_summary(&session.id);
             let replaced = session.replaced.load(Ordering::SeqCst);
             if !self

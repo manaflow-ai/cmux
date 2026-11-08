@@ -32,8 +32,13 @@
 //!   each chat of an incognito space) leaves no history. [`AuditLog::purge`] rewrites the file
 //!   without that session's entries (a new file synced, then renamed over the old one, mode
 //!   0600) and chains the rest again from [`GENESIS`], so `verify` still passes and nothing of the
-//!   chat, not even its id, survives a restart. The hub writes nothing more for a chat once its
-//!   purge began. The chain proves the file was not edited by anything but this daemon.
+//!   chat, not even its id, survives a restart. From the purge on, the writer itself refuses
+//!   every entry of that session (a verdict checked before the purge and sent after it too), and
+//!   the hub writes none. A purge that fails fails the chat's deletion (`Hub::kill`).
+//! - Torn writes: a line that fails to write or sync is cut off again (the file goes back to its
+//!   length before it), and the chain's head moves only after a line is on disk. A tail without
+//!   its newline (a crash mid-write) is cut off when the log opens. A purge drops lines that are
+//!   not entries. The chain proves the file was not edited by anything but this daemon.
 //! - A memory store (tests) keeps the entries in memory, chained the same way.
 
 use std::collections::HashSet;
@@ -107,6 +112,8 @@ impl AuditLog {
         let memory = path.is_none().then(|| Arc::new(StdMutex::new(Vec::new())));
         let write_errors = Arc::new(AtomicU64::new(0));
         let mut writer = Writer {
+            purged: HashSet::new(),
+            needs_repair: false,
             path: path.clone(),
             memory: memory.clone(),
             reviewed: reviewed.clone(),
@@ -301,6 +308,10 @@ fn review_key(entry: &Value) -> Option<(String, String)> {
 }
 
 struct Writer {
+    /// Sessions purged since start: their entries are refused.
+    purged: HashSet<String>,
+    /// A failed write left bytes this writer could not cut: read the file again first.
+    needs_repair: bool,
     path: Option<PathBuf>,
     memory: Option<Arc<StdMutex<Vec<Value>>>>,
     reviewed: Arc<StdMutex<Reviewed>>,
@@ -314,6 +325,14 @@ impl Writer {
         while let Ok(msg) = rx.recv() {
             match msg {
                 Msg::Entry(entry, done) => {
+                    let sid = entry.get("sessionId").and_then(Value::as_str);
+                    if sid.is_some_and(|s| self.purged.contains(s)) {
+                        // A purged chat leaves no history: not an error to count.
+                        if let Some(done) = done {
+                            let _ = done.send(Err("the session was purged".into()));
+                        }
+                        continue;
+                    }
                     let written = self.write(entry);
                     match &written {
                         Ok(e) => {
@@ -344,10 +363,14 @@ impl Writer {
         }
     }
 
-    /// The chain's head and the reviewed pull requests, from the file as it is.
+    /// The chain's head and the reviewed pull requests, from the file as it is (a torn tail cut
+    /// off first).
     fn load(&mut self) {
-        let Some(path) = &self.path else { return };
-        let Ok(entries) = read_lines(path) else { return };
+        let Some(path) = self.path.clone() else { return };
+        if let Err(e) = cut_torn_tail(&path) {
+            tracing::warn!("audit: could not cut a torn tail of {}: {e}", path.display());
+        }
+        let Ok(entries) = read_lines(&path) else { return };
         let mut reviewed = self.reviewed.lock().unwrap_or_else(|e| e.into_inner());
         for e in &entries {
             if let Some(key) = review_key(e) {
@@ -365,6 +388,11 @@ impl Writer {
 
     /// Numbers, chains and writes `entry`: the entry as written, or why it was not.
     fn write(&mut self, entry: Value) -> Result<Value, String> {
+        if self.needs_repair {
+            self.file = None;
+            self.load();
+            self.needs_repair = false;
+        }
         let (entry, head) = seal(&self.head, entry).ok_or("not an object")?;
         if let Some(m) = &self.memory {
             m.lock().unwrap_or_else(|e| e.into_inner()).push(entry.clone());
@@ -389,6 +417,8 @@ impl Writer {
 
     /// Drops session `sid`'s entries and chains the rest again: how many went.
     fn purge(&mut self, sid: &str) -> Result<usize, String> {
+        // Before the rewrite: an entry of it sent from here on is refused.
+        self.purged.insert(sid.to_owned());
         self.reviewed.lock().unwrap_or_else(|e| e.into_inner()).retain(|(s, _)| s != sid);
         let old = if let Some(m) = &self.memory {
             m.lock().unwrap_or_else(|e| e.into_inner()).clone()
@@ -404,14 +434,11 @@ impl Writer {
         }
         let mut head = Head::default();
         let mut kept = Vec::with_capacity(old.len() - removed);
-        for e in old.into_iter().filter(|e| !of(e)) {
-            // A line that was not JSON stays as it was, for `verify` to name.
-            match seal(&head, e.clone()) {
-                Some((sealed, next)) => {
-                    head = next;
-                    kept.push(sealed);
-                }
-                None => kept.push(e),
+        // A line that is not an entry could hold anything of the chat: it goes too.
+        for e in old.into_iter().filter(|e| e.is_object() && !of(e)) {
+            if let Some((sealed, next)) = seal(&head, e) {
+                head = next;
+                kept.push(sealed);
             }
         }
         if let Some(m) = &self.memory {
@@ -439,9 +466,19 @@ impl Writer {
             self.file = Some(opts.open(path)?);
         }
         let file = self.file.as_mut().ok_or_else(|| std::io::Error::other("no file"))?;
-        file.write_all(line)?;
-        file.flush()?;
-        file.sync_data()
+        let before = file.metadata()?.len();
+        let written =
+            file.write_all(line).and_then(|()| file.flush()).and_then(|()| file.sync_data());
+        if let Err(e) = written {
+            // Back to the last whole line, so the next one does not land on half of this one,
+            // and a line whose sync failed is not chained twice.
+            let cut = file.set_len(before).and_then(|()| file.sync_data());
+            if cut.is_err() {
+                self.needs_repair = true;
+            }
+            return Err(e);
+        }
+        Ok(())
     }
 }
 
@@ -458,6 +495,22 @@ fn seal(head: &Head, mut entry: Value) -> Option<(Value, Head)> {
     Some((entry, Head { seq: head.seq + 1, hash }))
 }
 
+/// Cuts what follows the last newline of `path` (a line a crash left half written).
+fn cut_torn_tail(path: &Path) -> std::io::Result<()> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let whole = bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+    if whole == bytes.len() {
+        return Ok(());
+    }
+    let file = std::fs::OpenOptions::new().write(true).open(path)?;
+    file.set_len(whole as u64)?;
+    file.sync_all()
+}
+
 /// Writes `entries` to `path` whole: a new file beside it, synced, renamed over it.
 fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
     let tmp = path.with_extension("jsonl.tmp");
@@ -470,11 +523,7 @@ fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
     }
     let mut file = opts.open(&tmp)?;
     for e in entries {
-        let line = match e {
-            Value::String(raw) => raw.clone(),
-            e => e.to_string(),
-        };
-        file.write_all(line.as_bytes())?;
+        file.write_all(e.to_string().as_bytes())?;
         file.write_all(b"\n")?;
     }
     file.sync_all()?;
@@ -764,6 +813,73 @@ mod tests {
             let mode = std::fs::metadata(d.join(FILE)).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[tokio::test]
+    async fn an_entry_sent_after_the_purge_is_refused_by_the_writer() {
+        let d = dir("fence");
+        let log = AuditLog::open(Some(d.clone()));
+        log.record(entry("gone", 1));
+        // A verdict that passed the hub's check before the purge, sent after it.
+        let purge = log.purge("gone").unwrap();
+        let late = log.record_durable(json!({"at": 2, "sessionId": "gone", "kind": "review",
+                                             "prUrl": "https://github.com/o/r/pull/5",
+                                             "ask": "Review", "decision": {"kind": "accept"},
+                                             "answeredBy": {"person": true}}));
+        assert_eq!(purge.await.unwrap(), Ok(1));
+        assert!(late.is_err());
+        log.record(entry("gone", 3));
+        log.record(entry("kept", 4));
+        let all = log.all().unwrap();
+        let sessions: Vec<_> = all.iter().map(|e| e["sessionId"].clone()).collect();
+        assert_eq!(sessions, vec![json!("kept")]);
+        assert_eq!(log.write_errors(), 0, "a refused entry of a purged chat is no write error");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_torn_tail_is_cut_at_open_and_the_chain_goes_on() {
+        let d = dir("torn");
+        {
+            let log = AuditLog::open(Some(d.clone()));
+            log.record(entry("s1", 1));
+            log.record(entry("s1", 2));
+            log.flush();
+        }
+        let path = d.join(FILE);
+        let whole = std::fs::read(&path).unwrap();
+        let mut torn = whole.clone();
+        torn.extend_from_slice(br#"{"at":3,"sessionId":"s1","ask":"half"#);
+        std::fs::write(&path, &torn).unwrap();
+        let log = AuditLog::open(Some(d.clone()));
+        assert_eq!(std::fs::read(&path).unwrap(), whole, "the torn tail was cut");
+        log.record(entry("s1", 4));
+        let all = log.all().unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[2]["seq"], 3, "no sequence number repeats");
+        assert_eq!(verify(&all)["ok"], true, "{}", verify(&all));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[tokio::test]
+    async fn a_purge_drops_lines_that_are_not_entries() {
+        let d = dir("purge-malformed");
+        {
+            let log = AuditLog::open(Some(d.clone()));
+            log.record(entry("gone", 1));
+            log.record(entry("kept", 2));
+            log.flush();
+        }
+        let path = d.join(FILE);
+        let mut text = std::fs::read_to_string(&path).unwrap();
+        text.push_str("not json: gone private-plans\n");
+        std::fs::write(&path, text).unwrap();
+        let log = AuditLog::open(Some(d.clone()));
+        assert_eq!(log.purge("gone").unwrap().await.unwrap(), Ok(1));
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(!after.contains("private-plans"));
+        assert_eq!(verify(&log.all().unwrap())["ok"], true);
         let _ = std::fs::remove_dir_all(&d);
     }
 
