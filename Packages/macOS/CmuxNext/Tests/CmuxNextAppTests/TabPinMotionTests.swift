@@ -145,6 +145,7 @@ struct TabPinMotionTests {
         var titles: [Float] = []
         var icons: [CGFloat] = []
         var iconOverTitle = false
+        var separatorOverIcon = false
         for k in 0...ticks {
             let time = begin + Double(k) / 120
             let frame = shown(cell, at: time)
@@ -194,6 +195,28 @@ struct TabPinMotionTests {
                 if !hiddenShown, outside - drawnOutside > 0.5 {
                     hiddenShown = true
                     failures.append("tick \(k): \(id.rawValue) hides \(outside - drawnOutside) pt outside the moving tab's pill")
+                }
+            }
+            // No separator draws through a tab's icon (the films: the divider left of tab1 slid on its own path and
+            // drew through tab1's icon for 4 frames). The divider and every cell's separator, each where it shows.
+            var lines: [(String, CGFloat)] = []
+            if !strip.pinnedDivider.isHidden, opacity(strip.pinnedDivider, at: time) > 0.05 {
+                lines.append(("the divider", MotionPath(strip.pinnedDivider, "position").value(at: time).x))
+            }
+            for (id, other) in strip.cells where !other.separatorLayer.isHidden && opacity(other.separatorLayer, at: time) > 0.05 {
+                lines.append(("\(id.rawValue)'s separator", shown(other, at: time).minX + MotionPath(other.separatorLayer, "position").value(at: time).x))
+            }
+            iconCheck: for (id, other) in strip.cells where !other.iconLayer.isHidden {
+                let otherFrame = shown(other, at: time)
+                let center = MotionPath(other.iconLayer, "position").value(at: time).x
+                let width = MotionPath(other.iconLayer, "bounds.size").value(at: time).x
+                let iconMinX = otherFrame.minX + center - width * other.iconLayer.anchorPoint.x
+                for (name, x) in lines where x > iconMinX + 0.5 && x < iconMinX + width - 0.5 {
+                    if !separatorOverIcon {
+                        separatorOverIcon = true
+                        failures.append("tick \(k): \(name) at \(x) draws through \(id.rawValue)'s icon \(iconMinX)...\(iconMinX + width)")
+                    }
+                    break iconCheck
                 }
             }
             // The divider never draws over the moving tab.
