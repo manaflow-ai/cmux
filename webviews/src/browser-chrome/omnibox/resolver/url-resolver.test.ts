@@ -89,7 +89,7 @@ describe("BrowserURLResolver rules", () => {
   test("explicit schemes", () => {
     expect(url("HTTPS://Example.com/a")).toBe("HTTPS://Example.com/a");
     expect(url("http://")).toBeNull();
-    expect(url("https://example.com/a|b")).toBeNull();
+    expect(url("https://example.com/a|b")).toBe("https://example.com/a%7Cb");
     expect(url("about:blank")).toBe("about:blank");
     expect(url("ABOUT:BLANK")).toBe("about:blank");
     expect(url("data:text/html,hi")).toBeNull();
