@@ -125,10 +125,10 @@ export function newTabScreenActions(deps: {
         } else start(deps.chatCwd);
       });
     },
-    onFixFromLink: (url) => {
+    onFixFromLink: (url, selectedCwd) => {
       deps.clearError?.();
       ignore(
-        callNative("chat.fix_from_link", { url, ...(cwd ? { cwd } : {}) })
+        callNative("chat.fix_from_link", { url, ...((selectedCwd ?? cwd) ? { cwd: selectedCwd ?? cwd } : {}) })
           .then((result) => {
             const sessionId =
               result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"

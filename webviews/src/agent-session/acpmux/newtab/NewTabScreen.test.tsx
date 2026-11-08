@@ -822,7 +822,7 @@ test("an Escape on the list is forgotten once the text changes: the same word ty
 });
 
 test("a lone GitHub issue URL offers an explicit fix worktree action", async () => {
-  const fixes: string[] = [];
+  const fixes: Array<{ url: string; cwd?: string }> = [];
   const asks: unknown[][] = [];
   await act(async () => {
     root!.render(
@@ -835,8 +835,9 @@ test("a lone GitHub issue URL offers an explicit fix worktree action", async () 
         onJump={() => {}}
         onOpenSession={() => {}}
         onShowAll={() => {}}
-        onFixFromLink={(url) => fixes.push(url)}
+        onFixFromLink={(url, cwd) => fixes.push({ url, cwd })}
         lastAgent="claude"
+        cwd="/tmp/picked-checkout"
         location="https://github.com/manaflow-ai/cmux/issues/123"
       />,
     );
@@ -845,7 +846,7 @@ test("a lone GitHub issue URL offers an explicit fix worktree action", async () 
   expect(chip?.textContent).toContain("Fix in a new worktree");
   await act(async () => chip!.click());
   await act(async () => chip!.click());
-  expect(fixes).toEqual(["https://github.com/manaflow-ai/cmux/issues/123"]);
+  expect(fixes).toEqual([{ url: "https://github.com/manaflow-ai/cmux/issues/123", cwd: "/tmp/picked-checkout" }]);
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect((asks[0] as unknown[])[1]).toBe("https://github.com/manaflow-ai/cmux/issues/123");
 });

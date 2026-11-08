@@ -159,8 +159,10 @@ export type NewTabScreenActions = NewTabCommandActions & {
     attachments?: ComposerAttachment[],
     saved?: { peer?: string },
   ): unknown;
-  /// A lone GitHub issue URL starts the core fix-from-link flow in a new worktree.
-  onFixFromLink?(url: string): void;
+  /// A lone GitHub issue URL starts the core fix-from-link flow in a new worktree. `cwd` is the
+  /// project the person picked on this page, when there is one; it must win over the tab's
+  /// inherited folder so checkout discovery uses the explicit choice.
+  onFixFromLink?(url: string, cwd?: string): void;
   onOpen(url: string): void;
   /// Open in Profile…'s pick (Lawrence 2026-11-05): `url` in the browser profile `id`.
   onOpenInProfile?(url: string, id: string): void;
@@ -2197,7 +2199,7 @@ export function NewTabScreen(props: Props) {
                 onClick={() => {
                   if (fixing) return;
                   setFixing(true);
-                  props.onFixFromLink?.(fixFromLink.url);
+                  props.onFixFromLink?.(fixFromLink.url, project ?? askFolder);
                 }}
               >
                 Fix in a new worktree
