@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d5e19be89c697f9c8e08874b7d06c7a8fd65c53ecc229bef8cea6dc1482630f5.
+// cmux-tui mux protocol 12, IR 2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2798,6 +2798,8 @@ pub type ParkTabsResult = T::JsonValue;
 pub struct PasteImageRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub data: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub filename: Optional<String>,
     pub lease: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mime: Optional<String>,
@@ -5272,6 +5274,9 @@ impl CmuxClient {
     }
 
     pub fn paste_image(&mut self, request: PasteImageRequest) -> Result<PasteImageResult> {
+        if !request.filename.is_missing() {
+            self.require_capability_field("paste-image", "terminal-file-paste-v1")?;
+        }
         self.execute(&PASTE_IMAGE_METADATA, &request)
     }
 
