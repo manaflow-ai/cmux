@@ -105,10 +105,7 @@ const items = [
 
 type Calls = { answers: [string, string][]; verdicts: [string, string][]; opened: string[]; exports: number };
 
-async function render(
-  load: () => Promise<unknown> = async () => ({ items, now: 10 }),
-  refuseVerdict = false,
-) {
+async function render(load: () => Promise<unknown> = async () => ({ items, now: 10 }), refuseVerdict = false) {
   const calls: Calls = { answers: [], verdicts: [], opened: [], exports: 0 };
   root = createRoot(host);
   await act(async () =>

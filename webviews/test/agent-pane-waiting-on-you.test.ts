@@ -305,7 +305,10 @@ test("History opens a chat in its own tab (`chat.select`); another machine's pul
     callNative: async <T>() => undefined as T,
     selectSession: (sessionId) => selected.push(sessionId),
     asks: [],
-    sessions: [{ sessionId: "peer-s1", peer: "studio" }, { sessionId: "s1", peer: "studio" }],
+    sessions: [
+      { sessionId: "peer-s1", peer: "studio" },
+      { sessionId: "s1", peer: "studio" },
+    ],
   });
   listed.queue.open(item({ host: "studio" }));
   expect(selected.at(-1)).toBe("s1");
