@@ -125,7 +125,9 @@ struct AgentPaneUploadStageTicketTests {
             let begun = await call(model, "chat.upload.begin", ["name": "big.pdf", "size": 2].merging(send) { $1 })
             #expect(!ok(begun), "an upload began on \(send)")
         }
-        // No ticket and no gesture left: refused as before.
+        // No ticket and no gesture left: refused as before. The Enter's own upload credit (one batch
+        // of files, ``AgentPaneUserGestures/consumeUpload()``) is not the ticket's; spend it first.
+        _ = transport.gestures.consumeUpload()
         #expect(!ok(await call(model, "chat.upload.begin", ["name": "big.pdf", "size": 2])))
         #expect(staged.requests.isEmpty, "a refused upload reached the stager")
     }

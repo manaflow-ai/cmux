@@ -234,6 +234,7 @@ struct AgentPaneActAsMeTests {
         #expect(ended == ["u"])
 
         // Reserved while on, then off and on again: it holds no new upload.
+        grant.turnOn(.init())
         gestures.recordPosted(driver: Self.driver)
         let beforeOff = try #require(gestures.reserve(connection: 1, intent: send))
         grant.turnOff()
