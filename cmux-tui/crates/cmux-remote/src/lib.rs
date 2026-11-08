@@ -1,5 +1,6 @@
 //! Native remote runtime for cmux-tui.
 
+pub mod acpmux_bridge;
 #[cfg(unix)]
 pub mod admin;
 pub mod bridge;
