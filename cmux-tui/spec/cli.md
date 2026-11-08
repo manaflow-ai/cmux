@@ -489,10 +489,11 @@ session select that tab's terminal, tab or pane wherever such a selector goes:
 the word after `terminal`, `tab` or `pane`, and the `--terminal`, `--tab` and
 `--pane` values of those scopes and of `agent` and `notification`. Before it
 parses the command, the CLI reads one `session.snapshot` and puts the id in
-place of the name: a tab with that name whose terminal runs an agent, else one
-whose terminal runs, else one whose terminal exited (so `terminal NAME resume`
-finds it). Two tabs at the first step that has any return
-`selector.ambiguous` with their tab ids. A name only fills a gap: when a name
+place of the name: a tab with that name whose terminal runs (with an agent or
+not), else one whose terminal exited (so `terminal NAME resume` finds it). Two
+tabs at the first step that has any return `selector.ambiguous` with their tab
+ids, also an agent tab and a shell tab with one name (the daemon's tab-name
+scope does not prefer the agent tab either). A name only fills a gap: when a name
 matches, the CLI first asks the daemon to resolve the word with the rules below
 (the current scope, terminal titles, names under a parent), and a word that
 resolves stays as it is, so a selector that worked before selects the same
@@ -1287,7 +1288,9 @@ the caller's pane (else the focused pane) is split to the right; `--pane SEL`
 alone opens a tab in that pane; `--split DIR` splits SEL (default: the
 caller's pane). The split's shell tab is closed once the agent runs. In a session
 with no pane yet (a daemon that no client opened), it creates a workspace named
-NAME and replaces its shell tab. The tab
+NAME and replaces its shell tab; the pane and the shell tab come from the create
+receipt (else the pane of the receipt's workspace), never from focus, so two
+starts at once each use their own workspace. The tab
 is focused unless `--no-focus`.
 
 The wait looks four times a second at the terminal, its agent records and its

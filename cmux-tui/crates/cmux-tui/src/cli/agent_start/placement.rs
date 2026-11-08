@@ -120,6 +120,10 @@ pub(in crate::cli) fn focused_pane(snapshot: &Value) -> Option<String> {
 /// For a session with no pane: creates a workspace named `name` and returns
 /// its pane and the shell tab it opened with (close it once the agent's tab
 /// runs). `None` when the session has a pane.
+///
+/// The ids come from the create receipt, else from the pane of the receipt's
+/// workspace, never from focus: another `agent start` may create (and focus)
+/// its own workspace at the same time.
 pub(in crate::cli) fn empty_session_pane<D: Daemon + ?Sized>(
     daemon: &D,
     snapshot: &Value,
@@ -133,16 +137,52 @@ pub(in crate::cli) fn empty_session_pane<D: Daemon + ?Sized>(
     if let Some(cwd) = cwd {
         words.extend(["--cwd", cwd]);
     }
-    daemon.request(None, plan(&words)?)?;
+    let result = daemon.request(None, plan(&words)?)?;
+    if let Ok(created) = Created::from_result(&result) {
+        return Ok(Some((created.pane, Some(created.tab))));
+    }
+    let workspace = ["/value/workspace_id", "/path/workspace_id", "/workspace_id", "/id"]
+        .into_iter()
+        .find_map(|pointer| result.pointer(pointer).and_then(Value::as_str))
+        .filter(|id| id.starts_with("ws_"))
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            Failure::local(
+                "agent.start_failed",
+                "the session did not report the new workspace",
+                json!({"result": result}),
+                1,
+            )
+        })?;
     let snapshot = send::snapshot(daemon, None)?;
-    let pane = focused_pane(&snapshot)
-        .ok_or_else(|| not_found("focused", "the new workspace has no pane".into()))?;
+    let pane = pane_of_workspace(&snapshot, &workspace).ok_or_else(|| {
+        not_found(&workspace, format!("the new workspace {workspace} has no pane"))
+    })?;
     let shell = list(&snapshot, "tabs")
         .iter()
         .find(|tab| tab["pane_id"] == pane.as_str())
         .and_then(|tab| tab["id"].as_str())
         .map(str::to_owned);
     Ok(Some((pane, shell)))
+}
+
+/// A pane of `workspace` (its focused pane first).
+fn pane_of_workspace(snapshot: &Value, workspace: &str) -> Option<String> {
+    let screens: Vec<&str> = list(snapshot, "screens")
+        .iter()
+        .filter(|screen| screen["workspace_id"] == workspace)
+        .filter_map(|screen| screen["id"].as_str())
+        .collect();
+    let panes: Vec<&Value> = list(snapshot, "panes")
+        .iter()
+        .filter(|pane| pane["screen_id"].as_str().is_some_and(|screen| screens.contains(&screen)))
+        .collect();
+    panes
+        .iter()
+        .find(|pane| pane["focused"] == true)
+        .or_else(|| panes.first())
+        .and_then(|pane| pane["id"].as_str())
+        .map(str::to_owned)
 }
 
 /// Closes `tab`; a tab that stays is harmless, so a failure is ignored.

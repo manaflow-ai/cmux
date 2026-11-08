@@ -263,13 +263,26 @@ pub(in crate::cli) fn find_terminal<'a>(
     };
     // An agent name (or a unique tab name) only where no title matches, so a
     // title that selected a terminal before still selects it.
-    if matches.is_empty()
-        && !target.starts_with("term_")
-        && let super::super::agent_names::Found::One(place) =
-            super::super::agent_names::resolve(snapshot, target)
-        && let Some(found) = terminals.iter().find(|terminal| terminal["id"] == place.terminal)
-    {
-        return Ok(found);
+    if matches.is_empty() && !target.starts_with("term_") {
+        use super::super::agent_names::{Found, resolve};
+        match resolve(snapshot, target) {
+            Found::One(place) => {
+                if let Some(found) =
+                    terminals.iter().find(|terminal| terminal["id"] == place.terminal)
+                {
+                    return Ok(found);
+                }
+            }
+            Found::Ambiguous(tabs) => {
+                return Err(SendFailure::local(
+                    "selector.ambiguous",
+                    format!("{} tabs are named {target:?}; name one by its id", tabs.len()),
+                    json!({"target": target, "candidates": tabs}),
+                    1,
+                ));
+            }
+            Found::Missing => {}
+        }
     }
     match matches.as_slice() {
         [one] => Ok(one),

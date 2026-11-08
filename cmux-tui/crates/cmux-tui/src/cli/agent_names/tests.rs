@@ -73,9 +73,9 @@ fn w3h_agent_names_follow_the_grammar_and_avoid_command_words_and_ids() {
 }
 
 #[test]
-fn w3h_a_name_selects_the_live_agent_first_then_live_then_exited_tabs() {
+fn w3h_a_name_selects_a_live_tab_first_then_an_exited_tab() {
     let snapshot = snapshot();
-    // The live tab running an agent wins over the exited tab of the same name.
+    // The live tab wins over the exited tab of the same name.
     assert_eq!(
         resolve(&snapshot, "alpha"),
         Found::One(Place {
@@ -83,7 +83,6 @@ fn w3h_a_name_selects_the_live_agent_first_then_live_then_exited_tabs() {
             tab: "tab_alpha".into(),
             pane: "pane_1".into(),
             live: true,
-            agent: true,
         })
     );
     assert_eq!(resolve(&snapshot, "name:alpha"), resolve(&snapshot, "alpha"));

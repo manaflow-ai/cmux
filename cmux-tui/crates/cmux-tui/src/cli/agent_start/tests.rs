@@ -479,6 +479,9 @@ fn w3h_start_in_a_session_with_no_pane_opens_a_workspace_for_the_agent() {
     let daemon = Fake::new(|operation, _params, count| match operation {
         "session.snapshot" if count == 0 => empty.clone(),
         "session.snapshot" => opened.clone(),
+        "workspace.create" => {
+            json!({"revision": "1", "value": {"kind": "workspace", "workspace_id": "ws_f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1"}})
+        }
         "pane.run" => created(
             "pane_44444444444444444444444444444444",
             "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",

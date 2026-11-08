@@ -11,13 +11,13 @@
 //! subcommand word of the parser, like `group` in `tab group list`) up in
 //! one `session.snapshot`:
 //!
-//! 1. a tab with that name whose terminal runs and has an agent;
-//! 2. else a tab with that name whose terminal runs;
-//! 3. else a tab with that name whose terminal exited (kept by
+//! 1. a tab with that name whose terminal runs (with an agent or not);
+//! 2. else a tab with that name whose terminal exited (kept by
 //!    `--on-exit keep`, so `terminal alpha resume` finds it).
 //!
 //! The first step with exactly one tab wins; two or more there is
-//! `selector.ambiguous` with the tab ids. A name only fills a gap: when a
+//! `selector.ambiguous` with the tab ids (an agent tab and a shell tab with
+//! one name too, as in the daemon's tab-name scope). A name only fills a gap: when a
 //! name matches, the daemon's own selector rules (the current scope,
 //! terminal titles, names under a parent) are asked first, and a word they
 //! find stays as it is. So a selector that resolved before resolves to the
@@ -103,8 +103,6 @@ pub(in crate::cli) struct Place {
     pub pane: String,
     /// The terminal has not exited.
     pub live: bool,
-    /// An agent record or program status runs in the terminal.
-    pub agent: bool,
 }
 
 /// What a name selects.
@@ -120,32 +118,12 @@ fn list<'a>(snapshot: &'a Value, key: &str) -> &'a [Value] {
     snapshot[key].as_array().map(Vec::as_slice).unwrap_or_default()
 }
 
-/// Whether the daemon's records say an agent runs in `terminal` (a hook or
-/// plugin record that is not `done`, or an OSC 7501 program status).
-fn runs_agent(terminal: &Value, agents: &[Value]) -> bool {
-    let id = &terminal["id"];
-    let recorded = agents.iter().filter(|agent| &agent["terminal_id"] == id).max_by_key(|agent| {
-        agent["updated_at_ms"]
-            .as_u64()
-            .or_else(|| agent["updated_at_ms"].as_str().and_then(|text| text.parse().ok()))
-            .unwrap_or(0)
-    });
-    match recorded {
-        Some(record) => record["state"] != "done",
-        None => terminal
-            .pointer("/extra/program_status")
-            .and_then(Value::as_array)
-            .is_some_and(|records| records.iter().any(|record| record["app"].is_string())),
-    }
-}
-
 /// Every tab named `name` that shows a terminal of the snapshot.
 pub(in crate::cli) fn places_named(snapshot: &Value, name: &str) -> Vec<Place> {
     let terminals: HashMap<&str, &Value> = list(snapshot, "terminals")
         .iter()
         .filter_map(|terminal| Some((terminal["id"].as_str()?, terminal)))
         .collect();
-    let agents = list(snapshot, "agents");
     list(snapshot, "tabs")
         .iter()
         .filter(|tab| tab["name"] == name)
@@ -156,7 +134,6 @@ pub(in crate::cli) fn places_named(snapshot: &Value, name: &str) -> Vec<Place> {
                 tab: tab["id"].as_str()?.to_owned(),
                 pane: tab["pane_id"].as_str()?.to_owned(),
                 live: terminal["lifecycle"] != "exited",
-                agent: runs_agent(terminal, agents),
             })
         })
         .collect()
@@ -169,11 +146,10 @@ pub(in crate::cli) fn resolve(snapshot: &Value, name: &str) -> Found {
         return Found::Missing;
     }
     let places = places_named(snapshot, name);
-    let steps: [fn(&Place) -> bool; 3] = [
-        |place: &Place| place.live && place.agent,
-        |place: &Place| place.live,
-        |place: &Place| !place.live,
-    ];
+    // Live tabs first, then exited ones (resume). Two live tabs with the name
+    // are ambiguous even when one runs an agent: the daemon's tab-name scope
+    // does not prefer it either, so every selector picks the same object.
+    let steps: [fn(&Place) -> bool; 2] = [|place: &Place| place.live, |place: &Place| !place.live];
     for step in steps {
         let picked: Vec<&Place> = places.iter().filter(|place| step(place)).collect();
         match picked.as_slice() {
