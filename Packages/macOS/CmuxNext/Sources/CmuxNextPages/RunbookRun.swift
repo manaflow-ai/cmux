@@ -1,5 +1,5 @@
-import CmuxNextSettings
-import Foundation
+public import CmuxNextSettings
+public import Foundation
 
 /// A Markdown runbook's Run request (webviews `pages/markdown/runbook.ts`): `cmux.markdown.runBlock
 /// {path, command}` types a shell block's command into a new terminal, and `cmux.markdown.runAll
