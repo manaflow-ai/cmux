@@ -1,8 +1,9 @@
 public import AppKit
 
 /// A toast: the message, the action button and a close button on the shared
-/// neutral Liquid Glass (``FloatingGlassStyle/toast``: gray glass, a top-lit
-/// rim, 9 pt continuous corners; user 2026-10-20, after Rex), opaque under
+/// Liquid Glass (``FloatingGlassStyle/toast``: the theme's tint, a top-lit
+/// rim, 9 pt continuous corners; user 2026-10-20, after Rex; the tint follows the theme since
+/// Leo 2026-11-07: "these toasts are still coloured unthemed"), opaque under
 /// Reduce Transparency, with the popups' shadow. VoiceOver reads the message; the buttons are reachable with
 /// VoiceOver and by click. The pointer on it holds it (`onHover`). A Details action
 /// (``CmuxToast/Action/revealsDetails``) shows the whole message and its detail under it, in the
@@ -74,7 +75,7 @@ public final class CmuxToastView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     private func build() {
-        let label = ChromeLabel(wrappingLabelWithString: toast.message)
+        let label = ThemedLabel(wrappingLabelWithString: toast.message)
         label.font = Typography.body
         label.maximumNumberOfLines = 3
         label.preferredMaxLayoutWidth = 360
@@ -85,7 +86,10 @@ public final class CmuxToastView: NSView {
         // A toast wider than its row (Details on) gives the room to the message, so Details and
         // close stay at the trailing edge, on the title's line.
         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        performWithTheme { label.textColor = Palette.textPrimary }
+        // Fitted to the ground it draws on (the glass, or the opaque surface under Reduce Transparency) in
+        // the scope it draws in, again on every theme change (GlassTextEveryThemeTests).
+        let ground = self.reduceTransparency
+        label.themeColor = { Palette.toastText(.primary, reduceTransparency: ground) }
         // The details stay out of the toast until Details shows them: the pointer on the message shows them.
         label.themedToolTip = toast.detail
         messageLabel = label
@@ -115,7 +119,7 @@ public final class CmuxToastView: NSView {
         let content = NSView()
         content.addSubview(row)
         if toast.action?.revealsDetails == true, let detail = toast.detail { addDetailLabel(detail, in: content, below: row) }
-        // The shared neutral glass; the material follows this Mac (opaque under Reduce Transparency).
+        // The toast role's glass; the material follows this Mac (opaque under Reduce Transparency).
         let surface = OverlaySurfaceView(interactive: true, cornerRadius: Self.cornerRadius,
                                          reduceTransparency: reduceTransparency, tone: SurfaceRole.toast.tone)
         surface.translatesAutoresizingMaskIntoConstraints = false
@@ -170,7 +174,7 @@ public final class CmuxToastView: NSView {
     /// scroll view as tall as the detail up to ``detailCap(windowHeight:)``.
     private func addDetailLabel(_ detail: String, in content: NSView, below row: NSView) {
         let copy = CmuxToastDetailCopy.plain(detail)
-        let label = ChromeLabel(wrappingLabelWithString: copy.text)
+        let label = ThemedLabel(wrappingLabelWithString: copy.text)
         label.font = Typography.body
         label.maximumNumberOfLines = 0
         label.isSelectable = true
@@ -181,13 +185,14 @@ public final class CmuxToastView: NSView {
         // on one line would widen the toast.
         label.setContentCompressionResistancePriority(.fittingSizeCompression, for: .horizontal)
         label.setContentHuggingPriority(.fittingSizeCompression, for: .horizontal)
-        performWithTheme { label.textColor = Palette.textSecondary }
+        let ground = self.reduceTransparency
+        label.themeColor = { Palette.toastText(.secondary, reduceTransparency: ground) }
         let document = FlippedDocumentView()
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(label)
         var bottom = label.bottomAnchor.constraint(equalTo: document.bottomAnchor)
         if let code = copy.code {
-            let line = ChromeLabel(wrappingLabelWithString: CmuxToastDetailCopy.codeLine(code))
+            let line = ThemedLabel(wrappingLabelWithString: CmuxToastDetailCopy.codeLine(code))
             line.font = Typography.caption
             line.maximumNumberOfLines = 0
             line.isSelectable = true
@@ -196,7 +201,7 @@ public final class CmuxToastView: NSView {
             line.translatesAutoresizingMaskIntoConstraints = false
             line.setContentCompressionResistancePriority(.fittingSizeCompression, for: .horizontal)
             line.setContentHuggingPriority(.fittingSizeCompression, for: .horizontal)
-            performWithTheme { line.textColor = Palette.textTertiary }
+            line.themeColor = { Palette.toastText(.tertiary, reduceTransparency: ground) }
             // The raw reason, word for word, for a bug report.
             line.themedToolTip = detail
             document.addSubview(line)
@@ -303,7 +308,7 @@ public final class CmuxToastView: NSView {
     static var messageInset: CGFloat { Metrics.space2 }
 
     /// The shared toast glass radius, never a capsule.
-    static let cornerRadius = SurfaceRole.toast.cornerRadius ?? FloatingGlassStyle.toast.cornerRadius
+    static var cornerRadius: CGFloat { SurfaceRole.toast.cornerRadius }
 
     /// The popups' one subtle shadow, on this view's layer behind the surface
     /// (the surface clips to its corners, so it cannot cast its own).

@@ -156,6 +156,8 @@ public final class AutoArchiveCoordinator {
 
     // MARK: - Plan
 
+    /// The planner's call (Rust `auto_archive_plan`) over the host's candidates, the document's marks
+    /// and groups, and the ledger's sights and snooze.
     private func plan(_ trigger: AutoArchivePlanner.Trigger) -> AutoArchivePlanner.Plan {
         guard let store = activeStore() else { return AutoArchivePlanner.Plan() }
         let records = store.records
@@ -166,31 +168,24 @@ public final class AutoArchiveCoordinator {
             if let rule = item.autoArchive { rules[item.id] = rule }
         }
         var candidates = host.autoArchiveCandidates()
+        var seen: [String: Date] = [:]
         for index in candidates.indices {
             var candidate = candidates[index]
-            let seen = ledger.lastSeen(candidate.workspace)
-            candidate.lastActive = [candidate.lastActive, seen].compactMap { $0 }.max()
-            if candidate.lastActive == nil {
-                // First sight: the clock starts now, so a workspace is never idle on arrival.
-                ledger.saw(candidate.workspace, at: time)
-                markDirty()
-            }
+            seen[candidate.workspace] = ledger.lastSeen(candidate.workspace)
             candidate.shown = candidate.shown || shown.contains(candidate.workspace)
             candidate.archived = candidate.archived || records.isArchived(item: candidate.item)
             candidate.pinned = candidate.pinned || records.isPinned(item: candidate.item)
             candidate.groups = groups(of: candidate.item, in: records)
             candidates[index] = candidate
         }
-        if trigger == .background, host.autoArchivePolicy().style == .suggest, let until = ledger.snoozedUntil,
-           time.timeIntervalSince1970 < until {
-            let deadline = Date(timeIntervalSince1970: until)
-            var plan = planner.plan(candidates, rules: rules, policy: host.autoArchivePolicy(), trigger: trigger, now: time)
-            plan.due = []
-            plan.nextCheck = plan.nextCheck.map { max($0, deadline) } ?? deadline
-            return plan
-        }
-        ledger.keep(only: Set(candidates.map(\.workspace)), items: Set(records.items.keys))
-        return planner.plan(candidates, rules: rules, policy: host.autoArchivePolicy(), trigger: trigger, now: time)
+        let snoozedUntil = ledger.snoozedUntil.map(Date.init(timeIntervalSince1970:))
+        let plan = planner.plan(candidates, seen: seen, rules: rules, policy: host.autoArchivePolicy(), trigger: trigger,
+                                now: time, snoozedUntil: snoozedUntil)
+        // First sight: the clock starts now, so a workspace is never idle on arrival.
+        for workspace in plan.firstSight { ledger.saw(workspace, at: time) }
+        if !plan.firstSight.isEmpty { markDirty() }
+        if !plan.snoozed { ledger.keep(only: Set(candidates.map(\.workspace)), items: Set(records.items.keys)) }
+        return plan
     }
 
     /// The group items above `item`, nearest first (bounded by the document's nesting limit).
@@ -216,6 +211,36 @@ public final class AutoArchiveCoordinator {
         ledger.autoArchived.formUnion(items)
         markDirty()
         host.autoArchiveToast(AutoArchiveStrings.archived(items.count)) { [weak self] in self?.restore(items) }
+    }
+
+    /// The document items of `workspaces` that Archive Other Workspaces, Archive Workspaces Above or
+    /// Below would archive, in that order: placed, not pinned (top-level Pinned or pinned in a group)
+    /// and not archived yet, by itself or under an archived group.
+    public func archivableItems(workspaces: [String]) -> [String] {
+        guard let records = activeStore()?.records else { return [] }
+        var seen = Set<String>()
+        return workspaces.compactMap { host.autoArchiveItem(workspace: $0) }.filter { item in
+            records.items[item] != nil && seen.insert(item).inserted && !records.isPinned(item: item) && !records.isArchived(item: item)
+                && !groups(of: item, in: records).contains { records.isArchived(item: $0) }
+        }
+    }
+
+    /// Archives `workspaces` a person named (the bulk archive rows): their ``archivableItems(workspaces:)``
+    /// as one undo step, and a toast whose Undo brings the whole batch back. Returns how many it
+    /// archived; 0 sends nothing. Unlike the sweep it leaves the ledger alone: a hand archive is no
+    /// auto-archive, so showing the workspace again does not bring it back.
+    @discardableResult
+    public func archive(workspaces: [String]) throws(AutoArchiveRefusal) -> Int {
+        guard let store = activeStore() else { throw AutoArchiveRefusal(message: AutoArchiveStrings.needsDocument) }
+        let items = archivableItems(workspaces: workspaces)
+        guard !items.isEmpty else { return 0 }
+        do throws(SidebarDocSendRefusal) {
+            try store.setArchived(items, archived: true, title: AutoArchiveStrings.archiveWorkspacesTitle)
+        } catch {
+            throw AutoArchiveRefusal(message: error.message)
+        }
+        host.autoArchiveToast(AutoArchiveStrings.archivedByHand(items.count)) { [weak self] in self?.restore(items) }
+        return items.count
     }
 
     /// Unarchives `items` (the toast's Undo, Restore in the Archived list).

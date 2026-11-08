@@ -4,6 +4,55 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes mail.send declares.
+    MailSendError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationUnavailable = "integration.unavailable",
+        MutationIndeterminate = "mutation.indeterminate",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read one Gmail thread (every message, as mail.get) at call time; nothing is stored.
+    MailThreadGetOp {
+        name: "mail.thread.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: MailThreadGetParams,
+        result: Value,
+        error: MailThreadGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailThreadGetParams {
+    pub connection: ConnectionId,
+    pub thread_id: String,
+}
+
+wire_errors! {
+    /// The error codes mail.thread.get declares.
+    MailThreadGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
 wire_op! {
     /// Row data for Gmail threads (subject, sender, date, snippet, unread) by id, for feed rows; held in client memory only.
     MailThreadsPeekOp {
@@ -849,49 +898,5 @@ wire_errors! {
         UnknownConversation = "unknown_conversation",
         UnknownInvite = "unknown_invite",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read one kept run with the body of the automation version that fired it.
-    RunGetOp {
-        name: "run.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:SchedulerDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: RunGetParams,
-        result: RunWithBody,
-        error: RunGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunGetParams {
-    pub run: RunId,
-}
-
-wire_errors! {
-    /// The error codes run.get declares.
-    RunGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages).
-    RunListOp {
-        name: "run.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:SchedulerDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: RunListParams,
-        result: RunListResult,
-        error: RunListError,
     }
 }

@@ -45,10 +45,12 @@ test("work in view stays open at the turn's end; the reader's place keeps its ro
   const folded = turnView(ended, new Set());
   expect(ids(folded)).not.toContain("t1");
   expect(ids(running)).toContain("t1");
-  const held = hold(["n2", "t2", "answer"]);
+  // While it ran, the short notes joined the runs around them (turns.ts mergeShortNotes): the
+  // reader saw the run "t1" and the reply.
+  const held = hold(["t1", "answer"]);
   expect(held).toContain("worked-u");
   const open = turnView(ended, withHeldFolds(new Set(), new Set(held)));
-  for (const id of ["n2", "t2", "answer"]) expect(ids(open)).toContain(id);
+  for (const id of ["t1", "answer"]) expect(ids(open)).toContain(id);
 });
 
 test("a reader in older turns, or only on the prompt and the reply, holds nothing open", () => {
@@ -91,7 +93,7 @@ test("a message run held open at the turn's end closes on one click", () => {
     row("p-answer", "assistant", { text: "Every lane has its orders. ".repeat(6) + "\n\n- one\n- two" }),
   ];
   const done = [...turn, row("p-end", "turnSummary", { status: "completed", durationMs: 9_000 })];
-  const codex = { liveRuns: true, lineBelow: true, agentFamily: "codex" } as const;
+  const codex = { agentFamily: "codex" } as const;
   // While the turn ran, the reader opened its run of messages.
   const closedLive = turnView(turn, new Set(), { ...codex, working: true });
   const line = closedLive.find((each) => each.kind === "messageRun")!;

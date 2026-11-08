@@ -107,7 +107,7 @@ extension PaneHandlers {
         guard let host = view.layer, let fade = Motion.indicators.flashAnimation() else { return }
         let ring = CALayer()
         ring.frame = host.bounds.insetBy(dx: 2, dy: 2)
-        ring.cornerRadius = 8
+        ring.cornerRadius = Metrics.paneNestedCornerRadius(inset: 2, size: ring.frame.size)
         let color = view.performWithTheme { Palette.focusRing }
         if Borders.drawsLines {
             ring.borderWidth = 3

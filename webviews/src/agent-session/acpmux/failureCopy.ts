@@ -17,6 +17,7 @@ export type FailureKind =
   | "auth"
   | "disk-full"
   | "context-full"
+  | "codex-config"
   | "tailscale"
   | "agent-exited"
   | "spawn-failed"
@@ -111,6 +112,15 @@ const TYPED: readonly [RegExp, FailureKind][] = [
   [/exit|closed|crash|died/i, "agent-exited"],
   [/rate|quota|capacity/i, "rate-limited"],
 ];
+/// Codex refused its own settings for the turn: its app-server loads the thread's config again before
+/// every model request (workspace routing on a ChatGPT login) and, when that load fails, says only
+/// "failed to load workspace requirements: <reason>" and stops after its retries. The reason is a bare
+/// io error kind ("invalid input parameter": a `[permissions]` profile with no `default_permissions`,
+/// which cmux-codex-acp sent for every thread until it set one) or "invalid configuration at PATH:LINE:COL".
+/// Another model or a sign-in does not help; the file does.
+const CODEX_CONFIG = /failed to (?:re)?load workspace requirements/i;
+/// The path may hold spaces; it ends at the first `:LINE:COLUMN` that ends a word.
+const CODEX_CONFIG_AT = /invalid configuration at (.+?):\d+:\d+(?!\S)/i;
 const URL_HOST = /https?:\/\/([^\s/'")\]]+)/i;
 const STATUS = /\b([45]\d\d)\b/;
 /// Harness profiles that reach their provider through a proxy acpmux knows by name.
@@ -175,6 +185,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (UNREACHABLE.test(words)) return "unreachable";
   const signIn = [INVALID_KEY, SUBSCRIPTION, AUTH, MISSING_CREDENTIAL, EXPIRED_CREDENTIAL].some((re) => re.test(words));
   if (DROPPED.test(words) && !signIn) return "unreachable";
+  // After the network: a cloud config bundle that timed out is a connection, not the file.
+  if (CODEX_CONFIG.test(message) && !signIn) return "codex-config";
   const via = failureVia(message, route);
   // A signed-out Claude CLI says "Invalid API key · Please run /login": its way out is the login.
   if (INVALID_KEY.test(message) && !(SUBSCRIPTION.test(message) && !via)) return "invalid-key";
@@ -265,6 +277,10 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.diskFull", { harness });
     case "context-full":
       return t("turn.failure.contextFull", { harness });
+    case "codex-config": {
+      const path = message ? CODEX_CONFIG_AT.exec(message)?.[1] : undefined;
+      return path ? t("turn.failure.codexConfigAt", { harness, path }) : t("turn.failure.codexConfig", { harness });
+    }
     case "tailscale":
       return t("turn.failure.tailscale", { harness });
     case "agent-exited":

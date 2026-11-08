@@ -514,3 +514,47 @@ test("a pick that lands before its cancelled start settles takes that prompt too
   expect(acpmux.putBack).toEqual([]);
   expect(acpmux.sent).toHaveLength(1);
 });
+
+// Leo, 2026-11-06 ("why is this still happening"): a send the composer held for a pasted image
+// bound its Enter at once; the image's upload then spent the host's one grant. A prompt that then
+// waits for the folder's Trust answer goes with the ticket its Enter bound, never one asked for
+// after the grant was gone. One with no bound gesture (a script's) reserves as before, and gets none.
+test("a send held for its files that waits for Trust keeps the ticket its Enter bound", async () => {
+  const acpmux = standIn();
+  const asked: string[] = [];
+  // The host has no grant left: the image's upload spent it.
+  const spent = {
+    ...acpmux,
+    reserve: async (promptId: string) => {
+      asked.push(promptId);
+      return undefined;
+    },
+  };
+  function Spent({ holds }: { holds: boolean }) {
+    shown = useTrustHeldPrompts({
+      chat: "chat-bound",
+      cwd: "/Users/you/src/app",
+      holds,
+      send: acpmux.send,
+      reserve: spent.reserve,
+      putBack: (entries, behind) => acpmux.put(entries, behind),
+      refusedForTrust: (error) => error === trustRefusal,
+    });
+    return null;
+  }
+  await act(async () => root.render(<Spent key="bound" holds />));
+  const bound = { promptId: "held-1", ticket: Promise.resolve<string | undefined>("ticket-enter") };
+  await act(async () => shown!.hold("with the screenshot", [], undefined, false, bound));
+  await act(async () => shown!.hold("from a script", []));
+  await act(async () => root.render(<Spent key="bound" holds={false} />));
+  await settle();
+  expect(acpmux.sent.map((sent) => sent.entry.id)).toEqual(["held-1"]);
+  expect(await acpmux.sent[0]!.entry.ticket).toBe("ticket-enter");
+  acpmux.sent[0]!.take();
+  await settle();
+  // The script's prompt asked the host for its own ticket and got none.
+  expect(asked).toHaveLength(1);
+  expect(await acpmux.sent[1]!.entry.ticket).toBeUndefined();
+  acpmux.sent[1]!.take();
+  await settle();
+});

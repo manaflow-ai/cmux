@@ -598,7 +598,16 @@ function foldAliases(
   for (const model of models) {
     if (releaseIds.has(model.id)) continue;
     const name = reported.get(model.id) ?? model.name;
-    const release = releases.find((candidate) => !takenBy.has(candidate.id) && namesRelease(name, candidate, join));
+    const release = releases.find(
+      (candidate) =>
+        !takenBy.has(candidate.id) &&
+        (namesRelease(name, candidate, join) ||
+          // A 1M option for a release whose normal context is already 1M (Fable 5.1) is the
+          // same model. Keep the harness's launch ID and use the release's plain name.
+          (model.id.endsWith("[1m]") &&
+            model.id.slice(0, -4) === candidate.id &&
+            candidate.contextWindow === 1_000_000)),
+    );
     if (release) takenBy.set(release.id, model);
   }
   const aliasFor = new Map([...takenBy].map(([release, alias]) => [alias.id, release]));

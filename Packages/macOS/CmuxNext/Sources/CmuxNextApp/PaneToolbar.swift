@@ -98,14 +98,14 @@ final class PaneToolbar {
             }
         }
         refreshCurrent = { [weak self, weak pane] in
-            guard let self, let pane else { return }
-            self.apply(Self.state(pane), owner: pane.view.nativeToolOwner)
+            if let self, let pane { self.apply(Self.state(pane), owner: pane.view.nativeToolOwner) }
         }
+        let (first, later) = ObservationStream.current({ [weak pane] in pane.map(Self.state) })
+        if let first { apply(first, owner: pane.view.nativeToolOwner) } // now: a relaunched pane's first frame had a 0 pt toolbar
         // task-owner: lives as long as the pane's view; event-driven (Observation)
         observation = Task { [weak self, weak pane] in
-            for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
-                guard let self, let state else { return }
-                guard let pane else { return }
+            for await state in later {
+                guard let self, let state, let pane else { return }
                 apply(state, owner: pane.view.nativeToolOwner)
             }
         }
@@ -290,7 +290,7 @@ final class PaneToolbar {
         let submenu = NSMenu(title: PaneToolbarStrings.showInTabBar)
         let setting = PaneToolbarButtonsSetting(pinned: pinned)
         let available = Set(kind.map(Self.actions) ?? [])
-        for id in PaneToolbarButtonsSetting.buttonIDs where available.contains(ActionID(rawValue: id)) || pinned.contains(id) {
+        for id in PaneToolbarButtonsSetting.values where available.contains(ActionID(rawValue: id)) || pinned.contains(id) {
             guard let descriptor = registry.descriptor(for: ActionID(rawValue: id)) else { continue }
             let row = NSMenuItem(title: descriptor.title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
             row.state = pinned.contains(id) ? .on : .off

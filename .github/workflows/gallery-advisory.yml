@@ -36,6 +36,10 @@ concurrency:
   group: gallery-advisory-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   # Drafts skip until they are marked ready, and CI_QUOTA_HOLD=1 pauses the
   # receipt while the GITHUB_TOKEN budget is reserved for the nightly
@@ -317,8 +321,12 @@ jobs:
         run: |
           set -euo pipefail
           test -f scripts/ci/gallery_select.py || exit 0  # a base before this workflow change
-          # A run that finished after a newer push leaves the section to that push's run.
-          live=$(gh api "repos/$REPOSITORY/pulls/$PR" --jq .head.sha)
+          # A run that finished after a newer push leaves the section to that push's run. The head is
+          # read with git (no API call); the REST pull request read is the fallback.
+          live=$(git ls-remote origin "refs/pull/$PR/head" 2>/dev/null | cut -f1 || true)
+          if ! [[ "$live" =~ ^[0-9a-f]{40}$ ]]; then
+            live=$(gh api "repos/$REPOSITORY/pulls/$PR" --jq .head.sha)
+          fi
           if [ "$live" != "$HEAD_SHA" ]; then
             echo "#$PR moved to ${live:0:7}; its own run writes the gallery section"
             exit 0

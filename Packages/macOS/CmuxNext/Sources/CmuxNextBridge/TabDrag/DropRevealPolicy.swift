@@ -1,3 +1,4 @@
+@_implementationOnly import CCmuxLayoutReducerFFI
 public import Foundation
 
 /// What a client does to its own view after a tab move lands: focus the
@@ -58,24 +59,48 @@ public nonisolated enum DropRevealPolicy {
 
     /// The view change for `facts`, or nil for none.
     public static func decide(_ facts: Facts) -> DropReveal? {
-        guard facts.landed, !facts.filesAway, facts.userInitiated || facts.focusRequested else { return nil }
-        let showsWorkspace: Bool
-        let newWindow: Bool
+        let outcome: UInt8
         switch facts.outcome {
-        case .cancel, .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace:
-            // No tab moved (the window or workspace itself did).
-            return nil
-        case .strip, .newSplit, .newColumn, .newDock:
-            showsWorkspace = false
-            newWindow = false
-        case .newWorkspace, .workspace:
-            showsWorkspace = true
-            newWindow = false
+        case .cancel:
+            outcome = 0
+        case .strip:
+            outcome = 1
+        case .newSplit:
+            outcome = 2
+        case .newColumn:
+            outcome = 3
+        case .newDock:
+            outcome = 4
+        case .newWorkspace:
+            outcome = 5
+        case .workspace:
+            outcome = 6
         case .tearOff:
-            showsWorkspace = true
-            newWindow = true
+            outcome = 7
+        case .moveWindow:
+            outcome = 8
+        case .moveWorkspaceToNewWindow:
+            outcome = 9
+        case .moveWorkspace:
+            outcome = 10
         }
-        let keyable = facts.appActive && !facts.noActivate && facts.landingOnActiveSpace
-        return DropReveal(focusesTab: true, showsWorkspace: showsWorkspace, makesKey: (newWindow || facts.crossesWindows) && keyable)
+
+        let flags = cmux_drop_reveal_decide(
+            outcome,
+            facts.landed ? 1 : 0,
+            facts.userInitiated ? 1 : 0,
+            facts.focusRequested ? 1 : 0,
+            facts.filesAway ? 1 : 0,
+            facts.crossesWindows ? 1 : 0,
+            facts.appActive ? 1 : 0,
+            facts.noActivate ? 1 : 0,
+            facts.landingOnActiveSpace ? 1 : 0
+        )
+        guard flags != 0 else { return nil }
+        return DropReveal(
+            focusesTab: flags & 1 != 0,
+            showsWorkspace: flags & 2 != 0,
+            makesKey: flags & 4 != 0
+        )
     }
 }

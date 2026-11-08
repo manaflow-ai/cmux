@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileArtifacts
+public import CmuxMobileRealtime
 import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
@@ -35,6 +36,9 @@ public final class TerminalModel {
 
     // Composer
     public var composerText = ""
+    /// Voice mode on this terminal's agent (set by the shell); the composer's
+    /// voice button shows only when there is one.
+    public var voiceSource: (any AgentVoiceSource)?
     var composerFocused = false
     /// Incremented to ask the composer field to take focus.
     var composerFocusRequest = 0
@@ -362,6 +366,39 @@ public final class TerminalModel {
         controller?.presentFind()
     }
 
+    /// Copy Mode is on (Select Text…, Shift-Cmd-M).
+    public internal(set) var copyModeActive = false
+
+    /// Select Text… (the page menu): Copy Mode with the cursor's row selected; vi keys from a
+    /// hardware keyboard or the handles move it, Copy copies it.
+    public func selectText() {
+        controller?.presentCopyMode()
+    }
+
+    /// Copy Mode can start: the shell's rows (a full-screen app selects with a long press).
+    public var canSelectText: Bool { !isTUI }
+
+    /// The Mac's Select All: every row, scrollback included, with Copy in the edit menu.
+    public func selectAll() {
+        controller?.selectAllText()
+    }
+
+    /// The Mac's Scroll to Top: the first row of the scrollback.
+    public func scrollToTop() {
+        controller?.scrollToTop()
+    }
+
+    /// Send Text… (the page menu): asks for the text.
+    public func showSendText() {
+        controller?.presentSendText()
+    }
+
+    /// The Mac's Send Text…: `text` typed into the terminal as is, with no Return.
+    public func sendText(_ text: String) {
+        guard !text.isEmpty, connectionState.composerNotSentNotice == nil else { return }
+        controller?.surface.sendText(text, pressReturn: false, fullScreenApp: isTUI)
+    }
+
     #if DEBUG
     /// DEBUG: the controller's layout and viewport state, for demo timelines.
     public var debugState: String { controller?.debugState ?? "-" }
@@ -420,6 +457,17 @@ public final class TerminalModel {
         }
         controller?.surface.sendText(composerText, pressReturn: true, fullScreenApp: isTUI)
         composerText = ""
+    }
+
+    /// Voice mode's prompt: the user's words typed into the terminal with
+    /// Return, as the composer's send does, without touching the draft. Words
+    /// for a Mac that can't take them now are dropped, never queued (D5).
+    /// Returns false when nothing was typed.
+    @discardableResult
+    public func sendVoicePrompt(_ text: String) -> Bool {
+        guard connectionState.composerNotSentNotice == nil, let controller else { return false }
+        controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        return true
     }
 
     public func sendWithoutReturn() {

@@ -177,7 +177,7 @@ impl Mux {
         } else {
             None
         };
-        match lock_checked(&relay.peers, RelayLock::Peers) {
+        match relay.peers_checked() {
             Ok(mut peers) => {
                 peers.insert(client, peer.clone());
                 if let Some(clients) = cloud_clients.as_deref_mut() {
@@ -361,6 +361,7 @@ pub(super) fn handle_frame(
                     | "agent-session-prompt"
                     | "agent-session-cancel"
                     | "agent-session-detach"
+                    | "agent-session-context"
             )
         );
         if allowed {

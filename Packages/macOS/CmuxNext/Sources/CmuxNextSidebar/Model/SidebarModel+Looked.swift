@@ -5,6 +5,6 @@ extension SidebarModel {
         guard case let .workspace(id)? = old else { return }
         if let group = collapsedGroup(of: id) { revealedMembers[group, default: []].insert(id) }
         // Only the hover card's "since you looked" line reads the stamps.
-        if SidebarTunables.sinceLooked.value { SidebarLookedStore.shared.stamp(id) }
+        SidebarLookedStore.shared.stamp(id)
     }
 }

@@ -18,11 +18,53 @@ public struct NewWorkspaceRequest: Hashable, Sendable {
     /// The working directory, or nil for the Mac's default (its home).
     public var directory: String?
     public var start: NewWorkspaceStart
+    /// Where it goes in the Mac's sidebar once the Mac lists it (nil: where the Mac puts it).
+    public var placement: NewWorkspacePlacement?
 
-    public init(macID: String, directory: String? = nil, start: NewWorkspaceStart = .terminal) {
+    public init(macID: String, directory: String? = nil, start: NewWorkspaceStart = .terminal,
+                placement: NewWorkspacePlacement? = nil) {
         self.macID = macID
         self.directory = directory
         self.start = start
+        self.placement = placement
+    }
+}
+
+/// The Mac's New Workspace Above / Below / at Top / at Bottom (`WorkspaceVerbActionCatalog`) and
+/// New Workspace in Group (`workspaceGroup.newWorkspace`): where a new workspace goes in the
+/// Mac's sidebar. The phone makes it, then places it with the moves its row menu already sends
+/// (`workspace.place` into the group, `set-personal-workspace {index}` beside the row).
+public enum NewWorkspacePlacement: Hashable, Sendable {
+    /// Right above the workspace with this id, in its group when it has one.
+    case above(String)
+    /// Right below it.
+    case below(String)
+    /// The first place of the Mac's sidebar (after its pinned rows).
+    case top
+    /// The last place.
+    case bottom
+    /// At the end of this group.
+    case inGroup(MacWorkspaceGroup)
+
+    /// The Mac's menu title.
+    public var title: String {
+        switch self {
+        case .above: "New Workspace Above"
+        case .below: "New Workspace Below"
+        case .top: "New Workspace at Top"
+        case .bottom: "New Workspace at Bottom"
+        case .inGroup: "New Workspace in Group"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .above: "arrow.up.square"
+        case .below: "arrow.down.square"
+        case .top: "arrow.up.to.line"
+        case .bottom: "arrow.down.to.line"
+        case .inGroup: "plus.rectangle.on.folder"
+        }
     }
 }
 
@@ -260,9 +302,11 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func rename(_ workspace: Workspace, to title: String) async throws
     /// Closes a workspace on its Mac.
     func close(_ workspace: Workspace) async throws
-    /// Duplicate Workspace: a new workspace on the Mac with the same terminals (each a new
-    /// shell in its tab's folder) and web pages. Returns it once the Mac lists it.
-    func duplicate(_ workspace: Workspace) async throws -> Workspace
+    /// Duplicate Workspace: a new workspace on the Mac with the same screens, columns, splits,
+    /// terminals (each a new shell in its tab's folder), color and icon, and, with `browsers`,
+    /// the same web pages (Duplicate Workspace Without Browser Tabs leaves them out). Returns
+    /// it once the Mac lists it.
+    func duplicate(_ workspace: Workspace, browsers: Bool) async throws -> Workspace
     /// The tabs the phone may open in a workspace on `macID` now (none: the
     /// new-tab menu says why instead of making a tab the Mac never sees).
     func tabKinds(on macID: String) -> [NewTabKind]
@@ -286,6 +330,11 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// Opens a copy of a tab next to it on the Mac (a terminal in its pane's folder,
     /// the same page in a browser tab) and returns it once the Mac lists it.
     func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// The Mac's New Tab of the Same Kind, New Tab to the Right, New Tab at Start and New Tab
+    /// at End: a new tab of `tab`'s kind in its pane, at `position`. Returns it once listed.
+    func newTab(besides tab: WorkspaceTab, at position: NewTabPosition, in workspace: Workspace) async throws -> WorkspaceTab
+    /// The Mac's Clear Tab Name: the tab shows the title its program or page gives it again.
+    func clearTabName(_ tab: WorkspaceTab, in workspace: Workspace) async throws
     /// A page's link that opens a new tab or window (`rb.open_tab`: `target=_blank`,
     /// `window.open`, the page menu's Open Link in New Tab): a browser tab at `url` in the
     /// pane of `tab`, the page that asked, returned once the Mac lists it.
@@ -338,6 +387,9 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// Close Screen: its tabs close and their terminals end, as a tab closed on the phone ends
     /// its terminal (`close-screen {end_terminals}`).
     func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws
+    /// Duplicate Screen: a new screen named as this one, its terminal in the folder of the
+    /// screen's shown tab (`new-screen`, `rename-screen`). Returns its tab once the Mac lists it.
+    func duplicateScreen(_ screen: MacScreen, in workspace: Workspace) async throws -> WorkspaceTab
 }
 
 extension WorkspaceCreationBackend {
@@ -355,7 +407,7 @@ extension WorkspaceCreationBackend {
     public func close(_ workspace: Workspace) async throws {
         throw WorkspaceCreationError("Closing isn't available on this Mac")
     }
-    public func duplicate(_ workspace: Workspace) async throws -> Workspace {
+    public func duplicate(_ workspace: Workspace, browsers: Bool) async throws -> Workspace {
         throw WorkspaceCreationError("Duplicating isn't available on this Mac")
     }
     public func tabKinds(on macID: String) -> [NewTabKind] { [] }
@@ -375,6 +427,12 @@ extension WorkspaceCreationBackend {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func newTab(besides tab: WorkspaceTab, at position: NewTabPosition, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func clearTabName(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
@@ -423,6 +481,9 @@ extension WorkspaceCreationBackend {
     public func renameScreen(_ screen: MacScreen, in workspace: Workspace, to name: String) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
+    public func duplicateScreen(_ screen: MacScreen, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Duplicating screens isn't available on this Mac")
+    }
     public func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
@@ -466,6 +527,9 @@ public final class WorkspaceCreator {
 
     /// By placeholder id.
     public private(set) var phases: [String: Phase] = [:]
+    /// Bumped when a group with no workspace is made or deleted from here: the list reads it, since
+    /// such a change leaves the workspaces as they were (an empty group shows as its own header).
+    public internal(set) var groupsRevision = 0
     public var backend: any WorkspaceCreationBackend
     /// The Mac the next workspace goes to, when it can take one.
     public private(set) var preferredMacID: String?
@@ -478,6 +542,9 @@ public final class WorkspaceCreator {
     /// A rename or close the Mac refused: the workspace, what failed
     /// ("Couldn't close cmux") and the reason. The change is already undone.
     @ObservationIgnored public var onManageFailure: (@MainActor (Workspace, String, String) -> Void)?
+    /// A group change with no workspace to name (New Workspace Group, an empty group's Delete
+    /// Group) the Mac refused: its Mac, what failed and the reason.
+    @ObservationIgnored public var onGroupFailure: (@MainActor (String, String, String) -> Void)?
     @ObservationIgnored let store: AppStore
     @ObservationIgnored private let recents: RecentDirectories
     /// A Mac's workspace folders by activity, kept until the workspaces change
@@ -562,7 +629,8 @@ public final class WorkspaceCreator {
     /// already in the list, to push. Nil when no Mac can take it or the
     /// start is not supported there.
     @discardableResult
-    public func create(start: NewWorkspaceStart = .terminal, directory: String? = nil, macID: String? = nil) -> Workspace? {
+    public func create(start: NewWorkspaceStart = .terminal, directory: String? = nil, macID: String? = nil,
+                       placement: NewWorkspacePlacement? = nil) -> Workspace? {
         guard let mac = macID.flatMap({ id in availableMacs.first { $0.id == id } }) ?? targetMac else { return nil }
         let options = options(on: mac.id)
         switch start {
@@ -571,7 +639,7 @@ public final class WorkspaceCreator {
         case .browser: guard options.browser else { return nil }
         }
         let dir = options.directories ? (directory ?? defaultDirectory(on: mac.id)) : nil
-        let request = NewWorkspaceRequest(macID: mac.id, directory: dir, start: start)
+        let request = NewWorkspaceRequest(macID: mac.id, directory: dir, start: start, placement: placement)
         let placeholder = Self.placeholder(for: request, existing: store.workspaces.filter { $0.macID == mac.id }.map(\.title))
         store.insertPending(placeholder)
         store.requestFocusOnOpen(placeholder.id)
@@ -622,14 +690,17 @@ public final class WorkspaceCreator {
 
     /// The Mac's title for Duplicate Workspace (`action.workspace.duplicate`).
     public static let duplicateTitle = "Duplicate Workspace"
+    /// The Mac's `action.workspace.duplicateTerminalsOnly`.
+    public static let duplicateTerminalsOnlyTitle = "Duplicate Workspace Without Browser Tabs"
 
     /// Duplicate Workspace: the Mac makes the copy; the list shows it when the Mac lists it.
-    /// Home has no duplicate (the Mac's Home is one workspace).
-    public func duplicate(_ workspace: Workspace) {
+    /// `browsers` false is Duplicate Workspace Without Browser Tabs. Home has no duplicate
+    /// (the Mac's Home is one workspace).
+    public func duplicate(_ workspace: Workspace, browsers: Bool = true) {
         guard canDuplicate(workspace) else { return }
         track(workspace.id) { [weak self] in
             do {
-                _ = try await self?.backend.duplicate(workspace)
+                _ = try await self?.backend.duplicate(workspace, browsers: browsers)
             } catch {
                 self?.onManageFailure?(workspace, "Couldn't duplicate \(workspace.title)", Self.message(error))
             }
@@ -693,6 +764,7 @@ public final class WorkspaceCreator {
                 store.noteOpened(tabID: tab.id, in: real.id)
             }
             phases[placeholder.id] = .created(real.id)
+            if let placement = request.placement { await place(real, placement) }
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             store.removePending(placeholder.id)
@@ -844,6 +916,26 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
                      subtitle: tab.subtitle, harness: tab.harness, url: tab.url)
     }
 
+    /// New tabs asked for beside a tab, with their position, and tabs whose name was cleared (tests).
+    public private(set) var newTabs: [(besides: String, position: NewTabPosition)] = []
+    public private(set) var clearedNames: [String] = []
+
+    public func newTab(besides tab: WorkspaceTab, at position: NewTabPosition, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        newTabs.append((tab.id, position))
+        let id = "t-\(UUID().uuidString.prefix(8).lowercased())"
+        return switch tab.kind {
+        case .browser: WorkspaceTab(id: id, kind: .browser, title: "New Tab")
+        case .agent: WorkspaceTab(id: id, kind: .agent, title: "Claude", subtitle: "New session", harness: tab.harness ?? "claude")
+        case .terminal, .simulator: WorkspaceTab(id: id, kind: .terminal, title: "zsh", subtitle: workspace.directory)
+        }
+    }
+
+    public func clearTabName(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await settle()
+        clearedNames.append(tab.id)
+    }
+
     public func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         try await settle()
         return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: .browser, title: url.host() ?? "New Tab", url: url)
@@ -883,12 +975,14 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// Every edit the mock received, in order (tests).
     public private(set) var groupEdits: [TabGroupEdit] = []
 
-    /// Workspaces duplicated, by id (tests).
+    /// Workspaces duplicated, by id (tests), and those duplicated without browser tabs.
     public private(set) var duplicated: [String] = []
+    public private(set) var duplicatedWithoutBrowsers: [String] = []
 
-    public func duplicate(_ workspace: Workspace) async throws -> Workspace {
+    public func duplicate(_ workspace: Workspace, browsers: Bool) async throws -> Workspace {
         try await settle()
         duplicated.append(workspace.id)
+        if !browsers { duplicatedWithoutBrowsers.append(workspace.id) }
         return workspace
     }
 
@@ -976,3 +1070,55 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     }
 }
 #endif
+
+/// Where the Mac's New Tab rows put the new tab in its pane.
+public enum NewTabPosition: String, Hashable, Sendable, CaseIterable {
+    /// New Tab of the Same Kind: where the Mac puts any new tab.
+    case sameKind
+    /// New Tab to the Right: right after the tab.
+    case afterCurrent
+    /// New Tab at Start: the first place after the pane's pinned tabs.
+    case start
+    /// New Tab at End: the pane's last place.
+    case end
+
+    /// The Mac's titles (`action.newTab.ofKind`, `.toRight`, `.atStart`, `.atEnd`).
+    public var title: String {
+        switch self {
+        case .sameKind: "New Tab of the Same Kind"
+        case .afterCurrent: "New Tab to the Right"
+        case .start: "New Tab at Start"
+        case .end: "New Tab at End"
+        }
+    }
+
+    /// The `move-tab` insertion index that puts a tab now at `from` in a pane whose places
+    /// are `pinned` (one flag per tab, in order) and `groups` (each tab's group id, nil for
+    /// none; empty for no groups) at this position, beside the tab at `anchor`. Nil when it is
+    /// in place already. As the Mac's `NewTabSlot`: after the anchor goes past the anchor's
+    /// whole tab group and never among pinned tabs (New Tab of the Same Kind too, the Mac's
+    /// default `tabs.newTabPosition`); at start is the first place after the pinned tabs. The
+    /// daemon reads the index as an insertion point in the current list, one past for a
+    /// forward move.
+    public func moveIndex(from: Int, anchor: Int, pinned: [Bool], groups: [String?] = []) -> Int? {
+        let count = pinned.count
+        guard count > 1, pinned.indices.contains(from), pinned.indices.contains(anchor), anchor != from else { return nil }
+        // The places without the new tab, where the final index is counted.
+        let others = pinned.indices.filter { $0 != from }
+        let pinnedCount = others.prefix { pinned[$0] }.count
+        let final: Int
+        switch self {
+        case .sameKind, .afterCurrent:
+            guard var at = others.firstIndex(of: anchor) else { return nil }
+            if groups.indices.contains(anchor), let group = groups[anchor] {
+                while at + 1 < others.count, groups.indices.contains(others[at + 1]), groups[others[at + 1]] == group { at += 1 }
+            }
+            final = max(at + 1, pinnedCount)
+        case .start: final = pinnedCount
+        case .end: final = count - 1
+        }
+        let clamped = min(max(final, 0), count - 1)
+        guard clamped != from else { return nil }
+        return clamped > from ? clamped + 1 : clamped
+    }
+}

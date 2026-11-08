@@ -58,7 +58,7 @@ final class FeedTableRowView: NSTableRowView {
         let fill: NSColor? = content.isSelected ? colors.selection : (hovering ? colors.hover : nil)
         guard let fill else { return }
         fill.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 7, yRadius: 7).fill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: Metrics.insetCornerRadius, yRadius: Metrics.insetCornerRadius).fill()
     }
 }
 
@@ -120,7 +120,7 @@ final class FeedRowCell: NSTableCellView {
         super.init(frame: .zero)
         identifier = Self.identifier
         dot.wantsLayer = true
-        dot.layer?.cornerRadius = 3
+        dot.layer?.cornerRadius = Metrics.capsuleRadius(CGSize(width: 6, height: 6))
         glyph.imageScaling = .scaleProportionallyDown
         local.image = NSImage.icon(.machineLocal, size: .iconRowSize(forLabelPointSize: TypeScale.caption))
         local.image?.isTemplate = true

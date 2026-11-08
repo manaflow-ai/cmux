@@ -34,6 +34,7 @@ pub(super) async fn copy_bundle(
     receive_id: &str,
 ) {
     let transfer_id = begin["transferId"].as_str().unwrap();
+    let epoch = begin["epoch"].as_u64().unwrap_or(0);
     for file in begin["files"].as_array().unwrap() {
         let path = file["path"].as_str().unwrap();
         let mut offset = 0u64;
@@ -41,14 +42,14 @@ pub(super) async fn copy_bundle(
             let part = src
                 .request(
                     "_acpmux/transfer_read",
-                    json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": 4096}),
+                    json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": 4096, "epoch": epoch}),
                 )
                 .await
                 .unwrap();
             let data = part["data"].as_str().unwrap();
             dst.request(
                 "_acpmux/transfer_write",
-                json!({"receiveId": receive_id, "path": path, "offset": offset, "data": data}),
+                json!({"receiveId": receive_id, "path": path, "offset": offset, "data": data, "epoch": epoch}),
             )
             .await
             .unwrap();
@@ -104,13 +105,18 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
         dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
     copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
-    let moved =
-        dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await.unwrap();
+    let moved = dst
+        .request(
+            "_acpmux/transfer_finish",
+            json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+        )
+        .await
+        .unwrap();
     assert_eq!(moved["sessionId"], id.as_str(), "{moved}");
     let committed = src
         .request(
             "_acpmux/transfer_commit",
-            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}}),
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}, "epoch": begin["epoch"]}),
         )
         .await
         .unwrap();
@@ -181,7 +187,7 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
 
     src.request(
         "_acpmux/transfer_abort",
-        json!({"sessionId": id, "transferId": begin["transferId"]}),
+        json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]}),
     )
     .await
     .unwrap();
@@ -263,7 +269,7 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
         .unwrap();
     // One small page, then the client is gone.
     let path = begin["files"][0]["path"].clone();
-    let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1});
+    let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1, "epoch": begin["epoch"]});
     src.request("_acpmux/transfer_read", read).await.unwrap();
     // The client is gone from here on: a short lease ends the move soon. Set
     // only now, so a slow request of the client before this point (2 s and
@@ -298,7 +304,12 @@ async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on
         dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
     copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
-    dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await.unwrap();
+    dst.request(
+        "_acpmux/transfer_finish",
+        json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
     // The client is gone before its commit: the source asks the target, which has the chat.
     // The short lease only from here on, as in the test above (cx-nx5mb).
     a.set_transfer_lease(Duration::from_secs(2));
@@ -338,7 +349,12 @@ async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_the
 
     // The target drops the receive and the chat comes back here, its queue running.
     src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
-    let late = dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
+    let late = dst
+        .request(
+            "_acpmux/transfer_finish",
+            json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+        )
+        .await;
     assert!(late.as_ref().is_err_and(|e| e.contains("transfer.unknown")), "{late:?}");
     // A client that kept the bundle cannot start the move over there either.
     let again = dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await;
@@ -414,10 +430,15 @@ async fn move_whole(src: &mut TestClient, dst: &mut TestClient, id: &str, to: Va
         dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
     copy_bundle(src, dst, &begin, &receive_id).await;
-    dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await.unwrap();
+    dst.request(
+        "_acpmux/transfer_finish",
+        json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
     src.request(
         "_acpmux/transfer_commit",
-        json!({"sessionId": id, "transferId": begin["transferId"], "to": to}),
+        json!({"sessionId": id, "transferId": begin["transferId"], "to": to, "epoch": begin["epoch"]}),
     )
     .await
     .unwrap()
@@ -533,7 +554,7 @@ async fn a_stopped_chat_whose_move_only_began_is_not_replaced_by_a_receive() {
     assert!(received.as_ref().is_err_and(|e| e.contains("transfer.exists")), "{received:?}");
     src.request(
         "_acpmux/transfer_abort",
-        json!({"sessionId": id, "transferId": begin["transferId"]}),
+        json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]}),
     )
     .await
     .unwrap();

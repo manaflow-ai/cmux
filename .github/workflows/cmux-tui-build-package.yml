@@ -43,7 +43,7 @@ on:
         default: false
         type: boolean
       target_set:
-        description: "Binary targets to build: all, macos (both macOS targets), macos-arm64, macos-x86_64, or windows (no Unix target: only the include_windows jobs)"
+        description: "Binary targets to build: all, linux (both Linux musl targets), macos (both macOS targets), macos-arm64, macos-x86_64, or windows (no Unix target: only the include_windows jobs)"
         required: false
         default: all
         type: string
@@ -136,6 +136,8 @@ env:
   # tests in cmux-tui-artifacts.yml (cmuxterm-hq#1279 item 1).
   CARGO_NET_RETRY: "10"
   CARGO_HTTP_TIMEOUT: "120"
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   plan-build:
@@ -236,6 +238,10 @@ jobs:
           target_set = os.environ["TARGET_SET"]
           if target_set == "all":
               selected = targets
+          elif target_set == "linux":
+              # cmux-tui-artifacts.yml builds Linux in its own call so the Cloud
+              # machine channel moves without waiting for the macOS legs.
+              selected = [target for target in targets if target["target"].endswith("-unknown-linux-musl")]
           elif target_set == "macos":
               selected = [target for target in targets if target["target"].endswith("-apple-darwin")]
           elif target_set == "macos-arm64":
@@ -392,6 +398,21 @@ jobs:
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
+
+      # Warm start for the Linux musl legs (.github/warm-sources.json: actions-cache):
+      # dependency builds keyed by the toolchain and Cargo.lock, so a new commit
+      # recompiles only the workspace crates (cmux-tui's group took 346 s cold,
+      # run 42381345286). Only feat-cmux-next pushes write it, and only when the
+      # key changes; a miss or a failed restore is a cold build, never a failure.
+      - name: Restore the Linux cargo cache
+        if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux
+        continue-on-error: true
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-linux-${{ matrix.target }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Build cmux-tui (Linux cross)
         if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux

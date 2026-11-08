@@ -20,7 +20,11 @@ viewer_key = json.loads(viewer.stdout.readline())["key"]
 host = subprocess.Popen([binary, "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
 host.stdin.write(json.dumps({"session": session, "peer_key": viewer_key, "scope": "view", "stun": stun,
                              "viewer": {"user": "viewer", "install": "pane"}}) + "\n"); host.stdin.flush()
-host_key = json.loads(host.stdout.readline())["key"]
+host_line = json.loads(host.stdout.readline())
+if "displays" in host_line:  # serve reports its displays before its key
+    print("host displays:", host_line["displays"], "current:", host_line.get("current"), file=sys.stderr)
+    host_line = json.loads(host.stdout.readline())
+host_key = host_line["key"]
 cands, deadline = [], time.time() + 3
 while time.time() < deadline and select.select([host.stdout], [], [], deadline - time.time())[0]:
     line = json.loads(host.stdout.readline())

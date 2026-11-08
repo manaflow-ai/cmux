@@ -52,7 +52,8 @@ installJsdomScroller(dom.window as never, () => viewport);
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { VirtualTranscript, SCROLL_ANCHOR_SETTLE_MS } = await import("../src/agent-session/acpmux/App");
+const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { SCROLL_ANCHOR_SETTLE_MS } = await import("../src/agent-session/acpmux/virtualTranscriptModel");
 
 afterAll(() => {
   dom.window.close();

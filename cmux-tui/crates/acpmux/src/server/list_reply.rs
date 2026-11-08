@@ -66,7 +66,7 @@ fn excludes_closed(params: &Value) -> bool {
 async fn reply(
     hub: &Hub,
     conn: &Conn,
-    limit: Option<u64>,
+    share: f64,
     live_only: bool,
     make: impl Fn(&Snapshot) -> Result<Arc<String>, RpcError>,
 ) -> Result<Value, RpcError> {
@@ -80,7 +80,7 @@ async fn reply(
     } else {
         None
     };
-    let wait = guard.reserve(&conn.list_pace, guard.share(limit)).map_err(busy)?;
+    let wait = guard.reserve(&conn.list_pace, share).map_err(busy)?;
     tokio::time::sleep(wait).await;
     for reads in 0..=REBUILDS {
         let list = match first.take() {
@@ -134,30 +134,34 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
     let unset = |k: &str| params.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
     let by_bytes = unset("limit") && unset("orderBy");
     let tools = with_tools(params)?;
+    let (most, guard) = (page_bytes(conn), &hub.list_guard);
+    // A byte page costs its bytes' share of the list on a connection whose pages are small.
+    let by_size = |share: f64| if most < LIST_PAGE_BYTES { guard.share_bytes(most) } else { share };
     if tools || !whole(params) {
-        return reply(hub, conn, limit, excludes_closed(params), |list| {
+        let share = if by_bytes { by_size(guard.share(None)) } else { guard.share(limit) };
+        return reply(hub, conn, share, excludes_closed(params), |list| {
             if by_bytes {
-                return within_limit(raw, |budget| list.bounded(hub, params, tools, budget));
+                return within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget));
             }
             let full = tools.then(|| list.full_rows(hub));
-            within_limit(raw, |budget| list.page(full.as_deref(), params, budget))
+            within_limit(raw, most, |budget| list.page(full.as_deref(), params, budget))
         })
         .await;
     }
-    reply(hub, conn, None, excludes_closed(params), |list| {
+    reply(hub, conn, by_size(guard.share(None)), excludes_closed(params), |list| {
         // The cached whole list, as the client reads it (masked for a peer, which may lengthen
         // it), when that fits in one message; else its pages.
-        if list.whole.len() <= LIST_PAGE_BYTES {
+        if list.whole.len() <= most {
             let whole = if raw {
                 list.whole.clone()
             } else {
                 list.made("masked", |list| masked(json!({"sessions": list.values()})))
             };
-            if whole.len() <= LIST_PAGE_BYTES {
+            if whole.len() <= most {
                 return Ok(whole);
             }
         }
-        within_limit(raw, |budget| list.bounded(hub, params, false, budget))
+        within_limit(raw, most, |budget| list.bounded(hub, params, false, budget))
     })
     .await
 }
@@ -174,7 +178,7 @@ fn pending(hub: &Hub, raw: bool, params: &Value) -> Result<Value, RpcError> {
     }
     let rows: Vec<String> =
         hub.pending_session_summaries().iter().map(|row| row.to_string()).collect();
-    let text = within_limit(raw, |budget| {
+    let text = within_limit(raw, LIST_PAGE_BYTES, |budget| {
         let (mut kept, mut used) = (Vec::new(), 0_usize);
         for row in &rows {
             let total = used.saturating_add(row.len()).saturating_add(1);
@@ -210,7 +214,8 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
             Some(Value::Object(known)) => Some(known),
             Some(_) => return Err(RpcError::invalid_params("known must be an object")),
         };
-        return reply(hub, conn, None, false, |list| {
+        let most = page_bytes(conn);
+        return reply(hub, conn, hub.list_guard.share_bytes(most), false, |list| {
             let name = match (tools, raw) {
                 (true, true) => "own tools",
                 (true, false) => "own tools masked",
@@ -221,10 +226,15 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
                 let own = Snapshot::own_whole(hub, tools);
                 if raw { own } else { masked(serde_json::from_str(&own).unwrap_or_default()) }
             });
-            Ok(match known.and_then(|known| crate::watch_delta::delta(&own, known)) {
-                Some(delta) => Arc::new(delta),
-                None => own,
-            })
+            match known.and_then(|known| crate::watch_delta::delta(&own, known)) {
+                Some(delta) if delta.len() <= most => return Ok(Arc::new(delta)),
+                _ if own.len() <= most => return Ok(own),
+                _ => {}
+            }
+            // Too large for one of this link's pages: the list's pages, whose cursor the link
+            // follows (`peer.rs` `watch_pages`); it drops the rows mirrored from its peers on
+            // each page as on a whole list (`watch_sessions`).
+            within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget))
         })
         .await;
     }
@@ -243,7 +253,7 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         Some(Value::String(text)) => Some(text.as_str()),
         Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
     };
-    reply(hub, conn, None, excludes_closed(params), |list| {
+    reply(hub, conn, hub.list_guard.share(None), excludes_closed(params), |list| {
         let full = list.full_rows(hub);
         // An ACP row holds its summary whole, so rows already over the budget are no whole
         // reply: that one is not made only to be dropped.
@@ -276,23 +286,24 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
             }
             Ok(result.to_string())
         };
-        within_limit(raw, page)
+        within_limit(raw, LIST_PAGE_BYTES, page)
     })
     .await
 }
 
-/// The page `page` cuts to [`LIST_PAGE_BYTES`], as the client reads it: a peer reads it masked
-/// (`peer_text.rs`), which may make it longer than the budget it was cut to; then it is cut
-/// again, smaller. A raw page takes the same check.
+/// The page `page` cuts to `most` bytes ([`page_bytes`]), as the client reads it: a peer reads
+/// it masked (`peer_text.rs`), which may make it longer than the budget it was cut to; then it
+/// is cut again, smaller. A raw page takes the same check.
 fn within_limit(
     raw: bool,
+    most: usize,
     page: impl Fn(usize) -> Result<String, RpcError>,
 ) -> Result<Arc<String>, RpcError> {
-    let mut budget = LIST_PAGE_BYTES;
+    let mut budget = most;
     loop {
         let text = page(budget)?;
         let text = if raw { text } else { masked(serde_json::from_str(&text).unwrap_or_default()) };
-        if text.len() <= LIST_PAGE_BYTES || budget < MIN_PAGE_BYTES {
+        if text.len() <= most || budget < MIN_PAGE_BYTES {
             return Ok(Arc::new(text));
         }
         budget /= 2;
@@ -332,6 +343,19 @@ const STUB_TEXT_BYTES: usize = 4 << 10;
 /// `_acpmux/watch`): a megabyte under the message limit, for the reply's own frame and what
 /// masking a peer's text may add, the bound of every reply fitted whole (`hub/reply_fit.rs`).
 const LIST_PAGE_BYTES: usize = crate::hub::reply_fit::REPLY_BYTES;
+
+/// The most a list reply holds on a Web or peer connection (a phone, a browser, another
+/// acpmux): past it a whole list goes in pages with the `nextCursor` of the rest, which each of
+/// them follows (the phone's `AcpmuxConnection.wholeList`, the pane's `SessionPager.whole`,
+/// `peer.rs` `watch_pages`). One Mac sent a 24.8 MB watch list to such a connection, read again
+/// about every minute for hours (2026-11-06). The app's own connections (the Unix socket, the
+/// agent pane) keep [`LIST_PAGE_BYTES`]: its watch feeds read their list in one reply.
+pub(super) const WEB_LIST_PAGE_BYTES: usize = 4 << 20;
+
+/// The most one list reply holds on `conn`.
+fn page_bytes(conn: &Conn) -> usize {
+    if conn.origin.web_class() { WEB_LIST_PAGE_BYTES } else { LIST_PAGE_BYTES }
+}
 
 fn acp_row(s: &Value) -> Value {
     let text = |k: &str| s.get(k).and_then(Value::as_str).map(str::to_owned);

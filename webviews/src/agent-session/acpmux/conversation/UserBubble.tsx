@@ -25,6 +25,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { PresentationContext } from "./presentationContextModel";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -33,42 +34,26 @@ import { DeliveryMark } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
+import { sendMorphRef } from "./sendMorph";
 import { PromptText } from "./PromptText";
-import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
+import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
+import { isStripMedia, readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
-import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
-import { SourceBadge, useSourceLabel, withSourceLabel } from "../composer/SourceBadge";
-import {
-  ForkButton,
-  forkWithFeedback,
-  MessageCopy,
-  MessageFooterRow,
-  MessageTime,
-  PinButton,
-  PromptRetry,
-  ROW_ICON,
-} from "./MessageActions";
-import { TurnActionsContext, type QueuedActions } from "./turnActions";
+import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+import { SourceBadge } from "../composer/SourceBadge";
+import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
+import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, PromptRetry } from "./MessageActions";
+import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
+import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
+import { NO_RETRY_TARGET, retryPlacement } from "./turns";
+import { useTranscriptReadOnly } from "./readOnly";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
 import { SkillWordsContext } from "./skillWords";
 import { SentVideoTile } from "./SentVideoTile";
 import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
-
-/// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
-/// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
-/// original path is drawn by that image instead.
-export function recordedFiles(
-  parts: AcpmuxRow["inlineParts"],
-  originals: ReadonlySet<string> = new Set(),
-): FileAttachmentInfo[] | undefined {
-  return parts?.flatMap((part): FileAttachmentInfo[] =>
-    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
-      ? [{ ...part, path: attachmentPath(part.uri) }]
-      : [],
-  );
-}
+import { recordedFiles, isImageOriginal, SENT_IMAGE_HEIGHT, sentImageWidth, sentImageSize } from "./userBubbleModel";
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
@@ -97,7 +82,22 @@ export function UserBubble({
     [givenText, given, skills],
   );
   const t = useT();
-  const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
+  const { edit, branches, fork, forkSeq, forkAny, promptTurns, retry: canResend } = useContext(TurnActionsContext);
+  // The Messages view draws no reply footer for a turn that ended well (messagesRows.ts), so its
+  // prompts keep their own Retry there; the transcript's is the last turn's footer (TurnFooter).
+  const messagesView = useContext(PresentationContext) === "messages";
+  const retryTarget = useContext(RetryTargetContext);
+  const readOnly = useTranscriptReadOnly();
+  // In the transcript, this prompt draws the chat's one Retry when turns.ts retryPlacement puts it
+  // under the prompt: its turn's footer does not draw it (a turn of tool calls alone, history with no
+  // turn result, a turn still running).
+  const promptRetry =
+    retryTarget?.promptId === row.id &&
+    retryPlacement(retryTarget ?? NO_RETRY_TARGET, {
+      canRetry: Boolean(canResend),
+      readOnly,
+      messages: messagesView,
+    }) === "prompt";
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   const through = edit?.seqs.get(row.id);
@@ -152,7 +152,7 @@ export function UserBubble({
       const video = sentVideoOf(part, videos);
       return video ? (
         <span className="cv-user__inline-image">
-          <SentVideoTile video={video} width={sentImageWidth(video)} />
+          <SentVideoTile video={video} width={sentImageWidth(video)} height={SENT_IMAGE_HEIGHT} />
         </span>
       ) : undefined;
     },
@@ -178,10 +178,16 @@ export function UserBubble({
       />
     );
   }
-  // The sent row's Retry and Fork; a waiting steer's queue row shows the same two (PendingSteer.tsx).
-  // Retry not while it is still on its way: a second send would duplicate it.
+  // Retry is the last turn's reply footer's (TurnRows.tsx TurnFooter; Leo, 2026-11-04: "Today Retry
+  // is on your prompt bubble ... Put it, with the model switch, in the last turn's footer."), so neither
+  // the sent row nor a waiting steer's queue row (PendingSteer.tsx) draws one, and the row keeps its
+  // buttons when the steer is delivered, except where that footer draws no Retry (`promptRetry`). The
+  // Messages view draws no footer for a turn that ended well (messagesRows.ts), so its prompts keep
+  // their Retry; not while one is on its way, as a second send would duplicate it.
   const retry =
-    !row.pending && row.delivery?.state !== "sending" ? <PromptRetry rowId={row.id} prompt={resend} /> : null;
+    (messagesView || promptRetry) && !row.pending && row.delivery?.state !== "sending" ? (
+      <PromptRetry rowId={row.id} prompt={resend} />
+    ) : null;
   const forkButton =
     forkThrough !== undefined ? (
       <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
@@ -238,7 +244,14 @@ export function UserBubble({
         {!row.failed && (text || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
-            pending={pending && ((actions) => pending(actions, { retry, fork: forkButton }))}
+            pending={
+              pending &&
+              ((actions) =>
+                pending(actions, {
+                  retry: retry && <PromptRetry rowId={row.id} prompt={resend} held />,
+                  fork: forkButton,
+                }))
+            }
           >
             <MessageFooterRow>
               {branch && branches && (
@@ -251,7 +264,7 @@ export function UserBubble({
                     disabled={branch.index === 0}
                     onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
                   >
-                    <ChevronLeft size={12} />
+                    <ChevronLeft size={ROW_ICON} />
                   </button>
                   <span
                     className="cv-user__version-count"
@@ -271,7 +284,7 @@ export function UserBubble({
                     disabled={branch.index === branch.sessions.length - 1}
                     onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
                   >
-                    <ChevronRight size={12} />
+                    <ChevronRight size={ROW_ICON} />
                   </button>
                 </span>
               )}
@@ -323,11 +336,6 @@ function imageOriginals(row: AcpmuxRow): ReadonlySet<string> {
   );
 }
 
-/// A file part that is an image's retained original: drawn as the image, never again as a file.
-function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<string>): boolean {
-  return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
-}
-
 function UserFooter({
   className,
   pending,
@@ -364,23 +372,13 @@ export const SentImages = memo(function SentImages({
 /// A prompt's videos, each at a sent image's height in its own shape.
 function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
   return videos.map((video) => (
-    <SentVideoTile key={`${video.name}\n${video.path}`} video={video} width={sentImageWidth(video)} />
+    <SentVideoTile
+      key={`${video.name}\n${video.path}`}
+      video={video}
+      width={sentImageWidth(video)}
+      height={SENT_IMAGE_HEIGHT}
+    />
   ));
-}
-
-/// The sent thumbnail's height (conversation.css), and the narrowest and
-/// widest it draws as a share of that: a tall phone shot or a wide screenshot is cropped to fill
-/// past those bounds rather than drawn as a sliver.
-export const SENT_IMAGE_HEIGHT = 120;
-const SENT_IMAGE_RATIO = { min: 0.75, max: 1.6 };
-
-/// A thumbnail's width at SENT_IMAGE_HEIGHT for an image of `size`: square only while no size is known.
-export function sentImageWidth(size: { width?: number; height?: number }): number {
-  const ratio =
-    size.width && size.height
-      ? Math.min(SENT_IMAGE_RATIO.max, Math.max(SENT_IMAGE_RATIO.min, size.width / size.height))
-      : 1;
-  return Math.round(SENT_IMAGE_HEIGHT * ratio);
 }
 
 /// One sent image, read from acpmux by its id (conversation/imageEntries.ts keeps it, so a
@@ -397,12 +395,18 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   const [failed, setFailed] = useState<string>();
   // The app it came from, at the thumbnail's top-right corner (composer/SourceBadge.tsx).
   const from = useSourceLabel(image.source);
+  // The pane's own send: the thumbnail's first frame is over the composer's chip, then it moves to
+  // the slot it holds from that frame (sendMorph.ts).
+  const morph = useMemo(() => sendMorphRef(image.id), [image.id]);
   if (shown.status === "missing") return null;
-  const width = sentImageWidth(shown);
+  const { width, height } = sentImageSize(shown);
+  // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
+  // (conversation.css), never past the bubble's edge.
+  const shape = { width, aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
   if (shown.src !== undefined && failed === shown.src)
     return (
-      <span className="cv-user__image-failed" style={{ width }}>
+      <span className="cv-user__image-failed" style={shape}>
         <ImageIcon size={16} />
         <span>{t("image.failed")}</span>
       </span>
@@ -411,12 +415,20 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // sent-image band appears after the transcript row has already been placed and pushes the
   // prompt and everything below it down by a frame.
   if (shown.src === undefined)
-    return <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, flexBasis: width }} />;
+    return (
+      <span
+        ref={morph}
+        className="cv-user__image-placeholder"
+        aria-hidden="true"
+        style={{ ...shape, flexBasis: width }}
+      />
+    );
   const src = shown.src;
   // A pasted image's name is WebKit's "image.png": name it by its size instead (imageLabel.ts).
   const label = imageLabel(t, { name: image.name, width: shown.width, height: shown.height });
   const thumbnail = (
     <img
+      ref={morph}
       className={shown.fresh ? "cv-user__image cv-enter" : "cv-user__image"}
       src={src}
       alt={label}
@@ -424,7 +436,7 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
       decoding={shown.decoded ? "sync" : "async"}
       width={shown.width}
       height={shown.height}
-      style={{ width }}
+      style={shape}
       onError={() => setFailed(src)}
       onLoad={(event) => {
         // An image that decodes to no pixels draws nothing: it failed too.
@@ -502,7 +514,7 @@ export function PromptEditor({
     void onSend(value).finally(() => setSending(false));
   };
   return (
-    <div className="cv-user__edit">
+    <div className="ui-glass cv-user__edit">
       <textarea
         ref={field}
         className="cv-user__edit-field selectable"

@@ -18,6 +18,11 @@ typealias SidebarListViewComponents = SidebarListView
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty
+    /// The model revision and options `displayed` is the full layout of (a plain reload): a one-row insert splices onto
+    /// it (`spliceInsertion`). Nil after any other apply.
+    var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
+    /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
+    var splicedRow: SidebarRowKey?
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
@@ -100,6 +105,11 @@ final class SidebarListView: NSView {
     /// A click on a group's name waits out the double-click interval before it folds.
     let groupNameClick = SidebarGroupNameClick()
     var drag: Drag?
+    /// The rect the shown group lines were made for (`lineWindow`; nil: the whole list): a scroll past it makes the
+    /// lines it reaches.
+    var lineCover: NSRect?
+    /// Every `reload`, counted: a drag's base (`SidebarDragBaseKey`) is made again after one.
+    var reloads: UInt64 = 0
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
     var openingRows: [SidebarRowKey: SidebarRowOpening] = [:] // Rows still opening their slot (`SidebarRowOpening`).
@@ -127,6 +137,8 @@ final class SidebarListView: NSView {
     let groupEditor = SidebarGroupEditor()
     var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])?
     var onGroupEditorItem: ((GroupID, String) -> Void)?
+    /// The group editor's Sort menu for a group: the App's `workspaceGroup.setSort` choices, the group's sort checked.
+    var groupSortMenu: ((GroupID) -> NSMenu?)?
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
@@ -157,6 +169,10 @@ final class SidebarListView: NSView {
     /// workspace row: the app forwards it so that chat is read before the click
     /// (`SidebarListView+HoverPrefetch`). Called only when the hovered row changes.
     var onHoverTab: ((TabID?) -> Void)?
+    /// The workspace of the row under the pointer, nil off every workspace row: the app wakes the pages
+    /// its click would show once the pointer rests (plans/cmux-next/hover-preload-DESIGN.md). Called only
+    /// when the hovered row changes; it records the row and returns (no layout, no model write).
+    var onHoverWorkspace: ((WorkspaceID?) -> Void)?
     /// The tab the pointer's row was last reported as, so a reload that changes that row's focused
     /// tab in place reports it again (`refreshHoverTab`).
     var hoverTabSent: TabID?
@@ -357,7 +373,7 @@ final class SidebarListView: NSView {
     /// and bottom, corners rounded `Metrics.space1` more (Leo 2026-10-19).
     func hoverHit(at point: CGPoint) -> SidebarRow? {
         displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
-                           cornerRadius: SidebarStyle.rowCornerRadius + Metrics.space1, inset: Metrics.space1)
+                           cornerRadius: Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1), inset: Metrics.space1)
     }
     /// The row a click at `point` acts on: the hovered row when the pointer
     /// hovers one, so a click never lands on a row other than the lit one;

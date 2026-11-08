@@ -44,7 +44,7 @@ export default agentPaneEntry({
     },
   },
   variants: {
-    tedd: variant("Play: `:tedd` lists the teddy bear first, its typed letters bold, over the typed `:`.", (ctx) =>
+    tedd: variant("Play: `:tedd` lists the teddy bear first, letters bold, over the typed `:`; none chosen.", (ctx) =>
       typeToMenu(ctx, "Ship it :tedd"),
     ),
     "emoticon-dd": variant(
@@ -52,11 +52,24 @@ export default agentPaneEntry({
       (ctx) => typeToMenu(ctx, "That fixed it :DD"),
     ),
     heart: variant("Play: `<3` lists the red heart first.", (ctx) => typeToMenu(ctx, "Thanks <3")),
-    "pick-return": variant("Play: Return on `:tedd` writes 🧸 and a space; the menu closes.", async (ctx) => {
+    "arrow-return": variant("Play: ↓ chooses 🧸 on `:tedd`; Return writes it and a space.", async (ctx) => {
       await typeToMenu(ctx, "Ship it :tedd");
+      const prompt = ctx.document.querySelector(PROMPT)!;
+      await ctx.press("ArrowDown");
+      await ctx.waitFor(() => prompt.getAttribute("aria-activedescendant") === "acpmux-emoji-0");
       await ctx.press("Enter");
       await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
       if (!promptText(ctx).includes("Ship it 🧸")) throw new Error(`pick did not write the emoji: ${promptText(ctx)}`);
+    }),
+    "return-sends": variant("Play: Return with no row chosen sends; `:tedd` stays text.", async (ctx) => {
+      await typeToMenu(ctx, "Ship it :tedd");
+      await ctx.press("Enter");
+      // fixed-wait: this static snapshot has no host to take the prompt, so the draft stays; the
+      // assertion is that Return wrote no emoji over `:tedd` after a beat (a pick would within a frame).
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const typed = promptText(ctx);
+      if (typed.includes("🧸")) throw new Error(`Return wrote an emoji: ${typed}`);
+      if (typed.trim() !== "" && !typed.includes(":tedd")) throw new Error(`Return changed the text: ${typed}`);
     }),
     "emoticon-tab": variant("Play: Tab on `:DD` (no row chosen) writes the first row, 😆.", async (ctx) => {
       await typeToMenu(ctx, "That fixed it :DD");

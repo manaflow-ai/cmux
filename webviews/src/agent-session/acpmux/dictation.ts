@@ -1,5 +1,5 @@
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyDictation,
   type DictationAnchor,
@@ -8,6 +8,8 @@ import {
   type DictationUpdate,
 } from "./dictationText";
 import type { MarkdownFieldHandle } from "./MarkdownField";
+import { composerSettingsSnapshot } from "./composerSettings";
+import { handoffFailure } from "./dictationSources";
 import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
 
@@ -24,6 +26,15 @@ const listeners = new Set<(update: DictationUpdate) => void>();
 export function deliverDictation(update: DictationUpdate): void {
   setLevel(update.level, isActive(update.state));
   for (const listener of listeners) listener(update);
+}
+
+const handoffListeners = new Set<(code: string) => void>();
+/// The host's `dictationHandoff {code}`: the Toggle Dictation shortcut's hand-off to the picked app
+/// did not happen; each composer shows why, as for the mic's click (dictationSources.ts).
+export function deliverHandoffFailure(value: unknown): void {
+  const code = (value as { code?: unknown } | null | undefined)?.code;
+  if (typeof code !== "string") return;
+  for (const listener of handoffListeners) listener(code);
 }
 
 let autoSend = false;
@@ -71,8 +82,9 @@ export type Dictation = {
   /// The denied or failed state the composer shows until dismissed or the next start.
   notice: DictationUpdate | null;
   toggle(): void;
-  /// Ends the session and keeps its words (the finish key beside the waveform).
-  finish(): void;
+  /// Ends the session and keeps its words; `then` runs once they have landed in the prompt (the
+  /// composer's Send, which ends dictation and sends), never after Esc cancels it.
+  finish(then?: () => void): void;
   cancel(): void;
   openSettings(): void;
   dismiss(): void;
@@ -112,6 +124,8 @@ export function useDictation(
   const pending = useRef<DictationUpdate[]>([]);
   /// A toggle went to the host and no update came back yet.
   const requested = useRef(false);
+  /// What `finish(then)` waits to run: the send, once the session's last words are in the prompt.
+  const afterFinish = useRef<(() => void) | null>(null);
   const attachAudio = useRef(audio?.attach);
   attachAudio.current = audio?.attach;
   const omitAudio = useRef(audio?.omitted);
@@ -170,17 +184,31 @@ export function useDictation(
       anchor.current = splice.anchor;
       owner = splice.anchor ? field.element() : null;
       field.writeText(splice.value, splice.selectionStart, splice.selectionEnd);
-      // Submit on the next task, once the composer's state holds the dictated text.
-      if (update.state === "idle" && !update.cancelled && autoSend && splice.placed)
+      // Submit on the next task, once the composer's state holds the dictated text. A Send that
+      // ended the session sends it itself (settle, below).
+      if (update.state === "idle" && !update.cancelled && autoSend && splice.placed && !afterFinish.current)
         setTimeout(() => (field.submit ? field.submit() : field.element()?.closest("form")?.requestSubmit()), 0);
+    };
+    /// Once a session is over, the Send that ended it goes, on the next task (the composer's state
+    /// holds the words by then); a cancelled session sends nothing.
+    const settle = (update: DictationUpdate) => {
+      const then = afterFinish.current;
+      if (!then || isActive(update.state)) return;
+      afterFinish.current = null;
+      // Words that belong to the chat recording began in never send from another one (apply).
+      const elsewhere =
+        update.session !== undefined && shownChat.current && update.session !== (shownChat.current() ?? "");
+      if (!update.cancelled && !elsewhere) setTimeout(then, 0);
     };
     const receive = (update: DictationUpdate) => {
       requested.current = false;
       setState(update.state);
       if (update.state === "failed" || update.state === "denied") setNotice(update);
       else if (update.state === "starting") setNotice(null);
-      if (!composing) apply(update);
-      else {
+      if (!composing) {
+        apply(update);
+        settle(update);
+      } else {
         const queue = pending.current;
         const last = queue.at(-1);
         if (last && isActive(last.state) && last.state === update.state && !update.cancelled)
@@ -202,7 +230,10 @@ export function useDictation(
       composing = false;
       const queue = pending.current;
       pending.current = [];
-      for (const update of queue) apply(update);
+      for (const update of queue) {
+        apply(update);
+        settle(update);
+      }
     };
     document.addEventListener("compositionstart", compositionStart, true);
     document.addEventListener("compositionend", compositionEnd, true);
@@ -213,6 +244,22 @@ export function useDictation(
       document.removeEventListener("compositionend", compositionEnd, true);
     };
   }, [prompt, call]);
+
+  // A hand-off the shortcut asked for and the host could not make.
+  useEffect(() => {
+    const listener = (code: string) =>
+      setNotice({
+        state: "failed",
+        text: "",
+        level: 0,
+        cancelled: false,
+        message: handoffFailure(code, composerSettingsSnapshot().dictationSource, t),
+      });
+    handoffListeners.add(listener);
+    return () => {
+      handoffListeners.delete(listener);
+    };
+  }, [t]);
 
   // Esc cancels, only while a session runs; idle composers keep every key.
   const active = isActive(state);
@@ -239,42 +286,65 @@ export function useDictation(
     [call],
   );
 
-  return {
-    state,
-    notice,
-    toggle() {
-      if (!active) prompt.current?.focus();
-      requested.current = true;
-      void call("dictation.toggle").catch((error: unknown) => {
-        requested.current = false;
-        setNotice({
-          state: "failed",
-          text: "",
-          level: 0,
-          cancelled: false,
-          // A page with no host to ask says so plainly rather than "Request failed".
-          message:
-            error instanceof Error &&
-            error.message &&
-            !(error instanceof NativeError && error.code === "native.not_connected")
-              ? error.message
-              : t("dictation.unavailable"),
+  // The same object while its state and notice are: the composer, memoized, is not drawn again for it.
+  return useMemo<Dictation>(
+    () => ({
+      state,
+      notice,
+      toggle() {
+        if (!active) prompt.current?.focus();
+        // A dictation app the person picked gets the press (dictationSources.ts); a session of cmux's
+        // own that still runs is stopped by it as before.
+        const source = composerSettingsSnapshot().dictationSource;
+        if (source !== "cmux" && !active) {
+          setNotice(null);
+          void call("dictation.handoff").catch((error: unknown) => {
+            const code = error instanceof NativeError ? error.code : undefined;
+            setNotice({
+              state: "failed",
+              text: "",
+              level: 0,
+              cancelled: false,
+              message: handoffFailure(code, source, t),
+            });
+          });
+          return;
+        }
+        requested.current = true;
+        void call("dictation.toggle").catch((error: unknown) => {
+          requested.current = false;
+          setNotice({
+            state: "failed",
+            text: "",
+            level: 0,
+            cancelled: false,
+            // A page with no host to ask says so plainly rather than "Request failed".
+            message:
+              error instanceof Error &&
+              error.message &&
+              !(error instanceof NativeError && error.code === "native.not_connected")
+                ? error.message
+                : t("dictation.unavailable"),
+          });
         });
-      });
-    },
-    finish() {
-      // The finish key goes away with the session: the keyboard returns to the prompt, where the words are.
-      prompt.current?.focus();
-      void call("dictation.stop").catch(() => {});
-    },
-    cancel() {
-      void call("dictation.cancel").catch(() => {});
-    },
-    openSettings() {
-      if (notice?.permission) void call("dictation.openSettings", { permission: notice.permission }).catch(() => {});
-    },
-    dismiss() {
-      setNotice(null);
-    },
-  };
+      },
+      finish(then) {
+        // The keyboard stays in (or returns to) the prompt, where the words are.
+        prompt.current?.focus();
+        if (then) afterFinish.current = then;
+        // Already finalizing: the last words are on their way, and `then` waits for them.
+        if (state !== "finalizing") void call("dictation.stop").catch(() => {});
+      },
+      cancel() {
+        void call("dictation.cancel").catch(() => {});
+      },
+      openSettings() {
+        if (notice?.permission) void call("dictation.openSettings", { permission: notice.permission }).catch(() => {});
+      },
+      dismiss() {
+        setNotice(null);
+      },
+    }),
+    [state, notice, active, prompt, call, t],
+  );
 }

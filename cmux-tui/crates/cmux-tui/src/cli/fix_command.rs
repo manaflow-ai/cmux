@@ -17,6 +17,11 @@ pub(super) fn stop_daemon(cli: &Path, socket: &Path) -> String {
     format!("{} daemon stop --socket {}", quote(cli), quote(socket))
 }
 
+/// Swaps the daemon at `socket` for `cli`'s build, keeping its terminals.
+pub(super) fn restart_daemon_in_place(cli: &Path, socket: &Path) -> String {
+    format!("{} daemon restart --socket {}", quote(cli), quote(socket))
+}
+
 /// Stops the daemon at `socket` and starts it again with `cli`'s build.
 pub(super) fn restart_daemon(cli: &Path, socket: &Path) -> String {
     format!(

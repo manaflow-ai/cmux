@@ -47,7 +47,7 @@ extension LiveCoordinator {
 ///   other's.
 /// - A foreground action (an option, Allow, an answer, the extension's Submit
 ///   and composer) opens the app on the chat; it is sent once the app is
-///   active, unlocked and live, so Face ID can sign it.
+///   active, unlocked and live, so the app signs and sends it.
 /// - A failure that Retry can help posts "Couldn't reach <Mac>" with Retry.
 @MainActor
 @Observable
@@ -150,6 +150,7 @@ public final class PushReplies {
             await snapshotsCleared.value
             let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
             PushOutbox(group: group)?.removeAll()
+            PushHandover.live()?.removeAll()
         }
     }
 
@@ -174,6 +175,9 @@ public final class PushReplies {
         public var actionable: Bool
         /// Photos and files the long look's "+" staged for Reply (outbox file names).
         public var attachments: [String] = []
+        /// What the long look's option rows, Submit or answer field handed over for this
+        /// notification in a build without the App Group (`PushHandover`); the open sends it.
+        public var handover: PushReply?
 
         public init(actionIdentifier: String, text: String?, payload: PushPayload?, retry: PushReply?, actionable: Bool = true) {
             self.actionIdentifier = actionIdentifier
@@ -217,7 +221,13 @@ public final class PushReplies {
             return identifier == UNNotificationDismissActionIdentifier ? .nothing : .foreground(retry, open: nil)
         }
         guard let payload = response.payload, identifier != UNNotificationDismissActionIdentifier else { return .nothing }
-        if identifier == UNNotificationDefaultActionIdentifier { return .open(payload) }
+        if identifier == UNNotificationDefaultActionIdentifier {
+            // The long look's row, Submit or answer field opened the app with the answer in hand.
+            if let reply = response.handover, response.actionable, reply.answers(payload), !fromOutboxRefused(reply) {
+                return .foreground(reply, open: payload)
+            }
+            return .open(payload)
+        }
         // Not trusted to act: a button only opens the app (where nothing is sent for it).
         guard response.actionable else { return .open(payload) }
         guard let button = PushAction(identifier: identifier) else { return .nothing }
@@ -233,6 +243,12 @@ public final class PushReplies {
     static func stagedAttachments(for requestID: String) async -> [String] {
         guard let outbox = PushOutbox(group: await PushAppGroup.resolved()) else { return [] }
         return await Task.detached(priority: .userInitiated) { outbox.takeStaged(for: requestID) }.value
+    }
+
+    /// What the long look handed over for the notification `requestID` (off the main thread:
+    /// a keychain read), taken once.
+    static func handedOver(for requestID: String) async -> PushReply? {
+        await Task.detached(priority: .userInitiated) { PushHandover.live()?.take(requestID: requestID) }.value
     }
 
     /// One notification response (the app delegate). Returns once a
@@ -382,8 +398,6 @@ public final class PushReplies {
                 await postCouldNotReach(reply, reason: nil)
             case .refused(let message):
                 await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"), body: message)
-            case .cancelled:
-                break
             }
         } catch {
             guard epoch == accountEpoch else { return }
@@ -409,7 +423,6 @@ public final class PushReplies {
             guard epoch == accountEpoch else { return true }
             switch failure.reason {
             case .unreachable: return false
-            case .cancelled: return true
             case .refused(let message):
                 await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"), body: message)
                 return true

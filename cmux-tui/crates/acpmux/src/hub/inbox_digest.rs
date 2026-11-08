@@ -258,6 +258,8 @@ fn digestible(q: &QueuedPrompt) -> bool {
         && !q.sent_now
         && run.control != Control::Web
         && !run.trust_gate
+        // A goal's continuation runs alone, checked against its goal (`goal_tools.rs`).
+        && !super::super::goal_tools::is_continuation(run.provenance.as_ref())
         && !run.blocks.is_empty()
         && run.blocks.iter().all(|b| {
             b.get("type").and_then(Value::as_str) == Some("text")
@@ -440,7 +442,7 @@ impl Hub {
                 prompt_id: digest_id.clone(),
                 turn_id: turn_id.clone(),
                 client: client.to_owned(),
-                preview: short_text(&text, 200),
+                preview: short_text(super::inbox::relay_body(&text), 200),
                 queued_at: now_ms(),
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(run),

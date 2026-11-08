@@ -13,7 +13,8 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
                     nightly or dev build waits for a Mac on GitHub.
   measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY), skips unless the part's host
                     (the measurement's, else cmux20-bench) is idle and no dev build waits in the controller queue,
-                    then runs ONE part (its run_seconds: 15 minutes, the build 20, STRESS and sidebar 25) as a
+                    then runs ONE part (its run_seconds: 15 minutes, the build 20, STRESS and sidebar 25, workspace
+                    scaling 60 because it seeds and measures a 1000-row topology) as a
                     background (lowest priority) measurement step on that host, and cancels it when a foreground
                     job queues that the host could run (its labels, its name, or a target worker).
   request (controller) with no gateway label and vars.CMUX_NEXT_PERF_CRON_CONTROLLER=1: a job named for the part;
@@ -157,6 +158,10 @@ PARTS = [
     # 400 workspaces, 6 scenarios: not timed against 900 s yet (perf-budgets' own per-bench cap is 900 s).
     {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 1500},
+    # 1/100/1000 workspace topology: warning-only constant-scaling trend budget. This is the one 60-minute
+    # part: seeding and measuring all three topologies is intentionally longer than the normal 15-minute tick.
+    {"name": "workspace-scaling", "args": [*MEASURE, "--vdisplay-hold=3600", "--suite=workspace-scaling"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "workspace-scaling", "run_seconds": 3600},
     {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
@@ -171,6 +176,7 @@ PART_BY_NAME = {p["name"]: p for p in PARTS}
 ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
+    (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.", "web-ui"),
 ]
@@ -603,6 +609,10 @@ def target_of(name, row, refresh_ms):
     refresh_ms = row_refresh(row, refresh_ms)
     unit = row.get("unit") or "ms"
     name = base_row(name)
+    if name.startswith("workspace_scaling."):
+        # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
+        # latency is intentionally advisory and must not inherit the generic 10 ms target.
+        return None
     if name.startswith(("diff.", "launch.", "webui.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
@@ -1455,6 +1465,12 @@ def supported_parts_at(sha):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
+        elif need == "workspace-scaling":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            ok = "--suite=workspace-scaling" in text and subprocess.run(
+                ["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/workspace-scaling-bench.py"],
+                capture_output=True).returncode == 0
         else:
             ok = True
         if ok:

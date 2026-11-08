@@ -8,7 +8,8 @@ public import Foundation
 ///   "openLinksInCmuxBrowser": true,                     // false: every link opens in the default browser
 ///   "hostsToOpenInEmbeddedBrowser": ["*.example.com"],  // empty: every host opens in cmux
 ///   "urlsToAlwaysOpenExternally": ["re:^https://[^/]*\\.example\\.com/billing"],
-///   "openSignInPagesInCmux": true                       // false: sign-in pages follow the keys above
+///   "openSignInPagesInCmux": true,                      // false: sign-in pages follow the keys above
+///   "openPullRequestsInGitHubPage": true                // false: a chat's pull request link opens github.com
 /// }
 /// ```
 ///
@@ -25,6 +26,9 @@ public import Foundation
 /// `browser.openSignInPagesInCmux` (on by default, ``signInPagesInCmux``): a sign-in or
 /// device-code page (``SignInPage``) opens in a cmux browser tab even when the toggle is off or
 /// the host list misses its host; an external rule still sends it out.
+///
+/// `browser.openPullRequestsInGitHubPage` (on by default, ``pullRequestsInGitHubPage``): a GitHub pull
+/// request link clicked in an agent chat opens the cmux GitHub page; off, its github.com page.
 public nonisolated struct LinkRouting: Sendable, Hashable {
     public var opensInCmuxBrowser: Bool
     public var embeddedHosts: [String]
@@ -34,16 +38,24 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
     /// `browser.openSignInPagesInCmux`: true opens every ``SignInPage`` in a cmux browser tab unless an
     /// external rule matches it; false leaves sign-in pages to the other keys like any link.
     public var signInPagesInCmux: Bool
+    /// `browser.openPullRequestsInGitHubPage`: true opens a chat's pull request link in the cmux GitHub
+    /// page (CmuxNextGitHubViewer's `GitHubLink.page(for:routing:)`), false on github.com.
+    public var pullRequestsInGitHubPage: Bool
 
-    public static let fallback = LinkRouting(opensInCmuxBrowser: true, embeddedHosts: [], externalRules: [])
+    /// Every key's default: schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift),
+    /// which also has each key's path (`openPath`, `enabledPath`, `signInPagesPath`,
+    /// `pullRequestsInGitHubPagePath`, `legacyOpenPath`, `hostsPath`, `rulesPath`).
+    public static let fallback = LinkRouting(opensInCmuxBrowser: openDefault, embeddedHosts: hostsDefault, externalRules: rulesDefault)
 
-    public init(opensInCmuxBrowser: Bool, embeddedHosts: [String], externalRules: [String], browserEnabled: Bool = true,
-                signInPagesInCmux: Bool = true) {
+    public init(opensInCmuxBrowser: Bool, embeddedHosts: [String], externalRules: [String], browserEnabled: Bool = LinkRouting.enabledDefault,
+                signInPagesInCmux: Bool = LinkRouting.signInPagesDefault,
+                pullRequestsInGitHubPage: Bool = LinkRouting.pullRequestsInGitHubPageDefault) {
         self.opensInCmuxBrowser = opensInCmuxBrowser
         self.embeddedHosts = embeddedHosts
         self.externalRules = externalRules
         self.browserEnabled = browserEnabled
         self.signInPagesInCmux = signInPagesInCmux
+        self.pullRequestsInGitHubPage = pullRequestsInGitHubPage
     }
 
     /// Where one link goes.
@@ -53,16 +65,6 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
         /// The system: the default browser for a web link, the scheme's app for any other.
         case system
     }
-
-    public static let openPath = ["browser", "openLinksInCmuxBrowser"]
-    /// `browser.enabled`, the Settings row Enable cmux Browser.
-    public static let enabledPath = ["browser", "enabled"]
-    /// `browser.openSignInPagesInCmux`, the Settings row Open Sign-In Pages in cmux Browser.
-    public static let signInPagesPath = ["browser", "openSignInPagesInCmux"]
-    /// Classic's key, read when ``openPath`` is absent (``EffectiveSettings`` copies it over).
-    public static let legacyOpenPath = ["browser", "openTerminalLinksInCmuxBrowser"]
-    static let hostsPath = ["browser", "hostsToOpenInEmbeddedBrowser"]
-    static let rulesPath = ["browser", "urlsToAlwaysOpenExternally"]
 
     /// Where `url` opens. Only an http(s) link can open in cmux. `otherTarget` (Shift-Command
     /// on a click) asks for the target the setting does not pick: a link the rules send out
@@ -144,11 +146,12 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: enabledPath.joined(separator: "."), message: "expected true or false"))
             }
         }
-        if let value = browser[signInPagesPath[1]] {
+        for (path, field) in [(signInPagesPath, \LinkRouting.signInPagesInCmux), (pullRequestsInGitHubPagePath, \.pullRequestsInGitHubPage)] {
+            guard let value = browser[path[1]] else { continue }
             if let flag = value.boolValue {
-                setting.signInPagesInCmux = flag
+                setting[keyPath: field] = flag
             } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: signInPagesPath.joined(separator: "."), message: "expected true or false"))
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
             }
         }
         // The new key wins; classic's is read only without it.

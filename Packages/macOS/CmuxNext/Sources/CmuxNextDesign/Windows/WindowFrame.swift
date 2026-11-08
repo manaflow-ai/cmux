@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CoreGraphics
+import CmuxNextCompat
 import Darwin
 import Foundation
 import ImageIO
@@ -153,6 +154,15 @@ public nonisolated struct WindowFrame: Sendable {
             context.draw(image, in: CGRect(x: Double(index) * cell, y: 0, width: Double(frame.width) * factor, height: Double(frame.height) * factor))
         }
         if let strip = context.makeImage() { writePNG(strip, to: path) }
+    }
+
+    /// Makes `dir`, then writes each frame to its path and the strip of `strip` to `stripPath`, off the main actor: PNG
+    /// encoding and file writes held it for seconds a frame strip under load, which the frame and hang probes counted.
+    @concurrent public static func writeAll(_ frames: [(frame: WindowFrame, path: String)], strip: [WindowFrame], stripPath: String,
+                                           in dir: String) async {
+        try? FileManager.checked.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        for (frame, path) in frames { if let image = frame.image { writePNG(image, to: path) } }
+        writeStrip(strip, to: stripPath)
     }
 
     static func writePNG(_ image: CGImage, to path: String) {

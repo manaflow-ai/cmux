@@ -12,6 +12,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { diffTreeDisclosure, TREE_NAME_FADES, treeNameFade } from "./treeMotion.experiment";
 import { attachTreeMotion } from "./treeMotionDom";
 import { attachTreeTitles } from "./treeTitles";
+import { selectOnlyPierreFileTreePath } from "../../../file-tree-refresh";
 
 export function ChangedFilesTree({
   files,
@@ -62,9 +63,23 @@ export function ChangedFilesTree({
       measureStats,
     );
   };
-  // Pierre reports selection from clicks and keys; only file rows map to a diff.
+  // Pierre reports selection from clicks and keys; only file rows map to a diff. A folder row's
+  // click toggles the folder and selects it too: the highlight goes back to the shown file, so a
+  // folder never keeps one (the diff tab's tree does the same, FilesSidebar.tsx).
+  const restoringSelection = useRef(false);
   const onSelectionChange = useStableCallback((paths: readonly string[]) => {
-    const file = filesRef.current.get(paths[paths.length - 1] ?? "");
+    const path = paths[paths.length - 1] ?? "";
+    if (restoringSelection.current) return;
+    if (paths.length === 1 && path.endsWith("/")) {
+      restoringSelection.current = true;
+      try {
+        selectOnlyPierreFileTreePath(model, selectedDisplay ?? "");
+      } finally {
+        restoringSelection.current = false;
+      }
+      return;
+    }
+    const file = filesRef.current.get(path);
     if (file && file.path !== selected) onSelect(file.path);
   });
   // Pierre reports no change when the selected row is picked again, but that file may have

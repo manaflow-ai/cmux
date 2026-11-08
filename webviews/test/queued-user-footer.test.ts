@@ -412,6 +412,12 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       expect(hovered.controls.at(-2)).toBe("×");
       expect(hovered.controls.indexOf("Copy")).toBeLessThan(hovered.controls.indexOf("×"));
       expect(Math.abs(hovered.sendRight - rest.sendRight)).toBeLessThanOrEqual(0.5);
+      // Retry is shown but held while the steer waits: a resend would reach the agent twice
+      // (cmux#34613), and it has no model menu in this row (cmux#34614).
+      const retry = row.locator(".cv-user__pending").getByRole("button", { name: "Retry", exact: true });
+      expect(await retry.count()).toBe(1);
+      expect(await retry.isDisabled()).toBe(true);
+      expect(await row.locator(".cv-user__pending .cv-turn-retry-menu").count()).toBe(0);
     } finally {
       await page.context().close();
     }

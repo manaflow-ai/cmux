@@ -17,7 +17,8 @@ const TEAMMATE_VERBS: [&str; 6] = [
     "agent-session-cancel",
     "agent-session-detach",
 ];
-/// A link guest's verbs: watch and write (every prompt held for the owner), its typing and view.
+/// A guest invited with `talk` (a signed-in account): watch and write (every prompt held for the
+/// owner), its typing and view. A guest who joined by the link alone gets `VIEWER_VERBS`.
 /// Never cancel, permission, children or media. An attach is the guest's writable observe.
 const GUEST_VERBS: [&str; 7] = [
     "agent-session-attach",
@@ -84,13 +85,12 @@ pub(super) fn scope(
 }
 
 pub(super) fn author(mux: &Mux, client: u64) -> Option<Value> {
-    mux.control_clients
-        .agent_sessions
-        .proxy_authors
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&client)
-        .cloned()
+    let authors = &mux.control_clients.agent_sessions.proxy_authors;
+    if authors.publishing() {
+        // The published binds (R-DAEMON-STATE stage S1): every line asks, and none waits for a bind or a disconnect.
+        return authors.load().unwrap_or_else(|e| e.into_inner()).get(&client).cloned();
+    }
+    authors.lock().unwrap_or_else(|e| e.into_inner()).get(&client).cloned()
 }
 
 pub(super) fn bind(
@@ -500,6 +500,10 @@ mod tests {
         assert_code(&client.request(answer), "agent_session.not_trusted");
         // Its typing or view would count as the owner's: refused, and nothing reaches acpmux.
         for frame in [
+            json!({"cmd":"agent-session-context", "surface":surface, "op":"get",
+                "_host_author":author, "_host_session":SESSION}),
+            json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "text":"edit",
+                "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-typing", "surface":surface, "on":true,
                 "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-view", "surface":surface, "visible":true,

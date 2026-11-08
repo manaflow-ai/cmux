@@ -19,7 +19,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 // --bootstrap lane --bootstrap-script FILE` makes a lane host in one call.
                 arguments: [CatalogArgument.nameString.optional, CatalogArgument.newMachineSizeString, CatalogArgument.persistentBool,
                             CatalogArgument.bootstrapString, CatalogArgument.bootstrapScriptString, CatalogArgument.machineConfigString,
-                            CatalogArgument.repoString],
+                            CatalogArgument.repoString, CatalogArgument.environmentString],
                 cliName: "cloud new-machine", mainMenu: .file
             ),
             ActionDescriptor(
@@ -217,15 +217,6 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "pencil", surfaces: [.contextMenu],
                 arguments: [CatalogArgument.nameString.renamingTarget], targets: [.machine], cliName: "cloud rename-machine"
             ),
-            // Share Machine…: who besides its creator starts app chats on a team machine (chat grants).
-            ActionDescriptor(
-                id: "cloudShareMachine",
-                title: String(localized: "action.cloudShareMachine", defaultValue: "Share Machine…", bundle: .module),
-                keywords: ["vm", "cloud tree", "share", "teammate", "team", "chat", "grant", "access"], category: .cloud,
-                symbol: "person.2", surfaces: [.contextMenu],
-                arguments: [CatalogArgument.teammateString, CatalogArgument.revokeBool], targets: [.machine],
-                cliName: "cloud share-machine"
-            ),
             ActionDescriptor(
                 id: "cloudKillMachine",
                 title: String(localized: "action.cloudKillMachine", defaultValue: "Kill Machine", bundle: .module),
@@ -370,7 +361,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "cloudSetupGitHub", "cloudEnrollMachine",
             // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
             // caller hears a failure instead of OK, and can name the result in the next command.
-            "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudShareMachine", "cloudKillMachine",
+            "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",
             "cloudResizeMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets",
             // The stored policy's mode and whether the server applied it (a PUT can take a while).
             "cloudSetNetworkAccess",
