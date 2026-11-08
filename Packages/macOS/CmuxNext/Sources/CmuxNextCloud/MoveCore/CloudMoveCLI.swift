@@ -200,7 +200,29 @@ public nonisolated struct CloudMoveCLI: Sendable {
                                               workRoots: [String], acpmuxHome: String?, store: Bool, onSeedRefusal: SeedRefusal) -> [String] {
         let call = StartChatCopyCall(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath,
                                      workRoots: workRoots, acpmuxHome: acpmuxHome, store: store, onSeedRefusal: onSeedRefusal)
-        return CloudMoveCore().call("cli_invocation", call, as: Invocation.self)?.args ?? []
+        return Self.withSeedRefusal(CloudMoveCore().call("cli_invocation", call, as: Invocation.self)?.args ?? [], call)
+    }
+
+    /// TRANSITIONAL until CCmuxAppFFI is repinned past cmux-cloud-start-core's `on_seed_refusal`: the pinned release
+    /// names no `--on-seed-refusal`, so the copy's own rule is added here. A library that names it is left as it said.
+    private static func withSeedRefusal<Call: Encodable>(_ args: [String], _ call: Call) -> [String] {
+        guard let copy = call as? StartChatCopyCall, !args.isEmpty, !args.contains("--on-seed-refusal") else { return args }
+        return args + ["--on-seed-refusal", copy.onSeedRefusal.rawValue]
+    }
+
+    /// TRANSITIONAL with ``withSeedRefusal(_:_:)``: the pinned release does not read a refused seed's `fallback_code` and
+    /// `install_url`, so they come from the answer's own JSON line when Rust left them out.
+    private static func withSeedFields(_ answer: Answer, stdout: String) -> Answer {
+        guard answer.fallbackCode == nil, answer.installURL == nil else { return answer }
+        struct Fields: Decodable {
+            var fallbackCode: String?, installURL: String?
+            enum CodingKeys: String, CodingKey { case fallbackCode = "fallback_code", installURL = "install_url" }
+        }
+        let line = stdout.split(whereSeparator: \.isNewline).last { $0.hasPrefix("{") }
+        guard let line, let fields = try? JSONDecoder().decode(Fields.self, from: Data(line.utf8)) else { return answer }
+        var answer = answer
+        (answer.fallbackCode, answer.installURL) = (fields.fallbackCode, fields.installURL)
+        return answer
     }
 
     private struct StartChatCopyCall: Encodable {
@@ -239,7 +261,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
     private func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> ProcessResult {
         guard let invocation = CloudMoveCore().call("cli_invocation", call, as: Invocation.self) else { throw CloudMoveCLIUnanswered() }
         let limit = invocation.timeoutSeconds.map { Duration.seconds($0) } ?? max(timeout, .seconds(invocation.minTimeoutSeconds ?? 0))
-        return try await ProcessRunner.run(executable: binary, arguments: invocation.args, environment: nil, stdin: stdin,
+        return try await ProcessRunner.run(executable: binary, arguments: Self.withSeedRefusal(invocation.args, call), environment: nil, stdin: stdin,
                                            timeout: limit, stderrLine: stderrLine, clock: ContinuousClock())
     }
 
@@ -248,8 +270,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
         let result = try await output(call, stdin: stdin, stderrLine: stderrLine)
         let request = ReadRequest(reading: reading, stdout: String(decoding: result.stdout, as: UTF8.self),
                               stderr: String(decoding: result.stderr, as: UTF8.self), status: result.status)
-        return CloudMoveCore().call("cli_read", request, as: Read.self)
+        var read = CloudMoveCore().call("cli_read", request, as: Read.self)
             ?? Read(answer: Answer(ok: false, errorCode: Self.badAnswer, error: "exit \(result.status)"))
+        read.answer = Self.withSeedFields(read.answer, stdout: request.stdout)
+        return read
     }
 }
 
