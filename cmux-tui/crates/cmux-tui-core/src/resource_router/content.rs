@@ -187,8 +187,8 @@ fn terminal_history_read(
             let total = u64::from(terminal.history_rows());
             let end = before.unwrap_or(total).min(total);
             let start = end.saturating_sub(u64::from(limit));
-            let count = u16::try_from(end.saturating_sub(start))
-                .expect("history page is bounded by the uint16 limit");
+            // start is at most `limit` rows before end, so the page fits in a u16.
+            let count = u16::try_from(end.saturating_sub(start)).unwrap_or(limit);
             let cells = terminal.styled_history_rows(start as u32, count)?;
             Ok::<_, ghostty_vt::Error>((
                 start,
@@ -1050,7 +1050,10 @@ fn validate_terminal_effect_fields(request: &ParsedResourceRequest) -> Result<()
         for key in intent_string_array(&request.fields, "keys", "terminal.input.keys").map_err(
             |failure| match failure {
                 ActionFailure::Known(error) => error,
-                ActionFailure::Indeterminate(_) => unreachable!("validation has no effects"),
+                // Reading the request's own fields has no effect to leave indeterminate.
+                ActionFailure::Indeterminate(cause) => {
+                    ResourceError::operation_failed("terminal.input.keys", cause, json!({}))
+                }
             },
         )? {
             if key_input_from_chord(&key).is_none() {
@@ -1497,8 +1500,8 @@ fn browser_key_description(value: &str) -> BrowserKeyDescription {
             text: None,
         };
     }
-    if canonical.chars().count() == 1 {
-        let character = canonical.chars().next().expect("counted one character");
+    let mut chars = canonical.chars();
+    if let (Some(character), None) = (chars.next(), chars.next()) {
         let (code, vkey) = if character.is_ascii_alphabetic() {
             (
                 format!("Key{}", character.to_ascii_uppercase()),
