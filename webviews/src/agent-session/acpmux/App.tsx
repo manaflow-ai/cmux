@@ -4150,6 +4150,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current?.waitingDay(params) ?? Promise.resolve(undefined),
     [],
   );
+  // Waiting on me shows only with preview features on (Settings > Advanced > Labs, off by default).
+  const [waitingLabs, setWaitingLabs] = useState(false);
   const jumpToWait = useCallback(
     (sessionId: string, turnId?: string) => {
       selectSession(sessionId);
@@ -6708,6 +6710,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
+        // Waiting on me on the home (waiting/WaitingTimeline.tsx) ships dark behind Labs at first.
+        setWaitingLabs(on === true);
         // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
       applyWorkflowLabs(on) {
@@ -11975,12 +11979,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
                       shortcuts={!hasBottomAsk}
                     />
-                    <HomeWaitingTimeline
-                      read={readWaitingDay}
-                      sessions={snapshot.sessions}
-                      linked={linkUp(snapshot.connection)}
-                      onJump={jumpToWait}
-                    />
+                    {waitingLabs && (
+                      <HomeWaitingTimeline
+                        read={readWaitingDay}
+                        sessions={snapshot.sessions}
+                        linked={linkUp(snapshot.connection)}
+                        onJump={jumpToWait}
+                      />
+                    )}
                   </div>
                 )}
                 {hostLine}
