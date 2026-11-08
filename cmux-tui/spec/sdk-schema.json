@@ -17476,6 +17476,16 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "filename": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-file-paste-v1"
      }
     },
     "additional_properties": false
@@ -17496,7 +17506,7 @@
    },
    "stream": null,
    "constraints": [
-    "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
+    "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. With terminal-file-paste-v1, begin(filename,size) accepts a regular file, including an empty file, instead of an image MIME. Filename is a validated basename, never a path; the daemon chooses the private temporary directory. 48 KiB chunks; committed temporary files expire after 600 seconds."
    ]
   },
   "url-open": {

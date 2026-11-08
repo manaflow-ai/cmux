@@ -564,8 +564,8 @@ class GeneratedClientMixin:
     def park_tabs(self, surfaces: List[TabRef]) -> JsonValue:
         return self._invoke_command('park-tabs', ParkTabsRequest(surfaces=surfaces))
 
-    def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
-        return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, mime=mime, offset=offset, size=size))
+    def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, filename: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
+        return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, filename=filename, mime=mime, offset=offset, size=size))
 
     def pin_workspace(self, profile: str, session_id: str, workspace_key: str) -> JsonValue:
         return self._invoke_command('pin-workspace', PinWorkspaceRequest(profile=profile, session_id=session_id, workspace_key=workspace_key))
