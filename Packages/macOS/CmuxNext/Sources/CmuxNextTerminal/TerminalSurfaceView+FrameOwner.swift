@@ -28,9 +28,6 @@ struct TerminalFrameOwnership {
     /// The presenter's refresh in which `ahead` and its grid went (``TerminalFramePresenter/currentEpoch``): the hold for
     /// the program's redraw at that grid counts from it (RESIZE P0 12).
     var aheadSentEpoch: UInt64?
-    /// The last frame of a size that waited for the program's redraw showed at the hold's bound without it: the next
-    /// sizes do not wait, until a frame the program drew at its grid shows again (``TerminalFramePresenter``).
-    var programMissedHold = false
 }
 
 /// FRAME OWNER REFACTOR S4, cmux-ad m18, m19 (no switch) and m26 (draw ahead): a terminal's bounds change only in the
@@ -113,10 +110,16 @@ extension TerminalSurfaceView {
     /// RESIZE P0 12): a key resize's or a divider drag's grid goes to the program with the size asked of Ghostty
     /// (``followsKeyResize``, ``isFollowingResizeGesture``), so its frame waits for the program's, at most
     /// ``TerminalFramePresenter/resizeHoldTicks``. Other sizes do not wait: a split's, close's or zoom's grid goes at its
-    /// landing, so no redraw can come before it. A program that missed a hold
-    /// (``TerminalFrameOwnership/programMissedHold``) does not hold the next sizes.
+    /// landing, so no redraw can come before it.
+    ///
+    /// Only a program-drawn screen waits (RESIZE P0 15, design item 1): a full-screen program (Ghostty's alternate
+    /// screen: vim, htop, less, tmux, Claude Code) repaints its whole screen at a new grid, and until it does, Ghostty
+    /// can show only its last picture clipped or padded (m55: a fail). A primary-screen terminal (a shell prompt, a
+    /// program's scrolling output) is Ghostty's own reflow at the new grid, which is the right picture in the first
+    /// frame (T-KEYS 3): nothing redraws it, so a hold there is only lag. Each request has its own bound: a program that
+    /// missed one is held again at the next size (no latch, design item 2).
     var programHoldTicks: UInt64 {
-        guard followsKeyResize || isFollowingResizeGesture, !frameOwnership.programMissedHold else { return 0 }
+        guard followsKeyResize || isFollowingResizeGesture else { return 0 }
         return TerminalFramePresenter.resizeHoldTicks
     }
 
