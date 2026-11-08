@@ -115,7 +115,7 @@ pub(in crate::link) fn repo_root(socket: &Path, path: &str) -> anyhow::Result<Op
 /// own sign-ins and keys (dotfiles no secret list fully names).
 pub(in crate::link) fn too_broad(path: &str) -> bool {
     let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty() && *part != ".").collect();
-    parts.len() <= 1 || (parts.len() == 2 && matches!(parts[0], "home" | "Users")) || parts.iter().any(|part| *part == "..")
+    parts.len() <= 1 || (parts.len() == 2 && matches!(parts[0], "home" | "Users")) || parts.contains(&"..")
 }
 
 /// Whether `path` is below a home folder (`/home/NAME/x`, `/root/x`, `/Users/NAME/x`) or three
