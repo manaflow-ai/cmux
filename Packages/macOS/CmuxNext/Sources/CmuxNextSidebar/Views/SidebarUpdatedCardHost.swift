@@ -10,9 +10,17 @@ import CmuxNextWakeups
 /// height (webviews `ui/glass/composerMaterial.css`), so the card beside the
 /// composer has its edge, fill and height (Leo 2026-11-07: "the border styles, the
 /// glass intensity is different. For two, it's like the heights never match up
-/// with anything"). The fill is translucent over the sidebar's own glass, as the
-/// sidebar cards' native veil was (Leo 2026-10-30: "I don't like the
-/// non-glassness"), and opaque only under Reduce Transparency.
+/// with anything"). The fill is translucent, as the sidebar cards' native veil
+/// was (Leo 2026-10-30: "I don't like the non-glassness"), and opaque only under
+/// Reduce Transparency.
+///
+/// Under the page this view draws the frost (``glass``): the page's own blur
+/// cannot reach the native rows the open preview and a dragged card stand over,
+/// so the card stays glass over them, with their motion showing through, instead
+/// of turning solid (Leo 2026-11-08: "it turns from glass when it's unhovered into
+/// opaque when it does get hovered. I feel like we should be able to keep it as
+/// glass though, right?"). It is the card's size and its open preview's, and runs
+/// the page's preview motion with it (``MotionGate/cardCurve``).
 ///
 /// Resting on the card opens its hover preview, a scrollable list of the update's
 /// changes in the same glass (Leo 2026-11-07: "a quick access scroll through of
@@ -43,6 +51,12 @@ final class SidebarUpdatedCardHost: NSView {
     /// The pointer is on the card: its x shows.
     private(set) var isHovered = false
     private var hoverArea: NSTrackingArea?
+    /// The frost behind the page: the card and its open preview, at the composer's corner. Only the
+    /// material: the page paints the composer's tint over it.
+    let glass = GlassPanelView(cornerRadius: LayoutGrid.composerRadius) // glass-level-allow: the material only; the page paints the composer's popover-level tint over it
+    /// The glass's frame for the preview height it was last laid out at.
+    private(set) var glassFrame = NSRect.zero
+    private var glassPreview: CGFloat = 0
     /// Makes ``island`` once a card shows (a web page; none at launch without one).
     var surfaces: (any SidebarUpdateSurfaces)? {
         didSet {
@@ -58,8 +72,8 @@ final class SidebarUpdatedCardHost: NSView {
             guard let island else { return }
             island.view.frame = bounds
             island.view.autoresizingMask = [.width, .height]
-            // Under the x: the page never covers it.
-            addSubview(island.view, positioned: .below, relativeTo: closeButton)
+            // Over the glass and under the x: the page never covers it.
+            addSubview(island.view, positioned: .above, relativeTo: glass)
             island.onHeightChange = { [weak self] in self?.pageDidReportHeight() }
             island.onDismiss = { [weak self] in self?.onDismiss?() }
             island.onDrag = { [weak self] in self?.pageDragged($0) }
@@ -221,6 +235,8 @@ final class SidebarUpdatedCardHost: NSView {
             // hold is about to read: the slot remembers it once it has armed the hold.
             if slotWidth > 0, holdArmed { Self.remember(height: height, width: slotWidth) } else { pendingRememberedHeight = height }
         }
+        // A preview that opens or closes changes no frame: the glass follows it in this view's layout.
+        needsLayout = true
         onHeightChange?()
     }
 
@@ -245,6 +261,8 @@ final class SidebarUpdatedCardHost: NSView {
         closeButton.onPress = { [weak self] in self?.onDismiss?() }
         closeButton.isHidden = true
         closeButton.alphaValue = 0
+        glass.isHidden = true
+        addSubview(glass)
         addSubview(closeButton)
     }
 
@@ -364,6 +382,39 @@ final class SidebarUpdatedCardHost: NSView {
         let side = Self.closeSide
         closeButton.frame = NSRect(x: bounds.width - Self.closeInset.width - side, y: closeTop,
                                    width: side, height: side).integral
+        layoutGlass()
+    }
+
+    /// The glass behind the card and its open preview, on the card's resting edge. A preview that opens
+    /// or closes moves its edge on the page's curve, from the moment the page starts its motion, so the
+    /// glass and the page's preview move as one; every other change (the view growing for the preview's
+    /// room, the card's words) lands at once.
+    private func layoutGlass() {
+        let preview = card == nil ? 0 : island?.previewHeight ?? 0
+        let tall = min(bounds.height, (height > 0 ? height : bounds.height) + preview)
+        let next = NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - tall, width: bounds.width, height: tall)
+        glass.isHidden = card == nil || tall <= 0
+        guard next != glassFrame else { return }
+        let moves = preview != glassPreview && window != nil && !glassFrame.isEmpty
+        (glassFrame, glassPreview) = (next, preview)
+        guard moves else { return Motion.withoutAnimation { glass.frame = next } }
+        // The page's gate (web), not the sidebar's: with web motion off or reduced the page's preview
+        // is simply there, and so is the glass (review F1 of #38117).
+        Motion.web.animateCard(in: self) { glass.animator().frame = next }
+    }
+
+    /// Whether the card's glass covers `windowPoint`: the rows under it light nothing and open no card
+    /// (``SidebarListView/hoverOccluded``).
+    func covers(windowPoint: NSPoint) -> Bool {
+        guard !isHiddenOrHasHiddenAncestor, card != nil else { return false }
+        return glassFrame.contains(convert(windowPoint, from: nil))
+    }
+
+    /// The view grown for the preview's room takes the pointer only where the card's glass is: a
+    /// closing preview's room, and the room asked for before it opens, pass clicks to the rows.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview, glassFrame.contains(convert(point, from: superview)) else { return nil }
+        return super.hitTest(point)
     }
 
     override func updateTrackingAreas() {

@@ -4,6 +4,7 @@
 use std::io;
 use std::os::fd::{AsRawFd as _, FromRawFd as _};
 use std::os::unix::net::UnixStream as StdStream;
+use std::time::Duration;
 
 use cmux_link::connect_info::{ConnectInfo, ConnectInfoError, LinkTokenGrant, is_cloud_host};
 use cmux_link::dial::Service;
@@ -17,6 +18,12 @@ use super::dial::DIAL_TIMEOUT;
 
 const MAX_REPLY: usize = 64 * 1024;
 const QUEUE_SIZE: usize = 16;
+/// How long the parent may take to answer one call before the channel ends. Each caller still
+/// gives up after [`DIAL_TIMEOUT`]; the channel waits much longer, because ending it ends
+/// `link serve` and with it every open machine connection of this link. The parent answers each
+/// call after a few backend requests, which can take longer than a dial (Cloud capture run
+/// 42443029004, dev, 2026-11-08). A parent that has not answered after this is broken.
+const REPLY_LIMIT: Duration = Duration::from_secs(120);
 
 pub(super) struct Bound {
     pub stream: StdStream,
@@ -217,14 +224,18 @@ impl Driver {
             // A caller that gives up (its dial was cancelled with its connection)
             // leaves the channel up: its reply is still read in order and dropped
             // with the closed answer, so a late token never answers the next
-            // request, and the next dial is not refused as "unavailable".
-            let text = tokio::time::timeout(DIAL_TIMEOUT, async {
+            // request, and the next dial is not refused as "unavailable". The same
+            // holds for a caller that gave up on a slow reply (its own DIAL_TIMEOUT):
+            // the reply is waited for up to REPLY_LIMIT, never the dial's 5 s.
+            let timed_out = || io::Error::new(io::ErrorKind::TimedOut, "cloud.broker.timeout");
+            tokio::time::timeout(DIAL_TIMEOUT, async {
                 self.stream.write_all(&text).await?;
-                self.stream.write_all(b"\n").await?;
-                super::lines::read_line(&mut self.stream, MAX_REPLY).await
+                self.stream.write_all(b"\n").await
             })
             .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "cloud.broker.timeout"))??;
+            .map_err(|_| timed_out())??;
+            let text =
+                super::lines::read_line_within(&mut self.stream, MAX_REPLY, REPLY_LIMIT).await?;
             let reply: Reply = serde_json::from_str(&text).map_err(|_| invalid())?;
             if reply.version != 1 || reply.id != id {
                 return Err(invalid());
