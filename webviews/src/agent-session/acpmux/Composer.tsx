@@ -11,7 +11,8 @@ import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
 import { Listbox } from "../../ui/Listbox";
-import { ComposerListLayer, useComposerListBox } from "./backdropLayer";
+import { ComposerListLayer } from "./backdropLayer";
+import { useComposerListBox } from "./backdropLayerModel";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   bindMarks,
@@ -35,6 +36,7 @@ import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDra
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
+import { type Choice } from "./composerPickerModel";
 import { SendSlotGlyph } from "./composer/SendSlotGlyph";
 import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
 import { isActive, type Dictation } from "./dictation";
@@ -56,7 +58,6 @@ import {
 } from "./mentionItems";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
-import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import {
   CMUX_PASS_THROUGH,
@@ -103,9 +104,10 @@ import {
   writePersistedDraft,
 } from "./composerDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
-import { type StringKey, useT } from "./i18n";
+import { useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
-import { UsageRingMenu, useComposerChrome } from "./composerChrome";
+import { UsageRingMenu } from "./composerChrome";
+import { useComposerChrome } from "./composerChromeModel";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
@@ -157,6 +159,7 @@ import {
   type EmojiMatch,
   type EmojiShortcodes,
 } from "./emojiShortcodes";
+import { COMPOSER_LABELS } from "./composerModel";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -192,49 +195,6 @@ const NOT_AN_EDIT_KEY = new Set([
 ]);
 
 export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
-
-export const COMPOSER_LABELS = {
-  placeholder: "composer.placeholder",
-  placeholderQueued: "composer.placeholderQueued",
-  steerQueueTooltip: "composer.steerQueueTooltip",
-  suggestFailing: "composer.suggestFailing",
-  suggestDraft: "composer.suggestDraft",
-  suggestOpen: "composer.suggestOpen",
-  suggestionKey: "composer.suggestionKey",
-  suggestionHint: "composer.suggestionHint",
-  placeholderSteerQuick: "composer.placeholderSteerQuick",
-  add: "composer.add",
-  mention: "composer.mention",
-  attach: "composer.attach",
-  attachScreenshot: "composer.attachScreenshot",
-  attachWindow: "composer.attachWindow",
-  prompt: "composer.prompt",
-  send: "composer.send",
-  stop: "composer.stop",
-  stopping: "composer.stopping",
-  escapeAgainToStop: "composer.escapeAgainToStop",
-  commands: "composer.commands",
-  noCommands: "composer.noCommands",
-  noMatchingCommands: "composer.noMatchingCommands",
-  attachments: "composer.attachments",
-  removeAttachment: "composer.removeAttachment",
-  openAttachment: "composer.openAttachment",
-  dropFiles: "composer.dropFiles",
-  sentAsFileForCodex: "composer.sentAsFileForCodex",
-  tooLarge: "composer.tooLarge",
-  unsupported: "composer.unsupported",
-  imagesUnsupported: "composer.imagesUnsupported",
-  cut: "composer.menu.cut",
-  copy: "composer.menu.copy",
-  paste: "composer.menu.paste",
-  pasteAsPlainText: "composer.menu.pasteAsPlainText",
-  undo: "composer.menu.undo",
-  redo: "composer.menu.redo",
-  selectAll: "composer.menu.selectAll",
-  attachFiles: "composer.menu.attachFiles",
-  insertMention: "composer.menu.insertMention",
-  scrollToBottomOnSend: "composer.menu.scrollToBottomOnSend",
-} as const satisfies Record<string, StringKey>;
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
@@ -1503,9 +1463,10 @@ function ComposerFrame({
       return true;
     }
     if (owned) {
-      // Side questions carry text only; staged files stay here for the main turn.
-      // A file still being read counts too: /btw must not cancel it.
-      if (owned.action === "btw" && (attachments.length > 0 || pending.length > 0)) return false;
+      // Side questions and /side's prompt carry text only; staged files stay here for the main
+      // turn. A file still being read counts too: /btw and /side must not cancel it.
+      if ((owned.action === "btw" || owned.action === "side") && (attachments.length > 0 || pending.length > 0))
+        return false;
       if (owned.name === "import") {
         if (importSandboxed) {
           setAttachError(t("composer.cmuxImportSandbox"));

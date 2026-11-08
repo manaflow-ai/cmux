@@ -643,7 +643,6 @@ cat > node_modules/.bin/vp <<'VP'
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/locales/en.js",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/highlight-worker.js",
-            "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
             # Other checked exports: lanes committed "regenerate after the tip

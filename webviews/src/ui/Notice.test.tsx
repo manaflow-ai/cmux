@@ -241,20 +241,20 @@ test("the stacked deck puts the newest in front and spreads while hovered", () =
   for (const message of ["one", "two", "three"]) queue.show({ message, duration: 0 });
   const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" />);
   const cards = () => [...doc.querySelectorAll<HTMLElement>(".ui-notice-deck-card")];
-  // Newest first in the DOM: Tab reaches the front toast first.
-  expect(cards().map((card) => card.textContent)).toEqual(["three", "two", "one"]);
-  expect(cards()[0]!.hasAttribute("data-front")).toBe(true);
+  // In screen order: a bottom deck grows upward, so the front (newest) toast is last in the DOM.
+  expect(cards().map((card) => card.textContent)).toEqual(["one", "two", "three"]);
+  expect(cards()[2]!.hasAttribute("data-front")).toBe(true);
   const deck = doc.querySelector('.ui-notice-anchor[data-anchor="bottom"] > .ui-notice-deck')!;
   expect(deck.hasAttribute("data-expanded")).toBe(false);
   // Gathered: each older card a step back and smaller.
-  expect(cards().map((card) => card.style.getPropertyValue("--ui-notice-deck-scale"))).toEqual(["1", "0.95", "0.9"]);
+  expect(cards().map((card) => card.style.getPropertyValue("--ui-notice-deck-scale"))).toEqual(["0.9", "0.95", "1"]);
   act(() => {
-    cards()[0]!.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
+    cards()[2]!.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
   });
   expect(deck.hasAttribute("data-expanded")).toBe(true);
   expect(cards().map((card) => card.style.getPropertyValue("--ui-notice-deck-scale"))).toEqual(["1", "1", "1"]);
   act(() => {
-    cards()[0]!.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: doc.body }));
+    cards()[2]!.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: doc.body }));
   });
   expect(deck.hasAttribute("data-expanded")).toBe(false);
 });
@@ -267,9 +267,9 @@ test("a gathered deck's older cards are inert and hidden from assistive tech unt
   const concealed = () =>
     cards().map((card) => card.hasAttribute("inert") && card.getAttribute("aria-hidden") === "true");
   // Gathered: only the front card can be reached; focusing it spreads the deck.
-  expect(concealed()).toEqual([false, true, true]);
+  expect(concealed()).toEqual([true, true, false]);
   act(() => {
-    cards()[0]!.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
+    cards()[2]!.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
   });
   expect(concealed()).toEqual([false, false, false]);
 });
@@ -281,8 +281,8 @@ test("a new toast enters the deck's front; a closed one leaves (at once with no 
   act(() => void queue.show({ id: "b", message: "b", duration: 0 }));
   const cards = () => [...doc.querySelectorAll<HTMLElement>(".ui-notice-deck-card")];
   expect(cards().map((card) => [card.textContent, card.dataset.phase])).toEqual([
-    ["b", "shown"],
     ["a", "shown"],
+    ["b", "shown"],
   ]);
   act(() => queue.close("b"));
   // A test document runs no transition, so the leaving card goes in the same commit.

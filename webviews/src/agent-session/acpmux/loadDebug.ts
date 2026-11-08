@@ -229,6 +229,9 @@ export type LoadTickOptions = {
   scroll_depth?: number;
   /// What scrolls: the transcript (`chat`, the default) or Session Info's own body (`session-info`).
   scroll_target?: "chat" | "session-info";
+  /// Text each output line ends with (` see #12`: a `#N` the pane reads out of the output, so each
+  /// update draws through the pane, liveToolOutput.ts).
+  line_suffix?: string;
 };
 
 /// The Session Info parts counted while `loadTick` runs (SessionInfo.tsx `useCountedRender`): its
@@ -286,6 +289,7 @@ export async function loadTick(
           seconds,
           tickMs: Math.max(16, tickMs),
           sidebarMs: Math.max(0, options.sidebar_ms ?? 250),
+          lineSuffix: options.line_suffix ?? "",
         })
       : new Promise<{ ticks: number; sidebar: number }>((resolve) =>
           setTimeout(() => resolve({ ticks: 0, sidebar: 0 }), seconds * 1000),

@@ -6,10 +6,10 @@
 // their words come from the page's own helpers, so both panels say the same thing.
 import { formatDuration } from "../../conversation/turns";
 import type { PaneLanguage, Translate } from "../../i18n";
-import { isRepeatedAgentKind } from "../../subagents/AgentIdentity";
+import { isRepeatedAgentKind } from "../../subagents/agentIdentityModel";
 import { agentTone } from "../../subagents/agentTones";
-import { nestAgents } from "../../subagents/AgentsPill";
-import { elapsed } from "../../subagents/SubagentGroup";
+import { nestAgents } from "../../subagents/agentsPillModel";
+import { elapsed } from "../../subagents/subagentGroupModel";
 import { subagentProgress } from "../../subagents/subagentProgress";
 import { retrying } from "../../subagents/retryState";
 import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/subagentStatusListModel";

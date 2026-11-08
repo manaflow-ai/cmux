@@ -173,7 +173,7 @@ test("a new call rolls the live line's words: the old rise out above, the new re
 
   act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="ls -la" doingShell doingAt={2} command />));
   out = container.querySelector(".cv-roll-out")!;
-  // The action keeps its full ink as it leaves.
+  // The action keeps its own span as it leaves.
   expect(out.getAttribute("data-lead")).toBe("Read");
   expect(out.getAttribute("data-text")).toBe(" App.tsx");
   // The same live region, its roll restarted by the swapped keyframes.

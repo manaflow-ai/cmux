@@ -22,8 +22,13 @@ and what changed and what people said about it.
 3. **Rail**, what a person checks: checks, reviewers, linked issues.
 
 A pane 900px wide or more shows main and rail side by side; a narrower one is a
-single column in the same DOM order. The page's width follows What's New: the
-whole pane up to 920px, then 84% of it up to 1560px.
+single column in the same DOM order. The page takes the whole pane less a gutter
+of 3% (16 to 24px a side), so a wide pane goes to the description, its tables
+and the checks (Leo, 2026-11-07: "it's just giving up way too much space"). The
+gallery keeps `width-wide` (94% up to 2200px) and `width-column` (What's New's
+84% up to 1560px, the earlier width) as candidates. A table cell breaks a word
+only when the word alone is wider than the table can be, so a short column such
+as a check table's Status never stacks a letter a line.
 
 The files go in the main column, not the rail, because an opened file shows its
 diff inline and needs the width. The gallery keeps the other layouts as

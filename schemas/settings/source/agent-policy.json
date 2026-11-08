@@ -80,6 +80,7 @@
         "sidebar.groupHeader.memberCount",
         "sidebar.groupHeader.unreadCount",
         "sidebar.groupHeader.background",
+        "sidebar.groupPalette",
         "sidebar.numbering",
         "sidebar.cmd9",
         "sidebar.stepping",
@@ -1116,6 +1117,13 @@
       "why": "On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).",
       "keys": [
         "browser.import.enabled"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "On, cmux keeps reading the source browser's cookies after an import: only the person turns that on.",
+      "keys": [
+        "browser.import.cookieSync"
       ]
     },
     {

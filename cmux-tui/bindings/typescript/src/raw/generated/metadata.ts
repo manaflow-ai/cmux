@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7c629fa932c09db12f92add5a9a2d43e4cfb300db714e7b82084b7d9bce020a4. */
+/* cmux-tui mux protocol 12, IR fce01c6dd876b7e80113b9722066371ad8b6852586678ff23a42b9b73e0aeb2a. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "7c629fa932c09db12f92add5a9a2d43e4cfb300db714e7b82084b7d9bce020a4" as const;
+export const SDK_IR_SHA256 = "fce01c6dd876b7e80113b9722066371ad8b6852586678ff23a42b9b73e0aeb2a" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -4282,6 +4282,14 @@ export const EVENT_METADATA = {
       "subscribe",
       "attach-byte",
       "attach-render"
+    ],
+    "emission": "emitted"
+  },
+  "stash-changed": {
+    "since": 12,
+    "capability": "stash-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -32002,6 +32010,28 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "stash-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "stash-changed"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },

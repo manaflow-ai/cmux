@@ -70,7 +70,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDiff/DiffPageStrings.swift:DiffPageStrin
 Packages/macOS/CmuxNext/Sources/CmuxNextDiff/DiffPrefs.swift:DiffPrefKey
 Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/WhichKey/WhichKeyRow.swift:WhichKeyStrings
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSession.swift:AgentResume
-Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageModel.swift:HistoryPageAddress
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefAppLinks.swift:ChiefAppLinks
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHostStop.swift:ChiefHostStop
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefMigration.swift:ChiefMigration

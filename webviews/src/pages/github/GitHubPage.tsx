@@ -10,7 +10,16 @@
 // the files changed (wide enough for an inline diff), then the conversation in time order. The
 // rail is what a person checks: checks with reds and running first and greens folded, reviewers,
 // linked issues. A narrow pane is one column in that order.
-import { lazy, Suspense, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { relativeTime } from "../../agent-session/acpmux/conversation/relativeTime";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import type { Strings } from "../shared/i18n";
@@ -36,6 +45,13 @@ export type GitHubLayout = "split" | "rail" | "single";
  * dashboard"). `rail`: in the rail, as before.
  */
 export type ChecksPlacement = "top" | "rail";
+
+/**
+ * How much of the pane the page takes. `fill` (shipped): the whole pane less a gutter, so the
+ * description, its tables and the checks use the room (Leo, 2026-11-07: "it's just giving up way
+ * too much space"). `wide`: 94% of the pane up to 2200px. `column`: 84% up to 1560px, as before.
+ */
+export type PageWidth = "fill" | "wide" | "column";
 
 const STATES: Record<string, string> = {
   open: "github.state.open",
@@ -98,17 +114,21 @@ export function GitHubPage({
   now = Date.now,
   layout = "split",
   checksPlacement = "top",
+  width = "fill",
 }: {
   store: GitHubStore;
   strings: Strings;
   now?: () => number;
   layout?: GitHubLayout;
   checksPlacement?: ChecksPlacement;
+  width?: PageWidth;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const { t } = strings;
   const { target, pullRequest: pr, details } = snapshot;
   const hasContent = pr !== undefined;
+  // One callback for the page's life: GitHubMarkdown parses a body again only when its text changes.
+  const open = useCallback((url: string) => store.openOnGitHub(url), [store]);
   // Once the frame that draws this pull request (or its loading state) is on screen, the host hears of it.
   useEffect(() => {
     if (!target) return;
@@ -127,7 +147,6 @@ export function GitHubPage({
     );
   }
   const waitingFirst = !pr && (!snapshot.answered || snapshot.reading);
-  const open = (url: string) => store.openOnGitHub(url);
   const description = pr && <Description details={details} strings={strings} open={open} />;
   const files = pr && <Files pr={pr} snapshot={snapshot} store={store} strings={strings} />;
   const conversation = pr && (
@@ -151,7 +170,7 @@ export function GitHubPage({
   const reviewers = details && details.reviewers.length > 0 && <Reviewers details={details} strings={strings} />;
   const linked = details && details.linked.length > 0 && <Linked details={details} strings={strings} open={open} />;
   return (
-    <main className="gh" data-layout={layout} aria-busy={waitingFirst}>
+    <main className="gh" data-layout={layout} data-width={width} aria-busy={waitingFirst}>
       <Header snapshot={snapshot} store={store} strings={strings} now={now} waitingFirst={waitingFirst} />
       {pr && checksPlacement === "top" && <div className="gh-ci-band">{checks}</div>}
       {pr && (
@@ -364,7 +383,7 @@ function Description({
       {!details ? (
         <p className="gh-muted">{strings.t("github.description.loading")}</p>
       ) : details.body.trim() ? (
-        <GitHubMarkdown source={details.body} open={open} />
+        <GitHubMarkdown source={details.body} html={details.html} open={open} />
       ) : (
         <p className="gh-muted">{strings.t("github.description.none")}</p>
       )}
@@ -437,7 +456,7 @@ function Entry({
             <span className="gh-entry-time">{relativeTime(at, now(), strings.language)}</span>
           ))}
       </div>
-      {entry.body.trim() && <GitHubMarkdown source={entry.body} open={open} />}
+      {entry.body.trim() && <GitHubMarkdown source={entry.body} html={entry.html} open={open} />}
       {entry.comments.length > 0 && (
         <ul className="gh-review-comments">
           {entry.comments.map((comment, index) => (
@@ -446,7 +465,7 @@ function Entry({
                 {comment.path}
                 {comment.line != null && `:${comment.line}`}
               </span>
-              <GitHubMarkdown source={comment.body} open={open} />
+              <GitHubMarkdown source={comment.body} html={comment.html} open={open} />
             </li>
           ))}
         </ul>

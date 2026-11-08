@@ -12,11 +12,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { pageClocks } from "../src/ui/pageClock";
-import {
-  type WorkingCounts,
-  WorkingCountsContext,
-  WorkingFor,
-} from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { type WorkingCounts, WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
 import { orderedSessions } from "../src/agent-session/acpmux/session-info/childSessionRowsModel";

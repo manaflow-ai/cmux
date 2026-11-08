@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7c629fa932c09db12f92add5a9a2d43e4cfb300db714e7b82084b7d9bce020a4.
+// cmux-tui mux protocol 12, IR fce01c6dd876b7e80113b9722066371ad8b6852586678ff23a42b9b73e0aeb2a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -752,6 +752,12 @@ pub struct SizeStateEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StashChangedEvent {
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatusEvent {
     pub message: String,
 }
@@ -1079,6 +1085,7 @@ pub enum Event {
     SelectionChanged(SelectionChangedEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
+    StashChanged(StashChangedEvent),
     Status(StatusEvent),
     SurfaceExited(SurfaceExitedEvent),
     SurfaceOutput(SurfaceOutputEvent),
@@ -1178,6 +1185,7 @@ impl Event {
             Self::SelectionChanged(_) => Some("selection-changed"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
+            Self::StashChanged(_) => Some("stash-changed"),
             Self::Status(_) => Some("status"),
             Self::SurfaceExited(_) => Some("surface-exited"),
             Self::SurfaceOutput(_) => Some("surface-output"),
@@ -1276,6 +1284,7 @@ impl Event {
             Self::SelectionChanged(_) => Some(&SELECTION_CHANGED_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
+            Self::StashChanged(_) => Some(&STASH_CHANGED_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
             Self::SurfaceExited(_) => Some(&SURFACE_EXITED_EVENT_METADATA),
             Self::SurfaceOutput(_) => Some(&SURFACE_OUTPUT_EVENT_METADATA),
@@ -1840,6 +1849,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("size-state") => match serde_json::from_value::<SizeStateEvent>(raw.clone()) {
             Ok(event) => Event::SizeState(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("stash-changed") => match serde_json::from_value::<StashChangedEvent>(raw.clone()) {
+            Ok(event) => Event::StashChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

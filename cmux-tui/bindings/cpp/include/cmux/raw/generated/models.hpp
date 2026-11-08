@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7c629fa932c09db12f92add5a9a2d43e4cfb300db714e7b82084b7d9bce020a4";
+inline constexpr std::string_view kProtocolIrSha256 = "fce01c6dd876b7e80113b9722066371ad8b6852586678ff23a42b9b73e0aeb2a";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -660,6 +660,7 @@ struct ScrollChangedEvent;
 struct SelectionChangedEvent;
 struct SettingsChangedEvent;
 struct SizeStateEvent;
+struct StashChangedEvent;
 struct StatusEvent;
 struct SurfaceExitedEvent;
 struct SurfaceOutputEvent;
@@ -5523,6 +5524,11 @@ struct SplitRequest {
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
 };
 
+struct StashChangedEvent {
+    std::uint64_t revision{};
+    friend bool operator==(const StashChangedEvent&, const StashChangedEvent&) = default;
+};
+
 struct StatusEvent {
     std::string message{};
     friend bool operator==(const StatusEvent&, const StatusEvent&) = default;
@@ -10137,6 +10143,12 @@ template <>
 struct Codec<SizeStateEvent> {
     static Result<Json> encode(const SizeStateEvent& value);
     static Result<SizeStateEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<StashChangedEvent> {
+    static Result<Json> encode(const StashChangedEvent& value);
+    static Result<StashChangedEvent> decode(const Json& value);
 };
 
 template <>

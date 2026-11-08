@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 605,
+  "count": 607,
   "sections": [
     {
       "id": "general",
@@ -467,10 +467,9 @@
           "title": "When Quitting",
           "help": "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
           "kind": "choice",
-          "default": "ask",
+          "default": "keep",
           "group": "Quitting",
           "values": [
-            "ask",
             "keep",
             "end-keep-layout",
             "end-everything"
@@ -3655,6 +3654,21 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.groupPalette",
+          "title": "Group Colors",
+          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+          "kind": "choice",
+          "default": "glass",
+          "group": "Sidebar",
+          "values": [
+            "glass",
+            "theme",
+            "wallpaper",
+            "grayscale",
+            "vibrant"
+          ]
+        },
+        {
           "key": "sidebar.hoverCards.delay",
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
@@ -5121,6 +5135,14 @@
           "key": "browser.import.cookieBanner",
           "title": "Offer to Import Cookies",
           "help": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
+          "key": "browser.import.cookieSync",
+          "title": "Keep Imported Cookies in Sync",
+          "help": "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.",
           "kind": "toggle",
           "default": true,
           "group": "Import"

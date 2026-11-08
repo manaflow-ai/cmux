@@ -40,6 +40,19 @@
         "history-changed"
       ]
     },
+    "stash": {
+      "description": "Stashed Tabs. Reads the stashes; importing OneTab text needs the person's gesture. Restore and delete run in the app (its native Undo toast and the pane a page reopens in), not through this relay. It hears stash-changed, so an open page shows a stash saved, restored or deleted elsewhere (a tab menu, the CLI, another window) without a reload.",
+      "read": [
+        "stash.list"
+      ],
+      "gesture": [
+        "stash.import"
+      ],
+      "confirm": [],
+      "events": [
+        "stash-changed"
+      ]
+    },
     "apps": {
       "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show and revoking a scope need the person's gesture (they never widen what an app may do); an install, uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox). It hears apps-changed, so an open page shows an install, removal or instance change made elsewhere (the CLI, another window) without a reload.",
       "read": [
