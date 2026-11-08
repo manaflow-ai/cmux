@@ -125,10 +125,18 @@ fn name_of(peer: &Peer) -> String {
 }
 
 /// [`name_of`], with the app's pid after it when another chat has that name already (two
-/// desktop sessions in one folder, or a chat named like the session), so each is addressed alone.
+/// desktop sessions in one folder, or a chat named like the session), and a count after that
+/// while that is taken too, so each is addressed alone.
 fn unique_name(peer: &Peer, taken: impl Fn(&str) -> bool) -> String {
     let name = name_of(peer);
-    if taken(&name) { format!("{name} ({})", peer.pid) } else { name }
+    if !taken(&name) {
+        return name;
+    }
+    let with_pid = format!("{name} ({})", peer.pid);
+    (1..)
+        .map(|n| if n == 1 { with_pid.clone() } else { format!("{with_pid} {n}") })
+        .find(|n| !taken(n))
+        .unwrap_or(with_pid)
 }
 
 /// Provenance tags, from the registry entry the session wrote.
@@ -173,6 +181,8 @@ mod tests {
     fn a_name_another_chat_has_gets_the_pid() {
         assert_eq!(unique_name(&peer(None), |_| false), "desktop cmux");
         assert_eq!(unique_name(&peer(None), |n| n == "desktop cmux"), "desktop cmux (42)");
+        let both = |n: &str| n == "desktop cmux" || n == "desktop cmux (42)";
+        assert_eq!(unique_name(&peer(None), both), "desktop cmux (42) 2");
     }
 
     #[test]

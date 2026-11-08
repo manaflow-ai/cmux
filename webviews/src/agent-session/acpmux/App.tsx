@@ -10455,8 +10455,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 // The app that ran the bridged session is gone: the chat is taken over and the message
                 // stays in the composer. It is not sent again here, since its send gesture is spent;
                 // the next Return sends it to the taken-over chat.
+                // Taken over only while the chat it was sent to is still the one shown.
+                const sender = directClient.current;
+                const sentTo = snapshot.sessionId;
+                const stillShown = () => directClient.current === sender && sessionIdRef.current === sentTo;
                 return deliver().catch(async (error: unknown) => {
-                  if (bridgeGone(error) && (await directClient.current?.takeOver())) {
+                  if (bridgeGone(error) && stillShown() && (await sender?.takeOver())) {
                     throw new Error("watch.notTakenOver");
                   }
                   throw error;
