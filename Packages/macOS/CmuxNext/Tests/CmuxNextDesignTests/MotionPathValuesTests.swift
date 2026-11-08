@@ -38,6 +38,26 @@ import Testing
         #expect(path.value(at: Self.now + 1.5) == layer.position)
     }
 
+    /// A move that begins on a later frame with a backwards fill (a sidebar pin's flight, `SidebarPinFlight.begin`) shows
+    /// its start until it begins, as the render server draws it; without the fill the model shows.
+    @Test func aBackwardsFillShowsTheStartBeforeTheBegin() {
+        let layer = Self.layer()
+        for (fill, before) in [(CAMediaTimingFillMode.backwards, CGPoint(x: 100, y: 50)), (.removed, CGPoint(x: 100, y: 10))] {
+            layer.removeAllAnimations()
+            let move = CABasicAnimation(keyPath: "position")
+            move.fromValue = NSValue(point: CGPoint(x: 0, y: 40))
+            move.toValue = NSValue(point: .zero)
+            move.isAdditive = true
+            move.duration = 1
+            move.beginTime = Self.now + 0.5
+            move.fillMode = fill
+            layer.add(move, forKey: "move")
+            let path = MotionPath(layer, "position", now: Self.now)
+            #expect(Self.close(path.value(at: Self.now), before), "fill \(fill.rawValue): \(path.value(at: Self.now)) before the begin")
+            #expect(Self.close(path.value(at: Self.now + 0.5), CGPoint(x: 100, y: 50)), "fill \(fill.rawValue): not on the start at the begin")
+        }
+    }
+
     @Test func anEasedMoveFollowsItsTimingFunction() {
         let layer = Self.layer()
         let move = CABasicAnimation(keyPath: "position.x")
