@@ -100,10 +100,8 @@ fn a_preview_lasts_while_the_process_runs() {
     assert!(lost[0].preview.is_none() && table.processes[1].preview.is_none());
 }
 
-/// End to end: a running shell whose output file names a listening server gets a logged
-/// `process_update` with its preview, which a read of the log finds again.
-#[tokio::test]
-async fn a_running_dev_server_gets_its_preview() {
+/// A hub with one chat on the fake agent.
+async fn chat() -> (Arc<Hub>, Arc<Session>) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", fake]}},
@@ -115,6 +113,54 @@ async fn a_running_dev_server_gets_its_preview() {
     let hub = Hub::new(cfg, store);
     let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let session = hub.new_session(req).await.unwrap();
+    (hub, session)
+}
+
+/// The preview `hub` lists for the chat's first process, waiting up to 5 s (the first check is
+/// 0.5 s in).
+async fn listed_preview(hub: &Hub, session: &Session) -> Value {
+    let mut listed = Value::Null;
+    for _ in 0..50 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        listed = hub.list_processes(Some(session))["processes"][0]["preview"].clone();
+        if !listed.is_null() {
+            break;
+        }
+    }
+    listed
+}
+
+/// After a restart the daemon adopts the running host and reads its processes again: a running
+/// server with no preview yet gets a watch then, not only on its next shell update.
+#[tokio::test]
+async fn an_adopted_hosts_running_server_is_watched_again() {
+    let (hub, session) = chat().await;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let name = format!("acpmux-preview-adopt-{}.output", std::process::id());
+    let file = std::env::temp_dir().join(name);
+    std::fs::write(&file, format!("listening on http://127.0.0.1:{port}\n")).unwrap();
+    let shell = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg", "state": "running", "command": "./serve"}}});
+    let rec = hub.append(&session, "in", "background_task_update", shell);
+    // Logged with its output file, but no watch ran (the daemon that saw it is gone).
+    hub.note_process(&session, &rec, file.to_str());
+    assert!(session.processes.lock().unwrap().watching.is_empty());
+
+    hub.recover_processes(&session);
+    assert_eq!(
+        listed_preview(&hub, &session).await,
+        json!({"url": format!("http://127.0.0.1:{port}/"), "port": port})
+    );
+    drop(listener);
+    let _ = std::fs::remove_file(&file);
+    hub.shutdown_all().await;
+}
+
+/// End to end: a running shell whose output file names a listening server gets a logged
+/// `process_update` with its preview, which a read of the log finds again.
+#[tokio::test]
+async fn a_running_dev_server_gets_its_preview() {
+    let (hub, session) = chat().await;
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -128,16 +174,7 @@ async fn a_running_dev_server_gets_its_preview() {
     assert_eq!(session.processes.lock().unwrap().watching.len(), 1, "one watch a process");
 
     let want = json!({"url": format!("http://localhost:{port}/"), "port": port});
-    let mut listed = Value::Null;
-    // The first check is 0.5 s in; 5 s is ample.
-    for _ in 0..50 {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        listed = hub.list_processes(Some(&*session))["processes"][0]["preview"].clone();
-        if !listed.is_null() {
-            break;
-        }
-    }
-    assert_eq!(listed, want);
+    assert_eq!(listed_preview(&hub, &session).await, want);
     let logged = hub.read_processes(&session);
     assert_eq!(serde_json::to_value(&logged.processes[0]).unwrap()["preview"], want);
     drop(listener);

@@ -9,7 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
 import type { AcpmuxActivity, AcpmuxBackgroundState } from "../model";
-import { mergeProcess, processesOf, serverOf, type ProcessPreview } from "../session-info/processes";
+import { mergeProcess, processesOf, serverOf, serverUrl, type ProcessPreview } from "../session-info/processes";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { CommandRow } from "./CommandRow";
 import { ToolRow } from "./ToolRow";
@@ -211,4 +211,21 @@ test("the running line names the newest page after its counts, and opens it", ()
   ]);
   parts[1]!.open();
   expect(opened).toBe(1);
+});
+
+test("Session Info opens the page acpmux found at its port, scheme and path kept", () => {
+  const [process] = processesOf(
+    {
+      processes: [
+        wire("running", { url: "https://localhost:8443/app", port: 8443 }, { command: "./serve --port 9000" }),
+      ],
+    },
+    "s1",
+  );
+  const server = serverOf(process!)!;
+  expect(server.ports).toEqual([8443, 9000]);
+  expect(server.ports.map((port) => serverUrl(server, port))).toEqual([
+    "https://localhost:8443/app",
+    "http://localhost:9000",
+  ]);
 });

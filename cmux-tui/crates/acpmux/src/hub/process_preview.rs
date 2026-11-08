@@ -148,6 +148,14 @@ impl Hub {
         }
     }
 
+    /// An adopted host's processes, read again from the log (`rebuild_processes`), with a
+    /// watch for each still running one that has no preview: a server whose watch ended with
+    /// the daemon before it found one is read again (`hosts.rs` `recover_work`).
+    pub(super) fn recover_processes(self: &Arc<Self>, session: &Arc<Session>) {
+        self.rebuild_processes(session);
+        self.watch_previews(session);
+    }
+
     /// Whether the process `id` still runs.
     fn process_runs(&self, session: &Session, id: &str) -> bool {
         self.process_table(session).find_id(id).is_some_and(|p| p.state == ProcessState::Running)

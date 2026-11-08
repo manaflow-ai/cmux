@@ -408,6 +408,12 @@ export function serverOf(process: SessionInfoProcess): SessionInfoServer | undef
   return { ...process, ports: [...ports] };
 }
 
+/// The address `port` of `server` opens: the page acpmux saw it serve when that is the port (its
+/// scheme and path kept), else the port on localhost.
+export function serverUrl(server: SessionInfoServer, port: number): string {
+  return server.preview?.port === port ? server.preview.url : `http://localhost:${port}`;
+}
+
 /// The chat's processes split into the running servers and every other process; a server that
 /// ended counts as a finished background task.
 export function splitServers(processes: readonly SessionInfoProcess[]): {
