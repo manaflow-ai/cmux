@@ -1787,3 +1787,7 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   `Metrics.dividerThickness` straight, so it stayed under borders none; it now goes through `Metrics.lineWidth`, and
   the glass specular rim (`GlassRimView`) through `Borders.width`. Look change only under borders none: no group
   header edge and no glass rim. Sidebar-Look: Leo 2026-11-07, "the blocky without border kinda vibe".
+- 2026-11-07 (a1027, for a590): the update card's Cancel is a quiet text button on the title's row, at the top right
+  (`SidebarNoticeCardView.trailingButton` is a `SidebarCardTextButton`); the detail and the progress bar span the
+  card's inner width in every loading stage. Regression: UpdateCardProgressWidthTests. Sidebar-Look: Lawrence
+  2026-11-07 11:26pm, "cancel button is ugly not taking up full width here".
