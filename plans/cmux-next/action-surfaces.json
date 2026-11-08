@@ -9900,7 +9900,7 @@
       },
       "palette_suggested" : null,
       "title" : "New Browser to New Workspace",
-      "title_key" : "action.new.browser.workspace",
+      "title_key" : "action.new.browser.newWorkspace",
       "title_table" : "ActionCatalog"
     },
     {
