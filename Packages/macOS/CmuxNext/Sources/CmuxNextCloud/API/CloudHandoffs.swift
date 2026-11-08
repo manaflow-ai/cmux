@@ -8,15 +8,15 @@ extension CloudOwnerAPIClient {
     /// The longest the store holds one wait (`MAX_WAIT_MS`).
     public static let handoffWaitLimitMs = 25_000
 
-    /// `owner.handoff_wait` (`GET /v1/handoffs/:id/wait?after=&timeoutMs=`): `{handoff}` once its
-    /// version passes `after` (nil: at once), or at the deadline (25 s at most). Answers the body as sent.
+    /// `GET /v1/handoffs/:id/wait?after=&timeoutMs=`: `{handoff}` once its version passes `after`
+    /// (nil: at once), or at the deadline (25 s at most). Answers the body as sent. It stays on HTTP: held
+    /// up to 25 s on the daemon socket, it would hold the terminal connection's update drain
+    /// (`quietHandoff`) behind it (cmux#38435).
     public func handoffWait(_ id: String, after: Int?, timeoutMs: Int = handoffWaitLimitMs) async throws -> Data {
         guard Self.isHandoffID(id) else { throw CloudAPIError.transport("not a hand-off id") }
         let held = max(0, min(timeoutMs, Self.handoffWaitLimitMs))
-        let answer = try await caller.call("owner.handoff_wait", as: try await credentials(),
-                                           args: ["id": .string(id), "after": .number(Double(max(0, after ?? 0))), "timeoutMs": .number(Double(held))],
-                                           timeout: .milliseconds(held) + .seconds(15))
-        do { return try JSONEncoder().encode(answer) } catch { throw CloudAPIError.decoding("/v1/handoffs: \(error)") }
+        return try await get("/v1/handoffs/\(id)/wait", query: [("after", max(0, after ?? 0)), ("timeoutMs", held)],
+                             timeout: .milliseconds(held) + .seconds(15))
     }
 
     /// `owner.handoffs` (`GET /v1/handoffs?limit=&cursor=`): the person's hand-offs, newest first,

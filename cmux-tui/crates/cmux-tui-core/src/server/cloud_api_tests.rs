@@ -388,14 +388,3 @@ fn no_record_or_log_of_the_daemon_holds_a_credential() {
         }
     }
 }
-
-#[test]
-fn long_waits_run_on_workers_of_their_own() {
-    let (waits, wait_limit) = calls::pool("owner.handoff_wait");
-    let (runs_wait, _) = calls::pool("runs.wait");
-    let (others, other_limit) = calls::pool("vm.networks");
-    assert!(std::ptr::eq(waits, runs_wait), "every long wait shares one pool");
-    assert!(!std::ptr::eq(waits, others), "a long wait never holds a worker another call needs");
-    assert!(wait_limit < other_limit);
-    assert!(std::ptr::eq(others, calls::pool("runs.sandbox").0));
-}

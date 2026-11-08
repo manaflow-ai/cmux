@@ -76,15 +76,36 @@ public struct CloudOwnerAPIClient: Sendable {
         return (holds.instance, holds.proof)
     }
 
-    /// `owner.fork_run` (`POST /v1/workspaces/{workspace}/fork-runs`): snapshots the source machine
-    /// now and creates one durable child for each requested harness. The platform intentionally has
-    /// no checkpoint argument; transcript cut is performed by the child acpmux after it is ready.
+    /// `POST /v1/workspaces/{workspace}/fork-runs`: snapshots the source machine now and creates one
+    /// durable child for each requested harness. The platform intentionally has no checkpoint
+    /// argument; transcript cut is performed by the child acpmux after it is ready. It stays on HTTP
+    /// (up to 3 minutes): on the daemon socket it would hold the terminal connection's update drain
+    /// (`quietHandoff`) behind it (cmux#38435).
     public func forkRun(workspace: String, clientKey: String, sourceMachine: String, session: String,
                         harnesses: [String]) async throws -> [ForkRunChild] {
-        try await call("owner.fork_run", [
-            "workspace": .string(workspace), "clientKey": .string(clientKey), "sourceMachine": .string(sourceMachine),
-            "session": .string(session), "harnesses": .array(harnesses.map(JSONValue.string)),
-        ], timeout: .seconds(180), as: [ForkRunChild].self)
+        guard workspace.range(of: #"^[A-Za-z0-9_-]{1,128}$"#, options: .regularExpression) != nil else {
+            throw CloudAPIError.transport("not a workspace id")
+        }
+        let data = try JSONSerialization.data(withJSONObject: [
+            "clientKey": clientKey, "sourceMachine": sourceMachine, "session": session,
+            "harnesses": harnesses,
+        ])
+        struct Value: Decodable {
+            var children: [ForkRunChild]
+            init(from decoder: Decoder) throws {
+                if var list = try? decoder.unkeyedContainer() {
+                    var values: [ForkRunChild] = []
+                    while !list.isAtEnd { values.append(try list.decode(ForkRunChild.self)) }
+                    children = values
+                } else {
+                    let object = try decoder.container(keyedBy: CodingKeys.self)
+                    children = try object.decodeIfPresent([ForkRunChild].self, forKey: .children)
+                        ?? [try ForkRunChild(from: decoder)]
+                }
+            }
+            enum CodingKeys: String, CodingKey { case children }
+        }
+        return try await postWorkspace(workspace, "fork-runs", body: data, timeout: .seconds(180), as: Value.self).children
     }
 
     /// One `cloud.owner.*` call as the person's session, read as `T`.
@@ -140,6 +161,80 @@ public struct CloudOwnerAPIClient: Sendable {
             let error = object?["error"] as? [String: Any]
             throw CloudAPIError.http(status: http.statusCode, code: error?["code"] as? String, message: error?["message"] as? String)
         }
+        guard let reply = try? JSONSerialization.data(withJSONObject: value) else { throw CloudAPIError.decoding("\(path): not JSON") }
+        return try CloudMachineRules().answer(reply, as: T.self, context: path)
+    }
+
+    /// `GET path?name=value…` with integer query values and a list cursor (base64url) only: answers the 2xx
+    /// body as sent. Any other answer throws ``CloudAPIError/http(status:code:message:action:traceId:)``
+    /// with the route's `{error: {code, message}}`.
+    func get(_ path: String, query: [(String, Int)], cursor: String? = nil, timeout: Duration) async throws -> Data {
+        if let cursor, cursor.range(of: #"^[A-Za-z0-9_-]{1,512}$"#, options: .regularExpression) == nil {
+            throw CloudAPIError.transport("not a list cursor")
+        }
+        let access: String
+        do { access = try await accessToken() } catch { throw CloudAPIError.notSignedIn }
+        let pairs = (query.map { "\($0.0)=\($0.1)" } + (cursor.map { ["cursor=\($0)"] } ?? [])).joined(separator: "&")
+        let base = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: base + path + (pairs.isEmpty ? "" : "?" + pairs)) else { throw CloudAPIError.transport("bad path \(path)") }
+        var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
+        request.httpMethod = "GET"
+        // RULE (cx-kvmz, hq-84), as in post(_:_:body:length:timeout:as:): Authorization and x-cmux-team
+        // only; the path's one varying part is a checked id and the query holds integers and the
+        // store's own list cursor alone.
+        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
+        let data: Data
+        let response: URLResponse
+        do {
+            let session = session, prepared = request
+            (data, response) = try await withDeadline(timeout, label: "GET \(path)") { try await session.data(for: prepared) }
+        } catch is DeadlineExceeded {
+            throw CloudAPIError.timedOut(path)
+        } catch let error as URLError where error.code == .timedOut {
+            throw CloudAPIError.timedOut(path)
+        } catch {
+            throw CloudAPIError.transport(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else { throw CloudAPIError.transport("no HTTP response") }
+        guard (200..<300).contains(http.statusCode) else {
+            let error = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["error"] as? [String: Any]
+            throw CloudAPIError.http(status: http.statusCode, code: error?["code"] as? String, message: error?["message"] as? String)
+        }
+        return data
+    }
+
+    private func postWorkspace<T: Decodable>(_ workspace: String, _ action: String, body: Data, timeout: Duration, as type: T.Type) async throws -> T {
+        let access: String
+        do { access = try await accessToken() } catch { throw CloudAPIError.notSignedIn }
+        let base = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: "\(base)/v1/workspaces/\(workspace)/\(action)") else {
+            throw CloudAPIError.transport("bad workspace path")
+        }
+        var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        let data: Data
+        let response: URLResponse
+        do {
+            let session = session, prepared = request
+            (data, response) = try await withDeadline(timeout, label: "POST /v1/workspaces/\(workspace)/\(action)") {
+                try await session.data(for: prepared)
+            }
+        }
+        catch is DeadlineExceeded { throw CloudAPIError.timedOut("/v1/workspaces/\(workspace)/\(action)") }
+        catch let error as URLError where error.code == .timedOut { throw CloudAPIError.timedOut("/v1/workspaces/\(workspace)/\(action)") }
+        catch { throw CloudAPIError.transport(error.localizedDescription) }
+        guard let http = response as? HTTPURLResponse else { throw CloudAPIError.transport("no HTTP response") }
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        guard (200..<300).contains(http.statusCode), object?["ok"] as? Bool == true, let value = object?["value"] else {
+            let error = object?["error"] as? [String: Any]
+            throw CloudAPIError.http(status: http.statusCode, code: error?["code"] as? String, message: error?["message"] as? String)
+        }
+        let path = "/v1/workspaces/\(workspace)/\(action)"
         guard let reply = try? JSONSerialization.data(withJSONObject: value) else { throw CloudAPIError.decoding("\(path): not JSON") }
         return try CloudMachineRules().answer(reply, as: T.self, context: path)
     }

@@ -32,8 +32,8 @@
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/runs",
-      "count": 3,
-      "reason": "debt: the sandboxed-run answers' error labels name classic /api/runs; the calls themselves are the daemon's cloud.runs.* (cmux-cloud-api runs.rs) until Runs move to cmux-platform hand-offs"
+      "count": 9,
+      "reason": "debt: the sandboxed Run's create, wait and poll stay on classic /api/runs over HTTP (on the daemon socket a held wait would hold the terminal connection's update drain, cmux#38435); cancel is the daemon's cloud.runs.cancel; until Runs move to cmux-platform hand-offs"
     },
     {
       "file": "cmux-tui/crates/cmux-cloud-api/src/classic.rs",

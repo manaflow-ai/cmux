@@ -138,7 +138,7 @@ final class AgentPageChats {
 
     /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
     /// Show Preview Features is on and Cloud isn't turned off by policy. Each waits for its Run's
-    /// receipt through ``CloudAPIClient/runSandbox(task:agent:timeoutMs:idempotencyKey:teardown:callsMargin:follow:)``,
+    /// receipt through ``CloudAPIClient/runSandbox(task:agent:timeoutMs:idempotencyKey:teardown:callsMargin:now:)``,
     /// which answers by the task timeout plus teardown whatever the calls do. The Run's wait is
     /// ``SandboxRunNotices``': it goes on after the tab closes and notifies when the Run ends.
     static func wireSandbox(_ tabs: AgentTabStore, services: AppServices) {

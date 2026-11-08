@@ -110,19 +110,6 @@ mod calls {
     static WORKERS: AtomicUsize = AtomicUsize::new(0);
     /// Calls in flight at once (a sandboxed Run holds one for its whole task).
     const MAX_WORKERS: usize = 32;
-    /// Long waits (a hand-off or Run wait, held up to 25 s) have workers of their own, so however
-    /// many the app follows at once, every other call still finds one.
-    static WAIT_WORKERS: AtomicUsize = AtomicUsize::new(0);
-    const MAX_WAIT_WORKERS: usize = 16;
-
-    /// The workers `call` runs on, and how many of them there are.
-    pub(super) fn pool(call: &str) -> (&'static AtomicUsize, usize) {
-        if matches!(call, "owner.handoff_wait" | "runs.wait") {
-            (&WAIT_WORKERS, MAX_WAIT_WORKERS)
-        } else {
-            (&WORKERS, MAX_WORKERS)
-        }
-    }
     /// The largest answer a call sends: what a `cmux.protocol/2` client reads (16 MiB), less
     /// room for the envelope.
     const MAX_REPLY_BYTES: usize = 16_711_680;
@@ -139,17 +126,16 @@ mod calls {
             Ok(parsed) => parsed,
             Err(error) => return send_resource_response(writer, id, operation, Err(error)),
         };
-        let (workers, limit) = pool(&call.call);
-        if workers
+        if WORKERS
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n < limit).then(|| n.saturating_add(1))
+                (n < MAX_WORKERS).then(|| n.saturating_add(1))
             })
             .is_err()
         {
             let error = ResourceError::operation_failed(
                 operation.wire_name(),
                 "busy",
-                json!({"limit": limit}),
+                json!({"limit": MAX_WORKERS}),
             );
             return send_resource_response(writer, id, operation, Err(error));
         }
@@ -157,24 +143,24 @@ mod calls {
         let worker_writer = writer.clone();
         let worker_id = id.clone();
         let spawned = std::thread::Builder::new().name("cloud-api".into()).spawn(move || {
-            struct Done(&'static AtomicUsize);
+            struct Done;
             impl Drop for Done {
                 fn drop(&mut self) {
-                    self.0.fetch_sub(1, Ordering::AcqRel);
+                    WORKERS.fetch_sub(1, Ordering::AcqRel);
                 }
             }
-            let _done = Done(workers);
+            let _done = Done;
             let result = answer(&worker_mux, operation, &call, key);
             send_resource_response(&worker_writer, worker_id, operation, result);
         });
         match spawned {
             Ok(_) => true,
             Err(_) => {
-                workers.fetch_sub(1, Ordering::AcqRel);
+                WORKERS.fetch_sub(1, Ordering::AcqRel);
                 let error = ResourceError::operation_failed(
                     operation.wire_name(),
                     "busy",
-                    json!({"limit": limit}),
+                    json!({"limit": MAX_WORKERS}),
                 );
                 send_resource_response(writer, id, operation, Err(error))
             }
