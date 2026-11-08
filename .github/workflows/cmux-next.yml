@@ -3020,6 +3020,89 @@ jobs:
             echo "This is the fast PR gate for package-only CmuxNext Swift edits. The Release compile also runs on every PR that changes a CmuxNext Swift file, for Release-only optimizer failures a Debug build cannot see."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # A person's re-run of the fast tier, placed again (side_lane_placement.rerun_fleet()). Re-running
+  # failed jobs carries attempt 1's macos-placement and its outputs, so the tier took vars.MACOS_RUNNER_26
+  # and fast-tier-fleet skipped the stale gateway reading: #38130's attempt 2 ran out its 20 minutes on the
+  # same cold Blacksmith build as attempt 1. This job is skipped on attempt 1 and on the rescue's re-run
+  # (macos-placement places those), so a person's re-run evaluates it again. It reads the runners now and,
+  # while the fast tier runs again in this attempt and a gateway runner is idle for its client, lists the
+  # tier for fast-tier-fleet with this attempt's gateway reading; otherwise the tier keeps its route. A
+  # later re-run carries this job's reading too, which fast-tier-fleet then skips as an earlier attempt's.
+  # With owned pools off (vars.CI_PR_POOL_OWNED), as for macos-placement, it places nothing.
+  fast-tier-rerun-placement:
+    environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
+    needs: [macos-placement, path_route, push-head-preflight]
+    if: ${{ !cancelled() && github.run_attempt != 1 && !(github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && github.repository_owner == 'manaflow-ai' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_COMPILE_CHECK_GATEWAY != '' && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
+    name: cmux-next fast tier re-run placement
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # Checkout (1m), two bounded token mints (2m), the reads (2m), plus runner setup.
+    timeout-minutes: 6
+    permissions:
+      # This attempt's jobs: whether the fast tier runs again.
+      actions: read
+      contents: read
+    outputs:
+      fleet_jobs: ${{ steps.place.outputs.fleet_jobs }}
+      gateway_runner: ${{ steps.place.outputs.gateway_runner }}
+      gateway_attempt: ${{ steps.place.outputs.gateway_attempt }}
+    steps:
+      # The placement code from the base branch, as macos-placement's.
+      - name: Check out the trusted placement
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the cmux-bot runner-read token
+        id: route-token-fallback
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-organization-self-hosted-runners: read
+
+      # Fails open: an unread status, a failed read or a base script that predates the re-run placement
+      # writes nothing, and the tier keeps its route.
+      - name: Place the fast tier's re-run
+        id: place
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          PLACEMENT: rerun-fleet
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          GH_TOKEN: ${{ github.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
+          GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+        run: |
+          if ! grep -q '^def rerun_fleet_main' scripts/ci/side_lane_placement.py; then
+            echo "fast tier re-run placement: the trusted placement predates it; the tier keeps its route"
+            exit 0
+          fi
+          # The fast tier's status in this attempt: `completed` when its earlier result is carried.
+          FAST_TIER_STATUS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+            --jq '[.jobs[] | select(.name == "cmux-next fast tier") | .status] | first // empty')" || FAST_TIER_STATUS=""
+          export FAST_TIER_STATUS
+          python3 scripts/ci/side_lane_placement.py
+
   # The fast tier as a thin build-fleet client, for when every owned and
   # Blacksmith macOS label it could take is full or dead, or only a Blacksmith
   # macOS label (a cold build) took it: macos-placement then
@@ -3034,13 +3117,14 @@ jobs:
   # another commit, fails it and is never a pass. fast-tier keeps the check
   # name and reports this job's verdict from a 2 vCPU Linux runner.
   fast-tier-fleet:
-    needs: [macos-placement, path_route, push-head-preflight]
-    if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && contains(needs.macos-placement.outputs.fleet_jobs, ' fast-tier ') && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' }}
+    needs: [macos-placement, fast-tier-rerun-placement, path_route, push-head-preflight]
+    if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (contains(needs.macos-placement.outputs.fleet_jobs, ' fast-tier ') && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' || contains(needs.fast-tier-rerun-placement.outputs.fleet_jobs, ' fast-tier ') && needs.fast-tier-rerun-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.fast-tier-rerun-placement.outputs.gateway_runner != '') }}
     name: cmux-next fast tier (build fleet)
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-fleet', github.ref) || format('cmux-next-run-{0}-fast-tier-fleet', github.run_id) }}
       cancel-in-progress: false
-    runs-on: ${{ needs.macos-placement.outputs.gateway_runner }}
+    # This attempt's re-run reading first (fast-tier-rerun-placement), else macos-placement's.
+    runs-on: ${{ needs.fast-tier-rerun-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.fast-tier-rerun-placement.outputs.gateway_runner || needs.macos-placement.outputs.gateway_runner }}
     permissions: {}
     # Longer than the client's queue (600 s) plus run (1500 s) timeouts and the
     # report, so the client, not the job timeout, ends a slow step.
