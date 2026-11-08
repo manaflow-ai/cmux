@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextFocus
 @testable import CmuxNextImportCards
 @testable import CmuxNextSettings
 import CmuxNextTestSupport
@@ -115,6 +116,55 @@ import Testing
         #expect(text.contains(BrowserImportOfferStrings.dontShowAgain), "Don't Show Again is one of the answers: \(text)")
         #expect(text.contains(BrowserImportOfferStrings.importData))
         #expect(text.contains(BrowserImportOfferStrings.notNow))
+    }
+
+    /// The card belongs to browser pages only (Lawrence 2026-11-07: it showed over a terminal and agent
+    /// workspace). It floats on the window's overlay host, above every pane, so it shows only while its
+    /// own browser tab has the keyboard, as the window's focus reports it (`followKeyboard`). While a
+    /// terminal, a chat, Home, the sidebar or another browser tab has it, the card is off screen and off
+    /// the overlay host, unanswered; it comes back when its tab has the keyboard again. A card offered
+    /// while the tab lacks the keyboard (Show Import Cookies Banner from a terminal) waits for it.
+    @Test func theCardShowsOnlyWhileItsBrowserTabHasTheKeyboard() throws {
+        let page = Page()
+        defer { page.tearDown() }
+        let entry = BrowserEntry(tab: page.tab)
+        page.chrome.bind(page.tab, state: entry.state)
+        let offer = BrowserImportOfferService(services: nil, defaults: Self.freshDefaults(), locate: { [] })
+
+        entry.followKeyboard(focusedTab: nil, key: "browser-1", window: page.window)  // a terminal has the keyboard
+        offer.show(on: page.chrome, browsers: [InstalledImportBrowser(browser: .chrome, icon: NSImage())])
+        let card = try #require(page.chrome.currentCookieImportCard)
+        #expect(!page.chrome.showsCookieImportOffer, "offered while a terminal has the keyboard: it waits")
+        #expect(card.window?.parent !== page.window, "and is not on the overlay host over the terminal")
+
+        entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
+        #expect(page.chrome.showsCookieImportOffer, "its browser tab has the keyboard: shown")
+        #expect(card.window?.parent === page.window, "on the window's overlay host")
+
+        entry.followKeyboard(focusedTab: nil, key: "browser-1", window: NSWindow())
+        #expect(page.chrome.showsCookieImportOffer, "another window's focus does not decide this window's card")
+
+        for away in [nil, "browser-2"] as [String?] {  // a terminal, chat, Home or the sidebar; another browser tab
+            entry.followKeyboard(focusedTab: away, key: "browser-1", window: page.window)
+            #expect(!page.chrome.showsCookieImportOffer, "hidden while \(away ?? "a terminal") has the keyboard")
+            #expect(card.window?.parent !== page.window, "and off the overlay host")
+        }
+
+        entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
+        #expect(page.chrome.showsCookieImportOffer, "back on its tab: shown again, still unanswered")
+        #expect(page.chrome.currentCookieImportCard === card)
+        #expect(card.window?.parent === page.window)
+    }
+
+    /// Only a browser tab's own targets count as the browser tab having the keyboard.
+    @Test(arguments: [
+        (FocusState.Resolved.browserPage(pane: "p", tab: "t"), "t" as String?),
+        (.addressBar(pane: "p", tab: "t"), "t"), (.findBar(pane: "p", tab: "t"), "t"), (.devTools(pane: "p", tab: "t"), "t"),
+        (.terminal(pane: "p", tab: "t"), nil), (.agentPage(pane: "p", tab: "t"), nil), (.page(pane: "p", tab: "t"), nil),
+        (.conversation(pane: "p", tab: "t"), nil), (.emptyPane(pane: "p"), nil), (.sidebar, nil), (.textField, nil), (.none, nil),
+    ])
+    func onlyABrowserTabsTargetsAreItsFocus(resolved: FocusState.Resolved, tab: String?) {
+        #expect(resolved.browserTab == tab)
     }
 
     /// Clicking Import opens the import window with cookies checked, into the tab's profile; nothing
