@@ -126,6 +126,8 @@ pub(crate) mod fake {
         _dir: tempfile::TempDir,
     }
 
+    // The handshake callback's error type is tungstenite's.
+    #[allow(clippy::result_large_err)]
     pub(crate) fn start() -> Fake {
         let dir = tempfile::tempdir().unwrap();
         let path = socket_path(dir.path());

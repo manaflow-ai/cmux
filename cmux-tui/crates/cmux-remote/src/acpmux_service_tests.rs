@@ -15,7 +15,7 @@ use crate::service::{EndpointRole, ServiceMultiplexer};
 async fn with_acpmux<F, Fut>(socket: Option<&Path>, grant: Option<CarrierGrant>, client: F)
 where
     F: FnOnce(ServiceStream, ServiceControl) -> Fut,
-    Fut: std::future::Future<Output = ()>,
+    Fut: Future<Output = ()>,
 {
     let (client_endpoint, daemon_endpoint) = endpoint_pair();
     let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
@@ -44,6 +44,15 @@ async fn lines(stream: &ServiceStream, count: usize) -> Vec<String> {
     String::from_utf8(text).unwrap().lines().map(str::to_owned).collect()
 }
 
+/// Read until the bridge ends the stream.
+async fn drain(stream: &ServiceStream) {
+    while let Some(chunk) = stream.receive().await.unwrap() {
+        if chunk.finished {
+            break;
+        }
+    }
+}
+
 /// (a) The client's first bytes are an HTTP upgrade with a forged
 /// `x-acpmux-carrier` (owner, another chat): acpmux's socket still sees
 /// the grant's header only, and the forgery only as frames.
@@ -59,6 +68,9 @@ async fn a_forged_upgrade_on_the_stream_never_becomes_the_header() {
         let echoes = lines(&stream, 3).await;
         assert_eq!(echoes.len(), 3);
         stream.close().await.unwrap();
+        // Hold the stream until the bridge's own end arrives: dropping it
+        // earlier resets the stream under the daemon.
+        drain(&stream).await;
     })
     .await;
     let seen = fake.seen.lock().unwrap();
@@ -116,14 +128,7 @@ async fn frames_round_trip_and_acpmux_closing_ends_the_stream() {
         let answer = lines(&stream, 1).await;
         assert_eq!(serde_json::from_str::<Value>(&answer[0]).unwrap(), json!({"echo": request}));
         close.send(()).await.unwrap();
-        loop {
-            let chunk = stream.receive().await.unwrap();
-            match chunk {
-                None => break,
-                Some(chunk) if chunk.finished => break,
-                Some(_) => {}
-            }
-        }
+        drain(&stream).await;
         stream.close().await.unwrap();
     })
     .await;

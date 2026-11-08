@@ -876,7 +876,7 @@ impl DaemonServices {
 
     #[cfg(unix)]
     async fn negotiate_terminal_bytes(
-        mux_path: &std::path::Path,
+        mux_path: &Path,
         terminal_request: TerminalBytesRequest,
     ) -> Result<tokio::net::UnixStream, ServicesError> {
         // The control socket only brokers a one-use renderer grant. The
@@ -1711,7 +1711,7 @@ fn workspace_rpc_metadata(
 /// user, so refuse any other listener before a request or token is written.
 #[cfg(unix)]
 async fn connect_owned_unix_socket(
-    path: impl AsRef<std::path::Path>,
+    path: impl AsRef<Path>,
 ) -> Result<tokio::net::UnixStream, ServicesError> {
     let stream = tokio::net::UnixStream::connect(path).await?;
     crate::admin::verify_unix_peer_owner(&stream)
