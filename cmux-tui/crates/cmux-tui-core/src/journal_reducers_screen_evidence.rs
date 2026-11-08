@@ -113,13 +113,15 @@ impl AgentRoster {
     /// `Stop` that ran can be lost on its way (#21229), and a killed harness
     /// sends no `SessionEnd` (#20874). The screen proves it, observed after
     /// the hook's last report: the same plugin saw this turn run (`working`
-    /// observed since the hook's row became `working`) and now sees the
+    /// observed since the row became `working` and since the hook's latest
+    /// turn start, `turn_started_at_ms`) and now sees the
     /// agent's own idle prompt, or saw the agent and now
     /// sees its process gone (`saw_exit`; the detector confirms an exit
     /// over six scans). A plain screen `idle`, or an exit another producer
     /// reports, proves nothing.
     pub(super) fn screen_ends_hook_row(
         existing: &RosterEntry,
+        turn_started_at_ms: Option<u64>,
         note: ScreenNote,
         state: AgentState,
         observed_at_ms: u64,
@@ -127,9 +129,10 @@ impl AgentRoster {
         let ends = match state {
             AgentState::Idle => {
                 existing.agent_state() == AgentState::Working
-                    && note
-                        .ended_turn_seen_working_at
-                        .is_some_and(|seen_at| seen_at >= existing.since_ms())
+                    && note.ended_turn_seen_working_at.is_some_and(|seen_at| {
+                        seen_at >= existing.since_ms()
+                            && turn_started_at_ms.is_none_or(|started| seen_at >= started)
+                    })
             }
             AgentState::Done => note.saw_exit,
             _ => false,

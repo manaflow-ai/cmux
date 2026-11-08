@@ -286,3 +286,24 @@ fn an_older_observation_does_not_replace_newer_evidence() {
     rig.prompt(16_200);
     assert_eq!(rig.shown(), "working");
 }
+
+/// A second prompt while the row is still `working` (no `Stop` between, or a
+/// lost one) opens a new turn: the screen must see that turn run before its
+/// idle prompt ends it (second review of #38417, F1).
+#[test]
+fn a_prompt_submitted_while_working_fences_the_earlier_evidence() {
+    let mut rig = Rig::running_turn("claude");
+    rig.hook(16_000, "UserPromptSubmit");
+    rig.prompt(18_000);
+    assert_eq!(rig.shown(), "working");
+    rig.screen(18_300, "working");
+    rig.prompt(19_000);
+    assert_eq!(rig.shown(), "idle");
+}
+
+#[test]
+fn a_retired_terminal_forgets_its_turn_start() {
+    let mut rig = Rig::running_turn("claude");
+    assert!(rig.roster.retire_terminal(TERMINAL));
+    assert!(rig.roster.hook_turn_started_at.is_empty());
+}

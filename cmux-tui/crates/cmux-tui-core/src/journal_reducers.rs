@@ -600,6 +600,12 @@ pub(crate) struct AgentRoster {
     /// ([`ScreenEvidence`]).
     #[serde(default)]
     screen_evidence: HashMap<String, ScreenEvidence>,
+    /// When a hook last started a turn on each terminal (`agent.turn.started`,
+    /// its commit time). A prompt submitted while the row is already `working`
+    /// keeps the row's `since_ms`, so only this fences the screen's evidence of
+    /// a turn running to the turn now open ([`Self::screen_ends_hook_row`]).
+    #[serde(default)]
+    hook_turn_started_at: HashMap<String, u64>,
 }
 
 impl AgentRoster {
@@ -785,6 +791,9 @@ impl AgentRoster {
                 observed_at_ms,
             );
             self.hook_fences.insert(terminal_id.to_string(), next);
+            if event.kind == "agent.turn.started" {
+                self.hook_turn_started_at.insert(terminal_id.to_string(), event.committed_at_ms);
+            }
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
         };
@@ -818,7 +827,13 @@ impl AgentRoster {
                             updated_at_ms,
                         );
                     screen_ended_hook_row = existing_source == AgentSource::Hook
-                        && Self::screen_ends_hook_row(existing, screen_note, state, updated_at_ms);
+                        && Self::screen_ends_hook_row(
+                            existing,
+                            self.hook_turn_started_at.get(terminal_id).copied(),
+                            screen_note,
+                            state,
+                            updated_at_ms,
+                        );
                     if existing_source == AgentSource::Hook
                         && !dialog_gone
                         && !screen_ended_hook_row
@@ -962,7 +977,8 @@ impl AgentRoster {
         let entry = self.entries.remove(terminal_id).is_some();
         let fence = self.hook_fences.remove(terminal_id).is_some();
         let evidence = self.screen_evidence.remove(terminal_id).is_some();
-        entry || fence || evidence
+        let turn = self.hook_turn_started_at.remove(terminal_id).is_some();
+        entry || fence || evidence || turn
     }
 
     fn record_plugin_exit_fence(
