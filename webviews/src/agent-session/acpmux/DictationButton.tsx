@@ -3,8 +3,9 @@
 // DictationListening's. When the person dictates with an app (`agentPane.dictationSource`,
 // dictationSources.ts), the button wears that app's icon and its press sends the app's shortcut.
 // While another app holds the microphone and this composer has the keyboard (outsideDictation.ts),
-// three drawn bars take the glyph's place and the tooltip names the app; the button keeps its size,
-// its press and its focus behavior, so the composer goes on as before.
+// bars take the glyph's place and the tooltip names the app: the measured level when the host
+// meters it, three drawn bars otherwise. The button keeps its size, its press and its focus
+// behavior, so the composer goes on as before.
 import React, { useRef } from "react";
 import { useSourceIcon } from "./composer/sourceBadgeModel";
 import { MicIcon, StopIcon } from "./ComposerPickers";
@@ -12,6 +13,7 @@ import { useComposerLook } from "./composerLook";
 import { useComposerSettings } from "./composerSettings";
 import { isActive, type Dictation } from "./dictation";
 import { dictationSourceName, isAppSource, refreshDictationApps, useDictationApps } from "./dictationSources";
+import { OutsideLevelBars } from "./DictationListening";
 import { useT } from "./i18n";
 import { useOutsideDictation } from "./outsideDictation";
 import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
@@ -63,13 +65,15 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
       onContextMenu={refreshDictationApps}
       onClick={dictation.toggle}
     >
-      {elsewhere && (
+      {elsewhere && outside.metered ? (
+        <OutsideLevelBars />
+      ) : elsewhere ? (
         <span className="acpmux-mic-outside" aria-hidden="true">
           <span />
           <span />
           <span />
         </span>
-      )}
+      ) : null}
       {look === "codex" && isActive(state) ? (
         <StopIcon />
       ) : icon && !isActive(state) ? (

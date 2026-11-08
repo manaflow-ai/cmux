@@ -56,7 +56,8 @@ What follows from the table:
 
 ## Detecting the app and the microphone
 
-Nothing here opens the microphone; cmux never captures audio to detect anything.
+Detecting never opens the microphone; cmux never captures audio to learn whether, or which, app
+dictates. Only the level meter below opens it, and only while that is already known.
 
 - **Installed and running:** `NSWorkspace.urlForApplication(withBundleIdentifier:)` for each
   known bundle id above, and `NSWorkspace.runningApplications`. The list is fixed in the host, so
@@ -72,8 +73,33 @@ Nothing here opens the microphone; cmux never captures audio to detect anything.
   shortly after); helpers hold the mic under their own ids (match by prefix, or map the pid with
   `NSRunningApplication`); cmux's own process shows up and is filtered out. Before 14.2 the
   indicator says only that the mic is in use.
-- **No level without capture.** CoreAudio says whether input runs, not how loud it is. The
-  indicator's motion is drawn, not measured: it must never claim to show the person's voice.
+- **No level without capture.** CoreAudio says whether input runs, not how loud it is. A level
+  needs an input tap of cmux's own (below); without one the indicator's motion is drawn, not
+  measured, and must never claim to show the person's voice.
+
+### The level meter
+
+Leo, 2026-11-08, on the drawn pulse: "It's not accurate ... Could you do it? But you'd have to,
+like, also detect the mic more completely, right? Like from the system level." So while the
+indicator shows, cmux measures the level itself:
+
+- **When.** Another app's input runs, a composer has the keyboard in a focused window, macOS is
+  14.2 or later, cmux already has microphone permission
+  (`AVCaptureDevice.authorizationStatus(for: .audio) == .authorized`), and cmux's own dictation
+  does not hold the microphone. Then the host opens a meter-only `AVAudioEngine` input tap on the
+  default input.
+- **Levels only.** The tap folds each buffer into one RMS level (`DictationAudioLevelMeter`, no
+  recording) and sends the page that number (`micLevel {level}`, about 12 a second); no sample is
+  kept, written or sent. `micActivity` says `metered: true` while it runs.
+- **Stops at once** when the other app's input stops (its process's
+  `kAudioProcessPropertyIsRunningInput`: the device's `IsRunningSomewhere` stays true while cmux's
+  own tap runs, so it cannot tell), when the last composer loses the keyboard or the window its
+  focus, and when cmux's own dictation claims the microphone.
+- **Never prompts.** With no permission yet, or denied, or before macOS 14.2 (where a running
+  device names no process, so cmux could not see the other app let go while its own tap runs),
+  the indicator keeps the drawn pulse. cmux never asks for the microphone to draw this.
+- **Cost.** While it runs, macOS lists cmux among the apps using the microphone (the menu bar's
+  privacy indicator), which is true: cmux reads the level.
 
 ## What cmux builds
 
@@ -101,8 +127,9 @@ mark. Rules:
 
 - It never takes focus, never blocks typing, never moves or resizes the composer: it sits in the
   slot the dictation strip uses beside the mic, absolutely placed, `pointer-events: none`.
-- It names the app when the host knows it (its icon, "ChatGPT is using the microphone") and is
-  silent about audio it does not hear: motion is a slow drawn pulse, not a level meter.
+- It names the app when the host knows it (its icon, "ChatGPT is using the microphone"). While
+  the level meter runs, its bars follow the measured level as cmux's own dictation wave does;
+  otherwise its motion is a slow drawn pulse, never presented as a level.
 - It goes away when the microphone is released. When the composer loses focus the host drops its
   listener: no observer runs while no composer is focused, and none runs while the source is
   `cmux` and the indicator is off.
@@ -120,5 +147,6 @@ work reuses it and adds no animation of its own.
 
 - Reading another app's transcript (Accessibility scraping, the clipboard while it is not
   pasted). The words come to cmux only as the person's paste or the app's own typing.
-- Capturing audio to draw a level for an outside session.
+- Capturing audio for an outside session beyond the level meter above: no samples kept or sent,
+  no meter without permission already granted, no permission prompt for it.
 - Bundling or launching any third-party app.

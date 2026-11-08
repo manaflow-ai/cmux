@@ -9,6 +9,7 @@ import { useComposerLook } from "./composerLook";
 import { readLevel, subscribeLevel, type Dictation } from "./dictation";
 import "./dictation.css";
 import { useT } from "./i18n";
+import { readOutsideLevel, subscribeOutsideLevel } from "./outsideDictation";
 import { tooltipProps } from "./shortcuts";
 
 /// Resting dots at each end of the waveform.
@@ -20,6 +21,10 @@ const ends = Array.from({ length: END_DOTS }, (_, index) => index);
 function reach(index: number, count: number): number {
   return 0.4 + 0.6 * Math.sin((Math.PI * (index + 0.5)) / count);
 }
+
+/// Bar `index`'s `--level`, as the waveform scales a sample.
+const barLevel = (sample: number, index: number, count: number) =>
+  Math.min(1, Math.max(0, sample * 1.6 * reach(index, count))).toFixed(3);
 
 /// The recent input levels as bars, newest on the right. Each bar's `--level` (0...1) sets its
 /// height in dictation.css; at 0 a bar is a dot like the ends.
@@ -36,13 +41,30 @@ export function DictationWave({ state }: { state: Dictation["state"] }) {
           data-bar=""
           style={
             {
-              "--level": Math.min(1, Math.max(0, sample * 1.6 * reach(index, samples.length))).toFixed(3),
+              "--level": barLevel(sample, index, samples.length),
             } as React.CSSProperties
           }
         />
       ))}
       {ends.map((index) => (
         <span key={`tail-${index}`} data-dot="" />
+      ))}
+    </span>
+  );
+}
+
+/// Another app's measured input level in the mic's place (outsideDictation.ts), drawn as the
+/// waveform's bars so it reads as cmux's own: newest on the right, each bar's `--level` its height.
+export function OutsideLevelBars() {
+  const samples = useSyncExternalStore(subscribeOutsideLevel, readOutsideLevel);
+  return (
+    <span className="acpmux-mic-level" aria-hidden="true">
+      {samples.map((sample, index) => (
+        <span
+          key={index}
+          data-bar=""
+          style={{ "--level": barLevel(sample, index, samples.length) } as React.CSSProperties}
+        />
       ))}
     </span>
   );
