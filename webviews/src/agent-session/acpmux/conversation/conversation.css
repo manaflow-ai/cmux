@@ -2600,8 +2600,9 @@ pre.cv-math-source {
   min-width: 0;
   max-width: 100%;
   /* It holds the turn's time (Thinking.tsx): squeezed past its words on a narrow pane, it clips that
-     time too, never drawing it over the tokens and hint after it (issue 35021). */
-  overflow: hidden;
+     time too, never drawing it over the tokens and hint after it (issue 35021). Sideways only: the
+     words' roll (`.cv-roll-out`, `data-roll`) moves 0.6em up and down past the row's box. */
+  overflow-x: clip;
 }
 .cv-shimmer__base {
   display: block;

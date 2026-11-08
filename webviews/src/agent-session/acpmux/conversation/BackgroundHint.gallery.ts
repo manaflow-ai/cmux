@@ -77,7 +77,7 @@ const narrowLineHolds = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(`${LINE} .cv-command__bg`));
   await ctx.resize(280);
   const line = ctx.find({ selector: LINE });
-  // Where each part paints: a part that clips (overflow other than visible) paints only inside its box.
+  // Where each part paints: a part that clips sideways (overflow-x other than visible) paints only inside its box.
   const painted = (node: Element, clip: DOMRect | undefined) => {
     const box = node.getBoundingClientRect();
     return clip ? Math.min(box.right, clip.right) : box.right;
@@ -85,7 +85,7 @@ const narrowLineHolds = async (ctx: PlayContext) => {
   const parts = [...line.children].filter((part) => part.getBoundingClientRect().width > 0);
   for (let index = 1; index < parts.length; index++) {
     const before = parts[index - 1]!;
-    const clip = getComputedStyle(before).overflow === "visible" ? undefined : before.getBoundingClientRect();
+    const clip = getComputedStyle(before).overflowX === "visible" ? undefined : before.getBoundingClientRect();
     const ends = Math.max(
       painted(before, clip),
       ...[...before.querySelectorAll(".cv-worked__time, .cv-worked__own")].map((time) => painted(time, clip)),
@@ -115,7 +115,7 @@ export default agentPaneEntry({
       play: hoverHoldsCounts,
     },
     narrow: {
-      note: "https://github.com/manaflow-ai/cmux/issues/35021: a described Bash running for 16 minutes, with the turn's tokens, on a pane too narrow for all of it. The words give way first behind their ellipsis, and the turn's time never draws over the tokens or the hint.",
+      note: "https://github.com/manaflow-ai/cmux/issues/35021: a described Bash running for 16 minutes, with the turn's tokens, on a pane too narrow for the tokens, the hint's kept room and the label. The label and the turn's time give way (clipped in their own box), and the time never draws over the tokens or the hint.",
       snapshot: running("claude", true, described, 3_900),
       play: narrowLineHolds,
     },
