@@ -3850,7 +3850,7 @@ export interface CloudOps {
     }
     readonly result: CloudSessionView
   }
-  /** One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden; a closed one is cloud_session.not_found. */
+  /** One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden (or team.not_member); a closed or removed one is selector.not_found. */
   readonly "team.cloud.session.get": {
     readonly params: {
       readonly vm: CloudSessionVm

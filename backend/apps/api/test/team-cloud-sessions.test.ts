@@ -49,7 +49,7 @@ describe("team Cloud sessions", { timeout: 120_000 }, () => {
     expect(codeOf(await read(guest.token, "team.cloud.session.get", { vm: VM, session: "s1" }, t.team))).toBe("auth.forbidden")
     // A member cannot publish over someone else's session; a missing one is cloud_session.not_found.
     expect(codeOf(await op(member.token, "team.cloud.session.publish", chat("s1", { title: "hijack" }), t.team))).toBe("cloud_session.not_yours")
-    expect(codeOf(await read(member.token, "team.cloud.session.get", { vm: VM, session: "nope" }, t.team))).toBe("cloud_session.not_found")
+    expect(codeOf(await read(member.token, "team.cloud.session.get", { vm: VM, session: "nope" }, t.team))).toBe("selector.not_found")
   })
 
   it("a publish never moves last activity back, never touches the assignee, and a same publish changes nothing", async () => {
@@ -113,8 +113,9 @@ describe("team Cloud sessions", { timeout: 120_000 }, () => {
     ok(await op(m.token, "team.cloud.session.viewing", { vm: VM, session: "s1", viewing: true }, t.team))
     expect(ok(await read(t.creator.token, "team.cloud.session.get", { vm: VM, session: "s1" }, t.team)).session).toMatchObject({ viewers: [m.user], follower_count: 1 })
     ok(await op(t.creator.token, "team.members.remove", { user: m.user }, t.team))
-    expect(codeOf(await read(m.token, "team.cloud.session.list", {}, t.team))).toBe("auth.forbidden")
-    expect(codeOf(await read(m.token, "team.cloud.session.get", { vm: VM, session: "s1" }, t.team))).toBe("auth.forbidden")
+    // Someone no longer in the team: the Worker's membership gate (team.not_member) or TeamDO's (auth.forbidden).
+    expect(["auth.forbidden", "team.not_member"]).toContain(codeOf(await read(m.token, "team.cloud.session.list", {}, t.team)))
+    expect(["auth.forbidden", "team.not_member"]).toContain(codeOf(await read(m.token, "team.cloud.session.get", { vm: VM, session: "s1" }, t.team)))
     // A write from someone no longer in the team is refused by TeamDO's membership check.
     expect(["auth.forbidden", "team.not_member"]).toContain(codeOf(await op(m.token, "team.cloud.session.follow", { vm: VM, session: "s1", follow: false }, t.team)))
     // Their follow and presence no longer show to the team.
@@ -135,7 +136,7 @@ describe("team Cloud sessions", { timeout: 120_000 }, () => {
     expect(codeOf(await op(m.token, "team.cloud.session.remove", { vm: VM, session: "s1" }, t.team))).toBe("cloud_session.not_yours")
     expect(ok(await op(t.creator.token, "team.cloud.session.remove", { vm: VM, session: "s1" }, t.team))).toEqual({ removed: true })
     expect(ok(await read(m.token, "team.cloud.session.list", { scope: "following", archived: true }, t.team)).sessions).toEqual([])
-    expect(codeOf(await read(m.token, "team.cloud.session.get", { vm: VM, session: "s1" }, t.team))).toBe("cloud_session.not_found")
+    expect(codeOf(await read(m.token, "team.cloud.session.get", { vm: VM, session: "s1" }, t.team))).toBe("selector.not_found")
   })
 
   it("pages the team list newest first with a cursor and no duplicates", async () => {

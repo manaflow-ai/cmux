@@ -224,8 +224,8 @@ export const CloudSessionGet = def({
   principals: ["session", "install"],
   params: Schema.Struct(SessionRef),
   result: Schema.Struct({ session: CloudSessionView }),
-  errors: ["auth.unauthenticated", "auth.forbidden", "cloud_session.not_found"],
-  docs: "One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden; a closed one is cloud_session.not_found.",
+  errors: ["auth.unauthenticated", "auth.forbidden", "team.not_member", "selector.not_found"],
+  docs: "One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden (or team.not_member); a closed or removed one is selector.not_found.",
   cli: { path: "cloud team-session", visible: true },
   mcp: { expose: "default", group: "cloud" }
 })

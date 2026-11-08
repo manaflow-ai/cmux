@@ -278,7 +278,8 @@ export const cloudSessionRead = (state: LegacyTeamMaps & { team: { id: string } 
   const q = (params ?? {}) as { vm?: unknown; session?: unknown; scope?: unknown; by?: unknown; archived?: unknown; cursor?: unknown; limit?: unknown }
   if (op === "team.cloud.session.get") {
     const r = typeof q.vm === "string" && typeof q.session === "string" ? cloudSessionOf(rows, q.vm, q.session) : undefined
-    if (!r) return { ok: false, code: "cloud_session.not_found", message: "no such Cloud session in this team; it was closed or removed" }
+    // As a group read answers (team-group-reads.ts): selector.not_found, the read path's own code.
+    if (!r) return { ok: false, code: "selector.not_found", message: "no such Cloud session in this team; it was closed or removed" }
     return { ok: true, value: { session: sessionView(state, rows, r, user, now) }, revision: "" }
   }
   const scope = q.scope === undefined ? "team" : q.scope

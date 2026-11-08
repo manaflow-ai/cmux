@@ -824,7 +824,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden; a closed one is cloud_session.not_found.
+    /// One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden (or team.not_member); a closed or removed one is selector.not_found.
     TeamCloudSessionGetOp {
         name: "team.cloud.session.get",
         class: Read,
@@ -854,7 +854,8 @@ wire_errors! {
     TeamCloudSessionGetError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
-        CloudSessionNotFound = "cloud_session.not_found",
+        SelectorNotFound = "selector.not_found",
+        TeamNotMember = "team.not_member",
     }
 }
 
