@@ -281,9 +281,13 @@ fn daemon_upgrade_restart_keeps_the_old_owners_launch_flags_and_environment() {
             "new owner lost CMUX_APPS_DIRS"
         );
     }
-    // The terminal is adopted as before.
-    let resolved =
-        fixture.request(json!({"cmd": "resolve-terminal", "terminal_id": created["terminal_id"]}));
+    // The terminal is adopted as before: the same incarnation, running
+    // (the new owner may still be adopting its host when restart returns).
+    let resolve = || {
+        fixture.request(json!({"cmd": "resolve-terminal", "terminal_id": created["terminal_id"]}))
+    };
+    wait_for("the adopted terminal", || resolve()["lifecycle"] != "adopting");
+    let resolved = resolve();
     assert_eq!(resolved["lifecycle"], "running", "{resolved}");
     assert_eq!(resolved["terminal_incarnation"], created["terminal_incarnation"], "{resolved}");
 }
