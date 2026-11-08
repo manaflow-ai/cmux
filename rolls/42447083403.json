@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42447083403",
+  "recorded_at": "2026-11-08T04:38:40Z",
+  "reason": "cmux-tui 443eda873736 changes the image's cmux-tui (pinned 133de0807d46)",
+  "dry_run": false,
+  "cmux_tui": "443eda8737367425dc39323091c5014fb68866cc",
+  "fixes": [
+    {
+      "sha": "443eda8737367425dc39323091c5014fb68866cc",
+      "mergedAt": "2026-11-07T20:16:12-08:00",
+      "subject": "acpmux: a send says the harness or app it came from (Claude desktop, Codex, MCP clients), self-reported and checked by the socket peer (#38065)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T04:38:40Z",
+    "snapshot_id": "sh-008dc374832a4a78abde16ac77760807",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42447083403): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "404117d0cf5aaf74927dc9992e7dab98342a4097",
+    "image": "cloud-native-auto-443eda87-42447083403-1",
+    "revision": "ci-42447083403-1",
+    "at": "2026-11-08T04:38:40Z"
+  },
+  "rolled_back": false
+}
