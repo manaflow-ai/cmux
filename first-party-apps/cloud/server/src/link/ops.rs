@@ -561,7 +561,10 @@ fn ensure_running<C: ControlPlane>(
         server.handle(&Request::new("cloud.machine.get", json!({ "machine": machine })))?;
     }
     let paused = force_start
-        || server.projection().get(machine).is_some_and(|m| m.record.status == CloudMachineStatus::Paused);
+        || server
+            .projection()
+            .get(machine)
+            .is_some_and(|m| m.record.status == CloudMachineStatus::Paused);
     if paused {
         let start = Request::new("cloud.machine.start", json!({ "machine": machine }))
             .origin(origin)

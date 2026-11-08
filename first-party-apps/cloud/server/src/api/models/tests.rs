@@ -92,7 +92,8 @@ fn fields_the_catalog_lacks_reach_the_app() {
 #[test]
 fn the_extra_fields_never_shadow_a_catalog_field() {
     // Every catalog field present (the optional ones too).
-    let full = decode(with(record("vm-1", "1"), json!({ "pause_reason": "idle", "desktop": true })));
+    let full =
+        decode(with(record("vm-1", "1"), json!({ "pause_reason": "idle", "desktop": true })));
     let catalog = serde_json::to_value(&full.record).expect("record encodes");
     let extra = serde_json::to_value(MachineExtra {
         platform: Some(super::MachinePlatform::default()),
@@ -102,14 +103,27 @@ fn the_extra_fields_never_shadow_a_catalog_field() {
     })
     .expect("extra encodes");
     for key in extra.as_object().expect("extra").keys() {
-        assert!(catalog.get(key).is_none(), "{key} is a catalog field now: drop it from MachineExtra");
+        assert!(
+            catalog.get(key).is_none(),
+            "{key} is a catalog field now: drop it from MachineExtra"
+        );
     }
     assert_eq!(catalog["pause_reason"], "idle");
 }
 
 #[test]
 fn a_record_missing_a_catalog_required_field_is_a_bad_response() {
-    for field in ["team", "creator", "size", "status", "image", "classic", "created_at", "idle_policy", "revision"] {
+    for field in [
+        "team",
+        "creator",
+        "size",
+        "status",
+        "image",
+        "classic",
+        "created_at",
+        "idle_policy",
+        "revision",
+    ] {
         let mut source = record("vm-1", "1");
         source.as_object_mut().expect("record").remove(field);
         let error = decode_answer::<Machine>("cloud.machine.get", source).expect_err(field);
@@ -148,7 +162,8 @@ fn revisions_order_as_numbers() {
 fn a_machine_revision_is_a_checked_decimal() {
     assert_eq!(decode(record("vm-1", "007")).revision(), "7");
     for bad in ["", "7a", "-1", " 7"] {
-        let error = decode_answer::<Machine>("cloud.machine.get", record("vm-1", bad)).expect_err(bad);
+        let error =
+            decode_answer::<Machine>("cloud.machine.get", record("vm-1", bad)).expect_err(bad);
         assert_eq!(error.code, codes::BAD_RESPONSE, "{bad:?}");
     }
 }
