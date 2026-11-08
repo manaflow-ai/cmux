@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -30,9 +31,9 @@ import Testing
         // The stable channel never recorded one; the person used nightly.
         let names = ["stable", "nightly", "next"].map { "cn-classic-shortcuts-\($0)-\(UUID().uuidString)" }
         defer { names.forEach(UserDefaults().removePersistentDomain(forName:)) }
-        let stable = try #require(UserDefaults(suiteName: names[0]))
-        let nightly = try #require(UserDefaults(suiteName: names[1]))
-        let next = try #require(UserDefaults(suiteName: names[2]))
+        let stable = try #require(UserDefaults(testSuiteName: names[0]))
+        let nightly = try #require(UserDefaults(testSuiteName: names[1]))
+        let next = try #require(UserDefaults(testSuiteName: names[2]))
         nightly.set(try Self.stored("b", command: true, option: true, control: true), forKey: "shortcut.toggleSidebar")
         nightly.set(try Self.stored("h", command: true, option: true, control: true), forKey: "shortcut.showWindowHints")
         nightly.set(try Self.stored("b", control: true, chordKey: "p"), forKey: "shortcut.commandPalette")

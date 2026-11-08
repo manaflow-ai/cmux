@@ -1,6 +1,7 @@
 import CmuxNextBrowserImport
 @testable import CmuxNextImportCards
 @testable import CmuxNextImportSuggestions
+import CmuxNextTestSupport
 import Foundation
 import Observation
 import Testing
@@ -16,7 +17,7 @@ struct ImportSuggestionsCenterConductorTests {
     static let weekBefore = Date(timeIntervalSince1970: 1_794_556_800)
 
     private static func center(now: @escaping () -> Date, opened: Int? = 2) async throws -> ImportSuggestionsCenter {
-        let defaults = try #require(UserDefaults(suiteName: "import-center-conductor-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "import-center-conductor-\(UUID().uuidString)"))
         let ledger = FileManager.default.temporaryDirectory.appending(path: "import-jobs-\(UUID().uuidString).json")
         let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: ledger, now: now)
         center.scanThisMac = { _ in [Self.conductor] }

@@ -1,6 +1,7 @@
 @testable import CmuxNextAccounts
 @testable import CmuxNextAgentPane
 @testable import CmuxNextOnboarding
+import CmuxNextTestSupport
 import Foundation
 import os
 import Testing
@@ -372,7 +373,7 @@ import Testing
         }
         func defaults() throws -> UserDefaults {
             let suite = "cmux-agents-first-run-\(UUID().uuidString)"
-            let defaults = try #require(UserDefaults(suiteName: suite))
+            let defaults = try #require(UserDefaults(testSuiteName: suite))
             defaults.removePersistentDomain(forName: suite)
             return defaults
         }
@@ -408,13 +409,13 @@ import Testing
         let none = Order()
         let empty = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
                                               activeLook: nil, present: { _ in })
-        await empty.showFirstRunSteps(isFirstRun: true, source: MockAgentSignInSource(), defaults: try #require(UserDefaults(suiteName: "cmux-no-agents-\(UUID().uuidString)"))) {
+        await empty.showFirstRunSteps(isFirstRun: true, source: MockAgentSignInSource(), defaults: try #require(UserDefaults(testSuiteName: "cmux-no-agents-\(UUID().uuidString)"))) {
             none.steps.append("history")
         }
         #expect(none.steps == ["history"])
 
         let suite = "cmux-agents-then-history-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let presenter = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
                                                   activeLook: nil, present: { _ in })

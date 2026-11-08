@@ -1,5 +1,6 @@
 import CmuxNextBrowserImport
 @testable import CmuxNextImportSuggestions
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -34,7 +35,7 @@ struct ConductorNoteTests {
         state.conductorNoteClosed = true
         #expect(!state.showsConductorNote(findings: [Self.conductor], jobs: ImportJobLedger(), now: Self.now))
         let suite = "conductor-note-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         state.save(to: defaults)
         #expect(ImportSuggestionState.load(from: defaults).conductorNoteClosed == true)
@@ -43,7 +44,7 @@ struct ConductorNoteTests {
     /// The state saved before the note existed still loads, with its dismissals.
     @Test func stateSavedBeforeTheNoteStillLoads() throws {
         let suite = "conductor-note-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(Data(#"{"dismissed":{"agents.codex":"agents.codex|ok"},"requests":[]}"#.utf8), forKey: ImportSuggestionState.defaultsKey)
         let state = ImportSuggestionState.load(from: defaults)
@@ -78,7 +79,7 @@ struct ConductorNoteTests {
         state.conductorImportRan = true
         #expect(!state.showsConductorNote(findings: [Self.conductor], jobs: ImportJobLedger(), now: Self.now))
         let suite = "conductor-note-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         state.save(to: defaults)
         let loaded = ImportSuggestionState.load(from: defaults)

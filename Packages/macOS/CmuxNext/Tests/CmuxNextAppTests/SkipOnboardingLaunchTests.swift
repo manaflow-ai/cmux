@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -26,7 +27,7 @@ struct SkipOnboardingLaunchTests {
         _ = NSApplication.shared
         let key = "home.firstRun.historyImportShown"
         let suite = "SkipOnboardingLaunchTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
         let plain = AppServices(environment: AppEnvironment.current([:], arguments: ["cmux"]))

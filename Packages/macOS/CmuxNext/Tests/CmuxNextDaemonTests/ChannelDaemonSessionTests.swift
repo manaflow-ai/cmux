@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -32,7 +33,7 @@ struct ChannelDaemonSessionTests {
             try DaemonLauncher.forApp(
                 build: BuildIdentity(bundleID: bundleID, bundledTag: nil), terminalEnvironment: [:],
                 processEnvironment: [DaemonLauncher.binaryOverrideKey: binary.path],
-                socketMemory: DaemonSocketMemory(defaults: { UserDefaults(suiteName: defaultsSuite) ?? .standard }),
+                socketMemory: DaemonSocketMemory(defaults: { UserDefaults(testSuiteName: defaultsSuite) ?? .standard }),
                 applicationSupport: support
             ).configuration
         }
