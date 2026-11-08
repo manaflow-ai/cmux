@@ -9,6 +9,8 @@ extension TerminalHostView: PaneResizeGestureFollowing {
         guard followsResizeGesture != active else { return }
         followsResizeGesture = active
         current?.followResizeGesture(active)
+        // RED (RESIZE P0 15, never merges): the m14 drag hold back: the surface keeps its drag-start size for the drag.
+        if active, let size = current?.frame.size { holdSurface(size: size, anchor: .top) } else if !active { releaseSurfaceHold() }
     }
 
     /// The pointer let go: the surface's newest drag grid goes to its program in this turn (``TerminalGridReporter/release()``).
