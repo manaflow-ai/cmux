@@ -81,6 +81,13 @@ pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// build (RemoteViewTabsControl.releaseMethods, whose test reads this line).
 pub(super) const REMOTE_VIEWS_METHOD: &str = "remote_view.state";
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
+/// The app methods `cmux app machines` and `cmux app join-line` send; the app
+/// registers both in every build (AppControl+Remote.swift). A list read or a
+/// mint is one bundled CLI run after the account's token, which the app bounds
+/// at 45 s (`AddDeviceCard.automationDeadline`), so the CLI waits a little longer.
+pub(super) const MACHINES_METHOD: &str = "machine.list";
+pub(super) const JOIN_LINE_METHOD: &str = "device.join_line";
+const MACHINE_CALL_TIMEOUT: Duration = Duration::from_secs(50);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// A run that waits for a person's answer in the app (an agent's cookie
@@ -157,6 +164,7 @@ pub(super) enum AppCommand {
     },
     Events {
         params: Value,
+        wait: events::EventsWait,
     },
     /// `browser.page.screenshot`, whose PNG goes to `out` (`-` is stdout,
     /// none is a new file in the temporary directory).
@@ -299,6 +307,43 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             }
             call(REMOTE_VIEWS_METHOD, Value::Object(params))
         }
+        // The Machines section's machines (`machine.list`, every build): this Mac,
+        // Cloud, SSH, server and hub-joined machines with their link state. It reads
+        // `cmux machine list` once first unless `--no-refresh`.
+        ("app", Some("machines")) => {
+            let options = Options::parse(rest.get(1..).unwrap_or_default(), &[], &["no-refresh"])?;
+            let params =
+                if options.flag("no-refresh") { json!({ "refresh": false }) } else { json!({}) };
+            AppCommand::Call {
+                method: MACHINES_METHOD,
+                params,
+                timeout: Some(MACHINE_CALL_TIMEOUT),
+                pick: None,
+            }
+        }
+        // Add Device's join line (`device.join_line`, every build): opens the card on
+        // its "Any machine" way unless `--no-open`; `--mint` presses Make Line (with
+        // `--name`) and waits for the line. The reply carries the line the card holds.
+        ("app", Some("join-line")) => {
+            let options =
+                Options::parse(rest.get(1..).unwrap_or_default(), &["name"], &["mint", "no-open"])?;
+            let mut params = Map::new();
+            if options.flag("mint") {
+                params.insert("mint".into(), json!(true));
+            }
+            if options.flag("no-open") {
+                params.insert("open".into(), json!(false));
+            }
+            if let Some(name) = options.value("name") {
+                params.insert("name".into(), json!(name));
+            }
+            AppCommand::Call {
+                method: JOIN_LINE_METHOD,
+                params: Value::Object(params),
+                timeout: Some(MACHINE_CALL_TIMEOUT),
+                pick: None,
+            }
+        }
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
@@ -416,7 +461,11 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             call("bookmark.list", Value::Object(params))
         }
         ("events", _) => {
-            let options = Options::parse(rest, &["after", "name", "category"], &["no-heartbeats"])?;
+            let options = Options::parse(
+                rest,
+                &["after", "name", "category", "timeout", "until", "match"],
+                &["no-heartbeats"],
+            )?;
             let mut params = Map::new();
             if let Some(after) = options.value("after") {
                 let after: i64 = after.parse().map_err(|_| {
@@ -435,7 +484,18 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             if options.flag("no-heartbeats") {
                 params.insert("include_heartbeats".into(), json!(false));
             }
-            AppCommand::Events { params: Value::Object(params) }
+            let timeout = options
+                .value("timeout")
+                .map(|text| super::command::parse_duration_ms("events: --timeout", text))
+                .transpose()?
+                .map(Duration::from_millis);
+            let until = super::event_match::EventMatch::new(
+                "events",
+                options.value("until"),
+                &options.values("match"),
+            )?;
+            let wait = events::EventsWait { until, timeout };
+            AppCommand::Events { params: Value::Object(params), wait }
         }
         // `team invite` is Invite to Team's other name (`home invite-to-team`): one action, one dialog.
         ("team", Some("invite")) => {
@@ -850,8 +910,8 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Screenshot { params, out } => {
             ("browser.page.screenshot", params, Some(SCREENSHOT_TIMEOUT), None, Some(out))
         }
-        AppCommand::Events { params } => {
-            return Ran::Done(stream_events(stream, params, global.output));
+        AppCommand::Events { params, wait } => {
+            return Ran::Done(stream_events(stream, params, &wait, global.output));
         }
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));

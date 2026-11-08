@@ -730,7 +730,9 @@ fn build(
                 &shown,
                 idr,
                 format!("defaults.policy: {e}"),
-                Some("use ask, approve-reads, approve-edits, approve-all or deny-all".into()),
+                Some(
+                    "use ask, approve-reads, approve-edits, approve-all, deny-all or review".into(),
+                ),
             ));
             None
         }

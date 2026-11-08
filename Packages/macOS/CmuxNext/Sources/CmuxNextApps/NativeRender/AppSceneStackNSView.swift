@@ -4,7 +4,8 @@ import CmuxNextDesign
 /// `VStack`, `LazyVStack`, `Group`, `ForEach`, `Reorderable` (vertical) and `HStack` (horizontal).
 /// Vertical: each child fills the width, or keeps its natural width at the stack's `alignment`; the
 /// height is the sum plus `spacing`. Horizontal: children keep their natural widths, filling children
-/// share what is left (spacers last), text shrinks when the row is too narrow, and each child centers
+/// share what is left (spacers last), text shrinks when the row is too narrow (lowest `layoutPriority` first,
+/// never a `fixedSize` text), and each child centers
 /// on the row's height. A section is a short list (budget 4096 nodes), so every child is laid out:
 /// `LazyVStack` draws as a `VStack`.
 final class AppSceneStackNSView: AppSceneNodeNSView {
@@ -66,12 +67,26 @@ final class AppSceneStackNSView: AppSceneNodeNSView {
             for index in takers { out[index] = left / CGFloat(takers.count) }
             return out
         }
-        // Too narrow: text gives up width from the last one back, never below zero.
-        for index in childViews.indices.reversed() where childViews[index] is AppSceneTextNSView && left < 0 {
+        // Too narrow: text gives up width, never below zero: the lowest `layoutPriority` first, then from the last one
+        // back; a text with `fixedSize` "horizontal" (or "both") keeps its width, as in the SwiftUI renderer.
+        let givers = childViews.indices.reversed().filter { childViews[$0] is AppSceneTextNSView && !Self.keepsWidth(childViews[$0].node) }
+        let ordered = givers.enumerated().sorted { a, b in
+            let (pa, pb) = (childViews[a.element].node.number("layoutPriority") ?? 0, childViews[b.element].node.number("layoutPriority") ?? 0)
+            return pa != pb ? pa < pb : a.offset < b.offset
+        }.map(\.element)
+        for index in ordered where left < 0 {
             let give = min(out[index], -left)
             out[index] -= give
             left += give
         }
         return out
+    }
+
+    /// Whether a text keeps its natural width in a row that is too narrow (`fixedSize` "horizontal" or "both").
+    private static func keepsWidth(_ node: AppSceneNode) -> Bool {
+        switch node.string("fixedSize") {
+        case "horizontal", "both": true
+        default: false
+        }
     }
 }

@@ -18,8 +18,8 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt, StreamExt};
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_tungstenite::tungstenite::Message as Frame;
@@ -42,16 +42,15 @@ type UrlWs = tokio_tungstenite::WebSocketStream<
 
 /// An opened WebSocket of one path.
 pub(super) enum OpenedWs {
-    Boxed(BoxedWs),
-    Url(UrlWs),
+    Boxed(Box<BoxedWs>),
+    Url(Box<UrlWs>),
 }
 
 /// An ssh path probe's own `ssh -W` process (spawned `kill_on_drop`) and its stderr reader.
 type ProbeTunnel = (tokio::process::Child, ssh_errors::Capture);
 
-/// The WebSocket the cold connect opened, and on which path.
+/// The WebSocket the cold connect opened (its path comes back beside it from `race`).
 pub(super) struct Opened {
-    pub via: Via,
     pub ws: OpenedWs,
     pub heard: Heard,
     /// The peer token it presented (`Peer::presented`).
@@ -85,11 +84,11 @@ pub(super) async fn race<T, F>(
 where
     F: Future<Output = Result<T, String>>,
 {
-    fn tagged<T, F: Future<Output = Result<T, String>>>(
+    async fn tagged<T, F: Future<Output = Result<T, String>>>(
         via: Via,
         dial: F,
-    ) -> impl Future<Output = (Via, Result<T, String>)> {
-        async move { (via, dial.await) }
+    ) -> (Via, Result<T, String>) {
+        (via, dial.await)
     }
     let mut waiting = candidates.into_iter();
     let mut running = FuturesUnordered::new();
@@ -147,14 +146,7 @@ fn link_socket() -> Option<PathBuf> {
 /// WireGuard key, which the link adopts as this machine's one key), from the link's
 /// pairings; None when the link has no such peer.
 pub(crate) fn paired_install(wireguard_key: &str) -> Option<String> {
-    let dir = cmux_tui_platform::platform::workspace_state_dir()?;
-    // The link's state dir (`cmux-tui` `link/state.rs`): `<daemon state dir>/link/peers.json`.
-    let pairings = cmux_link::pairing::Pairings::load(&dir.join("link").join("peers.json")).ok()?;
-    pairings
-        .peers
-        .iter()
-        .find(|record| record.public_key == wireguard_key && record.is_valid())
-        .map(|record| record.install.clone())
+    crate::wireguard::paired_install_in(&crate::wireguard::link_state_dir()?, wireguard_key)
 }
 
 /// Open a stream to the `acpmux` service of paired install `host` through the link at
@@ -296,14 +288,10 @@ impl Peer {
         self.switch_wanted.store(false, Ordering::SeqCst);
     }
 
-    /// `carrier` and `paths` of `_acpmux/peers`: what carries the live link, and every path's
-    /// health and round trip.
-    pub(crate) fn paths_summary(&self) -> (Option<&'static str>, serde_json::Value) {
-        let carrier = self
-            .serving()
-            .filter(|_| self.connected.load(Ordering::SeqCst))
-            .map(|via| via.carrier().as_str());
-        (carrier, self.with_paths(|paths| paths.view(crate::store::now_ms())))
+    /// `paths` of `_acpmux/peers`: every path's health and round trip (the live link's
+    /// carrier is `carrier`, from `peer_carrier.rs`).
+    pub(crate) fn paths_view(&self) -> serde_json::Value {
+        self.with_paths(|paths| paths.view(crate::store::now_ms()))
     }
 
     /// A pong on `via`.
@@ -338,8 +326,18 @@ impl Peer {
     /// Whether the live link should end now to move to the path the selector picked: one was
     /// picked, and no request is out on this link (its answer would be lost). Its chats'
     /// streams resume on the next link from their cursors (`afterSeq`).
+    ///
+    /// Requests the peer sent this daemon count too: a lent GitHub action (the only incoming
+    /// request answered later; any other is refused at once in the serve loop) holds the link
+    /// until its answer is queued, and a queued frame until it is written (`out` empty). An
+    /// action past its own budget (`ACTION_BUDGET`) no longer holds it: the link moves, the
+    /// action is revoked with the link (`link_ended`, its `gh` killed), and the peer's own
+    /// request deadline fails it there.
     pub(super) fn switch_due(&self) -> bool {
-        if !self.switch_wanted.load(Ordering::SeqCst) || !self.on_wire.lock_or_recover().is_empty()
+        if !self.switch_wanted.load(Ordering::SeqCst)
+            || !self.on_wire.lock_or_recover().is_empty()
+            || self.answering.busy(tokio::time::Instant::now())
+            || self.out.capacity() != self.out.max_capacity()
         {
             return false;
         }
@@ -386,6 +384,61 @@ impl Peer {
         })
     }
 
+    /// Dial this peer's paths (`dial_order`), each `STAGGER` after the one before it or at once
+    /// when it failed, and keep the first that opens; the others are marked failed.
+    pub(super) async fn open_first(self: &Arc<Self>) -> Result<(Via, Opened), String> {
+        let order = self.dial_order();
+        let ssh_tokens = self.direct_tokens(&order).await;
+        let dials: Vec<_> =
+            order.iter().map(|via| (*via, self.open_via(*via, ssh_tokens.clone()))).collect();
+        let mut stopped = self.stop_changed.subscribe();
+        let raced = tokio::select! {
+            biased;
+            _ = stopped.wait_for(|stopped| *stopped) => return Err("peer stopped".to_owned()),
+            raced = race(dials, STAGGER) => raced,
+        };
+        let (via, opened, failed) = match raced {
+            Ok(won) => won,
+            Err(failed) => {
+                for (via, _) in &failed {
+                    self.path_failed(*via);
+                }
+                return Err(failures_line(&failed));
+            }
+        };
+        for (via, error) in &failed {
+            tracing::debug!(peer = %self.name, via = via.as_str(), "path unavailable: {error}");
+            self.path_failed(*via);
+        }
+        Ok((via, opened))
+    }
+
+    /// The tokens a direct path presents, read over ssh first only when this peer has no
+    /// configured pair: an ssh:// peer may source this launch's credentials there, and a
+    /// direct path must not present older ones than its ssh path would. Configured tokens
+    /// need no read, so a direct path never waits on ssh for them; and a read that fails
+    /// (ssh down) leaves the direct path its kept tokens, never stops it.
+    async fn direct_tokens(&self, order: &[Via]) -> Option<(tokens::Tokens, bool)> {
+        let direct = order.iter().any(|via| matches!(via, Via::Wireguard | Via::Link));
+        let configured = self.token.is_some() && self.peer_token.is_some();
+        if !direct || configured || self.ssh_parts().is_none() {
+            return None;
+        }
+        match self.connect_tokens().await {
+            Ok(tokens) => Some(tokens),
+            Err(error) => {
+                tracing::debug!(peer = %self.name, "no tokens over ssh before the direct path: {error}");
+                None
+            }
+        }
+    }
+
+    /// The cmux link socket to dial, ahead of the link's registration (tests).
+    #[cfg(test)]
+    pub(super) fn set_link_socket(&self, socket: PathBuf) {
+        let _ = self.link_socket.set(socket);
+    }
+
     /// A raw stream to the peer's listener on a direct path, and the URL its upgrade names.
     async fn direct_stream(&self, via: Via) -> Result<(BoxDuplex, String), String> {
         match via {
@@ -397,11 +450,11 @@ impl Peer {
             }
             Via::Link => {
                 let host = self.link_host.get().ok_or_else(|| "not a paired install".to_owned())?;
-                let socket = tokio::task::spawn_blocking(link_socket)
-                    .await
-                    .ok()
-                    .flatten()
-                    .ok_or_else(|| "cmux link is not running".to_owned())?;
+                let socket = match self.link_socket.get() {
+                    Some(socket) => Some(socket.clone()),
+                    None => tokio::task::spawn_blocking(link_socket).await.ok().flatten(),
+                }
+                .ok_or_else(|| "cmux link is not running".to_owned())?;
                 let stream = dial_link(&socket, host).await?;
                 Ok((Box::new(stream), "ws://localhost/".to_owned()))
             }
@@ -433,7 +486,12 @@ impl Peer {
         let (ws, _) = tokio::time::timeout(self.timings.connect, opening)
             .await
             .map_err(|_| connect_timed_out(self.timings.connect))??;
-        Ok(Opened { via, ws: OpenedWs::Boxed(ws), heard, presented: peer_token, ssh_errors: None })
+        Ok(Opened {
+            ws: OpenedWs::Boxed(Box::new(ws)),
+            heard,
+            presented: peer_token,
+            ssh_errors: None,
+        })
     }
 
     /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL.
@@ -467,18 +525,17 @@ impl Peer {
                 None,
             )
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| {
+                if tokens::refused(&e) {
+                    self.token_refused();
+                }
+                e.to_string()
+            })
         };
         let (ws, _) = tokio::time::timeout(self.timings.connect, connect)
             .await
             .map_err(|_| connect_timed_out(self.timings.connect))??;
-        Ok(Opened {
-            via: Via::Url,
-            ws: OpenedWs::Url(ws),
-            heard,
-            presented: None,
-            ssh_errors: None,
-        })
+        Ok(Opened { ws: OpenedWs::Url(Box::new(ws)), heard, presented: None, ssh_errors: None })
     }
 
     /// Open the peer's WebSocket over `ssh -W`, reading its tokens over ssh as needed.
@@ -562,8 +619,7 @@ impl Peer {
             let error = match upgraded {
                 Ok(ws) => {
                     return Ok(Opened {
-                        via: Via::Ssh,
-                        ws: OpenedWs::Boxed(ws),
+                        ws: OpenedWs::Boxed(Box::new(ws)),
                         heard,
                         presented: peer_token,
                         ssh_errors: Some(errors),
@@ -582,6 +638,7 @@ impl Peer {
                 continue;
             }
             if refused {
+                self.token_refused();
                 self.read_tokens.forget();
                 // Kept tokens the remote no longer takes: read them again and retry once, now.
                 if kept && !self.stop.load(Ordering::SeqCst) {
@@ -648,8 +705,8 @@ impl Peer {
                 _ = stopped.changed() => return,
             };
             match opened {
-                Ok(Ok((OpenedWs::Boxed(ws), tunnel))) => self.probe_link(via, ws, tunnel).await,
-                Ok(Ok((OpenedWs::Url(ws), tunnel))) => self.probe_link(via, ws, tunnel).await,
+                Ok(Ok((OpenedWs::Boxed(ws), tunnel))) => self.probe_link(via, *ws, tunnel).await,
+                Ok(Ok((OpenedWs::Url(ws), tunnel))) => self.probe_link(via, *ws, tunnel).await,
                 Ok(Err(error)) => {
                     tracing::debug!(peer = %self.name, via = via.as_str(), "path probe failed: {error}");
                     self.path_failed(via);
@@ -767,10 +824,49 @@ impl Peer {
                 )
                 .await
                 .map_err(|e| e.to_string())?;
-                Ok((OpenedWs::Boxed(ws), Some((child, errors))))
+                Ok((OpenedWs::Boxed(Box::new(ws)), Some((child, errors))))
             }
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
         }
+    }
+}
+
+/// Requests the peer sent this daemon that are still being answered, each with the deadline
+/// past which it no longer holds the link on its path (`Peer::switch_due`).
+#[derive(Default)]
+pub(crate) struct Answering(Arc<StdMutex<AnsweringSet>>);
+
+#[derive(Default)]
+struct AnsweringSet {
+    next: u64,
+    until: std::collections::HashMap<u64, tokio::time::Instant>,
+}
+
+/// One request being answered; dropped once its answer is queued (or never will be).
+pub(crate) struct AnsweringGuard {
+    set: Arc<StdMutex<AnsweringSet>>,
+    id: u64,
+}
+
+impl Answering {
+    /// A request starts being answered, for at most `budget`.
+    pub(crate) fn start(&self, budget: Duration) -> AnsweringGuard {
+        let mut set = self.0.lock_or_recover();
+        let id = set.next;
+        set.next += 1;
+        set.until.insert(id, tokio::time::Instant::now() + budget);
+        AnsweringGuard { set: self.0.clone(), id }
+    }
+
+    /// Whether a request is being answered within its budget at `now`.
+    pub(crate) fn busy(&self, now: tokio::time::Instant) -> bool {
+        self.0.lock_or_recover().until.values().any(|until| *until > now)
+    }
+}
+
+impl Drop for AnsweringGuard {
+    fn drop(&mut self) {
+        self.set.lock_or_recover().until.remove(&self.id);
     }
 }
 

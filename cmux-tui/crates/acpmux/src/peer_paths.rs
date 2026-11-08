@@ -49,6 +49,17 @@ pub enum Carrier {
 }
 
 impl Carrier {
+    /// The same carrier on the wire (`_acpmux/peer_state_changed`, `peer_carrier.rs`).
+    pub fn wire(self) -> crate::protocol::peer_state::Carrier {
+        use crate::protocol::peer_state::Carrier as Wire;
+        match self {
+            Self::Direct => Wire::Direct,
+            Self::Ssh => Wire::Ssh,
+            Self::Hub => Wire::Hub,
+            Self::Cloud => Wire::Cloud,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Direct => "direct",
@@ -298,6 +309,10 @@ impl Paths {
                 Health::Doubt
             }
             SelectorState::Alive => Health::Alive,
+            // Answered before, then missed a probe or went silent, not dead yet: the
+            // selector still holds it (`chosen`) while senders use every path, which is this
+            // file's doubt (`in_doubt`).
+            SelectorState::Suspect => Health::Doubt,
         })
     }
 
@@ -347,7 +362,7 @@ impl Paths {
     pub fn dial_order(&self, now: u64) -> Vec<Via> {
         let rank = |via: Via| -> (u8, u64) {
             let health = self.health(via, now);
-            let rtt = self.rtt(via).map_or(u64::MAX, |rtt| millis(rtt));
+            let rtt = self.rtt(via).map_or(u64::MAX, millis);
             if Some(via) == self.active() {
                 (0, 0)
             } else if matches!(health, Some(Health::Alive | Health::Doubt)) {

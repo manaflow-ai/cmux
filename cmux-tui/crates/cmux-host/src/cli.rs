@@ -353,6 +353,13 @@ fn run_agent(mut cfg: Config) -> u8 {
     } else {
         None
     };
+    // This is cmux-host.service starting: a restart of it that an updater, the
+    // operator's `cmux host update check` or the guard queued is done, so the
+    // Cloud role's binds may go out again (updater/gate.rs). Before any role
+    // starts, so before the first bind.
+    if cfg.paths.is_system_root() {
+        crate::updater::gate::Gate::new(&cfg.paths).service_started();
+    }
     let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone())
         .with_root_bootstrap(bootstrap.clone());
     // The updater is last: it starts once every other role runs, and it
@@ -483,11 +490,19 @@ fn clone_mark(paths: &Paths) -> Result<serde_json::Value, String> {
 fn carrier_ticket() -> u8 {
     use crate::cloud::carrier_ticket::{REQUEST_KEY, ticket_of};
     let line = serde_json::json!({ REQUEST_KEY: {} }).to_string();
-    let reply = crate::github_cli::agent_reply(
-        std::path::Path::new(crate::cloud::wire::AGENT_SOCKET),
-        &line,
-        Duration::from_secs(30),
-    );
+    // The ticket's own socket and thread (`cloud/carrier_server.rs`); a
+    // cmux-host from before it has only the agent socket.
+    let wait = Duration::from_secs(30);
+    let reply =
+        match std::os::unix::net::UnixStream::connect(crate::cloud::carrier_server::CARRIER_SOCKET)
+        {
+            Ok(stream) => crate::github_cli::reply_on(stream, &line, wait),
+            Err(_) => crate::github_cli::agent_reply(
+                std::path::Path::new(crate::cloud::wire::AGENT_SOCKET),
+                &line,
+                wait,
+            ),
+        };
     match reply.map_err(|e| e.to_string()).and_then(|reply| ticket_of(&reply)) {
         Ok(ticket) => {
             println!("{ticket}");

@@ -110,7 +110,7 @@
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"right","values":{"calc(var(--acpmux-actions-width, 64px) + 8px + 8px * var(--cmux-interface-scale, 1))":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"top","values":{"-5px":1,"-17px":1}}
 {"file":"agent-session/acpmux/composerLook.css","kind":"radius","property":"border-radius","values":{"14px 14px 0 0":1}}
-{"file":"agent-session/acpmux/composerLook.css","kind":"spacing","property":"bottom","values":{"calc(var(--acpmux-composer-inset, 8px) + var(--grid-composer-quiet-row-height, 28px) / 2 - 12px)":1,"2px":1}}
+{"file":"agent-session/acpmux/composerLook.css","kind":"spacing","property":"bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/composerLook.css","kind":"spacing","property":"padding-block","values":{"2px var(--acpmux-tray-tuck)":1}}
 {"file":"agent-session/acpmux/ComposerPickers.gallery.css","kind":"height","property":"min-height","values":{"210px":1}}
 {"file":"agent-session/acpmux/ComposerPickers.gallery.css","kind":"spacing","property":"gap","values":{"14px":1}}

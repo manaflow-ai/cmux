@@ -1,5 +1,6 @@
 use super::*;
 use std::future::pending;
+use tokio::sync::mpsc;
 
 type Dial = std::pin::Pin<Box<dyn Future<Output = Result<&'static str, String>> + Send>>;
 
@@ -153,4 +154,115 @@ async fn a_refused_link_dial_says_why_and_a_missing_link_is_not_running() {
     assert!(error.contains("Unreachable"), "{error}");
     let error = dial_link(&dir.path().join("none.sock"), "inst_b").await.unwrap_err();
     assert!(error.starts_with("cmux link is not running"), "{error}");
+}
+
+/// A peer whose link `link` finished its handshake as a peer of this daemon, lending GitHub,
+/// with a faster path picked and its outbound queue in the test's hands.
+async fn lending_peer_with_a_switch_wanted()
+-> (Arc<Peer>, u64, mpsc::Receiver<super::super::Outbound>) {
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = Peer::new("switch-while-answering", "ws://127.0.0.1:9", None, None, tx);
+    peer.set_github_broker(true);
+    let link = peer.link_epoch();
+    peer.github_link.store(link + 1, Ordering::SeqCst);
+    let out = peer.out_rx.lock().await.take().unwrap();
+    peer.switch_wanted.store(true, Ordering::SeqCst);
+    assert!(peer.switch_due(), "nothing in flight: the link may move");
+    (peer, link, out)
+}
+
+/// Review of #38357 at 9b28f327 (F1): a lent GitHub action the peer asked for holds the link
+/// on its path while it runs and until its answer is written, and the answer goes out on the
+/// link it was asked on; then the link moves.
+#[tokio::test]
+async fn an_incoming_github_action_holds_a_path_switch_until_its_answer_is_written() {
+    let (peer, link, mut out) = lending_peer_with_a_switch_wanted().await;
+    let slot =
+        crate::github_broker::admit_owner(&peer.name, peer.github_ready(link), &peer.github_slots)
+            .unwrap();
+    // Invalid, so it answers without a `gh`: what matters is the answer's way out.
+    peer.serve_github_action(serde_json::json!(7), serde_json::json!({}), slot, link);
+    assert!(!peer.switch_due(), "the action is running: the link stays");
+    let answer = tokio::time::timeout(Duration::from_secs(5), async {
+        // Queued and not yet written: the link still stays.
+        while peer.out.capacity() == peer.out.max_capacity() {
+            assert!(!peer.switch_due(), "the action is running: the link stays");
+            tokio::task::yield_now().await;
+        }
+        assert!(!peer.switch_due(), "the answer is queued, not written: the link stays");
+        out.recv().await.unwrap()
+    })
+    .await
+    .unwrap();
+    assert_eq!(answer.epoch, link, "the answer goes out on the link it was asked on");
+    let v: serde_json::Value = serde_json::from_str(answer.line.trim_end()).unwrap();
+    assert_eq!(v["id"], 7, "{v}");
+    assert!(v.get("error").is_some(), "{v}");
+    assert!(peer.switch_due(), "the answer is out: the link moves");
+}
+
+/// An action that runs past its own budget no longer holds the link: a stuck one cannot pin a
+/// slow path for good.
+#[tokio::test(start_paused = true)]
+async fn an_incoming_action_past_its_budget_no_longer_holds_the_link() {
+    let (peer, _link, _out) = lending_peer_with_a_switch_wanted().await;
+    let running = peer.answering.start(crate::github_broker::ACTION_BUDGET);
+    assert!(!peer.switch_due());
+    tokio::time::advance(crate::github_broker::ACTION_BUDGET - Duration::from_secs(1)).await;
+    assert!(!peer.switch_due(), "within its budget it still holds the link");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    assert!(peer.switch_due(), "past its budget it does not");
+    drop(running);
+    assert!(peer.switch_due());
+}
+
+/// A link socket that answers one `link.dial` for `inst_b`, then serves a WebSocket on the
+/// stream (the peer's listener, through the link).
+#[cfg(target_os = "linux")]
+async fn fake_link_to_a_listener() -> (tempfile::TempDir, PathBuf) {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("link.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut stream = BufReader::new(stream);
+        let mut request = String::new();
+        stream.read_line(&mut request).await.unwrap();
+        assert_eq!(request.trim_end(), r#"{"op":"link.dial","host":"inst_b","service":"acpmux"}"#);
+        let reply = "{\"ok\":true,\"path_state\":\"direct\",\"relay_available\":false}\n";
+        stream.get_mut().write_all(reply.as_bytes()).await.unwrap();
+        let ws = tokio_tungstenite::accept_async(stream.into_inner()).await.unwrap();
+        // Held open until the test ends.
+        std::future::pending::<()>().await;
+        drop(ws);
+    });
+    (dir, path)
+}
+
+/// Review of #38357 at 7e076d8e (F1): with the peer's tokens configured, a reachable link path
+/// is dialed without any ssh read first, so an ssh that is down never stops it.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn configured_tokens_reach_the_peer_over_the_link_while_ssh_is_down() {
+    let (_dir, socket) = fake_link_to_a_listener().await;
+    let (tx, _rx) = mpsc::channel(8);
+    // Nothing answers ssh on port 1.
+    let peer = Peer::new(
+        "link-while-ssh-is-down",
+        "ssh://nobody@127.0.0.1:1",
+        Some("token".into()),
+        Some("peer-token".into()),
+        tx,
+    );
+    peer.set_link_host("inst_b".into());
+    peer.set_link_socket(socket);
+    assert_eq!(peer.dial_order(), [Via::Link, Via::Ssh]);
+    let (via, opened) = tokio::time::timeout(Duration::from_secs(5), peer.open_first())
+        .await
+        .expect("the link path waited on ssh")
+        .unwrap();
+    assert_eq!(via, Via::Link);
+    assert_eq!(opened.presented.as_deref(), Some("peer-token"));
+    peer.stop();
 }

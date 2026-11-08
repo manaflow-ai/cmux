@@ -32,4 +32,12 @@ extension DaemonStore {
         }
         return nil
     }
+
+    /// Whether tab `id` is a chat of `host`'s acpmux bound to `session` (or to none yet): a tab of
+    /// another machine or chat never stands for it (a Cloud chat's uploads, CloudUploads).
+    public func holdsChat(tab id: String, host: String, session: String) -> Bool {
+        guard let record = workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == id })?.agentSession,
+              record.host == host else { return false }
+        return (record.session ?? session) == session
+    }
 }

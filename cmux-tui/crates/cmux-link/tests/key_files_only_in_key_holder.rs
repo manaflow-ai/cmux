@@ -11,11 +11,6 @@ use std::path::{Path, PathBuf};
 
 const KEY_FILE_LITERALS: [&str; 2] = ["\"private.key\"", "\"node.wg.key\""];
 
-/// Readers that do not take the lock yet, each with what moves it.
-/// The link's own key read: it moves to the lock once #37210, which rewrites
-/// this file, has landed.
-const PENDING: [&str; 1] = ["cmux-tui/src/link/state.rs"];
-
 #[test]
 fn only_key_holder_names_a_key_file() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
@@ -35,22 +30,11 @@ fn only_key_holder_names_a_key_file() {
             }
         }
     }
-    let pending: Vec<_> =
-        found.iter().filter(|(file, ..)| PENDING.contains(&file.as_str())).collect();
-    let violations: Vec<_> =
-        found.iter().filter(|(file, ..)| !PENDING.contains(&file.as_str())).collect();
     assert!(
-        violations.is_empty(),
+        found.is_empty(),
         "a WireGuard key file is named outside cmux_link::key_holder; use \
-         key_holder::KeyFile and open it through KeyHolder::open or open_for_public_key:\n{violations:#?}"
+         key_holder::KeyFile and open it through KeyHolder::open or open_for_public_key:\n{found:#?}"
     );
-    // A pending entry that no longer reads a key comes off the list.
-    for file in PENDING {
-        assert!(
-            pending.iter().any(|(found, ..)| found == file),
-            "{file} no longer names a key file: remove it from PENDING"
-        );
-    }
 }
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {

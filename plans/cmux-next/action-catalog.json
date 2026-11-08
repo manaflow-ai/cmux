@@ -14768,6 +14768,19 @@
           {
             "keys" : [
               {
+                "key" : "",
+                "modifiers" : [
+                  "ctrl",
+                  "opt",
+                  "cmd"
+                ]
+              }
+            ],
+            "when" : "!codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
                 "key" : "]",
                 "modifiers" : [
                   "opt",
@@ -14785,7 +14798,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "",
+        "key" : "l",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -14851,6 +14864,19 @@
           {
             "keys" : [
               {
+                "key" : "",
+                "modifiers" : [
+                  "ctrl",
+                  "opt",
+                  "cmd"
+                ]
+              }
+            ],
+            "when" : "!codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
                 "key" : "[",
                 "modifiers" : [
                   "opt",
@@ -14868,7 +14894,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "",
+        "key" : "h",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -30724,7 +30750,14 @@
           "isTargetName" : false,
           "kind" : "string",
           "name" : "chief",
-          "suggestions" : null,
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "homeChiefs"
+          },
           "title" : "Chief"
         }
       ],
@@ -30736,7 +30769,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -30774,9 +30807,7 @@
 
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "noTargetSurface"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
         "keyboard"
@@ -30799,7 +30830,14 @@
           "isTargetName" : false,
           "kind" : "string",
           "name" : "chief",
-          "suggestions" : null,
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "homeChiefs"
+          },
           "title" : "Chief"
         }
       ],
@@ -30811,7 +30849,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -30851,9 +30889,7 @@
 
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "noTargetSurface"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
         "keyboard"
@@ -30876,7 +30912,14 @@
           "isTargetName" : false,
           "kind" : "string",
           "name" : "chief",
-          "suggestions" : null,
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "homeChiefs"
+          },
           "title" : "Chief"
         },
         {
@@ -30898,7 +30941,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -30936,9 +30979,7 @@
 
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "noTargetSurface"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
         "keyboard"
@@ -32855,6 +32896,95 @@
     },
     {
       "arguments" : [
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "agent",
+          "suggestions" : null,
+          "title" : "Agent"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "conversation",
+          "suggestions" : null,
+          "title" : "Conversation"
+        }
+      ],
+      "category" : "agents",
+      "cliName" : "home start-agent",
+      "computed" : {
+        "canonical_action_id" : "home.startQueuedAgent",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "HomeActionCatalog",
+      "hint" : null,
+      "id" : "home.startQueuedAgent",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "chief",
+        "home",
+        "agent",
+        "subagent",
+        "queue",
+        "queued",
+        "waiting",
+        "start",
+        "now",
+        "cap"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "play.circle",
+      "targets" : [
+
+      ],
+      "title" : "Start Queued Agent Now",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "window",
@@ -32958,21 +33088,6 @@
           "name" : "team",
           "suggestions" : null,
           "title" : "Team Chat"
-        },
-        {
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : {
-            "int" : {
-              "max" : 6,
-              "min" : 0
-            }
-          },
-          "name" : "open",
-          "suggestions" : null,
-          "title" : "Pill Click"
         },
         {
           "isRequired" : false,
@@ -60903,79 +61018,6 @@
 
       ],
       "category" : "notifications",
-      "cliName" : "feed show",
-      "computed" : {
-        "canonical_action_id" : "feed.show",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : {
-        "key" : "i",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
-      "description" : null,
-      "focuses" : false,
-      "group" : "NotificationActionCatalog",
-      "hint" : null,
-      "id" : "feed.show",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "inbox",
-        "requests",
-        "notifications",
-        "approvals"
-      ],
-      "mainMenu" : "window",
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette",
-        "keyboard",
-        "menu"
-      ],
-      "symbol" : "tray.full",
-      "targets" : [
-
-      ],
-      "title" : "Show Feed",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "notifications",
       "cliName" : "notification show",
       "computed" : {
         "canonical_action_id" : "showNotifications",
@@ -64173,6 +64215,75 @@
 
       ],
       "title" : "New Agent Chat on…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action palette-new-cloud-chat",
+      "computed" : {
+        "canonical_action_id" : "palette.newCloudChat",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "palette.newCloudChat",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "chat",
+        "new",
+        "cloud",
+        "vm",
+        "remote",
+        "machine",
+        "sleep"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "cloud",
+      "targets" : [
+
+      ],
+      "title" : "New Cloud Chat",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -94116,6 +94227,86 @@
       "arguments" : [
 
       ],
+      "category" : "window",
+      "cliName" : "action home-show-hide-chief-from-any-app",
+      "computed" : {
+        "canonical_action_id" : "home.showHideChiefFromAnyApp",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : " ",
+        "modifiers" : [
+          "opt",
+          "shift"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "LayoutActionCatalog",
+      "hint" : null,
+      "id" : "home.showHideChiefFromAnyApp",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : true,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "chief",
+        "float",
+        "panel",
+        "show",
+        "hide",
+        "toggle",
+        "global",
+        "hotkey",
+        "hot key",
+        "any app",
+        "summon"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "familyMember"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "familyMember"
+        }
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "bubble.left",
+      "targets" : [
+
+      ],
+      "title" : "Show/Hide Chief from Any App",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
       "category" : "pane",
       "cliName" : "pane move-to-dock",
       "computed" : {
@@ -95431,6 +95622,17 @@
               }
             ],
             "when" : "surfaceKind != page && !codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
+                "key" : "-",
+                "modifiers" : [
+                  "ctrl"
+                ]
+              }
+            ],
+            "when" : "surfaceKind != terminal"
           }
         ],
         "is_palette_visible" : true,
@@ -95440,9 +95642,10 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "-",
+        "key" : ",",
         "modifiers" : [
-          "ctrl"
+          "opt",
+          "cmd"
         ]
       },
       "description" : null,
@@ -95515,6 +95718,18 @@
               }
             ],
             "when" : "surfaceKind != page && !codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
+                "key" : "-",
+                "modifiers" : [
+                  "ctrl",
+                  "shift"
+                ]
+              }
+            ],
+            "when" : "surfaceKind != terminal"
           }
         ],
         "is_palette_visible" : true,
@@ -95524,10 +95739,10 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "-",
+        "key" : ".",
         "modifiers" : [
-          "ctrl",
-          "shift"
+          "opt",
+          "cmd"
         ]
       },
       "description" : null,
@@ -105106,6 +105321,74 @@
     },
     {
       "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "apps reload",
+      "computed" : {
+        "canonical_action_id" : "app.reloadCustomViews",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AppStoreActionCatalog",
+      "hint" : null,
+      "id" : "app.reloadCustomViews",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "apps",
+        "reload",
+        "customize",
+        "custom views",
+        "sidebar sections",
+        "refresh",
+        "script",
+        "error"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.clockwise",
+      "targets" : [
+
+      ],
+      "title" : "Reload Custom Views",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
         {
           "isRequired" : true,
           "isSuppliedByTarget" : false,
@@ -110792,6 +111075,57 @@
           ]
         },
         "when_text" : "surfaceKind != page && !codeEditorFocused"
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "focusHistoryBack",
+        "keys" : [
+          {
+            "key" : "-",
+            "modifiers" : [
+              "ctrl"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "notEquals" : [
+            "surfaceKind",
+            {
+              "string" : "terminal"
+            }
+          ]
+        },
+        "when_text" : "surfaceKind != terminal"
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "focusHistoryForward",
+        "keys" : [
+          {
+            "key" : "-",
+            "modifiers" : [
+              "ctrl",
+              "shift"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "notEquals" : [
+            "surfaceKind",
+            {
+              "string" : "terminal"
+            }
+          ]
+        },
+        "when_text" : "surfaceKind != terminal"
       }
     ],
     "home_chat_scoped" : [
@@ -112485,6 +112819,54 @@
         "command" : "space.previous",
         "keys" : [
           {
+            "key" : "",
+            "modifiers" : [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "not" : {
+            "has" : "codeEditorFocused"
+          }
+        },
+        "when_text" : "!codeEditorFocused"
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "space.next",
+        "keys" : [
+          {
+            "key" : "",
+            "modifiers" : [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "not" : {
+            "has" : "codeEditorFocused"
+          }
+        },
+        "when_text" : "!codeEditorFocused"
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "space.previous",
+        "keys" : [
+          {
             "key" : "[",
             "modifiers" : [
               "opt",
@@ -112919,8 +113301,6 @@
     ],
     "yields_to_terminal" : [
       "decreaseWorkspaceTerminalFontSize",
-      "focusHistoryBack",
-      "focusHistoryForward",
       "groupSelectedWorkspaces",
       "increaseWorkspaceTerminalFontSize",
       "resetWorkspaceTerminalFontSize",
@@ -112952,7 +113332,6 @@
     ]
   },
   "legacy_aliases" : {
-    "agentInbox" : "feed.show",
     "app.quit" : "quit",
     "browserNewProfile" : "browserProfile.new",
     "browserProfile.clearRoomDefault" : "browserProfile.clearSpaceDefault",

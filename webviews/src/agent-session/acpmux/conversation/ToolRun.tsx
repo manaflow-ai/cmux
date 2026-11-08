@@ -9,7 +9,13 @@ import { ChevronRight, Globe, Magnifier, MultiTool, Pencil, TerminalSquare, Tool
 import { countsFailed } from "./toolGroups";
 import { isMixedToolRun, mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useToolRunLook } from "../toolRunLook";
-import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosureModel";
+import {
+  callDisclosureKeys,
+  FoldPin,
+  useFoldPin,
+  useTranscriptDisclosure,
+  useTranscriptViewContext,
+} from "./transcriptDisclosureModel";
 import { isThought } from "./thoughts";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { EditCounts } from "./EditCounts";
@@ -58,7 +64,18 @@ export function ToolRun({
   // thought, so the thought it opens is on screen.
   const thinking = useTranscriptViewContext() === "thinking";
   const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, defaultOpen || holdsThought, true, inherits, true);
+  // A call in the run the reader opened keeps the run open when it folds (`members`); a choice inside
+  // the run pins it (`pin`).
+  const members = useMemo(() => callDisclosureKeys(items), [items]);
+  const [open, setOpen] = useTranscriptDisclosure(
+    disclosureKey,
+    defaultOpen || holdsThought,
+    true,
+    inherits,
+    true,
+    members,
+  );
+  const pin = useFoldPin(disclosureKey);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
@@ -83,6 +100,7 @@ export function ToolRun({
       <button
         type="button"
         className={quiet ? "cv-tool is-toggle is-run" : "cv-tool is-toggle is-run is-strong"}
+        data-tool-run={disclosureKey}
         aria-expanded={open}
         aria-controls={open ? list : undefined}
         ref={fold.headerRef}
@@ -99,11 +117,13 @@ export function ToolRun({
         <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
-        <div {...fold.bodyProps}>
-          <div className="cv-tool-run" id={list}>
-            {children}
+        <FoldPin.Provider value={pin}>
+          <div {...fold.bodyProps}>
+            <div className="cv-tool-run" id={list}>
+              {children}
+            </div>
           </div>
-        </div>
+        </FoldPin.Provider>
       )}
     </>
   );

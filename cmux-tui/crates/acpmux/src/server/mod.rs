@@ -1046,13 +1046,32 @@ pub async fn serve_ws_until(
             let mut stream = stream;
             // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
             // as it reads, tungstenite as it parses it again for the callback.
-            let (head, read) = match ws_peek::request(&mut stream, peer).await {
-                ws_peek::Request::Head { head, read } => (head, read),
-                ws_peek::Request::TooLarge => {
-                    refuse_http(stream, Refusal::MissingHost).await;
+            let mut probed = false;
+            let (head, read) = loop {
+                let (head, read) = match ws_peek::request(&mut stream, peer).await {
+                    ws_peek::Request::Head { head, read } => (head, read),
+                    ws_peek::Request::TooLarge => {
+                        refuse_http(stream, Refusal::MissingHost).await;
+                        return;
+                    }
+                    ws_peek::Request::Gone => return,
+                };
+                // The cmux link proves this is the listener `listener.json` names before it
+                // sends a paired peer's bytes (`listener_record.rs`): it answers the link's
+                // challenge under the record's key, for the probe alone, once.
+                let Some(answer) = crate::listener_record::probe_answer(&read) else {
+                    break (head, read);
+                };
+                if probed {
                     return;
                 }
-                ws_peek::Request::Gone => return,
+                probed = true;
+                if tokio::io::AsyncWriteExt::write_all(&mut stream, answer.as_bytes())
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
             };
             if !head.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &head, &policy, peer).await;
@@ -1665,6 +1684,9 @@ async fn serve_connection_from(
                     }
                 }
                 conn.bind_person(&hub, &m, &mut params);
+                if m == method::INITIALIZE {
+                    requests::note_initialize(&conn, params.as_ref().unwrap_or(&Value::Null));
+                }
                 // Before its reply is built: the reply says whether large messages go compressed.
                 if m == method::INITIALIZE
                     && let Some(wire) = &conn.wire
@@ -1860,6 +1882,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // Attached peer updates retain the raw wire id, but also identify its owner so
     // clients can key live transcripts by the same route as their session rows.
     let routed = |mut params: Value| {
+        if conn.origin != Origin::Peer
+            && let Some(remote) = &ev.remote
+        {
+            races::peer::qualify_event(&remote.peer, &mut params);
+        }
         if let Some(obj) = params.as_object_mut() {
             obj.remove("peer");
             if let Some(remote) = &ev.remote {
@@ -2037,6 +2064,7 @@ pub mod conn_auth;
 mod durable_gate;
 mod ephemeral;
 mod fanout;
+mod fix_from_link;
 mod forum;
 mod media_forward;
 mod mesh_control_send;
@@ -2058,9 +2086,11 @@ mod bg_tasks;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_health;
+mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+mod review_queue;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
     report_outbound_loss_locked,
@@ -2094,6 +2124,7 @@ mod routes;
 mod secrets;
 mod vault;
 pub(crate) use vault::reply as vault_reply;
+mod races;
 mod session_auth;
 mod session_files;
 mod stream;

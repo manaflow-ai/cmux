@@ -295,7 +295,7 @@ fn instance_actions(scope: &str) -> &'static [&'static str] {
         }
         "pane" => &[
             "show", "rename", "focus", "close", "split", "neighbor", "swap", "zoom", "viewport",
-            "run",
+            "run", "move",
         ],
         "tab" => &["show", "rename", "move", "focus", "close", "pin", "unpin", "zoom", "update"],
         "terminal" => &[
