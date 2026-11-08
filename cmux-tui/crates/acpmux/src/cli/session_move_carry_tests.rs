@@ -172,6 +172,20 @@ fn a_sparse_checkout_carries_its_changes() {
 }
 
 #[test]
+fn a_sparse_checkout_with_no_index_refuses_rather_than_delete_outside_its_cone() {
+    let src = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(
+        src.path(),
+        "mkdir -p in out && printf 'a\\n' > in/a && printf 'b\\n' > out/b && git add -A \\
+         && git commit -qm dirs && git sparse-checkout set --cone in && printf 'more\\n' >> in/a \\
+         && rm .git/index",
+    );
+    let e = snapshot(&here, src.path(), true).unwrap_err().to_string();
+    assert!(e.contains("sparse checkout with no index"), "{e}");
+}
+
+#[test]
 fn a_head_that_moves_between_the_two_reads_refuses() {
     let src = tempfile::tempdir().unwrap();
     repo(src.path());

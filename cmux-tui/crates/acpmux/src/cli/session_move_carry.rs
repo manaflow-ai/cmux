@@ -77,8 +77,13 @@ s=$(mktemp -d) || exit 2
 trap 'rm -rf -- "$s"' EXIT
 GIT_INDEX_FILE="$s/index"; export GIT_INDEX_FILE
 # With no index, the scratch one starts at HEAD: an empty one would carry every tracked file
-# the untracked list leaves out (a tracked `.env`) as a deletion.
-if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2; else git read-tree HEAD || exit 3; fi
+# the untracked list leaves out (a tracked `.env`) as a deletion. A sparse checkout's
+# skip-worktree marks live only in its index, so without one every file outside the cone would
+# read as deleted: that is refused (exit 5).
+if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2
+elif [ "$(git config --type=bool core.sparseCheckout)" = true ]; then
+  echo "it is a sparse checkout with no index: run git status there first" >&2; exit 5
+else git read-tree HEAD || exit 3; fi
 # Every path is a file name, never pathspec magic: `:(glob)**` must not add the secrets left out.
 GIT_LITERAL_PATHSPECS=1; export GIT_LITERAL_PATHSPECS
 g() { git -c core.fsmonitor=false -c core.quotepath=false "$@"; }
