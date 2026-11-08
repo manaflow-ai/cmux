@@ -61,8 +61,9 @@ extension CloudAPIClient {
         if let mode { request["mode"] = .number(Double(mode)) }
         // A body past one daemon request goes to the route itself, so every write the route takes
         // still goes (`cmux cloud machine-io` reads stdin whole, so a Worker client's goes there first).
-        let route: (@Sendable () async throws -> Ignored)? = encoded.utf8.count <= Self.daemonWriteLimit ? nil : { [self] in
-            try await postWrite(id, path: path, encoded: encoded, mode: mode)
+        var route: (@Sendable () async throws -> Ignored)?
+        if encoded.utf8.count > Self.daemonWriteLimit {
+            route = { [self] in try await postWrite(id, path: path, encoded: encoded, mode: mode) }
         }
         _ = try await machine("write", id, request, timeout: .seconds(120), as: Ignored.self, route: route)
     }
