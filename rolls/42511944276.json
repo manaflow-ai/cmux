@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42511944276",
+  "recorded_at": "2026-11-08T19:00:36Z",
+  "reason": "cmux-tui 6a332344eca4 changes the image's cmux-tui (pinned cddccf234b75)",
+  "dry_run": false,
+  "cmux_tui": "6a332344eca4ae66a798cb5b3288f0113a641c09",
+  "fixes": [
+    {
+      "sha": "6a332344eca4ae66a798cb5b3288f0113a641c09",
+      "mergedAt": "2026-11-08T10:33:20-08:00",
+      "subject": "notices: cmux vm crates are first party; reviewed texts for ten crates that ship none (#38742)"
+    },
+    {
+      "sha": "b63ecb4064edf44409812dba79e48dcba8c024e7",
+      "mergedAt": "2026-11-08T18:31:53Z",
+      "subject": "chore(next): base autofix at cddccf234b75"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T19:00:36Z",
+    "snapshot_id": "sh-a9e71694ef04410f8d6e62273f00f734",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42511944276): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "690ed19cd285ef7cd029c1808b69bf698a8b70aa",
+    "image": "cloud-native-auto-6a332344-42511944276-1",
+    "revision": "ci-42511944276-1",
+    "at": "2026-11-08T19:00:36Z"
+  },
+  "rolled_back": false
+}
