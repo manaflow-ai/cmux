@@ -3178,7 +3178,7 @@ Examples:
 | status | implemented |
 | since | protocol 5 |
 
-Splits the screen containing `pane`, inserts a new pane after the target leaf, spawns one PTY tab in the new pane, and focuses the new pane. `dir:"right"` creates left/right columns. `dir:"down"` creates top/bottom rows. The new surface inherits the active surface working directory of the target pane when available. Initial dimensions follow [Sizing](#sizing).
+Splits the screen containing `pane`, inserts a new pane after the target leaf (before it with `before:true`, `split-before-v1`; see "Split before the pane"), spawns one PTY tab in the new pane, and focuses the new pane. `dir:"right"` creates left/right columns. `dir:"down"` creates top/bottom rows. The new surface inherits the active surface working directory of the target pane when available. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -3194,6 +3194,7 @@ Params:
 | `split_id` | `string` | default null | With `split-client-split-id-v1`: caller-minted id of the new split, `split_` and 32 lowercase hex digits; see "Client-minted split ids" |
 | `kind` | `string` | default `"pty"` | With `pane-browser-kind-v1`: `"pty"` or `"browser"` |
 | `url` | `string` | default null | With `pane-browser-kind-v1`: required and non-empty with `kind:"browser"`, refused otherwise |
+| `before` | `bool` | default false | With `split-before-v1`: the new pane goes before `pane` on the split axis (Split Left, Split Up) |
 
 Result:
 
