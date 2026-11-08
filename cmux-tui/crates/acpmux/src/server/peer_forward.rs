@@ -574,8 +574,14 @@ async fn forward_inner(
             }
             return Err(crate::hub::presence::peer_unsupported());
         }
+        // A read the session list's row answers (`ROW_WILL_DO`), while the link is ready: its
+        // notices keep the row as current as the peer's answer would be, one round trip sooner.
+        if m == method::MUX_INFO && row_will_do(params) && peer.ready() {
+            return Ok(Some(from_row(&row, &peer.name)));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
+            obj.remove(ROW_WILL_DO);
             obj.remove("session");
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
@@ -640,6 +646,21 @@ async fn forward_inner(
                 super::view::subscribe_remote(hub, conn, &id, None);
             }
             first_attach = peer.mark_attached(&id);
+            // A subscription only (`limit: 0`) to a chat the link already streams here: this
+            // client is subscribed above, and the peer has nothing to add but its row.
+            if m == method::MUX_ATTACH
+                && !first_attach
+                && row_will_do(params)
+                && peer.ready()
+                && subscribes_only(params)
+            {
+                let mut reply =
+                    json!({"session": from_row(&row, &peer.name), "events": [], "hasMore": false});
+                reply.set("presence", crate::hub::presence::none(&id));
+                reply.set("peer", json!(peer.name));
+                reply.set(ROW_WILL_DO, json!(true));
+                return Ok(Some(reply));
+            }
             if first_attach && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
                 // Its own task, so the attach the marker stands for always goes out, whoever else
@@ -1002,6 +1023,34 @@ pub(crate) fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut 
     }
 }
 
+/// A read's flag: the session list's row will do for its answer (an `_acpmux/info`), or it only
+/// subscribes (an `_acpmux/attach` with `limit: 0`). For a peer's chat on a ready link, this
+/// daemon answers from its mirrored row instead of asking the peer (`acpmux send` saves two
+/// round trips over the link). The answer says `row: true`. Never sent on to the peer.
+pub const ROW_WILL_DO: &str = "row";
+
+fn row_will_do(params: &Value) -> bool {
+    params.get(ROW_WILL_DO).and_then(Value::as_bool) == Some(true)
+}
+
+/// An attach that reads no records: a subscription, and the row.
+fn subscribes_only(params: &Value) -> bool {
+    let unset = |k: &str| params.get(k).is_none_or(Value::is_null);
+    params.get("limit").and_then(Value::as_u64) == Some(0)
+        && unset("afterSeq")
+        && unset("beforeSeq")
+}
+
+/// A peer chat's mirrored row as a read's answer, marked so (`ROW_WILL_DO`).
+fn from_row(row: &Value, peer: &str) -> Value {
+    let mut reply = row.clone();
+    if let Some(obj) = reply.as_object_mut() {
+        obj.insert("peer".into(), json!(peer));
+        obj.insert(ROW_WILL_DO.into(), json!(true));
+    }
+    reply
+}
+
 /// `_meta.acpmux` field of a forwarded `permission_respond`: how many
 /// daemons forwarded it so far.
 pub const PEER_HOPS_FIELD: &str = "peerHops";
@@ -1287,3 +1336,7 @@ mod message_identity_tests {
         assert_eq!(forwarded_message_id(&with(json!({"promptId": "p"}))), "p");
     }
 }
+
+#[cfg(test)]
+#[path = "row_read_tests.rs"]
+mod row_read_tests;

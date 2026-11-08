@@ -555,7 +555,8 @@ async fn stream_prompt_once(
     before_deadline(
         deadline,
         id,
-        client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})),
+        // Only to subscribe: a peer chat's link answers it from its row (`ROW_WILL_DO`).
+        client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0, "row": true})),
     )
     .await?;
     let c = client.clone();
@@ -959,7 +960,8 @@ async fn collect_once(
     before_deadline(
         deadline,
         id,
-        client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})),
+        // Only to subscribe: a peer chat's link answers it from its row (`ROW_WILL_DO`).
+        client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0, "row": true})),
     )
     .await?;
     let c = client.clone();
