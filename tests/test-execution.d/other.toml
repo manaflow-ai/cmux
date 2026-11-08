@@ -453,6 +453,10 @@ path = "tests/test_nushell_shim_path_refront.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_outbound_hosts.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_package_resolved_policy_remote_inputs.py"
 lane = "linux-guard"
 
@@ -705,6 +709,14 @@ path = "tests/test_swiftpm_test_product.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tailnet_build_delivery.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_tailnet_go.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tap_test_health.py"
 lane = "linux-guard"
 
@@ -797,6 +809,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_xcode_build_timeline.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_xcstrings_symbol_collisions.py"
+lane = "manual"
+reason = "No new CI tests: run python3 tests/test_xcstrings_symbol_collisions.py after adding string catalog keys (under 1 s, no build); two keys with one generated symbol fail the Release build (#37724)."
 
 [[test]]
 path = "tests/test_zig_fetch_all.py"

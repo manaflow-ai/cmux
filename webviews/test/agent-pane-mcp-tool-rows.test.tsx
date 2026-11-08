@@ -10,6 +10,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { FindRevealTarget } from "../src/agent-session/acpmux/conversation/chatFind";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -93,12 +94,19 @@ const row = (items: AcpmuxActivity[]): AcpmuxRow => ({
   items,
 });
 
-async function render(items: AcpmuxActivity[]) {
+async function render(items: AcpmuxActivity[], reveal?: FindRevealTarget) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
+  const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
   act(() => root?.unmount());
   root = createRoot(host);
-  await act(async () => root!.render(<ToolRows row={row(items)} />));
+  await act(async () =>
+    root!.render(
+      <FindReveal.Provider value={reveal}>
+        <ToolRows row={row(items)} />
+      </FindReveal.Provider>,
+    ),
+  );
 }
 
 const labels = () => [...host.querySelectorAll(".cv-tool__text")].map((node) => node.textContent?.trim());
@@ -107,6 +115,107 @@ const click = async (button: HTMLButtonElement) =>
   act(async () => {
     button.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   });
+
+const largeSend = (count: number, tag = false): AcpmuxActivity => ({
+  kind: "tool",
+  text: "mcp__cmux__acpmux_send",
+  tool: {
+    id: `large-send-${count}-${tag}`,
+    title: "mcp__cmux__acpmux_send",
+    kind: "other",
+    status: "completed",
+    inputSummary: JSON.stringify(
+      tag
+        ? { tag: "area=docs", text: "hello" }
+        : {
+            messages: Array.from({ length: count }, (_, index) => ({
+              to: `recipient-${index}`,
+              text: `body-${index}`,
+            })),
+          },
+    ),
+    output: JSON.stringify({
+      results: Array.from({ length: count }, (_, index) => ({
+        index: tag ? 0 : index,
+        to: `recipient-${index}`,
+        ok: true,
+      })),
+    }),
+  },
+});
+
+for (const [count, tag] of [
+  [1024, false],
+  [1025, true],
+] as const) {
+  test(`${count} MCP send recipients are all reachable with at most 32 mounted rows`, async () => {
+    await render([largeSend(count, tag)]);
+    // The group of sends starts closed, one line counting every recipient.
+    expect(host.querySelectorAll(".cv-sent-msg")).toHaveLength(0);
+    expect(host.querySelector(".cv-message-group__count")?.textContent).toContain(String(count));
+    await click(host.querySelector<HTMLButtonElement>(".cv-sent-group__head")!);
+    const seen: string[] = [];
+    let pages = 0;
+    for (;;) {
+      const recipients = [...host.querySelectorAll(".cv-sent-msg .cv-recipient")].map((node) => node.textContent);
+      expect(recipients.length).toBeGreaterThan(0);
+      expect(recipients.length).toBeLessThanOrEqual(32);
+      seen.push(...(recipients as string[]));
+      pages += 1;
+      const next = host.querySelector<HTMLButtonElement>('[data-send-page="next"]');
+      expect(next).not.toBeNull();
+      if (next!.disabled) break;
+      await click(next!);
+      expect(pages).toBeLessThanOrEqual(Math.ceil(count / 32));
+    }
+    expect(seen).toEqual(Array.from({ length: count }, (_, index) => `recipient-${index}`));
+    expect(pages).toBe(Math.ceil(count / 32));
+    await click(host.querySelector<HTMLButtonElement>('[data-send-page="previous"]')!);
+    expect(host.querySelector(".cv-sent-msg .cv-recipient")?.textContent).toBe(`recipient-${(pages - 2) * 32}`);
+  });
+}
+
+test("Find reaches an off-page recipient and opens only its full Raw call", async () => {
+  const item = largeSend(1024, true);
+  item.tool!.output = item.tool!.output!.replaceAll("recipient-1023", "Recİpient-1023");
+  await render([item], {
+    rowId: "activity",
+    card: false,
+    needle: "recipient-1023",
+    repaint: () => {},
+  });
+  // Find mounts the row that holds its match, wherever its page is.
+  expect([...host.querySelectorAll(".cv-sent-msg .cv-recipient")].map((node) => node.textContent)).toEqual([
+    "Recİpient-1023",
+  ]);
+  // Only the match's row opens its Raw: the whole call, where the off-page recipient is.
+  expect(host.querySelectorAll(".cv-sent__raw-body")).toHaveLength(1);
+  expect(host.querySelector(".cv-sent__raw-body")?.textContent).toContain("Recİpient-1023");
+});
+
+test("Find reaches every matching call of a paged group, not only the first", async () => {
+  const calls = Array.from({ length: 40 }, (_, index): AcpmuxActivity => ({
+    kind: "tool",
+    text: "mcp__cmux__acpmux_send",
+    tool: {
+      id: `send-${index}`,
+      title: "mcp__cmux__acpmux_send",
+      kind: "other",
+      status: "completed",
+      inputSummary: JSON.stringify({ messages: [{ to: `lane-${index}`, text: `needle ${index}` }] }),
+      output: JSON.stringify({ results: [{ index: 0, to: `lane-${index}`, ok: true }] }),
+    },
+  }));
+  await render(calls);
+  await click(host.querySelector<HTMLButtonElement>(".cv-sent-group__head")!);
+  expect(host.querySelectorAll(".cv-sent-msg")).toHaveLength(32);
+  await render(calls, { rowId: "activity", card: false, needle: "needle", repaint: () => {} });
+  // All 40 calls hold the match: each draws, past the first page, so Next reaches each one.
+  expect([...host.querySelectorAll(".cv-sent-msg .cv-recipient")].map((node) => node.textContent)).toEqual(
+    calls.map((_, index) => `lane-${index}`),
+  );
+  expect(host.querySelector('[data-send-page="next"]')).toBeNull();
+});
 
 for (const [harness, call] of [
   ["Claude", claudeCall],

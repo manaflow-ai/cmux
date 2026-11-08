@@ -7,10 +7,14 @@
    their own cast. Percentages are measured against #f8f8f3 on #272823. */
 
 :root {
-  /* The fold: a collapsible's body opening or closing, and its chevron turning (fold.ts). The host's
-     move duration (--agent-motion-move, AgentPaneTheme.swift: the motion scale's standard 180ms, 0 under Reduce Motion or with
-     animation off), the token the newtab-resize-anim lane's resizes share; 180ms without a host. */
-  --cv-fold-duration: var(--agent-motion-move, 180ms);
+  /* The fold: a collapsible's body opening or closing, and its chevron turning (fold.ts), on the one fold
+     curve every web fold shares, the settle (--cmux-ease-settle over --cmux-motion-settle, schemas/motion-scale):
+     a strong ease-out that starts at full speed and decelerates into its end, never past it (Leo,
+     2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").
+     A host move duration of 0 (--agent-motion-move under Reduce Motion or with animation off) still
+     makes it instant (fold.ts foldMotion.duration). */
+  --cv-fold-duration: var(--cmux-motion-settle, 265ms);
+  --cv-fold-ease: var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
   --cv-text-dim: var(--agent-soft); /* progress rows */
@@ -195,6 +199,24 @@
    horizontal position (Leo, 2026-10-28). */
 .cv-user__body {
   display: contents;
+}
+/* An attachment-only prompt has no text bubble. Keep a small positioned status anchor so its
+   delivery clock can sit beside the attachment row without inventing an empty glass surface. */
+.cv-user__bubble-wrap {
+  position: relative;
+}
+/* An attachment-only prompt's sending clock sits beside its last attachment band (UserBubble.tsx):
+   the band shrinks to its thumbnails and chips, so the clock is next to them. */
+.cv-user__images,
+.cv-user__files {
+  position: relative;
+}
+.cv-user__bubble-wrap.is-empty {
+  /* Attachment-only delivery has no bubble width to anchor against. Match the attachment band so
+     the clock sits beside its thumbnails instead of at the transcript edge. */
+  align-self: flex-end;
+  width: 70%;
+  min-height: var(--cv-line-height);
 }
 /* A prompt's bubble, as ChatGPT and Claude draw it (leo-workspace design/transcript-spacing.md
    "Prompt bubble"; transcriptSpacing.ts BUBBLE): one line is 44 tall (chatgpt.com 44, claude.ai 45),
@@ -1010,6 +1032,8 @@
   .cv-received:hover .cv-received-actions,
   .cv-received > .cv-disclosure__line:hover .cv-received__hover,
   .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
+  .cv-received > .cv-agentmsg__line:hover .cv-received__hover,
+  .cv-received > .cv-agentmsg__line:has([data-popup-open]) .cv-received__hover,
   .acpmux-assistant:hover .cv-reply-actions,
   .acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
@@ -3035,6 +3059,21 @@ button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visi
   /* The agent's words read in the transcript's ink, the calls around them grey (Lucas, 2026-11-06). */
   color: var(--cv-text);
 }
+/* The turn's two levels, compared in the gallery only (TurnLevels.gallery.ts): the shipped look is
+   the outer "Worked for … · N tool calls" line over inner run lines at their own weight, each run
+   between the agent's asides counting its own calls. `indented` sets the inner lines in by one icon
+   box and in the dim ink under the opened outer line; `guide` hangs them on a rule from the outer
+   line's glyph. Neither ships. */
+:root[data-turn-levels-look="indented"] :is(.cv-tools, .cv-tool-note) {
+  margin-inline-start: var(--grid-icon-box);
+}
+:root[data-turn-levels-look="indented"] .cv-tool.is-run {
+  color: var(--cv-text-dim);
+}
+:root[data-turn-levels-look="guide"] :is(.cv-tools, .cv-tool-note) {
+  padding-inline-start: var(--grid-icon-box);
+  box-shadow: inset 1px 0 var(--cv-rule);
+}
 .cv-tool__detail {
   color: var(--cv-text-dim);
 }
@@ -3180,8 +3219,13 @@ button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visi
 /* With Reduce Motion on, the chevron snaps to its new angle. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-rotor {
-    transition: transform var(--cv-fold-duration) var(--agent-ease-out, ease-out);
+    transition: transform var(--cv-fold-duration) var(--cv-fold-ease, var(--agent-ease-out, ease-out));
   }
+}
+/* The host's Reduce Motion or animation off (a move duration of 0, theme.ts) snaps it too, as the
+   fold's body does (fold.ts foldMotion.duration). */
+:root:is([data-agent-move="instant"], [data-agent-motion="off"]) .cv-rotor {
+  transition: none;
 }
 /* A collapsible's body (fold.ts sizes it while it opens or closes): its own block, so the body's
    margins stay inside the height the fold animates instead of popping in at its ends. */
@@ -3238,7 +3282,7 @@ button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visi
   display: contents;
 }
 .acpmux-row .cv-sent > .cv-sent__actions,
-.acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-sent-actions {
+.acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence > :is(.cv-sent-actions, .cv-received__hover) {
   order: 4;
 }
 .acpmux-row .cv-tool > .cv-tool__trail {
@@ -4034,6 +4078,31 @@ button.cv-video-frames__frame:focus-visible {
     transition: none;
   }
 }
+/* A running background command's page (PreviewChip.tsx): the globe and its address in the accent,
+   as the running line's parts read, at the edge where a running row has no mark. Never wraps; a long
+   address gives way first. */
+.cv-preview-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 24ch;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border-radius: 4px;
+  color: var(--agent-accent);
+  cursor: default;
+}
+.cv-preview-chip__address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-preview-chip:hover .cv-preview-chip__address {
+  text-decoration: underline;
+}
+.cv-preview-chip:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
 .cv-tool__meta {
   margin-left: auto;
@@ -4191,7 +4260,7 @@ button.cv-video-frames__frame:focus-visible {
    the chevron ends at its right edge, as every tool row's do (design/chat-transcript.md "One icon
    column"; Leo, 2026-10-31: "the alignment i feel like we might as well"). The hover plate is the
    row's own box (the transcript row clips paint, so it can't bleed past the column). */
-.cv-received > .cv-disclosure__line {
+.cv-received > :is(.cv-disclosure__line, .cv-agentmsg__line) {
   position: relative;
   height: var(--cv-message-line);
   min-height: 0;
@@ -4206,7 +4275,7 @@ button.cv-video-frames__frame:focus-visible {
 /* No plate under the line on hover, as a sent message's and a tool's line have none (cmux#28113
    gave received lines one): pointing at it reveals its actions only, and pointing at the sender's
    name lights only the name (its own pill below). Keyboard focus keeps the plate, so focus shows. */
-.cv-received > .cv-disclosure__line:has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) {
+.cv-received > :is(.cv-disclosure__line, .cv-agentmsg__line):has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
@@ -4252,13 +4321,17 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-received > .cv-disclosure__line:hover .cv-received__hover,
 .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
+.cv-received > .cv-agentmsg__line:hover .cv-received__hover,
+.cv-received > .cv-agentmsg__line:has([data-popup-open]) .cv-received__hover,
 .cv-received__hover:focus-within,
 .cv-received__hover:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   opacity: 1;
   pointer-events: auto;
 }
 /* Pointing at the sender's open chip is not pointing at the line: its actions stay hidden. */
-.cv-received > .cv-disclosure__line:has(.cv-agent-tag.is-open:hover):not(:has([data-popup-open])) .cv-received__hover {
+.cv-received
+  > :is(.cv-disclosure__line, .cv-agentmsg__line):has(.cv-agent-tag.is-open:hover):not(:has([data-popup-open]))
+  .cv-received__hover {
   opacity: 0;
   pointer-events: none;
 }
@@ -6950,6 +7023,32 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 :root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-needs-input-glyph.is-answered {
   display: none;
+}
+/* An ask that opens under a line already drawn: the dot grows in from nothing, its room opening with
+   it (the 8px gap too), so the pill's words slide over in the same motion rather than jump (Leo,
+   2026-11-08: "I mostly just meant the yellow circle thing"). The house settle curve and step
+   (265 ms); with motion off or reduced the dot is simply there. */
+.cv-needs-input-glyph.is-asked {
+  animation: cv-needs-input-asked var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle) both;
+}
+@keyframes cv-needs-input-asked {
+  from {
+    width: 0;
+    margin-inline-end: -8px;
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-needs-input-glyph.is-asked {
+    animation: none;
+  }
+}
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-needs-input-glyph.is-asked {
+  animation: none;
 }
 
 /* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`):

@@ -1455,6 +1455,10 @@ pub(super) fn handle(
         }
         _ => Err("share.bad_request"),
     };
+    let answer = answer.map(|mut data| {
+        room::name_app_in_invites(&mut data, &shares.bridge.app_query());
+        data
+    });
     // A revoke, a kick, or an expiry any verb noticed closes the guests' connections now.
     shares.settle(mux);
     match answer {

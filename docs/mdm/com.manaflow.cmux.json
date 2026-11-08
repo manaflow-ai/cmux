@@ -177,6 +177,39 @@
       "title" : "Prompt Rail Side",
       "type" : "string"
     },
+    "agentPane.display.senderIcon.badge" : {
+      "default" : "diamond",
+      "description" : "The small colored glyph on a sender's icon that tells sessions of one model family apart.",
+      "enum" : [
+        "diamond",
+        "robot",
+        "none"
+      ],
+      "title" : "Sender Badge",
+      "type" : "string"
+    },
+    "agentPane.display.senderIcon.corner" : {
+      "default" : "bottom-right",
+      "description" : "Where the small glyph sits on a sender's icon.",
+      "enum" : [
+        "bottom-right",
+        "bottom-left",
+        "top-right",
+        "top-left"
+      ],
+      "title" : "Sender Badge Corner",
+      "type" : "string"
+    },
+    "agentPane.display.senderIcon.lead" : {
+      "default" : "family",
+      "description" : "Which is big in a sender's icon: the model family's mark, or the session's own colored badge.",
+      "enum" : [
+        "family",
+        "session"
+      ],
+      "title" : "Sender Icon Emphasis",
+      "type" : "string"
+    },
     "agentPane.display.sessionInfo.placement" : {
       "default" : "overlay",
       "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
@@ -370,6 +403,20 @@
       "maximum" : 3600,
       "minimum" : 0,
       "title" : "Seconds Between Retries",
+      "type" : "number"
+    },
+    "agents.cacheCompact.enabled" : {
+      "default" : false,
+      "description" : "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache.",
+      "title" : "Compact Before the Cache Expires",
+      "type" : "boolean"
+    },
+    "agents.cacheCompact.minContextPercent" : {
+      "default" : 50,
+      "description" : "Chats using less of their context window than this are left as they are.",
+      "maximum" : 95,
+      "minimum" : 10,
+      "title" : "Only Above Context Used (%)",
       "type" : "number"
     },
     "agents.chats.discovery" : {
@@ -4129,6 +4176,18 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.groupGradient" : {
+      "default" : "sunset",
+      "description" : "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors.",
+      "enum" : [
+        "sunset",
+        "aurora",
+        "lagoon",
+        "twoTone"
+      ],
+      "title" : "Group Gradient",
+      "type" : "string"
+    },
     "sidebar.groupHeader.background" : {
       "default" : "auto",
       "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
@@ -4154,13 +4213,15 @@
     },
     "sidebar.groupPalette" : {
       "default" : "glass",
-      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list.",
       "enum" : [
         "glass",
         "theme",
         "wallpaper",
         "grayscale",
-        "vibrant"
+        "vibrant",
+        "gradient",
+        "pictorial"
       ],
       "title" : "Group Colors",
       "type" : "string"
@@ -5013,12 +5074,6 @@
       ],
       "title" : "Tab Bar Position",
       "type" : "string"
-    },
-    "tabs.cmdWClosesPinnedTabs" : {
-      "default" : true,
-      "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
-      "title" : "Cmd-W Closes Pinned Tabs",
-      "type" : "boolean"
     },
     "tabs.commandDigits" : {
       "default" : "workspaces",

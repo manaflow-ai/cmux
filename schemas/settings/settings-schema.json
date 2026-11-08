@@ -38,7 +38,6 @@
               "appearance.metrics.tabFontSize",
               "appearance.metrics.tabStripHeight",
               "tabs.overflow",
-              "tabs.cmdWClosesPinnedTabs",
               "tabs.verticalTabs",
               "tabs.verticalTabsExpandOnHover",
               "tabs.hideLoneChatTab",
@@ -623,7 +622,8 @@
               "sidebar.workspacesAsTabs",
               "sidebar.chromeGroups",
               "sidebar.sideBySide",
-              "sidebar.groupPalette"
+              "sidebar.groupPalette",
+              "sidebar.groupGradient"
             ],
             "title" : {
               "key" : "settings.pageGroup.sidebarLayout",
@@ -1201,6 +1201,9 @@
               "agentPane.display.pinnedPlan",
               "agentPane.display.trayTucked",
               "agentPane.display.trayHandle",
+              "agentPane.display.senderIcon.lead",
+              "agentPane.display.senderIcon.badge",
+              "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side",
               "agentPane.display.sessionInfo.placement",
               "agentPane.display.environment.placement"
@@ -1339,6 +1342,17 @@
             "title" : {
               "key" : "settings.group.agentRetry",
               "text" : "Retry After Errors"
+            }
+          },
+          {
+            "key" : "settings.group.agentCache",
+            "rows" : [
+              "agents.cacheCompact.enabled",
+              "agents.cacheCompact.minContextPercent"
+            ],
+            "title" : {
+              "key" : "settings.group.agentCache",
+              "text" : "Prompt Cache"
             }
           },
           {
@@ -1824,7 +1838,8 @@
         ],
         "id" : "server",
         "lead" : [
-          "server"
+          "server",
+          "tailnet"
         ],
         "symbol" : "server.rack",
         "title" : {
@@ -6503,141 +6518,6 @@
       "title" : {
         "key" : "settings.newTerminal.opensWorkspace",
         "text" : "New Terminal Opens a Workspace"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.cmdWClosesPinnedTabs.help",
-        "text" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.cmdWClosesPinnedTabs",
-      "keywords" : [
-        "pin",
-        "pinned",
-        "close",
-        "cmd-w",
-        "tab",
-        "keep"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "cmdWClosesPinnedTabs"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:tabs.cmdWClosesPinnedTabs"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.tabs.cmdWClosesPinnedTabs",
-        "text" : "Cmd-W Closes Pinned Tabs"
       },
       "validation" : "portable"
     },
@@ -15330,6 +15210,281 @@
       "title" : {
         "key" : "settings.agents.autoRetry.attempts",
         "text" : "Retries per Error"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentCache",
+        "text" : "Prompt Cache"
+      },
+      "help" : {
+        "key" : "settings.agents.cacheCompact.enabled.help",
+        "text" : "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.cacheCompact.enabled",
+      "keywords" : [
+        "cache",
+        "prompt cache",
+        "compact",
+        "autocompact",
+        "context",
+        "ttl",
+        "claude"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "cacheCompact",
+        "enabled"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.cacheCompact.enabled"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.cacheCompact.enabled",
+        "text" : "Compact Before the Cache Expires"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        10,
+        95,
+        52.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 50,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentCache",
+        "text" : "Prompt Cache"
+      },
+      "help" : {
+        "key" : "settings.agents.cacheCompact.minContext.help",
+        "text" : "Chats using less of their context window than this are left as they are."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.cacheCompact.minContextPercent",
+      "keywords" : [
+        "cache",
+        "compact",
+        "threshold",
+        "context"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "cacheCompact",
+        "minContextPercent"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 95,
+        "min" : 10,
+        "placeholder" : 10,
+        "step" : 5,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -75,
+        180,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.cacheCompact.minContextPercent"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.cacheCompact.minContext",
+        "text" : "Only Above Context Used (%)"
       },
       "validation" : "portable"
     },
@@ -45791,6 +45946,515 @@
     },
     {
       "accepts" : [
+        "family",
+        "session"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.senderIconFamily",
+            "text" : "Model Family Big"
+          },
+          "value" : "family"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.senderIconSession",
+            "text" : "Session Badge Big"
+          },
+          "value" : "session"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "family",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.senderIcon.lead.help",
+        "text" : "Which is big in a sender's icon: the model family's mark, or the session's own colored badge."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.senderIcon.lead",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "sender",
+        "icon",
+        "mark",
+        "badge",
+        "model",
+        "family",
+        "session",
+        "agent",
+        "big",
+        "small"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "senderIcon",
+        "lead"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.senderIcon.lead"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.senderIcon.lead",
+        "text" : "Sender Icon Emphasis"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "diamond",
+        "robot",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.diamond",
+            "text" : "Diamond Icon"
+          },
+          "value" : "diamond"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.robot",
+            "text" : "Robot Icon"
+          },
+          "value" : "robot"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "diamond",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.senderIcon.badge.help",
+        "text" : "The small colored glyph on a sender's icon that tells sessions of one model family apart."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.senderIcon.badge",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "sender",
+        "icon",
+        "badge",
+        "diamond",
+        "sparkle",
+        "robot",
+        "bot",
+        "color",
+        "session",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "senderIcon",
+        "badge"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.senderIcon.badge"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.senderIcon.badge",
+        "text" : "Sender Badge"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "bottom-right",
+        "bottom-left",
+        "top-right",
+        "top-left"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.bottomRight",
+            "text" : "Bottom Right"
+          },
+          "value" : "bottom-right"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottomLeft",
+            "text" : "Bottom Left"
+          },
+          "value" : "bottom-left"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.topRight",
+            "text" : "Top Right"
+          },
+          "value" : "top-right"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.topLeft",
+            "text" : "Top Left"
+          },
+          "value" : "top-left"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "bottom-right",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.senderIcon.corner.help",
+        "text" : "Where the small glyph sits on a sender's icon."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.senderIcon.corner",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "sender",
+        "icon",
+        "badge",
+        "corner",
+        "left",
+        "right",
+        "top",
+        "bottom",
+        "position"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "senderIcon",
+        "corner"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.senderIcon.corner"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.senderIcon.corner",
+        "text" : "Sender Badge Corner"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "markdown",
         "system",
         "serif",
@@ -60335,7 +60999,9 @@
         "theme",
         "wallpaper",
         "grayscale",
-        "vibrant"
+        "vibrant",
+        "gradient",
+        "pictorial"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -60374,6 +61040,20 @@
             "text" : "Vibrant"
           },
           "value" : "vibrant"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupPaletteGradient",
+            "text" : "Gradient"
+          },
+          "value" : "gradient"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupPalettePictorial",
+            "text" : "Pictorial"
+          },
+          "value" : "pictorial"
         }
       ],
       "consumers" : [
@@ -60387,7 +61067,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupPalette.help",
-        "text" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked."
+        "text" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupPalette",
@@ -60404,7 +61084,10 @@
         "grayscale",
         "vibrant",
         "glass",
-        "automatic"
+        "automatic",
+        "gradient",
+        "pictorial",
+        "picture"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -60508,6 +61191,177 @@
       "title" : {
         "key" : "settings.sidebar.groupPalette",
         "text" : "Group Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "sunset",
+        "aurora",
+        "lagoon",
+        "twoTone"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupGradientSunset",
+            "text" : "Sunset"
+          },
+          "value" : "sunset"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupGradientAurora",
+            "text" : "Aurora"
+          },
+          "value" : "aurora"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupGradientLagoon",
+            "text" : "Lagoon"
+          },
+          "value" : "lagoon"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupGradientTwoTone",
+            "text" : "Two-Tone"
+          },
+          "value" : "twoTone"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "sunset",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupGradient.help",
+        "text" : "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupGradient",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "color",
+        "colors",
+        "colour",
+        "gradient",
+        "sunset",
+        "aurora",
+        "lagoon"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupGradient"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.groupGradient"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.groupGradient",
+        "text" : "Group Gradient"
       },
       "validation" : "portable"
     },

@@ -30,6 +30,9 @@ final class SidebarListView: NSView {
     var frameClock: MotionFrameClock?
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
+    /// What placed groups draw in under the gradient palette (`SidebarGroup.drawnTints`), set with `groups`; empty
+    /// under every other palette. A header and its line draw this instead of the group's own tint.
+    var drawnTints: [GroupID: GroupTint] = [:]
     /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
     /// after its parent, not inside it, so a parent's card reads its members through this.
     var groupSubtrees: [GroupID: [GroupID]] = [:]
@@ -238,6 +241,7 @@ final class SidebarListView: NSView {
                 }
             })
         }
+        BackdropImageStore.shared.desktop.follow(self)
         // A favicon arrived: the link rows draw it (one configure per realized link row).
         faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main

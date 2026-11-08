@@ -81,6 +81,7 @@
         "sidebar.groupHeader.unreadCount",
         "sidebar.groupHeader.background",
         "sidebar.groupPalette",
+        "sidebar.groupGradient",
         "sidebar.numbering",
         "sidebar.cmd9",
         "sidebar.stepping",
@@ -115,8 +116,7 @@
     {
       "agent": "settable",
       "keys": [
-        "newTerminal.opensWorkspace",
-        "tabs.cmdWClosesPinnedTabs"
+        "newTerminal.opensWorkspace"
       ]
     },
     {
@@ -727,6 +727,9 @@
         "agentPane.display.pinnedPlan",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
+        "agentPane.display.senderIcon.lead",
+        "agentPane.display.senderIcon.badge",
+        "agentPane.display.senderIcon.corner",
         "agentPane.display.font.preset",
         "agentPane.display.font.ui",
         "agentPane.display.font.size",
@@ -1410,6 +1413,14 @@
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
         "agents.autoRetry.attempts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "keys": [
+        "agents.cacheCompact.enabled",
+        "agents.cacheCompact.minContextPercent"
       ]
     },
     {

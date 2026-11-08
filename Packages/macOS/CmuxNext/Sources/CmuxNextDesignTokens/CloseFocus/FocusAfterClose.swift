@@ -8,31 +8,25 @@ import CCmuxLayoutReducerFFI
 /// answer back (the rules compare ids only by identity). The contract (C1-C4) and its model checks
 /// are in the crate's tests (`tests/focus_rules`, closefocus.tla's cases).
 public nonisolated enum FocusAfterClose {
-    /// The tab a pane selects after `selected` closed: the next shown tab after it, else the
-    /// previous shown one. `old` is the strip order before the close, `shown` the tabs that survive
-    /// and are not hidden (a collapsed group's members are hidden). When no shown tab survives, the
-    /// first surviving tab (its group then expands). `opener` maps a link tab to the tab that opened
-    /// it (``liveOpeners(_:among:)``): a closed tab in that tree goes back to its family first, in
-    /// Chrome's order (`DetermineNewSelectedIndex`): its next child, else a sibling, else its opener.
-    public static func tab<ID: Hashable>(selected: ID?, old: [ID], surviving: [ID], shown: Set<ID>, opener: [ID: ID] = [:]) -> ID? {
+    /// The tab a pane selects after `selected` closed: the shown tab immediately before it, else
+    /// the shown one after it (Lawrence 2026-11-08: "it should always focus the tab before it if it
+    /// exists"). `old` is the strip order before the close, `shown` the tabs that survive and are not
+    /// hidden (a collapsed group's members are hidden). When no shown tab survives, the first
+    /// surviving tab (its group then expands). A `selected` that survives stays. Every close entry
+    /// point (Cmd-W, the close button, middle-click, the tab menu, the CLI, an exited terminal) and
+    /// the daemon pick with this one rule; no opener, history or "next to the right" order.
+    public static func tab<ID: Hashable>(selected: ID?, old: [ID], surviving: [ID], shown: Set<ID>) -> ID? {
         var map = IDNumbering<ID>()
         let selected = map.optional(selected)
         let old = map.numbers(old)
         let surviving = map.numbers(surviving)
         let shown = map.numbers(shown)
-        let pairs = opener.map { ($0.key, $0.value) }
-        let children = map.numbers(pairs.map(\.0))
-        let parents = map.numbers(pairs.map(\.1))
         let pick = old.withUnsafeBufferPointer { old in
             surviving.withUnsafeBufferPointer { surviving in
                 shown.withUnsafeBufferPointer { shown in
-                    children.withUnsafeBufferPointer { children in
-                        parents.withUnsafeBufferPointer { parents in
-                            cmux_close_focus_tab(selected, old.baseAddress, old.count, surviving.baseAddress, surviving.count,
-                                                 shown.baseAddress, shown.count, children.baseAddress, parents.baseAddress,
-                                                 children.count)
-                        }
-                    }
+                    // The ABI's opener arrays no longer pick (cmux_close_focus_tab): none are sent.
+                    cmux_close_focus_tab(selected, old.baseAddress, old.count, surviving.baseAddress, surviving.count,
+                                         shown.baseAddress, shown.count, nil, nil, 0)
                 }
             }
         }

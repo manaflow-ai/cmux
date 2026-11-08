@@ -1,6 +1,1062 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.choice.groupPalettePictorial": {
+      "comment": "Group Colors choice: colors from the desktop picture by place",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pictorial"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مصوّر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slikovito"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildhaft"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pictórico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pictural"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pittorico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピクチャ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obrazkowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pictórico"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картинка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resimli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картинка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình ảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图像"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖像"
+          }
+        }
+      }
+    },
+    "settings.choice.groupGradientAurora": {
+      "comment": "Group Gradient choice: purple, cyan, green",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aurora"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شفق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polarna svjetlost"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nordlys"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polarlicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aurora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aurore"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aurora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーロラ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពន្លឺប៉ូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오로라"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nordlys"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zorza"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aurora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сияние"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสงเหนือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kutup ışığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сяйво"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cực quang"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "极光"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "極光"
+          }
+        }
+      }
+    },
+    "settings.choice.groupGradientLagoon": {
+      "comment": "Group Gradient choice: blue, teal, sea green",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagoon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بحيرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laguna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagune"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagune"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laguna"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagon"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laguna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラグーン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បឹងសមុទ្រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라군"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagune"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laguna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagoa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лагуна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลากูน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagün"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лагуна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đầm phá"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "泻湖"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "潟湖"
+          }
+        }
+      }
+    },
+    "settings.choice.groupGradientSunset": {
+      "comment": "Group Gradient choice: pink, orange, yellow",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sunset"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غروب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zalazak sunca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solnedgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnenuntergang"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atardecer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coucher de soleil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tramonto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "夕焼け"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថ្ងៃលិច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노을"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solnedgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zachód słońca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pôr do sol"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พระอาทิตย์ตก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gün batımı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Захід сонця"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoàng hôn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日落"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日落"
+          }
+        }
+      }
+    },
+    "settings.choice.groupGradientTwoTone": {
+      "comment": "Group Gradient choice: purple into orange",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two-Tone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لونان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dvobojno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tofarvet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zweifarbig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bicolor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bicolore"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bicolore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツートン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពីរពណ៌"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "투톤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tofarget"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dwukolorowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duas cores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Двухцветный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สองสี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İki renk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Двоколірний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hai màu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雙色"
+          }
+        }
+      }
+    },
+    "settings.choice.groupPaletteGradient": {
+      "comment": "Group Colors choice: colors by place along a gradient",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradient"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تدرّج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradijent"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradient"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Degradado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dégradé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfumatura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グラデーション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជម្រាលពណ៌"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그라데이션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradient"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradient"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Degradê"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Градиент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไล่สี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradyan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Градієнт"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dải chuyển màu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "渐变"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "漸層"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupGradient": {
+      "comment": "Setting title: the gradient the Gradient group palette uses",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Gradient"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تدرّج المجموعات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradijent grupa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppegradient"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppenverlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Degradado de grupos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dégradé des groupes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfumatura dei gruppi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループのグラデーション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជម្រាលពណ៌ក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹 그라데이션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppegradient"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradient grup"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Degradê dos grupos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Градиент групп"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การไล่สีของกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grup gradyanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Градієнт груп"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dải màu nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分组渐变"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群組漸層"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupGradient.help": {
+      "comment": "Setting help for Group Gradient",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التدرّج الذي تمر به ألوان المجموعات عند ضبطها على تدرّج: تأخذ كل مجموعة ملوّنة اللون عند موضعها في القائمة، فتتدرّج المجموعات المتجاورة ويتغيّر لون المجموعة عند نقلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradijent kroz koji prolaze boje grupa postavljene na Gradijent: svaka obojena grupa uzima boju svog mjesta na listi, pa susjedi prate gradijent, a premještena grupa mijenja boju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den gradient, som gruppefarver sat til Gradient følger: hver farvet gruppe får farven på sin plads i listen, så naboer følger gradienten, og en gruppe, du flytter, skifter farve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Verlauf, durch den Gruppenfarben mit „Verlauf“ gehen: Jede farbige Gruppe nimmt die Farbe an ihrer Stelle in der Liste, sodass Nachbarn durch den Verlauf gehen und eine verschobene Gruppe ihre Farbe ändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El degradado que recorren los colores de grupo con Degradado: cada grupo con color toma el color de su lugar en la lista, así los vecinos avanzan por el degradado y un grupo que mueves cambia de color."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dégradé que parcourent les couleurs des groupes réglées sur Dégradé : chaque groupe coloré prend la couleur de sa place dans la liste, les voisins suivent le dégradé et un groupe déplacé change de couleur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sfumatura che seguono i colori dei gruppi impostati su Sfumatura: ogni gruppo colorato prende il colore della sua posizione nell'elenco, così i vicini seguono la sfumatura e un gruppo spostato cambia colore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループの色を「グラデーション」にしたときに使うグラデーションです。色の付いた各グループはリスト内の位置の色になるため、隣り合うグループが順に移り変わり、グループを動かすと色が変わります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជម្រាលពណ៌ដែលពណ៌ក្រុមប្រើ ពេលកំណត់ជា ជម្រាលពណ៌៖ ក្រុមដែលមានពណ៌នីមួយៗយកពណ៌តាមទីតាំងរបស់វានៅក្នុងបញ្ជី ដូច្នេះក្រុមជិតគ្នាប្ដូរពណ៌បន្តគ្នា ហើយក្រុមដែលអ្នកផ្លាស់ទីនឹងប្ដូរពណ៌។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹 색상을 그라데이션으로 설정했을 때 따라가는 그라데이션입니다. 색이 있는 각 그룹은 목록에서의 위치에 해당하는 색을 받으므로 이웃한 그룹이 차례로 이어지고, 그룹을 옮기면 색이 바뀝니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradienten som gruppefarger satt til Gradient følger: hver fargede gruppe får fargen på sin plass i listen, så naboer følger gradienten, og en gruppe du flytter, får ny farge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradient, przez który przechodzą kolory grup ustawione na Gradient: każda kolorowa grupa bierze kolor swojego miejsca na liście, więc sąsiednie grupy przechodzą przez gradient, a przeniesiona grupa zmienia kolor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O degradê que as cores dos grupos seguem quando definidas como Degradê: cada grupo colorido pega a cor do seu lugar na lista, então os vizinhos seguem o degradê e um grupo movido muda de cor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Градиент, по которому идут цвета групп в режиме «Градиент»: каждая цветная группа получает цвет своего места в списке, соседние группы идут по градиенту, а перемещённая группа меняет цвет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การไล่สีที่สีของกลุ่มใช้เมื่อตั้งเป็นไล่สี: แต่ละกลุ่มที่มีสีจะได้สีตามตำแหน่งในรายการ กลุ่มที่อยู่ติดกันจึงไล่สีต่อกัน และกลุ่มที่คุณย้ายจะเปลี่ยนสี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grup renkleri Gradyan olarak ayarlandığında izlenen gradyan: her renkli grup listedeki yerinin rengini alır, böylece komşu gruplar gradyanı izler ve taşıdığınız grup renk değiştirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Градієнт, яким ідуть кольори груп у режимі «Градієнт»: кожна кольорова група отримує колір свого місця в списку, сусідні групи йдуть градієнтом, а переміщена група змінює колір."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dải màu mà màu nhóm đi theo khi đặt là Dải chuyển màu: mỗi nhóm có màu lấy màu tại vị trí của nó trong danh sách, nên các nhóm liền kề chuyển dần theo dải màu và nhóm bạn di chuyển sẽ đổi màu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分组颜色设为“渐变”时使用的渐变：每个有颜色的分组取用它在列表中位置的颜色，相邻分组依次渐变，移动分组时颜色也会随之改变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群組顏色設為「漸層」時使用的漸層：每個有顏色的群組取用它在清單中位置的顏色，相鄰群組依序漸變，移動群組時顏色也會跟著改變。"
+          }
+        }
+      }
+    },
     "settings.choice.groupPaletteGlass": {
       "comment": "Group palette choice: no color.",
       "extractionState": "manual",
@@ -800,127 +1856,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked."
+            "value": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مصدر ألوان مجموعات مساحات العمل. الزجاج لا يعطي المجموعة الجديدة أي لون. سمة التطبيق والخلفية والتدرج الرمادي والزاهية ترسم كل مجموعة ملونة من تلك اللوحة وتعطي كل مجموعة جديدة اللون التالي منها. اللون الذي تختاره لمجموعة يبقى كما اخترته."
+            "value": "مصدر ألوان مجموعات مساحات العمل. الزجاج لا يعطي المجموعة الجديدة أي لون. سمة التطبيق والخلفية والتدرج الرمادي والزاهية ترسم كل مجموعة ملونة من تلك اللوحة وتعطي كل مجموعة جديدة اللون التالي منها. اللون الذي تختاره لمجموعة يبقى كما اخترته. يلوّن التدرّج كل مجموعة حسب موضعها في القائمة، من تدرّج المجموعات. يلوّن الخيار المصوّر كل مجموعة من صورة سطح المكتب عند موضعها في القائمة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odakle dolaze boje grupa radnih prostora. Staklo novoj grupi ne daje boju. Tema aplikacije, Pozadina, Sivi tonovi i Živo crtaju svaku obojenu grupu iz te palete i svakoj novoj grupi daju sljedeću boju palete. Boja koju izabereš za grupu ostaje izabrana."
+            "value": "Odakle dolaze boje grupa radnih prostora. Staklo novoj grupi ne daje boju. Tema aplikacije, Pozadina, Sivi tonovi i Živo crtaju svaku obojenu grupu iz te palete i svakoj novoj grupi daju sljedeću boju palete. Boja koju izabereš za grupu ostaje izabrana. Gradijent boji svaku grupu prema njenom mjestu na listi, iz gradijenta grupa. Slikovito boji svaku grupu prema slici radne površine na njenom mjestu na listi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor farverne på arbejdsområdegrupper kommer fra. Glas giver en ny gruppe ingen farve. App-tema, Baggrund, Gråtoner og Livlig tegner hver farvet gruppe fra den palet og giver hver ny gruppe palettens næste farve. En farve, du vælger til en gruppe, bliver ved."
+            "value": "Hvor farverne på arbejdsområdegrupper kommer fra. Glas giver en ny gruppe ingen farve. App-tema, Baggrund, Gråtoner og Livlig tegner hver farvet gruppe fra den palet og giver hver ny gruppe palettens næste farve. En farve, du vælger til en gruppe, bliver ved. Gradient farver hver gruppe efter dens plads i listen ud fra gruppegradienten. Billede farver hver gruppe ud fra skrivebordsbilledet på dens plads i listen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Woher die Farben von Arbeitsbereichsgruppen kommen. Glas gibt einer neuen Gruppe keine Farbe. App-Theme, Hintergrund, Graustufen und Lebhaft zeichnen jede farbige Gruppe aus dieser Palette und geben jeder neuen Gruppe die nächste Farbe der Palette. Eine Farbe, die du für eine Gruppe wählst, bleibt gewählt."
+            "value": "Woher die Farben von Arbeitsbereichsgruppen kommen. Glas gibt einer neuen Gruppe keine Farbe. App-Theme, Hintergrund, Graustufen und Lebhaft zeichnen jede farbige Gruppe aus dieser Palette und geben jeder neuen Gruppe die nächste Farbe der Palette. Eine Farbe, die du für eine Gruppe wählst, bleibt gewählt. Verlauf färbt jede Gruppe nach ihrer Stelle in der Liste, aus dem Gruppenverlauf. Bildhaft färbt jede Gruppe nach dem Schreibtischbild an ihrer Stelle in der Liste."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "De dónde vienen los colores de los grupos de espacios de trabajo. Vidrio no da color a un grupo nuevo. Tema de la app, Fondo, Escala de grises y Vivo dibujan cada grupo con color desde esa paleta y dan a cada grupo nuevo el siguiente color. Un color que elijas para un grupo se mantiene."
+            "value": "De dónde vienen los colores de los grupos de espacios de trabajo. Vidrio no da color a un grupo nuevo. Tema de la app, Fondo, Escala de grises y Vivo dibujan cada grupo con color desde esa paleta y dan a cada grupo nuevo el siguiente color. Un color que elijas para un grupo se mantiene. Degradado colorea cada grupo según su lugar en la lista, a partir del degradado de grupos. Pictórico colorea cada grupo con la imagen del escritorio en su lugar de la lista."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "D'où viennent les couleurs des groupes d'espaces de travail. Verre ne donne aucune couleur à un nouveau groupe. Thème de l'app, Fond d'écran, Niveaux de gris et Vif dessinent chaque groupe coloré depuis cette palette et donnent à chaque nouveau groupe la couleur suivante. Une couleur choisie pour un groupe reste choisie."
+            "value": "D'où viennent les couleurs des groupes d'espaces de travail. Verre ne donne aucune couleur à un nouveau groupe. Thème de l'app, Fond d'écran, Niveaux de gris et Vif dessinent chaque groupe coloré depuis cette palette et donnent à chaque nouveau groupe la couleur suivante. Une couleur choisie pour un groupe reste choisie. Dégradé colore chaque groupe selon sa place dans la liste, à partir du dégradé des groupes. Pictural colore chaque groupe d'après l'image du bureau à sa place dans la liste."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Da dove vengono i colori dei gruppi di spazi di lavoro. Vetro non dà colore a un nuovo gruppo. Tema dell'app, Sfondo, Scala di grigi e Vivace disegnano ogni gruppo colorato da quella tavolozza e danno a ogni nuovo gruppo il colore successivo. Un colore scelto per un gruppo resta scelto."
+            "value": "Da dove vengono i colori dei gruppi di spazi di lavoro. Vetro non dà colore a un nuovo gruppo. Tema dell'app, Sfondo, Scala di grigi e Vivace disegnano ogni gruppo colorato da quella tavolozza e danno a ogni nuovo gruppo il colore successivo. Un colore scelto per un gruppo resta scelto. Sfumatura colora ogni gruppo in base alla sua posizione nell'elenco, dalla sfumatura dei gruppi. Pittorico colora ogni gruppo dall'immagine della scrivania alla sua posizione nell'elenco."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースグループの色の出どころです。ガラスでは新しいグループに色は付きません。アプリのテーマ、壁紙、グレースケール、ビビッドは、色の付いたすべてのグループをそのパレットで描き、新しいグループにはパレットの次の色を付けます。グループに選んだ色はそのまま残ります。"
+            "value": "ワークスペースグループの色の出どころです。ガラスでは新しいグループに色は付きません。アプリのテーマ、壁紙、グレースケール、ビビッドは、色の付いたすべてのグループをそのパレットで描き、新しいグループにはパレットの次の色を付けます。グループに選んだ色はそのまま残ります。 グラデーションは、リスト内の位置に応じてグループのグラデーションから各グループに色を付けます。 ピクチャは、リスト内の位置に応じてデスクトップピクチャから各グループに色を付けます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប្រភពនៃពណ៌ក្រុមកន្លែងធ្វើការ។ កញ្ចក់មិនផ្ដល់ពណ៌ដល់ក្រុមថ្មីទេ។ រចនាប័ទ្មកម្មវិធី ផ្ទាំងរូបភាព ពណ៌ប្រផេះ និងរស់រវើក គូរក្រុមដែលមានពណ៌នីមួយៗពីក្ដារលាយនោះ ហើយផ្ដល់ពណ៌បន្ទាប់ដល់ក្រុមថ្មីនីមួយៗ។ ពណ៌ដែលអ្នកជ្រើសសម្រាប់ក្រុមនៅតែដដែល។"
+            "value": "ប្រភពនៃពណ៌ក្រុមកន្លែងធ្វើការ។ កញ្ចក់មិនផ្ដល់ពណ៌ដល់ក្រុមថ្មីទេ។ រចនាប័ទ្មកម្មវិធី ផ្ទាំងរូបភាព ពណ៌ប្រផេះ និងរស់រវើក គូរក្រុមដែលមានពណ៌នីមួយៗពីក្ដារលាយនោះ ហើយផ្ដល់ពណ៌បន្ទាប់ដល់ក្រុមថ្មីនីមួយៗ។ ពណ៌ដែលអ្នកជ្រើសសម្រាប់ក្រុមនៅតែដដែល។ ជម្រាលពណ៌ដាក់ពណ៌ក្រុមនីមួយៗតាមទីតាំងរបស់វានៅក្នុងបញ្ជី ពីជម្រាលពណ៌ក្រុម។ រូបភាពដាក់ពណ៌ក្រុមនីមួយៗពីរូបផ្ទៃតុ តាមទីតាំងរបស់វានៅក្នុងបញ្ជី។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 그룹 색상을 가져오는 곳입니다. 유리는 새 그룹에 색상을 주지 않습니다. 앱 테마, 배경화면, 회색조, 선명함은 색이 있는 모든 그룹을 그 팔레트로 그리고 새 그룹마다 팔레트의 다음 색상을 줍니다. 그룹에 직접 고른 색상은 그대로 유지됩니다."
+            "value": "작업 공간 그룹 색상을 가져오는 곳입니다. 유리는 새 그룹에 색상을 주지 않습니다. 앱 테마, 배경화면, 회색조, 선명함은 색이 있는 모든 그룹을 그 팔레트로 그리고 새 그룹마다 팔레트의 다음 색상을 줍니다. 그룹에 직접 고른 색상은 그대로 유지됩니다. 그라데이션은 목록에서의 위치에 따라 그룹 그라데이션의 색을 각 그룹에 칠합니다. 그림은 목록에서의 위치에 해당하는 데스크톱 사진의 색을 각 그룹에 칠합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor fargene på arbeidsområdegrupper kommer fra. Glass gir en ny gruppe ingen farge. App-tema, Bakgrunn, Gråtoner og Livlig tegner hver fargede gruppe fra den paletten og gir hver nye gruppe palettens neste farge. En farge du velger for en gruppe, blir værende."
+            "value": "Hvor fargene på arbeidsområdegrupper kommer fra. Glass gir en ny gruppe ingen farge. App-tema, Bakgrunn, Gråtoner og Livlig tegner hver fargede gruppe fra den paletten og gir hver nye gruppe palettens neste farge. En farge du velger for en gruppe, blir værende. Gradient farger hver gruppe etter plassen i listen, fra gruppegradienten. Bilde farger hver gruppe fra skrivebordsbildet på plassen i listen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skąd pochodzą kolory grup obszarów roboczych. Szkło nie nadaje nowej grupie koloru. Motyw aplikacji, Tapeta, Skala szarości i Żywe rysują każdą kolorową grupę z tej palety i dają każdej nowej grupie kolejny kolor palety. Kolor wybrany dla grupy pozostaje wybrany."
+            "value": "Skąd pochodzą kolory grup obszarów roboczych. Szkło nie nadaje nowej grupie koloru. Motyw aplikacji, Tapeta, Skala szarości i Żywe rysują każdą kolorową grupę z tej palety i dają każdej nowej grupie kolejny kolor palety. Kolor wybrany dla grupy pozostaje wybrany. Gradient koloruje każdą grupę według jej miejsca na liście, z gradientu grup. Obrazkowy koloruje każdą grupę według obrazu biurka w jej miejscu na liście."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "De onde vêm as cores dos grupos de espaços de trabalho. Vidro não dá cor a um grupo novo. Tema do app, Papel de parede, Escala de cinza e Vibrante desenham cada grupo colorido com essa paleta e dão a cada grupo novo a próxima cor. Uma cor que você escolher para um grupo continua escolhida."
+            "value": "De onde vêm as cores dos grupos de espaços de trabalho. Vidro não dá cor a um grupo novo. Tema do app, Papel de parede, Escala de cinza e Vibrante desenham cada grupo colorido com essa paleta e dão a cada grupo novo a próxima cor. Uma cor que você escolher para um grupo continua escolhida. Degradê colore cada grupo pelo seu lugar na lista, a partir do degradê dos grupos. Pictórico colore cada grupo com a imagem da mesa no seu lugar na lista."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Откуда берутся цвета групп рабочих пространств. Стекло не даёт новой группе цвета. Тема приложения, Обои, Оттенки серого и Яркие рисуют каждую цветную группу из этой палитры и дают каждой новой группе следующий цвет палитры. Цвет, выбранный для группы, остаётся."
+            "value": "Откуда берутся цвета групп рабочих пространств. Стекло не даёт новой группе цвета. Тема приложения, Обои, Оттенки серого и Яркие рисуют каждую цветную группу из этой палитры и дают каждой новой группе следующий цвет палитры. Цвет, выбранный для группы, остаётся. Градиент окрашивает каждую группу по её месту в списке, из градиента групп. Картинка окрашивает каждую группу по картинке рабочего стола на её месте в списке."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แหล่งที่มาของสีกลุ่มพื้นที่ทำงาน กระจกจะไม่ให้สีกับกลุ่มใหม่ ธีมแอป วอลเปเปอร์ โทนสีเทา และสดใส จะวาดทุกกลุ่มที่มีสีจากชุดสีนั้น และให้สีถัดไปกับกลุ่มใหม่แต่ละกลุ่ม สีที่คุณเลือกให้กลุ่มจะคงอยู่"
+            "value": "แหล่งที่มาของสีกลุ่มพื้นที่ทำงาน กระจกจะไม่ให้สีกับกลุ่มใหม่ ธีมแอป วอลเปเปอร์ โทนสีเทา และสดใส จะวาดทุกกลุ่มที่มีสีจากชุดสีนั้น และให้สีถัดไปกับกลุ่มใหม่แต่ละกลุ่ม สีที่คุณเลือกให้กลุ่มจะคงอยู่ ไล่สีจะใส่สีให้แต่ละกลุ่มตามตำแหน่งในรายการ จากการไล่สีของกลุ่ม ภาพจะใส่สีให้แต่ละกลุ่มจากภาพเดสก์ท็อปตามตำแหน่งในรายการ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çalışma alanı grup renklerinin kaynağı. Cam, yeni bir gruba renk vermez. Uygulama teması, Duvar kâğıdı, Gri tonlama ve Canlı, renkli her grubu o paletten çizer ve her yeni gruba paletin sıradaki rengini verir. Bir grup için seçtiğiniz renk seçili kalır."
+            "value": "Çalışma alanı grup renklerinin kaynağı. Cam, yeni bir gruba renk vermez. Uygulama teması, Duvar kâğıdı, Gri tonlama ve Canlı, renkli her grubu o paletten çizer ve her yeni gruba paletin sıradaki rengini verir. Bir grup için seçtiğiniz renk seçili kalır. Gradyan, her grubu listedeki yerine göre grup gradyanından renklendirir. Resimli, her grubu listedeki yerine göre masaüstü resminden renklendirir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Звідки беруться кольори груп робочих просторів. Скло не дає новій групі кольору. Тема застосунку, Шпалери, Відтінки сірого та Яскраві малюють кожну кольорову групу з цієї палітри й дають кожній новій групі наступний колір палітри. Колір, вибраний для групи, залишається."
+            "value": "Звідки беруться кольори груп робочих просторів. Скло не дає новій групі кольору. Тема застосунку, Шпалери, Відтінки сірого та Яскраві малюють кожну кольорову групу з цієї палітри й дають кожній новій групі наступний колір палітри. Колір, вибраний для групи, залишається. Градієнт фарбує кожну групу за її місцем у списку, з градієнта груп. Картинка фарбує кожну групу за картинкою робочого столу на її місці у списку."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nguồn màu của các nhóm không gian làm việc. Kính không tô màu cho nhóm mới. Chủ đề ứng dụng, Hình nền, Thang xám và Rực rỡ vẽ mọi nhóm có màu từ bảng màu đó và cho mỗi nhóm mới màu kế tiếp. Màu bạn chọn cho một nhóm vẫn được giữ."
+            "value": "Nguồn màu của các nhóm không gian làm việc. Kính không tô màu cho nhóm mới. Chủ đề ứng dụng, Hình nền, Thang xám và Rực rỡ vẽ mọi nhóm có màu từ bảng màu đó và cho mỗi nhóm mới màu kế tiếp. Màu bạn chọn cho một nhóm vẫn được giữ. Dải chuyển màu tô mỗi nhóm theo vị trí của nó trong danh sách, từ dải màu nhóm. Hình ảnh tô mỗi nhóm theo ảnh màn hình nền tại vị trí của nó trong danh sách."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作区分组颜色的来源。玻璃不会为新分组上色。App 主题、壁纸、灰度和鲜艳会用该调色板绘制每个有颜色的分组，并给每个新分组调色板的下一个颜色。你为分组选的颜色会保留。"
+            "value": "工作区分组颜色的来源。玻璃不会为新分组上色。App 主题、壁纸、灰度和鲜艳会用该调色板绘制每个有颜色的分组，并给每个新分组调色板的下一个颜色。你为分组选的颜色会保留。 渐变会按分组在列表中的位置，从分组渐变为每个分组上色。 图像会按分组在列表中的位置，从桌面图片为每个分组上色。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作區群組顏色的來源。玻璃不會為新群組上色。App 主題、桌布、灰階與鮮豔會以該色盤繪製每個有顏色的群組，並給每個新群組色盤的下一個顏色。你為群組選的顏色會保留。"
+            "value": "工作區群組顏色的來源。玻璃不會為新群組上色。App 主題、桌布、灰階與鮮豔會以該色盤繪製每個有顏色的群組，並給每個新群組色盤的下一個顏色。你為群組選的顏色會保留。 漸層會依群組在清單中的位置，從群組漸層為每個群組上色。 圖像會依群組在清單中的位置，從桌面圖片為每個群組上色。"
           }
         }
       }
@@ -94585,268 +95641,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "此資料夾的符號連結過多。"
-          }
-        }
-      }
-    },
-    "settings.tabs.cmdWClosesPinnedTabs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W Closes Pinned Tabs"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W يغلق علامات التبويب المثبتة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W zatvara prikačene kartice"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W lukker fastgjorte faner"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W schließt angeheftete Tabs"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W cierra las pestañas fijadas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W ferme les onglets épinglés"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W chiude le schede fissate"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W でピン留めしたタブを閉じる"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W បិទផ្ទាំងដែលបានខ្ទាស់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W로 고정된 탭 닫기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W lukker festede faner"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W zamyka przypięte karty"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W Fecha Abas Fixadas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W закрывает закреплённые вкладки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W ปิดแท็บที่ปักหมุด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W Sabitlenmiş Sekmeleri Kapatır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W закриває закріплені вкладки"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W đóng các thẻ đã ghim"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W 关闭固定的标签页"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W 關閉固定的分頁"
-          }
-        }
-      }
-    },
-    "settings.tabs.cmdWClosesPinnedTabs.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عند الإيقاف، يحدد Cmd-W على علامة تبويب مثبتة علامة التبويب التالية ويحتفظ بالعلامة المثبتة. أغلق علامة التبويب المثبتة من قائمتها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kada je isključeno, Cmd-W na prikačenoj kartici bira sljedeću karticu i zadržava prikačenu. Zatvorite prikačenu karticu iz njenog menija."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når den er slået fra, vælger Cmd-W på en fastgjort fane den næste fane og beholder den fastgjorte fane. Luk en fastgjort fane fra dens menu."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wenn aus, wählt Cmd-W auf einem angehefteten Tab den nächsten Tab und behält den angehefteten Tab. Schließe einen angehefteten Tab über sein Menü."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Si está desactivado, Cmd-W en una pestaña fijada selecciona la siguiente pestaña y conserva la fijada. Cierra una pestaña fijada desde su menú."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Désactivé, Cmd-W sur un onglet épinglé sélectionne l’onglet suivant et garde l’onglet épinglé. Fermez un onglet épinglé depuis son menu."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se disattivato, Cmd-W su una scheda fissata seleziona la scheda successiva e mantiene quella fissata. Chiudi una scheda fissata dal suo menu."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフのとき、ピン留めしたタブで Cmd-W を押すと次のタブを選択し、ピン留めしたタブは残ります。ピン留めしたタブはそのメニューから閉じます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ពេលបិទ Cmd-W លើផ្ទាំងដែលបានខ្ទាស់ ជ្រើសផ្ទាំងបន្ទាប់ ហើយរក្សាផ្ទាំងដែលបានខ្ទាស់។ បិទផ្ទាំងដែលបានខ្ទាស់ពីម៉ឺនុយរបស់វា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "끄면 고정된 탭에서 Cmd-W를 누를 때 다음 탭을 선택하고 고정된 탭은 유지합니다. 고정된 탭은 탭 메뉴에서 닫으세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når av, velger Cmd-W på en festet fane neste fane og beholder den festede fanen. Lukk en festet fane fra menyen dens."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gdy wyłączone, Cmd-W na przypiętej karcie wybiera następną kartę i zachowuje przypiętą. Zamknij przypiętą kartę z jej menu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quando desativado, Cmd-W em uma aba fixada seleciona a próxima aba e mantém a fixada. Feche uma aba fixada pelo menu dela."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Если выключено, Cmd-W на закреплённой вкладке выбирает следующую вкладку и оставляет закреплённую. Закройте закреплённую вкладку через её меню."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เมื่อปิด Cmd-W บนแท็บที่ปักหมุดจะเลือกแท็บถัดไปและเก็บแท็บที่ปักหมุดไว้ ปิดแท็บที่ปักหมุดจากเมนูของแท็บ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kapalıyken sabitlenmiş bir sekmede Cmd-W sonraki sekmeyi seçer ve sabitlenmiş sekmeyi tutar. Sabitlenmiş bir sekmeyi menüsünden kapatın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Якщо вимкнено, Cmd-W на закріпленій вкладці вибирає наступну вкладку й залишає закріплену. Закрийте закріплену вкладку з її меню."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Khi tắt, Cmd-W trên một thẻ đã ghim sẽ chọn thẻ tiếp theo và giữ thẻ đã ghim. Đóng thẻ đã ghim từ menu của nó."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭时，在固定的标签页上按 Cmd-W 会选择下一个标签页并保留固定的标签页。请从标签页菜单关闭固定的标签页。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉時，在固定的分頁上按 Cmd-W 會選取下一個分頁並保留固定的分頁。請從分頁選單關閉固定的分頁。"
           }
         }
       }
@@ -211070,6 +211864,666 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "更大"}}
       }
     },
+    "settings.group.agentCache": {
+      "comment": "Settings > General: group title for compacting an idle Claude chat before its prompt cache expires",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ذاكرة التخزين المؤقت للمطالبات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keš upita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-cache"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-Cache"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Cache"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caché de prompts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache des prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache dei prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトキャッシュ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឃ្លាំងសម្ងាត់ប្រអប់បញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프롬프트 캐시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-hurtigbuffer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pamięć podręczna promptów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache de prompts"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кэш промптов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แคชพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstem önbelleği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кеш промптів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bộ nhớ đệm lời nhắc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示缓存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示快取"
+          }
+        }
+      }
+    },
+    "settings.agents.cacheCompact.enabled": {
+      "comment": "Settings > General > Prompt Cache: toggle that compacts an idle Claude chat about 30 seconds before its prompt cache expires",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الضغط قبل انتهاء صلاحية ذاكرة التخزين المؤقت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažmi prije isteka keša"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimér før cachen udløber"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor Ablauf des Caches komprimieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Before the Cache Expires"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compactar antes de que caduque la caché"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacter avant l’expiration du cache"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compatta prima che scada la cache"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャッシュ期限切れ前に圧縮"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្រួមមុនឃ្លាំងសម្ងាត់ផុតកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캐시 만료 전에 압축"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer før hurtigbufferen utløper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktuj przed wygaśnięciem pamięci podręcznej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compactar antes de o cache expirar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сжимать до истечения кэша"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บีบอัดก่อนแคชหมดอายุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önbellek süresi dolmadan sıkıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стискати до закінчення кешу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nén trước khi bộ nhớ đệm hết hạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在缓存过期前压缩"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在快取過期前壓縮"
+          }
+        }
+      }
+    },
+    "settings.agents.cacheCompact.enabled.help": {
+      "comment": "Settings > General > Prompt Cache: help under the compact-before-expiry toggle; names its cost",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما تبقى محادثة Claude خاملة، اضغطها بينما لا تزال ذاكرة التخزين المؤقت دافئة، حتى لا تعيد الرسالة التالية قراءة السياق كاملًا دون تخزين مؤقت. يكلّف استدعاء نموذج واحدًا لكل ضغط، يُقرأ من ذاكرة التخزين المؤقت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada Claude chat miruje, sažmi ga dok je keš upita još topao, da sljedeća poruka ne čita cijeli kontekst ponovo bez keša. Košta jedan poziv modela po sažimanju, pročitan iz keša."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en Claude-chat er inaktiv, komprimeres den, mens prompt-cachen stadig er varm, så næste besked ikke læser hele konteksten igen uden cache. Koster ét modelkald pr. komprimering, læst fra cachen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn ein Claude-Chat ruht, wird er komprimiert, solange sein Prompt-Cache noch warm ist, damit die nächste Nachricht nicht den ganzen Kontext ungecacht neu liest. Kostet einen Modellaufruf pro Komprimierung, aus dem Cache gelesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando un chat de Claude está inactivo, se compacta mientras su caché sigue activa, para que el siguiente mensaje no vuelva a leer todo el contexto sin caché. Cuesta una llamada al modelo por compactación, leída de la caché."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand un chat Claude est inactif, il est compacté tant que son cache est encore actif, pour que le message suivant ne relise pas tout le contexte sans cache. Coûte un appel au modèle par compactage, lu depuis le cache."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando una chat di Claude è inattiva, viene compattata mentre la cache è ancora attiva, così il messaggio successivo non rilegge tutto il contesto senza cache. Costa una chiamata al modello per compattazione, letta dalla cache."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude チャットがアイドル状態のとき、プロンプトキャッシュが有効なうちに圧縮し、次のメッセージでコンテキスト全体をキャッシュなしで読み直さないようにします。圧縮ごとにキャッシュから読むモデル呼び出しが 1 回かかります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេល Claude chat ទំនេរ បង្រួមវាខណៈឃ្លាំងសម្ងាត់នៅក្តៅ ដើម្បីកុំឱ្យសារបន្ទាប់អានបរិបទទាំងមូលឡើងវិញដោយគ្មានឃ្លាំងសម្ងាត់។ ចំណាយការហៅម៉ូដែលមួយដងក្នុងមួយការបង្រួម អានពីឃ្លាំងសម្ងាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 채팅이 유휴 상태이면 프롬프트 캐시가 유지되는 동안 압축해 다음 메시지가 전체 컨텍스트를 캐시 없이 다시 읽지 않게 합니다. 압축마다 캐시에서 읽는 모델 호출이 한 번 듭니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en Claude-chat står inaktiv, komprimeres den mens prompt-hurtigbufferen fortsatt er varm, så neste melding ikke leser hele konteksten på nytt uten hurtigbuffer. Koster ett modellkall per komprimering, lest fra hurtigbufferen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy czat Claude jest bezczynny, kompaktuj go, póki pamięć podręczna jest aktywna, aby następna wiadomość nie czytała całego kontekstu bez pamięci podręcznej. Kosztuje jedno wywołanie modelu na kompaktowanie, odczytane z pamięci podręcznej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando um chat do Claude fica ocioso, ele é compactado enquanto o cache ainda está ativo, para que a próxima mensagem não releia todo o contexto sem cache. Custa uma chamada ao modelo por compactação, lida do cache."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда чат Claude простаивает, он сжимается, пока кэш промпта ещё активен, чтобы следующее сообщение не перечитывало весь контекст без кэша. Стоит один вызов модели на сжатие, прочитанный из кэша."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อแชต Claude ว่าง จะบีบอัดขณะที่แคชพรอมต์ยังอุ่นอยู่ เพื่อไม่ให้ข้อความถัดไปอ่านบริบททั้งหมดใหม่โดยไม่มีแคช มีค่าใช้จ่ายการเรียกโมเดลหนึ่งครั้งต่อการบีบอัด ซึ่งอ่านจากแคช"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir Claude sohbeti boşta kaldığında, istem önbelleği hâlâ sıcakken sıkıştırılır; böylece sonraki mesaj tüm bağlamı önbelleksiz yeniden okumaz. Sıkıştırma başına önbellekten okunan bir model çağrısına mal olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли чат Claude простоює, його стискають, поки кеш промпта ще активний, щоб наступне повідомлення не перечитувало весь контекст без кешу. Коштує один виклик моделі на стискання, прочитаний із кешу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi một cuộc trò chuyện Claude rảnh, nén nó khi bộ nhớ đệm lời nhắc còn ấm để tin nhắn tiếp theo không phải đọc lại toàn bộ ngữ cảnh không có bộ nhớ đệm. Tốn một lần gọi mô hình cho mỗi lần nén, đọc từ bộ nhớ đệm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 聊天空闲时，在提示缓存仍有效时压缩它，这样下一条消息不必在无缓存的情况下重新读取整个上下文。每次压缩消耗一次从缓存读取的模型调用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 聊天閒置時，在提示快取仍有效時壓縮它，讓下一則訊息不必在無快取的情況下重新讀取整個上下文。每次壓縮消耗一次從快取讀取的模型呼叫。"
+          }
+        }
+      }
+    },
+    "settings.agents.cacheCompact.minContext": {
+      "comment": "Settings > General > Prompt Cache: number field, the share of the context window (percent) a chat must use before it is compacted",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فقط فوق نسبة السياق المستخدم (%)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo iznad iskorištenog konteksta (%)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun over brugt kontekst (%)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur ab genutztem Kontext (%)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only Above Context Used (%)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo por encima del contexto usado (%)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seulement au-delà du contexte utilisé (%)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo oltre il contesto usato (%)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用コンテキストがこれを超える場合のみ (%)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តែលើសបរិបទដែលបានប្រើ (%)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용한 컨텍스트가 이 값 이상일 때만 (%)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare over brukt kontekst (%)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko powyżej użytego kontekstu (%)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só acima do contexto usado (%)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только при использовании контекста выше (%)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฉพาะเมื่อใช้บริบทเกิน (%)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca kullanılan bağlam üzerinde (%)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише понад використаний контекст (%)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ khi ngữ cảnh đã dùng vượt (%)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅在上下文使用率超过时 (%)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅在上下文使用率超過時 (%)"
+          }
+        }
+      }
+    },
+    "settings.agents.cacheCompact.minContext.help": {
+      "comment": "Settings > General > Prompt Cache: help under the context threshold field",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُترك المحادثات التي تستخدم أقل من هذه النسبة من نافذة السياق كما هي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatovi koji koriste manje konteksta od ovoga ostaju kakvi jesu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, der bruger mindre af kontekstvinduet end dette, lades være."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, die weniger ihres Kontextfensters nutzen, bleiben unverändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats using less of their context window than this are left as they are."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats que usan menos de su ventana de contexto que esto se dejan como están."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les chats qui utilisent moins de leur fenêtre de contexte restent tels quels."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat che usano meno della loro finestra di contesto restano come sono."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストウィンドウの使用量がこれ未満のチャットはそのままにします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat ដែលប្រើបរិបទតិចជាងនេះ ត្រូវបានទុកដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트 창을 이보다 적게 쓰는 채팅은 그대로 둡니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatter som bruker mindre av kontekstvinduet enn dette, blir latt være."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty używające mniej okna kontekstu pozostają bez zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats que usam menos da janela de contexto que isso ficam como estão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты, использующие меньше окна контекста, остаются как есть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตที่ใช้บริบทน้อยกว่านี้จะไม่ถูกเปลี่ยน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlam penceresini bundan az kullanan sohbetler olduğu gibi bırakılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чати, що використовують менше вікна контексту, залишаються як є."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các cuộc trò chuyện dùng ít ngữ cảnh hơn mức này được giữ nguyên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文窗口使用量低于此值的聊天保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文視窗使用量低於此值的聊天保持不變。"
+          }
+        }
+      }
+    },
     "settings.group.agentRetry": {
       "comment": "Settings > Agents: group title for the automatic retry loop after errors",
       "extractionState": "manual",
@@ -215465,6 +216919,1854 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chỉ Đang suy nghĩ"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.senderIcon.lead": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender Icon Emphasis"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إبراز أيقونة المرسل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naglasak ikone pošiljaoca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fremhævning af afsenderikon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Betonung des Absendersymbols"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Énfasis del icono del remitente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accent de l’icône de l’expéditeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enfasi dell’icona del mittente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信者アイコンの強調"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការសង្កត់ធ្ងន់រូបតំណាងអ្នកផ្ញើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "발신자 아이콘 강조"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fremheving av avsenderikon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyróżnienie ikony nadawcy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Destaque do ícone do remetente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Акцент значка отправителя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเน้นไอคอนผู้ส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderen simgesi vurgusu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Акцент значка відправника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhấn mạnh biểu tượng người gửi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "发送者图标强调"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "傳送者圖示強調"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.senderIcon.lead.help": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أيّهما يكون كبيرًا في أيقونة المرسل: شعار عائلة النموذج، أم شارة الجلسة الملوّنة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šta je veliko u ikoni pošiljaoca: oznaka porodice modela ili obojena značka sesije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvad der er stort i en afsenders ikon: modelfamiliens mærke eller sessionens eget farvede badge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Was im Absendersymbol groß ist: das Zeichen der Modellfamilie oder das farbige Abzeichen der Sitzung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qué es grande en el icono del remitente: la marca de la familia del modelo o la insignia de color de la sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce qui est grand dans l’icône de l’expéditeur : la marque de la famille du modèle ou le badge coloré de la session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cosa è grande nell’icona del mittente: il marchio della famiglia del modello o il badge colorato della sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信者アイコンで大きく表示するもの：モデルファミリーのマーク、またはセッション固有の色付きバッジ。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្វីដែលធំនៅក្នុងរូបតំណាងអ្នកផ្ញើ៖ សញ្ញាគ្រួសារម៉ូដែល ឬផ្លាកពណ៌របស់វគ្គ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "발신자 아이콘에서 크게 표시할 것: 모델 계열의 마크 또는 세션 고유의 색상 배지."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hva som er stort i et avsenderikon: modellfamiliens merke eller øktens eget fargede merke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Co jest duże w ikonie nadawcy: znak rodziny modeli czy kolorowa plakietka sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que é grande no ícone do remetente: a marca da família do modelo ou o selo colorido da sessão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Что крупнее в значке отправителя: знак семейства модели или цветной значок сеанса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิ่งที่ใหญ่ในไอคอนผู้ส่ง: เครื่องหมายตระกูลโมเดล หรือป้ายสีของเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderen simgesinde büyük olan: model ailesinin işareti veya oturumun renkli rozeti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Що більше в значку відправника: знак сімейства моделі чи кольоровий значок сеансу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phần lớn trong biểu tượng người gửi: dấu của dòng mô hình, hoặc huy hiệu màu của phiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "发送者图标中较大的部分：模型系列的标志，或会话自己的彩色徽章。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "傳送者圖示中較大的部分：模型系列的標誌，或工作階段自己的彩色徽章。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.senderIcon.badge": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender Badge"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارة المرسل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Značka pošiljaoca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afsenderbadge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Absenderabzeichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Insignia del remitente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Badge de l’expéditeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Badge del mittente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信者バッジ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាកអ្នកផ្ញើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "발신자 배지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avsendermerke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plakietka nadawcy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selo do remetente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок отправителя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้ายผู้ส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderen rozeti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок відправника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Huy hiệu người gửi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "发送者徽章"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "傳送者徽章"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.senderIcon.badge.help": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The small colored glyph on a sender's icon that tells sessions of one model family apart."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الرمز الملوّن الصغير على أيقونة المرسل الذي يميّز بين جلسات عائلة النموذج نفسها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mali obojeni znak na ikoni pošiljaoca koji razlikuje sesije iste porodice modela."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det lille farvede tegn på en afsenders ikon, der skelner sessioner fra samme modelfamilie."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das kleine farbige Zeichen am Absendersymbol, das Sitzungen derselben Modellfamilie unterscheidet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El pequeño glifo de color en el icono del remitente que distingue las sesiones de una misma familia de modelos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le petit glyphe coloré sur l’icône de l’expéditeur qui distingue les sessions d’une même famille de modèles."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il piccolo glifo colorato sull’icona del mittente che distingue le sessioni della stessa famiglia di modelli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "同じモデルファミリーのセッションを見分ける、送信者アイコン上の小さな色付きグリフ。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សញ្ញាពណ៌តូចលើរូបតំណាងអ្នកផ្ញើ ដែលបែងចែកវគ្គនៃគ្រួសារម៉ូដែលតែមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "같은 모델 계열의 세션을 구분하는 발신자 아이콘의 작은 색상 글리프."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det lille fargede tegnet på et avsenderikon som skiller økter i samme modellfamilie."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mały kolorowy znak na ikonie nadawcy, który odróżnia sesje jednej rodziny modeli."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O pequeno glifo colorido no ícone do remetente que distingue sessões da mesma família de modelos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Небольшой цветной знак на значке отправителя, различающий сеансы одного семейства моделей."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สัญลักษณ์สีเล็กๆ บนไอคอนผู้ส่งที่แยกเซสชันของตระกูลโมเดลเดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aynı model ailesinin oturumlarını ayıran, gönderen simgesindeki küçük renkli işaret."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Невеликий кольоровий знак на значку відправника, що розрізняє сеанси одного сімейства моделей."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ký hiệu màu nhỏ trên biểu tượng người gửi giúp phân biệt các phiên cùng dòng mô hình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "发送者图标上的小彩色符号，用于区分同一模型系列的会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "傳送者圖示上的小彩色符號，用於區分同一模型系列的工作階段。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.senderIcon.corner": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender Badge Corner"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "زاوية شارة المرسل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ugao značke pošiljaoca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjørne for afsenderbadge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ecke des Absenderabzeichens"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esquina de la insignia del remitente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Coin du badge de l’expéditeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angolo del badge del mittente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信者バッジの位置"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រុងផ្លាកអ្នកផ្ញើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "발신자 배지 모서리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjørne for avsendermerke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Narożnik plakietki nadawcy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canto do selo do remetente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Угол значка отправителя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มุมของป้ายผู้ส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderen rozeti köşesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кут значка відправника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Góc huy hiệu người gửi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "发送者徽章位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "傳送者徽章位置"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.senderIcon.corner.help": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the small glyph sits on a sender's icon."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موضع الرمز الصغير على أيقونة المرسل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdje se mali znak nalazi na ikoni pošiljaoca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor det lille tegn sidder på en afsenders ikon."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wo das kleine Zeichen am Absendersymbol sitzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dónde se coloca el pequeño glifo en el icono del remitente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’emplacement du petit glyphe sur l’icône de l’expéditeur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dove si trova il piccolo glifo sull’icona del mittente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信者アイコン上の小さなグリフの位置。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទីតាំងនៃសញ្ញាតូចលើរូបតំណាងអ្នកផ្ញើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "발신자 아이콘에서 작은 글리프가 놓이는 위치."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor det lille tegnet sitter på et avsenderikon."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miejsce małego znaku na ikonie nadawcy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onde o pequeno glifo fica no ícone do remetente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Где располагается маленький знак на значке отправителя."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งของสัญลักษณ์เล็กบนไอคอนผู้ส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Küçük işaretin gönderen simgesindeki yeri."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Де розташовано малий знак на значку відправника."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vị trí của ký hiệu nhỏ trên biểu tượng người gửi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "小符号在发送者图标上的位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "小符號在傳送者圖示上的位置。"
+          }
+        }
+      }
+    },
+    "settings.choice.senderIconFamily": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Family Big"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عائلة النموذج كبيرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Porodica modela velika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelfamilie stor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modellfamilie groß"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Familia del modelo grande"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famille du modèle en grand"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famiglia del modello grande"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "モデルファミリーを大きく"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រួសារម៉ូដែលធំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모델 계열 크게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modellfamilie stor"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duża rodzina modeli"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Família do modelo grande"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Крупно семейство модели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตระกูลโมเดลใหญ่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Model ailesi büyük"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Велике сімейство моделі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dòng mô hình lớn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模型系列大"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模型系列大"
+          }
+        }
+      }
+    },
+    "settings.choice.senderIconSession": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Badge Big"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارة الجلسة كبيرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Značka sesije velika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sessionsbadge stort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sitzungsabzeichen groß"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Insignia de la sesión grande"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Badge de session en grand"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Badge della sessione grande"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セッションバッジを大きく"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាកវគ្គធំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세션 배지 크게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Øktmerke stort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duża plakietka sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selo da sessão grande"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Крупно значок сеанса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้ายเซสชันใหญ่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturum rozeti büyük"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Великий значок сеансу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Huy hiệu phiên lớn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会话徽章大"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作階段徽章大"
+          }
+        }
+      }
+    },
+    "settings.choice.diamond": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diamond Icon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أيقونة معيّن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikona dijamanta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diamantikon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rautensymbol"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icono de diamante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icône de losange"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icona diamante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ダイヤモンドアイコン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបតំណាងពេជ្រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다이아몬드 아이콘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diamantikon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikona rombu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ícone de diamante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок ромба"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไอคอนเพชร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elmas simgesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок ромба"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biểu tượng kim cương"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "菱形图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "菱形圖示"
+          }
+        }
+      }
+    },
+    "settings.choice.robot": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Robot Icon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أيقونة روبوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikona robota"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Robotikon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Robotersymbol"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icono de robot"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icône de robot"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icona robot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ロボットアイコン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបតំណាងរ៉ូបូត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로봇 아이콘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Robotikon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikona robota"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ícone de robô"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок робота"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไอคอนหุ่นยนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Robot simgesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок робота"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biểu tượng rô-bốt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "机器人图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "機器人圖示"
+          }
+        }
+      }
+    },
+    "settings.choice.bottomRight": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bottom Right"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أسفل اليمين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dolje desno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nederst til højre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unten rechts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abajo a la derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En bas à droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In basso a destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右下"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ខាងក្រោមស្ដាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "오른쪽 아래"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nederst til høyre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prawy dolny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inferior direito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внизу справа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ล่างขวา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sağ alt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Унизу праворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dưới bên phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右下"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右下"
+          }
+        }
+      }
+    },
+    "settings.choice.bottomLeft": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bottom Left"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أسفل اليسار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dolje lijevo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nederst til venstre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unten links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abajo a la izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En bas à gauche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In basso a sinistra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "左下"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ខាងក្រោមឆ្វេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "왼쪽 아래"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nederst til venstre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lewy dolny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inferior esquerdo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внизу слева"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ล่างซ้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sol alt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Унизу ліворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dưới bên trái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "左下"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "左下"
+          }
+        }
+      }
+    },
+    "settings.choice.topRight": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top Right"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أعلى اليمين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gore desno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Øverst til højre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oben rechts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arriba a la derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En haut à droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In alto a destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右上"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ខាងលើស្ដាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "오른쪽 위"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Øverst til høyre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prawy górny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Superior direito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вверху справа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บนขวา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sağ üst"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Угорі праворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trên bên phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右上"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右上"
+          }
+        }
+      }
+    },
+    "settings.choice.topLeft": {
+      "comment": "Settings: the agent chat's sender icon rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top Left"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أعلى اليسار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gore lijevo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Øverst til venstre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oben links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arriba a la izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En haut à gauche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In alto a sinistra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "左上"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ខាងលើឆ្វេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "왼쪽 위"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Øverst til venstre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lewy górny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Superior esquerdo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вверху слева"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บนซ้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sol üst"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Угорі ліворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trên bên trái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "左上"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "左上"
           }
         }
       }
