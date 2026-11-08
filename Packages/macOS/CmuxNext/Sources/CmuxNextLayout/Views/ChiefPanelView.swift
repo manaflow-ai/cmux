@@ -51,6 +51,12 @@ public final class ChiefPanelView: NSView {
     public var chiefIsAnswering: Bool { (chief as? any ChiefPanelContent)?.chiefIsAnswering == true }
     /// Floating (corners, shadow, drag, resize) or docked (square).
     public private(set) var floating = true
+    /// How the floating panel looks (``ChiefPanelStyle``).
+    public var style: ChiefPanelStyle = .panel
+    /// Where a press moves the panel, in this view's coordinates.
+    public var gripRect: NSRect { bar.frame }
+    /// Follows `source` (the setting).
+    public func follow(_ source: @escaping @MainActor () -> ChiefPanelStyle) {}
     /// The Chief view this panel shows now; nil while it is in Home's pane.
     public private(set) weak var chief: NSView?
 

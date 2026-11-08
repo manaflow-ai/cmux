@@ -10,6 +10,8 @@
 ///   Chief floating over it; on when unset.
 public nonisolated struct ChiefDockSetting {
     public nonisolated init() {}
+    /// `home.chiefPanel.style`.
+    public static let stylePath = ["home", "chiefPanel", "style"]
 
     /// The edge; one that is not an edge is the default plus a diagnostic.
     static func parseEdge(_ root: JSONValue) -> (String, SettingsDiagnostic?) {
