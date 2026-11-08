@@ -1,7 +1,13 @@
 // Costs (History > Costs): what agents spent on this machine, from `_acpmux/ledger`
 // (ledgerModel.ts). A totals strip, a range and a group-by, then one row per session or group,
 // most expensive first, each with a bar for its share and a mark for where its cost came from.
-// A session row opens its chat. The price table's version sits small under the strip.
+// A session row opens its chat. The price table's version sits small under the strip. History keeps
+// the range, the grouping and the last answer while another tab shows (`LedgerCache`), so a return
+// paints them at once while the range reads again.
+//
+// Tokens in is what the agent sent that was not a cache read: uncached input plus cache writes.
+// Cache reads are the same context sent again at a tenth of the price; counted in, a long chat's
+// input reads as many times what it is.
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Select } from "../../../ui/Select";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
@@ -17,6 +23,7 @@ import {
   ledgerLines,
   ledgerParams,
   readLedger,
+  tokensIn,
   type CostSource,
   type LedgerGroup,
   type LedgerLine,
@@ -39,6 +46,22 @@ type LedgerState =
 
 const ROW_HEIGHT: Record<LedgerLook, number> = { bars: 52, table: 36, stacked: 60 };
 
+/// Tokens in: uncached input plus cache writes, never cache reads.
+type LedgerView = { range: LedgerRange; group: LedgerGroup; reply?: LedgerReply };
+
+/// What Costs last showed, kept by History (newtab/HistoryScreen.tsx) while another tab shows.
+export type LedgerCache = { view(): LedgerView | undefined; keep(view: LedgerView): void };
+
+export function createLedgerCache(): LedgerCache {
+  let view: LedgerView | undefined;
+  return {
+    view: () => view,
+    keep: (next) => {
+      view = next;
+    },
+  };
+}
+
 type Props = {
   /// `_acpmux/ledger` with `params` (direct.ts `ledger`).
   load(params: Record<string, unknown>): Promise<unknown>;
@@ -48,6 +71,7 @@ type Props = {
   initialRange?: LedgerRange;
   initialGroup?: LedgerGroup;
   now?: number;
+  cache?: LedgerCache;
 };
 
 export function LedgerScreen({
@@ -57,12 +81,16 @@ export function LedgerScreen({
   initialRange = "7d",
   initialGroup = "session",
   now,
+  cache,
 }: Props) {
   const t = useT();
   const locale = currentLanguage();
-  const [range, setRange] = useState<LedgerRange>(initialRange);
-  const [group, setGroup] = useState<LedgerGroup>(initialGroup);
-  const [state, setState] = useState<LedgerState>({ phase: "loading" });
+  const [range, setRange] = useState<LedgerRange>(() => cache?.view()?.range ?? initialRange);
+  const [group, setGroup] = useState<LedgerGroup>(() => cache?.view()?.group ?? initialGroup);
+  const [state, setState] = useState<LedgerState>(() => {
+    const kept = cache?.view()?.reply;
+    return kept ? { phase: "loading", reply: kept } : { phase: "loading" };
+  });
   const request = useRef(0);
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -81,7 +109,12 @@ export function LedgerScreen({
         },
         (error: unknown) => {
           if (id !== request.current) return;
-          setState(isOlderDaemon(error) ? { phase: "older" } : { phase: "failed" });
+          // A failed read keeps the rows it had, and the status line says the read failed.
+          setState((previous) =>
+            isOlderDaemon(error)
+              ? { phase: "older" }
+              : { phase: "failed", ...("reply" in previous && previous.reply ? { reply: previous.reply } : {}) },
+          );
         },
       );
     },
@@ -98,7 +131,13 @@ export function LedgerScreen({
   }, [range, read]);
 
   const reply = "reply" in state ? state.reply : undefined;
+  useEffect(() => {
+    cache?.keep({ range, group, ...(reply ? { reply } : {}) });
+  }, [cache, range, group, reply]);
   const lines = reply ? ledgerLines(reply, group) : [];
+  // acpmux returns at most LEDGER_ROW_LIMIT sessions, the most recent; the totals count them all.
+  const moreSessions =
+    group === "session" && reply && reply.totals.sessions > reply.rows.length ? reply.totals.sessions : undefined;
   const status =
     state.phase === "older"
       ? t("ledger.older")
@@ -154,6 +193,14 @@ export function LedgerScreen({
         {reply && reply.totals.unpricedTurns > 0 && (
           <span>{t("ledger.unpriced", { n: formatCount(reply.totals.unpricedTurns, locale) })}</span>
         )}
+        {moreSessions !== undefined && (
+          <span>
+            {t("ledger.more", {
+              shown: formatCount(reply!.rows.length, locale),
+              total: formatCount(moreSessions, locale),
+            })}
+          </span>
+        )}
         <span className="cst-fill" />
         {/* What the marks after a cost mean, for the marks this list shows. */}
         {LEGEND.filter((source) => lines.some((line) => line.source === source)).map((source) => (
@@ -206,7 +253,7 @@ function Strip({ totals, locale, t }: { totals?: LedgerTotals; locale: string; t
     [t("ledger.total.cost"), value((each) => formatCost(each.costUsd, locale))],
     [
       t("ledger.total.tokensIn"),
-      value((each) => formatCount(each.inputTokens + each.cacheReadTokens + each.cacheWriteTokens, locale)),
+      value((each) => formatCount(tokensIn(each), locale)),
     ],
     [t("ledger.total.tokensOut"), value((each) => formatCount(each.outputTokens, locale))],
     [t("ledger.total.turns"), value((each) => formatCount(each.turns, locale))],
@@ -261,10 +308,7 @@ const Line = memo(function Line({
   const cost = formatCost(totals.costUsd, locale);
   const meta = t("ledger.row.meta", {
     turns: formatCount(totals.turns, locale),
-    tokens: formatCount(
-      totals.inputTokens + totals.outputTokens + totals.cacheReadTokens + totals.cacheWriteTokens,
-      locale,
-    ),
+    tokens: formatCount(tokensIn(totals) + totals.outputTokens, locale),
   });
   const bar = (
     <span className="cst-bar" style={{ "--cst-share": line.share } as React.CSSProperties} aria-hidden="true" />
@@ -278,7 +322,7 @@ const Line = memo(function Line({
           <SourceMark source={line.source} />
         </span>
         <span className="cst-num">
-          {formatCount(totals.inputTokens + totals.cacheReadTokens + totals.cacheWriteTokens, locale)}
+          {formatCount(tokensIn(totals), locale)}
         </span>
         <span className="cst-num">{formatCount(totals.outputTokens, locale)}</span>
         <span className="cst-num">{formatCount(totals.turns, locale)}</span>

@@ -2,8 +2,10 @@
 // when what it lists changes in the pane's snapshot (`refreshKey`, historyPages.ts `queueKey`: this
 // Mac's pending asks, and every listed chat's ask count, waiting state and pull request, another
 // machine's included), and after an answer. Never on a timer, and never again only because
-// the person switched away and back (shared-projections.md). A read that answers after a newer one
-// started, or after the page unmounted, is dropped.
+// the person switched away and back (shared-projections.md): History keeps the last answer and
+// the key it was read at (`QueueCache`) while another tab shows, and a return with the same key
+// shows it at once without a read. A read that answers after a newer one started, or after the
+// page unmounted, is dropped.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOlderDaemon, readQueue, type QueueReply } from "./queueModel";
 
@@ -17,15 +19,45 @@ export type QueueState =
 /// Asks closer together than this read once, at the end of the burst.
 const SETTLE_MS = 400;
 
-export function useQueue(load: () => Promise<unknown>, refreshKey: string) {
-  const [state, setState] = useState<QueueState>({ phase: "loading" });
+/// What the page last showed and the `refreshKey` its last answer was read at, kept by History
+/// (newtab/HistoryScreen.tsx) while another of its tabs shows.
+export type QueueCache = {
+  state(): QueueState | undefined;
+  key(): string | undefined;
+  keep(state: QueueState): void;
+  readAt(key: string): void;
+};
+
+export function createQueueCache(): QueueCache {
+  let state: QueueState | undefined;
+  let key: string | undefined;
+  return {
+    state: () => state,
+    key: () => key,
+    keep: (next) => {
+      state = next;
+    },
+    readAt: (next) => {
+      key = next;
+    },
+  };
+}
+
+export function useQueue(load: () => Promise<unknown>, refreshKey: string, cache?: QueueCache) {
+  const [state, setState] = useState<QueueState>(() => cache?.state() ?? { phase: "loading" });
   const request = useRef(0);
   const alive = useRef(true);
   const loadRef = useRef(load);
   loadRef.current = load;
+  const keyRef = useRef(refreshKey);
+  keyRef.current = refreshKey;
+  useEffect(() => {
+    cache?.keep(state);
+  }, [cache, state]);
 
   const read = useCallback(() => {
     const id = ++request.current;
+    const key = keyRef.current;
     setState((previous) =>
       previous.phase === "ready"
         ? previous
@@ -33,7 +65,9 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string) {
     );
     loadRef.current().then(
       (value) => {
-        if (alive.current && id === request.current) setState({ phase: "ready", reply: readQueue(value) });
+        if (!alive.current || id !== request.current) return;
+        cache?.readAt(key);
+        setState({ phase: "ready", reply: readQueue(value) });
       },
       (error: unknown) => {
         if (!alive.current || id !== request.current) return;
@@ -45,7 +79,7 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string) {
           }));
       },
     );
-  }, []);
+  }, [cache]);
 
   useEffect(() => {
     alive.current = true;
@@ -54,12 +88,13 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string) {
     };
   }, []);
 
-  // The first read at once; a change of asks after it settles first, so a burst reads once.
+  // The first read at once, unless History kept an answer read at this key; a change of asks
+  // after it settles first, so a burst reads once.
   const first = useRef(true);
   useEffect(() => {
     if (first.current) {
       first.current = false;
-      read();
+      if (cache?.state()?.phase !== "ready" || cache.key() !== refreshKey) read();
       return;
     }
     const timer = setTimeout(read, SETTLE_MS);
