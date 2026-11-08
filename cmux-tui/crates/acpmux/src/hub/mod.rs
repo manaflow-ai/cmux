@@ -139,6 +139,7 @@ mod model_hint;
 mod models_view;
 mod paging;
 mod personal_stats;
+mod policy_gate;
 mod policy_mode;
 mod policy_source;
 mod pool;

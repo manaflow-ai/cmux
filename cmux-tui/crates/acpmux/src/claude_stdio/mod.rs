@@ -300,6 +300,9 @@ mod loops;
 #[cfg(test)]
 mod loops_tests;
 mod outbound;
+mod policy_gate;
+#[cfg(test)]
+mod policy_gate_tests;
 pub mod prompt_cache;
 pub mod prompt_suggestions;
 #[cfg(test)]
@@ -386,6 +389,15 @@ pub const RECAP: &str = "_acpmux/claude/recap";
 /// (`hub/live_name.rs`), `{sessionId, name}`: its `/rename` line between turns (`live_name.rs`).
 /// The answer is `{renamed: true}`, or `RENAME_BUSY` while a turn runs.
 pub const RENAME: &str = "_acpmux/claude/rename";
+
+/// Hub -> this backend: the permission policy its PreToolUse gate holds (`policy_gate.rs`):
+/// `{"sessionId", "policy": "review"}` turns it on, `"policy": null` off. Answers `{"gate": bool}`.
+pub const POLICY_GATE: &str = "_acpmux/claude/policy_gate";
+
+/// This backend -> hub: whether the PreToolUse gate lets one tool call run
+/// (`hub/policy_gate.rs`). Params as `session/request_permission`'s; the answer is
+/// `{"decision": "none"|"allow"|"ask"|"deny", "reason"?}`.
+pub const TOOL_GATE: &str = "_acpmux/claude/tool_gate";
 pub use live_name::{RENAME_BUSY, RENAME_IN_FLIGHT, RENAME_UNSUPPORTED};
 
 /// The chat's own session recap switch (`hub/away_recap.rs`): `default` follows the app's
@@ -517,6 +529,8 @@ pub struct Translator {
     /// claude control request_id -> the MCP elicitation form it asked
     /// (`elicitation.rs`), held until the answer.
     elicitations: Mutex<HashMap<String, elicitation::Form>>,
+    /// The PreToolUse gate that holds the chat's permission policy (`policy_gate.rs`).
+    gate: policy_gate::PolicyGate,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -739,6 +753,7 @@ impl Translator {
             suggestions: Mutex::new(HashMap::new()),
             inputs: Mutex::new(HashMap::new()),
             elicitations: Mutex::new(HashMap::new()),
+            gate: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
