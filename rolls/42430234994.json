@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42430234994",
+  "recorded_at": "2026-11-08T00:39:38Z",
+  "reason": "cmux-tui e1c7127c5ad9 changes the image's cmux-tui (pinned 761044fb9382)",
+  "dry_run": false,
+  "cmux_tui": "e1c7127c5ad91ac66598eadc5f7d1e08cf4fd559",
+  "fixes": [
+    {
+      "sha": "474d3935f872df40e47ac7bf71f8dc77bde6c956",
+      "mergedAt": "2026-11-08T00:17:36Z",
+      "subject": "cmux-tui: name an older daemon and its upgrade; daemon restart keeps the old owner's launch (#38086)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T00:39:38Z",
+    "snapshot_id": "sh-01e7920ec9064bf994d932dea46db171",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42430234994): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "db9ec83f5d11b46e141a59fd304e27b8a7acbac2",
+    "image": "cloud-native-auto-e1c7127c-42430234994-1",
+    "revision": "ci-42430234994-1",
+    "at": "2026-11-08T00:39:38Z"
+  },
+  "rolled_back": false
+}
