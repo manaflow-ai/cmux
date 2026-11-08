@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { type HarnessHealth, needsLogin } from "../harnessHealthNoticeModel";
 import { useT } from "../i18n";
 import { type Native, rescanHarness, runInstallCommand } from "./harnessInstall";
 
@@ -17,7 +18,9 @@ export type HarnessInstallTarget = {
 export type HarnessInstallPhase =
   | { kind: "confirm" }
   | { kind: "installing"; line?: string }
-  | { kind: "failed"; reason: string };
+  | { kind: "failed"; reason: string }
+  /// Installed, and acpmux says it is signed out: its login runs in a terminal tab, then the pick lands.
+  | { kind: "signIn"; login: string };
 
 export type HarnessInstallState = {
   target: HarnessInstallTarget;
@@ -101,11 +104,21 @@ export function useHarnessInstall({
           failedText: t("harnesses.commandFailed"),
         });
         if (ended === "stopped") return finish();
-        await rescanHarness(callNative, target.harness);
+        const found = (await rescanHarness(callNative, target.harness)) as
+          | { health?: HarnessHealth | null }
+          | undefined;
         // The command installed it: a catalog read that fails is no install failure, and the
         // pick still starts the chat on it (acpmux has found it).
         await deps.current.refreshCatalog?.().catch(() => undefined);
         if (!live.current) return finish();
+        // A fresh install is signed out (Claude Code, Codex, Gemini CLI): a chat on it would fail its
+        // first turn, so the prompt offers its sign-in before the pick lands.
+        const login = found?.health?.login?.trim();
+        if (login && needsLogin(found?.health?.auth)) {
+          running.current = false;
+          update((state) => ({ ...state, open: true, phase: { kind: "signIn", login } }));
+          return;
+        }
         const pick = then.current;
         finish();
         pick?.();
@@ -120,6 +133,25 @@ export function useHarnessInstall({
       }
     })();
   }, [finish, update]);
+
+  /// Sign In after an install: the harness's login runs in a terminal tab beside the page (`keep`, so
+  /// a New Tab page stays), and the pick lands; the chat checks its sign-in again when it is back.
+  const signIn = useCallback(() => {
+    const phase = current.current?.phase;
+    if (phase?.kind !== "signIn") return;
+    void deps.current
+      .callNative("tab.open", {
+        kind: "terminal",
+        text: phase.login,
+        ...(cwd.current ? { cwd: cwd.current } : {}),
+        run: true,
+        keep: true,
+      })
+      .catch(() => undefined);
+    const pick = then.current;
+    finish();
+    pick?.();
+  }, [finish]);
 
   /// Cancel before an install drops the pick; Hide during one keeps it running (and its pick).
   const dismiss = useCallback(() => {
@@ -137,5 +169,5 @@ export function useHarnessInstall({
     if (!running.current) finish();
   }, [finish]);
 
-  return { state, request, cancelPick, install, dismiss, setupGuide };
+  return { state, request, cancelPick, install, dismiss, setupGuide, signIn };
 }

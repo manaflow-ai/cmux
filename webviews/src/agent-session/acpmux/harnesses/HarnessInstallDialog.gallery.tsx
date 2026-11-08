@@ -29,6 +29,7 @@ export default componentEntry<Props>({
         state={{ target, phase, open: true }}
         onInstall={() => undefined}
         onCancel={() => undefined}
+        onSignIn={() => undefined}
         {...(target.docsUrl ? { onSetupGuide: () => undefined } : {})}
       />
     );
@@ -51,6 +52,10 @@ export default componentEntry<Props>({
       props: {
         phase: { kind: "failed", reason: "npm error permission denied, mkdir '/usr/local/lib/node_modules'" },
       },
+    },
+    "sign-in": {
+      note: "Installed, and signed out: Sign In runs its login in a terminal tab, then the pick starts.",
+      props: { phase: { kind: "signIn", login: "gemini" } },
     },
     "no-installer": {
       note: "A harness with no one-click installer offers only its setup page.",

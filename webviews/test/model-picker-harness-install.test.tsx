@@ -96,13 +96,13 @@ type Call = { method: string; params: Record<string, unknown> };
 type Read = { output?: string; next?: number; exit?: { code?: number } };
 
 /// A host whose `shell.read` answers come from `reads`, one per call (a pending promise holds one).
-function fakeHost(reads: (Read | Promise<Read>)[]) {
+function fakeHost(reads: (Read | Promise<Read>)[], health: Record<string, unknown> = { auth: "signedIn" }) {
   const calls: Call[] = [];
   const native = async (method: string, params: Record<string, unknown> = {}) => {
     calls.push({ method, params });
     if (method === "shell.run") return { id: "run-1" };
     if (method === "shell.read") return reads.shift() ?? { exit: { code: 0 } };
-    if (method === "harness.health") return { health: { id: params.id, auth: "signedIn" } };
+    if (method === "harness.health") return { health: { id: params.id, ...health } };
     return {};
   };
   return { calls, native };
@@ -302,6 +302,44 @@ describe("one-click install from the model picker", () => {
     await settle();
     expect(dialog()).toBeNull();
     expect(calls).toEqual([]);
+    expect(view.started).toEqual([]);
+  });
+
+  test("a harness that installs signed out asks for its sign-in, which runs its login, then the pick lands", async () => {
+    const { calls, native } = fakeHost([{ output: "added 1 package\n", next: 1, exit: { code: 0 } }], {
+      auth: "signedOut",
+      login: "gemini",
+    });
+    const view = await render({ native });
+    await act(async () => (await geminiRow()).click());
+    await settle();
+    await act(async () => button(dialog()!, "Install")!.click());
+    await settle();
+    await settle();
+    // Installed but signed out: no chat yet, the prompt asks for its sign-in.
+    expect(dialog()!.querySelector("h2")?.textContent).toBe("Sign in to Gemini CLI");
+    expect(view.started).toEqual([]);
+    expect(button(dialog()!, "Later")).toBeTruthy();
+    await act(async () => button(dialog()!, "Sign In")!.click());
+    await settle();
+    const login = calls.find((call) => call.method === "tab.open")!;
+    expect(login.params).toMatchObject({ kind: "terminal", text: "gemini", run: true, keep: true });
+    expect(view.started.map((args) => [args[0], args[1]])).toEqual([["gemini", "gemini-3.1-pro-preview"]]);
+    expect(dialog()).toBeNull();
+  });
+
+  test("Later after a signed-out install starts nothing", async () => {
+    const { calls, native } = fakeHost([{ next: 1, exit: { code: 0 } }], { auth: "signedOut", login: "gemini" });
+    const view = await render({ native });
+    await act(async () => (await geminiRow()).click());
+    await settle();
+    await act(async () => button(dialog()!, "Install")!.click());
+    await settle();
+    await settle();
+    await act(async () => button(dialog()!, "Later")!.click());
+    await settle();
+    expect(dialog()).toBeNull();
+    expect(calls.some((call) => call.method === "tab.open")).toBe(false);
     expect(view.started).toEqual([]);
   });
 

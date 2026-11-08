@@ -9,25 +9,32 @@ import type { HarnessInstallState } from "./useHarnessInstall";
 /// The model picker's install prompt (cmux#38191): a model of a harness this Mac does not have was
 /// picked. It names the harness and the command Install runs; Install runs it in place with its
 /// last output line as progress; a failure says why and offers Try Again (and the setup page when
-/// the harness has one). Hide leaves an install running: the pick lands when it ends.
+/// the harness has one). Hide leaves an install running: the pick lands when it ends. A harness that
+/// installs signed out asks for its sign-in first (Sign In runs its login in a terminal tab).
 export function HarnessInstallDialog({
   state,
   onInstall,
   onCancel,
   onSetupGuide,
+  onSignIn,
 }: {
   state: HarnessInstallState;
   onInstall(): void;
   /// Cancel before an install, Hide during one, Close after a failure.
   onCancel(): void;
   onSetupGuide?(): void;
+  /// After the install, when the harness is signed out: its login in a terminal tab, then the pick.
+  onSignIn(): void;
 }) {
   const t = useT();
   const primary = useRef<HTMLButtonElement | null>(null);
   const { target, phase } = state;
   const installing = phase.kind === "installing";
   const failed = phase.kind === "failed";
-  const title = t("harnessInstall.title", { harness: target.name });
+  const signingIn = phase.kind === "signIn";
+  const title = signingIn
+    ? t("harnessInstall.signInTitle", { harness: target.name })
+    : t("harnessInstall.title", { harness: target.name });
   return (
     <Dialog
       open={state.open}
@@ -42,7 +49,9 @@ export function HarnessInstallDialog({
         <AgentMark agent={target.mark} size={20} reserve />
         <h2>{title}</h2>
       </header>
-      {target.command ? (
+      {signingIn ? (
+        <p>{t("harnessInstall.signInBody", { harness: target.name })}</p>
+      ) : target.command ? (
         <>
           <p>{t("harnessInstall.body", { harness: target.name })}</p>
           <code className="acpmux-install-dialog-command" data-install-command>
@@ -87,23 +96,43 @@ export function HarnessInstallDialog({
           data-size="md"
           onClick={onCancel}
         >
-          {installing ? t("harnessInstall.hide") : failed ? t("harnesses.close") : t("harnessInstall.cancel")}
+          {installing
+            ? t("harnessInstall.hide")
+            : failed
+              ? t("harnesses.close")
+              : signingIn
+                ? t("harnessInstall.later")
+                : t("harnessInstall.cancel")}
         </DialogButton>
-        {!installing && (target.command || onSetupGuide) && (
+        {signingIn ? (
           <DialogButton
             ref={primary}
             dialogKey="return"
             className="ui-button ui-btn"
             data-variant="solid"
             data-size="md"
-            onClick={target.command ? onInstall : onSetupGuide}
+            onClick={onSignIn}
           >
-            {target.command
-              ? failed
-                ? t("harnessInstall.retry")
-                : t("harnessInstall.install")
-              : t("harnesses.setupGuide")}
+            {t("harnesses.signIn")}
           </DialogButton>
+        ) : (
+          !installing &&
+          (target.command || onSetupGuide) && (
+            <DialogButton
+              ref={primary}
+              dialogKey="return"
+              className="ui-button ui-btn"
+              data-variant="solid"
+              data-size="md"
+              onClick={target.command ? onInstall : onSetupGuide}
+            >
+              {target.command
+                ? failed
+                  ? t("harnessInstall.retry")
+                  : t("harnessInstall.install")
+                : t("harnesses.setupGuide")}
+            </DialogButton>
+          )
         )}
       </div>
     </Dialog>

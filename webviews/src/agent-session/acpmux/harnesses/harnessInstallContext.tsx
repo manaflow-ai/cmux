@@ -45,6 +45,7 @@ export function HarnessInstallProvider({
           state={install.state}
           onInstall={install.install}
           onCancel={install.dismiss}
+          onSignIn={install.signIn}
           {...(install.state.target.docsUrl ? { onSetupGuide: install.setupGuide } : {})}
         />
       )}
