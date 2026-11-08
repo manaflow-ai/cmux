@@ -2,8 +2,8 @@ import Foundation
 
 /// The Changes view's Create PR (cx-tcwj, Codex desktop's): `git.pullRequest` with `{cwd}`. The
 /// App opens the pull request of the chat's checked-out branch with the GitHub CLI: the open one
-/// when the branch has one, else `gh pr create --fill` from its commits (only when gh says the
-/// branch has none: a failed lookup creates nothing). It answers `{url, number}`. Before asking
+/// when the branch has one, else `gh pr create --web --head <branch>` (only when gh says the
+/// branch has none: a failed lookup opens nothing). It answers `{url, number}` for the browser target. Before asking
 /// `gh`, it asks the session host's Rust `git.push` mutation to push the branch and set its
 /// upstream when needed; that mutation never force-pushes and reports actionable remote errors.
 /// It needs a real click or key in the pane, a chat on this
