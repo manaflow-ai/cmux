@@ -102,13 +102,23 @@ import Testing
         let pane = pane()
         let store = try #require(pane.controller.store)
         let items = Self.items, summary = Self.summary
-        func shown(_ item: TranscriptItem) -> [Part] { store.state.message(HomeMapping.id(item, aliases: [:]))?.parts ?? [] }
-        let urls = HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [Self.docs], limit: 8, parts: shown)
+        func shown(_ item: TranscriptItem) -> [Part]? { store.state.message(HomeMapping.id(item, aliases: [:]))?.parts }
+        var scanned: Set<IdempotencyKey> = []
+        let urls = HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [Self.docs], scanned: &scanned, limit: 8, parts: shown)
         // Newest first; an asked URL is not asked again; a friend's, another agent's and an agent's
         // message through my CLI never fetch; a GitHub card with its local title needs no fetch.
         #expect(urls == [Self.pr, Self.sole])
-        #expect(HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [], limit: 2, parts: shown).count == 2)
-        #expect(!cardURLs(shown(items[5])).isEmpty, "the agent's message shows its card, domain only")
+        // Every message was looked at once: the next pass asks nothing and looks at none of them again.
+        #expect(scanned == Set(items.map(\.key)))
+        #expect(HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [], scanned: &scanned, limit: 8, parts: { _ in
+            Issue.record("a scanned message was looked at again"); return []
+        }).isEmpty)
+        // A pass stops at its limit; the message it stopped in is looked at again in the next pass.
+        var partly: Set<IdempotencyKey> = []
+        #expect(HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [], scanned: &partly, limit: 1, parts: shown) == [Self.pr])
+        #expect(!partly.contains(items[3].key))
+        #expect(HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [Self.pr], scanned: &partly, limit: 1, parts: shown) == [Self.docs])
+        #expect(!cardURLs(shown(items[5]) ?? []).isEmpty, "the agent's message shows its card, domain only")
 
         // The gate: a shown card the projection allowed fetches; any other URL is refused with no request.
         var loaded: [String] = []

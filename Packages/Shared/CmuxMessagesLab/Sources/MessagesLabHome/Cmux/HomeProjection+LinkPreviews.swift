@@ -8,7 +8,8 @@ import Foundation
 /// person's or another agent's card keeps what its sender attached, else the domain, until a tap.
 /// Each URL is asked once per view, newest messages first, at most ``previewsPerPass`` new asks per
 /// store pass; LinkPreviews caches answers (and failures) in memory and on disk, so a reopened
-/// chat asks the network for nothing it already knows.
+/// chat asks the network for nothing it already knows. Each message is looked at until all its
+/// cards are asked, then never again (`linkScanned`), so a pass costs the new messages, not the chat.
 extension HomeProjection {
     /// New preview asks one store pass starts, at most (a long chat opening fills its newest cards first).
     static let previewsPerPass = 8
@@ -20,9 +21,10 @@ extension HomeProjection {
         // One index per pass, built only when a candidate exists (no per-item linear search).
         var byID: [ID: [Part]]?
         let aliases = self.aliases
-        let urls = Self.previewableCardURLs(shown, summary: shownSummary, me: me, asked: askedLinkPreviews, limit: Self.previewsPerPass) { item in
+        let urls = Self.previewableCardURLs(shown, summary: shownSummary, me: me, asked: askedLinkPreviews, scanned: &linkScanned,
+                                            limit: Self.previewsPerPass) { item in
             if byID == nil { byID = Dictionary(messages.map { ($0.id, $0.parts) }, uniquingKeysWith: { first, _ in first }) }
-            return byID?[HomeMapping.id(item, aliases: aliases)] ?? []
+            return byID?[HomeMapping.id(item, aliases: aliases)]
         }
         for url in urls {
             askedLinkPreviews.insert(url)
@@ -55,17 +57,26 @@ extension HomeProjection {
 
     /// The card URLs among `items` (newest first) that may fetch and still show the domain card (no
     /// picture, no title but the site's), not in `asked`, at most `limit`. `parts` gives an item's
-    /// shown parts (the projection store's message).
+    /// shown parts (the projection store's message; nil: not shown yet, looked at again later). An
+    /// item in `scanned` is skipped; an item whose every card is asked (or that has none that may
+    /// fetch) joins it.
     static func previewableCardURLs(_ items: [TranscriptItem], summary: ConversationSummary?, me: ParticipantID,
-                                    asked: Set<String>, limit: Int, parts: (TranscriptItem) -> [Part]) -> [String] {
+                                    asked: Set<String>, scanned: inout Set<IdempotencyKey>, limit: Int,
+                                    parts: (TranscriptItem) -> [Part]?) -> [String] {
         var out: [String] = []
         var seen = asked
-        for item in items.reversed() where !item.isRetracted && mayHaveWebLink(item) && fetchesPreviews(of: item, me: me, summary: summary) {
-            for case let .link(url, title, site, image, _) in parts(item) where image == nil && (title == nil || title == site) {
-                guard seen.insert(url).inserted else { continue }
-                out.append(url)
-                if out.count >= limit { return out }
+        for item in items.reversed() where !scanned.contains(item.key) {
+            guard !item.isRetracted, mayHaveWebLink(item), fetchesPreviews(of: item, me: me, summary: summary) else {
+                scanned.insert(item.key)
+                continue
             }
+            guard let shownParts = parts(item) else { continue }
+            for case let .link(url, title, site, image, _) in shownParts where image == nil && (title == nil || title == site) {
+                guard seen.insert(url).inserted else { continue }
+                if out.count >= limit { return out } // this item has more: it is looked at again next pass
+                out.append(url)
+            }
+            scanned.insert(item.key)
         }
         return out
     }

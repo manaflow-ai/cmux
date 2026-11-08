@@ -153,6 +153,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let linkPreviews: HomeLinkPreviews?
     /// Card URLs whose previews this view asked for (HomeProjection+LinkPreviews.swift), once each.
     var askedLinkPreviews: Set<String> = []
+    /// Messages whose cards were all asked for, or have none that may fetch (HomeProjection+LinkPreviews.swift).
+    var linkScanned: Set<IdempotencyKey> = []
 
     init(store: HomeStore, conversation: ConversationID, me: ParticipantID, controller: ChatController,
          linkPreviews: HomeLinkPreviews? = nil, replies: HomeReplyDisplay = .wholeMessages) {
