@@ -11,19 +11,29 @@ extension WorkspaceDetailView {
     /// detail column's layout and only changes its available title width.
     var workspaceOwnedTopBar: some View {
         HStack(spacing: 13) {
-            if showsSidebarToggle, let toggleSidebar {
-                WorkspaceSidebarToggleButton(action: toggleSidebar)
-            }
+            if showsSidebarToggle, let toggleSidebar, let sidebarDestinationShortcuts {
+                // Phone split layout: the toggle, the hidden sidebar's
+                // destinations, and the title share one capsule, matching the
+                // sidebar's grouped leading controls.
+                ownedBarSidebarGroup(
+                    toggleSidebar: toggleSidebar,
+                    shortcuts: sidebarDestinationShortcuts
+                )
+            } else {
+                if showsSidebarToggle, let toggleSidebar {
+                    WorkspaceSidebarToggleButton(action: toggleSidebar)
+                }
 
-            if backButtonConfiguration != nil {
-                workspaceBackToolbarButton
-                    .frame(minWidth: 17, minHeight: 22)
+                if backButtonConfiguration != nil {
+                    workspaceBackToolbarButton
+                        .frame(minWidth: 17, minHeight: 22)
+                        .ownedBarGlassButton()
+                        .fixedSize()
+                }
+
+                workspaceTitleMenu(usesNaturalWidth: true)
                     .ownedBarGlassButton()
-                    .fixedSize()
             }
-
-            workspaceTitleMenu(usesNaturalWidth: true)
-                .ownedBarGlassButton()
 
             Spacer(minLength: 13)
 
@@ -43,6 +53,72 @@ extension WorkspaceDetailView {
         .transaction { transaction in
             transaction.animation = nil
         }
+    }
+
+    /// The owned bar's height: one control plus its vertical padding.
+    nonisolated static let ownedBarHeight = WorkspaceRootToolbarSizing.controlHeight + 6
+
+    /// Only the phone split layout's sidebar-hidden bar rises into the status
+    /// band; iPad and the sidebar-visible detail keep the safe-area layout.
+    var raisesOwnedBarIntoStatusBand: Bool {
+        showsSidebarToggle && sidebarDestinationShortcuts != nil
+    }
+
+    /// Reads the container's top band and its top-trailing corner.
+    /// - Parameter proxy: The detail content's geometry, outside the owned bar inset.
+    /// - Returns: Where the owned bar can sit, or `.none` before iOS 26.
+    nonisolated static func ownedBarStatusBand(in proxy: GeometryProxy) -> WorkspaceOwnedBarStatusBand {
+        guard #available(iOS 26.0, *) else { return .none }
+        // `topTrailing` already follows the layout direction.
+        return WorkspaceOwnedBarStatusBand.placement(
+            topInset: proxy.safeAreaInsets.top,
+            topTrailingCorner: proxy.containerCornerInsets.topTrailing,
+            barHeight: ownedBarHeight
+        )
+    }
+
+    private func ownedBarSidebarGroup(
+        toggleSidebar: @escaping () -> Void,
+        shortcuts: WorkspaceSidebarDestinationShortcuts
+    ) -> some View {
+        HStack(spacing: 0) {
+            WorkspaceSidebarToggleButton(action: toggleSidebar, usesSystemToolbarChrome: true)
+            Menu {
+                Picker(
+                    selection: Binding(
+                        get: { shortcuts.current },
+                        set: { shortcuts.open($0) }
+                    )
+                ) {
+                    ForEach(shortcuts.items) { item in
+                        Label(item.title, systemImage: item.destination.symbolName)
+                            .tag(item.destination)
+                    }
+                } label: {
+                    EmptyView()
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .frame(width: 22, height: WorkspaceRootToolbarSizing.controlHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                L10n.string("mobile.sidebar.destinations", defaultValue: "Sidebar Destinations")
+            )
+            .accessibilityIdentifier("MobileDetailSidebarDestinations")
+            Divider()
+                .frame(height: 24)
+                .padding(.horizontal, 8)
+            workspaceTitleMenu(usesNaturalWidth: true)
+                .buttonStyle(.plain)
+                .frame(minHeight: WorkspaceRootToolbarSizing.controlHeight)
+                .padding(.trailing, 14)
+        }
+        .ownedBarGlassSurface()
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var ownedBarTrailingCluster: some View {

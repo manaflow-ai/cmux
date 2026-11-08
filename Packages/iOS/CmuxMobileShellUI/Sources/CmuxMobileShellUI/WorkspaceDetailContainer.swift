@@ -23,6 +23,7 @@ struct WorkspaceDetailContainer: View {
     let signOut: (@MainActor @Sendable () -> Void)?
     var toggleSidebar: (() -> Void)? = nil
     var showsSidebarToggle = false
+    var sidebarDestinationShortcuts: WorkspaceSidebarDestinationShortcuts? = nil
     @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
 
     private var workspace: MobileWorkspacePreview? {
@@ -60,7 +61,8 @@ struct WorkspaceDetailContainer: View {
                     backButtonConfiguration: backButtonConfiguration,
                     signOut: signOut,
                     toggleSidebar: toggleSidebar,
-                    showsSidebarToggle: showsSidebarToggle
+                    showsSidebarToggle: showsSidebarToggle,
+                    sidebarDestinationShortcuts: sidebarDestinationShortcuts
                 )
                 .onAppear {
                     rememberRouteWorkspace(workspace)

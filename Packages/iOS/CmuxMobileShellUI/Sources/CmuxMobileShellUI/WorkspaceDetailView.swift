@@ -54,6 +54,10 @@ struct WorkspaceDetailView: View {
     /// while the sidebar column is hidden. When visible, the sidebar toolbar
     /// owns the same action instead.
     var showsSidebarToggle = false
+    /// Set only in a phone split layout: the hidden sidebar's destinations,
+    /// offered beside the toggle, and the cue to raise the bar into the
+    /// status band when the screen's top corner leaves room.
+    var sidebarDestinationShortcuts: WorkspaceSidebarDestinationShortcuts? = nil
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
     @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
@@ -65,6 +69,8 @@ struct WorkspaceDetailView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 #endif
     /// Drives the destructive close-workspace confirmation dialog.
+    /// The phone split layout's status-band placement for the owned top bar.
+    @State var ownedBarStatusBand = WorkspaceOwnedBarStatusBand.none
     @State var isConfirmingClose = false
     /// The question that dialog asks, resolved from the store when the close
     /// is requested.
@@ -361,10 +367,20 @@ struct WorkspaceDetailView: View {
     @ViewBuilder
     private func detailNavigationChrome<Content: View>(_ content: Content) -> some View {
         if horizontalSizeClass == .regular {
+            let band = raisesOwnedBarIntoStatusBand ? ownedBarStatusBand : .none
             content
                 .toolbar(.hidden, for: .navigationBar)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     workspaceOwnedTopBar
+                        .padding(.trailing, band.trailingClearance)
+                        .padding(.top, -band.raise)
+                }
+                // Measured outside the bar's inset so the reading reflects the
+                // container's own safe area, not the bar it positions.
+                .onGeometryChange(for: WorkspaceOwnedBarStatusBand.self) { proxy in
+                    Self.ownedBarStatusBand(in: proxy)
+                } action: { band in
+                    ownedBarStatusBand = band
                 }
         } else {
             content

@@ -205,7 +205,7 @@ struct MobilePrimaryTabScaffold<
     private var feedLabel: some View {
         Label(
             L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
-            systemImage: "waveform"
+            systemImage: MobilePrimaryTab.feed.symbolName
         )
         .accessibilityIdentifier("MobilePrimaryTabFeed")
     }
@@ -213,7 +213,7 @@ struct MobilePrimaryTabScaffold<
     private var homeLabel: some View {
         Label(
             L10n.string("mobile.tabs.home", defaultValue: "Home"),
-            systemImage: "bubble.left.and.bubble.right"
+            systemImage: MobilePrimaryTab.home.symbolName
         )
         .accessibilityIdentifier("MobilePrimaryTabHome")
     }
@@ -221,7 +221,7 @@ struct MobilePrimaryTabScaffold<
     private var workspacesLabel: some View {
         Label(
             L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-            systemImage: "rectangle.stack"
+            systemImage: MobilePrimaryTab.workspaces.symbolName
         )
         .accessibilityIdentifier("MobilePrimaryTabWorkspaces")
     }
@@ -229,7 +229,7 @@ struct MobilePrimaryTabScaffold<
     private var notificationsLabel: some View {
         Label(
             L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"),
-            systemImage: "bell"
+            systemImage: MobilePrimaryTab.notifications.symbolName
         )
         .accessibilityIdentifier("MobilePrimaryTabNotifications")
     }
@@ -237,7 +237,7 @@ struct MobilePrimaryTabScaffold<
     private var cloudLabel: some View {
         Label(
             L10n.string("mobile.tabs.cloud", defaultValue: "Cloud"),
-            systemImage: "cloud"
+            systemImage: MobilePrimaryTab.cloud.symbolName
         )
         .accessibilityIdentifier("MobilePrimaryTabCloud")
     }

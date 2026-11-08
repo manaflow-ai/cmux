@@ -72,6 +72,12 @@ enum WorkspaceRootToolbarSizing {
     static func usesLeadingPlacement(for contentWidth: CGFloat) -> Bool {
         contentWidth > 0 && contentWidth < nonPickerWidth + minimumPickerWidth
     }
+
+    /// Titled destinations plus the create and compose controls need about
+    /// 360 pt; a phone's portrait split sidebar (320 pt) switches to symbols.
+    static func usesSymbolDestinationBar(for sidebarWidth: CGFloat) -> Bool {
+        sidebarWidth > 0 && sidebarWidth < 360
+    }
 }
 
 /// The shared root toolbar used by both primary tabs. Keeping the leading
@@ -94,6 +100,10 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let showAddDevice: (() -> Void)?
     var gateWarningPairingIDs: Set<String> = []
     var statusLine: WorkspaceConnectionStatusLine?
+    /// The phone split sidebar's toggle. It leads the group so it sits at the
+    /// far leading edge the HIG reserves for it, in the same place as the
+    /// detail bar's toggle once the sidebar is hidden.
+    var sidebarToggle: (() -> Void)?
 
     private var titlePlacement: ToolbarItemPlacement {
         if horizontalSizeClass == .regular,
@@ -104,6 +114,14 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     }
 
     var body: some ToolbarContent {
+        if let sidebarToggle {
+            ToolbarItem(id: "workspace-list-sidebar-toggle-leading", placement: .topBarLeading) {
+                WorkspaceSidebarToggleButton(
+                    action: sidebarToggle,
+                    usesSystemToolbarChrome: true
+                )
+            }
+        }
         ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
             Button(action: openSettings) {
                 MobileWorkspaceSettingsIcon()
@@ -183,6 +201,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
     var gateWarningPairingIDs: Set<String> = []
+    var sidebarToggle: (() -> Void)?
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -196,7 +215,8 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             machines: renderContext.machines,
             showAddDevice: showAddDevice,
             gateWarningPairingIDs: gateWarningPairingIDs,
-            statusLine: renderContext.statusLine
+            statusLine: renderContext.statusLine,
+            sidebarToggle: sidebarToggle
         )
     }
 }
@@ -332,12 +352,17 @@ struct WorkspaceShellView: View {
         #endif
     }
 
-    /// While the sidebar hosts destinations, the tab view stays on the tab
-    /// that renders the split layout; destination picks drive the sidebar.
+    /// The scaffold's physical tab, kept separate from the logical
+    /// `selectedPrimaryTab` (see `MobilePrimarySearchCoordinator.scaffoldTab`).
     private var primaryScaffoldSelection: Binding<MobilePrimaryTab> {
-        guard hostsSplitDestinationsInSidebar else { return $selectedPrimaryTab }
+        let hostsDestinationsInSidebar = hostsSplitDestinationsInSidebar
         return Binding(
-            get: { .workspaces },
+            get: {
+                MobilePrimarySearchCoordinator.scaffoldTab(
+                    for: selectedPrimaryTab,
+                    hostsDestinationsInSidebar: hostsDestinationsInSidebar
+                )
+            },
             set: { selectedPrimaryTab = $0 }
         )
     }
@@ -694,20 +719,10 @@ struct WorkspaceShellView: View {
         }
         .onChange(of: usesCompactStack) { _, isCompact in
             #if os(iOS)
-            if isCompact {
-                // The split sidebar's searchable field is gone; close the
-                // session by committing the draft so the compact list keeps
-                // the filter instead of stranding a presented search with no
-                // field.
-                if primarySearchCoordinator.isPresented {
-                    primarySearchCoordinator.deactivateCurrentSearch()
-                }
-            } else if selectedPrimaryTab == .search {
-                // The split sidebar has no search destination; selection
-                // returns to the active scope and the sidebar search field
-                // carries the session.
-                selectedPrimaryTab = primarySearchCoordinator.scope.primaryTab
-            }
+            selectedPrimaryTab = primarySearchCoordinator.destinationAfterLayoutChange(
+                toCompact: isCompact,
+                from: selectedPrimaryTab
+            )
             #endif
             guard isCompact, hasPresentedSplitDetail, let selectedWorkspaceID = store.selectedWorkspaceID else {
                 return
@@ -984,7 +999,10 @@ struct WorkspaceShellView: View {
 
     #if os(iOS)
     private func splitLayout(presentation: WorkspaceShellRenderPresentation) -> some View {
-        NavigationSplitView(columnVisibility: $splitColumnVisibility) {
+        let destinationShortcuts: WorkspaceSidebarDestinationShortcuts? = splitSidebarDestinationShortcuts(
+            unreadCount: presentation.notificationUnreadCount
+        )
+        return NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             #if os(iOS)
             splitSidebar(presentation: presentation)
                 .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
@@ -1008,7 +1026,8 @@ struct WorkspaceShellView: View {
                 canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible,
                 toggleSidebar: toggleSplitSidebar,
-                showsSidebarToggle: splitColumnVisibility == .detailOnly
+                showsSidebarToggle: splitColumnVisibility == .detailOnly,
+                sidebarDestinationShortcuts: destinationShortcuts
             )
         }
         .navigationSplitViewStyle(.balanced)
@@ -1074,10 +1093,14 @@ struct WorkspaceShellView: View {
     private func splitSidebar(presentation: WorkspaceShellRenderPresentation) -> some View {
         let selectedMacDeviceIDs = presentation.selectedNotificationFeedMacDeviceIDs
         let notificationItems = presentation.notificationFeedItems
-        // The hosted-destinations toolbar owns the toggle on a phone.
+        // On a phone the root toolbar leads with the toggle; on iPad it trails
+        // the workspace list's controls.
         let listSidebarToggleAction: (() -> Void)? = hostsSplitDestinationsInSidebar
             ? nil
             : { toggleSplitSidebar() }
+        let rootSidebarToggle: (() -> Void)? = hostsSplitDestinationsInSidebar
+            ? { toggleSplitSidebar() }
+            : nil
         return Group {
             switch splitSidebarDestination {
             case .home:
@@ -1110,7 +1133,7 @@ struct WorkspaceShellView: View {
             splitSidebarToolbar(unreadCount: presentation.notificationUnreadCount)
         }
         .toolbar {
-            rootToolbarContent
+            rootToolbarContent(sidebarToggle: rootSidebarToggle)
         }
         // Keep NavigationSplitView's synthesized control out of the toolbar.
         // The shared custom action is owned by this sidebar while open and by
@@ -1154,6 +1177,10 @@ struct WorkspaceShellView: View {
         return selectedPrimaryTab
     }
 
+    /// The split sidebar's own toolbar items: the hosted-destinations chrome on
+    /// a phone, or the trailing toggle for sidebar destinations that have no
+    /// workspace-list toolbar of their own.
+    /// - Parameter unreadCount: The notification badge count for the destination bar.
     @ToolbarContentBuilder
     private func splitSidebarToolbar(unreadCount: Int) -> some ToolbarContent {
         if hostsSplitDestinationsInSidebar {
@@ -1172,17 +1199,11 @@ struct WorkspaceShellView: View {
         }
     }
 
-    /// The sidebar chrome while it hosts top-level destinations: the toggle on
-    /// the leading edge the HIG reserves for it (a narrow phone sidebar drops
-    /// overflowing trailing items) and the destination bar along the bottom.
+    /// The sidebar chrome while it hosts top-level destinations: the
+    /// destination bar along the bottom. The toggle leads the shared root
+    /// toolbar (see `rootToolbarContent(sidebarToggle:)`).
     @ToolbarContentBuilder
     private func hostedDestinationsSidebarToolbar(unreadCount: Int) -> some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            WorkspaceSidebarToggleButton(
-                action: toggleSplitSidebar,
-                usesSystemToolbarChrome: true
-            )
-        }
         splitSidebarBottomBar(unreadCount: unreadCount)
     }
 
@@ -1196,16 +1217,10 @@ struct WorkspaceShellView: View {
             // selection with hierarchy and tint instead of nested chrome.
             WorkspaceSidebarDestinationControl(
                 selection: splitSidebarDestinationSelection,
-                workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                homeTitle: store.supportsChief
-                    ? L10n.string("mobile.tabs.home", defaultValue: "Home")
-                    : nil,
-                feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
-                notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
-                showsNotifications: !displaySettings.feedReplacesNotifications,
-                cloudTitle: cloudTabContent == nil
-                    ? nil
-                    : L10n.string("mobile.tabs.cloud", defaultValue: "Cloud")
+                items: splitSidebarDestinationItems(unreadCount: unreadCount),
+                usesSymbols: WorkspaceRootToolbarSizing.usesSymbolDestinationBar(
+                    for: splitSidebarWidth
+                )
             )
         }
         if #available(iOS 26.0, *) {
@@ -1229,46 +1244,15 @@ struct WorkspaceShellView: View {
 
     private struct WorkspaceSidebarDestinationControl: View {
         let selection: Binding<MobilePrimaryTab>
-        let workspacesTitle: String
-        let homeTitle: String?
-        let feedTitle: String
-        let notificationsTitle: String
-        let showsNotifications: Bool
-        /// Nil in a build without Cloud, which omits the destination.
-        let cloudTitle: String?
+        let items: [WorkspaceSidebarDestinationShortcuts.Item]
+        /// Symbols instead of titles, so a narrow sidebar keeps room for the
+        /// create and compose controls in the same bar.
+        var usesSymbols = false
 
         var body: some View {
             HStack(spacing: 0) {
-                if let homeTitle {
-                    destinationButton(
-                        .home,
-                        title: homeTitle,
-                        accessibilityID: "MobileSplitSidebarHome"
-                    )
-                }
-                destinationButton(
-                    .workspaces,
-                    title: workspacesTitle,
-                    accessibilityID: "MobileSplitSidebarWorkspaces"
-                )
-                destinationButton(
-                    .feed,
-                    title: feedTitle,
-                    accessibilityID: "MobileSplitSidebarFeed"
-                )
-                if showsNotifications {
-                    destinationButton(
-                        .notifications,
-                        title: notificationsTitle,
-                        accessibilityID: "MobileSplitSidebarNotifications"
-                    )
-                }
-                if let cloudTitle {
-                    destinationButton(
-                        .cloud,
-                        title: cloudTitle,
-                        accessibilityID: "MobileSplitSidebarCloud"
-                    )
+                ForEach(items) { item in
+                    destinationButton(item)
                 }
             }
             .frame(minHeight: 44)
@@ -1276,29 +1260,84 @@ struct WorkspaceShellView: View {
             .accessibilityIdentifier("MobileSplitSidebarDestinationPicker")
         }
 
-        private func destinationButton(
-            _ destination: MobilePrimaryTab,
-            title: String,
-            accessibilityID: String
-        ) -> some View {
-            let isSelected = selection.wrappedValue == destination
+        private func destinationButton(_ item: WorkspaceSidebarDestinationShortcuts.Item) -> some View {
+            let isSelected = selection.wrappedValue == item.destination
             return Button {
-                selection.wrappedValue = destination
+                selection.wrappedValue = item.destination
             } label: {
-                Text(title)
-                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? .primary : .secondary)
-                    .lineLimit(1)
-                    .allowsTightening(true)
-                    .minimumScaleFactor(0.82)
-                    .padding(.horizontal, 8)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+                Group {
+                    if usesSymbols {
+                        Image(systemName: item.destination.symbolName)
+                            .symbolVariant(isSelected ? .fill : .none)
+                            .font(.body.weight(isSelected ? .semibold : .regular))
+                            .frame(minWidth: 36)
+                    } else {
+                        Text(item.title)
+                            .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                            .lineLimit(1)
+                            .allowsTightening(true)
+                            .minimumScaleFactor(0.82)
+                    }
+                }
+                .foregroundStyle(isSelected ? .primary : .secondary)
+                .padding(.horizontal, 8)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(item.title)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .accessibilityIdentifier(accessibilityID)
+            .accessibilityIdentifier(Self.accessibilityID(for: item.destination))
         }
+
+        private static func accessibilityID(for destination: MobilePrimaryTab) -> String {
+            switch destination {
+            case .home: "MobileSplitSidebarHome"
+            case .workspaces: "MobileSplitSidebarWorkspaces"
+            case .feed: "MobileSplitSidebarFeed"
+            case .notifications: "MobileSplitSidebarNotifications"
+            case .cloud: "MobileSplitSidebarCloud"
+            case .search: "MobileSplitSidebarSearch"
+            }
+        }
+    }
+
+    /// The split sidebar's destinations, in display order. The sidebar's
+    /// destination bar and the detail bar's destination menu share this list,
+    /// so availability (Home with Chief, Notifications unless the Feed
+    /// replaces it, Cloud when the build has it) is decided once.
+    /// - Parameter unreadCount: The notification unread count shown in its title.
+    private func splitSidebarDestinationItems(unreadCount: Int) -> [WorkspaceSidebarDestinationShortcuts.Item] {
+        var items: [WorkspaceSidebarDestinationShortcuts.Item] = []
+        if store.supportsChief {
+            items.append(.init(destination: .home, title: L10n.string("mobile.tabs.home", defaultValue: "Home")))
+        }
+        items.append(.init(destination: .workspaces, title: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces")))
+        items.append(.init(destination: .feed, title: L10n.string("mobile.tabs.feed", defaultValue: "Feed")))
+        if !displaySettings.feedReplacesNotifications {
+            items.append(.init(destination: .notifications, title: notificationsSegmentTitle(unreadCount: unreadCount)))
+        }
+        if cloudTabContent != nil {
+            items.append(.init(destination: .cloud, title: L10n.string("mobile.tabs.cloud", defaultValue: "Cloud")))
+        }
+        return items
+    }
+
+    /// The detail bar's shortcuts into the hidden phone sidebar, or `nil`
+    /// outside the phone split layout.
+    /// - Parameter unreadCount: The notification unread count shown in its title.
+    private func splitSidebarDestinationShortcuts(unreadCount: Int) -> WorkspaceSidebarDestinationShortcuts? {
+        guard hostsSplitDestinationsInSidebar else { return nil }
+        return WorkspaceSidebarDestinationShortcuts(
+            items: splitSidebarDestinationItems(unreadCount: unreadCount),
+            current: splitSidebarDestination,
+            open: { destination in
+                splitSidebarDestinationSelection.wrappedValue = destination
+                withAnimation {
+                    splitColumnVisibility = .all
+                }
+            }
+        )
     }
 
     private func notificationsSegmentTitle(unreadCount: Int) -> String {
@@ -1324,24 +1363,7 @@ struct WorkspaceShellView: View {
         Binding(
             get: { splitSidebarDestination },
             set: { newValue in
-                if primarySearchCoordinator.isPresented {
-                    if let scope = newValue.searchScope {
-                        // Switching destinations mid-search re-scopes the session
-                        // instead of abandoning it under the old scope.
-                        primarySearchCoordinator.beginSearch(for: scope)
-                    } else {
-                        // Home and Cloud have no search scope. Dismiss the
-                        // split search before changing destination so the
-                        // sidebar cannot snap back to the old search scope.
-                        primarySearchCoordinator.cancelPresentedSearch()
-                    }
-                }
-                selectedPrimaryTab = newValue
-                // The pinned tab view no longer observes this selection, so
-                // the search scope follows the sidebar destination here.
-                if hostsSplitDestinationsInSidebar {
-                    primarySearchCoordinator.synchronizeSelection(newValue)
-                }
+                selectedPrimaryTab = primarySearchCoordinator.selectDestination(newValue)
             }
         )
     }
@@ -1461,6 +1483,8 @@ struct WorkspaceShellView: View {
                 ?? (navigationStyle != .push || compactNavigationPath.isEmpty),
             usesExternalSharedToolbar: true,
             sidebarToggleAction: sidebarToggleAction,
+            placesNewWorkspaceControlInBottomBar: navigationStyle == .sidebar
+                && hostsSplitDestinationsInSidebar,
             wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
             previewLineLimit: displaySettings.workspacePreviewLineCount,
             unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
@@ -1524,6 +1548,12 @@ struct WorkspaceShellView: View {
     #if os(iOS)
     @ToolbarContentBuilder
     private var rootToolbarContent: some ToolbarContent {
+        rootToolbarContent(sidebarToggle: nil)
+    }
+
+    /// The shared root toolbar, optionally led by the phone split sidebar's toggle.
+    /// - Parameter sidebarToggle: The toggle action, or `nil` for no toggle.
+    private func rootToolbarContent(sidebarToggle: (() -> Void)?) -> some ToolbarContent {
         WorkspaceRootToolbarLiveContent(
             openSettings: showSettings,
             openDevices: showComputers,
@@ -1535,7 +1565,8 @@ struct WorkspaceShellView: View {
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
-            gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs
+            gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs,
+            sidebarToggle: sidebarToggle
         )
     }
 
@@ -2037,7 +2068,8 @@ struct WorkspaceShellView: View {
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
         backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil,
         toggleSidebar: (() -> Void)? = nil,
-        showsSidebarToggle: Bool = false
+        showsSidebarToggle: Bool = false,
+        sidebarDestinationShortcuts: WorkspaceSidebarDestinationShortcuts? = nil
     ) -> some View {
         // A Cloud machine's workspace makes its new workspace on that machine,
         // whether or not a Mac is connected.
@@ -2060,7 +2092,8 @@ struct WorkspaceShellView: View {
             backButtonConfiguration: backButtonConfiguration,
             signOut: signOut,
             toggleSidebar: toggleSidebar,
-            showsSidebarToggle: showsSidebarToggle
+            showsSidebarToggle: showsSidebarToggle,
+            sidebarDestinationShortcuts: sidebarDestinationShortcuts
         )
     }
 }
