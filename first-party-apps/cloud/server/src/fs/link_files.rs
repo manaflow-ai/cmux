@@ -149,9 +149,9 @@ fn exchange(
             refusal.detail.map(|d| format!(" ({d})")).unwrap_or_default()
         ))
     })?;
+    // The write side stays open until the answer: the carrier ends the
+    // remote stream when its client half-closes, and the reply is lost.
     let written = stream.write_all(line.as_bytes()).and_then(|()| stream.flush());
-    // The request is whole: the daemon sees the end of its input.
-    let _ = stream.shutdown(std::net::Shutdown::Write);
     if let Err(e) = written {
         end_stream(&stream, streams);
         return Err(unavailable(format!("the daemon link closed: {e}")));

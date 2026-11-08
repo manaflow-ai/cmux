@@ -138,3 +138,24 @@ fn a_cancel_ends_the_carrier_stream() {
     assert!(outcome.is_err(), "a cancelled op is an error");
     assert!(started.elapsed() < std::time::Duration::from_secs(10), "it ended at once");
 }
+
+#[test]
+fn a_reply_slower_than_the_request_still_arrives() {
+    // The real carrier ends the remote stream when its client half-closes
+    // (pump_mux_client_buffered reads that EOF as done), so the request must
+    // keep its write side open until the answer: a stand-in that drops the
+    // stream on EOF and answers only after network latency.
+    let (target, _) = carrier("slow", |mut connection, _| {
+        connection.set_read_timeout(Some(std::time::Duration::from_millis(300))).unwrap();
+        let mut probe = [0u8; 1];
+        if matches!(std::io::Read::read(&mut connection, &mut probe), Ok(0)) {
+            return;
+        }
+        let _ = connection
+            .write_all(b"{\"id\":1,\"ok\":true,\"data\":{\"entry\":{\"revision\":\"s3\"}}}\n");
+    });
+    let data = LinkDaemonFiles
+        .call(&target, "fs.stat", json!({ "path": "/a" }), &Cancel::default())
+        .expect("the answer after the delay");
+    assert_eq!(data, json!({ "entry": { "revision": "s3" } }));
+}
