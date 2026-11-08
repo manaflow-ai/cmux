@@ -2060,6 +2060,7 @@ mod list_reply;
 use lane_parent::lane_parent;
 mod bg_tasks;
 mod goal;
+mod memory_inbox;
 pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
