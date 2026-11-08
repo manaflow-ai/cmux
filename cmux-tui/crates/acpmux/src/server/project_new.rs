@@ -24,8 +24,8 @@ use crate::rpc::RpcError;
 
 /// The longest name kept; the web shortens what it derives from a prompt well under this.
 const NAME_MAX: usize = 64;
-/// `name-2` through `name-99`; past that the person picks another name.
-const SUFFIX_MAX: u32 = 99;
+/// `name-2` through `name-9999`; past that the person picks another name (the error says so).
+const SUFFIX_MAX: u32 = 9999;
 /// The projects folders tried, in order, under the home folder; the first is made when none is there.
 const PROJECT_ROOTS: [&str; 5] = ["Projects", "projects", "Developer", "code", "src"];
 
@@ -46,11 +46,16 @@ pub(super) async fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Re
     let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home directory"))?;
     let gate = hub.trust_gate();
     let made = tokio::task::spawn_blocking(move || -> Result<(PathBuf, bool), String> {
-        let (cwd, git) = make(&projects_root(&home), &name)?;
         let paths = gate.or_else(crate::trust::Paths::current).ok_or("no home directory")?;
-        crate::trust::set(&paths, &cwd.to_string_lossy(), "trusted").map_err(|failure| match failure {
-            crate::trust::Failure::Invalid(message) | crate::trust::Failure::Record(message) => message,
-        })?;
+        let (cwd, git) = make(&projects_root(&home), &name)?;
+        if let Err(failure) = crate::trust::set(&paths, &cwd.to_string_lossy(), "trusted") {
+            // The folder is the one just made, empty but for its new repository: take it back, so
+            // a retry makes `name` again instead of leaving `name` behind and making `name-2`.
+            let _ = std::fs::remove_dir_all(&cwd);
+            return Err(match failure {
+                crate::trust::Failure::Invalid(message) | crate::trust::Failure::Record(message) => message,
+            });
+        }
         Ok((cwd, git))
     })
     .await
@@ -68,7 +73,8 @@ pub(super) async fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Re
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= NAME_MAX
-        && !name.starts_with(['.', '-'])
+        && !name.starts_with('.')
+        && !name.starts_with('-')
         && name.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'))
 }
 
@@ -98,7 +104,8 @@ fn make(root: &Path, name: &str) -> Result<(PathBuf, bool), String> {
             Err(e) => return Err(format!("{}: {e}", folder.display())),
         }
     }
-    let folder = made.ok_or_else(|| format!("{name} through {name}-{SUFFIX_MAX} are taken"))?;
+    let folder = made
+        .ok_or_else(|| format!("{name} through {name}-{SUFFIX_MAX} are taken: choose another name"))?;
     let folder = std::fs::canonicalize(&folder).unwrap_or(folder);
     let git = std::process::Command::new("git")
         .args(["init", "-q"])
