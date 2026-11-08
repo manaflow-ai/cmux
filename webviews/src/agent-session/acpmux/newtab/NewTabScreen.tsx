@@ -909,15 +909,15 @@ export function NewTabScreen(props: Props) {
   const [dismissed, setDismissed] = useState<string>();
   const textRef = useRef(text);
   textRef.current = text;
-  const fixFromLink = useMemo(
-    () => (!shell && attachments.length === 0 ? githubIssueLink(text) : undefined),
-    [text, shell, attachments.length],
-  );
   /// The field's value is Markdown, which escapes typed punctuation (`http\:`, `\*`, `\[`) so it
   /// reads back as the same text. What the page acts on (a search, an address, a shell command, a
   /// prompt) is the text as typed, the way the chat composer sends it (`agentText`).
   /// One parse per change of the value, not per render.
   const typed = useMemo(() => (fieldReady ? (field.current?.agentText(text) ?? text) : text), [text, fieldReady]);
+  const fixFromLink = useMemo(
+    () => (!shell && attachments.length === 0 ? githubIssueLink(typed) : undefined),
+    [typed, shell, attachments.length],
+  );
   // The create actions the buttons under the field offer, at the end of the rows too.
   const creates = useMemo(
     (): CreateKind[] => [
@@ -1271,6 +1271,13 @@ export function NewTabScreen(props: Props) {
       return;
     }
     const prompt = typed.trim();
+    // A lone GitHub issue URL has an explicit fix action, but Return remains a normal prompt send.
+    // Keep it ahead of address-row activation so the URL is not opened in a browser instead.
+    if (fixFromLink) {
+      if (harness) askChat(harness, prompt, project, chipModel);
+      else openSetup();
+      return;
+    }
     if (command.intercept(prompt, harness, attachments.length, true)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
