@@ -170,10 +170,12 @@ impl Owner {
     }
 
     /// `server stop`, then waits for the process to exit (blocking, bounded).
+    /// A plain stop: the tests read and reopen the saved state after it (a
+    /// stop with `--end-terminals` removes it). These owners run no terminal.
     fn stop(mut self) {
         for _ in 0..3 {
             let _ = command(&self.dir)
-                .args(["server", "stop", "--session", &self.session, "--end-terminals", "--socket"])
+                .args(["server", "stop", "--session", &self.session, "--socket"])
                 .arg(self.socket())
                 .output();
             if self.child.wait_timeout(Duration::from_secs(20)).unwrap().is_some() {

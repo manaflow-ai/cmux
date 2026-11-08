@@ -507,23 +507,34 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             // No pid wait: a parent that has not reaped the owner keeps a
             // zombie, and kill(pid, 0) succeeds for a zombie.
             let removed = remove_start_lock(&socket);
-            print_success(
-                json!({
-                    "status":"stopped",
-                    "accepted":true,
-                    "session":actual_session,
-                    "pid":pid,
-                    "generation":generation,
-                    "ended_terminals":result["ended_terminals"].as_u64(),
-                    "removed":removed,
-                    "message":if end_terminals {
-                        crate::localization::catalog().local_server.stopped_terminals_ended
-                    } else {
-                        crate::localization::catalog().local_server.stopped
-                    },
-                }),
-                global.output,
-            )
+            let mut stopped = json!({
+                "status":"stopped",
+                "accepted":true,
+                "session":actual_session,
+                "pid":pid,
+                "generation":generation,
+                "ended_terminals":result["ended_terminals"].as_u64(),
+                "removed":removed,
+                "message":if end_terminals {
+                    crate::localization::catalog().local_server.stopped_terminals_ended
+                } else {
+                    crate::localization::catalog().local_server.stopped
+                },
+            });
+            // Every terminal ended, so nothing is left to resume: the saved
+            // state goes too. A plain stop keeps it (`agent resume` needs it).
+            // The owner names its directory only when it ended every
+            // terminal without keeping the layout.
+            if let (true, Some(session_dir), Some(fields)) =
+                (end_terminals, result["session_dir"].as_str(), stopped.as_object_mut())
+            {
+                fields.extend(super::command::remove_ended_session_state(
+                    actual_session,
+                    std::path::Path::new(session_dir),
+                    Instant::now() + Duration::from_secs(10),
+                ));
+            }
+            print_success(stopped, global.output)
         }
     }
 }
@@ -1198,8 +1209,9 @@ fn wait_for_exit(pid: u32, deadline: Instant) -> Result<(), String> {
 
 /// After a stop (not a restart), removes what only a running owner needs:
 /// the socket's start lock (`<socket>.spawn-lock`, cmux-tui-core
-/// `remove_socket_start_lock`). The session's saved state stays
-/// (`cmux session <name> reset-state` removes it). Returns the removed path,
+/// `remove_socket_start_lock`). The session's saved state stays after a
+/// plain stop (`cmux session <name> reset-state` removes it); a stop with
+/// `--end-terminals` removes it (`remove_ended_session_state`). Returns the removed path,
 /// or none when there is no lock file or a start holds it for 500 ms.
 fn remove_start_lock(socket: &std::path::Path) -> Vec<String> {
     let lock = cmux_tui_core::server::socket_start_lock_path(socket);

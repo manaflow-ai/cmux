@@ -396,7 +396,10 @@ parallel. For test teardown, `shutdown-daemon` with `"end_terminals":true`
 ends every terminal before the handoff; add `"keep_layout":true`
 (`end-terminals-keep-layout-v1`) to keep the tabs of placed terminals, dead,
 for the next owner (a quitting frontend that restarts shells in the same
-layout). To close many tabs at once, send
+layout). Without `keep_layout`, the answer carries `session_dir`, the
+session's saved-state directory: nothing is left to resume, and
+`cmux daemon stop --end-terminals` removes it once the owner exits (an older
+owner answers no `session_dir`, and its state stays). To close many tabs at once, send
 `{"cmd":"close-tabs","surfaces":[...],"end_terminals":true}`: one durable
 commit (one journal fsync) removes every tab and ends every terminal left
 with no view that is not kept. The container closes take the same
