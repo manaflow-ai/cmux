@@ -2,7 +2,16 @@
 // file renders it: a toolbar (file, save status, rich text or source), the conflict banner, and the
 // editor or the source text. The editor mounts through a callback ref. Cmd/Ctrl chords (Cmd-S)
 // come from the app's key dispatcher as page commands, never from page key handlers.
-import { lazy, Suspense, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ChangeEvent,
+  type ReactNode,
+} from "react";
 import type { Strings } from "../shared/i18n";
 import { Toolbar, ToolbarButton, ToolbarGroup, ToolbarToggleGroup } from "../../ui/Toolbar";
 import type { LinkOverlays } from "./overlays";
@@ -11,6 +20,7 @@ import type { MarkdownReadOnlyReason } from "./host";
 import type { MarkdownMode, MarkdownStore } from "./store";
 import type { ReadingSettingsActions } from "./ReadingSettings";
 import { toolbarFileLabel } from "./toolbarFile";
+import { hasRunbookSteps } from "./runbook";
 
 /** The note that says why a file is read only. */
 const READ_ONLY_NOTE: Record<MarkdownReadOnlyReason, string> = {
@@ -40,6 +50,8 @@ export interface MarkdownPageProps {
   onForward?(): void;
   /** The Reading Settings popover's writes (no popover button without them). */
   reading?: ReadingSettingsActions;
+  /** Run all: the runbook to an agent chat (no button without it, or without shell blocks). */
+  onRunAll?(): void;
 }
 
 export function MarkdownPage({
@@ -51,11 +63,18 @@ export function MarkdownPage({
   onBack,
   onForward,
   reading,
+  onRunAll,
 }: MarkdownPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const [readingOpen, setReadingOpen] = useState(false);
   const readingAnchor = useRef<HTMLSpanElement | null>(null);
   const { t } = strings;
+  // Whether the document has a runnable step: read once per document (a load, a reload or another
+  // file), never per keystroke. A block typed into the open document counts after the next load.
+  const runnable = useMemo(
+    () => !!onRunAll && hasRunbookSteps(state.config?.text ?? ""),
+    [onRunAll, state.config?.text],
+  );
 
   if (state.phase === "empty" && emptyState) return emptyState();
 
@@ -130,6 +149,11 @@ export function MarkdownPage({
           >
             {state.phase === "ready" ? status : ""}
           </span>
+          {runnable && state.phase === "ready" ? (
+            <ToolbarButton className="md-run-all-button" label={t(L.runAllTitle)} onPress={onRunAll}>
+              {t(L.runAll)}
+            </ToolbarButton>
+          ) : null}
           {!state.readOnly && state.mode !== "source" ? (
             <ToolbarButton className="md-edit-button" label={t(L.edit)} onPress={() => store.setMode("source")}>
               {t(L.edit)}

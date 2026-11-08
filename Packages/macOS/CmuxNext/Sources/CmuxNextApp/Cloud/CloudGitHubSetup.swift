@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextPages
 import Foundation
 
 /// Set Up GitHub on This Machine (`cmux cloud setup-github`): the person's git identity from this

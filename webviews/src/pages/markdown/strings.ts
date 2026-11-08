@@ -94,4 +94,12 @@ export const L = {
   readingThemeDark: "reading.theme.dark",
   readingReset: "reading.reset",
   readingPoints: "reading.value.points",
+  run: "run.button",
+  runTitle: "run.title",
+  runAsk: "run.ask",
+  runConfirm: "run.confirm",
+  runCancel: "run.cancel",
+  runSent: "run.sent",
+  runAll: "run.all",
+  runAllTitle: "run.all.title",
 } as const;

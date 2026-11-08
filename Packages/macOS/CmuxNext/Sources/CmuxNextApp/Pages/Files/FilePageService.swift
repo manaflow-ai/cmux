@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
@@ -343,6 +344,20 @@ final class FilePageService: InternalPageProvider {
         services.linkOpener.openFile(url, from: pane(of: key), markdown: FilePageKind.isMarkdown(url))
     }
 
+    /// A runbook's Run: a new terminal beside the page (``LinkOpener``) types and runs the command.
+    /// Run all: a new agent chat in the chat dock whose prompt goes out as the person's own (the click).
+    fileprivate func run(_ run: RunbookRun, cwd: String, from key: String) {
+        guard let pane = pane(of: key) else { return }
+        guard run.target == .terminal else {
+            pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, prompt: run.text, promptBy: .person)))
+            return
+        }
+        services.linkOpener.open(from: pane) { target, placed in
+            target.newTerminalTab(cwd: cwd, typing: run.text.hasSuffix("\n") ? run.text : run.text + "\n", then: placed)
+            return true
+        }
+    }
+
     // MARK: InternalPageProvider
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
@@ -509,6 +524,7 @@ final class FilePageTabHost: FilePageHosting {
         service?.edited(url, text: text, baseHash: baseHash, writable: writable, from: key) ?? .kept
     }
     func saved(_ url: URL, hash: String) { service?.saved(url, hash: hash) }
+    func run(_ run: RunbookRun, cwd: String) { service?.run(run, cwd: cwd, from: key) }
     var showsOmnibar: Bool { service?.kind == .markdown }
     func historyChanged(canBack: Bool, canForward: Bool) { service?.historyChanged(canBack: canBack, canForward: canForward, in: key) }
     func isRecent(_ path: String) -> Bool { service?.isRecent(path) ?? false }

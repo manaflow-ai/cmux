@@ -59,6 +59,8 @@ import {
   type ViewerComment,
 } from "./comments";
 import { NearCodeBlocks } from "./nearCode";
+import { NearRunBlocks, runControls, type RunButtonHost } from "./runButtons";
+import { isRunnableLanguage, runnableCommand } from "./runbook";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
 import { paddingSelectPlugin } from "./paddingSelect";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
@@ -101,6 +103,8 @@ export interface MarkdownEditorHost {
   tableWidths?: TableWidths;
   /** Delete on a comment card: the host forgets comment `id` and sends the list again. */
   deleteComment?(id: string): void;
+  /** The Run button of shell code blocks (runButtons.ts); none without it. */
+  run?: RunButtonHost;
 }
 
 export type EditorLabel =
@@ -846,6 +850,17 @@ function nearCodeBlocks(view: EditorView): NearCodeBlocks | null {
   return watcher;
 }
 
+/** The editor's Run button watcher (runButtons.ts), made by its first shell block. */
+const runWatchers = new WeakMap<EditorView, NearRunBlocks>();
+function nearRunBlocks(view: EditorView): NearRunBlocks {
+  let watcher = runWatchers.get(view);
+  if (!watcher) {
+    watcher = new NearRunBlocks(view.dom);
+    runWatchers.set(view, watcher);
+  }
+  return watcher;
+}
+
 /** Whether the code block at `pos` is colored now (near the viewport, or every block is). */
 function codeBlockNear(state: EditorState, pos: number | undefined): boolean {
   const near = highlightKey.getState(state)?.near;
@@ -910,6 +925,8 @@ function codeHighlightPlugin(host: MarkdownEditorHost) {
           destroy: () => {
             nearWatchers.get(editorView)?.disconnect();
             nearWatchers.delete(editorView);
+            runWatchers.get(editorView)?.disconnect();
+            runWatchers.delete(editorView);
             view = null;
           },
         };
@@ -1015,6 +1032,9 @@ class CodeBlockView {
   private language = "";
   private source = "";
   private renderTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The Run controls of a shell block, once it came near the viewport. */
+  private run: HTMLElement | null = null;
+  private runWatched = false;
 
   constructor(
     private node: ProseNode,
@@ -1049,6 +1069,7 @@ class CodeBlockView {
     this.dom.classList.toggle("md-code-diagram", diagram);
     this.label.textContent = language || this.host.label("plainText");
     this.dom.dataset.language = language;
+    this.applyRun(language);
     if (!diagram) {
       this.preview.replaceChildren();
       this.language = language;
@@ -1066,6 +1087,26 @@ class CodeBlockView {
     else this.renderTimer = setTimeout(render, 300);
   }
 
+  /** A shell block gets its Run controls when it first comes near the viewport; another language none. */
+  private applyRun(language: string): void {
+    const runnable = !!this.host.run && isRunnableLanguage(language);
+    if (runnable && !this.run && !this.runWatched) {
+      this.runWatched = true;
+      nearRunBlocks(this.view).watch(this.dom, () => {
+        const host = this.host.run;
+        const language = () => String(this.node.attrs.language ?? "");
+        if (!host || this.run || !isRunnableLanguage(language())) return;
+        this.run = runControls(host, () => runnableCommand(language(), this.node.textContent));
+        this.dom.prepend(this.run);
+      });
+    } else if (!runnable) {
+      if (this.runWatched) runWatchers.get(this.view)?.forget(this.dom);
+      this.runWatched = false;
+      this.run?.remove();
+      this.run = null;
+    }
+  }
+
   update(node: ProseNode): boolean {
     if (node.type !== this.node.type) return false;
     this.node = node;
@@ -1076,7 +1117,8 @@ class CodeBlockView {
   }
 
   stopEvent(event: Event): boolean {
-    return this.preview.contains(event.target as Node) || this.label.contains(event.target as Node);
+    const target = event.target as Node;
+    return this.preview.contains(target) || this.label.contains(target) || !!this.run?.contains(target);
   }
 
   ignoreMutation(mutation: MutationRecord | { type: string; target: Node }): boolean {
@@ -1086,6 +1128,7 @@ class CodeBlockView {
   destroy(): void {
     if (this.renderTimer) clearTimeout(this.renderTimer);
     nearWatchers.get(this.view)?.forget(this.dom);
+    runWatchers.get(this.view)?.forget(this.dom);
   }
 }
 

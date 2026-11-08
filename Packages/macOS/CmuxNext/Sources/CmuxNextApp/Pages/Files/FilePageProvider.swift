@@ -44,11 +44,14 @@ protocol FilePageHosting: AnyObject {
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance
     /// A normal save of `url` wrote `hash`.
     func saved(_ url: URL, hash: String)
+    /// A runbook's Run (a new terminal beside the page) or Run all (a new agent chat), started in `cwd`.
+    func run(_ run: RunbookRun, cwd: String)
 }
 
 extension FilePageHosting {
     var showsOmnibar: Bool { false }
     func historyChanged(canBack: Bool, canForward: Bool) {}
+    func run(_ run: RunbookRun, cwd: String) {}
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
@@ -211,6 +214,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return try await setTableWidths(params)
         case kind.op("deleteComment") where kind == .markdown:
             return try await deleteComment(params)
+        case kind.op("runBlock") where kind == .markdown, kind.op("runAll") where kind == .markdown:
+            let requested = try path(params["path"])
+            let run = try RunbookRun(target: op == kind.op("runAll") ? .chat : .terminal, params: params,
+                                     userGesture: context.userGesture, isPageFile: file != nil && Self.canonical(requested) == file)
+            let cwd = await run.folder(for: file ?? requested)
+            guard !isClosed else { throw PageError.closed }
+            host.run(run, cwd: cwd)
+            return .object([:])
         case kind.op("contextTable") where kind == .markdown:
             contextTable = params["table"]?.intValue.flatMap { $0 >= 0 ? $0 : nil }
             return .object([:])

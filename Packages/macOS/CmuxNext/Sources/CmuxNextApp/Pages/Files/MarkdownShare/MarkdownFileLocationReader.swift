@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextPages
 import Foundation
 
 /// Reads a Markdown file's ``MarkdownFileLocation``: its `~` form and, in a git repository, the

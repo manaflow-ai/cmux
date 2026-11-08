@@ -1,4 +1,5 @@
 import CmuxNextFiles
+import CmuxNextPages
 import Foundation
 import Observation
 import CmuxNextFilesUI
