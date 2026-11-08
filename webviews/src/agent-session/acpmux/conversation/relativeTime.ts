@@ -132,12 +132,12 @@ function messageDate(at: number, now: number, locale?: string): string {
   }
 }
 
-/** First shared wall-clock minute where messageAge's text changes; Infinity once it is a date, so
- * a row a week old or older holds no timer at all. */
+/** First shared wall-clock minute where messageAge's text changes. Once it is a date, that is only
+ * the new year, when its year appears (nextReplyTime); a date from an earlier year holds no timer. */
 export function nextMessageAge(at: number, now: number): number {
   if (!Number.isFinite(at)) return Infinity;
   const age = Math.max(0, now - at);
-  if (age >= MESSAGE_DATE_AFTER * 1000) return Infinity;
+  if (age >= MESSAGE_DATE_AFTER * 1000) return nextReplyTime(at, now);
   const size = (MESSAGE_UNITS.find(([, length]) => age >= length * 1000)?.[1] ?? 60) * 1000;
   const change = Math.min(at + (Math.floor(age / size) + 1) * size, at + MESSAGE_DATE_AFTER * 1000);
   return Math.max(now + 60_000, Math.ceil(change / 60_000) * 60_000);

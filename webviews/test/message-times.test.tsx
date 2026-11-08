@@ -53,7 +53,11 @@ test("labels wake at the first shared minute their words change, and never once 
     expect(messageAge(at, next - MINUTE, "en-US")).toBe(messageAge(at, now, "en-US"));
     expect(messageAge(at, next, "en-US")).not.toBe(messageAge(at, now, "en-US"));
   }
-  expect(nextMessageAge(at, at + 7 * DAY)).toBe(Infinity);
+  // A date this year wakes once, at the new year, when its year appears; an earlier year's never.
+  const newYear = new Date(new Date(at).getFullYear() + 1, 0, 1).getTime();
+  expect(nextMessageAge(at, at + 7 * DAY)).toBe(newYear);
+  expect(messageAge(at, newYear - MINUTE, "en-US")).not.toMatch(/\d{4}/);
+  expect(messageAge(at, newYear, "en-US")).toMatch(/\b2026\b/);
   expect(nextMessageAge(at, at + 400 * DAY)).toBe(Infinity);
   expect(nextMessageAge(NaN, at)).toBe(Infinity);
 });
@@ -163,8 +167,8 @@ test("forty mounted labels, prompts and replies, run exactly one timer; unmounte
   expect(pageClocks(dom.window.document)).toMatchObject({ running: 0, subscribers: 0 });
 });
 
-test("labels a week old or older hold no timer", async () => {
-  const now = Date.now();
-  await mount([now - 8 * DAY, now - 30 * DAY, now - 400 * DAY, now - 9 * DAY]);
+test("dates from an earlier year hold no timer", async () => {
+  const lastYear = new Date(new Date().getFullYear() - 1, 5, 1).getTime();
+  await mount([lastYear, lastYear - 30 * DAY, Date.now() - 400 * DAY, lastYear - 9 * DAY]);
   expect(pageClocks(dom.window.document).running).toBe(0);
 });
