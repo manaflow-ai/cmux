@@ -1525,7 +1525,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public let sshComputers: MobileSSHComputers
     /// The "On iPhone" browser network per paired Mac, keyed by Mac device
     /// id. See `MobileShellComposite+MacBrowserTunnel.swift`.
-    @ObservationIgnored var macBrowserNetworks: [String: MobileMacBrowserNetwork] = [:]
+    @ObservationIgnored var macBrowserNetworks: [MacPairingKey: MobileMacBrowserNetwork] = [:]
     @ObservationIgnored var notificationFeedSnapshotsByMac: [String: NotificationFeedMacSnapshot] = [:]
     @ObservationIgnored var notificationFeedKnownRevisionsByMac: [String: Int] = [:]
     @ObservationIgnored var notificationFeedSuccessfulMacIDs: Set<String> = []

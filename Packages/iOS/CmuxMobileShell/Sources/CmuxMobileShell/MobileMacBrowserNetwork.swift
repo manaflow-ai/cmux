@@ -2,7 +2,7 @@ public import CmuxMobileRPC
 public import CmuxMobileTunnel
 import Foundation
 
-/// The native ("On iPhone") browser's network for one paired Mac, with the
+/// The native ("On iPhone") browser's network for one paired Mac app instance, with the
 /// Mac as the exit point.
 ///
 /// - A SOCKS5 proxy on the phone's loopback. `MacBrowserRoute` decides
@@ -22,7 +22,7 @@ public final class MobileMacBrowserNetwork {
     public typealias OpenLane = @Sendable (_ host: String, _ port: Int) async throws -> any MobileTunnelLaneConnection
     public typealias ListPorts = @Sendable () async throws -> MobileTunnelListeningPorts
 
-    public let macDeviceID: String
+    public let pairingKey: MacPairingKey
     private let openLane: OpenLane
     private let listPorts: ListPorts
     private let registry: LoopbackPortRegistry
@@ -49,17 +49,17 @@ public final class MobileMacBrowserNetwork {
     /// How long a port listing and policy stay fresh for non-loopback loads.
     nonisolated static let listingLifetime: Duration = .seconds(10)
 
-    var registryOwner: String { "mac:\(macDeviceID)" }
+    var registryOwner: String { pairingKey.browserNetworkID }
 
     public init(
-        macDeviceID: String,
+        pairingKey: MacPairingKey,
         openLane: @escaping OpenLane,
         listPorts: @escaping ListPorts,
         registry: LoopbackPortRegistry,
         direct: any SocksConnectBackend = DirectConnectBackend(),
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
     ) {
-        self.macDeviceID = macDeviceID
+        self.pairingKey = pairingKey
         self.openLane = openLane
         self.listPorts = listPorts
         self.registry = registry

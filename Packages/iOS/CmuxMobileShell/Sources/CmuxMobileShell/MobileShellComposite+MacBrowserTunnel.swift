@@ -25,18 +25,23 @@ public enum MacBrowserTunnelAvailability: Equatable, Sendable {
 /// browser reaches the network through the Mac (see
 /// ``MobileMacBrowserNetwork``). Tunnel lanes ride the admitted irx session
 /// of the foreground connection; every lane is re-bound to the exact Mac the
-/// workspace belongs to, so a page can never leave through a different Mac.
+/// workspace belongs to, so a page can never leave through a sibling app
+/// instance on the same Mac or through a different Mac.
 extension MobileShellComposite {
     /// Capability a Mac advertises once it serves tunnel lanes (the Mac's
     /// `IrxTunnelCapability.current.identifier`).
     public static let macBrowserTunnelCapability = "browser.tunnel.v1"
 
-    /// Tunnel availability for a workspace on `macDeviceID` (nil means the
-    /// connected Mac).
-    public func macBrowserTunnelAvailability(macDeviceID: String?) -> MacBrowserTunnelAvailability {
+    /// Tunnel availability for one exact app instance. A missing identity
+    /// is unavailable; a missing tag names only a legacy untagged instance.
+    public func macBrowserTunnelAvailability(pairingKey: MacPairingKey?) -> MacBrowserTunnelAvailability {
         guard connectionState == .connected,
+              let pairingKey,
               let connected = connectedMacDeviceID,
-              macDeviceID == nil || macDeviceID == connected else {
+              pairingKey == MacPairingKey(
+                macDeviceID: connected,
+                instanceTag: connectedMacInstanceTag
+              ) else {
             return .notConnected
         }
         guard supportedHostCapabilities.contains(Self.macBrowserTunnelCapability) else {
@@ -52,8 +57,11 @@ extension MobileShellComposite {
 
     /// Readies the Mac browser network for a navigation and returns the
     /// phone-side SOCKS proxy port for the browser's data store.
-    public func prepareMacBrowserNetwork(macDeviceID: String, loopbackPort: Int?) async throws -> Int {
-        try await macBrowserNetwork(for: macDeviceID).prepare(loopbackPort: loopbackPort)
+    public func prepareMacBrowserNetwork(pairingKey: MacPairingKey, loopbackPort: Int?) async throws -> Int {
+        guard macBrowserTunnelAvailability(pairingKey: pairingKey) == .available else {
+            throw MobileTunnelOpenFailure.unavailable
+        }
+        return try await macBrowserNetwork(for: pairingKey).prepare(loopbackPort: loopbackPort)
     }
 
     /// Stops every Mac browser network (sign-out).
@@ -63,21 +71,21 @@ extension MobileShellComposite {
         for network in networks { await network.stop() }
     }
 
-    func macBrowserNetwork(for macDeviceID: String) -> MobileMacBrowserNetwork {
-        if let existing = macBrowserNetworks[macDeviceID] { return existing }
+    func macBrowserNetwork(for pairingKey: MacPairingKey) -> MobileMacBrowserNetwork {
+        if let existing = macBrowserNetworks[pairingKey] { return existing }
         let network = MobileMacBrowserNetwork(
-            macDeviceID: macDeviceID,
+            pairingKey: pairingKey,
             openLane: { [weak self] host, port in
                 let (provider, request) = try await MainActor.run { [weak self] in
                     guard let self else { throw MobileTunnelOpenFailure.unavailable }
-                    return try self.macTunnelLaneTarget(macDeviceID: macDeviceID)
+                    return try self.macTunnelLaneTarget(pairingKey: pairingKey)
                 }
                 return try await provider.connect(request, host, port)
             },
             listPorts: { [weak self] in
                 let (provider, request) = try await MainActor.run { [weak self] in
                     guard let self else { throw MobileTunnelOpenFailure.unavailable }
-                    return try self.macTunnelLaneTarget(macDeviceID: macDeviceID)
+                    return try self.macTunnelLaneTarget(pairingKey: pairingKey)
                 }
                 return try await provider.listPorts(request)
             },
@@ -85,15 +93,15 @@ extension MobileShellComposite {
             // evicts an SSH host's forward on the same port and vice versa.
             registry: sshComputers.loopbackPorts
         )
-        macBrowserNetworks[macDeviceID] = network
+        macBrowserNetworks[pairingKey] = network
         return network
     }
 
-    /// The providers and the transport request for a lane to `macDeviceID`,
-    /// evaluated per lane so a reconnect (or a switch to another Mac) is
-    /// picked up, and a lane is never opened to any other Mac.
-    func macTunnelLaneTarget(macDeviceID: String) throws -> (MacTunnelProviders, CmxByteTransportRequest) {
-        guard macBrowserTunnelAvailability(macDeviceID: macDeviceID) == .available,
+    /// The providers and transport request for one exact app instance,
+    /// evaluated per lane so reconnects are picked up while another Mac or
+    /// sibling app instance can never supply the browser's connection.
+    func macTunnelLaneTarget(pairingKey: MacPairingKey) throws -> (MacTunnelProviders, CmxByteTransportRequest) {
+        guard macBrowserTunnelAvailability(pairingKey: pairingKey) == .available,
               let activeTicket,
               let activeRoute,
               let connect = runtime?.tunnelConnectProvider,
