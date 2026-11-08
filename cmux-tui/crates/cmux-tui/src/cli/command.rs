@@ -2925,7 +2925,7 @@ fn parse_attention(words: &[String], flags: &mut Flags) -> Result<CommandPlan, U
                 .as_deref()
                 .is_some_and(|tab| tab.strip_prefix("tab_").is_none_or(str::is_empty))
             {
-                return Err(UsageError::new("--after takes a tab id (tab_…)".into()));
+                return Err(UsageError::new("--after takes a tab id (tab_…)"));
             }
             let focus = flags.boolean("focus");
             Ok(CommandPlan::Attention(AttentionPlan::Next { after, focus }))
