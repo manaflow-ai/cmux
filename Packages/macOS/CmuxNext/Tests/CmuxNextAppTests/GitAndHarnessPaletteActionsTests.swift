@@ -24,7 +24,7 @@ struct GitAndHarnessPaletteActionsTests {
     @Test func setIconPicksAnAgentThenAsksForTheIcon() throws {
         let descriptor = try #require(ActionCatalog.all.first { $0.id == "agent.harness.setIcon" })
         #expect(descriptor.arguments.map(\.name) == ["id", "icon"])
-        #expect(descriptor.arguments.allSatisfy(\.isRequired), "the palette asks for both")
+        #expect(descriptor.arguments.map(\.isRequired) == [true, true], "the palette asks for both")
         #expect(descriptor.arguments.first?.suggestions?.source == ActionSuggestions.agentHarnessProfiles)
     }
 
