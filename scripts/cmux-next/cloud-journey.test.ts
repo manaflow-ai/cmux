@@ -204,6 +204,23 @@ read -r line; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui"}}'; cat >/dev/nul
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("a dial that gives up names every failed attempt, from the route lines after its status line", async () => {
+    const { dir, bin } = fakeCmux(`echo '{"ok":false,"error_code":"relay"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=relay ms=15003' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=reconnect outcome=handshake ms=902' >&2
+exit 1`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("(failed attempts: relay 15003 ms, handshake 902 ms)");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a dial cut off before an ok attempt names the failed ones", async () => {
+    const { dir, bin } = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=relay ms=3001' >&2
+exit 1`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("ended with no ok route line (failed attempts: relay 3001 ms)");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("a route line before the status line is out of contract", async () => {
     const { dir, bin } = fakeCmux(`echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&2
 echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
@@ -280,10 +297,10 @@ describe("opRetryable", () => {
 describe("guest carrier timeline", () => {
   test("each guest time is ms after create's answer, corrected by the guest's clock offset", () => {
     // The guest's clock runs 1000 ms ahead: guest_now 21_500 against the exec's midpoint 20_500.
-    const out = ["guest_now 21500", "bind.json 11000", "carrier.json 12500", "session_host_start 27000",
+    const out = ["guest_now 21500", "bound.json 11000", "carrier.json 12500", "session_host_start 27000",
       "journal 26900 cmux-host[7]: cmux-host: session host 40 exited after 900 ms", "noise line"].join("\n");
     expect(guestTimeline(out, 10_000, 20_000, 21_000)).toBe(
-      'after create\'s answer (guest clock +1000 ms, ±500 ms): bind.json +0 ms; carrier.json +1500 ms; session_host_start +16000 ms; '
+      'after create\'s answer (guest clock +1000 ms, ±500 ms): bound.json +0 ms; carrier.json +1500 ms; session_host_start +16000 ms; '
       + 'journal "cmux-host[7]: cmux-host: session host 40 exited after 900 ms" +15900 ms');
   });
 
