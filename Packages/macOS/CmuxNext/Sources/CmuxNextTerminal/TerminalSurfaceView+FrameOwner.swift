@@ -29,6 +29,11 @@ struct TerminalFrameOwnership {
     /// The pending size drawn ahead is a film snap's final size (``FilmCloseVariant/snapSendsGrid``): its grid goes to the
     /// PTY when it goes to Ghostty (``TerminalSurfaceView/applyAhead()``).
     var filmSendsGrid = false
+    /// The grid a film snap sent in the close's turn (``TerminalSurfaceView/filmSendSnapGrid(sizeChange:)``) and the time
+    /// until which a report of another grid from the old bounds is held, not sent (build 7f3101b1: after the key-turn send
+    /// 143x48, the old bounds' layout sent 70x48 again 5 ms later and the landing sent 143x48 a third time: 3 SIGWINCHes).
+    var filmSnapGrid: TerminalGridSize?
+    var filmSnapUntil: CFTimeInterval = 0
     #endif
 }
 

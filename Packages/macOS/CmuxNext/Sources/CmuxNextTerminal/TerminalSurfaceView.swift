@@ -86,7 +86,21 @@ public final class TerminalSurfaceView: NSView {
         guard ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows), columns > 0, rows > 0,
               let report = geometry.viewSized(TerminalGridSize(columns: Int(columns), rows: Int(rows))) else { return }
         FilmCloseVariant.count("grid_sent")
+        frameOwnership.filmSnapGrid = report
+        frameOwnership.filmSnapUntil = CACurrentMediaTime() + 0.1
         gridReports.now(report)
+    }
+
+    /// A film snap's grid went in the close's turn: until its size lands (at most 100 ms), the old bounds' grid is held, not
+    /// sent back to the PTY. The size landing at that grid, or the bound, ends it.
+    func filmSnapHolds(_ desired: TerminalGridSize) -> Bool {
+        guard let sent = frameOwnership.filmSnapGrid else { return false }
+        guard desired != sent, CACurrentMediaTime() < frameOwnership.filmSnapUntil else {
+            frameOwnership.filmSnapGrid = nil
+            return false
+        }
+        FilmCloseVariant.count("old_grid_held")
+        return true
     }
     #endif
 
@@ -545,8 +559,13 @@ public final class TerminalSurfaceView: NSView {
         // reports its grid when its frame lands. The landing's release sized from such a size and sent its stale grid,
         // then the final grid again (review of #35470, F1).
         let stale = frameOwnership.inFlight.map { $0 != frameOwnership.wanted?.size } ?? false
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let filmHolds = filmSnapHolds(desired)
+        #else
+        let filmHolds = false
+        #endif
         let report = geometry.viewSized(desired, force: forceReport,
-                                        holding: stale || (!forceReport && isInPaneMotion && !live))
+                                        holding: stale || filmHolds || (!forceReport && isInPaneMotion && !live))
         // In the same main-thread turn as set_size: the frame of the new size draws at the next display pass, already
         // reflowed. A held or coalesced grid is reported later: the preview draws it meanwhile.
         updateReflowPreview(reporting: report != nil || geometry.held || gridReports.isWaiting)
@@ -804,7 +823,16 @@ extension TerminalSurfaceView: FilmSnapGridSending {
         let pixels = convertToBacking(size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         FilmCloseVariant.count("snap_surfaces")
+        // As applyAhead does (it never ran for a snap in build 7f3101b1: surface_drawAhead 1, applyAhead_* 0): Ghostty
+        // renders the final size now, so the frame for it is ready when the snap's tick shows that size.
+        if frameOwnership.inFlight == nil, size != bounds.size {
+            frameOwnership.pendingAhead = nil
+            frameOwnership.ahead = size
+            setSurfacePixels(pixels, on: surface)
+            FilmCloseVariant.count("snap_ahead")
+        }
         reportFilmSnapGrid(pixels: pixels, on: surface)
+        updateReflowPreview()
     }
 }
 #endif
