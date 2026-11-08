@@ -398,7 +398,7 @@ describe("the card", () => {
     Object.defineProperty(window.HTMLElement.prototype, "scrollHeight", {
       configurable: true,
       get(this: HTMLElement) {
-        return this.classList.contains("wn-preview-list") ? 120 : 0;
+        return this.classList.contains("wn-preview-body") ? 120 : 0;
       },
     });
     const rect = window.HTMLElement.prototype.getBoundingClientRect;
@@ -450,6 +450,7 @@ describe("the card", () => {
           actions={{ openChangelog: () => opened.push("open"), dismiss: () => undefined }}
           closeButton={false}
           decoration={null}
+          previewMode="above"
           {...props}
         />,
       ),
@@ -457,13 +458,17 @@ describe("the card", () => {
     return { host, opened };
   }
 
-  test("What's New ↗ sits on the title line and opens the full page", async () => {
-    const { host, opened } = await render({});
+  // Lawrence 2026-11-07, "this ui is very bad": What's New beside the title cut it to "Updated to ...".
+  // The title line is the title alone; open, the header goes on with the full version and What's New.
+  test("the title line is the title alone; open, the header shows the full version and What's New, which opens the full page", async () => {
+    const { host, opened } = await render({ previewOpen: true });
     const head = host.querySelector(".wn-card-head")!;
     expect(head.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
-    const link = head.querySelector<HTMLButtonElement>(".wn-card-link")!;
-    expect(link.textContent).toBe("What's New ↗");
+    expect(head.querySelector(".wn-card-link")).toBeNull();
     expect(host.querySelector(".wn-card-primary")).toBeNull();
+    expect(host.querySelector(".wn-card-version")?.textContent).toBe(data.version);
+    const link = host.querySelector<HTMLButtonElement>(".wn-preview-whatsnew")!;
+    expect(link.textContent).toBe("What's New ↗");
     await act(async () => link.click());
     expect(opened).toEqual(["open"]);
   });
@@ -531,6 +536,7 @@ describe("the card", () => {
             actions={{ openChangelog: () => undefined, dismiss: () => undefined }}
             closeButton={false}
             decoration={null}
+            previewMode="above"
             hostPointer={false}
             onPreviewSize={(h: number) => sizes.push(h)}
           />,
@@ -682,7 +688,7 @@ async function withSurface(
   Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
     configurable: true,
     get(this: HTMLElement) {
-      return this.classList.contains("wn-preview-list") ? 100 : 0;
+      return this.classList.contains("wn-preview-body") ? 100 : 0;
     },
   });
   const globals = {
@@ -725,6 +731,9 @@ async function withSurface(
   try {
     const { mountUpdateSurface } = await import("../src/pages/changelog/surface");
     const host = dom.window.document.getElementById("root")!;
+    // The in-card preview is the look before the popover beside the sidebar: the host sends it in
+    // the theme's slot (UpdatedCardPreviewMode `above`).
+    dom.window.document.documentElement.setAttribute("data-cmux-decoration-updated-card-preview", "above");
     await act(async () => mountUpdateSurface(host, "updated", client));
     await until(() => sizes.length > 0 && pointer !== undefined);
     expect(pointer).toBeDefined();

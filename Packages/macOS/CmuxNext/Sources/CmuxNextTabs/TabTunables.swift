@@ -174,12 +174,18 @@ public nonisolated enum TabTunables {
         "tabs.loadingAnimation", .tabs, "Tab loading animation",
         help: "Prototype for a busy tab's indicator entering or leaving. Instant preserves the current behavior.",
         default: .instant, code: "TabTunables.loadingAnimation")
+    // @intent Lawrence 2026-11-07 ("i still dont like these UIs", the tab bar's `+ ⌄ ⋮`): one look for the three
+    // trailing controls. Glyphs only is the default; the tab bar playground's Trailing Buttons page compares them.
+    public static let trailingButtons = Tunable<TabTrailingButtons>.choice(
+        "tabs.trailingButtons", .tabs, "Tab bar buttons",
+        help: "How the tab bar's plus, pane-type chevron and More look and show hover.",
+        default: .glyphs, code: "TabTunables.trailingButtons")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor] + VerticalTabTunables.all
+               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor] + VerticalTabTunables.all
     }
 }
