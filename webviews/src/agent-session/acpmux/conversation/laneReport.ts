@@ -6,6 +6,9 @@
  * by the snapshot reducer and must not be reparsed on every render.
  */
 
+import { withoutRelayHead, withoutRelayLabel } from "./relayEnvelope";
+import { bareSender } from "./senderIdentity";
+
 export type LaneNoticeKind = "report" | "inbox";
 export type LaneNoticeVerdict = "SHIP" | "BLOCK" | "FIX" | "HOLD";
 
@@ -16,6 +19,12 @@ export type LaneNoticeDelivery = {
   readonly lookup?: string;
   readonly text: string;
   readonly promptId?: string;
+  /// acpmux could not verify its sender (senderIdentity.ts): the line's subtle marker.
+  readonly unverified?: true;
+  /// Its sender's harness family, from its sender record.
+  readonly harness?: string;
+  /// Its sender's session, from its sender record (the thread's may name another sender's).
+  readonly session?: string;
 };
 export type LaneNoticeThread = {
   readonly id: string;
@@ -29,6 +38,8 @@ export type LaneNoticeThread = {
   readonly fromSession?: string;
   readonly fromHarness?: string;
   readonly count?: number;
+  /// acpmux could not verify the newest sender (senderIdentity.ts).
+  readonly unverified?: true;
 };
 
 export type LaneNotice = {
@@ -146,18 +157,26 @@ function inboxNotice(message: LaneNoticePayload): LaneNotice {
       );
     if (!match) continue;
     const [, countText, , fromText, inlinePreview, id] = match;
-    const senderNames = fromText!
+    // An older acpmux wrote what it could not verify into the name ("lane (self-declared,
+    // unauthenticated)"): the line names it bare and marks it (senderIdentity.ts).
+    const named = fromText!
       .split(/,\s*/)
-      .map((name) => name.trim())
-      .filter(Boolean);
+      .map((name) => bareSender(name))
+      .filter((sender) => sender.name);
+    const senderNames = named.map((sender) => sender.name);
+    const unverified = named.at(-1)?.declared ? ({ unverified: true } as const) : {};
     const deliveries: LaneNoticeDelivery[] = [];
-    if (inlinePreview?.trim()) {
+    // A relayed message's preview holds the broker's head first, often cut inside it: the message
+    // alone, or nothing when the cut left none of it (relayEnvelope.ts).
+    const inline = withoutRelayHead(inlinePreview?.trim() ?? "");
+    if (inline) {
       const sender = senderNames.at(-1) ?? "inbox";
-      deliveries.push({ sender, text: inlinePreview.trim() });
+      deliveries.push({ sender, text: inline, ...unverified });
     } else {
       let current: LaneNoticeDelivery | undefined;
       const flush = () => {
-        if (current) deliveries.push(current);
+        // A quoted message the broker relayed: the message alone (relayEnvelope.ts).
+        if (current) deliveries.push({ ...current, text: withoutRelayLabel(current.text) });
         current = undefined;
       };
       for (let next = index + 1; next < lines.length && !/^\s*-\s+/.test(lines[next]!); next += 1) {
@@ -169,27 +188,33 @@ function inboxNotice(message: LaneNoticePayload): LaneNotice {
           continue;
         }
         const signed = /^([^:]+):\s+(.+)$/.exec(content.trimStart());
-        const knownSender = signed && senderNames.includes(signed[1]!.trim());
-        if (knownSender) {
+        const signer = signed ? bareSender(signed[1]!) : undefined;
+        if (signed && signer && senderNames.includes(signer.name)) {
           flush();
-          current = { sender: signed[1]!.trim(), text: signed[2]!.trim() };
+          current = {
+            sender: signer.name,
+            text: signed[2]!.trim(),
+            ...(signer.declared && ({ unverified: true } as const)),
+          };
         } else if (current) {
           current = { ...current, text: `${current.text}\n${content}` };
         } else {
-          current = { sender: senderNames.at(-1) ?? "inbox", text: content.trim() };
+          current = { sender: senderNames.at(-1) ?? "inbox", text: content.trim(), ...unverified };
         }
       }
       flush();
     }
     const existing = threads.find((thread) => thread.id === id);
     const messages = deliveries.length ? deliveries : existing?.messages;
-    const sender = messages?.at(-1)?.sender ?? senderNames.at(-1) ?? existing?.sender ?? id!.replace(/^from:/, "");
+    const sender =
+      messages?.at(-1)?.sender ?? senderNames.at(-1) ?? existing?.sender ?? id!.replace(/^(?:from|declared):/, "");
     const preview = messages?.at(-1)?.text ?? existing?.preview;
     const next: LaneNoticeThread = {
       id: id!,
       sender,
       ...(preview ? { preview } : {}),
       ...(messages?.length ? { messages } : {}),
+      ...unverified,
     };
     const at = threads.findIndex((thread) => thread.id === id);
     if (at >= 0) threads[at] = { ...threads[at], ...next };
@@ -201,7 +226,7 @@ function inboxNotice(message: LaneNoticePayload): LaneNotice {
   if (!threads.length)
     for (const match of message.text.matchAll(THREAD)) {
       const id = match[1]!;
-      const sender = id.replace(/^from:/, "").split("/pr:")[0]!;
+      const sender = id.replace(/^(?:from|declared):/, "").split("/pr:")[0]!;
       if (!threads.some((thread) => thread.id === id)) threads.push({ id, sender });
     }
   // The batch head supplies its localized count. A member previews who wrote, not the harness's instructions.

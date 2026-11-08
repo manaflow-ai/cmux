@@ -2194,7 +2194,8 @@ def replay_log(charged, shared=(), base_timeouts=(), passed_alone=()):
     PASSED_ALONE passed alone there: charged before it, a warning after)."""
     def compare(errors, warnings):
         return [f"##[warning]{name}" for name in warnings] + [f"##[error]{name}" for name in errors] + [
-            f"{len(errors)} webview test steps red on this change, {len(warnings)} red on the base too, 0 fixed"]
+            f"{len(errors)} webview test steps red on this change, {len(warnings)} red on the base too, "
+            "0 flaky on the base, 0 fixed"]
     first = list(charged) + list(passed_alone)
     lines = web_log(timeouts=base_timeouts).splitlines() + [
         f"2026-11-08T09:29:40.2315681Z {line}" for line in compare(first, shared)]
@@ -2377,6 +2378,13 @@ class WebviewTestReplayPerTest(unittest.TestCase):
         # Review follow-up (1) on #38380: the re-run's failures alone are no charged-test verdict.
         gh = WebReplayGitHub()
         gh.logs[1] = gh.logs[1].rsplit("##[error]", 1)[0].rsplit("\n", 1)[0]
+        with self.assertRaisesRegex(excuse.Refused, "no final charged-test verdict"):
+            self.judge(gh)
+
+    def test_a_replay_whose_final_verdict_line_was_cut_off_is_refused(self):
+        # Review F1 on #38434: the log ends right after "red on the base too".
+        gh = WebReplayGitHub()
+        gh.logs[1] = gh.logs[1].rsplit(", 0 flaky on the base, 0 fixed", 1)[0]
         with self.assertRaisesRegex(excuse.Refused, "no final charged-test verdict"):
             self.judge(gh)
 
@@ -4806,8 +4814,9 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         urls = []
 
         def answer(code):
-            def urlopen(url, timeout):
-                urls.append((url, timeout))
+            def urlopen(request, timeout):
+                url = request.full_url
+                urls.append((url, timeout, request.get_header("Authorization")))
                 if code == 200:
                     return io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
                 raise urllib.error.HTTPError(url, code, "x", {}, None)
@@ -4816,12 +4825,50 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         tag = f"cmux-app-ffi-{self.STEP_B_PIN}"
         with unittest.mock.patch("urllib.request.urlopen", answer(200)):
             self.assertEqual(module.ffi_release_file(REPO, tag, "SOURCE_SHA"), f"{self.STEP_B_PIN}\n")
-        self.assertEqual(urls, [(f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA", 30)])
+        self.assertEqual(urls, [(f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA", 30, None)])
+        # A 404 is GitHub's answer, not an outage: no release-assets API read follows it.
+        urls.clear()
         with unittest.mock.patch("urllib.request.urlopen", answer(404)):
             self.assertIsNone(module.ffi_release_file(REPO, tag, "SHA256SUMS"))
+        self.assertEqual(len(urls), 1)
         with unittest.mock.patch("urllib.request.urlopen", answer(502)), \
                 self.assertRaisesRegex(module.Refused, "HTTP 502; the pinned release could not be read"):
             module.ffi_release_file(REPO, tag, "SOURCE_SHA")
+
+    def test_a_release_file_whose_download_fails_is_read_through_the_release_assets_api(self):
+        # 2026-11-08: every GitHub release download answered 503 or 504 while the release-assets API served the same
+        # files, and every published base pin was refused as unread, which held every merge.
+        import io
+        import urllib.error
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        tag = f"cmux-app-ffi-{self.STEP_B_PIN}"
+        download = f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA"
+        listing = f"https://api.github.com/repos/{REPO}/releases/tags/{tag}"
+        asset = f"https://api.github.com/repos/{REPO}/releases/assets/7"
+        asked = []
+
+        def urlopen(request, timeout):
+            url = getattr(request, "full_url", request)
+            auth = request.get_header("Authorization") if hasattr(request, "get_header") else None
+            asked.append((url, timeout, auth))
+            if auth:  # the redirect handler copies request.headers, so the token must not be among them
+                self.assertNotIn("Authorization", request.headers)
+            if url == download:
+                raise urllib.error.HTTPError(url, 503, "Service Unavailable", {}, None)
+            if url == listing:
+                return io.BytesIO(json.dumps({"assets": [{"name": "SHA256SUMS", "url": asset + "0"},
+                                                         {"name": "SOURCE_SHA", "url": asset}]}).encode())
+            if url == asset:
+                self.assertEqual(request.get_header("Accept"), "application/octet-stream")
+                return io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
+            raise AssertionError(f"unexpected fetch {url}")
+
+        with unittest.mock.patch("urllib.request.urlopen", urlopen), \
+                unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t0ken"}):
+            self.assertEqual(module.ffi_release_file(REPO, tag, "SOURCE_SHA"), f"{self.STEP_B_PIN}\n")
+        # The token goes to api.github.com only, and never on to the asset's storage redirect (unredirected).
+        self.assertEqual(asked, [(download, 30, None), (listing, 30, "Bearer t0ken"), (asset, 30, "Bearer t0ken")])
 
     # The pin is app_ffi_pin.py's canonical block (2026-11-07, after five lexer holes): raw text, nothing skipped. Each
     # attack the lexer once missed now refuses on a forbidden construct, a count, or a line off the template, and no

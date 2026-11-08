@@ -418,7 +418,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         return Err(SendFailure::local("usage.invalid", "send needs --text", json!({}), 2));
     }
     let pattern = match request.pattern.as_deref() {
-        Some(pattern) => Some(Regex::new(pattern).map_err(|error| {
+        Some(pattern) => Some(cmux_tui_core::wait_pattern::compile(pattern).map_err(|error| {
             SendFailure::local(
                 "usage.invalid",
                 format!("--pattern is not a valid regular expression: {error}"),
