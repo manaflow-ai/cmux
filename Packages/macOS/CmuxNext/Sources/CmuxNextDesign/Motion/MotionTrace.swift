@@ -79,6 +79,15 @@ public struct MotionTrace {
         return result
     }
 
+    /// The span clock, for a part of a function that ``interval(_:since:)`` records (ZOOM VARIANTS 3 sub-spans).
+    public static func now() -> CFTimeInterval { isEnabled ? CACurrentMediaTime() : 0 }
+
+    /// Records the span `name` from `start` (``now()``) to now, while on.
+    public static func interval(_ name: String, since start: CFTimeInterval) {
+        guard isEnabled, start > 0, spans.count < capacity else { return }
+        spans.append(Span(name: name, start: start, milliseconds: (CACurrentMediaTime() - start) * 1000))
+    }
+
     /// One frame's main-thread work of `name` timed elsewhere (only while recording).
     static func record(_ name: String, milliseconds: Double) {
         guard isEnabled, work[name, default: []].count < capacity * 16 else { return }
