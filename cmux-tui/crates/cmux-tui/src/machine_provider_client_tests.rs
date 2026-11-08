@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 
 use cmux_tui_machine_protocol::{
     ConnectionClosedEvent, EventEnvelope, HelloResult, NoticeLevel, OpenMachineResult,
-    ProviderErrorCode, ProviderNotice, ResponseEnvelope, SnapshotChangedEvent,
-    TransportDescriptor, TransportHandshake,
+    ProviderErrorCode, ProviderNotice, ResponseEnvelope, SnapshotChangedEvent, TransportDescriptor,
+    TransportHandshake,
 };
 
 use super::*;
@@ -82,15 +82,10 @@ pub(super) fn read_test_frame<T: DeserializeOwned>(reader: &mut BufReader<UnixSt
 }
 
 pub(super) fn write_test_frame<T: Serialize>(stream: &mut UnixStream, frame: &T) {
-    write_json_frame(stream, frame, MAX_CONTROL_FRAME_BYTES)
-        .expect("write fake provider frame");
+    write_json_frame(stream, frame, MAX_CONTROL_FRAME_BYTES).expect("write fake provider frame");
 }
 
-fn accept_hello(
-    stream: &mut UnixStream,
-    reader: &mut BufReader<UnixStream>,
-    expected_token: &str,
-) {
+fn accept_hello(stream: &mut UnixStream, reader: &mut BufReader<UnixStream>, expected_token: &str) {
     accept_hello_with_capabilities(stream, reader, expected_token, &[]);
 }
 
@@ -156,10 +151,7 @@ fn hello_capabilities_enable_only_advertised_lifecycle_requests() {
         let mut unexpected = String::new();
         match reader.read_line(&mut unexpected) {
             Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) => {}
+                if matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
             Ok(0) => panic!("provider client disconnected while authenticated"),
             Ok(_) => panic!("provider received an unadvertised request: {unexpected}"),
             Err(error) => panic!("provider read failed: {error}"),
@@ -228,10 +220,7 @@ fn durable_notice_subscription_retains_pre_receiver_delivery_and_acknowledges_it
         };
         write_test_frame(
             &mut stream,
-            &EventEnvelope::with_delivery(
-                ProviderEvent::Notice(notice.clone()),
-                delivery.clone(),
-            ),
+            &EventEnvelope::with_delivery(ProviderEvent::Notice(notice.clone()), delivery.clone()),
         );
         // A replay before ACK has the same stable identity and must not
         // create a second local delivery.
@@ -408,10 +397,7 @@ fn durable_notice_methods_are_rejected_without_the_capability() {
         let mut unexpected = String::new();
         match reader.read_line(&mut unexpected) {
             Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) => {}
+                if matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
             Ok(0) => {}
             Ok(_) => panic!("provider received an unadvertised request: {unexpected}"),
             Err(error) => panic!("provider read failed: {error}"),
@@ -429,10 +415,8 @@ fn durable_notice_methods_are_rejected_without_the_capability() {
         Err(ProviderClientError::UnsupportedCapability(DURABLE_NOTICES_CAPABILITY))
     ));
     assert!(matches!(
-        provider.acknowledge_notice(NoticeDelivery {
-            notice_id: id("usage-warning-80"),
-            sequence: 1,
-        }),
+        provider
+            .acknowledge_notice(NoticeDelivery { notice_id: id("usage-warning-80"), sequence: 1 }),
         Err(ProviderClientError::UnsupportedCapability(DURABLE_NOTICES_CAPABILITY))
     ));
 
@@ -679,8 +663,7 @@ fn authenticates_once_and_delivers_general_and_snapshot_events() {
     ));
 
     let events = provider.subscribe_events().expect("subscribe to all events");
-    let revisions =
-        provider.subscribe_snapshot_changes().expect("subscribe to snapshot changes");
+    let revisions = provider.subscribe_snapshot_changes().expect("subscribe to snapshot changes");
     send_event.send(()).expect("trigger provider event");
     let event = events.recv_timeout(Duration::from_secs(2)).expect("receive provider event");
     assert!(matches!(
@@ -695,8 +678,7 @@ fn authenticates_once_and_delivers_general_and_snapshot_events() {
             ref message,
         }) if message == "trial has one day remaining"
     ));
-    let event =
-        events.recv_timeout(Duration::from_secs(2)).expect("receive connection closure");
+    let event = events.recv_timeout(Duration::from_secs(2)).expect("receive connection closure");
     assert!(matches!(
         event.event,
         ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
@@ -881,10 +863,7 @@ fn distinct_durable_notice_burst_fails_closed_at_priority_capacity() {
     assert!(state.events.is_empty());
     assert!(state.disconnected, "durable overflow must force a provider resync");
     drop(state);
-    assert_eq!(
-        events.recv_timeout(Duration::from_millis(1)),
-        Err(RecvTimeoutError::Disconnected)
-    );
+    assert_eq!(events.recv_timeout(Duration::from_millis(1)), Err(RecvTimeoutError::Disconnected));
 }
 
 #[test]
@@ -893,10 +872,7 @@ fn durable_notice_id_cannot_change_sequence() {
     let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
     queue.publish(durable_notice("usage-warning-80", 1, "first")).unwrap();
     assert!(queue.publish(durable_notice("usage-warning-80", 2, "changed")).is_err());
-    assert_eq!(
-        events.recv_timeout(Duration::from_millis(1)),
-        Err(RecvTimeoutError::Disconnected)
-    );
+    assert_eq!(events.recv_timeout(Duration::from_millis(1)), Err(RecvTimeoutError::Disconnected));
 }
 
 #[test]
@@ -905,10 +881,7 @@ fn durable_notice_replay_cannot_change_content() {
     let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
     queue.publish(durable_notice("usage-warning-80", 1, "first")).unwrap();
     assert!(queue.publish(durable_notice("usage-warning-80", 1, "changed")).is_err());
-    assert_eq!(
-        events.recv_timeout(Duration::from_millis(1)),
-        Err(RecvTimeoutError::Disconnected)
-    );
+    assert_eq!(events.recv_timeout(Duration::from_millis(1)), Err(RecvTimeoutError::Disconnected));
 }
 
 #[test]
@@ -916,22 +889,18 @@ fn distinct_connection_closed_burst_fails_closed_at_priority_capacity() {
     let queue = Arc::new(ProviderEventQueue::new());
     let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
     for index in 0..=PROVIDER_EVENT_QUEUE_CAPACITY {
-        let _ =
-            queue.publish(received(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
-                connection_id: id(&format!("connection-{index}")),
-                machine_id: id(&format!("machine-{index}")),
-                reason: "connection revoked".into(),
-            })));
+        let _ = queue.publish(received(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
+            connection_id: id(&format!("connection-{index}")),
+            machine_id: id(&format!("machine-{index}")),
+            reason: "connection revoked".into(),
+        })));
     }
 
     let state = queue.state.lock().unwrap();
     assert!(state.events.len() <= PROVIDER_EVENT_QUEUE_CAPACITY);
     assert!(state.disconnected, "priority overflow must force a provider resync");
     drop(state);
-    assert_eq!(
-        events.recv_timeout(Duration::from_millis(1)),
-        Err(RecvTimeoutError::Disconnected)
-    );
+    assert_eq!(events.recv_timeout(Duration::from_millis(1)), Err(RecvTimeoutError::Disconnected));
 }
 
 #[test]
@@ -1010,10 +979,7 @@ fn rejects_oversized_control_frame_without_waiting_for_timeout() {
     .expect("authenticate provider");
     let started = Instant::now();
     let error = provider.snapshot(None).expect_err("oversized response must fail");
-    assert!(matches!(
-        error,
-        ProviderClientError::FrameTooLarge { limit: MAX_CONTROL_FRAME_BYTES }
-    ));
+    assert!(matches!(error, ProviderClientError::FrameTooLarge { limit: MAX_CONTROL_FRAME_BYTES }));
     assert!(started.elapsed() < Duration::from_secs(2));
     drop(provider);
     server.join().expect("join fake provider");
@@ -1027,8 +993,7 @@ fn consumes_transport_ticket_in_exactly_one_handshake() {
     let server_handshakes = handshakes.clone();
     let server = thread::spawn(move || {
         let (mut control, _) = listener.accept().expect("accept control socket");
-        let mut control_reader =
-            BufReader::new(control.try_clone().expect("clone control socket"));
+        let mut control_reader = BufReader::new(control.try_clone().expect("clone control socket"));
         accept_hello(&mut control, &mut control_reader, "provider-secret");
 
         let request: RequestEnvelope = read_test_frame(&mut control_reader);
@@ -1055,9 +1020,7 @@ fn consumes_transport_ticket_in_exactly_one_handshake() {
         let mut transport_reader =
             BufReader::new(transport.try_clone().expect("clone transport socket"));
         let mut handshake_frame = String::new();
-        transport_reader
-            .read_line(&mut handshake_frame)
-            .expect("read exact transport handshake");
+        transport_reader.read_line(&mut handshake_frame).expect("read exact transport handshake");
         assert_eq!(
             handshake_frame,
             concat!(
@@ -1127,9 +1090,8 @@ fn redacts_transport_ticket_from_command_stream_diagnostics() {
         CommandProviderConnector::new([script_path.clone().into_os_string()])
             .expect("create command connector"),
     );
-    let (provider, _) =
-        ProviderClient::connect_authenticated_with(connector, client_descriptor())
-            .expect("authenticate command provider");
+    let (provider, _) = ProviderClient::connect_authenticated_with(connector, client_descriptor())
+        .expect("authenticate command provider");
     let opened = provider.open_machine(id("machine-1"), false).expect("open machine");
     let Err(error) = provider.consume_transport(opened.transport) else {
         panic!("stream command must disconnect during its handshake");
