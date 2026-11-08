@@ -917,6 +917,17 @@ impl Worker {
             return;
         }
         self.noise_key_wait = None;
+        // A person's machine from this bind on: its first link comes up next,
+        // so the updater's connect hold starts before the bind goes out (the
+        // supervisor's `Bound` is an instance id change, which a bind of the
+        // same machine is not). It takes the lock the flip holds through its
+        // restarts, so either the flip sees it or the restart was queued first,
+        // and then the restarted host binds: bind.json stays until a bind lands.
+        if !crate::updater::role::hold_connects() {
+            log("bind: this host's update restart is queued; the restarted host binds");
+            self.bind_retry_at = Some(self.now() + 30_000);
+            return;
+        }
         let changes = cmux_server::cloud_http::network_changes();
         // The bind writes carrier.json; the keyset refresher's write waits.
         let carrier_lock = self.keyset.carrier_lock();
@@ -935,10 +946,6 @@ impl Worker {
         match result {
             BindResult::Bound(bound) => {
                 self.bind_backoff.reset();
-                // A person's machine from here: its first link comes up now, so
-                // the updater holds its flip (the supervisor's `Bound` is an
-                // instance id change, which a bind of the same machine is not).
-                crate::updater::role::hold_connects();
                 if let Err(e) = super::client::record_owner_kind(&mut self.store) {
                     log(&format!("vm-kind write: {e}"));
                 }

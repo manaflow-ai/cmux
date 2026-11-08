@@ -489,3 +489,124 @@ fn a_bind_commit_starts_the_connect_hold() {
     let left = role::held_for(before).expect("a bind holds the next flip");
     assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
 }
+
+/// Review F1 of #38280: each look at `realtime - boottime` compares with the
+/// look just before it, so many clock syncs, each below a restore's jump,
+/// never start the connect hold however far they move the clock in total.
+/// One real jump still does.
+#[cfg(target_os = "linux")]
+#[test]
+fn many_small_clock_syncs_never_start_a_restore_hold() {
+    let step = crate::agent::RESUME_CLOCK_JUMP_NS - 1;
+    let mut last = None;
+    let mut offset = 0_i128;
+    assert!(!role::restore_look(&mut last, offset), "the first look has nothing to compare");
+    for _ in 0..1000 {
+        offset += step;
+        assert!(!role::restore_look(&mut last, offset), "a sync started a hold at {offset}");
+    }
+    assert!(offset > 1000 * crate::agent::RESUME_CLOCK_JUMP_NS / 2, "the syncs added up");
+    assert!(role::restore_look(&mut last, offset + 3600 * 1_000_000_000), "a restore");
+    assert!(!role::restore_look(&mut last, offset + 3600 * 1_000_000_000 + step));
+}
+
+/// Review F1 of #38326: a bind that takes the connect hold while the flip is
+/// between its last look and its restarts waits for them (the hold's lock),
+/// and a hold taken before the flip's look wins: nothing flips.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_bind_in_the_flip_window_never_lands_between_the_look_and_the_restart() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    let held = Arc::new(Mutex::new(None::<Instant>));
+    let restarting = Arc::new(AtomicBool::new(false));
+    let (in_window, window) = mpsc::channel::<()>();
+    let (restarted, restart_done) = mpsc::channel::<Instant>();
+    let flipper = {
+        let held = Arc::clone(&held);
+        let restarting = Arc::clone(&restarting);
+        std::thread::spawn(move || {
+            role::unless_held(&held, Instant::now(), || {
+                in_window.send(()).unwrap();
+                // The flip, then the queued restarts, take a moment.
+                std::thread::sleep(Duration::from_millis(200));
+                restarting.store(true, Ordering::SeqCst);
+                restarted.send(Instant::now()).unwrap();
+            })
+        })
+    };
+    window.recv().unwrap();
+    // The bind lands inside the window: it waits for the restart, and learns
+    // that the restart was queued, so it leaves bind.json to the next host.
+    let may_bind = role::hold_in(&held, &restarting, Instant::now());
+    let bind_held_at = Instant::now();
+    let restart_queued_at = restart_done.recv().unwrap();
+    assert!(flipper.join().unwrap().is_ok(), "the flip had looked before the bind");
+    assert!(
+        bind_held_at >= restart_queued_at,
+        "the bind's hold landed before the restart was queued"
+    );
+    assert!(!may_bind, "a bind went out with this host's restart queued");
+
+    // A hold taken before the flip's look: the flip does not run, and the
+    // bind goes out.
+    let held = Mutex::new(None);
+    let restarting = AtomicBool::new(false);
+    assert!(role::hold_in(&held, &restarting, Instant::now()));
+    let mut ran = false;
+    let outcome = role::unless_held(&held, Instant::now(), || ran = true);
+    assert!(outcome.is_err_and(|left| left > role::CONNECT_HOLD - Duration::from_secs(5)));
+    assert!(!ran, "a flip ran under a hold taken before it");
+}
+
+/// Review F2 of #38326: the health timeout's rollback waits while carrier
+/// sessions are attached, looking again every minute, and stops waiting when
+/// the role stops.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_health_timeout_rollback_waits_for_carrier_sessions() {
+    let mut looks =
+        vec![None, Some("1 carrier session(s) attached".to_owned()), Some("1".to_owned())];
+    let mut carrier = || looks.pop().flatten();
+    // `wait` with no message times out after BUSY_RETRY: too slow for a test,
+    // so a Check stands in for each minute.
+    let (tx, rx_checks) = std::sync::mpsc::channel();
+    tx.send(role::Msg::Check).unwrap();
+    tx.send(role::Msg::Check).unwrap();
+    assert!(role::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
+    assert!(looks.is_empty(), "it looked until the sessions left");
+
+    let mut attached = || Some("1 carrier session(s) attached".to_owned());
+    tx.send(role::Msg::Stop).unwrap();
+    assert!(!role::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
+}
+
+/// Review F2 of #38326: the guard's rollback waits for carrier sessions too,
+/// and the bound ends that wait: past CARRIER_MAX_HOLD a stuck session no
+/// longer keeps a build that never proved itself.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
+    use std::cell::Cell;
+    use std::time::{Duration, Instant};
+
+    let t0 = Instant::now();
+    let clock = Cell::new(t0);
+    let mut hold = carrier::CarrierHold::default();
+    let mut carrier = || hold.look(clock.get(), Ok(vec!["stuck/session".to_owned()])).busy;
+    let mut slept = Duration::ZERO;
+    role::guard_rollback_waits(&mut carrier, |d| {
+        slept += d;
+        clock.set(clock.get() + d);
+    });
+    assert!(slept >= carrier::CARRIER_MAX_HOLD, "it rolled back after {slept:?}");
+    assert!(slept < carrier::CARRIER_MAX_HOLD + Duration::from_secs(120), "{slept:?}");
+
+    let mut idle = || None;
+    let mut slept = Duration::ZERO;
+    role::guard_rollback_waits(&mut idle, |d| slept += d);
+    assert_eq!(slept, Duration::ZERO, "no session, no wait");
+}
