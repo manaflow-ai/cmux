@@ -525,6 +525,7 @@ impl Hub {
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,
             pull_requests: vec![],
+            pull_request_times: Default::default(),
             touched_files: vec![],
             harness_cost_usd: if matches!(made, Made::ClaudeResume) {
                 parent_meta.harness_cost_usd

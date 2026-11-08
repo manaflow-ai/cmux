@@ -107,7 +107,8 @@ SELECTORS
   caller is the object this command runs in: the cmux terminal or agent chat
   it was started from (`cmux identify` reports it). current is that same
   object when cmux knows the caller, and the focused one otherwise (a shell
-  outside cmux, or --socket/--session, where caller is refused).
+  outside cmux, or --socket/--session naming another session, where caller is
+  refused; --session naming the caller's own session keeps it).
 ";
 
 pub(super) const PANE_HELP: &str = "\
@@ -154,11 +155,14 @@ destination {workspace, screen, pane, index}, created and focused_pane.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
-  exact name. Prefix name: to a name that looks like an id or a command word.
+  exact name. An agent name (cmux agent start NAME) or a tab name that is
+  unique in the session selects that tab's terminal, tab or pane. Prefix
+  name: to a name that looks like an id or a command word.
   caller is the object this command runs in: the cmux terminal or agent chat
   it was started from (`cmux identify` reports it). current is that same
   object when cmux knows the caller, and the focused one otherwise (a shell
-  outside cmux, or --socket/--session, where caller is refused).
+  outside cmux, or --socket/--session naming another session, where caller is
+  refused; --session naming the caller's own session keeps it).
 ";
 
 pub(super) const TAB_HELP: &str = "\
@@ -206,11 +210,14 @@ image:sha256-<hex> or svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
-  exact name. Prefix name: to a name that looks like an id or a command word.
+  exact name. An agent name (cmux agent start NAME) or a tab name that is
+  unique in the session selects that tab's terminal, tab or pane. Prefix
+  name: to a name that looks like an id or a command word.
   caller is the object this command runs in: the cmux terminal or agent chat
   it was started from (`cmux identify` reports it). current is that same
   object when cmux knows the caller, and the focused one otherwise (a shell
-  outside cmux, or --socket/--session, where caller is refused).
+  outside cmux, or --socket/--session naming another session, where caller is
+  refused; --session naming the caller's own session keeps it).
 ";
 
 pub(super) const TERMINAL_HELP: &str = "\
@@ -224,7 +231,7 @@ USAGE
   cmux terminal <selector> keys <key...>
   cmux terminal <selector> mouse <kind> [OPTIONS]
   cmux terminal <selector> focus <in|out>
-  cmux terminal <selector> screen read [--unwrap] [--lines <n>]
+  cmux terminal <selector> screen read [--unwrap] [--lines <n>] [--details]
   cmux terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]
   cmux terminal <selector> state read
   cmux terminal <selector> history read|clear
@@ -232,7 +239,8 @@ USAGE
   cmux terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap]
   cmux terminal <selector> process show
   cmux terminal <selector> process wait [--timeout-ms <n>]
-  cmux terminal <selector> wait --until idle|prompt [--timeout <500ms|30s|5m>]
+  cmux terminal <selector> wait --until idle|prompt|ready
+    [--timeout <500ms|30s|5m>]
   cmux terminal <selector> send --text <message|-> [--wait idle|prompt|none]
     [--pattern <regex>] [--timeout <5m>] [--settle <3s>] [--force] [--exit-with-status]
   cmux terminal <selector> run [--pattern <regex>] [--timeout <5m>] [--force] -- <command...>
@@ -240,12 +248,15 @@ USAGE
   cmux terminal <selector> move|project --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
   cmux terminal <selector> attach|close [OPTIONS]
+  cmux terminal <selector> resume [--cmd <launcher>] [--pane <selector>]
+    [--split right|down|left|up] [--cwd <dir>] [--no-focus] [--no-wait]
   cmux terminal <term_id> keep on|off
 
 list --cwd <path> keeps the terminals in <path> or a folder inside it.
-screen read --unwrap joins rows the terminal soft-wrapped into the lines the
-program printed; --lines <n> reads the last n lines of scrollback and screen
-(logical lines with --unwrap). copy --unwrap does the same for screen and
+screen read prints the screen's text; --details (or --json) gives the whole
+record. screen read --unwrap joins rows the terminal soft-wrapped into the
+lines the program printed; --lines <n> reads the last n lines of scrollback and
+screen (logical lines with --unwrap). copy --unwrap does the same for screen and
 scrollback. screen wait prints its result either way and exits 1 when the
 timeout passes without a match; --new matches only output printed below the
 cursor's line after the call, never a typed command's echo or older output. keep on stops the owner from ending the terminal
@@ -255,13 +266,19 @@ programs reported: state, progress, kind, app, title and msg per record id.
 wait --until prompt returns when the shell shows its prompt; --until idle
 when no command runs and no program reports work. Both need OSC 133 shell
 integration to see commands, and print the terminal record; a passed
---timeout exits 124.
+--timeout exits 124. --until ready waits until the terminal's agent can take
+a message, as cmux agent start does: a startup dialog (Claude's folder-trust
+question, a login) ends it as blocked with the dialog and a reason (exit 4).
 list --agents lists the terminals that run a coding agent (Claude Code,
-Codex, or a program reporting OSC 7501 status): harness, state (blocked,
-done, working, idle, unknown, ended), age, workspace and title. done is a
-finished turn nobody has viewed yet; viewing the tab makes it idle. The JSON
-rows carry that word as status and the older word (busy, idle,
-waiting-for-input, ended) as state.
+Codex, or a program reporting OSC 7501 status): name, harness, state
+(blocked, done, working, idle, unknown, ended), age, workspace and title.
+done is a finished turn nobody has viewed yet; viewing the tab makes it idle.
+The JSON rows carry that word as status and the older word (busy, idle,
+waiting-for-input, ended) as state, and add the tab, the pane and the
+agent's last reply.
+resume starts an agent that exited again with its recorded harness session
+(claude --resume <id>, codex resume <id>), in the same pane by default, and
+gives it the old tab's name.
 send types the message as one bracketed paste, presses Enter, waits until
 the agent is idle (no fresh working report, screen still for --settle) or
 the shell shows its prompt, and prints only what the terminal printed after
@@ -287,11 +304,14 @@ pattern with (?-m) to match the whole text instead.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
-  exact name. Prefix name: to a name that looks like an id or a command word.
+  exact name. An agent name (cmux agent start NAME) or a tab name that is
+  unique in the session selects that tab's terminal, tab or pane. Prefix
+  name: to a name that looks like an id or a command word.
   caller is the object this command runs in: the cmux terminal or agent chat
   it was started from (`cmux identify` reports it). current is that same
   object when cmux knows the caller, and the focused one otherwise (a shell
-  outside cmux, or --socket/--session, where caller is refused).
+  outside cmux, or --socket/--session naming another session, where caller is
+  refused; --session naming the caller's own session keeps it).
 ";
 
 /// `cmux <scope> rename --help` for the scopes whose resources have names.

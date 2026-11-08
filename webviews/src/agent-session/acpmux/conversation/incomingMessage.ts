@@ -37,8 +37,8 @@
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
-import { bareSender, provenanceAuthenticated, senderRecord, senderUnverified } from "./senderIdentity";
-import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabelOfMessage } from "./relayEnvelope";
+import { bareSender, provenanceAuthenticated, relayAddress, senderRecord, senderUnverified } from "./senderIdentity";
+import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./relayEnvelope";
 import {
   legacyNotice,
   noticeBody,
@@ -351,11 +351,22 @@ function fromAgent(msg: Parameters<typeof promptOf>[1]): boolean {
   return typeof msg?.client === "string" && (CLI_CLIENT.test(msg.client) || OUTBOX_CLIENT.test(msg.client));
 }
 
+/// Whether acpmux proved the record's sender (senderIdentity.ts `provenanceAuthenticated`): its
+/// provenance says so, or a queue list's record with none names the relay it came by (`fromRelay`).
+function senderProven(msg: Parameters<typeof promptOf>[1]): boolean {
+  const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
+  if (provenance && typeof provenance === "object") return provenanceAuthenticated(provenance);
+  const relay = (msg as { fromRelay?: unknown } | undefined)?.fromRelay;
+  return relay ? provenanceAuthenticated({ fromRelay: relay }) : false;
+}
+
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
+/// `preview`: the text is a queue list's one-line preview, which acpmux cut, not the sender.
 export function incomingPrompt(
   text: string,
   msg: Parameters<typeof promptOf>[1],
   context?: IncomingContext,
+  preview = false,
 ): IncomingPrompt | undefined {
   // A lane VM's message the lane-gh broker relayed (relayEnvelope.ts): the message inside its
   // label, read as any other; the label names the sender when nothing else does. The prompt the
@@ -365,8 +376,17 @@ export function incomingPrompt(
   if (!relay) {
     // A record cut short after the label's whole head: the message without it, the prompt as
     // written kept as `raw`. A head cut inside itself is a preview's (relayEnvelope.ts); a whole
-    // message that only starts like one keeps its words.
-    const cut = fromAgent(msg) ? withoutRelayLabelOfMessage(text) : text;
+    // message that only starts like one keeps its words. Anyone can type a head, so only a sender
+    // acpmux proved (a relay's record, a session it stamped) loses one with no closing line; any
+    // other agent's record keeps it as its own text (cmux#38642 review). A queue list's preview is
+    // acpmux's own line, so its head goes whoever sent it, as queuedText reads it (cmux#38791 review).
+    const cut = !fromAgent(msg)
+      ? text
+      : preview
+        ? withoutRelayLabel(text)
+        : senderProven(msg)
+          ? withoutRelayLabelOfMessage(text)
+          : text;
     if (cut === text) return withSender(promptOf(text, msg, context), msg);
     const inner = promptOf(cut, msg, context);
     return withSender(
@@ -402,12 +422,19 @@ function withSender(
     !(record === undefined && provenanceAuthenticated(provenance)) &&
     senderUnverified(record, sender.declared || declared || provenance?.from === NAMED_SENDER);
   const harness = prompt.message.harness ?? record?.harness;
-  if (!unverified && !sender.declared && harness === prompt.message.harness) return prompt;
+  // A relayed sender's chat is asked for by its whole relay address: the name acpmux gave it is cut
+  // to `fromAgent`'s length, which two sessions can share (cmux#38642 review). Only a relay record
+  // acpmux proved names one.
+  const proven = provenanceAuthenticated(provenance) ? senderRecord({ relay: provenance?.fromRelay }) : undefined;
+  const address = relayAddress(record?.relay) ?? relayAddress(proven?.relay);
+  const lookup = !prompt.message.lookup && address && address !== sender.name ? address : undefined;
+  if (!unverified && !sender.declared && harness === prompt.message.harness && !lookup) return prompt;
   return {
     kind: "message",
     message: {
       ...prompt.message,
       name: sender.name,
+      ...(lookup && { lookup }),
       ...(harness && { harness }),
       ...(unverified && { unverified: true as const }),
     },
