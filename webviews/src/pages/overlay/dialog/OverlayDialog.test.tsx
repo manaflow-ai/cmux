@@ -417,7 +417,7 @@ test("a dialog with no text field gives its card the keyboard, and the card draw
     focus: null,
   };
   const { host } = await render(leave);
-  const card = host.querySelector(".overlay-dialog");
+  const card = host.querySelector(".overlay-dialog") as HTMLElement;
   for (let frame = 0; frame < 30 && dom!.window.document.activeElement !== card; frame++) {
     await act(async () => {
       await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
