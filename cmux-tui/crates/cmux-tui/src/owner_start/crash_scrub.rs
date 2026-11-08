@@ -68,7 +68,8 @@ fn keep_prefix<'t>(with: &'t str) -> impl FnMut(&Captures<'_>) -> String + 't {
     move |caps| format!("{}{with}", caps.get(1).map_or("", |prefix| prefix.as_str()))
 }
 
-/// `text` with secrets, emails and user names removed; `home` (when longer than `/`) becomes `~`.
+/// `text` with secrets, emails and user names removed; `home` becomes `~`, unless it is `/`,
+/// `/Users` or `/home`.
 pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
     let rules = &*RULES;
     let mut out = rules.url_userinfo.replace_all(text, keep_prefix(URL_SECRET)).into_owned();
@@ -76,7 +77,12 @@ pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
         out = rule.replace_all(&out, keep_prefix(SECRET)).into_owned();
     }
     out = rules.email.replace_all(&out, EMAIL).into_owned();
-    if let Some(home) = home.filter(|home| home.len() > 1) {
+    // `/`, `/Users` or `/home` as the home would swallow the users' directory before the generic
+    // rule below sees the name after it, so those get no home rule (as in `SentryScrubber`).
+    let users_dir = |home: &&str| {
+        matches!(home.trim_matches('/').to_ascii_lowercase().as_str(), "" | "users" | "home")
+    };
+    if let Some(home) = home.filter(|home| !users_dir(home)) {
         // Only a whole path component: with `/Users/al`, `/Users/alice` must not become `~ice`.
         let bounded = compile(&format!(r#"(?i){}([/\s"']|$)"#, regex::escape(home)));
         out = bounded.replace_all(&out, "~$1").into_owned();
@@ -148,7 +154,7 @@ mod tests {
         assert_eq!(scrub("at /Users/al/project and /Users/al", home), "at ~/project and ~");
         assert_eq!(scrub(r#"open "/Users/al" failed"#, home), r#"open "~" failed"#);
         assert_eq!(scrub("at /users/bob/src", None), "at /Users/<redacted>/src");
-        // A home that is the users' directory itself must not hide the name (cmux#38555 review 7 F1).
+        // A home that is the users' directory must not hide the name (cmux#38555 review 7 F1).
         for home in ["/home", "/Users", "/home/"] {
             let out = scrub("at /home/alice/project and /Users/alice/x", Some(home));
             assert!(!out.contains("alice"), "{home}: {out}");

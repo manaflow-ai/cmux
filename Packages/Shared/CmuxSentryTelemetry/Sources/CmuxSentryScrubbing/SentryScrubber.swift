@@ -121,7 +121,10 @@ public struct SentryScrubber: Sendable {
     /// - Parameter homeDirectory: Absolute path replaced wherever it is found. Defaults to ``NSHomeDirectory()``.
     public init(homeDirectory: String = NSHomeDirectory()) {
         self.homeDirectory = homeDirectory
-        if homeDirectory.isEmpty || homeDirectory == "/" {
+        // `/`, `/Users` or `/home` as the home would swallow the users' directory before the generic
+        // `/Users/<name>` rule sees the name after it, so those get no home rule.
+        let bare = homeDirectory.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if bare.isEmpty || bare == "users" || bare == "home" {
             self.homeDirectoryPattern = nil
         } else {
             // Escape the home path so any regex metacharacter in a username is
