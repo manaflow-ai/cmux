@@ -780,6 +780,14 @@ impl Mux {
             .unwrap_or_else(PoisonError::into_inner)
             .corrupt_agent_projection_for_test(terminal_id);
     }
+
+    #[cfg(test)]
+    pub(crate) fn reject_resource_effect_commits_for_test(&self) {
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .reject_resource_effect_commits_for_test();
+    }
 }
 
 #[cfg(test)]
