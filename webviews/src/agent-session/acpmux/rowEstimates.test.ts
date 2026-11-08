@@ -23,7 +23,7 @@ import {
   type AcpmuxActivity,
 } from "./model";
 import { turnView } from "./conversation/turns";
-import { COLLAPSED_PROMPT_LINES, pasteChipHeight, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
+import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
 import { BUBBLE } from "./transcriptSpacing";
@@ -343,15 +343,32 @@ test("a prompt of ten lines or fewer is estimated whole, with no Show more line"
   expect(short!).toBeLessThan(BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + 28 + 8);
 });
 
-// A pasted block (`pasted` ranges, the card in PromptText.tsx) is one closed card, however long the
-// paste, and the prompt's own words around it.
-test("a prompt with a 2,300-line paste is its typed line and one card", () => {
+// A pasted block (`pasted` ranges) is the message's own text in its bubble (PromptText.tsx; Leo,
+// 2026-11-08: no "Pasted text" card), so the estimate measures it as text, beside the typed words,
+// and a long one is the prompt collapsed to its first ten lines over Show more.
+// Before: a paste was one closed card of a fixed height (`pasteChipHeight`), however long.
+test("a prompt with a 2,300-line paste is estimated at its collapsed height, as a typed one is", () => {
+  const { lineHeight } = currentChatMetrics();
+  const padding = BUBBLE.oneLine - lineHeight;
   const typed = "Why does this fail?";
   const paste = Array.from({ length: 2300 }, (_, index) => `frame ${index}`).join("\n");
   const text = `${typed}\n${paste}`;
   const pasted = [{ start: typed.length + 1, end: text.length }];
   const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
-  expect(height).toBeCloseTo(BUBBLE.oneLine + pasteChipHeight(currentChatMetrics().lineHeight), 5);
+  expect(height).toBeCloseTo(padding + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
+  // The same height as the prompt typed rather than pasted.
+  const [typedHeight] = heightsOf([{ id: "t", version: 1, at: 0, kind: "user", text }]);
+  expect(height).toBeCloseTo(typedHeight!, 5);
+});
+
+test("a prompt with a short paste is its typed line and the paste's lines, with no Show more line", () => {
+  const { lineHeight } = currentChatMetrics();
+  const typed = "Why does this fail?";
+  const paste = ["frame 1", "frame 2", "frame 3"].join("\n");
+  const text = `${typed}\n${paste}`;
+  const pasted = [{ start: typed.length + 1, end: text.length }];
+  const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
+  expect(height).toBeCloseTo(BUBBLE.oneLine + 3 * lineHeight, 5);
 });
 
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is
