@@ -235,7 +235,7 @@ fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
     let pattern = required_string(&request.fields, "pattern")?;
     let regex = crate::wait_pattern::compile(pattern).map_err(|error| {
         validation_error(
-            "terminal wait pattern is not a valid regular expression",
+            &crate::wait_pattern::invalid_message(pattern, &error),
             json!({"pattern":pattern,"error":error.to_string()}),
         )
     })?;
