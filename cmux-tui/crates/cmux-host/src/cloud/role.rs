@@ -288,6 +288,10 @@ impl Http for PosterHttp {
         #[cfg(test)]
         let _ = test_route("/", |poster, _| poster.reset());
     }
+
+    fn fresh(&self) -> Option<Self> {
+        self.0.twin().ok().map(PosterHttp)
+    }
 }
 
 /// One `identify` on the daemon's control socket. `timeout` bounds the whole

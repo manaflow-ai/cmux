@@ -2062,6 +2062,7 @@ mod bg_tasks;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_health;
+mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;

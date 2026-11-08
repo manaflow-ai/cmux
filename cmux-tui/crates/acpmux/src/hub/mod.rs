@@ -15,6 +15,7 @@ mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
 mod away_recap;
+mod memory_inbox;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
@@ -207,10 +208,11 @@ mod start_retry;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
-mod shell_readonly;
+pub(crate) mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
+mod caller_registry;
 pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
@@ -785,6 +787,8 @@ pub struct Hub {
     pub(super) recap_wake: Arc<Notify>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
+    /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
+    pub(super) caller_registry: caller_registry::CallerRegistry,
     /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
     pub(super) full_access_pushes: tokio::sync::Mutex<()>,
     /// Held (read) by a family message or an ancestor's answer from its last check until it is
@@ -975,6 +979,10 @@ impl Hub {
         // after a restart, before the app pushes again (`start_mode_state.rs`).
         let start_mode_state =
             start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
+        // Loaded before the socket serves, so an agent that outlived the previous daemon is
+        // known by its caller token from the first request (`caller_registry.rs`).
+        let caller_registry =
+            caller_registry::CallerRegistry::load(caller_registry::state_file(&config));
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
@@ -1086,6 +1094,7 @@ impl Hub {
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
             start_mode_state,
+            caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
             family_cut: tokio::sync::watch::channel(0).0,

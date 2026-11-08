@@ -76,7 +76,7 @@ fn narrower_policy(p: PermissionPolicy) -> Option<PermissionPolicy> {
         PermissionPolicy::ApproveAll => Some(PermissionPolicy::ApproveEdits),
         PermissionPolicy::ApproveEdits => Some(PermissionPolicy::ApproveReads),
         PermissionPolicy::ApproveReads => Some(PermissionPolicy::Ask),
-        PermissionPolicy::Ask => Some(PermissionPolicy::DenyAll),
+        PermissionPolicy::Ask | PermissionPolicy::Review => Some(PermissionPolicy::DenyAll),
         PermissionPolicy::DenyAll => None,
     }
 }
