@@ -31,6 +31,9 @@ pub struct Worktree {
     pub root: PathBuf,
     pub branch: String,
     pub base: String,
+    /// The commit its branch was made from, resolved when it was made (None for a branch that
+    /// already existed): what its change is read against, whatever `base` names later.
+    pub base_commit: Option<String>,
     /// The folder the child starts in: the started-from folder's place in the worktree.
     pub cwd: PathBuf,
     /// The device and inode of `root` as [`make_worktree`] opened it right after git added it
@@ -834,6 +837,7 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
             root: root.clone(),
             branch,
             base: base.clone(),
+            base_commit: Some(commit.clone()),
             cwd: root,
             root_pin,
             root_held,
@@ -1106,7 +1110,15 @@ fn ensure_worktree_under(
                 .filter(|c| !layout.prefix.is_empty() && c.is_dir())
                 .unwrap_or_else(|| root.clone());
             let worktree =
-                Worktree { root: root.clone(), branch, base, cwd, root_pin: None, root_held: None };
+                Worktree {
+                root: root.clone(),
+                branch,
+                base,
+                base_commit: None,
+                cwd,
+                root_pin: None,
+                root_held: None,
+            };
             return Ok(Ensured { worktree, reused: Some("worktree") });
         }
         std::fs::create_dir_all(&layout.parent)
@@ -1151,6 +1163,7 @@ fn ensure_worktree_under(
             root: root.clone(),
             branch: branch.clone(),
             base,
+            base_commit: reused.is_none().then(|| commit.clone()),
             cwd: root.clone(),
             root_pin: None,
             root_held: None,

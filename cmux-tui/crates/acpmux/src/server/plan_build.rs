@@ -249,7 +249,7 @@ async fn handle(
             let variants = variants(params)?;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, params);
             let local = control != crate::hub::Control::Web;
-            let build_id = format!("build-{}", uuid::Uuid::new_v4().simple());
+            let build_id = format!("{}{}", plan_build::RUN_PREFIX, uuid::Uuid::new_v4().simple());
             let (builds, failed) = hub
                 .start_plan_builds(&session, &prompt, Target::Prompt, &variants, &build_id, local)
                 .await;
@@ -284,10 +284,12 @@ async fn handle(
             // One Keep at a time: a repeated Keep of the kept run changes nothing, and a Keep of
             // another run is refused, so no Keep discards the run another one kept.
             let _one = plan_build::keep_one().await;
-            let (kept, others) =
+            // A Keep of the run kept before is a retry: it finishes what that Keep left (a tag
+            // that failed to save, worktrees still there), never undoes it.
+            let (kept, others, again) =
                 match hub.plan_keep_others(&session, build_id, required(params, "keep")?)? {
-                    plan_build::Kept::Now(kept, others) => (kept, others),
-                    plan_build::Kept::Already => return hub.plan_compare(&session, build_id).await,
+                    plan_build::Kept::Now(kept, others) => (kept, others, false),
+                    plan_build::Kept::Already(kept, others) => (kept, others, true),
                 };
             let now = crate::store::now_ms().to_string();
             let mut keep = serde_json::Map::new();
@@ -310,21 +312,33 @@ async fn handle(
                 )?;
                 archived.push(other.id.clone());
             }
-            let removed = if params.get("removeOthers").and_then(Value::as_bool).unwrap_or(false) {
-                hub.plan_discard(build_id, &others).await
+            // Only a composer run's worktrees go on Keep: its build id is the daemon's, kept in
+            // each run's lineage, so a plan approval's worktree or compare build never matches.
+            let remove = params.get("removeOthers").and_then(Value::as_bool).unwrap_or(false);
+            let removed = if remove && build_id.starts_with(plan_build::RUN_PREFIX) {
+                // A retry leaves alone the runs an earlier Keep already removed.
+                let left: Vec<_> = if again {
+                    others.iter().filter(|s| plan_build::worktree_left(s)).cloned().collect()
+                } else {
+                    others.clone()
+                };
+                hub.plan_discard(build_id, &left).await
             } else {
                 Vec::new()
             };
-            hub.record_plan_build(
-                &session,
-                json!({
-                    "event": "kept",
-                    "buildId": build_id,
-                    "keptSessionId": kept.id,
-                    "archived": archived,
-                    "removed": removed,
-                }),
-            );
+            // A retry that changed nothing leaves the chat's record as it was.
+            if !again || !removed.is_empty() {
+                hub.record_plan_build(
+                    &session,
+                    json!({
+                        "event": "kept",
+                        "buildId": build_id,
+                        "keptSessionId": kept.id,
+                        "archived": archived,
+                        "removed": removed,
+                    }),
+                );
+            }
             let mut reply = hub.plan_compare(&session, build_id).await?;
             if let Some(fields) = reply.as_object_mut() {
                 fields.insert("removed".into(), Value::Array(removed));

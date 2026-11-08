@@ -35,10 +35,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// What a Keep finds: the run kept now and the build's other runs, or the same run kept before.
+/// What a Keep finds: the run kept now, or the same run kept before (a retry, which finishes
+/// what an earlier Keep left undone), and the build's other runs.
 pub(crate) enum Kept {
     Now(Arc<Session>, Vec<Arc<Session>>),
-    Already,
+    Already(Arc<Session>, Vec<Arc<Session>>),
 }
 
 /// One Keep at a time on this daemon, from its check to its last removal: a Keep reads which run
@@ -180,6 +181,20 @@ pub(crate) fn option_of(request: &Value, kind: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The start of a composer run's build id (`_acpmux/plan/fanout`), the only build whose Keep
+/// removes the other runs' worktrees (`removeOthers`). A plan approval's builds are `build-<id>`.
+pub(crate) const RUN_PREFIX: &str = "run-";
+
+/// Whether the worktree recorded for a run is still at its path: a Keep's retry tries again only
+/// those, not the runs an earlier Keep removed.
+pub(crate) fn worktree_left(run: &Session) -> bool {
+    let m = run.meta();
+    m.subsession
+        .as_ref()
+        .and_then(|l| l.worktree.as_ref())
+        .is_some_and(|w| w.root.symlink_metadata().is_ok())
+}
+
 /// The harnesses a compare runs when the caller names none: the chat's, then the other of
 /// Claude and Codex.
 pub(crate) fn compare_harnesses(chat: &str) -> Vec<String> {
@@ -250,8 +265,10 @@ pub(crate) fn parse_numstat(text: &str, change: &mut Change) {
 fn read_change(root: &Path, base: &str) -> Result<Change, String> {
     use crate::subsession_worktree::git_by;
     let by = Instant::now() + GIT_LIMIT;
+    // A base git no longer has (a branch renamed or deleted since, in a run recorded before its
+    // commit was) says so: never HEAD, which would hide every committed change.
     let from = git_by(root, &["merge-base", "HEAD", base], by)
-        .or_else(|_| git_by(root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], by))?;
+        .map_err(|_| format!("its base {base} is no longer in the repository"))?;
     if from.is_empty() || from.starts_with('-') {
         return Err("no commit to compare against".into());
     }
@@ -454,9 +471,21 @@ impl Hub {
             let read = match base {
                 Some(base) => {
                     let root: PathBuf = root.clone();
-                    tokio::task::spawn_blocking(move || read_change(&root, &base))
-                        .await
-                        .unwrap_or_else(|e| Err(e.to_string()))
+                    // Only from the worktree the run was made in: a folder put at its path since
+                    // (another checkout, the branch re-added) is not this run's change.
+                    let made = made.cloned();
+                    tokio::task::spawn_blocking(move || {
+                        if let Some(made) = &made {
+                            still_made(made).map_err(|why| {
+                                format!(
+                                    "the folder at its path is not this run's worktree now: {why}"
+                                )
+                            })?;
+                        }
+                        read_change(&root, &base)
+                    })
+                    .await
+                    .unwrap_or_else(|e| Err(e.to_string()))
                 }
                 None => Err("this build has no base recorded".to_owned()),
             };
@@ -482,7 +511,8 @@ impl Hub {
 
     /// The builds of `build_id` other than `keep`, after checking `keep` is one of them, and marks
     /// `keep` kept in its lineage (the caller saves it). A build keeps one run: keeping it again
-    /// answers [`Kept::Already`] and changes nothing, and keeping another is refused, so two panes
+    /// answers [`Kept::Already`] (a retry finishes what the first Keep left), and keeping another
+    /// is refused, so two panes
     /// that chose different runs never discard each other's. Run under [`keep_one`].
     pub(crate) fn plan_keep_others(
         &self,
@@ -498,7 +528,10 @@ impl Hub {
             |s: &Arc<Session>| s.meta().subsession.as_ref().is_some_and(|l| l.plan_build_kept);
         if let Some(winner) = builds.iter().find(|s| was(s)) {
             if winner.id == keep {
-                return Ok(Kept::Already);
+                return Ok(Kept::Already(
+                    kept,
+                    builds.into_iter().filter(|s| s.id != keep).collect(),
+                ));
             }
             return Err(refused(
                 "plan_build.already_kept",

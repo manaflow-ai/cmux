@@ -81,6 +81,17 @@ impl Hub {
         if fixed_id.is_some() && req.adopt.is_some() {
             return Err(RpcError::invalid_params("fixed session ids cannot adopt another chat"));
         }
+        // A model and an effort are spawn parameters (`--model`, `${model}` in a harness's argv or
+        // env): one id each, on every start, whoever asks (a pane, an agent's sub-session, a link).
+        for (key, value) in [("model", &req.model), ("effort", &req.effort)] {
+            if let Some(value) = value.as_deref().filter(|v| !v.is_empty())
+                && !cmux_agent_pane_policy::params::is_model_id(&serde_json::Value::from(value))
+            {
+                return Err(RpcError::invalid_params(format!(
+                    "{key} must be one id: letters, digits and ._-/:@[]+"
+                )));
+            }
+        }
         let caller_selected_id = fixed_id.is_some();
         // Harness discovery and launcher checks finish in the background. Bounded: a startup that
         // never ends (a wedged agent host's adoption) answers with its phase, not silence.

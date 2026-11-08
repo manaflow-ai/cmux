@@ -694,7 +694,9 @@ impl Hub {
                 pin: kept.made.root_pin,
                 born: kept.made.root_held.as_deref().and_then(crate::store::MadeWorktree::born_of),
                 branch: kept.made.branch.clone(),
-                base: Some(kept.made.base.clone()),
+                // The commit it was made from, not the branch's name: a renamed, deleted or moved
+                // branch never changes what the run is compared against.
+                base: kept.made.base_commit.clone().or_else(|| Some(kept.made.base.clone())),
             }),
             plan_build: None,
             plan_build_kept: false,

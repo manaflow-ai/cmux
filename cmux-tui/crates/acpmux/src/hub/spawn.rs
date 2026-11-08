@@ -260,6 +260,17 @@ impl Hub {
         }
         let home = dirs::home_dir().unwrap_or_default();
         let model = meta.model_request.clone().unwrap_or_default();
+        // The last check before a model reaches an argv or env (`${model}`): one id, whatever
+        // path set it (a start, `session/set_model`, a chat saved before starts checked it).
+        if !model.is_empty()
+            && !cmux_agent_pane_policy::params::is_model_id(&serde_json::Value::from(
+                model.as_str(),
+            ))
+        {
+            return Err(RpcError::invalid_params(
+                "the chat's model must be one id: letters, digits and ._-/:@[]+",
+            ));
+        }
         for v in p.env.values_mut() {
             *v = expand_env_value(v, &meta.cwd, &home, &model);
         }

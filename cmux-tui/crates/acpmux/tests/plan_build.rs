@@ -191,6 +191,17 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     let mut app = Client::person(&hub).await;
     let new = json!({"cwd": repo.join("web"), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
     let chat = app.ok("session/new", new).await["sessionId"].as_str().unwrap().to_owned();
+    // Every start's model is one id, whoever asks: the daemon refuses it, not only the pane
+    // (`chat.fix_from_link` and a sub-session start through here without the pane's rule).
+    for model in ["m$(touch /tmp/pwn)", "m`id`", "m;id", "claude opus", "--yolo"] {
+        let bad = json!({"cwd": repo, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "model": model}}});
+        let r = app.call("session/new", bad).await;
+        assert!(r.get("error").is_some(), "{model} starts no chat: {r}");
+    }
+    let r = app
+        .call("session/new", json!({"cwd": repo, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "effort": "$(id)"}}}))
+        .await;
+    assert!(r.get("error").is_some(), "an effort is one id too: {r}");
 
     // An ask that is no plan approval builds nothing.
     let (rid, pid) = app.ask_plan(&chat, "ask: rm -rf build").await;
@@ -289,11 +300,13 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     assert!(paths.contains(&"LICENSE") && paths.contains(&"README.md"), "{compared}");
     assert_eq!(compared["keptSessionId"], Value::Null);
 
-    // Keep the second: the first chat is archived, its worktree and work stay.
-    let kept = app
-        .ok("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": build_id, "keep": second}))
-        .await;
+    // Keep the second: the first chat is archived, its worktree and work stay, even when the
+    // caller asks for the composer runs' cleanup: a plan approval's build is no composer run.
+    let keep =
+        json!({"sessionId": chat, "buildId": build_id, "keep": second, "removeOthers": true});
+    let kept = app.ok("_acpmux/plan/keep", keep).await;
     assert_eq!(kept["keptSessionId"], json!(second), "{kept}");
+    assert_eq!(kept["removed"], json!([]), "a plan build's Keep removes nothing: {kept}");
     let row = |id: &str| {
         kept["builds"].as_array().unwrap().iter().find(|b| b["sessionId"] == id).cloned().unwrap()
     };
@@ -370,6 +383,18 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         compared["builds"].as_array().unwrap().iter().all(|b| b["added"].as_u64() == Some(1)),
         "{compared}"
     );
+    // A run's change is read against the commit it was made from, not its branch's name: one
+    // run commits its work, and the branch the runs left is renamed; every run still shows it.
+    git(Path::new(&run_roots[1]), &["add", "NOTICE"]);
+    git(Path::new(&run_roots[1]), &["commit", "-q", "-m", "notice"]);
+    git(&repo, &["branch", "-m", "main", "moved"]);
+    let renamed =
+        app.ok("_acpmux/plan/compare", json!({"sessionId": chat, "buildId": run_id})).await;
+    git(&repo, &["branch", "-m", "moved", "main"]);
+    assert!(
+        renamed["builds"].as_array().unwrap().iter().all(|b| b["added"].as_u64() == Some(1)),
+        "a committed change still counts after its branch is renamed: {renamed}"
+    );
     // Tags are no proof (`_acpmux/tag` writes them for anyone): one run's root tag points at
     // the earlier build's worktree, and that earlier build is tagged as one of these runs.
     let forged_root = json!({"planBuildRoot": roots[0]});
@@ -402,8 +427,30 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     git(&repo, &["worktree", "remove", "--force", &run_roots[3]]);
     git(&repo, &["worktree", "add", "-q", &run_roots[3], &branch3]);
     std::fs::write(Path::new(&run_roots[3]).join("MINE"), "someone else's\n").unwrap();
-    // Keep the second and drop the rest: their chats close and their worktrees go, archived.
+    // Compare reads no change from it either: the folder there is not the run's worktree now.
+    let swapped =
+        app.ok("_acpmux/plan/compare", json!({"sessionId": chat, "buildId": run_id})).await;
+    let rows = swapped["builds"].as_array().unwrap();
+    let row3 = rows.iter().find(|b| b["sessionId"] == runs[3]["sessionId"]).unwrap();
+    assert!(
+        row3["error"].as_str().is_some_and(|e| e.contains("not this run's worktree")),
+        "{swapped}"
+    );
+    assert!(
+        rows.iter()
+            .filter(|b| b["sessionId"] != runs[3]["sessionId"])
+            .all(|b| b.get("error").is_none()),
+        "{swapped}"
+    );
+    // Keep the second and drop the rest: their chats close and their worktrees go, archived. A
+    // Keep that recorded the winner and stopped (here, one that removed nothing) is finished by
+    // the next: its retry removes what the first left.
     let keep = runs[1]["sessionId"].as_str().unwrap().to_owned();
+    let first = app
+        .ok("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": run_id, "keep": keep}))
+        .await;
+    assert_eq!(first["keptSessionId"], json!(keep), "{first}");
+    assert!(Path::new(&run_roots[0]).is_dir(), "a Keep without removeOthers removes nothing");
     let kept = app
         .ok(
             "_acpmux/plan/keep",
@@ -461,6 +508,11 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         )
         .await;
     assert_eq!(again["keptSessionId"], json!(keep), "{again}");
+    assert!(
+        again["removed"].as_array().unwrap().iter().all(|r| r["removed"] == json!(false)),
+        "a retry removes nothing more: {again}"
+    );
+    assert!(Path::new(&run_roots[3]).join("MINE").is_file(), "{again}");
     let other = runs[0]["sessionId"].as_str().unwrap();
     let stale = app
         .call(
