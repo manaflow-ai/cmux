@@ -498,6 +498,7 @@ export function LiveChat({
     : { id: guestId, name: t("guest.you") };
   const send = (text: string) => {
     typing.stop();
+    prompts.keepDraft("");
     prompts.add(text);
     sendQueue.queued();
   };
@@ -558,7 +559,14 @@ export function LiveChat({
           <GuestMessages prompts={mine} me={me} owner={ownerName} />
           {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
           {role === "talk" ? (
-            <GuestComposer onSend={send} onDraft={(draft) => typing.input(draft)} />
+            <GuestComposer
+              initialText={prompts.draft()}
+              onSend={send}
+              onDraft={(draft) => {
+                prompts.keepDraft(draft);
+                typing.input(draft);
+              }}
+            />
           ) : (
             <p className="guest-live__view-only">{t("guest.live.viewOnly")}</p>
           )}

@@ -42,7 +42,8 @@ await requireBrowserLane("guest-page-first-frame-browser.test.ts", async () => {
   });
 
   // A dropped connection fails the transcript chunk's request (#38101 F1): the page says so, and
-  // Retry recovers in a real browser, whether it may fetch the module again or has to reload.
+  // Retry recovers in a real browser, whether it may fetch the module again or has to reload; a
+  // reload keeps the guest's unsent draft.
   test("a transcript chunk whose request fails: Retry recovers and the chat draws", async () => {
     const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 2 });
     await page.addInitScript((share) => {
@@ -58,12 +59,19 @@ await requireBrowserLane("guest-page-first-frame-browser.test.ts", async () => {
     });
     await page.goto(`${origin}/i/${SHARE}`);
     const retry = page.locator(".guest-live__transcript [role=alert] button");
+    const draft = page.locator(".guest-live__dock textarea");
     await retry.waitFor();
-    expect(await page.locator(".guest-live__dock textarea").count()).toBe(1);
+    // The composer works while the chat cannot load; what the guest types survives a reload.
+    await draft.fill("Can you run it on the CI image too?");
+    // Still offline: Retry fails too and reloads the page, which keeps the draft.
+    await Promise.all([page.waitForEvent("load"), retry.click()]);
+    await retry.waitFor();
+    expect(await draft.inputValue()).toBe("Can you run it on the CI image too?");
     online = true;
     await retry.click();
     await page.locator(".guest-live__transcript [data-row-id]").first().waitFor();
     expect(await page.locator(".guest-live__transcript [role=alert]").count()).toBe(0);
+    expect(await draft.inputValue()).toBe("Can you run it on the CI image too?");
     await page.close();
   });
 
