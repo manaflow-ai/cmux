@@ -14768,6 +14768,19 @@
           {
             "keys" : [
               {
+                "key" : "",
+                "modifiers" : [
+                  "ctrl",
+                  "opt",
+                  "cmd"
+                ]
+              }
+            ],
+            "when" : "!codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
                 "key" : "]",
                 "modifiers" : [
                   "opt",
@@ -14785,7 +14798,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "",
+        "key" : "l",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -14851,6 +14864,19 @@
           {
             "keys" : [
               {
+                "key" : "",
+                "modifiers" : [
+                  "ctrl",
+                  "opt",
+                  "cmd"
+                ]
+              }
+            ],
+            "when" : "!codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
                 "key" : "[",
                 "modifiers" : [
                   "opt",
@@ -14868,7 +14894,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "",
+        "key" : "h",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -112705,6 +112731,54 @@
       }
     ],
     "space_aliases" : [
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "space.previous",
+        "keys" : [
+          {
+            "key" : "",
+            "modifiers" : [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "not" : {
+            "has" : "codeEditorFocused"
+          }
+        },
+        "when_text" : "!codeEditorFocused"
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "space.next",
+        "keys" : [
+          {
+            "key" : "",
+            "modifiers" : [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "not" : {
+            "has" : "codeEditorFocused"
+          }
+        },
+        "when_text" : "!codeEditorFocused"
+      },
       {
         "argument" : null,
         "arguments" : {

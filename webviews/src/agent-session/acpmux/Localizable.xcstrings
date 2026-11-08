@@ -20845,6 +20845,107 @@
         }
       }
     },
+    "worktree.fixFromLink": {"comment":"Agent pane: the GitHub issue link action under the new chat composer","extractionState":"manual","localizations":{"ar":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "إصلاح في شجرة عمل جديدة"
+          }
+        },"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Popravi u novom radnom stablu"
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ret i et nyt arbejdstræ"
+          }
+        },"de":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "In einem neuen Worktree beheben"
+          }
+        },"en":{"stringUnit":{"state":"translated","value":"Fix in a new worktree"}},"es":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corregir en un nuevo árbol de trabajo"
+          }
+        },"fr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corriger dans un nouveau worktree"
+          }
+        },"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correggi in un nuovo albero di lavoro"
+          }
+        },"ja":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークツリーで修正"
+          }
+        },"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួសជុលក្នុងមែកធាងការងារថ្មី"
+          }
+        },"ko":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 작업 트리에서 수정"
+          }
+        },"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rett i et nytt arbeidstre"
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napraw w nowym drzewie roboczym"
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrigir em uma nova árvore de trabalho"
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исправить в новом рабочем дереве"
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "แก้ไขในเวิร์กทรีใหม่"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni bir çalışma ağacında düzelt"
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виправити в новому робочому дереві"
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sửa trong cây làm việc mới"
+          }
+        },"zh-Hans":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新的工作树中修复"
+          }
+        },"zh-Hant":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新的工作樹中修正"
+          }
+        }}},
     "worktree.new": {
       "comment": "Agent pane: New Worktree in a new chat's folder menu, and its refusal above the composer (cx-lyqio.2)",
       "extractionState": "manual",

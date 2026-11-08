@@ -14,6 +14,8 @@ nonisolated extension AcpmuxPaneMethods {
         // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
         // each as it checks `cwd`.
         "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
+        "chat.fix_from_link": (["url", "cwd", "harness", "model", "_meta"], []),
+        "chat.fix_from_link.prepare": (["url", "cwd", "harness", "model"], []),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
         // agent and keeps it out of the transcript text. `surface`: the place a prompt was typed
         // (labs.previewFeatures; acpmux hub/composers.rs, cmuxterm-hq#2580). No `provenance`: a reply
@@ -206,7 +208,8 @@ nonisolated extension AcpmuxPaneMethods {
         if setting, meta["cmuxGesture"] != nil { return meta.keys.contains { $0 != "cmuxGesture" } }
         // A permission answer's `_meta` holds the pick's ticket and nothing else, as does a plan
         // build's (it answers the plan approval) and a run's.
-        if method == "_acpmux/permission_respond" || method == "_acpmux/plan/build" || method == "_acpmux/plan/fanout" {
+        if method == "_acpmux/permission_respond" || method == "chat.fix_from_link" || method == "_acpmux/plan/build"
+            || method == "_acpmux/plan/fanout" {
             return Set(meta.keys) != [gestureTicketKey]
         }
         // A prompt held for the folder trust answer redeems its ticket beside its acpmux.promptId.

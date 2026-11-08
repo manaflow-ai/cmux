@@ -115,6 +115,14 @@ public final class ServerModel {
         candidate = nil
     }
 
+    /// The Add Server card closed any way but its Cancel (the panel dismissed, another card took its
+    /// place): the typed code stays, but the found server and a lookup still in flight go, so the
+    /// next opening looks the code up again (the server's facts may be stale, its code expired).
+    public func closeApproval() {
+        candidate = nil
+        pending.removeAll { if case .lookupCode = $0.kind { true } else { false } }
+    }
+
     // MARK: - Owner events
 
     func handle(_ event: ServerSourceEvent) {
@@ -125,7 +133,9 @@ public final class ServerModel {
             snapshot = next
             connection = .connected
         case let .candidate(found):
-            // A late reply for a code the user has since changed is stale.
+            // A late reply for a code the user has since changed, or for a lookup the card's close
+            // dropped, is stale.
+            guard isPending({ if case .lookupCode = $0 { true } else { false } }) else { return }
             if let found, found.code != PairingCode.normalize(approval.code) { return }
             candidate = found
             guard let found else { return }
@@ -135,11 +145,13 @@ public final class ServerModel {
             if approval.name.isEmpty { approval.name = found.name }
             approval.runChief = found.isChiefBrain
         case let .settled(key, reject):
-            let intent = pending.first { $0.key == key }
+            // An answer to an intent no longer pending (dropped by stop() or the card's close) is
+            // another session's: its refusal never shows on this one.
+            guard let intent = pending.first(where: { $0.key == key }) else { return }
             pending.removeAll { $0.key == key }
             if let reject {
                 lastReject = reject
-            } else if case let .approveCode(_, _, name, _) = intent?.kind {
+            } else if case let .approveCode(_, _, name, _) = intent.kind {
                 lastApproved = name
                 cancelApproval()
             }

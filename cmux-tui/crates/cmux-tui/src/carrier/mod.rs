@@ -315,26 +315,40 @@ async fn open_desktop(
     multiplexer: &Arc<cmux_remote::service::ServiceMultiplexer>,
     deadline: tokio::time::Instant,
 ) -> Result<Arc<cmux_remote::service::ServiceStream>, Failure> {
-    use cmux_remote::bridge::{BridgeError, CLOUD_DESKTOP_SOCKET, open_local_socket};
+    use cmux_remote::bridge::{CLOUD_DESKTOP_SOCKET, open_local_socket};
     match tokio::time::timeout_at(deadline, open_local_socket(multiplexer, CLOUD_DESKTOP_SOCKET))
         .await
     {
         Ok(Ok(stream)) => Ok(stream),
-        Ok(Err(BridgeError::Rejected(why))) => Err(Failure::fatal(contract::Step::Service, why)),
-        Ok(Err(error)) => {
-            let detail = format!("the session ended before the desktop opened: {error}");
-            // The session host restarted after the session's first stream
-            // opened and no longer has it: the dial opens a fresh one.
-            Err(if multiplexer.session_unavailable() {
-                Failure::session_gone(contract::Step::Relay, detail)
-            } else {
-                Failure::fatal(contract::Step::Relay, detail)
-            })
-        }
+        Ok(Err(error)) => Err(desktop_failure(error, multiplexer.session_unavailable())),
         Err(_) => Err(Failure::fatal(
             contract::Step::Relay,
             "the desktop did not open before the deadline",
         )),
+    }
+}
+
+/// Why the desktop stream did not open: the daemon's refusal is the
+/// service's; a session the daemon no longer has (`session_unavailable`:
+/// the multiplexer's reader saw it, or the error itself says so) is dialed
+/// fresh; anything else ended
+/// the session, which is the carrier's.
+fn desktop_failure(error: cmux_remote::bridge::BridgeError, session_unavailable: bool) -> Failure {
+    use cmux_remote::bridge::BridgeError;
+    if let BridgeError::Rejected(why) = error {
+        return Failure::fatal(contract::Step::Service, why);
+    }
+    // The reader may not have marked the session yet when the open's own
+    // send (or a heartbeat) met its typed end first.
+    let gone = session_unavailable
+        || matches!(&error, BridgeError::Service(service) if service.is_session_unavailable());
+    let detail = format!("the session ended before the desktop opened: {error}");
+    // The session host restarted after the session's first stream opened
+    // and no longer has it: the dial opens a fresh one.
+    if gone {
+        Failure::session_gone(contract::Step::Relay, detail)
+    } else {
+        Failure::fatal(contract::Step::Relay, detail)
     }
 }
 
