@@ -90,7 +90,7 @@ nonisolated struct MotionScreenRecordMovieTests {
         let deadline = ContinuousClock.now + .seconds(15)
         var seen: (seconds: Double, frames: Int) = (0, 0)
         var failure = "none"
-        repeat {
+        while ContinuousClock.now < deadline {
             let copy = folder.appendingPathComponent("copy-\(UUID().uuidString).mov")
             try FileManager.default.copyItem(at: url, to: copy)
             do {
@@ -100,7 +100,7 @@ nonisolated struct MotionScreenRecordMovieTests {
             }
             if seen.seconds > 0, seen.frames > 0 { break }
             try await Task.sleep(for: .milliseconds(250))
-        } while ContinuousClock.now < deadline
+        }
         #expect(seen.seconds > 0, "a copy of a movie cut off after 2 s has no video track a reader opens (last error: \(failure))")
         #expect(seen.frames > 0, "a copy of a movie cut off after 2 s has no frame (last error: \(failure))")
     }
@@ -119,7 +119,9 @@ nonisolated struct MotionScreenRecordMovieTests {
         #expect(movie.writer.status == .completed, "finishWriting: \(String(describing: movie.writer.error))")
         let seen = try await Self.read(url)
         #expect(seen.frames == Self.frames)
-        #expect(abs(seen.seconds - Double(Self.frames) / 120) < 0.02, "duration \(seen.seconds) s")
+        // The track spans the frames' presentation times, 1/120 s each (not the time the writing took).
+        let spanned = Int((seen.seconds * 120).rounded())
+        #expect(abs(spanned - Self.frames) <= 2, "the track spans \(spanned) frame steps (\(seen.seconds) s)")
     }
 }
 #endif
