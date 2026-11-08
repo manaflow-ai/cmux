@@ -190,11 +190,10 @@ extension HomeService {
         HomeChiefFollow(whereabouts: services.chiefTeleport.whereabouts, chiefs: directory.chiefs, reachableHost: nil)
     }
 
-    /// Whether `conversation` shows the Chief's location chip: this Mac's default Chief (the one
-    /// `cmux chief move` moves), or the conversation Home followed it to.
-    func showsTeleport(conversation: String) -> Bool {
-        HomeChiefName.select(from: conversations)?.id == conversation || chiefFollow.conversation == conversation
-    }
+    /// The conversations that show the Chief's location chip and teleport row: this Mac's default Chief (the one
+    /// `cmux chief move` moves), and the conversation Home followed it to.
+    var teleportConversations: [String] { [HomeChiefName.select(from: conversations)?.id, chiefFollow.conversation].compactMap { $0 } }
+    func showsTeleport(conversation: String) -> Bool { teleportConversations.contains(conversation) }
 
     /// A teleport or a return (the marker written or removed, or the moved Chief's record read)
     /// re-runs the Chief tab check, so the tab and the page follow the Chief. The stream emits only
@@ -204,9 +203,10 @@ extension HomeService {
         teleport.startFollowing()
         // task-owner: lives as long as the service; event-driven (Observation over the marker's file watch)
         chiefTeleportObservation = Task { [weak self] in
-            for await _ in ObservationStream({ [weak self] in self?.chiefFollow }).dropFirst() {
-                self?.refreshChiefTab()
-            }
+            for await _ in ObservationStream({ [weak self] in self?.chiefFollow }).dropFirst() { self?.refreshChiefTab() }
+        }
+        teleport.endAnnouncementOnNewerMessage { [weak self] in
+            self?.teleportConversations.compactMap { self?.homeStore.summary(CmuxHomeCore.ConversationID($0))?.lastSeq }.max() ?? 0
         }
     }
 }

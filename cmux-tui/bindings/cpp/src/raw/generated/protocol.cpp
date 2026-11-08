@@ -168,6 +168,11 @@ Result<Json> Codec<AgentRecord>::encode(const AgentRecord& value) {
     auto encoded_state = encode_value(value.state);
     if (!encoded_state) return std::move(encoded_state).error();
     object.emplace("state", std::move(encoded_state).value());
+    if (!value.status.is_absent()) {
+        auto encoded = encode_value(value.status);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("status", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -247,6 +252,16 @@ Result<AgentRecord> Codec<AgentRecord>::decode(const Json& value) {
         auto decoded = decode_value<AgentState>(*field_state);
         if (!decoded) return std::move(decoded).error();
         result.state = std::move(decoded).value();
+    }
+    const Json* field_status = value.find("status");
+    if (field_status) {
+        if (field_status->is_null()) {
+            result.status = Field<AgentState>::null();
+        } else {
+            auto decoded = decode_value<AgentState>(*field_status);
+            if (!decoded) return std::move(decoded).error();
+            result.status = Field<AgentState>(std::move(decoded).value());
+        }
     }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
