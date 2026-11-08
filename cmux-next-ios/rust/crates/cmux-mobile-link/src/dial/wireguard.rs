@@ -588,6 +588,10 @@ struct HybridUnderlay {
     recv_waker: Option<std::task::Waker>,
     /// Our handshake initiation still waiting for an answer.
     handshake_repeat: Option<HandshakeRepeat>,
+    /// Test support (`DialOptions::impair_inbound`): received datagrams
+    /// held until their delivery time, and the timer for the first.
+    delayed: std::collections::VecDeque<(Instant, Vec<u8>, Origin)>,
+    delay_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
 }
 
 const UDP_PATH: PathId = PathId(0);
@@ -654,6 +658,8 @@ impl HybridUnderlay {
             replay_pending: false,
             recv_waker: None,
             handshake_repeat: None,
+            delayed: std::collections::VecDeque::new(),
+            delay_timer: None,
         };
         underlay.set_peer_endpoints(spec.peer_endpoints.to_vec());
         underlay
@@ -1147,6 +1153,32 @@ impl HybridUnderlay {
         true
     }
 
+    /// Test support: [`DialOptions::impair_inbound`] drops `datagram` or
+    /// holds it for later (`true`: it is not delivered now).
+    fn impaired(&mut self, datagram: &[u8], origin: Origin) -> bool {
+        let Some(impair) = self.options.impair_inbound else { return false };
+        let Some(from) = origin.addr else { return false };
+        match impair(origin.path == TURN_PATH, &from) {
+            None => true,
+            Some(delay) if delay.is_zero() => false,
+            Some(delay) => {
+                self.delayed.push_back((Instant::now() + delay, datagram.to_vec(), origin));
+                true
+            }
+        }
+    }
+
+    /// The first held datagram whose time came, into `buffer`.
+    fn pop_delayed(&mut self, buffer: &mut [u8]) -> Option<Received> {
+        if self.delayed.front().is_none_or(|(at, ..)| *at > Instant::now()) {
+            return None;
+        }
+        let (_, datagram, origin) = self.delayed.pop_front()?;
+        let len = datagram.len().min(buffer.len());
+        buffer[..len].copy_from_slice(&datagram[..len]);
+        Some(Received { len, origin })
+    }
+
     fn transmit(&mut self, datagram: &[u8], class: SendClass) {
         if self.pinned_until.is_some_and(|until| Instant::now() >= until) {
             // The peer stopped confirming the route its `reach` chose.
@@ -1221,6 +1253,9 @@ impl Underlay for HybridUnderlay {
             self.apply(control);
         }
         self.poll_handshake_repeat(cx);
+        if let Some(received) = self.pop_delayed(buffer) {
+            return Poll::Ready(Ok(received));
+        }
         loop {
             let mut read = ReadBuf::new(buffer);
             match self.socket.poll_recv_from(cx, &mut read) {
@@ -1233,10 +1268,11 @@ impl Underlay for HybridUnderlay {
                     {
                         continue;
                     }
-                    return Poll::Ready(Ok(Received {
-                        len,
-                        origin: Origin { path: UDP_PATH, addr: Some(source) },
-                    }));
+                    let origin = Origin { path: UDP_PATH, addr: Some(source) };
+                    if self.impaired(&buffer[..len], origin) {
+                        continue;
+                    }
+                    return Poll::Ready(Ok(Received { len, origin }));
                 }
                 // ICMP unreachable and friends: keep going on TURN.
                 Poll::Ready(Err(error)) => {
@@ -1251,12 +1287,27 @@ impl Underlay for HybridUnderlay {
                 Poll::Pending => break,
             }
         }
-        if let Some(turn) = &mut self.turn
+        while let Some(turn) = &mut self.turn
             && let Poll::Ready(Some((datagram, from))) = turn.inbound.poll_recv(cx)
         {
+            let origin = Origin { path: TURN_PATH, addr: Some(from) };
+            if self.impaired(&datagram, origin) {
+                continue;
+            }
             let len = datagram.len().min(buffer.len());
             buffer[..len].copy_from_slice(&datagram[..len]);
-            return Poll::Ready(Ok(Received { len, origin: Origin { path: TURN_PATH, addr: Some(from) } }));
+            return Poll::Ready(Ok(Received { len, origin }));
+        }
+        if let Some(&(at, ..)) = self.delayed.front() {
+            let timer = self.delay_timer.get_or_insert_with(|| Box::pin(tokio::time::sleep_until(at)));
+            if timer.deadline() != at {
+                timer.as_mut().reset(at);
+            }
+            if timer.as_mut().poll(cx).is_ready()
+                && let Some(received) = self.pop_delayed(buffer)
+            {
+                return Poll::Ready(Ok(received));
+            }
         }
         Poll::Pending
     }
