@@ -93,8 +93,9 @@ holder() {
 # The checkout's barrier, by `cmux repo wait DIR 0` (`repo_hold.rs`): `ready` (or no barrier),
 # `failed` (a fill that died: the tree may be whole but no tool may run), `busy` (a fill holds it),
 # or `none` on a machine whose cmux has no `repo wait`.
+wx=$(command -v cmux-tui || command -v cmux) || wx=""
 barrier() {
-  wx=$(command -v cmux-tui || command -v cmux) || { echo none; return; }
+  [ -n "$wx" ] || { echo none; return; }
   c=0; "$wx" repo wait "$dir" 0 >/dev/null 2>&1 || c=$?
   case $c in 0) echo ready ;; 1) echo failed ;; 124) echo busy ;; *) echo none ;; esac
 }
@@ -104,7 +105,7 @@ history_busy() { [ -f "$history_lock" ] && ! flock -n "$history_lock" true; }
 # The whole tree and the history, now. A checkout whose barrier failed is filled under it
 # (`repo hold-run`, which opens it only when the fill succeeds), so its tools may run again.
 fill_now() {
-  if [ "$state" = failed ] && "$wx" repo hold --help >/dev/null 2>&1; then
+  if [ "$state" = failed ] && [ -n "$wx" ] && "$wx" repo hold --help >/dev/null 2>&1; then
     "$wx" repo hold-run "$dir" -- "$d/repo" fill-now "$cred" >&2
   else
     "$d/repo" fill-now "$cred"
@@ -170,7 +171,7 @@ if [ -d "$dir/.git" ]; then
   if [ "$state" = busy ] || history_busy; then
     echo "cmux repo: $dir is still being filled by an earlier start; it is left to that one" >&2
     [ "$state" = busy ] && fill=background
-    status=kept; sha=$(g -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
+    status=kept; sha=$(git -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
     result; exit 0
   fi
   net -C "$dir" fetch --quiet --tags origin
