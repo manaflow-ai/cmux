@@ -89,7 +89,11 @@ async fn handle(
             let target = Target::parse(required(params, "target")?).ok_or_else(|| {
                 RpcError::invalid_params("target must be here, worktree or compare")
             })?;
+            // One call per approval at a time: a second waits for nothing and starts nothing.
+            let _claim = plan_build::claim(&session.id, permission_id)?;
             let (plan, request) = hub.pending_plan(&session, permission_id)?;
+            // The turn that asked, as it is now: stopped once the plan is handed to its builds.
+            let asking_turn = session.turn().map(|t| t.turn_id);
             let control = super::remote_guard::control_of(conn.origin, conn.auth, params);
             let mut answerer = crate::hub::person::Answerer::of(conn.is_person(), params);
             let author = crate::author::author(params)?;
@@ -173,6 +177,7 @@ async fn handle(
                 ))
                 .with_data(data)
             })?;
+            hub.stop_plan_turn(&session, asking_turn.as_deref()).await;
             Ok(json!({
                 "target": target.as_str(),
                 "buildId": build_id,

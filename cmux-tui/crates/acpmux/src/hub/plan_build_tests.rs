@@ -69,3 +69,16 @@ fn numstat_counts_and_caps_the_list() {
     }
     assert_eq!((many.files.len(), many.more, many.added), (MAX_FILES, 5, (MAX_FILES + 5) as u64));
 }
+
+#[test]
+fn one_build_call_holds_an_approval_at_a_time() {
+    let first = claim("s-claim", "p1").expect("the first call holds it");
+    let second = claim("s-claim", "p1").expect_err("a second call is refused");
+    assert_eq!(
+        second.data.as_ref().and_then(|d| d.get("reason")),
+        Some(&json!("plan_build.in_progress"))
+    );
+    assert!(claim("s-claim", "p2").is_ok(), "another approval is free");
+    drop(first);
+    assert!(claim("s-claim", "p1").is_ok(), "released when the call ends");
+}
