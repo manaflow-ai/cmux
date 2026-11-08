@@ -509,7 +509,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
     private var standardButtons = StandardWindowButtons()
     override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? {
-        if let button = standardButtons.cached(b, in: self) { return button }
+        if case .known(let button) = standardButtons.answer(b, in: self) { return button }
         let button = super.standardWindowButton(b)
         standardButtons.store(button, for: b, in: self)
         return button
