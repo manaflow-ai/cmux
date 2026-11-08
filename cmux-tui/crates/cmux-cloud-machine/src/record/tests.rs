@@ -186,7 +186,10 @@ fn a_next_record_carries_when_a_paused_machine_is_deleted() {
     assert_eq!(paused.evict_at, Some(1_800_000_000_000.0));
     // Warn mode or an older server: null or absent; a malformed value drops only itself.
     for value in [json!(null), json!("soon"), json!(-1)] {
-        assert_eq!(next(json!({"id": "vm_p", "status": "paused", "evict_at": value})).evict_at, None);
+        assert_eq!(
+            next(json!({"id": "vm_p", "status": "paused", "evict_at": value})).evict_at,
+            None
+        );
     }
     assert_eq!(next(json!({"id": "vm_p", "status": "paused"})).evict_at, None);
     // The app's JSON (CloudMachine.swift `evictAt`) keeps it.

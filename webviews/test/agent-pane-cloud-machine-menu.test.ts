@@ -267,8 +267,13 @@ test("Delete Machine… asks the app to delete, running or paused, and reads the
 test("a paused machine says opening the chat resumes it, and the date it is deleted when known", () => {
   const now = Date.UTC(2026, 10, 8);
   const info = (evictAt?: number) =>
-    rows({ id: "vm_p", name: "p", stage: "paused", ...(evictAt === undefined ? {} : { evictAt }) }, false, true, undefined, now)
-      .items.filter((item): item is Exclude<ChatMenuItem, "separator"> => item !== "separator" && !item.onSelect);
+    rows(
+      { id: "vm_p", name: "p", stage: "paused", ...(evictAt === undefined ? {} : { evictAt }) },
+      false,
+      true,
+      undefined,
+      now,
+    ).items.filter((item): item is Exclude<ChatMenuItem, "separator"> => item !== "separator" && !item.onSelect);
   // No date from the server (warn mode, an older server): only what pausing means.
   const plain = info();
   expect(plain.map((item) => [item.label, item.disabled])).toEqual([[t("chatMenu.machinePausedInfo"), true]]);
@@ -285,7 +290,12 @@ test("a paused machine says opening the chat resumes it, and the date it is dele
 
 test("the list reads a machine's delete date only as a positive number", () => {
   const reply = (evictAt: unknown) =>
-    cloudMachinesFromReply({ signedIn: true, loaded: true, machines: [{ id: "vm", name: "n", stage: "paused", evictAt }] });
+    cloudMachinesFromReply({
+      signedIn: true,
+      loaded: true,
+      machines: [{ id: "vm", name: "n", stage: "paused", evictAt }],
+    });
   expect(reply(1_800_000_000_000)[0]?.evictAt).toBe(1_800_000_000_000);
-  for (const odd of [null, undefined, "soon", -1, Number.NaN]) expect(reply(odd)[0]).toEqual({ id: "vm", name: "n", stage: "paused" });
+  for (const odd of [null, undefined, "soon", -1, Number.NaN])
+    expect(reply(odd)[0]).toEqual({ id: "vm", name: "n", stage: "paused" });
 });
