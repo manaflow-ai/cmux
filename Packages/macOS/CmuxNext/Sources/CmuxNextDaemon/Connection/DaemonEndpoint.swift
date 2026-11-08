@@ -521,6 +521,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentCLIAppProvider = "agent-cli-app-provider-v1"
     /// Agent inventory invalidation events for app providers (`AppProviderSession`).
     case agentCLIAppInvalidation = "agent-cli-app-invalidation-v1"
+    /// A provider tells readable app subscribers its family changed (`AppProviderSession.changed(family:)`).
+    case appProviderChanged = "app-provider-changed-v1"
     /// Admission receipts on the agent inventory watch (`DaemonReadyConnection`).
     case agentInventoryWatchAdmission = "agent-inventory-watch-admission-v1"
     /// Stash, a native OneTab (`stash.*`; `StateResourceClient+Stash.swift`).
