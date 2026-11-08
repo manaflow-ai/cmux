@@ -344,35 +344,43 @@ fn spawn_capture(mut command: Command, input: &[u8], timeout: Duration) -> (Exec
         Ok(child) => child,
         Err(e) => return (ExecOutcome::Error(e.to_string()), String::new()),
     };
+    let pgid = child.id() as libc::pid_t;
     let stdin = child.stdin.take();
     let input = input.to_vec();
-    // A writer thread: a script that never reads stdin must not block us.
-    let writer = std::thread::spawn(move || {
+    // A writer thread: a script that never reads stdin must not block us. It
+    // is never joined: a process that escaped the group could hold the pipe.
+    std::thread::spawn(move || {
         if let Some(mut stdin) = stdin {
             let _ = stdin.write_all(&input);
         }
     });
     let stdout = child.stdout.take();
-    let reader = std::thread::spawn(move || {
-        let mut kept = Vec::new();
+    let kept = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (done_tx, done_rx) = mpsc::channel();
+    let sink = kept.clone();
+    std::thread::spawn(move || {
         if let Some(mut out) = stdout {
             let mut buf = [0u8; 8192];
             loop {
                 match out.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
+                        let Ok(mut kept) = sink.lock() else { break };
                         let room = MAX_EVENT_BYTES.saturating_add(1).saturating_sub(kept.len());
                         kept.extend(buf.iter().take(n.min(room)));
                     }
                 }
             }
         }
-        String::from_utf8_lossy(&kept).into_owned()
+        let _ = done_tx.send(());
     });
     let outcome = wait_with_timeout(child, timeout);
-    let _ = writer.join();
-    // The group was killed on a timeout, so the pipe closes and this ends.
-    let output = reader.join().unwrap_or_default();
+    // A condition only reads: what it left running in its group is stopped,
+    // so its output closes. SAFETY: the group this function started; a group
+    // id is never reused while any member lives.
+    unsafe { libc::kill(-pgid, libc::SIGKILL) };
+    let _ = done_rx.recv_timeout(KILL_GRACE);
+    let output = kept.lock().map(|k| String::from_utf8_lossy(&k).into_owned()).unwrap_or_default();
     (outcome, output)
 }
 

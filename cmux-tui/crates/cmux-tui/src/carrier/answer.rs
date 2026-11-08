@@ -7,6 +7,10 @@
 //! asks for a grant naming that key as well as the Connect ticket; an empty
 //! body asks for a ticket only. A grant is single-use, so each
 //! connect attempt asks again. Tickets and grants are never logged.
+//!
+//! The first connect can skip that ask: a create's (or spare claim's) answer
+//! carries the same value as `carrier` (cmux-platform #946), handed to the
+//! dial as [`Prefetched`].
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -18,6 +22,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use url::Url;
 use zeroize::Zeroizing;
+
+use super::contract::Vmk;
 
 /// The longest ticket or grant accepted (cmux-remote's relay credential bound).
 const MAX_SECRET_BYTES: usize = 4096;
@@ -41,6 +47,9 @@ pub(super) struct CarrierAnswer {
     /// The machine daemon's Noise static key: 32 canonical base64url bytes,
     /// else None (missing or malformed). A dial refuses to handshake without it.
     pub daemon_key: Option<[u8; 32]>,
+    /// The grant's `vmk` claim, `None` when the grant has none (or none
+    /// that is `owner` or `team`).
+    pub vmk: Option<Vmk>,
 }
 
 impl std::fmt::Debug for CarrierAnswer {
@@ -50,6 +59,7 @@ impl std::fmt::Debug for CarrierAnswer {
             .field("expires_at", &self.expires_at)
             .field("grant", &self.grant.is_some())
             .field("daemon_key", &self.daemon_key.is_some())
+            .field("vmk", &self.vmk)
             .finish_non_exhaustive()
     }
 }
@@ -110,6 +120,18 @@ fn relay_route(text: &str) -> Result<Url, String> {
     }
 }
 
+/// The `vmk` claim of a compact grant (`header.claims.signature`, base64url
+/// JSON claims). Unverified: it only reports what the platform signed.
+pub(super) fn grant_vmk(grant: &str) -> Option<Vmk> {
+    let mut parts = grant.split('.');
+    let claims = match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(_), Some(claims), Some(_), None) => claims,
+        _ => return None,
+    };
+    let claims: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(claims).ok()?).ok()?;
+    Vmk::parse(claims.get("vmk")?.as_str()?)
+}
+
 /// Checks the answer's `value`.
 pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
     let relay = relay_route(value.get("relay").and_then(Value::as_str).ok_or("relay is missing")?)?;
@@ -128,7 +150,8 @@ pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
         Some(_) => Some(secret(value, "grant")?),
     };
     let daemon_key = value.get("daemon_key").and_then(Value::as_str).and_then(key_bytes);
-    Ok(CarrierAnswer { relay, slot: slot.to_owned(), ticket, expires_at, grant, daemon_key })
+    let vmk = grant.as_deref().and_then(|g| grant_vmk(g));
+    Ok(CarrierAnswer { relay, slot: slot.to_owned(), ticket, expires_at, grant, daemon_key, vmk })
 }
 
 /// Reads one HTTP answer: `{ok: true, value}` is the carrier; anything else
@@ -188,6 +211,9 @@ impl Credential {
 pub(super) struct HttpSource {
     api: String,
     credential: Credential,
+    /// A credential handed over later (`carrier serve`'s stdin), used in
+    /// place of `credential` from then on.
+    replaced: Mutex<Option<Zeroizing<String>>>,
     /// Sent as `x-cmux-team` when set (a machine of a shared team).
     team: Option<String>,
     client: reqwest::Client,
@@ -207,7 +233,20 @@ impl HttpSource {
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| "the HTTP client is unavailable".to_owned())?;
-        Ok(Self { api, credential, team, client })
+        Ok(Self { api, credential, replaced: Mutex::new(None), team, client })
+    }
+
+    /// Every later fetch uses `token`.
+    pub(super) fn replace_credential(&self, token: Zeroizing<String>) {
+        *self.replaced.lock().unwrap_or_else(PoisonError::into_inner) = Some(token);
+    }
+
+    fn current(&self) -> Result<Zeroizing<String>, SourceError> {
+        let replaced = self.replaced.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        match replaced {
+            Some(token) => Ok(token),
+            None => self.credential.current(),
+        }
     }
 }
 
@@ -218,7 +257,7 @@ impl CarrierSource for HttpSource {
         machine: &str,
         noise_key: Option<&[u8; 32]>,
     ) -> Result<CarrierAnswer, SourceError> {
-        let credential = self.credential.current()?;
+        let credential = self.current()?;
         let body = match noise_key {
             Some(key) => json!({ "noise_key": key_text(key) }),
             None => json!({}),
@@ -282,5 +321,36 @@ impl TicketCache {
         *self.held.lock().unwrap_or_else(PoisonError::into_inner) =
             Some((answer.ticket, answer.expires_at));
         Ok(ticket)
+    }
+}
+
+/// A carrier answer handed over ahead of the first connect: the `carrier` of
+/// a create's or spare claim's answer (`dial --answer-fd`, or serve's
+/// `{"carrier_answer":…}` stdin line). One connect attempt takes it; every
+/// later attempt asks the platform as before.
+#[derive(Default)]
+pub(super) struct Prefetched(Mutex<Option<CarrierAnswer>>);
+
+impl Prefetched {
+    pub(super) fn new(answer: Option<CarrierAnswer>) -> Self {
+        Self(Mutex::new(answer))
+    }
+
+    /// Holds `answer` for the next attempt, in place of any held one.
+    pub(super) fn put(&self, answer: CarrierAnswer) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(answer);
+    }
+
+    /// The held answer, once, while its ticket is good for at least the
+    /// ticket margin at `now` (Unix seconds) and it has a grant. A stale or
+    /// grantless one is dropped, and the attempt asks the platform.
+    pub(super) fn take(&self, now: u64) -> Option<CarrierAnswer> {
+        let answer = self.0.lock().unwrap_or_else(PoisonError::into_inner).take()?;
+        (answer.grant.is_some() && TicketCache::usable(answer.expires_at, now)).then_some(answer)
+    }
+
+    /// [`Self::take`] at the current time.
+    pub(super) fn take_now(&self) -> Option<CarrierAnswer> {
+        self.take(now_unix())
     }
 }

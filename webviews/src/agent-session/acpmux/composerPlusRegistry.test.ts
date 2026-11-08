@@ -10,7 +10,7 @@ import {
   PLUS_SEARCH_ACTIONS,
   runComposerPlusAction,
 } from "./composerPlusRegistry";
-import { composerPlusMenuSections } from "./ComposerPlusMenu";
+import { composerPlusMenuSections } from "./composerPlusMenuModel";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { loadRecentCommandNames, PLUS_RECENT_COMMANDS, recentCommands, rememberRecentCommand } from "./recentCommands";
 

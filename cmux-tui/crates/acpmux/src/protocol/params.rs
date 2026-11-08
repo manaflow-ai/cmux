@@ -90,6 +90,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "cliHost",
     "compression",
     "context",
+    "createdBy",
     "cwd",
     "decisionNonce",
     "disallowedTools",

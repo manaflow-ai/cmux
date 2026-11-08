@@ -398,6 +398,10 @@ public final class TerminalHostView: NSView {
     /// The followed hold ended: the host's next layout places the surface at its final frame, and a size drawn ahead that
     /// this placement did not take goes (``TerminalSurfaceView/dropAhead()``).
     var dropsAheadAtRest = false
+    /// The size drawn ahead at rest is a key resize's (a key press's first size, or a followed key hold's end), not a
+    /// snapped split's, close's or zoom's: its grid goes to the program with it (``TerminalSurfaceView``
+    /// `followsKeyResize`, RESIZE P0 11). Cleared with ``dropsAheadAtRest``.
+    var aheadOfKeyResize = false
     /// A person drags a divider or edge of this host's pane (``PaneResizeGestureFollowing``): the surface it shows follows.
     var followsResizeGesture = false
 
@@ -425,7 +429,7 @@ public final class TerminalHostView: NSView {
         // can come 2 display ticks later, and dropping it then made that refresh wait for its frame again). The final
         // placement took it if it is the final size; else Ghostty goes back to the view's size.
         if dropsAheadAtRest, !surfaceFollowsArea {
-            dropsAheadAtRest = false
+            (dropsAheadAtRest, aheadOfKeyResize) = (false, false)
             current.dropAhead()
         }
     }

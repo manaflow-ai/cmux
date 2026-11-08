@@ -8,7 +8,7 @@
 import { areaOf, type AreaKey } from "./areas";
 import { changeItems, localized, readableChanges } from "./model";
 import { changeArea, readableChange, shortTitle, tidyTitle } from "./readableChange";
-import type { ReleaseNotes, WhatsNewCategory } from "./types";
+import type { ReleaseNotes, WhatsNewCategory, WhatsNewEntry } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
 
 /** One line of the card: a known area, else the category its changes share, and their phrases. */
@@ -94,6 +94,18 @@ export function isGenericEntry(id: string, title: string): boolean {
   return id === GENERIC_ENTRY_ID && tidyTitle(title).toLowerCase() === "fixes and improvements";
 }
 
+/** Whether a What's New entry is the generic entry, by its source identity: its id and its English
+    title, whatever language the page shows (#37615 F1). */
+export function isGenericWhatsNewEntry(entry: WhatsNewEntry): boolean {
+  return isGenericEntry(entry.id, localized(entry.title, "en"));
+}
+
+/** Whether a build has reviewed changes (``curatedChanges``): such a build reads as those, any other
+    as its readable commits. */
+export function hasCuratedChanges(notes: ReleaseNotes): boolean {
+  return curatedChanges(notes, "en").length > 0;
+}
+
 /** A build's reviewed changes: its What's New entries (not the ones made from summary lines, nor
     the generic entry) and the highlights they do not carry. */
 function curatedChanges(notes: ReleaseNotes, language: string): Change[] {
@@ -101,7 +113,7 @@ function curatedChanges(notes: ReleaseNotes, language: string): Change[] {
   const ids = new Set<string>();
   for (const entry of notes.whatsNew?.entries ?? []) {
     if (entry.id.startsWith("summary-")) continue;
-    if (isGenericEntry(entry.id, localized(entry.title, "en"))) continue;
+    if (isGenericWhatsNewEntry(entry)) continue;
     ids.add(entry.id);
     const title = tidyTitle(localized(entry.title, language));
     changes.push({ title, category: entry.category, area: areaOf(title) });

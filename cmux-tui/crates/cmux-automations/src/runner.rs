@@ -1,7 +1,7 @@
 //! The runner's tick: due times become run rows, rows become processes.
 
 use crate::catch_up::{CatchUp, plan_fires};
-use crate::gate::{Verdict, clip_event, verdict};
+use crate::gate::{Gate, Verdict, clip_event, verdict};
 use crate::run::{Run, RunState, event_run_id, manual_run_id, run_id};
 use crate::store::{Store, StoreError};
 use crate::trigger::Trigger;
@@ -169,10 +169,26 @@ pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickRepo
         let running = history
             .iter()
             .any(|r| r.state == RunState::Running && r.pid.is_some_and(|p| exec.is_alive(p)));
-        if !running && let Some(next) = history.into_iter().find(|r| r.state == RunState::Queued) {
-            let id = next.id.clone();
-            start_run(store, next, now, exec)?;
-            report.started.push(id);
+        if !running {
+            let (queued, settled): (Vec<Run>, Vec<Run>) =
+                history.into_iter().partition(|r| r.state == RunState::Queued);
+            for mut next in queued {
+                match verdict(&a.gate, &settled, now, &|_| false).reason() {
+                    None => {
+                        let id = next.id.clone();
+                        start_run(store, next, now, exec)?;
+                        report.started.push(id);
+                        break;
+                    }
+                    Some(why) => {
+                        next.state = RunState::Skipped;
+                        next.reason = Some(why.into());
+                        next.finished_at = Some(now);
+                        store.put_run(&next)?;
+                        report.skipped += 1;
+                    }
+                }
+            }
         }
         if matches!(a.trigger, Trigger::At { .. })
             && a.trigger.next_after(now).ok().flatten().is_none()
@@ -196,7 +212,9 @@ pub fn start_manual(
 }
 
 /// [`start_manual`] with an event (`run --event`), as a watch line would
-/// bring. A person's run skips the guardrails; its condition still runs.
+/// bring. A person's run skips the cooldown and cap, never the one live run:
+/// beside a live run it is recorded `skipped: previous_run_running`. Its
+/// condition still runs.
 pub fn start_manual_with_event(
     store: &Store,
     automation: &str,
@@ -228,6 +246,21 @@ pub fn start_manual_with_event(
         version: a.version,
     };
     let id = run.id.clone();
+    let history = store.runs(&a.id)?;
+    if history.iter().any(|r| r.id == id) {
+        return Ok(id);
+    }
+    let one_live = Gate::default();
+    if let Verdict::Busy { .. } = verdict(&one_live, &history, now, &|pid| exec.is_alive(pid)) {
+        let skipped = Run {
+            state: RunState::Skipped,
+            reason: Some("previous_run_running".into()),
+            finished_at: Some(now),
+            ..run
+        };
+        store.insert_run(&skipped)?;
+        return Ok(id);
+    }
     if store.insert_run(&run)? {
         start_run(store, run, now, exec)?;
     }

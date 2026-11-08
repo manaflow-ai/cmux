@@ -505,6 +505,18 @@ fn label(key: &str) -> String {
     }
 }
 
+/// How a thread reads in the transcript: [`label`] without the agent's words for a self-declared
+/// sender (its mark says that).
+fn shown_label(key: &str) -> String {
+    match key.strip_prefix("declared:") {
+        Some(name) => match name.rsplit_once("/pr:") {
+            Some((_, n)) => format!("#{n}"),
+            None => "messages".to_owned(),
+        },
+        None => label(key),
+    }
+}
+
 /// Whether a prompt's provenance marks it a chat's first work ([`FIRST_WORK`]).
 pub(super) fn is_first_work(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get(FIRST_WORK)).and_then(Value::as_bool) == Some(true)
@@ -520,8 +532,41 @@ pub(super) fn sender_session(provenance: Option<&Value>) -> Option<String> {
     Some(from.strip_prefix("acp:").unwrap_or(from).to_owned())
 }
 
+/// A relayed sender's name, `MACHINE/SESSION` as the relay vouched for it
+/// (`prompt_provenance::FROM_RELAY`).
+fn relayed_name(sender: &Value) -> Option<String> {
+    let relay = sender.get("relay").filter(|r| r.is_object())?;
+    let machine = relay.get("machine").and_then(Value::as_str).filter(|m| !m.is_empty())?;
+    Some(match relay.get("session").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        Some(session) => format!("{machine}/{session}"),
+        None => machine.to_owned(),
+    })
+}
+
+/// A sender's name as the transcript draws it: the relayed or declared name alone. Whether it is
+/// verified is the sender record's (`verification`), drawn as a mark beside the name, never words
+/// in it (Leo, 2026-11-07: "Why does it say it's self-declared if we can just detect the thing?").
+fn shown_sender(sender: &Value, fallback: &str) -> String {
+    if let Some(name) = relayed_name(sender) {
+        return name;
+    }
+    let label = sender.get("label").and_then(Value::as_str).filter(|v| !v.is_empty());
+    let declared = sender.get("labelDeclared").and_then(Value::as_bool) == Some(true);
+    match label {
+        Some(label) if declared && fallback.is_empty() => label.to_owned(),
+        Some(label) if declared && sender.get("authenticated") != Some(&Value::Bool(true)) => {
+            label.to_owned()
+        }
+        _ => fallback.to_owned(),
+    }
+}
+
 /// A sender's display name keeps a self-declared label visibly separate from a real session.
+/// This is the agent's text (the notice, `inbox_read`); the transcript draws [`shown_sender`].
 fn display_sender(sender: &Value, fallback: &str) -> String {
+    if let Some(name) = relayed_name(sender) {
+        return name;
+    }
     let label = sender.get("label").and_then(Value::as_str).filter(|v| !v.is_empty());
     let declared = sender.get("labelDeclared").and_then(Value::as_bool) == Some(true);
     let authenticated = sender.get("authenticated").and_then(Value::as_bool) == Some(true);
@@ -617,11 +662,37 @@ fn kind_of(class: PromptClass) -> &'static str {
     }
 }
 
-/// The first line of `text`, cut to [`PREVIEW_CHARS`].
+/// The first line of `text`, cut to [`PREVIEW_CHARS`]: of the message inside a relay's label
+/// ([`relay_body`]), never the label's own words.
 fn preview(text: &str) -> String {
-    let line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or_default().trim();
+    let line = relay_body(text).lines().find(|l| !l.trim().is_empty()).unwrap_or_default().trim();
     let cut: String = line.chars().take(PREVIEW_CHARS).collect();
     if cut.len() < line.len() { format!("{cut}…") } else { cut }
+}
+
+/// The message inside the lane-gh broker's label (`[message N from VM/LANE (an agent, not Leo),
+/// relayed by the lane-gh broker; its text ends at "[end of message N]"]`, the text, then
+/// `[end of message N]`), else `text` as written. The agent still gets the label (it keeps a lane's
+/// words from reading as Leo's); only what the transcript previews leaves it out. The web reads the
+/// same form (webviews relayEnvelope.ts).
+pub(crate) fn relay_body(text: &str) -> &str {
+    let trimmed = text.trim();
+    let Some((head, rest)) = trimmed.split_once('\n') else { return text };
+    let head = head.trim_end();
+    let Some(nonce) = head.strip_prefix("[message ").and_then(|h| h.split(' ').next()) else {
+        return text;
+    };
+    let nonce_ok = (4..=64).contains(&nonce.len())
+        && nonce.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    let ends = format!("; its text ends at \"[end of message {nonce}]\"]");
+    if !nonce_ok || !head.contains(" (an agent, not Leo), relayed by ") || !head.ends_with(&ends) {
+        return text;
+    }
+    // The closing marker is the last line, a line of its own; one inside the text never ends it.
+    match rest.strip_suffix(format!("[end of message {nonce}]").as_str()) {
+        Some(body) if body.is_empty() || body.ends_with('\n') => body.trim(),
+        _ => text,
+    }
 }
 
 /// The notice of `items` (the new ones, in their order): one line per thread, blockers first,
@@ -662,11 +733,17 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
     let mut parts = Vec::new();
     for (key, list) in &threads {
         let last = list.iter().max_by_key(|i| i.at).copied();
+        // The agent's text names a self-declared sender so; the transcript's parts name it alone.
         let mut from: Vec<String> = Vec::new();
+        let mut names: Vec<String> = Vec::new();
         for i in list {
             let shown = display_sender(&i.sender, &i.from);
             if !from.contains(&shown) {
                 from.push(shown);
+            }
+            let name = shown_sender(&i.sender, &i.from);
+            if !names.contains(&name) {
+                names.push(name);
             }
         }
         let tag = if blocker(list) { "[blocker] " } else { "" };
@@ -706,7 +783,7 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
         }
         let ids: Vec<&str> = list.iter().map(|i| i.prompt_id.as_str()).collect();
         let mut part = json!({
-            "threadId": key, "label": label(key), "new": list.len(), "from": from,
+            "threadId": key, "label": shown_label(key), "new": list.len(), "from": names,
             "promptIds": ids, "blocker": blocker(list),
             "preview": last.map(|i| preview(&i.text)), "newestAt": newest(list),
         });
@@ -724,7 +801,7 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
             let messages: Vec<Value> = list
                 .iter()
                 .map(|i| {
-                    let shown = display_sender(&i.sender, &i.from);
+                    let shown = shown_sender(&i.sender, &i.from);
                     let mut m =
                         json!({"promptId": i.prompt_id, "from": shown, "at": i.at, "text": i.text});
                     if i.sender.is_object() {

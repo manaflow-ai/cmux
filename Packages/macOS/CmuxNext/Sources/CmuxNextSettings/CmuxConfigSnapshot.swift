@@ -19,8 +19,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: []) ?? .compact
     }
     /// `app.uiScale` (first-party page scale) and `appearance.interfaceScale` (chrome, only with Labs on).
-    public var uiScale: Double = UIScaleSetting().fallback
-    public var interfaceScale: Double = InterfaceScaleSetting().fallback
+    public var uiScale: Double = UIScaleSetting.fallback
+    public var interfaceScale: Double = InterfaceScaleSetting.placeholder
     /// `appearance.metrics.<name>` in points.
     public var metrics: [String: Double]
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
@@ -48,7 +48,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `browser.import.enabled`; on when unset or invalid.
     public var browserImportEnabled: Bool = BrowserImportSetting.fallback
     /// `browser.import.cookieBanner`; on when unset or invalid (``BrowserCookieBannerSetting``).
-    public var browserImportCookieBanner = BrowserCookieBannerSetting().fallback
+    public var browserImportCookieBanner = BrowserCookieBannerSetting.fallback
+    /// `browser.import.cookieSync`; on when unset or invalid (``BrowserCookieSyncSetting``).
+    public var browserImportCookieSync = BrowserCookieSyncSetting.fallback
     /// `home.chiefBubbleStyle`: the Chief chat's bubbles, `imessage` (Messages' blue and grey) when unset or `theme`.
     public var homeChiefBubbleStyle = HomeChiefBubbleStyleSetting.defaultStyle
     /// `home.bubbleColors.*`: the bubble colours every Home chat starts with, `#RRGGBB` by role (`sent`,
@@ -57,12 +59,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `chief.reactionsCanWake`, `chief.reactionClassifier.*`: whether a tapback can wake the Chief, and the classifier (Claude Haiku) that decides.
     public var chiefReactions = ChiefReactionSettings.fallback
     /// `browser.builtInAdBlocker`; on when unset.
-    public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
+    public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting.fallback
     /// `browser.showAgentCursor`; on when unset.
-    public var browserShowAgentCursor = AgentCursorSetting().fallback
+    public var browserShowAgentCursor = AgentCursorSetting.fallback
     /// `browser.agentMouse.*`: how an agent's pointer moves; human motion,
     /// 350 ms cap when unset.
-    public var browserAgentMouse = AgentMouseSetting().fallback
+    public var browserAgentMouse = AgentMouseSetting.fallback
     /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
     public var homeKeepLocation = false, homeChannelsEnabled = false, homeChiefPetEnabled = false, homeChiefPetMascot = HomeChiefPetSetting.defaultMascot
     /// `home.feedInChief`: the main Chief's conversation shows the Feed's notices; on when unset.
@@ -124,34 +126,34 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var colorTransition = ColorTransitionSetting()
     /// `layout.splitSizing`, `layout.newColumnWidth`, docked defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
-    public var splitSizing: SplitSizing = ColumnLayoutSettings.splitSizingFallback
-    public var newColumnWidth: NewColumnWidthMode = ColumnLayoutSettings.newColumnWidthFallback
-    public var dockColumnEdge: DockDefaultEdge = ColumnLayoutSettings.dockEdgeFallback
-    public var dockColumnMode: DockDefaultMode = ColumnLayoutSettings.dockModeFallback
+    public var splitSizing: SplitSizing = ColumnLayoutSettings.splitSizingDefault
+    public var newColumnWidth: NewColumnWidthMode = ColumnLayoutSettings.newColumnWidthDefault
+    public var dockColumnEdge: DockDefaultEdge = ColumnLayoutSettings.dockEdgeDefault
+    public var dockColumnMode: DockDefaultMode = ColumnLayoutSettings.dockModeDefault
     /// `layout.frameOrientation`: which docks own the frame's corners.
-    public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
+    public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationDefault
     /// `layout.rows`: rows on (default) or off (plans/cmux-next/rows.md O1).
-    public var layoutRows: Bool = ColumnLayoutSettings.rowsFallback
+    public var layoutRows: Bool = ColumnLayoutSettings.rowsDefault
     /// `layout.focusFollowsMouse`: hovering or scrolling an unfocused pane focuses it (default off).
-    public var focusFollowsMouse: Bool = ColumnLayoutSettings.focusFollowsMouseFallback
+    public var focusFollowsMouse: Bool = ColumnLayoutSettings.focusFollowsMouseDefault
     /// `layout.scrollAreas`: splits that cannot fit scroll instead of squashing (default off;
     /// plans/cmux-next/scroll-areas-DESIGN.md).
-    public var layoutScrollAreas: Bool = ColumnLayoutSettings.scrollAreasFallback
+    public var layoutScrollAreas: Bool = ColumnLayoutSettings.scrollAreasDefault
     /// `layout.scrollModifier`: which scroll moves the layout (``LayoutScrollModifier``).
-    public var layoutScrollModifier: LayoutScrollModifier = ColumnLayoutSettings.scrollModifierFallback
+    public var layoutScrollModifier: LayoutScrollModifier = ColumnLayoutSettings.scrollModifierDefault
     /// `layout.pagesHandleCommandScroll`: a web page that cancels Command + wheel keeps a Command scroll over it.
-    public var pagesHandleCommandScroll: Bool = ColumnLayoutSettings.pagesHandleCommandScrollFallback
-    public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
-                                               height: ColumnLayoutSettings.minimumPaneHeightFallback)
+    public var pagesHandleCommandScroll: Bool = ColumnLayoutSettings.pagesHandleCommandScrollDefault
+    public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthDefault,
+                                               height: ColumnLayoutSettings.minimumPaneHeightDefault)
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
-    public var newPanePlacement: NewPanePlacement = CmuxConfigSnapshot.newPanePlacementFallback
-    public var tileBrowsers: Bool = CmuxConfigSnapshot.tileBrowsersFallback
+    public var newPanePlacement: NewPanePlacement = CmuxConfigSnapshot.newPanePlacementDefault
+    public var tileBrowsers: Bool = CmuxConfigSnapshot.tileBrowsersDefault
     /// `layout.linkPlacement`: where an opened link or path lands (``LinkPlacement``).
     public var linkPlacement: LinkPlacement = .fallback
     /// `layout.mainPane`: whether an agent chat is its screen's main pane (``MainPaneSetting``).
     public var mainPane: MainPaneSetting = .fallback
     /// `workspaces.newPlacement` (`WorkspaceListSettings`).
-    public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementFallback
+    public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementDefault
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
     public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
     /// `layout.defaultColumnWidth`; two thirds when unset or invalid.
@@ -163,6 +165,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sidebarBorder = SidebarBorder()
     /// `appearance.chromeStyle`: the defaults of the finer chrome keys.
     public var chromeStyle: ChromeStyle = ChromeStyleSetting.fallback
+    /// `appearance.iconTheme`: reserved for the optional Neko family. Neko
+    /// remains on the default drawings until reviewed artwork is enabled.
+    public var iconTheme: NekoIconTheme = NekoIconThemeSetting.fallback
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both nil (Ghostty's values) when unset or invalid.
@@ -197,9 +202,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
     /// `appearance.focusIndicator`; "tabs" when unset or invalid.
-    public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
+    public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorDefault
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
-    public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
+    public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleDefault
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.titlebarButtons`; "hover" when unset or invalid.
@@ -219,7 +224,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tabBarOrder: TabBarOrder = ChromePlacementSetting.tabBarOrderDefault
     /// `browser.toolbarPosition`: the omnibar row of browser and Markdown panes.
     public var browserToolbarPosition: ToolbarPosition = ChromePlacementSetting.browserToolbarPositionDefault
-    /// `app.quitBehavior`; "ask" when unset or invalid.
+    /// `app.quitBehavior`; "keep" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
@@ -263,7 +268,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// theme's `selection-background`; nil (the theme's) when unset or invalid.
     public var highlightColor: String?
     /// `appearance.accent`: where the chrome's accent comes from; neutral when unset or invalid.
-    public var accent: ThemeAccent = AccentSetting().fallback
+    public var accent: ThemeAccent = AccentSetting.fallback
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
     public var terminalFontFamily: String?
     /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
@@ -277,7 +282,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `navigation.history.scope`: what a Back/Forward step is (`workspaces`, `everything`).
     public var navigationHistorySteps: String = NavigationHistoryStepSetting.fallback
     /// `history.commandRetentionDays` (days each daemon keeps terminal commands).
-    public var commandRetentionDays: Int = CmuxConfigSnapshot.commandRetentionFallback
+    public var commandRetentionDays = Int(CmuxConfigSnapshot.commandRetentionDefault)
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).
@@ -344,11 +349,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(BrowserImportSetting.parse(root), \.browserImportEnabled)
-        snapshot.take(BrowserCookieBannerSetting().parse(root), \.browserImportCookieBanner)
+        snapshot.take(BrowserCookieBannerSetting.parse(root), \.browserImportCookieBanner)
+        snapshot.take(BrowserCookieSyncSetting.parse(root), \.browserImportCookieSync)
         snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
-        snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
-        snapshot.take(AgentCursorSetting().parse(root), \.browserShowAgentCursor)
-        snapshot.take(AgentMouseSetting().parse(root), \.browserAgentMouse)
+        snapshot.take(BuiltInAdBlockerSetting.parse(root), \.browserBuiltInAdBlocker)
+        snapshot.take(AgentCursorSetting.parse(root), \.browserShowAgentCursor)
+        snapshot.take(AgentMouseSetting.parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
@@ -384,7 +390,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.nowPlaying = NowPlayingSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.colorTransition = ColorTransitionSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
-        snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? false,
+        snapshot.iconTheme = NekoIconThemeSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? SidebarBorderSetting.borderDefault,
                                                             diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
         CmuxConfigSnapshot.parsePanePlacement(root, into: &snapshot)
@@ -407,15 +414,16 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         CmuxConfigSnapshot.parseAgentPane(root, into: &snapshot)
         snapshot.agentPaneZoom = AgentPaneZoomSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
-        let (borders, bordersDiagnostic) = BordersSetting.parse(root)
+        let styleBorders: BorderMode? = snapshot.chromeStyle.drawsLines.map { $0 ? .default : .none }
+        let (borders, bordersDiagnostic) = BordersSetting.parse(root, defaultMode: styleBorders ?? BordersSetting.fallback)
         snapshot.borders = borders
         if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
         let (indicator, indicatorDiagnostic) = PaneFocusSettings.parse(
-            root, at: PaneFocusSettings.focusIndicatorPath, fallback: PaneFocusSettings.focusIndicatorFallback)
+            root, at: PaneFocusSettings.focusIndicatorPath, fallback: PaneFocusSettings.focusIndicatorDefault)
         snapshot.focusIndicator = indicator
         if let indicatorDiagnostic { snapshot.diagnostics.append(indicatorDiagnostic) }
         let (inactiveTabStyle, inactiveTabDiagnostic) = PaneFocusSettings.parse(
-            root, at: PaneFocusSettings.inactiveTabStylePath, fallback: PaneFocusSettings.inactiveTabStyleFallback)
+            root, at: PaneFocusSettings.inactiveTabStylePath, fallback: PaneFocusSettings.inactiveTabStyleDefault)
         snapshot.inactiveTabStyle = inactiveTabStyle
         if let inactiveTabDiagnostic { snapshot.diagnostics.append(inactiveTabDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
@@ -503,7 +511,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.uiScale = UIScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.interfaceScale = InterfaceScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.customDensities = CustomDensitiesSetting().parse(root, diagnostics: &snapshot.diagnostics)
-        if let custom = root.value(at: CustomDensitySelectionSetting().configPath) {
+        if let custom = root.value(at: CustomDensitySelectionSetting.configPath) {
             if let id = custom.stringValue, snapshot.customDensities.contains(where: { $0.id == id }) {
                 snapshot.customDensity = id
             } else {

@@ -31,6 +31,10 @@ pub enum Trigger {
 /// A watch's default debounce: a burst of lines inside it is one event.
 pub const DEFAULT_DEBOUNCE_SECONDS: u64 = 5;
 
+/// The longest debounce: a stream that never pauses is one event at most this
+/// long (`watch::MAX_HOLD_MS`), so a longer one would mean nothing.
+pub const MAX_DEBOUNCE_SECONDS: u64 = 30;
+
 /// A trigger that cannot be scheduled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScheduleError(pub String);
@@ -77,6 +81,12 @@ impl Trigger {
             }
             Trigger::Watch { debounce_seconds: 0, .. } => {
                 Err(ScheduleError("a watch's debounce is at least one second".into()))
+            }
+            Trigger::Watch { debounce_seconds, .. } if *debounce_seconds > MAX_DEBOUNCE_SECONDS => {
+                Err(ScheduleError(format!(
+                    "a watch's debounce is at most {MAX_DEBOUNCE_SECONDS} seconds (a stream is held \
+                     no longer); space runs out with --cooldown"
+                )))
             }
             _ => Ok(()),
         }

@@ -23,14 +23,17 @@ Schedules: `--hourly`, `--daily 09:00`, `--weekdays 09:00`, `--weekly "fri 17:00
   condition_false`; any other exit, or more than 60 s, fails the run. It must only read: `test`
   runs it too.
 - `--watch CMD` is a long-running command; every stdout line is an event. Lines closer than the
-  debounce are one event. Use `tail -n 0 -F` (not `-f`) and `grep --line-buffered`.
+  debounce (1 to 30 s) are one event, and a stream that never pauses is one event every 30 s.
+  When the command's output closes, it is stopped and starts again after a backoff. Use
+  `tail -n 0 -F` (not `-f`) and `grep --line-buffered`.
 - The event reaches a prompt as quoted data under "Event", and a command body as
   `$CMUX_AUTOMATION_EVENT_FILE`. Also set: `CMUX_AUTOMATION_ID`, `CMUX_AUTOMATION_RUN_ID`,
   `CMUX_AUTOMATION_TRIGGER`.
 
 ## Guardrails
 
-One live run per automation, always. `--cooldown 10m` and `--max-runs N` (in 24 h) bound how
+One live run per automation, always (a manual `run` beside a live run is recorded
+`skipped: previous_run_running`). `--cooldown 10m` and `--max-runs N` (in 24 h) bound how
 often it runs; a watch gets `--cooldown 10m --max-runs 24` unless you set them (`0` turns one
 off). Watch events that arrive while a run is live or cooling down are counted, not run (`show`
 prints the count, the next run's prompt says it), so a run's own fix cannot loop.

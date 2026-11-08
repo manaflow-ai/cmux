@@ -42,7 +42,7 @@ extension AgentPaneRequest {
     }
 
     /// `pane.action {id: "preview"}`: its `url` comes from transcript text, so only a local page
-    /// (``Foundation/URL/isAgentPanePreview``, as the preview card's `browser.open`) reaches the App.
+    /// (``Foundation/URL/isAgentPanePreview``) reaches the App.
     private static func preview(_ params: [String: Any]?, method: String) -> AgentPaneRequest {
         let toggle = params?["mode"] as? String == "toggle"
         guard let raw = params?["url"] else { return .preview(url: nil, toggle: toggle) }
@@ -176,6 +176,13 @@ extension AgentPaneRequest {
             // The composer ring's Context or Plan Usage choice; the page writes only this key with it.
             if let ring = (params?["ring"] as? String).flatMap(AgentPaneComposerRing.init(rawValue:)) {
                 self = .displaySetting(path: AgentPaneComposerSetting.composerRingPath, value: .string(ring.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.setDictationSource":
+            // The mic menu's source pick; the page writes only this key with it.
+            if let source = (params?["source"] as? String).flatMap(AgentPaneDictationSource.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.dictationSourcePath, value: .string(source.rawValue))
             } else {
                 self = .unsupported(method)
             }
@@ -369,6 +376,14 @@ extension AgentPaneRequest {
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
         case "machine.share.self": self = .shareMachineWithMe
+        case "share.op":
+            // As `action.run`: a `session` that is there must be a usable id, never dropped.
+            let session = params?["session"].map { $0 as? String }
+            if let op = AgentPaneShareOp(params: params), session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true {
+                self = .shareOp(op, session: session ?? nil)
+            } else {
+                self = .unsupported(method)
+            }
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
@@ -407,6 +422,13 @@ extension AgentPaneRequest {
             if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
                 self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
             } else { self = .unsupported(method) }
+        case "agent.mini":
+            self = .miniSubject
+        case "agent.mini.show":
+            // A session id is short; null (or absent) is the Chief.
+            if let session = params?["sessionId"] as? String {
+                self = !session.isEmpty && session.utf8.count <= 256 ? .showInMini(session) : .unsupported(method)
+            } else { self = .showInMini(nil) }
         case "chief.face":
             // A Chief's participant id (acpmux `fromChief`): `agent_` and a short token.
             if let chief = params?["chief"] as? String, chief.hasPrefix("agent_"), (7...64).contains(chief.utf8.count),
@@ -470,6 +492,12 @@ extension AgentPaneRequest {
         case "pane.sessionInfo.overlays":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
             else { self = .unsupported(method) }
+        case "pane.toastAvoidance":
+            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first?.rect) }
+            else { self = .unsupported(method) }
+        case "pane.glass":
+            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
+            else { self = .unsupported(method) }
         case "pane.copyText":
             if let text = params?["text"] as? String { self = .copyText(text) }
             else { self = .unsupported(method) }
@@ -496,7 +524,9 @@ extension AgentPaneRequest {
                 self = .btwInline(question: question, sessionId: sessionId)
             } else { self = .unsupported(method) }
         case "chat.sideChat":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 {
+                self = .sideChat(id, splitRight: params?["split"] as? String == "right")
+            } else { self = .unsupported(method) }
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
@@ -505,7 +535,8 @@ extension AgentPaneRequest {
         case "chat.subagentShown":
             let id = params?["subagent"] as? String
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
-                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int)
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int,
+                                      facts: id == nil ? nil : SubagentTabFacts(params))
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
@@ -558,6 +589,14 @@ extension AgentPaneRequest {
             if let text = params?["url"] as? String, text.count <= Self.maximumOpenTabText,
                let url = URL(string: text), url.isAgentPanePreview {
                 self = .openPreview(url)
+            } else {
+                self = .unsupported(method)
+            }
+        case "cloud.preview.open":
+            if let params, Set(params.keys) == ["port"],
+               let port = params["port"] as? NSNumber, CFGetTypeID(port) != CFBooleanGetTypeID(),
+               Double(port.intValue) == port.doubleValue, (1...65535).contains(port.intValue) {
+                self = .openCloudPreview(port: port.intValue)
             } else {
                 self = .unsupported(method)
             }
@@ -616,6 +655,10 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "dictation.toggle": self = .dictation(.toggle)
+        case "dictation.handoff": self = .dictationHandoff
+        case "dictation.sources": self = .dictationSources
+        case "dictation.watchMicrophone":
+            if let on = params?["on"] as? Bool { self = .watchMicrophone(on) } else { self = .unsupported(method) }
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)

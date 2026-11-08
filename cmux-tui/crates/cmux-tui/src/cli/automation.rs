@@ -754,6 +754,11 @@ fn edit(args: &[String], out: &Out) -> Outcome {
     }
     if let Some(trigger) = parse_trigger(&a, now)? {
         spec.trigger = trigger;
+    } else if a.value("debounce").is_some() {
+        let Trigger::Watch { command, .. } = &spec.trigger else {
+            return usage(messages().debounce_needs_watch);
+        };
+        spec.trigger = triggers::watch_trigger(&a, &command.clone())?;
     }
     let became_watch = matches!(spec.trigger, Trigger::Watch { .. })
         && !matches!(x.trigger, Trigger::Watch { .. })

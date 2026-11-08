@@ -30,7 +30,8 @@
     {"id": "notices", "note": "Settings > Chief's Notices row: it opens Notifications, which holds the Chief's notices."},
     {"id": "contextMenus", "note": "Settings > Menus: every right-click menu's rows, arranged by the person (ContextMenuLayout)."},
     {"id": "server", "note": "Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet address (plans/cmux-next/server-updates-DESIGN.md section 10)."},
-    {"id": "cloudEnvironments", "note": "Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`."}
+    {"id": "cloudEnvironments", "note": "Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`."},
+    {"id": "sharedLinks", "note": "Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks."}
   ],
   "section_actions": {
     "general": ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates", "liveWeb.start", "liveWeb.stop", "palette.clearSearchHistory"],
@@ -157,7 +158,7 @@
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card.", "keys": [
-              "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide"
+              "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarExtras", "text": "Sidebar Buttons and Spaces"}, "keys": [
               "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
@@ -281,7 +282,7 @@
               "agentPane.display.code.family", "agentPane.display.code.scale"
             ]},
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [
-              "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.spellChecking",
+              "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
               "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement"
             ]},
             {"title": {"key": "settings.pageGroup.filesLinks", "text": "Files and Links"}, "keys": [
@@ -328,7 +329,7 @@
           "note": "A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.",
           "groups": [
             {"group": "settings.group.banners"},
-            {"group": "settings.group.sounds", "note": "Per-event sounds, volume, timing and the burst cooldown (NotificationSoundSettingsSchema); its per-level maps stay off the page."},
+            {"group": "settings.group.sounds", "note": "Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page."},
             {"group": "settings.group.dismissal"},
             {"group": "settings.group.attention"},
             {"group": "settings.group.feedMirror"},
@@ -425,6 +426,7 @@
           "id": "privacy",
           "title": {"key": "settings.category.privacy", "text": "Privacy and Security"},
           "symbol": "hand.raised",
+          "lead": ["sharedLinks"],
           "groups": [
             {"title": {"key": "settings.pageGroup.localData", "text": "Data on This Mac"}, "keys": [
               "history.terminalCommands", "home.attachments.keepLocation"

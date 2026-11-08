@@ -33,12 +33,12 @@
    veil's 42%). It was the text at 13%, a gray over any theme (Leo 2026-11-02: "why is the update
    thing unthemed"). Reduce Transparency still makes it opaque (glass.css's surface): the same
    selector again, later, so it outranks the plain fill. */
-:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card {
+:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card:not(.wn-updated) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) 42%, transparent);
   --glass-backdrop: none;
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card {
+  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card:not(.wn-updated) {
     --glass-tint: var(--glass-surface);
   }
 }
@@ -244,5 +244,213 @@
 .wn-pop-all:hover { text-decoration: underline; text-underline-offset: 3px; }
 :is(.wn-card-close, .wn-card-primary, .wn-pop-all, .wn-pop-media):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 @media (prefers-reduced-transparency: reduce) {
-  .wn-card { background: var(--page-elevated); box-shadow: inset 0 0 0 1px var(--page-separator); }
+  .wn-card:not(.wn-updated) { background: var(--page-elevated); box-shadow: inset 0 0 0 1px var(--page-separator); }
+}
+
+/* The Updated card as the composer's twin (Leo 2026-11-07: "the border styles, the glass intensity
+   is different. For two, it's like the heights never match up with anything"): the composer's
+   material (ui/glass/composerMaterial.css: its fill at the popover level's share, its one-pixel
+   edge and its top-lit rim), its one-line height (grid.md 5.1, 48) and its corner. The words sit on
+   two lines inside it: "Updated to Nightly · What's New ↗", then the update's top change, each cut
+   at the card's edge (the hover preview has every change in full). Wider side room than the
+   button-row card (Leo: "a little more spacing regarding, like, the things in the side"). */
+.wn-card.wn-updated {
+  --wn-side: calc(var(--grid-base, 4px) * 3);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--composer-material-radius);
+  background: var(--composer-material-tint);
+  box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
+}
+/* A page with content under the card (the gallery over a wallpaper) frosts it as the composer does;
+   the sidebar's card sits on the sidebar's own glass and frosts nothing. */
+.wn-card.wn-updated[data-glass] {
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+}
+/* The card with the theme's doodle decoration wears the same material: the sidebar draws no glass
+   under the card's page (review F3 of #37615). Its own box and padding stay the doodle's. */
+.wn-card[data-decoration="doodle"] {
+  border-radius: var(--composer-material-radius);
+  background: var(--composer-material-tint);
+  box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
+}
+.wn-card[data-decoration="doodle"][data-glass] {
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+}
+/* Reduce Transparency: the composer's solid surface, as the composer's. */
+/* glass-opaque-allow: the Reduce Transparency fill only */
+:root[data-reduce-transparency] :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
+  background: var(--composer-material-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  /* glass-opaque-allow: the Reduce Transparency fill only */
+  :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
+    background: var(--composer-material-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+.wn-updated .wn-card-rest {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--wn-gap);
+  height: var(--composer-material-height);
+  padding: 0 var(--wn-side);
+}
+/* The look before (gallery): the button under the note, as tall as its rows. */
+.wn-updated[data-placement="button"] .wn-card-rest {
+  height: auto;
+  min-height: var(--composer-material-height);
+  padding-block: var(--wn-pad-y);
+}
+.wn-updated .wn-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--grid-base, 4px);
+  min-width: 0;
+  /* Room for the host's x at the line's end. */
+  padding-right: calc(var(--wn-close) + var(--wn-gap));
+  white-space: nowrap;
+}
+.wn-updated .wn-card-title {
+  min-width: 0;
+  padding-right: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wn-updated .wn-card-sep { flex: none; color: var(--page-text-3); }
+.wn-card-link {
+  flex: none;
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: var(--weight-regular);
+  letter-spacing: inherit;
+  color: var(--page-text-2);
+  cursor: default;
+  transition: color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+.wn-card-link:hover { color: var(--page-text); }
+.wn-updated[data-placement="top-right"] .wn-card-link { margin-left: auto; }
+.wn-updated .wn-card-note {
+  display: block;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wn-updated[data-placement="button"] .wn-card-note { margin-top: var(--wn-gap); }
+
+/* The hover preview (UpdatedCardPreview): above the card's two lines, in the same glass, with the
+   composer's hairline between them as its stack draws one between parts. Closed it is clipped to
+   nothing; open it is the list's height (at most PREVIEW_MAX_PX), and the list stands on the
+   preview's bottom, so as the glass's top edge rises the rows stay still. */
+.wn-preview {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 0;
+  overflow: hidden;
+}
+.wn-updated[data-preview="open"] .wn-preview {
+  height: var(--wn-preview-h, 0px);
+  box-shadow: inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 var(--composer-material-edge);
+}
+/* The card over the sidebar's rows: its open preview grows over them, and a held card is dragged
+   over them (and springs back over them after the drop). The page's glass cannot frost them: they
+   are native views under the WebKit view, outside the document a backdrop filter reads. The
+   translucent tint left every row legible through the card (Lawrence 2026-11-07: "this ui
+   transparency looks bad now"), so over the rows the card paints the composer's solid surface. It
+   turns solid at once, and back to the tint only once it has left the rows: after the preview's
+   close (the standard step) and the drop's settle, held for the motion scale's ceiling. At rest the
+   card has its own room in the sidebar, over no rows, and keeps the tint. A card with its own page
+   glass (data-glass: the gallery over a wallpaper) frosts what is under it and keeps the tint. */
+/* glass-opaque-allow: the card over native rows no page blur reaches (open preview, drag) */
+:is(.wn-card.wn-updated[data-preview="open"], .wn-card.wn-updated[data-dragging], .wn-card[data-decoration="doodle"][data-dragging]):not([data-glass]) {
+  background: var(--composer-material-solid);
+  /* Solid, it frosts nothing: no blur under it, so it is never opaque glass (accent-glass invariants).
+     Leaving these states, the blur returns at once under the still-solid fill, so nothing shows it. */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]):not([data-preview="open"], [data-dragging], [data-glass]) {
+  transition: background-color 0s linear var(--cmux-motion-large, 240ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) { transition: none !important; }
+}
+/* The one structural move: the motion scale's standard step, on the shared gate (WebTheme's
+   data-cmux-motion: "reduced" keeps only fades, so the preview is simply there). */
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-preview {
+  transition: height var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wn-preview { transition: none !important; }
+}
+.wn-preview-list {
+  flex: none;
+  box-sizing: border-box;
+  max-height: var(--wn-preview-max, 264px);
+  margin: 0;
+  padding: var(--grid-base, 4px);
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.wn-preview-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: var(--grid-base, 4px) calc(var(--wn-side) - var(--grid-base, 4px));
+  border: 0;
+  border-radius: var(--ds-radius-sm, 4px);
+  background: none;
+  color: var(--page-text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-preview-row:hover { background: var(--page-hover); }
+.wn-preview-row:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
+.wn-preview-title,
+.wn-preview-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wn-preview-title { font-size: var(--wn-title); }
+.wn-preview-detail { color: var(--page-text-2); font-size: var(--wn-note); letter-spacing: var(--text-detail--letter-spacing); }
+.wn-card-link:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+
+/* The card's drag (updatedCardDrag.ts, Leo 2026-11-07: "drag that up to the top if you wanted
+   to"): held, it takes the grabbing cursor and its words do not select. Dropped at the top of the
+   list, the card rests on its top edge: the preview opens below its two lines, its rows standing on
+   the preview's top, with the hairline between them there. */
+:is(.wn-updated, .wn-card[data-decoration="doodle"])[data-dragging],
+:is(.wn-updated, .wn-card[data-decoration="doodle"])[data-dragging] * {
+  cursor: grabbing;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.wn-updated[data-anchor="top"] { flex-direction: column-reverse; }
+.wn-updated[data-anchor="top"] .wn-preview { justify-content: flex-start; }
+.wn-updated[data-anchor="top"][data-preview="open"] .wn-preview {
+  box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--composer-material-edge);
 }

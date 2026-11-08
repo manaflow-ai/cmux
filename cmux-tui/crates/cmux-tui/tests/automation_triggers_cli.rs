@@ -103,6 +103,16 @@ fn a_log_line_starts_one_run_with_the_line_as_its_event_and_test_explains_it() {
     assert_eq!(created["gate"]["cooldown_seconds"], 600, "a watch gets a cooldown by default");
     assert_eq!(created["gate"]["max_runs_per_day"], 24);
 
+    // --debounce alone changes the watch it belongs to; on a timer it is refused.
+    let (ok, edited) = env.json(&["automation", "edit", "crash-fix", "--debounce", "2s"]);
+    assert!(ok, "{edited}");
+    assert_eq!(edited["trigger"]["debounce_seconds"], 2, "{edited}");
+    let (ok, _) = env.json(&["automation", "edit", "crash-fix", "--debounce", "1s"]);
+    assert!(ok);
+    env.json(&["automation", "create", "timer", "--every", "1h", "--command", "true"]);
+    let out = env.run(&["automation", "edit", "timer", "--debounce", "2s"]);
+    assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+
     // The dry run starts nothing and shows the event it would carry.
     let (would, t) = env.json(&["automation", "test", "crash-fix", "--event", "FATAL db timeout"]);
     assert!(would, "{t}");

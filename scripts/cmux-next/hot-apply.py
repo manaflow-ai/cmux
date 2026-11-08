@@ -19,7 +19,9 @@ with live_apply.py's rules:
   rust   SHA's cmux-tui tree key differs from the app's and no Rust the app links (its FFI
          crates, scripts/ci/cmux_next_route.py) changed: the cmux binary published for SHA's tree
          key (files.cmux.com/cmux-tui/tree/KEY, sha256 from its completion.json) replaces the
-         app's Contents/Resources/bin/cmux, and the app's daemon is handed to it the way the app
+         app's Contents/Resources/bin/cmux, with the companions bundled beside it (cmux-app-host,
+         cmux-cloud, cmux-browser-host, cmux-tui-host, cmux-holder, the screen detector) from the
+         same build, or removed where that build has none; then the app's daemon is handed to it the way the app
          hands off its own (rust-live.py's Swapper: same app pid, terminals kept). bin/cmux is
          also cmux-tui and acpmux (one multi-call binary), so `cmux link`, the CLI in the app's
          terminals and every acpmux daemon started after it run SHA's build. A running acpmux
@@ -85,6 +87,14 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 import live_apply  # noqa: E402
 
 TUI_BASE = os.environ.get("CMUX_HOT_APPLY_TUI_BASE") or "https://files.cmux.com/cmux-tui/tree"
+# The commit-addressed builds a tree's source.json names, which publish its companions.
+COMMIT_BASE = os.environ.get("CMUX_HOT_APPLY_COMMIT_BASE") or TUI_BASE.rsplit("/", 1)[0]
+# The executables the app bundles beside bin/cmux from the same build (bundle-cmux-tui.sh
+# place_companion): (the published artifact, the file in bin/). The daemon runs each sibling of
+# its own executable, so they go in with bin/cmux, or go away when the build has none, as there.
+COMPANIONS = (("app-host", "cmux-app-host"), ("cloud-server", "cmux-cloud"), ("browser-host", "cmux-browser-host"),
+              ("host", "cmux-tui-host"), ("holder", "cmux-holder"),
+              ("agent-screen-detection", "cmux-agent-screen-detection"))
 WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
 DEFAULT_APP = "/Applications/cmux NIGHTLY.app"
 BIN = "Contents/Resources/bin"
@@ -297,6 +307,76 @@ def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
         os.chmod(part.name, 0o755)
         os.replace(part.name, copy)
     return copy, want
+
+
+def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None]:
+    """The companions of tree KEY's build for this host, each checked against the sha256 of the
+    commit-addressed manifest its source.json names; None for one that build published none of."""
+    owner = json.loads(fetch(f"{TUI_BASE}/{key}/source.json")).get("commit") or ""
+    if not SHA.fullmatch(owner):
+        raise RuntimeError(f"{TUI_BASE}/{key}/source.json names no commit, so its companions are unknown")
+    binaries = json.loads(fetch(f"{COMMIT_BASE}/{owner}/manifest.json")).get("binaries", {})
+    out: dict[str, tuple[Path, str] | None] = {}
+    for artifact, file in COMPANIONS:
+        asset = f"cmux-tui-{artifact}-{triple()}"
+        want = binaries.get(asset)
+        if not want:
+            out[file] = None
+            continue
+        copy = state / "builds" / want / file
+        if not copy.is_file() or sha256_file(copy) != want:
+            body = fetch(f"{COMMIT_BASE}/{owner}/{asset}")
+            if hashlib.sha256(body).hexdigest() != want:
+                raise RuntimeError(f"{COMMIT_BASE}/{owner}/{asset} does not hash to {want}")
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
+                part.write(body)
+            os.chmod(part.name, 0o755)
+            os.replace(part.name, copy)
+        out[file] = (copy, want)
+    return out
+
+
+def local_companions(binary: Path, state: Path) -> dict[str, tuple[Path, str] | None]:
+    """The companions beside a cmux built elsewhere (--binary: a dev build's bin/)."""
+    return {file: keep(state, binary.parent / file) if (binary.parent / file).is_file() else None
+            for _, file in COMPANIONS}
+
+
+def place_companions(app: Path, companions: dict[str, tuple[Path, str] | None], state: Path) -> dict:
+    """Puts each companion beside bin/cmux, or removes the app's when the build has none; returns
+    what was there before, by file (None: absent), for put_back."""
+    prior: dict = {}
+    for file, new in companions.items():
+        target = app / BIN / file
+        if target.is_symlink() or (not target.exists() and new is None):
+            continue  # a link (cmux-tui, acpmux) follows bin/cmux; nothing to remove
+        prior[file] = dict(zip(("copy", "sha256"), map(str, keep(state, target)))) if target.is_file() else None
+        if new is None:
+            target.unlink()
+            continue
+        # Renamed into place: a rewritten Mach-O keeps a stale code signature.
+        staged = target.with_name(f".{file}.hot-apply")
+        shutil.copy2(new[0], staged)
+        staged.chmod(0o755)
+        os.replace(staged, target)
+        if sha256_file(target) != new[1]:
+            raise RuntimeError(f"{target} does not hash to {new[1]}")
+    return prior
+
+
+def restore_companions(app: Path, prior: dict) -> None:
+    for file, was in prior.items():
+        target = app / BIN / file
+        if was is None:
+            target.unlink(missing_ok=True)
+            continue
+        staged = target.with_name(f".{file}.hot-apply")
+        shutil.copy2(was["copy"], staged)
+        staged.chmod(0o755)
+        os.replace(staged, target)
+        if sha256_file(target) != was["sha256"]:
+            raise RuntimeError(f"{target} does not hash to {was['sha256']}")
 
 
 def keep(state: Path, path: Path) -> tuple[Path, str]:
@@ -554,9 +634,17 @@ def command_apply(args) -> int:
     try:
         if "rust" in parts:
             # --binary: a cmux binary built for SHA elsewhere (try-pr.sh: the PR's fleet dev build).
-            new, want = keep(state, Path(args.binary)) if args.binary else fetch_cmux(planned["tree_key"], state)
+            if args.binary:
+                new, want = keep(state, Path(args.binary))
+                companions = local_companions(Path(args.binary), state)
+            else:
+                new, want = fetch_cmux(planned["tree_key"], state)
+                companions = fetch_companions(planned["tree_key"], state)
             prior, prior_sha = keep(state, target)
-            undo["rust"] = {"copy": str(prior), "sha256": prior_sha}
+            undo["rust"] = {"copy": str(prior), "sha256": prior_sha, "companions": {}}
+            # Before the handoff, so the new daemon starts the companions of its own build.
+            undo["rust"]["companions"] = place_companions(app, companions, state)
+            receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
             receipt["steps"]["rust"] = swap_cmux(app, new, want, args.socket, state)
             receipt["steps"]["rust"]["from"] = prior_sha
             receipt["applied"].append("rust")
@@ -594,6 +682,7 @@ def put_back(app: Path, undo: dict, socket: str | None, state: Path, live) -> di
     if "rust" in undo:
         target = (app / BIN / "cmux").resolve()
         try:
+            restore_companions(app, undo["rust"].get("companions") or {})
             if sha256_file(target) == undo["rust"]["sha256"]:
                 out["rust"] = {"ok": True, "running_sha256": undo["rust"]["sha256"], "daemon": "unchanged"}
             else:

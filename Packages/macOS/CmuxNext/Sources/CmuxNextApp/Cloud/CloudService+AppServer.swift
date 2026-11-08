@@ -85,7 +85,7 @@ extension CloudService {
                                            answering: pinned.answeringRequest, onAnswering: { [weak creation] in creation?.markAnswering($0, key: pinned.idempotencyKey) },
                                            gate: pinned.wasSent ? .allowed : createGate, environment: environment, request: pinned,
                                            madeRoom: { [weak self] in self?.madeRoom?(CloudMachine(next: $0)?.title ?? $0["name"]?.stringValue ?? "") })
-        } catch let failure as CloudAppOpFailure where CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
+        } catch let failure as CloudAppOpFailure where CloudStartCore().isDefinitiveRefusal(failure) {
             // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
             // attempt (a Retry already started, with this same key) leaves the key to that Retry.
             if !Task.isCancelled { creation?.renewKey(replacing: pinned.idempotencyKey) }
@@ -103,10 +103,9 @@ extension CloudService {
         return try await appServerFlow(team: team, run: appOps).approvedCall(op, args: args, confirm: confirm)
     }
 
-    /// The team's Cloud environments for the New Cloud Workspace dialog; none when the list fails
-    /// (the dialog then offers only a new one).
-    func appServerEnvironmentOptions() async -> [CloudWorkspaceSetupWizard.EnvironmentOption] {
-        guard let answer = try? await appOps("cloud.environment.list", .object([:]), nil, .script) else { return [] }
+    /// The team's Cloud environments; throws when the list fails (`cloud new-machine --environment NAME` refuses it).
+    func appServerEnvironmentOptions() async throws -> [CloudWorkspaceSetupWizard.EnvironmentOption] {
+        let answer = try await appOps("cloud.environment.list", .object([:]), nil, .script)
         return (answer["environments"]?.arrayValue ?? []).compactMap { value in
             guard let id = value["id"]?.stringValue, let name = value["name"]?.stringValue else { return nil }
             return CloudWorkspaceSetupWizard.EnvironmentOption(id: id, name: name)
@@ -151,12 +150,12 @@ extension CloudService {
     }
 
     static func appServerTeam(current: String, request: CloudMachineRequest) throws -> String {
-        try CloudMachineCreateRetry().team(current: current, request: request, changedTeam: ActionFailure(message: CloudStrings.createRetryOtherTeam))
+        try CloudStartCore().createTeam(current: current, request: request, changedTeam: ActionFailure(message: CloudStrings.createRetryOtherTeam))
     }
 
     nonisolated static func pinnedRun(team: String, currentTeam: @escaping @Sendable () async throws -> String,
                                       sent: @escaping @MainActor @Sendable () async throws -> Void, ops: @escaping CloudAppOp) -> CloudAppOp {
-        CloudMachineCreateRetry().pinnedRun(team: team, currentTeam: currentTeam, sent: sent,
+        CloudStartCore().pinnedRun(team: team, currentTeam: currentTeam, sent: sent,
             changedTeam: { ActionFailure(message: CloudStrings.createRetryOtherTeam) }, ops: ops)
     }
 

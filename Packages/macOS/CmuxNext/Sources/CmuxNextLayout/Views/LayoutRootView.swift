@@ -567,7 +567,8 @@ public final class LayoutRootView: NSView {
     func updateVisibility() {
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
-        if isLive, let active = model.activeScreenID, let view = screenViews[active] {
+        let reads = model.layoutPassReads
+        if isLive, let active = reads.activeScreenID, let view = screenViews[active] {
             visible = view.visiblePanes()
             keepAlive = view.keepAlivePanes().union(visible)
         }
@@ -586,8 +587,8 @@ public final class LayoutRootView: NSView {
         // layout order: the app makes one new surface per frame in this order, and the pane the
         // person types into must not wait behind the others (REOPEN-F4: in a Set's hash order, the
         // first key after a reopen was lost in 10 of 15 cycles).
-        let focused = model.focusedPane
-        let order = Dictionary((model.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let focused = reads.focusedPane
+        let order = Dictionary((reads.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         func place(_ pane: PaneID) -> (Int, Int, String) { (pane == focused ? 0 : 1, order[pane] ?? .max, pane.rawValue) }
         for (pane, presence) in changes.sorted(by: { $0.1.rank != $1.1.rank ? $0.1.rank < $1.1.rank : place($0.0) < place($1.0) }) {
             context.provider?.panePresenceDidChange(pane, presence: presence)

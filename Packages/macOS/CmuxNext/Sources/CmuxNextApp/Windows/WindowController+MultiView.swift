@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemonService
 import CmuxNextDesign
@@ -292,17 +293,12 @@ extension WindowController: WindowDockFrame {
     }
 }
 
-// The Chief panel's window side (rules: CmuxNextDaemonService `WindowDockFrame+ChiefPanel`; view: CmuxNextLayout
-// `ChiefPanelView`): the panel borrows the Chief view of Home's Chief tab while another workspace shows and gives it
-// back before Home shows, so the draft, scroll and selection are Home's own.
+// The Chief panel's window side (rules: `WindowDockFrame+ChiefPanel`; view: `ChiefPanelView`); it borrows Home's Chief view.
 extension WindowController {
     /// Mounts or takes away the panel for this arrangement; the panel when it draws (open, the stage not Home, a
     /// Chief view to hold).
     func syncChiefPanel() -> ChiefPanel? {
-        guard chiefPanelBelongsOnScreen, let chief = chiefPanelSource?() ?? homeChiefView() else {
-            removeChiefPanel()
-            return nil
-        }
+        guard chiefPanelBelongsOnScreen, let chief = chiefPanelSource?() ?? homeChiefView() else { removeChiefPanel(); return nil }
         let view = chiefPanelView ?? makeChiefPanelView()
         if view.superview !== root.contentHost { root.contentHost.addSubview(view) }
         if view.floating != (state.chiefPanel.dockedEdge == nil) { view.setFloating(state.chiefPanel.dockedEdge == nil) }
@@ -315,9 +311,8 @@ extension WindowController {
         guard let view = chiefPanelView, view.superview != nil else { return }
         let hadKeys = view.hasKeys
         let homeContent = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
-        if let chief = view.release() {
-            for pane in homeContent.map({ Array($0.panes.values) }) ?? [] where pane.view.content === chief { _ = pane.view.show(chief) }
-        }
+        let panes = homeContent.map { Array($0.panes.values) } ?? []
+        if let chief = view.release() { for pane in panes where pane.view.content === chief { _ = pane.view.show(chief) } }
         view.removeFromSuperview()
         if hadKeys, homeContent !== content { frameFocusStage(toward: nil) }
     }
@@ -350,8 +345,7 @@ extension WindowController {
                 let size = root.contentHost.bounds.size
                 state.chiefPanel.floatingFrame = ChiefPanelFrame.fitting(CGRect(x: frame.minX, y: size.height - frame.maxY, width: frame.width, height: frame.height), in: size)
                 frameChiefPanelDidChange()
-            }))
-        view.isBusy = { ((($0 as? InternalPageView)?.content ?? $0) as? HomeHostView)?.isChiefWorking == true }
+            }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }))
         chiefPanelView = view
         return view
     }

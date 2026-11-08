@@ -225,6 +225,8 @@ fn a_watch_has_no_due_times_and_needs_a_command() {
     assert_eq!(watch().next_after(T0).unwrap(), None);
     assert!(Trigger::Watch { command: " ".into(), debounce_seconds: 5 }.validate().is_err());
     assert!(Trigger::Watch { command: "x".into(), debounce_seconds: 0 }.validate().is_err());
+    assert!(Trigger::Watch { command: "x".into(), debounce_seconds: 30 }.validate().is_ok());
+    assert!(Trigger::Watch { command: "x".into(), debounce_seconds: 31 }.validate().is_err());
 }
 
 #[test]
@@ -257,6 +259,101 @@ fn bursts_of_lines_are_one_event_after_the_debounce() {
         w.add_line(&a.id, "spam", ms + 10_000 + i * 1_000);
     }
     assert_eq!(w.due_events(ms + 40_000).len(), 1);
+}
+
+#[test]
+fn queued_catch_up_runs_still_meet_the_cooldown_and_cap() {
+    let store = store("catch-up-gate");
+    let gate = Gate { max_runs_per_day: Some(1), ..Gate::default() };
+    let every = Trigger::Every { seconds: 600, anchor: T0 };
+    let mut s = spec("all", every, "true", gate);
+    s.catch_up = CatchUp::All { max: 10 };
+    let a = store.create(s, T0).unwrap();
+    let mut exec = Recorder { alive: true, ..Recorder::default() };
+    // Three fires were missed: the first starts, the others queue behind it.
+    tick(&store, T0 + 1_800, &mut exec).unwrap();
+    assert_eq!(exec.started.len(), 1);
+    exec.alive = false;
+    tick(&store, T0 + 1_801, &mut exec).unwrap();
+    assert_eq!(exec.started.len(), 1, "the cap of one run a day holds the queued ones");
+    let runs = store.runs(&a.id).unwrap();
+    assert!(runs.iter().all(|r| r.state != RunState::Queued), "{runs:?}");
+    assert!(runs.iter().any(|r| r.reason.as_deref() == Some("cap_reached")), "{runs:?}");
+}
+
+#[test]
+fn a_manual_run_never_starts_beside_a_live_run() {
+    let store = store("manual-busy");
+    let a = store.create(spec("m", Trigger::Manual, "true", Gate::default()), T0).unwrap();
+    let mut exec = Recorder { alive: true, ..Recorder::default() };
+    start_manual_with_event(&store, &a.id, "one", None, T0, &mut exec).unwrap();
+    let second = start_manual_with_event(&store, &a.id, "two", None, T0 + 1, &mut exec).unwrap();
+    assert_eq!(exec.started.len(), 1);
+    let r = store.run(&a.id, &second).unwrap().unwrap();
+    assert_eq!((r.state, r.reason.as_deref()), (RunState::Skipped, Some("previous_run_running")));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_condition_whose_child_keeps_its_output_open_still_ends_in_time() {
+    use cmux_automations::exec::{Condition, run_condition};
+    let started = Instant::now();
+    let c = run_condition(
+        "sleep 600 & echo yes; exit 0",
+        None,
+        "",
+        &[],
+        std::process::Stdio::null(),
+        Duration::from_secs(60),
+    );
+    assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+    assert!(matches!(&c, Condition::Go { output } if output.contains("yes")), "{c:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_watch_that_closes_its_output_is_stopped_without_holding_the_runner() {
+    let store = store("closed");
+    let pidfile = std::env::temp_dir().join(format!("cmux-watch-closed-{}", std::process::id()));
+    let cmd = format!(
+        "echo $$ > {}; echo FATAL; exec 1>&-; trap '' TERM; exec sleep 600",
+        pidfile.display()
+    );
+    let a = store
+        .create(
+            spec(
+                "closed",
+                Trigger::Watch { command: cmd, debounce_seconds: 1 },
+                "true",
+                Gate::default(),
+            ),
+            T0,
+        )
+        .unwrap();
+    let now_ms = || {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as i64
+    };
+    let mut w = Watches::new(store);
+    w.reconcile(std::slice::from_ref(&a), now_ms());
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while w.status()[0].running && Instant::now() < deadline {
+        let started = Instant::now();
+        w.wait(Duration::from_millis(200), &now_ms);
+        assert!(started.elapsed() < Duration::from_secs(2), "wait held the runner");
+    }
+    assert!(!w.status()[0].running, "a watch whose output closed is over");
+    let pid: i32 = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
+    // It ignores SIGTERM: the runner escalates after the grace.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    // SAFETY: probes (signal 0) the process the watch started.
+    while unsafe { libc::kill(pid, 0) } == 0 && Instant::now() < deadline {
+        w.wait(Duration::from_millis(200), &now_ms);
+    }
+    assert!(unsafe { libc::kill(pid, 0) } != 0, "the process is gone");
+    let started = Instant::now();
+    drop(w);
+    assert!(started.elapsed() < Duration::from_secs(10));
 }
 
 #[cfg(unix)]

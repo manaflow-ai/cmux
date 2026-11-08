@@ -182,12 +182,12 @@ struct PaneContentPolicyTests {
         #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size: \(off.prefix(3))")
         let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
         #expect(TerminalSurfaceView.gridReports - reportsBefore <= UInt64(panes.count * windows),
-                "more grid reports than one per terminal per 25 ms window (\(windows)) for one press")
+                "more grid reports than one per terminal per refresh (\(windows)) for one press")
         for pane in panes {
             let grids = try await Self.grids(pane, rig)
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             #expect(grids.count <= windows && grids.last == final,
-                    "\(pane) asked its PTY for \(grids), not at most one grid per 25 ms window (\(windows)) ending at its final grid \(final)")
+                    "\(pane) asked its PTY for \(grids), not at most one grid per refresh (\(windows)) ending at its final grid \(final)")
             #expect((sizes[pane] ?? []).count > 3, "\(pane)'s surface took \(sizes[pane]?.count ?? 0) sizes in a \(frames)-frame spring: its text did not follow its pane")
         }
     }
@@ -549,7 +549,7 @@ struct PaneContentPolicyTests {
         let sent = atJoin + atSecond + afterLanding
         let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
         #expect(sent.count <= windows,
-                "the PTY got \(sent.count) grids, more than one per 25 ms window (\(windows)): join \(atJoin), second press \(atSecond), landing \(afterLanding)")
+                "the PTY got \(sent.count) grids, more than one per refresh (\(windows)): join \(atJoin), second press \(atSecond), landing \(afterLanding)")
         #expect(sent.last == final, "the PTY got \(sent), not ending at the final grid \(final) (\(atLanding))")
         let afterFinal = sent.drop(while: { $0 != final }).dropFirst()
         #expect(afterFinal.isEmpty, "the PTY got \(Array(afterFinal)) after the final grid \(final): \(sent)")
@@ -624,10 +624,12 @@ struct PaneContentPolicyTests {
         // The tab switch: the joining terminal takes the pane's content area in the middle of the spring.
         pane.show(joining.view)
         rig.root.layoutSubtreeIfNeeded()
-        var off: [String] = []
+        let atShow = joining.surfaceView.fittedGrid
+        var off: [String] = [], atFirstFrame: TerminalGridSize?
         let frames = try Self.run(rig) { frame in
             let host = joining.view, area = try #require(host.superview)
             if host.frame.size != area.bounds.size { off.append("frame \(frame): the joining host \(host.frame.size) in \(area.bounds.size)") }
+            if frame == 1 { atFirstFrame = joining.surfaceView.fittedGrid }
         }
         #expect(frames > 3, "the spring landed before the switch (\(frames) frames left)")
         #expect(off.isEmpty, "the joining terminal's host did not follow its pane: \(off.prefix(3))")
@@ -637,7 +639,12 @@ struct PaneContentPolicyTests {
         joining.surfaceView.bridge.takeUnretainedValue().input.focusGained()
         let grids = await io.gridsUntilMarker()
         let final = try #require(joining.surfaceView.fittedGrid)
-        #expect(grids == [final], "the joining terminal asked its PTY for \(grids), not its final grid \(final) once")
+        // RESIZE P0 7: the grid of the first landed frame (the join's, or the next frame's) goes at once; these frames run in
+        // one turn, so no refresh ends a window and the rest go as the final grid. Exact: any other first grid fails
+        // (RESIZE P0 8, review of 28a640183a7).
+        let allowed = [[final]] + [atShow, atFirstFrame].compactMap { $0 }.filter { $0 != final }.map { [$0, final] }
+        #expect(allowed.contains(grids),
+                "the joining terminal asked its PTY for \(grids), not [the join's \(String(describing: atShow)) or its first frame's grid \(String(describing: atFirstFrame)),] then its final grid \(final)")
     }
 
     // MARK: Note 5: S3c

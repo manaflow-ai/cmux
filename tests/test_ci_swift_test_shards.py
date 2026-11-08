@@ -64,7 +64,7 @@ class Plan(unittest.TestCase):
         plan = shards.plan(PACKAGE / "Tests", PACKAGE / "Package.swift", "all", 10)
         cloud = [s for s in plan if s["filter"] == r"^(CmuxNextAppTests\.Cloud)"]
         self.assertEqual(len(cloud), 1)
-        for suite in ("CloudCodexBrokerTests", "CloudCodexBrokerAdapterTests", "CloudStartSessionTests"):
+        for suite in ("CloudCodexDeviceRecoveryTests", "CloudWorkerMachineFilesTests", "CloudStartSessionTests"):
             with self.subTest(suite=suite):
                 self.assertEqual(matching(plan, f"CmuxNextAppTests.{suite}/aTest()"), [cloud[0]["name"]])
         self.assertEqual(len(matching(plan, "CmuxNextAppTests.ClipboardTests/aTest()")), 1)

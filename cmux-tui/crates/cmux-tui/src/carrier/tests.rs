@@ -6,13 +6,16 @@ use cmux_remote::link::LinkError;
 use cmux_remote::provider::ProviderError;
 use serde_json::{Value, json};
 
-use super::answer::{TicketCache, key_text, parse_answer, read_reply};
+use super::answer::{Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply};
 use super::client::{classify, pinned_daemon, resume_outcome};
 use super::contract::{
-    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, Step, connected_line, failure_line,
-    parse_deadline, route_line,
+    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, StdinLine, Step, Vmk, answer_line,
+    connected_line, failure_line, parse_deadline, route_line, served_line, serving_line,
+    stdin_line,
 };
-use super::{DialArgs, parse, with_team_env};
+use super::{
+    DialArgs, DialService, ServeArgs, parse, parse_key, parse_serve, public_key_line, with_team_env,
+};
 
 fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_owned).collect()
@@ -22,10 +25,23 @@ const VM: &str = "vm_0123456789abcdefghij";
 
 #[test]
 fn the_reply_line_is_one_json_line_the_app_server_reads() {
-    let ok = connected_line();
+    let ok = connected_line(None);
     assert!(ok.ends_with('\n') && ok.matches('\n').count() == 1);
     let value: Value = serde_json::from_str(ok.trim()).unwrap();
     assert_eq!(value, json!({"ok": true, "path_state": "relay", "route": "carrier"}));
+    for (vmk, name) in [(Vmk::Owner, "owner"), (Vmk::Team, "team")] {
+        let value: Value = serde_json::from_str(connected_line(Some(vmk)).trim()).unwrap();
+        assert_eq!(
+            value,
+            json!({"ok": true, "path_state": "relay", "route": "carrier", "vmk": name})
+        );
+    }
+    let served: Value = serde_json::from_str(served_line(None).trim()).unwrap();
+    assert_eq!(served, json!({"ok": true, "route": "carrier"}));
+    let served: Value = serde_json::from_str(served_line(Some(Vmk::Team)).trim()).unwrap();
+    assert_eq!(served, json!({"ok": true, "route": "carrier", "vmk": "team"}));
+    let ready: Value = serde_json::from_str(serving_line("/s/carrier.sock").trim()).unwrap();
+    assert_eq!(ready, json!({"ok": true, "socket": "/s/carrier.sock", "route": "carrier"}));
 
     for step in [Step::Ticket, Step::Relay, Step::Parked, Step::Handshake] {
         let line = failure_line(step.error_code(), Some("why\nit\tfailed"));
@@ -48,6 +64,7 @@ fn each_step_has_its_own_code_and_exit() {
         .map(|s| (s.error_code(), s.exit_code()))
         .collect();
     assert_eq!(codes, [("ticket", 2), ("relay", 3), ("parked_timeout", 4), ("handshake", 5)]);
+    assert_eq!((Step::Service.error_code(), Step::Service.exit_code()), ("service_refused", 6));
 }
 
 #[test]
@@ -75,18 +92,32 @@ fn arguments_are_the_machine_and_one_deadline() {
         parse(&words(&format!("dial --machine {VM}"))),
         Some(DialArgs {
             machine: VM.into(),
+            service: DialService::Mux,
             deadline: Duration::from_secs(180),
             api: None,
             token_file: None,
             team: None,
+            answer_fd: None,
         })
     );
+    for (fd, want) in [("0", 0), ("3", 3), ("17", 17)] {
+        let args = parse(&words(&format!("dial --machine {VM} --answer-fd {fd}"))).unwrap();
+        assert_eq!(args.answer_fd, Some(want), "{fd}");
+    }
     let full = parse(&words(&format!(
         "dial --deadline-ms 5000 --machine {VM} --cloud-api https://api.example --cloud-token-file /t"
     )))
     .unwrap();
     assert_eq!(full.deadline, Duration::from_millis(5000));
     assert_eq!(full.api.as_deref(), Some("https://api.example"));
+    assert_eq!(
+        parse(&words(&format!("dial --machine {VM} --service desktop"))).unwrap().service,
+        DialService::Desktop
+    );
+    assert_eq!(
+        parse(&words(&format!("dial --service mux --machine {VM}"))).unwrap().service,
+        DialService::Mux
+    );
     for bad in [
         "dial".to_owned(),
         "connect --machine vm_0123456789abcdefghij".to_owned(),
@@ -97,14 +128,114 @@ fn arguments_are_the_machine_and_one_deadline() {
         format!("dial --machine {VM} --deadline-ms 600001"),
         format!("dial --machine {VM} --deadline-ms"),
         format!("dial --machine {VM} --host x"),
+        format!("dial --machine {VM} --service ssh"),
+        format!("dial --machine {VM} --service desktop --service desktop"),
         format!("dial --machine {VM} --team team_0123"),
         format!("dial --machine {VM} --team team_0123456789ABCDEF0123"),
         format!("dial --machine {VM} --team user_0123456789abcdef0123"),
         format!("dial --machine {VM} --team {TEAM} --team {TEAM}"),
+        format!("dial --machine {VM} --answer-fd 1"),
+        format!("dial --machine {VM} --answer-fd 2"),
+        format!("dial --machine {VM} --answer-fd -1"),
+        format!("dial --machine {VM} --answer-fd x"),
+        format!("dial --machine {VM} --answer-fd 0 --answer-fd 0"),
     ] {
         assert_eq!(parse(&words(&bad)), None, "{bad}");
     }
+    assert_eq!(
+        parse_serve(&words(&format!("serve --machine {VM} --socket /s --answer-fd 0"))),
+        None
+    );
     assert_eq!(parse_deadline("600000"), Some(Duration::from_secs(600)));
+}
+
+#[test]
+fn serve_takes_the_dial_flags_and_one_absolute_socket() {
+    let served = parse_serve(&words(&format!("serve --socket /s/c.sock --machine {VM}"))).unwrap();
+    assert_eq!(
+        served,
+        ServeArgs {
+            dial: parse(&words(&format!("dial --machine {VM}"))).unwrap(),
+            socket: "/s/c.sock".into()
+        }
+    );
+    let full = parse_serve(&words(&format!(
+        "serve --machine {VM} --socket /s/c.sock --deadline-ms 5000 --team {TEAM} --cloud-api https://api.example"
+    )))
+    .unwrap();
+    assert_eq!(full.dial.deadline, Duration::from_millis(5000));
+    assert_eq!(full.dial.team.as_deref(), Some(TEAM));
+    let long = format!("/{}", "s".repeat(200));
+    for bad in [
+        format!("serve --machine {VM}"),
+        format!("serve --machine {VM} --socket relative.sock"),
+        format!("serve --machine {VM} --socket {long}"),
+        format!("serve --machine {VM} --socket /a --socket /b"),
+        "serve --machine vm_short --socket /a".to_owned(),
+        format!("dial --machine {VM} --socket /a"),
+        format!("serve --machine {VM} --socket /a --service mux"),
+    ] {
+        assert_eq!(parse_serve(&words(&bad)), None, "{bad}");
+    }
+    assert_eq!(parse(&words(&format!("dial --machine {VM} --socket /a"))), None);
+}
+
+#[test]
+fn serve_stdin_lines_are_a_token_or_refused() {
+    match stdin_line(br#"{"access_token":" tok.en-1 ","other":1}"#) {
+        StdinLine::Token(token) => assert_eq!(token.as_str(), "tok.en-1"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(stdin_line(b"  \r"), StdinLine::Blank);
+    for bad in [
+        &b"not json"[..],
+        br#"["access_token"]"#,
+        br#"{"token":"x"}"#,
+        br#"{"access_token":""}"#,
+        br#"{"access_token":"has space"}"#,
+        br#"{"access_token":7}"#,
+    ] {
+        assert!(
+            matches!(stdin_line(bad), StdinLine::Invalid(_)),
+            "{}",
+            String::from_utf8_lossy(bad)
+        );
+    }
+    let long = format!(r#"{{"access_token":"{}"}}"#, "a".repeat(8193));
+    assert!(matches!(stdin_line(long.as_bytes()), StdinLine::Invalid(_)));
+}
+
+#[test]
+fn a_failure_line_never_says_cloud_connect() {
+    let line = failure_line("ticket", Some("cmux-platform answered 403 cloud.connect: no"));
+    assert!(!line.contains("cloud.connect"), "{line}");
+    assert!(line.contains("cloud connect"), "{line}");
+}
+
+#[test]
+fn the_grant_vmk_claim_is_the_dial_s_ownership_answer() {
+    use base64::Engine as _;
+    let grant = |claims: Value| {
+        let encode =
+            |v: &Value| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string());
+        format!("{}.{}.c2ln", encode(&json!({"alg": "EdDSA"})), encode(&claims))
+    };
+    assert_eq!(grant_vmk(&grant(json!({"vmk": "owner"}))), Some(Vmk::Owner));
+    assert_eq!(grant_vmk(&grant(json!({"vmk": "team"}))), Some(Vmk::Team));
+    for none in [
+        grant(json!({"sub": "user_1"})),
+        grant(json!({"vmk": "admin"})),
+        grant(json!({"vmk": 1})),
+        "h.c.s".to_owned(),
+        "one-part".to_owned(),
+        format!("{}.x", grant(json!({"vmk": "owner"}))),
+    ] {
+        assert_eq!(grant_vmk(&none), None, "{none}");
+    }
+    let mut value = answer_value();
+    value["grant"] = json!(grant(json!({"vmk": "owner"})));
+    assert_eq!(parse_answer(&value).unwrap().vmk, Some(Vmk::Owner));
+    assert_eq!(parse_answer(&answer_value()).unwrap().vmk, None);
 }
 
 #[test]
@@ -285,4 +416,63 @@ fn the_connect_log_is_only_appended_and_stops_at_its_cap() {
     std::fs::write(&path, vec![b'x'; super::route_log::MAX_BYTES as usize - 1]).unwrap();
     super::route_log::append(&path, "c\n");
     assert_eq!(std::fs::metadata(&path).unwrap().len(), super::route_log::MAX_BYTES - 1);
+}
+
+#[test]
+fn a_handed_over_answer_is_a_checked_answer_with_a_grant() {
+    let line = json!({ "carrier_answer": answer_value() }).to_string();
+    match stdin_line(line.as_bytes()) {
+        StdinLine::Answer(answer) => {
+            assert_eq!(answer.slot, "AbC-_123");
+            assert_eq!(answer.daemon_key, Some([7; 32]));
+            let debug = format!("{answer:?}");
+            assert!(!debug.contains("h.c.s") && !debug.contains("v2.claims"), "{debug}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(answer_line(line.as_bytes()).is_ok());
+    let mut grantless = answer_value();
+    grantless.as_object_mut().unwrap().remove("grant");
+    let grantless = json!({ "carrier_answer": grantless }).to_string();
+    assert_eq!(stdin_line(grantless.as_bytes()), StdinLine::Invalid("carrier_answer has no grant"));
+    for bad in [&br#"{"carrier_answer":{}}"#[..], br#"{"carrier_answer":7}"#, b"[]"] {
+        assert!(
+            matches!(stdin_line(bad), StdinLine::Invalid(_)),
+            "{}",
+            String::from_utf8_lossy(bad)
+        );
+        assert!(answer_line(bad).is_err());
+    }
+}
+
+#[test]
+fn a_handed_over_answer_is_taken_once_and_only_while_fresh() {
+    let fresh = parse_answer(&answer_value()).unwrap();
+    let expires = fresh.expires_at;
+    let held = Prefetched::new(Some(fresh.clone()));
+    assert!(held.take(expires - 300).is_some());
+    assert!(held.take(expires - 300).is_none(), "one attempt takes it");
+    held.put(fresh);
+    assert!(held.take(expires - 10).is_none(), "a ticket about to expire is dropped");
+    assert!(held.take(expires - 300).is_none(), "and not kept");
+    let mut grantless = answer_value();
+    grantless.as_object_mut().unwrap().remove("grant");
+    held.put(parse_answer(&grantless).unwrap());
+    assert!(held.take(expires - 300).is_none(), "an answer without a grant is not used");
+}
+
+#[test]
+fn key_prints_only_the_public_key_as_one_base64url_line() {
+    assert!(parse_key(&words("key --public")));
+    for bad in ["key", "key --private", "key --public --public", "key --public x", "dial --public"]
+    {
+        assert!(!parse_key(&words(bad)), "{bad}");
+    }
+    let identity = cmux_remote::crypto::StaticIdentity::generate().unwrap();
+    let line = public_key_line(&identity.public_key());
+    let text = line.strip_suffix('\n').unwrap();
+    assert_eq!(text.len(), 43);
+    assert!(text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "{line}");
+    assert_eq!(text, key_text(&identity.public_key()), "the platform's noise_key spelling");
+    assert_ne!(text, key_text(identity.private_key()), "never the private key");
 }

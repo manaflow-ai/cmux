@@ -20,7 +20,7 @@ type RowStyle = "light" | "keycap" | "hover" | "trailing";
 /// How the one-time line of an ask the chat's highest mode does not answer reads: "line" (shipped,
 /// a muted line under the title), "callout" (an inset tinted box) or "pill" (a small pill).
 type OneTimeStyle = "line" | "callout" | "pill";
-type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness" | "fullAccessMode"> & {
+type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness" | "fullAccessMode" | "shortcuts"> & {
   scopeStyle?: ScopeStyle;
   rowStyle?: RowStyle;
   oneTimeStyle?: OneTimeStyle;
@@ -195,7 +195,15 @@ const grokPlan: AcpmuxPermission = {
   ],
 };
 
-function GalleryPermissionCard({ permission, harness, fullAccessMode, scopeStyle, rowStyle, oneTimeStyle }: Props) {
+function GalleryPermissionCard({
+  permission,
+  harness,
+  fullAccessMode,
+  shortcuts,
+  scopeStyle,
+  rowStyle,
+  oneTimeStyle,
+}: Props) {
   return (
     <div
       className="acpmux-shell"
@@ -214,6 +222,7 @@ function GalleryPermissionCard({ permission, harness, fullAccessMode, scopeStyle
               permission={permission}
               harness={harness}
               fullAccessMode={fullAccessMode}
+              shortcuts={shortcuts}
               onAnswer={() => undefined}
             />
           </ShortcutsContext>
@@ -262,6 +271,10 @@ export default componentEntry<Props>({
     "external-access-trailing": {
       note: "Alternative: the trailing row style, with the scope line also at the trailing edge.",
       props: { permission: externalRead, harness: "claude", rowStyle: "trailing" },
+    },
+    "grid-transcript": {
+      note: "The transcript card has no shortcut hints; used to check its initial row height.",
+      props: { permission: shortRule, harness: "claude", shortcuts: false },
     },
     "grid-pending": {
       note: "Grid measurement: pending permission without a play that answers it.",

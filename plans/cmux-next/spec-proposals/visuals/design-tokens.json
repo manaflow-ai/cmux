@@ -2446,7 +2446,7 @@
   },
   "loops": {
    "spinner": {
-    "value": 0.9,
+    "value": 2.0,
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:76 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "One spinner turn"
@@ -2859,11 +2859,11 @@
     "trackOpacity": 0.22,
     "pulseLow": 0.35,
     "nativeSteps": 8,
-    "braille": "10 frames ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ stepped over loop.spinner (0.9 s), drawn in the terminal font family (else SF Mono) fitted to the slot"
+    "braille": "10 frames ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ stepped over loop.spinner (2 s), drawn in the terminal font family (else SF Mono) fitted to the slot"
    },
    "states": {
     "idle": "hidden",
-    "busy": "arc spinning (loop.spinner 0.9 s) in token:textSecondary (or appearance.statusIndicator.color); with progress a ring over a 0.22 track; braille style: the braille frames",
+    "busy": "arc spinning (loop.spinner 2 s) in token:textSecondary (or appearance.statusIndicator.color); with progress a ring over a 0.22 track; braille style: the braille frames",
     "waiting": "dot, pulse (loop.pulse 1.8 s, low 0.35), token:attention",
     "error": "dot token:danger, static",
     "success": "check token:success",

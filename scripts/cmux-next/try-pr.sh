@@ -309,8 +309,9 @@ web_live() {
 
 # The PR's daemon swapped into the side instance's copy of APP (with --here, into APP), terminals
 # kept: hot-apply.py apply --branch, with BINARY when given, else the binary CI published for the
-# PR head's cmux-tui tree. Returns 1, saying why, when it cannot; 2 when the tree is not published
-# and no BINARY was given (the caller builds it on the fleet).
+# PR head's cmux-tui tree. Returns 1, saying why, when it cannot (a web part that fails puts the
+# daemon back first); 2 when the tree is not published and no BINARY was given (the caller builds it
+# on the fleet); 3 when the daemon went in but the side instance did not open.
 live_rust() {
   local binary="${1:-}" hot="${CMUX_TRY_PR_HOT_APPLY:-$ROOT/scripts/cmux-next/hot-apply.py}" planned code=0 target
   planned="$(python3 "$hot" plan "$head" --branch --app "$from" --repo "$ROOT")" || code=$?
@@ -333,6 +334,14 @@ for kind, paths in sorted(left.items()):
     echo "the PR head's daemon is not published yet (CI publishes a same-repo PR's cmux-tui tree after its push)"
     return 2
   fi
+  local web=""
+  if [[ -n "$(python3 -c 'import json,sys; print("y" if json.load(sys.stdin)["left"].get("web (not published for a branch)") else "")' <<<"$planned")" ]]; then
+    web=1
+  fi
+  # A copy of a DEV build cannot load a web overlay (see web_live): refused before anything changes.
+  if [[ -n "$web" && -z "$here" && "$("$buddy" -c 'Print :CFBundleIdentifier' "$from/Contents/Info.plist" 2>/dev/null || true)" == com.cmuxterm.app.debug.next ]]; then
+    echo "daemon swap: the PR changes web UI too, and a copy of cmux NEXT DEV cannot load it (--from a nightly, or --here)"; return 1
+  fi
   if [[ -n "$here" ]]; then
     target="$from"
   else
@@ -345,11 +354,20 @@ for kind, paths in sorted(left.items()):
     echo "daemon swap: hot-apply did not apply or check it (its receipt above says why; nothing was left changed)"; return 1
   }
   echo "daemon swapped: $target_name runs #$pr's daemon, terminals kept${here:+ (scripts/cmux-next/hot-apply.py rollback puts yours back)}"
-  if [[ -z "$here" ]]; then run "$side" launch "$name" ${front:+--front}; fi
-  # A daemon PR that also changes web UI: that part is patched in too.
-  if [[ -n "$(python3 -c 'import json,sys; print("y" if json.load(sys.stdin)["left"].get("web (not published for a branch)") else "")' <<<"$planned")" ]]; then
+  # live_rust runs as a condition, so set -e is off in it: each step's failure is checked.
+  if [[ -z "$here" ]] && ! run "$side" launch "$name" ${front:+--front}; then
+    echo "daemon swap: cmux PR #$pr did not open (side-instance.sh launch failed; try-pr.sh $pr --stop removes it)"; return 3
+  fi
+  # A daemon PR that also changes web UI: that part is patched in too, or the daemon goes back, so
+  # the app never runs the PR's daemon under its own older web.
+  if [[ -n "$web" ]]; then
     echo "its web UI is patched in too, and hot-reloads"
-    web_live
+    if ! web_live; then
+      echo "daemon swap: the PR's web UI did not go in, so the daemon goes back"
+      run python3 "$hot" rollback --app "$target" ||
+        echo "daemon swap: the rollback did not finish; scripts/cmux-next/hot-apply.py rollback --app \"$target\" tries again"
+      return 1
+    fi
   fi
 }
 
@@ -374,6 +392,7 @@ case "$verdict" in
     if [[ "$verdict" == daemon ]]; then
       rust_code=0; live_rust || rust_code=$?
       if [[ $rust_code -eq 0 ]]; then exit 0; fi
+      if [[ $rust_code -eq 3 ]]; then exit 1; fi
       if [[ $rust_code -eq 2 ]]; then echo "so the fleet dev build, whose daemon is swapped in"; else echo "so a dev build"; fi
     fi
     if [[ "$verdict" == swift-live && -n "$live_log" ]]; then
@@ -419,7 +438,9 @@ case "$verdict" in
     [[ -n "$app" ]] || { echo "job $job returned no app bundle" >&2; exit 1; }
     # The tree was not published: the dev build's daemon is the PR's, swapped into your app's copy.
     if [[ "$rust_code" == 2 && -x "$app/Contents/Resources/bin/cmux" ]]; then
-      if live_rust "$app/Contents/Resources/bin/cmux"; then exit 0; fi
+      code=0; live_rust "$app/Contents/Resources/bin/cmux" || code=$?
+      if [[ $code -eq 0 ]]; then exit 0; fi
+      if [[ $code -eq 3 ]]; then exit 1; fi
       echo "so the dev build itself"
     fi
     if [[ -z "$here" ]] && "$side" path "$name" >/dev/null 2>&1; then

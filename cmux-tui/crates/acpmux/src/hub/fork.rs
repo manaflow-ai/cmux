@@ -102,6 +102,9 @@ impl Hub {
             None => (None, None, None),
         };
         let parent_meta = session.meta();
+        // Its agent started it (`created_by.rs`); a fork the person made records none.
+        let created_by =
+            lineage.as_ref().map(|l| super::created_by::agent(&l.parent, &parent_meta));
         let (is_claude, mut fork_env) = self.harness_env(&parent_meta).await;
         // The fork's workspace: the one the request names (typed or in its
         // env, `session_env::workspace_id`), else its parent's.
@@ -426,6 +429,8 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             claude_unstored: false,
+            // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
+            wait_start: false,
             hibernated_ms: 0,
             idle_launch: None,
             moved_to: None,
@@ -474,6 +479,7 @@ impl Hub {
             subsession_limits: Default::default(),
             // A fork is the person's branch of the chat, never a spawn (`lineage.rs`), unless
             // its agent started it (`sub`).
+            created_by,
             lineage,
             subagent_retry_open: false,
             // The person's setting for the chat it came from, not for the fork.

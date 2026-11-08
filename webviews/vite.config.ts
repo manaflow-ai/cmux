@@ -24,6 +24,7 @@ export default defineConfig({
   // The handoff schema is a published wire fixture; schema.test.ts verifies its exact bytes.
   ...cmuxCheckConfig({
     effectCleanupPlugin: fileURLToPath(new URL("./scripts/lint/effect-cleanup.mjs", import.meta.url)),
+    perfPlugin: fileURLToPath(new URL("./scripts/lint/perf-footguns.mjs", import.meta.url)),
     fmtIgnorePatterns: [
       "src/diff/generated/**",
       // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.
@@ -38,6 +39,8 @@ export default defineConfig({
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
       "src/agent-session/acpmux/icons/cmuxIcons.json",
       "src/agent-session/acpmux/icons/cmuxIconsCustom.json",
+      // Gallery-only output of scripts/icons/build_pack.py.
+      "src/agent-session/acpmux/icons/nekoCandidate.json",
       // scripts/agent-icons/generate.py --check owns these bytes.
       "src/agent-session/shared/agentBrands.generated.ts",
       // Build output of scripts/pages/gen-design-scale.mjs.
