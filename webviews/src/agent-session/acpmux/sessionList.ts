@@ -445,7 +445,8 @@ export function sessionTitle(
   return session.title?.trim() || firstPrompt(session.lastPrompt) || t("sidebar.newChat");
 }
 
-/// How long acpmux keeps `lastPrompt` (hub/turns.rs `short_text(&line, 200)`), an ellipsis after.
+/// How long acpmux keeps `lastPrompt` (hub/turns.rs `short_text(&line, 200)`), an ellipsis after,
+/// in characters (Rust `chars`, code points here), not UTF-16 units.
 const LAST_PROMPT_CHARS = 200;
 
 /// A chat's first prompt as its title: a lane's message the broker relayed reads as the message,
@@ -455,7 +456,7 @@ const LAST_PROMPT_CHARS = 200;
 /// of the message and titles nothing (cmux#38642 review).
 const firstPrompt = (prompt: string | undefined) => {
   const line = prompt?.trim() ?? "";
-  const cut = line.endsWith("…") && line.length > LAST_PROMPT_CHARS;
+  const cut = line.endsWith("…") && Array.from(line).length > LAST_PROMPT_CHARS;
   return (cut ? withoutRelayLabel(line) : withoutRelayLabelOfMessage(line)).trim();
 };
 

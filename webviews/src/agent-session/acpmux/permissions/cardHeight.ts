@@ -2,6 +2,8 @@
 // Keep the frame on the shared grid; interactive expansion is still measured by the transcript.
 import { layout, prepare, prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
 import typeScale from "../../../../../schemas/type-scale/type-scale.json";
+import { chatDisplay } from "../chatDisplay";
+import { chatUiMeasureStack } from "../chatUiFont";
 import type { AcpmuxPermission } from "../model";
 import { currentLanguage, translate } from "../i18n";
 import { plainText } from "../question/inlineText";
@@ -23,8 +25,11 @@ const detail = step("detail");
 const caption = step("caption");
 const padding = gridLength("cards-padding");
 
-// The UI font's stack (type-scale.json font.stack, the macOS system font); it has no letter-spacing.
-const UI_FONT = typeScale.font.stack.join(", ");
+/// The face the card is drawn in, `--font-ui`: the chat's Interface Font (chatUiFont.ts) as the
+/// canvas can measure it, the macOS system stack by default. A canvas can't read CSS variables.
+export function cardFont(): string {
+  return chatUiMeasureStack(chatDisplay().uiFont);
+}
 
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
 function textHeight(text: string, width: number, size: number, line: number, mono = false, weight = 400): number {
@@ -32,7 +37,7 @@ function textHeight(text: string, width: number, size: number, line: number, mon
   if (!mono) text = text.replace(/\s+/g, " ");
   try {
     return layout(
-      prepare(text, `${weight} ${size}px ${mono ? "monospace" : UI_FONT}`, { whiteSpace: "pre-wrap" }),
+      prepare(text, `${weight} ${size}px ${mono ? "monospace" : cardFont()}`, { whiteSpace: "pre-wrap" }),
       room,
       line,
     ).height;
@@ -45,7 +50,8 @@ function textHeight(text: string, width: number, size: number, line: number, mon
 function textWidth(text: string, size: number, weight = 400): number {
   try {
     return (
-      layoutWithLines(prepareWithSegments(text, `${weight} ${size}px ${UI_FONT}`), Infinity, size).lines[0]?.width ?? 0
+      layoutWithLines(prepareWithSegments(text, `${weight} ${size}px ${cardFont()}`), Infinity, size).lines[0]?.width ??
+      0
     );
   } catch {
     return text.length * size * 0.55;
@@ -71,7 +77,7 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   if (!permission) return 2 * padding * scale + body.lineHeight * scale;
   // Immutable permission snapshots retain their estimate while unrelated reply tokens stream.
   // Keep only the current width per ask; old asks are released with their snapshot.
-  const key = `${width}/${scale}/${currentLanguage()}`;
+  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}`;
   const cached = estimates.get(permission);
   if (cached?.key === key) return cached.height;
   const height = estimatePermission(permission, width, scale);

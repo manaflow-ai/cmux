@@ -25,6 +25,9 @@ matter (lines before the first blank line):
 A highlight's gallery state is rendered and published by media/whats-new-gallery.py when the file
 merges (gallery_url); with --pr-media the notes take that picture, and its `before:` picture after it,
 each with a `role` ("after", "before"), when there is no clip. A picture not published yet is left out.
+With no `gallery:` line, a New or Improved highlight takes the state media/whats-new-gallery.py picked
+from the gallery files its commit changed, and an Improved one with no `before:` takes the same state
+rendered at the commit before it; both sit at fixed names (gallery_auto_url).
 
 A highlight's clip is its looping demo (scripts/cmux-next/media/whats-new-clips.py records it from
 release-notes/next/clips/ID.json, whose caption becomes its alt). It wins over --pr-media's picture,
@@ -546,7 +549,9 @@ PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")
 # highlight names the webview gallery state that shows it (`gallery: ENTRY/VARIANT`) and, for an
 # improvement, the state it replaced (`before:`). media/whats-new-gallery.py renders both (dark default
 # theme, normal pane width) when the file merges and puts them at gallery_url, a name fixed by the
-# highlight, the role and the state, so these notes find them with no write back to the file.
+# highlight, the role and the state, so these notes find them with no write back to the file. A highlight
+# with no `gallery:` line gets its state picked from its commit, and an improvement with no `before:` the
+# state at the commit before it, at names fixed by the highlight and the role (gallery_auto_url).
 GALLERY_STATE = re.compile(r"[a-z0-9][a-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*")
 GALLERY_ROLES = ("after", "before")
 
@@ -566,19 +571,37 @@ def gallery_url(highlight_id, role, state):
     return f"{CLIP_PREFIX}{highlight_id}/gallery-{hashlib.sha256(state.encode()).hexdigest()[:12]}-{role}.png"
 
 
+def gallery_auto_url(highlight_id, role):
+    """Where media/whats-new-gallery.py puts a picture no line names: the state it inferred from the
+    highlight's commit ("after"), or the state rendered at the commit before it ("before")."""
+    return f"{CLIP_PREFIX}{highlight_id}/gallery-auto-{role}.png"
+
+
+def gallery_urls(meta, highlight_id, category):
+    """{role: url} of a highlight's gallery pictures: a named state's own URL, else the inferred one for
+    the state, and for an Improved highlight with no `before:`, the state at the commit before it."""
+    states = gallery_states(meta)
+    urls = {role: gallery_url(highlight_id, role, state) for role, state in states.items()}
+    if "after" not in urls and "clip" not in meta and category in {"new", "improved"}:
+        urls["after"] = gallery_auto_url(highlight_id, "after")
+    if "after" in urls and "before" not in urls and category == "improved":
+        urls["before"] = gallery_auto_url(highlight_id, "before")
+    return urls
+
+
 def add_gallery_media(highlight, text, deadline):
     """Gives `highlight` its published gallery pictures: the state first, then its before, each with a
     role when both are there. True when it got the picture. A missing or unreadable one only leaves it out."""
-    states = gallery_states(front_matter(text)[0])
-    if not states:
+    urls = gallery_urls(front_matter(text)[0], highlight["id"], highlight.get("category", "new"))
+    if not urls:
         return False
     fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
     fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
     media = []
     for role in GALLERY_ROLES:
-        if role not in states or time.monotonic() > deadline:
+        if role not in urls or time.monotonic() > deadline:
             continue
-        url = gallery_url(highlight["id"], role, states[role])
+        url = urls[role]
         try:
             data = pr_download(url, fixture)
         except Exception as error:

@@ -4035,6 +4035,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [registry],
   );
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
+  const [newTabFixError, setNewTabFixError] = useState<string>();
   const newTabStartGeneration = useRef(0);
   const [sessionSelection, setSessionSelection] = useState<
     { sessionId: string; state: "pending" | "failed" } | undefined
@@ -7738,6 +7739,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             await persistSession(started);
             return started;
           },
+          "chat.fix_from_link": async ({ url, cwd, harness, model }) => {
+            const sessionId = await client.fixFromLink(
+              String(url ?? ""),
+              typeof cwd === "string" ? cwd : undefined,
+              typeof harness === "string" ? harness : undefined,
+              typeof model === "string" ? model : undefined,
+            );
+            await persistSession(sessionId);
+            return { sessionId };
+          },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
           // The picker's Refresh models: acpmux probes every agent again, then the catalog re-reads.
@@ -11423,6 +11434,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     })
                   }
                   snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
+                  {...(newTabFixError ? { fixError: newTabFixError } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}
                   lastAgent={newTab.lastAgent}
@@ -11488,6 +11500,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         if (cwd) setProjectDraft(cwd);
                         shellRuns.start(command, cwd ? { cwd } : {});
                       },
+                      clearError: () => setNewTabFixError(undefined),
+                      showError: (error) => setNewTabFixError(errorMessage(error) || String(error)),
                     }),
                   )}
                 />

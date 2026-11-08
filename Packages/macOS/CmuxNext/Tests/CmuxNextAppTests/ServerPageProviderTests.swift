@@ -1,4 +1,5 @@
-import CmuxNextPages
+import AppKit
+@testable import CmuxNextPages
 @testable import CmuxNextServer
 import CmuxNextSettings
 import Foundation
@@ -138,6 +139,56 @@ struct ServerPageProviderTests {
         provider.model.start()
         status = try await provider.call(ServerPageProvider.statusOp, params: [:], context: page)
         #expect(status["pending"]?["switching"] == false)
+    }
+
+    /// The card closed from outside (the panel dismissed, another card took its place) with a found
+    /// server: reopened, the typed code stays and is looked up again, never showing the old facts.
+    @Test func reopeningAfterAnOutsideCloseLooksTheCodeUpAgain() async throws {
+        let (source, provider) = provider()
+        try await call(provider, ServerPageProvider.setCodeOp, ["code": .string(MockServerScenario.offerCode)])
+        source.deliverHeld()
+        #expect(provider.model.addServerStep == .review(MockServerScenario.candidate))
+        let sent = source.received.count
+        provider.closed()
+        // What the menu's openAddServer() does before the panel opens the card.
+        provider.model.beginApproval()
+        provider.opened(again: false)
+        #expect(source.received.count == sent + 1)
+        #expect(source.received.last?.kind == .lookupCode(MockServerScenario.offerCode))
+        #expect(provider.model.addServerStep == .lookingUp)
+        #expect(provider.model.approval.code == "7KQ4-M2XD")
+    }
+
+    /// A lookup still in flight when the card closed answers while it is closed: that answer never
+    /// stands in for the reopening's own lookup.
+    @Test func aLookupAnsweredWhileClosedIsLookedUpAgainOnReopen() async throws {
+        let (source, provider) = provider()
+        try await call(provider, ServerPageProvider.setCodeOp, ["code": .string(MockServerScenario.offerCode)])
+        provider.closed()
+        source.deliverHeld()
+        let sent = source.received.count
+        provider.model.beginApproval()
+        provider.opened(again: false)
+        #expect(source.received.count == sent + 1)
+        #expect(provider.model.addServerStep == .lookingUp)
+    }
+
+    /// A server found before the page listened (no watch ran, so no change named the control): the
+    /// card panel's native Approve shows as the page subscribes, not at the next change.
+    @Test func theNativeControlShowsAServerFoundBeforeThePageListened() async throws {
+        _ = NSApplication.shared
+        let (source, provider) = provider()
+        let panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [provider]))
+        panel.present(card: ServerPageProvider.route, over: nil, takeKeys: false)
+        defer { panel.orderOut(nil) }
+        #expect(panel.personButton.title != ServerStrings.approve)
+        provider.model.setApprovalCode(MockServerScenario.offerCode)
+        source.deliverHeld()
+        #expect(provider.model.addServerStep == .review(MockServerScenario.candidate))
+        let subscription = try await provider.subscribe(ServerPageProvider.changesStream, filter: [:], context: page) { _ in }
+        defer { subscription.cancel() }
+        #expect(!panel.personButton.isHidden)
+        #expect(panel.personButton.title == ServerStrings.approve)
     }
 
     @Test func pagesHearChanges() async throws {
