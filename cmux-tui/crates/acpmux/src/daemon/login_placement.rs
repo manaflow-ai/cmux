@@ -358,9 +358,8 @@ mod tests {
             ["com.cmux.acpmux.daemon.4ae0f8d39eeff3d2", "com.cmux.acpmux.daemon.2222222222222222"]
         );
         assert!(stale_daemon_labels("").is_empty());
-        let many: String = (0..40)
-            .map(|i| format!("\t\t       0      0 \t{LABEL_PREFIX}{i:016x}\n"))
-            .collect();
+        let many: String =
+            (0..40).map(|i| format!("\t\t       0      0 \t{LABEL_PREFIX}{i:016x}\n")).collect();
         let print = format!("\tservices = {{\n{many}\t}}\n");
         assert_eq!(stale_daemon_labels(&print).len(), STALE_SWEEP_MAX);
     }
