@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42438358251",
+  "recorded_at": "2026-11-08T02:30:06Z",
+  "reason": "cmux-tui 78fffc30999f changes the image's cmux-tui (pinned a89f0a688e0c)",
+  "dry_run": false,
+  "cmux_tui": "78fffc30999f051b1db01a1559018ce956a96f2f",
+  "fixes": [
+    {
+      "sha": "78fffc30999f051b1db01a1559018ce956a96f2f",
+      "mergedAt": "2026-11-08T02:09:26Z",
+      "subject": "Cloud: the Native owner link lists every capability the app requires; no update loop on the app's own build (#38130)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T02:30:06Z",
+    "snapshot_id": "sh-5e3a1592a73a40c4bc0fd92c98c32770",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42438358251): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c915ab51a9ff8668377dae87259f858900d2df35",
+    "image": "cloud-native-auto-78fffc30-42438358251-1",
+    "revision": "ci-42438358251-1",
+    "at": "2026-11-08T02:30:06Z"
+  },
+  "rolled_back": false
+}
