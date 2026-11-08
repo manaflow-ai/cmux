@@ -1633,7 +1633,11 @@ async fn tunnel_platform()
                 json!({"code": "test.unknown", "message": "not this test's route"})
             };
             let status = if reply.get("code").is_some() { 404 } else { 200 };
-            log.lock().unwrap().push((line, head, body));
+            // Only the tunnel routes: the daemon's own join-record work (a vault pull as the
+            // machine) is not this test's.
+            if line.contains(" /v1/mesh/nodes/") || line.contains("/wg-key ") {
+                log.lock().unwrap().push((line, head, body));
+            }
             let text = reply.to_string();
             let response = format!(
                 "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
