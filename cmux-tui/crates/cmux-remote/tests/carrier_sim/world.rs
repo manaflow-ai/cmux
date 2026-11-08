@@ -509,11 +509,11 @@ pub fn run(seed: u64, faults: bool) -> Outcome {
 async fn run_world(seed: u64, faults: bool) -> Outcome {
     let mut rng = Rng::new(seed);
     let plan = Plan::new(&mut rng.split(1), faults);
-    let routes = [
-        Route::new("relay-a", rng.split(2), plan.latency_ms[0]),
-        Route::new("relay-b", rng.split(3), plan.latency_ms[1]),
-    ];
     let trace = Arc::new(Mutex::new(Vec::new()));
+    let routes = [
+        Route::new("relay-a", rng.split(2), plan.latency_ms[0], trace.clone()),
+        Route::new("relay-b", rng.split(3), plan.latency_ms[1], trace.clone()),
+    ];
     let mut outcome = Outcome {
         plan: plan.clone(),
         log: Vec::new(),

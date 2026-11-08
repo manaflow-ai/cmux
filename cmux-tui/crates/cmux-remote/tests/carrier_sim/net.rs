@@ -106,10 +106,18 @@ pub struct Route {
     /// Base one-way latency range, ms.
     latency_ms: (u64, u64),
     pub opened: Mutex<u64>,
+    /// The run's trace: each link's end, and which side ended it.
+    trace: Arc<Mutex<Vec<String>>>,
+    born: Instant,
 }
 
 impl Route {
-    pub fn new(name: &'static str, rng: Rng, latency_ms: (u64, u64)) -> Arc<Self> {
+    pub fn new(
+        name: &'static str,
+        rng: Rng,
+        latency_ms: (u64, u64),
+        trace: Arc<Mutex<Vec<String>>>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             name,
             conditions: watch::channel(Conditions { slow: 1, ..Conditions::default() }).0,
@@ -117,6 +125,8 @@ impl Route {
             rng: Mutex::new(rng),
             latency_ms,
             opened: Mutex::new(0),
+            trace,
+            born: Instant::now(),
         })
     }
 
@@ -130,11 +140,16 @@ impl Route {
 
     /// Close every link on the route; what they held is lost.
     pub fn cut(&self) {
+        self.note(format!("{} cut", self.name));
         let links = std::mem::take(&mut *lock(&self.links));
         for (up, down) in links {
             up.cut();
             down.cut();
         }
+    }
+
+    fn note(&self, what: String) {
+        lock(&self.trace).push(format!("{:?} {what}", self.born.elapsed()));
     }
 
     fn latency(&self) -> Duration {
@@ -253,6 +268,7 @@ impl FrameLink for SimLink {
     }
 
     async fn close(&self) -> Result<(), LinkError> {
+        self.route.note(format!("{} closed", self.description));
         self.outgoing.finish();
         self.incoming.cut();
         Ok(())
