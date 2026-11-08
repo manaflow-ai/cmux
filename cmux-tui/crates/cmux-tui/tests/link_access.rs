@@ -590,8 +590,10 @@ fn an_upload_of_a_folder_in_git_keeps_its_ignore_rules_and_runs_none_of_its_conf
             std::fs::symlink_metadata(at.join("mirror")).is_err(),
             "the bare repo went: {sent}"
         );
-        let (ok, answer) = upload(&world, &tmp, &[&bare]);
-        assert!(!ok, "a bare repository was uploaded: {answer}");
+        for inside in [bare.clone(), bare.join("objects"), bare.join("refs")] {
+            let (ok, answer) = upload(&world, &tmp, &[&inside]);
+            assert!(!ok, "{} was uploaded: {answer}", inside.display());
+        }
     }
     // A bare repository's shape counts with its objects a symlink, too.
     let linked = plain.join("linked");

@@ -79,9 +79,9 @@ pub(super) fn upload_with_id(
             println!(r#"{{"progress":"upload"}}"#);
             let _ = std::io::stdout().flush();
         };
-        let copied = if *folder {
+        let copied = if let Some(identity) = *folder {
             let keep = |relative: &str, git: bool| folder_file(file, relative, git);
-            sync_cli::copy_folder_with_progress(socket, file, &at, &keep, &mut heartbeat)
+            sync_cli::copy_folder_with_progress(socket, file, identity, &at, &keep, &mut heartbeat)
                 .map(|(files, skipped)| json!({"folder": true, "files": files, "skipped": skipped}))
         } else {
             sync_cli::copy_file_with_progress(socket, file, &at, &mut heartbeat).map(|()| json!({}))
@@ -133,7 +133,9 @@ pub(super) fn cancel(socket: &Path, root: &str, id: &str) -> Result<Value, Failu
 
 /// The canonical file or folder at `path`, its name, and whether it is a
 /// folder, when it may be uploaded.
-fn uploadable(path: &Path) -> Result<(PathBuf, String, bool), Failure> {
+/// The canonical path, its name, and for a folder the device and inode it
+/// had when checked, so a folder swapped in later is refused.
+fn uploadable(path: &Path) -> Result<(PathBuf, String, Option<(u64, u64)>), Failure> {
     let refused = |why: &str| {
         Failure::new("upload_refused", format!("{} cannot be uploaded: {why}", path.display()))
     };
@@ -158,21 +160,27 @@ fn uploadable(path: &Path) -> Result<(PathBuf, String, bool), Failure> {
         return Err(refused("keychains are never uploaded"));
     }
     if meta.is_dir() {
+        let identity = {
+            use std::os::unix::fs::MetadataExt as _;
+            Some((meta.dev(), meta.ino()))
+        };
         if super::SECRET_FOLDERS.contains(&name.to_ascii_lowercase().as_str()) {
             return Err(refused("credential folders are never uploaded"));
         }
         return match grants::shareable(&canonical) {
-            Ok(_) => Ok((canonical, name, true)),
-            Err(_) if dropped_place(&canonical, &grants::homes()) => Ok((canonical, name, true)),
+            Ok(_) => Ok((canonical, name, identity)),
+            Err(_) if dropped_place(&canonical, &grants::homes()) => {
+                Ok((canonical, name, identity))
+            }
             Err(why) => Err(refused(&why.to_string())),
         };
     }
     if pasted(&canonical) {
-        return Ok((canonical, name, false));
+        return Ok((canonical, name, None));
     }
     match grants::shareable_item(&canonical) {
-        Ok(_) => Ok((canonical, name, false)),
-        Err(_) if dropped_place(&canonical, &grants::homes()) => Ok((canonical, name, false)),
+        Ok(_) => Ok((canonical, name, None)),
+        Err(_) if dropped_place(&canonical, &grants::homes()) => Ok((canonical, name, None)),
         Err(why) => Err(refused(&why.to_string())),
     }
 }

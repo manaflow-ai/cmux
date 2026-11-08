@@ -575,15 +575,19 @@ pub(super) fn upload(
 pub(super) fn copy_folder_with_progress(
     socket: &Path,
     local: &Path,
+    identity: (u64, u64),
     target: &str,
     keep: &dyn Fn(&str, bool) -> bool,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<(u64, u64)> {
-    // `local` is the canonical folder the caller authorized: a folder or a
-    // symlink swapped in since then is refused, never followed.
+    // `local` is the canonical folder the caller authorized, `identity` its
+    // device and inode then: another folder or a symlink swapped in since is
+    // refused, never followed.
     let unmoved = || {
+        use std::os::unix::fs::MetadataExt as _;
         std::fs::canonicalize(local).is_ok_and(|now| now == local)
-            && std::fs::symlink_metadata(local).is_ok_and(|meta| meta.is_dir())
+            && std::fs::symlink_metadata(local)
+                .is_ok_and(|meta| meta.is_dir() && (meta.dev(), meta.ino()) == identity)
     };
     if !unmoved() {
         anyhow::bail!("{} changed after it was checked; nothing of it was sent", local.display());

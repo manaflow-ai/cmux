@@ -215,8 +215,9 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
 /// with `objects/`, `refs/` or `commondir`, whatever its name). Another
 /// repository inside it stays whole.
 pub(super) fn collect_files(folder: &Path) -> anyhow::Result<LocalSet> {
-    if git_state(folder) {
-        bail!("{} is a git repository's own folder", folder.display());
+    // The folder or one above it being git's own state (`bare/objects`, say).
+    if folder.ancestors().any(git_state) {
+        bail!("{} is in a git repository's own folder", folder.display());
     }
     let mut set = listed_files(folder)?;
     let mut fenced: BTreeMap<String, bool> = BTreeMap::new();
