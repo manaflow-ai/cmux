@@ -119,8 +119,8 @@ export function TestTampering({ rows, sessionId, turnId, onRestore }: TestTamper
                     : t("testTampering.askWhy" as StringKey)}
               </button>
             )}
-            {state.restore === "failure" && <span role="status">{t("testTampering.restoreFailure" as StringKey)}</span>}
-            {state.askWhy === "failure" && <span role="status">{t("testTampering.askFailure" as StringKey)}</span>}
+            {state.restore === "failure" && <output>{t("testTampering.restoreFailure" as StringKey)}</output>}
+            {state.askWhy === "failure" && <output>{t("testTampering.askFailure" as StringKey)}</output>}
           </div>
         </div>
       )}
