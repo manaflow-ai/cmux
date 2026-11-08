@@ -1111,10 +1111,15 @@
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
   display: flex;
   flex-direction: column;
-  /* A lower floor than the location menu's 200 px: with only short rows (Add folder…, No folder,
-     short names), the menu is no wider than its fullest row plus the menu-fit spare (design/menus.md,
-     gallery invariants.ts menu-fit). */
-  min-width: 184px;
+  /* Sized like the model picker (quickModelColumns.css .acpmux-cols): floor and cap in em of the
+     menu's chrome type (--text-control), so density, Interface Size and the chrome text size widen it
+     in proportion (cmux#38864). The folder rows are virtual (Combobox virtualRows: absolutely placed,
+     100% wide), so they never widen the popup themselves; the floor keeps the search placeholder and
+     a typical repository row (badge, name · branch, worktree count, check) whole. It never outgrows
+     the room on its side (Base UI's --available-width). */
+  width: max-content;
+  min-width: min(20em, var(--available-width, calc(100vw - 24px)));
+  max-width: min(30em, var(--available-width, calc(100vw - 24px)));
   /* It fits the room on its side (Base UI's --available-height), so it never covers its control. */
   max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
   overflow: hidden;
