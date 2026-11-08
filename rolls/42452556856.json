@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42452556856",
+  "recorded_at": "2026-11-08T06:07:10Z",
+  "reason": "cmux-tui 9b16f6b715b6 changes the image's cmux-tui (pinned ae488a955178)",
+  "dry_run": false,
+  "cmux_tui": "9b16f6b715b62f6258a8ef2579f1f50bc7149ce5",
+  "fixes": [
+    {
+      "sha": "9b16f6b715b62f6258a8ef2579f1f50bc7149ce5",
+      "mergedAt": "2026-11-07T21:40:12-08:00",
+      "subject": "cmux NEXT: a CLI's \"open in your browser\" opens the page in front (gh device login)"
+    },
+    {
+      "sha": "889346d11c2257019e189bd1c12c03ccf30cea2e",
+      "mergedAt": "2026-11-07T21:40:11-08:00",
+      "subject": "Red: a CLI's browser opener in a terminal opens the page in front (gh device login)"
+    },
+    {
+      "sha": "e4520347f6a051a20faa458c9689604c1a79d40b",
+      "mergedAt": "2026-11-07T21:35:30-08:00",
+      "subject": "acpmux sim: settle on two idle reads that cover starting and retries; only known-gap legs count gaps (#38239)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T06:07:10Z",
+    "snapshot_id": "sh-6fd995e2e2dc4d06b9f63bcecd1d013e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42452556856): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "79fb5dc3f85671f6d0cc2d2273ce24599d2aa27c",
+    "image": "cloud-native-auto-9b16f6b7-42452556856-1",
+    "revision": "ci-42452556856-1",
+    "at": "2026-11-08T06:07:10Z"
+  },
+  "rolled_back": false
+}
