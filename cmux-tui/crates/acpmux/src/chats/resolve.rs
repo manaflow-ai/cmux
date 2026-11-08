@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use cmux_chat_index::{ChatEntry, ChatKey};
+use cmux_chat_index::{AdapterKind, ChatEntry, ChatKey};
 
 /// The shortest id start that may name a chat: shorter ones match too many.
 pub const MIN_PREFIX: usize = 4;
@@ -134,10 +134,64 @@ fn resolve_id(id: &str, chats: &[&ChatEntry]) -> Resolved {
     }
 }
 
+/// The transcript of session `id` (a full UUID) on disk, for a chat the index does not hold yet
+/// (a store made after the daemon started, like a first `claude` run on a new Mac): Claude Code's
+/// `<projects>/<any folder>/<id>.jsonl` under each of `claude_projects`, then Codex's
+/// `<sessions>/YYYY/MM/DD/rollout-*-<id>.jsonl` under each of `codex_sessions`. Reads directory
+/// names only, never a transcript.
+pub fn find_on_disk(
+    id: &str,
+    claude_projects: &[PathBuf],
+    codex_sessions: &[PathBuf],
+) -> Option<(AdapterKind, PathBuf)> {
+    if !is_uuid(id) {
+        return None;
+    }
+    let id = id.to_ascii_lowercase();
+    let dirs = |path: &Path| -> Vec<PathBuf> {
+        std::fs::read_dir(path)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+                    .map(|entry| entry.path())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    for projects in claude_projects {
+        for folder in dirs(projects) {
+            let transcript = folder.join(format!("{id}.jsonl"));
+            if transcript.is_file() {
+                return Some((AdapterKind::ClaudeCode, transcript));
+            }
+        }
+    }
+    let suffix = format!("-{id}.jsonl");
+    for sessions in codex_sessions {
+        // Newest day first: a session pasted to resume is most often a recent one.
+        let mut days: Vec<PathBuf> =
+            dirs(sessions).iter().flat_map(|y| dirs(y)).flat_map(|m| dirs(&m)).collect();
+        days.sort_unstable_by(|a, b| b.cmp(a));
+        for day in days {
+            let Ok(entries) = std::fs::read_dir(&day) else { continue };
+            let found = entries.flatten().map(|entry| entry.path()).find(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(&suffix))
+            });
+            if let Some(path) = found {
+                return Some((AdapterKind::Codex, path));
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmux_chat_index::{AdapterKind, Resume};
+    use cmux_chat_index::Resume;
 
     const ID: &str = "920ab030-d857-4a26-8afb-574eb70e8b2c";
 
@@ -253,5 +307,28 @@ mod tests {
             "/Users/me/elsewhere/.claude/projects/p/aaaabbbb-0000-4000-8000-000000000000.jsonl";
         assert_eq!(resolve(path, &chats, |_| true), Resolved::Unindexed(PathBuf::from(path)));
         assert_eq!(resolve(path, &chats, |_| false), Resolved::NotFound);
+    }
+
+    #[test]
+    fn a_full_id_the_index_lacks_is_found_in_the_claude_or_codex_store_on_disk() {
+        let home = tempfile::tempdir().expect("tempdir");
+        let projects = home.path().join(".claude/projects");
+        let sessions = home.path().join(".codex/sessions");
+        std::fs::create_dir_all(projects.join("-Users-me-fun-prime-interface")).expect("mkdir");
+        std::fs::create_dir_all(sessions.join("2026/11/07")).expect("mkdir");
+        let claude = projects.join(format!("-Users-me-fun-prime-interface/{ID}.jsonl"));
+        std::fs::write(&claude, "{}\n").expect("write");
+        let codex_id = "019a1b2c-3d4e-7f00-8000-0000000000aa";
+        let codex =
+            sessions.join(format!("2026/11/07/rollout-2026-11-07T10-00-00-{codex_id}.jsonl"));
+        std::fs::write(&codex, "{}\n").expect("write");
+        let roots = (vec![projects], vec![sessions]);
+        assert_eq!(
+            find_on_disk(&ID.to_uppercase(), &roots.0, &roots.1),
+            Some((AdapterKind::ClaudeCode, claude))
+        );
+        assert_eq!(find_on_disk(codex_id, &roots.0, &roots.1), Some((AdapterKind::Codex, codex)));
+        assert_eq!(find_on_disk("aaaabbbb-0000-4000-8000-000000000000", &roots.0, &roots.1), None);
+        assert_eq!(find_on_disk("920ab030", &roots.0, &roots.1), None);
     }
 }

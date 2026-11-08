@@ -301,7 +301,14 @@ impl ChatService {
                 |path| path.is_file(),
             )
         };
-        match find() {
+        let found = match find() {
+            // A full id the index lacks: its transcript on disk, recorded below.
+            Resolved::NotFound => self
+                .transcript_on_disk(&text)
+                .map_or(Resolved::NotFound, |(_, path)| Resolved::Unindexed(path)),
+            other => other,
+        };
+        match found {
             Resolved::Unindexed(path) => {
                 let codex = path.components().any(|part| part.as_os_str() == ".codex")
                     || path
@@ -319,6 +326,25 @@ impl ChatService {
             }
             other => other,
         }
+    }
+
+    /// The transcript of session id `id` under the default and configured Claude Code and Codex
+    /// stores (`resolve::find_on_disk`).
+    fn transcript_on_disk(&self, id: &str) -> Option<(AdapterKind, PathBuf)> {
+        let roots = |kind: AdapterKind| -> Vec<PathBuf> {
+            self.sources
+                .launch_roots
+                .iter()
+                .chain(&self.sources.user_roots)
+                .filter(|root| root.harness == kind)
+                .map(|root| root.path.clone())
+                .collect()
+        };
+        let mut claude = vec![self.sources.home.join(".claude/projects")];
+        claude.extend(roots(AdapterKind::ClaudeCode));
+        let mut codex = vec![self.sources.home.join(".codex/sessions")];
+        codex.extend(roots(AdapterKind::Codex).into_iter().map(|root| root.join("sessions")));
+        resolve::find_on_disk(id, &claude, &codex)
     }
 
     fn recorded_roots_path(&self) -> PathBuf {
