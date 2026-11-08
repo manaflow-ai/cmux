@@ -9627,26 +9627,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : undefined,
     [tourOffered, tourCwd],
   );
-  // A tour task's Start (repoTour/TourCard.tsx): a new worktree of the chat's folder (a folder that
-  // is no repository: the folder itself), a chat there given the task, opened beside this one. A
-  // side chat that would not open still runs; it is in the sidebar.
+  // A tour task's Start (repoTour/TourCard.tsx): a new worktree of the chat's folder, then a chat
+  // there given the task, tagged and opened as this chat's side chat before its prompt goes. The
+  // task's prompt is the agent's words, so it never runs in the person's own checkout: no worktree
+  // (not a repository, the host refused) means no task, and the card says why.
   const startTourTask = useCallback(async (task: TourTask) => {
     const client = directClient.current;
     const summary = snapshotRef.current?.summary;
     if (!client || !summary?.cwd) throw new Error(translate("error.notOpen"));
-    let folder = summary.cwd;
-    try {
-      ({ root: folder } = await newWorktree(callNative, summary.cwd, () => undefined));
-    } catch {
-      // Not a repository, or the host made no worktree: the task starts in the chat's folder.
-    }
-    const sessionId = await client.startTask(folder, task.prompt, summary.harness);
-    // It opens as this chat's side chat (acpmux tags it, the app opens it on the right), as `/side`.
-    await client
-      .markSide(sessionId, summary.sessionId)
-      .then(() => postNative("chat.sideChat", { sessionId }))
-      .catch(() => undefined);
-    return sessionId;
+    const { root } = await newWorktree(callNative, summary.cwd, () => undefined);
+    return client.startTask(root, task.prompt, {
+      harness: summary.harness,
+      side: summary.sessionId,
+      opened: (sessionId) => postNative("chat.sideChat", { sessionId }),
+    });
   }, []);
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback((id: string) => {

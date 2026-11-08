@@ -41,7 +41,8 @@ test("the prompt asks for one cmux-tour fence and caches it by HEAD under the gi
   expect(TOUR_PROMPT).toContain("git rev-parse --git-common-dir");
   expect(TOUR_PROMPT).toContain("<common-dir>/cmux-tour/<HEAD>.md");
   // Read only: the prompt never asks the agent to change the project.
-  expect(TOUR_PROMPT).toContain("change no file outside the cache");
+  expect(TOUR_PROMPT).toContain("change, create or delete no file except the one cache file");
+  expect(TOUR_PROMPT).toContain("Run no install, build or test");
 });
 
 test("a closed fence's JSON reads as a tour: paths chip from the folder, three tasks at most", () => {
@@ -126,6 +127,10 @@ test("a streaming fence is the card's pending line, and a closed fence that is n
   const streaming = renderToStaticMarkup(<Markdown>{'```cmux-tour\n{"summary": "atl'}</Markdown>);
   expect(streaming).toContain("data-pending");
   expect(streaming).not.toContain("atl&quot;");
+  // A streaming reply draws an open fence as streaming code; a tour fence is still the pending card.
+  const live = renderToStaticMarkup(<Markdown streaming>{'Here it is.\n\n```cmux-tour\n{"summary": "atl'}</Markdown>);
+  expect(live).toContain("data-pending");
+  expect(live).not.toContain("atl&quot;");
   const broken = renderToStaticMarkup(<Markdown>{"```cmux-tour\nnot a tour\n```"}</Markdown>);
   expect(broken).not.toContain("acpmux-tour");
   expect(broken).toContain("not a tour");

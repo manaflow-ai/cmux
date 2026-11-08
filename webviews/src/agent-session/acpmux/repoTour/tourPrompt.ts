@@ -10,7 +10,7 @@ export const TOUR_ASK = "Give me a short tour of this repository.";
 export const TOUR_PROMPT = [
   TOUR_ASK,
   "",
-  "Read only: change no file outside the cache below.",
+  "Read only: change, create or delete no file except the one cache file `<common-dir>/cmux-tour/<HEAD>.md` (and its folder) below. Run no install, build or test.",
   "1. Run `git rev-parse HEAD` and `git rev-parse --git-common-dir`. If `<common-dir>/cmux-tour/<HEAD>.md` exists, reply with its contents exactly and stop.",
   "2. Otherwise look at the README, the manifests and the top-level layout (a few minutes at most). Reply with one ```" +
     TOUR_FENCE +

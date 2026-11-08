@@ -201,6 +201,14 @@ function Block({
         </BlockTail>
       );
     case "code": {
+      // A repo tour (repoTour/): a ```cmux-tour fence is its card, a pending line while it streams,
+      // never the streaming code it would otherwise draw as.
+      if (code !== "plain" && isTourFence(block.lang, block.code, block.open === true))
+        return (
+          <BlockTail trailing={trailing}>
+            <TourBlock lang={block.lang} code={block.code} open={block.open === true} />
+          </BlockTail>
+        );
       if (code === "open")
         return (
           <PlainCode
@@ -221,13 +229,6 @@ function Block({
             artifactIdentity={artifactIdentity}
             artifactRevision={artifactRevision}
           />
-        );
-      // A repo tour (repoTour/): a ```cmux-tour fence is its card, a pending line while it streams.
-      if (isTourFence(block.lang, block.code, block.open === true))
-        return (
-          <BlockTail trailing={trailing}>
-            <TourBlock lang={block.lang} code={block.code} open={block.open === true} />
-          </BlockTail>
         );
       // A diagram draws once its fence closes; a Mermaid source still streaming stays code.
       if (isChart(block.lang, block.code) && !(block.open && block.lang.toLowerCase() === "mermaid"))
