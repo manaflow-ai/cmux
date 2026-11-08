@@ -238,14 +238,49 @@ request_id="${commit:0:12}-$(date +%s)-$$"
 echo "Dispatching $mode verification for $commit"
 # return_run_details makes the dispatch answer with the run it created, so
 # there is no run list to poll for it.
-run_id="$(gh api -X POST "repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
-  -f "ref=$remote_branch" \
-  -f "inputs[commit]=$commit" \
-  -f "inputs[mode]=$mode" \
-  -f "inputs[test_filter]=$test_filter" \
-  -f "inputs[request_id]=$request_id" \
-  -F return_run_details=true \
-  --jq '.workflow_run_id // ""')"
+dispatch() {
+  gh api -X POST "repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
+    -f "ref=$remote_branch" \
+    -f "inputs[commit]=$commit" \
+    -f "inputs[mode]=$mode" \
+    -f "inputs[test_filter]=$test_filter" \
+    -f "inputs[request_id]=$request_id" \
+    -F return_run_details=true \
+    --jq '.workflow_run_id // ""' 2>"$temp_dir/dispatch.err"
+}
+# A 5xx can come after GitHub created the run. Its run-name holds request_id,
+# so find it before a new try instead of dispatching a second run.
+dispatched_run() {
+  gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch "$remote_branch" \
+    --event workflow_dispatch --limit 30 --json databaseId,displayTitle \
+    --jq ".[] | select(.displayTitle | contains(\"$request_id\")) | .databaseId" 2>/dev/null | head -n 1
+}
+dispatch_tries=3
+dispatch_backoff="${CMUX_TUI_HOSTED_DISPATCH_BACKOFF_SECONDS:-10}"
+for ((try = 1; ; try++)); do
+  dispatch_status=0
+  run_id="$(dispatch)" || dispatch_status=$?
+  [[ $dispatch_status -eq 0 ]] && break
+  dispatch_error="$(cat "$temp_dir/dispatch.err")"
+  if ! grep -Eq 'HTTP 5[0-9][0-9]' <<<"$dispatch_error"; then
+    printf 'error: the workflow dispatch failed: %s\n' "$dispatch_error" >&2
+    echo "error: no run was created" >&2
+    exit 1
+  fi
+  printf 'warning: the workflow dispatch failed (try %d of %d): %s\n' "$try" "$dispatch_tries" "$dispatch_error" >&2
+  # Bounded backoff between tries; it also lets GitHub render a run-name.
+  sleep $((try * dispatch_backoff))
+  run_id="$(dispatched_run)"
+  if [[ "$run_id" =~ ^[0-9]+$ ]]; then
+    echo "GitHub created run $run_id for request $request_id despite the error; using it"
+    break
+  fi
+  if ((try >= dispatch_tries)); then
+    printf 'error: the workflow dispatch failed with server errors %d times; no run was found for request %s, so no run was created\n' \
+      "$dispatch_tries" "$request_id" >&2
+    exit 1
+  fi
+done
 
 if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
   echo "error: the workflow dispatch returned no run id" >&2
