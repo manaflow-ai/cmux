@@ -146,7 +146,9 @@ test("while the host reads, placeholder rows hold the card at its full size; the
     // answer fills shares one grid cell with the placeholder it replaces, the row first, the
     // placeholder over it fading out; a row the answer leaves empty (none here) drops its
     // placeholder in the same frame.
-    const slots = [...card.querySelectorAll<HTMLElement>(".acpmux-pr-card__slot")];
+    const slots = [...card.querySelectorAll<HTMLElement>(".acpmux-pr-card__slot")].filter((slot) =>
+      slot.lastElementChild?.hasAttribute("data-placeholder"),
+    );
     expect(slots.map((slot) => slot.lastElementChild?.getAttribute("data-placeholder"))).toEqual([
       "status",
       "who",
@@ -155,12 +157,22 @@ test("while the host reads, placeholder rows hold the card at its full size; the
     ]);
     for (const slot of slots) expect(slot.firstElementChild?.hasAttribute("data-placeholder")).toBe(false);
     expect(card.querySelector(".acpmux-pr-card__body")?.hasAttribute("data-load-fade")).toBe(true);
-    // The fade's end takes the placeholders away: no timer.
-    await opened.act(async () => {
-      const ended = card.querySelector(".acpmux-pr-card__slot > [data-placeholder]")!;
-      ended.dispatchEvent(new dom.window.Event("animationend", { bubbles: true }));
-    });
+    // Each placeholder goes on its own fade's end, no timer: one ending leaves the others to finish
+    // theirs (review of #38163, F1), and its row stays the same element, so its fade never restarts.
+    const who = card.querySelector(".acpmux-pr-card__who:not([data-placeholder])");
+    const end = async (row: string) =>
+      opened.act(async () => {
+        const ended = card.querySelector(`.acpmux-pr-card__slot > [data-placeholder="${row}"]`)!;
+        ended.dispatchEvent(new dom.window.Event("animationend", { bubbles: true }));
+      });
+    await end("who");
+    expect([...card.querySelectorAll<HTMLElement>("[data-placeholder]")].map((row) => row.dataset.placeholder)).toEqual(
+      ["status", "changes", "branches"],
+    );
+    expect(card.querySelector(".acpmux-pr-card__who:not([data-placeholder])")).toBe(who);
+    for (const row of ["status", "changes", "branches"]) await end(row);
     expect(card.querySelector("[data-placeholder]")).toBeNull();
+    expect(card.querySelector(".acpmux-pr-card__who:not([data-placeholder])")).toBe(who);
     expect(card.querySelector(".acpmux-pr-card__who")?.textContent).toContain("teamleaderleo");
     expect(card.querySelector(".acpmux-pr-card__branches")?.textContent).toContain("feat-cmux-next");
   } finally {

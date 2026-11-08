@@ -1467,7 +1467,7 @@ div.cv-subagent-done[data-toggle-line]::before {
   /* The tray's box is part of the transcript's dock. Its arrival must not move visible rows; the
      dock and VirtualTranscript settle their measured height in one frame, then the ink settles in
      (translate moves no layout). */
-  --acpmux-tray-enter: acpmux-tray-settle-in var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both; /* motion-allow: the house settle (schemas/motion-scale `settle`, #37845), a measured length beside the steps */
+  --acpmux-tray-enter: acpmux-tray-settle-in var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
   --acpmux-tray-leave: acpmux-tray-leave var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
 }
 /* A line that joins or leaves the open list grows from, or folds to, 0 height with its opacity on the
@@ -1863,6 +1863,14 @@ div.cv-subagent-done[data-toggle-line]::before {
   pointer-events: auto;
   transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
 }
+/* From an expand or a fold until the pointer leaves the hat, the tuck stays away: it fades out if it
+   showed and never fades in while the hat moves (SubagentTray.tsx `tuckQuiet`; Leo, 2026-11-08, on the
+   hat expanding and folding: "some elements in between"). Keyboard focus still shows it. */
+.acpmux-running-tray[data-tuck-quiet] > .acpmux-running-tray__tuck:not(:focus-visible) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+}
 .acpmux-running-tray__tuck:hover,
 .acpmux-tray-pull__tab:hover {
   color: var(--agent-text);
@@ -2051,6 +2059,13 @@ div.cv-subagent-done[data-toggle-line]::before {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
+  transition: opacity var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+}
+/* Open, a lone item's step fades out where it is (Leo, 2026-11-08, on the hat expanding: "some
+   elements in between and then things don't balance out"): the line under the header says it. It
+   gives way to the counts first (its shrink), so the room it keeps costs them nothing. */
+.acpmux-running-tray__head[aria-expanded="true"] > .acpmux-running-tray__latest {
+  opacity: 0;
 }
 /* A folded lone subagent's workflow progress ("1/3 agents"), quiet after its step; it never truncates. */
 .acpmux-running-tray__head > .acpmux-running-tray__stats {

@@ -6,6 +6,7 @@ mod agent_wrapper;
 mod agents_doctor;
 mod app_control;
 mod attach;
+mod attention;
 mod auth_token;
 mod automation;
 mod billing;
@@ -42,6 +43,7 @@ pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
 pub(crate) use app_control::{AppControlMessages, NightlyMessages, VersionLabels};
 pub(crate) use attach::AttachMessages;
+pub(crate) use attention::AttentionMessages;
 pub(crate) use auth_token::AuthTokenMessages;
 pub(crate) use automation::AutomationMessages;
 pub(crate) use billing::BillingMessages;
@@ -154,6 +156,7 @@ pub(crate) struct Catalog {
     pub remote: RemoteMessages,
     pub config: ConfigMessages,
     pub attach: AttachMessages,
+    pub attention: AttentionMessages,
     pub cli_connection: CliConnectionMessages,
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
@@ -214,6 +217,7 @@ static ENGLISH: Catalog = Catalog {
     remote: remote::ENGLISH,
     config: config::ENGLISH,
     attach: attach::ENGLISH,
+    attention: attention::ENGLISH,
     cli_connection: cli_connection::ENGLISH,
     sidebar: sidebar::ENGLISH,
 };
@@ -251,6 +255,7 @@ static JAPANESE: Catalog = Catalog {
     remote: remote::JAPANESE,
     config: config::JAPANESE,
     attach: attach::JAPANESE,
+    attention: attention::JAPANESE,
     cli_connection: cli_connection::JAPANESE,
     sidebar: sidebar::JAPANESE,
 };

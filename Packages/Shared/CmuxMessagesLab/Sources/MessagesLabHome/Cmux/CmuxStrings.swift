@@ -241,6 +241,11 @@ enum CmuxStrings {
     static var pictureToolText: String { String(localized: "home.picture.tool.text", defaultValue: "Text", table: "CmuxHome", bundle: .module) }
     static var pictureUndo: String { String(localized: "home.picture.undo", defaultValue: "Undo", table: "CmuxHome", bundle: .module) }
     static var pictureCompare: String { String(localized: "home.picture.compare", defaultValue: "Compare Side by Side", table: "CmuxHome", bundle: .module) }
+    /// The picture viewer's comparison styles (``HomePictureCompare/Style``): the control's VoiceOver name and its segments' tooltips.
+    static var pictureStyle: String { String(localized: "home.picture.style", defaultValue: "Comparison Style", table: "CmuxHome", bundle: .module) }
+    static var pictureStyleSideBySide: String { String(localized: "home.picture.style.sideBySide", defaultValue: "Side by Side", table: "CmuxHome", bundle: .module) }
+    static var pictureStyleFlip: String { String(localized: "home.picture.style.flip", defaultValue: "Flip in Place (Space, B, A)", table: "CmuxHome", bundle: .module) }
+    static var pictureStyleSlider: String { String(localized: "home.picture.style.slider", defaultValue: "Slider", table: "CmuxHome", bundle: .module) }
     static var pictureCopy: String { String(localized: "home.picture.copy", defaultValue: "Copy Picture", table: "CmuxHome", bundle: .module) }
     static var pictureSave: String { String(localized: "home.picture.save", defaultValue: "Save Picture…", table: "CmuxHome", bundle: .module) }
     static var pictureReply: String { String(localized: "home.picture.reply", defaultValue: "Send in Chat", table: "CmuxHome", bundle: .module) }

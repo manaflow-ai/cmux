@@ -645,6 +645,8 @@ public final class DaemonService {
         keptLayoutRelaunch = nil
         let connected = connection
         connection = nil
+        // No first connection follows a teardown: whoever waits for one goes on without it.
+        resumeConnectionWaiters()
         return connected
     }
 }

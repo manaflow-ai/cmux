@@ -36,7 +36,10 @@ extension SettingsController {
         // the whole edits map it shows, which holds the file's colors).
         // The default's own value removes the key instead of storing it, so the key keeps following
         // the default when a later release changes it (a stored copy would pin the old one).
-        let value = strippingThemeFileEntries(descriptor, value).flatMap { isUnsetValue($0, of: descriptor) ? nil : $0 }
+        // (`value = nil` on the optional, never a `nil` literal typed as `JSONValue`: that is `.null`,
+        // which the file would store.)
+        var value = strippingThemeFileEntries(descriptor, value)
+        if let written = value, isUnsetValue(written, of: descriptor) { value = nil }
         // The window background's opacity and material leave Ghostty, or return to it, together.
         var linked = try await windowBackgroundLinkedEdits(writing: descriptor.path, value: value)
         // A built-in density (any write of appearance.density) ends the custom one, which would win
