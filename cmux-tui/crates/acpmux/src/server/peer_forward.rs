@@ -105,6 +105,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // answered here while the peer is down too.
     "_acpmux/peer_snapshot",
     "_acpmux/peer_snapshots_clear",
+    // Saved prompts are this machine's library; their `name` is a prompt's, never a session's.
+    method::MUX_PROMPTS_LIST,
+    method::MUX_PROMPTS_SAVE,
+    method::MUX_PROMPTS_DELETE,
 ];
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
@@ -1068,6 +1072,14 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A saved prompt's `name` is never a session's: no peer gets the library's requests.
+    #[test]
+    fn saved_prompts_stay_on_this_daemon() {
+        for m in [method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE] {
+            assert!(!names_a_session(m), "{m}");
+        }
+    }
 
     /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's
     /// kinds, which a peer chat never has, are dropped (review F1 of cc3c3cf).

@@ -1005,6 +1005,9 @@ impl Hub {
                 Err(person_required("changing the workspace folders"))
             }
             method::MUX_NEW_CHAT_PICKS_SET => Err(person_required("changing the new chat picks")),
+            method::MUX_PROMPTS_SAVE | method::MUX_PROMPTS_DELETE => {
+                Err(person_required("changing saved prompts"))
+            }
             method::MUX_PERMISSION_RESPOND => {
                 // Answered already: `respond_permission` tells this one who answered first
                 // (`permission_settled.rs`), and it changes nothing.

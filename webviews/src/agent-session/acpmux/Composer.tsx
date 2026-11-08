@@ -164,7 +164,7 @@ import {
   type EmojiShortcodes,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
-import { moveStash, stashDraft, takeStashed, useStash } from "./composer/draftStash";
+import { moveStash, stashDraft, stashedChips, takeStashed, useStash } from "./composer/draftStash";
 import { StashedChip } from "./composer/StashedChip";
 import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts } from "./savedPrompts";
 
@@ -908,10 +908,21 @@ function ComposerFrame({
     attachmentsRef.current = attachmentsRef.current.filter((chip) => chip.shellRun);
     setAttachments((current) => current.filter((chip) => chip.shellRun));
   };
+  // Still the draft `held` (a large draft's stash waits on its chip store): what was typed since stays.
+  const stillHeld = (held: ReturnType<typeof heldDraft>) => {
+    const now = heldDraft();
+    return (
+      now.text === held.text &&
+      now.attachments.length === held.attachments.length &&
+      now.attachments.every((chip, index) => chip.id === held.attachments[index]?.id)
+    );
+  };
   const stashNow = (): boolean => {
     const held = heldDraft();
-    if (!stashDraft(stashChat, held.text, held.attachments)) return false;
-    clearDraft();
+    const stashed = stashDraft(stashChat, held.text, held.attachments);
+    if (stashed === false) return false;
+    if (stashed === true) clearDraft();
+    else void stashed.then((done) => done && stillHeld(held) && clearDraft());
     field.current?.focus();
     return true;
   };
@@ -919,9 +930,15 @@ function ComposerFrame({
     const entry = takeStashed(stashChat, id);
     if (!entry) return false;
     const held = heldDraft();
-    if (stashDraft(stashChat, held.text, held.attachments)) clearDraft();
-    restoreDraft(entry.text, entry.attachments);
-    field.current?.focus();
+    const stashed = stashDraft(stashChat, held.text, held.attachments);
+    const chips = stashedChips(entry);
+    const bringBack = (done: boolean, attachments: ComposerAttachment[]) => {
+      if (done && stillHeld(held)) clearDraft();
+      restoreDraft(entry.text, attachments);
+      field.current?.focus();
+    };
+    if (typeof stashed === "boolean" && Array.isArray(chips)) bringBack(stashed, chips);
+    else void Promise.all([stashed, chips]).then(([done, attachments]) => bringBack(done, attachments));
     return true;
   };
   // A new chat's stack follows it to its session.

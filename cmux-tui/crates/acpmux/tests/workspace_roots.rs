@@ -173,3 +173,38 @@ async fn the_apps_last_new_chat_picks_reach_a_remote_device() {
     let kept = web.call("_acpmux/harnesses", json!({})).await;
     assert_eq!(kept["result"]["lastPicks"], picks, "{kept}");
 }
+
+/// Saved prompts are the person's library: a Web client or an agent on the unix socket may list
+/// them, never save or delete one, so none can replace a prompt the person types (`prompts.rs`).
+/// A prompt's `name` never routes the request to a peer's session of that name.
+#[tokio::test]
+async fn only_the_person_saves_or_deletes_a_prompt() {
+    let hub = hub();
+    let mut web = Client::new(&hub, Origin::Web);
+    web.call("initialize", json!({"protocolVersion": 1})).await;
+    let mut agent = Client::new(&hub, Origin::Local);
+    agent.call("initialize", json!({"protocolVersion": 1})).await;
+    let save = json!({"name": "person-only-review", "text": "Review this diff"});
+    for client in [&mut web, &mut agent] {
+        let r = client.call("_acpmux/prompts_save", save.clone()).await;
+        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+        let r = client.call("_acpmux/prompts_delete", json!({"name": "person-only-review"})).await;
+        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+        let r = client.call("_acpmux/prompts_list", json!({})).await;
+        assert!(r["result"]["prompts"].is_array(), "{r}");
+    }
+    let mut person = Client::person(&hub).await;
+    let r = person.call("_acpmux/prompts_save", save).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let listed = web.call("_acpmux/prompts_list", json!({})).await;
+    assert!(
+        listed["result"]["prompts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "person-only-review"),
+        "{listed}"
+    );
+    let r = person.call("_acpmux/prompts_delete", json!({"name": "person-only-review"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+}

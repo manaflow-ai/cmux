@@ -2481,6 +2481,11 @@ async fn dispatch_request_with_identity(
                 .map_err(|e| RpcError::internal(format!("session search stopped: {e}")))?
         }
         m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
+        // Only the person writes the library: an agent's or a remote client's save could
+        // replace a prompt the person types, or shadow one from `agentPane.savedPrompts`.
+        method::MUX_PROMPTS_SAVE | method::MUX_PROMPTS_DELETE if !conn.is_person() => {
+            Err(crate::hub::person::person_required("changing saved prompts"))
+        }
         method::MUX_PROMPTS_LIST | method::MUX_PROMPTS_SAVE | method::MUX_PROMPTS_DELETE => {
             let (m, params) = (m.to_owned(), params.clone());
             tokio::task::spawn_blocking(move || crate::prompts::handle(&m, &params))

@@ -7,8 +7,10 @@ import {
   parseStacks,
   resetStashForTests,
   stashDraft,
+  stashedChips,
   stashPreview,
   takeStashed,
+  type ChipStore,
 } from "./draftStash";
 
 // The page's localStorage: an in-memory one, as a test has none.
@@ -22,9 +24,19 @@ Object.defineProperty(globalThis, "localStorage", {
   },
 });
 
+// The chip store: an in-memory one, as a test has no IndexedDB.
+const chips = new Map<string, ComposerAttachment[]>();
+const memoryChips: ChipStore = {
+  put: async (id, list) => void chips.set(id, [...list]),
+  get: async (id) => chips.get(id),
+  drop: async (id) => void chips.delete(id),
+  ids: async () => [...chips.keys()],
+};
+
 beforeEach(() => {
   stored.clear();
-  resetStashForTests();
+  chips.clear();
+  resetStashForTests(memoryChips);
 });
 afterEach(() => resetStashForTests());
 
@@ -50,9 +62,9 @@ describe("draft stash", () => {
   });
 
   test("a pick by id takes that draft, and the stacks are per chat", () => {
-    stashDraft("one", "a", []);
-    stashDraft("one", "b", []);
-    stashDraft("two", "c", []);
+    void stashDraft("one", "a", []);
+    void stashDraft("one", "b", []);
+    void stashDraft("two", "c", []);
     const list = parseStacks(stored.get(STORAGE_KEY)).get("one") ?? [];
     const olderId = list.find((entry) => entry.text === "a")?.id;
     expect(takeStashed("one", olderId)?.text).toBe("a");
@@ -62,7 +74,7 @@ describe("draft stash", () => {
   });
 
   test("the stack holds at most STASH_LIMIT drafts, the oldest let go", () => {
-    for (let index = 0; index < STASH_LIMIT + 2; index += 1) stashDraft("chat", `draft ${index}`, []);
+    for (let index = 0; index < STASH_LIMIT + 2; index += 1) void stashDraft("chat", `draft ${index}`, []);
     const texts: string[] = [];
     for (let entry = takeStashed("chat"); entry; entry = takeStashed("chat")) texts.push(entry.text);
     expect(texts.length).toBe(STASH_LIMIT);
@@ -70,20 +82,50 @@ describe("draft stash", () => {
     expect(texts.at(-1)).toBe("draft 2");
   });
 
-  test("a reload keeps the stacks; a large entry is stored without its attachments", () => {
-    stashDraft("chat", "small", [image("s")]);
-    stashDraft("chat", "large", [image("l", 400 * 1024)]);
-    resetStashForTests();
-    const back = parseStacks(stored.get(STORAGE_KEY));
-    const list = back.get("chat") ?? [];
+  test("a reload keeps the stacks, a large entry's chips with their contents", async () => {
+    void stashDraft("chat", "small", [image("s")]);
+    expect(await stashDraft("chat", "large", [image("l", 400 * 1024)])).toBe(true);
+    // localStorage holds the large chip without its contents; the chip store has them.
+    const list = parseStacks(stored.get(STORAGE_KEY)).get("chat") ?? [];
     expect(list.map((entry) => entry.text)).toEqual(["large", "small"]);
-    expect(list[0]!.attachments).toEqual([]);
+    expect(list[0]!.attachments.map((chip) => [chip.id, chip.data])).toEqual([["l", undefined]]);
+    expect(list[0]!.held).toEqual(["l"]);
     expect(list[1]!.attachments.map((chip) => chip.id)).toEqual(["s"]);
-    expect(takeStashed("chat")?.text).toBe("large");
+    // A reload: a new page reads the stack back, and the large draft comes back whole.
+    resetStashForTests(memoryChips);
+    const large = takeStashed("chat")!;
+    expect(large.text).toBe("large");
+    const back = await stashedChips(large);
+    expect(back.map((chip) => chip.data?.length)).toEqual([400 * 1024]);
+    expect(chips.size).toBe(0);
+    expect((await stashedChips(takeStashed("chat")!)).map((chip) => chip.id)).toEqual(["s"]);
+  });
+
+  test("a large draft whose chips cannot be kept is not stashed", async () => {
+    resetStashForTests({ ...memoryChips, put: async () => Promise.reject(new Error("no IndexedDB")) });
+    expect(await stashDraft("chat", "large", [image("l", 400 * 1024)])).toBe(false);
+    expect(takeStashed("chat")).toBeUndefined();
+  });
+
+  test("a held entry let go drops its chips", async () => {
+    await stashDraft("chat", "large", [image("l", 400 * 1024)]);
+    for (let index = 0; index < STASH_LIMIT; index += 1) void stashDraft("chat", `draft ${index}`, []);
+    expect(chips.size).toBe(0);
+  });
+
+  test("another pane's stash is never written over", () => {
+    void stashDraft("chat", "this pane's", []);
+    // Another pane, sharing localStorage, stashes in the same chat after this page loaded.
+    const other = parseStacks(stored.get(STORAGE_KEY));
+    other.set("chat", [{ id: "other", text: "the other pane's", attachments: [], at: 1 }, ...other.get("chat")!]);
+    stored.set(STORAGE_KEY, JSON.stringify(Object.fromEntries(other)));
+    void stashDraft("chat", "this pane's second", []);
+    const texts = (parseStacks(stored.get(STORAGE_KEY)).get("chat") ?? []).map((entry) => entry.text);
+    expect(texts).toEqual(["this pane's second", "the other pane's", "this pane's"]);
   });
 
   test("a new chat's stack follows it to its session", () => {
-    stashDraft("new", "before the session", []);
+    void stashDraft("new", "before the session", []);
     moveStash("new", "session-1");
     expect(takeStashed("new")).toBeUndefined();
     expect(takeStashed("session-1")?.text).toBe("before the session");
