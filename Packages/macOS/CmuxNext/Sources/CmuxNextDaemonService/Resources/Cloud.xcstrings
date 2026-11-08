@@ -12745,127 +12745,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Cloud machine stays paused and can be resumed from the sidebar."
+            "value": "The Cloud machine is kept. It pauses when idle, and you can resume it from the sidebar."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يبقى جهاز Cloud متوقفًا مؤقتًا ويمكن استئنافه من الشريط الجانبي."
+            "value": "يتم الاحتفاظ بجهاز Cloud. يتوقف مؤقتًا عند الخمول، ويمكنك استئنافه من الشريط الجانبي."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud mašina ostaje pauzirana i može se nastaviti iz bočne trake."
+            "value": "Cloud mašina se zadržava. Pauzira se kada je neaktivna, a možete je nastaviti iz bočne trake."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-maskinen forbliver på pause og kan genoptages fra sidepanelet."
+            "value": "Cloud-maskinen beholdes. Den sættes på pause, når den er inaktiv, og du kan genoptage den fra sidepanelet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Cloud-Maschine bleibt pausiert und kann in der Seitenleiste fortgesetzt werden."
+            "value": "Die Cloud-Maschine bleibt erhalten. Sie pausiert bei Inaktivität, und du kannst sie in der Seitenleiste fortsetzen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La máquina de Cloud sigue en pausa y se puede reanudar desde la barra lateral."
+            "value": "La máquina de Cloud se conserva. Se pausa cuando está inactiva y puedes reanudarla desde la barra lateral."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La machine Cloud reste en pause et peut être relancée depuis la barre latérale."
+            "value": "La machine Cloud est conservée. Elle se met en pause lorsqu’elle est inactive, et vous pouvez la reprendre depuis la barre latérale."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La macchina Cloud resta in pausa e può essere ripresa dalla barra laterale."
+            "value": "La macchina Cloud viene mantenuta. Va in pausa quando è inattiva e puoi riprenderla dalla barra laterale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud マシンは一時停止したまま残り、サイドバーから再開できます。"
+            "value": "Cloud マシンは保持されます。アイドル状態になると一時停止し、サイドバーから再開できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ម៉ាស៊ីន Cloud នៅតែផ្អាក ហើយអាចបន្តពីរបារចំហៀងបាន។"
+            "value": "ម៉ាស៊ីន Cloud ត្រូវបានរក្សាទុក។ វាផ្អាកនៅពេលទំនេរ ហើយអ្នកអាចបន្តវាពីរបារចំហៀង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 머신은 일시 정지된 채로 유지되며 사이드바에서 재개할 수 있습니다."
+            "value": "Cloud 머신은 유지됩니다. 유휴 상태가 되면 일시 정지되며 사이드바에서 다시 시작할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-maskinen forblir satt på pause og kan fortsettes fra sidefeltet."
+            "value": "Cloud-maskinen beholdes. Den settes på pause når den er inaktiv, og du kan gjenoppta den fra sidepanelet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Maszyna Cloud pozostaje wstrzymana i można ją wznowić z paska bocznego."
+            "value": "Maszyna Cloud zostaje zachowana. Wstrzymuje się, gdy jest bezczynna, a możesz ją wznowić z paska bocznego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A máquina do Cloud continua pausada e pode ser retomada pela barra lateral."
+            "value": "A máquina do Cloud é mantida. Ela pausa quando fica ociosa, e você pode retomá-la pela barra lateral."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Машина Cloud остаётся приостановленной, её можно возобновить на боковой панели."
+            "value": "Машина Cloud сохраняется. Она приостанавливается при бездействии, и её можно возобновить на боковой панели."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่อง Cloud ยังคงหยุดชั่วคราวอยู่ และทำงานต่อได้จากแถบด้านข้าง"
+            "value": "ระบบจะเก็บเครื่อง Cloud ไว้ เครื่องจะหยุดชั่วคราวเมื่อไม่มีการใช้งาน และคุณสามารถใช้งานต่อได้จากแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud makinesi duraklatılmış olarak kalır ve kenar çubuğundan sürdürülebilir."
+            "value": "Cloud makinesi korunur. Boşta kaldığında duraklar ve kenar çubuğundan devam ettirebilirsiniz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Машина Cloud лишається призупиненою, її можна відновити на бічній панелі."
+            "value": "Машину Cloud збережено. Вона призупиняється під час бездіяльності, і її можна відновити на бічній панелі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máy Cloud vẫn tạm dừng và có thể tiếp tục từ thanh bên."
+            "value": "Máy Cloud được giữ lại. Máy sẽ tạm dừng khi không hoạt động và bạn có thể tiếp tục nó từ thanh bên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 机器会保持暂停，可从侧边栏恢复。"
+            "value": "Cloud 机器会保留。它在空闲时暂停，你可以从侧边栏恢复它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 機器會保持暫停，可從側邊欄恢復。"
+            "value": "Cloud 機器會保留。它在閒置時暫停，你可以從側邊欄恢復它。"
           }
         }
       }
@@ -12876,127 +12876,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Cloud machine stays paused and can be resumed from the sidebar. It is deleted on %@ unless resumed."
+            "value": "The Cloud machine is kept. It pauses when idle, and you can resume it from the sidebar. If it stays paused, it is deleted on %@."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يبقى جهاز Cloud متوقفًا مؤقتًا ويمكن استئنافه من الشريط الجانبي. سيُحذف في %@ ما لم يُستأنف."
+            "value": "يتم الاحتفاظ بجهاز Cloud. يتوقف مؤقتًا عند الخمول، ويمكنك استئنافه من الشريط الجانبي. إذا بقي متوقفًا مؤقتًا، فسيتم حذفه في %@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud mašina ostaje pauzirana i može se nastaviti iz bočne trake. Briše se %@ ako se ne nastavi."
+            "value": "Cloud mašina se zadržava. Pauzira se kada je neaktivna, a možete je nastaviti iz bočne trake. Ako ostane pauzirana, briše se %@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-maskinen forbliver på pause og kan genoptages fra sidepanelet. Den slettes %@, medmindre den genoptages."
+            "value": "Cloud-maskinen beholdes. Den sættes på pause, når den er inaktiv, og du kan genoptage den fra sidepanelet. Hvis den forbliver på pause, slettes den den %@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Cloud-Maschine bleibt pausiert und kann in der Seitenleiste fortgesetzt werden. Sie wird am %@ gelöscht, sofern sie nicht fortgesetzt wird."
+            "value": "Die Cloud-Maschine bleibt erhalten. Sie pausiert bei Inaktivität, und du kannst sie in der Seitenleiste fortsetzen. Bleibt sie pausiert, wird sie am %@ gelöscht."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La máquina de Cloud sigue en pausa y se puede reanudar desde la barra lateral. Se eliminará el %@ si no se reanuda."
+            "value": "La máquina de Cloud se conserva. Se pausa cuando está inactiva y puedes reanudarla desde la barra lateral. Si sigue en pausa, se eliminará el %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La machine Cloud reste en pause et peut être relancée depuis la barre latérale. Elle sera supprimée le %@ sauf reprise."
+            "value": "La machine Cloud est conservée. Elle se met en pause lorsqu’elle est inactive, et vous pouvez la reprendre depuis la barre latérale. Si elle reste en pause, elle sera supprimée le %@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La macchina Cloud resta in pausa e può essere ripresa dalla barra laterale. Verrà eliminata il %@ se non viene ripresa."
+            "value": "La macchina Cloud viene mantenuta. Va in pausa quando è inattiva e puoi riprenderla dalla barra laterale. Se resta in pausa, verrà eliminata il %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud マシンは一時停止したまま残り、サイドバーから再開できます。再開しなければ %@ に削除されます。"
+            "value": "Cloud マシンは保持されます。アイドル状態になると一時停止し、サイドバーから再開できます。一時停止のままの場合、%@ に削除されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ម៉ាស៊ីន Cloud នៅតែផ្អាក ហើយអាចបន្តពីរបារចំហៀងបាន។ វានឹងត្រូវលុបនៅ %@ លុះត្រាតែបន្ត។"
+            "value": "ម៉ាស៊ីន Cloud ត្រូវបានរក្សាទុក។ វាផ្អាកនៅពេលទំនេរ ហើយអ្នកអាចបន្តវាពីរបារចំហៀង។ ប្រសិនបើវានៅតែផ្អាក វានឹងត្រូវលុបនៅ %@។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 머신은 일시 정지된 채로 유지되며 사이드바에서 재개할 수 있습니다. 재개하지 않으면 %@에 삭제됩니다."
+            "value": "Cloud 머신은 유지됩니다. 유휴 상태가 되면 일시 정지되며 사이드바에서 다시 시작할 수 있습니다. 일시 정지 상태로 남아 있으면 %@에 삭제됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-maskinen forblir satt på pause og kan fortsettes fra sidefeltet. Den slettes %@ med mindre den fortsettes."
+            "value": "Cloud-maskinen beholdes. Den settes på pause når den er inaktiv, og du kan gjenoppta den fra sidepanelet. Hvis den forblir på pause, slettes den %@."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Maszyna Cloud pozostaje wstrzymana i można ją wznowić z paska bocznego. Zostanie usunięta %@, jeśli nie zostanie wznowiona."
+            "value": "Maszyna Cloud zostaje zachowana. Wstrzymuje się, gdy jest bezczynna, a możesz ją wznowić z paska bocznego. Jeśli pozostanie wstrzymana, zostanie usunięta %@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A máquina do Cloud continua pausada e pode ser retomada pela barra lateral. Ela será excluída em %@ se não for retomada."
+            "value": "A máquina do Cloud é mantida. Ela pausa quando fica ociosa, e você pode retomá-la pela barra lateral. Se continuar pausada, ela será excluída em %@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Машина Cloud остаётся приостановленной, её можно возобновить на боковой панели. Она будет удалена %@, если её не возобновить."
+            "value": "Машина Cloud сохраняется. Она приостанавливается при бездействии, и её можно возобновить на боковой панели. Если она останется приостановленной, она будет удалена %@."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่อง Cloud ยังคงหยุดชั่วคราวอยู่ และทำงานต่อได้จากแถบด้านข้าง จะถูกลบใน %@ หากไม่ทำงานต่อ"
+            "value": "ระบบจะเก็บเครื่อง Cloud ไว้ เครื่องจะหยุดชั่วคราวเมื่อไม่มีการใช้งาน และคุณสามารถใช้งานต่อได้จากแถบด้านข้าง หากยังหยุดชั่วคราวอยู่ จะถูกลบในวันที่ %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud makinesi duraklatılmış olarak kalır ve kenar çubuğundan sürdürülebilir. Sürdürülmezse %@ tarihinde silinir."
+            "value": "Cloud makinesi korunur. Boşta kaldığında duraklar ve kenar çubuğundan devam ettirebilirsiniz. Duraklatılmış kalırsa %@ tarihinde silinir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Машина Cloud лишається призупиненою, її можна відновити на бічній панелі. Її буде видалено %@, якщо не відновити."
+            "value": "Машину Cloud збережено. Вона призупиняється під час бездіяльності, і її можна відновити на бічній панелі. Якщо вона залишиться призупиненою, її буде видалено %@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máy Cloud vẫn tạm dừng và có thể tiếp tục từ thanh bên. Máy sẽ bị xóa vào %@ nếu không tiếp tục."
+            "value": "Máy Cloud được giữ lại. Máy sẽ tạm dừng khi không hoạt động và bạn có thể tiếp tục nó từ thanh bên. Nếu vẫn tạm dừng, máy sẽ bị xóa vào %@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 机器会保持暂停，可从侧边栏恢复。若不恢复，将于 %@ 删除。"
+            "value": "Cloud 机器会保留。它在空闲时暂停，你可以从侧边栏恢复它。如果它一直处于暂停状态，将于 %@ 删除。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 機器會保持暫停，可從側邊欄恢復。若不恢復，將於 %@ 刪除。"
+            "value": "Cloud 機器會保留。它在閒置時暫停，你可以從側邊欄恢復它。如果它一直處於暫停狀態，將於 %@ 刪除。"
           }
         }
       }
