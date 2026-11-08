@@ -272,32 +272,26 @@ fn a_token_line_on_stdin_is_the_credential_of_later_dials() {
 }
 
 #[test]
-fn a_new_person_s_credential_during_a_parked_dial_never_holds_up_stdin() {
-    let world = world(200, Arc::new(AtomicUsize::new(0)));
+fn a_new_person_s_credential_during_a_running_dial_never_holds_up_stdin() {
+    // The platform answers nothing: the first connection's dial stays in
+    // its ticket step for the 20 s fetch timeout.
+    let world = world(HANG, Arc::new(AtomicUsize::new(0)));
     let socket = socket_path(&world);
     let mut child = serve(&world, &socket);
-    let (ready, mut stderr) = first_line(&mut child);
+    let (ready, _stderr) = first_line(&mut child);
     assert_eq!(ready["ok"], true, "{ready}");
-    let mut stdin = child.stdin.take().unwrap();
-    // A handed-over answer naming a slot no daemon registered on: the next
-    // dial parks at the relay until its 30 s deadline.
-    let mut answer: Value = serde_json::from_str(
-        &world.answer_line("BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU", true),
-    )
-    .unwrap();
-    answer["carrier_answer"]["slot"] = json!("a-slot-no-daemon-registered");
-    apply(&mut stdin, &mut stderr, &format!("{answer}\n"));
-    let _parked = UnixStream::connect(&socket).unwrap();
+    let _dialing = UnixStream::connect(&socket).unwrap();
     std::thread::sleep(Duration::from_millis(500));
 
     // Another person's credential retires what that dial makes, and stdin
     // ending still ends serve at once.
+    let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(b"{\"access_token\":\"someone-else\"}\n").unwrap();
     drop(stdin);
     assert_eq!(
-        wait(&mut child, Duration::from_secs(10)),
+        wait(&mut child, Duration::from_secs(8)),
         Some(0),
-        "serve ends with its stdin while the dial is still parked"
+        "serve ends with its stdin while the dial still runs"
     );
     assert!(!socket.exists(), "the socket is removed on exit");
 }

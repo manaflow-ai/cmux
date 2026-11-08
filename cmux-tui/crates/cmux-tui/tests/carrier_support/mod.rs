@@ -81,9 +81,14 @@ impl Signer {
     }
 }
 
+/// The `status` at which the platform answers nothing for a minute (past
+/// the dial's 20 s fetch timeout): a dial that stays in its ticket step.
+pub const HANG: u16 = 599;
+
 /// The platform's carrier route: checks the bearer, answers a Connect
 /// ticket for the open relay, a grant for the asked key, and the daemon key.
-/// `status` other than 200 (read at each request) refuses it.
+/// `status` other than 200 (read at each request) refuses it; [`HANG`]
+/// answers nothing for a minute.
 pub async fn platform(
     signer: Arc<Signer>,
     relay: SocketAddr,
@@ -133,6 +138,9 @@ pub async fn platform(
                 teams.lock().unwrap().push(team);
                 keys.lock().unwrap().push(request["noise_key"].as_str().map(str::to_owned));
                 let n = asked.fetch_add(1, Ordering::SeqCst);
+                if status == HANG {
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                }
                 assert_eq!(path, format!("/v1/cloud/machines/{MACHINE}/carrier"));
                 let (code, answer) = if status != 200 || !authorized {
                     (
