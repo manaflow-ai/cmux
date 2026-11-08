@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42477912953",
+  "recorded_at": "2026-11-08T12:03:17Z",
+  "reason": "cmux-tui 5826cf0df5c5 changes the image's cmux-tui (pinned e27250f9686a)",
+  "dry_run": false,
+  "cmux_tui": "5826cf0df5c5651027190e9eec0b71f1cabd1899",
+  "fixes": [
+    {
+      "sha": "d9b443f592aafda91b25bda0db055a7f15059075",
+      "mergedAt": "2026-11-08T03:41:32-08:00",
+      "subject": "cmux-tui test: a seeded folder keeps its sync barrier's head and owner locks beside it (#38370)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T12:03:17Z",
+    "snapshot_id": "sh-e56def2fff044ab5a447f22b40c73346",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42477912953): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "08edac86344080fe9ead968849b6c8167db7463d",
+    "image": "cloud-native-auto-5826cf0d-42477912953-1",
+    "revision": "ci-42477912953-1",
+    "at": "2026-11-08T12:03:17Z"
+  },
+  "rolled_back": false
+}
