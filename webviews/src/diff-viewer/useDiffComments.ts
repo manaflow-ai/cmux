@@ -89,6 +89,15 @@ export function useDiffComments({
   // The draft save on its way, by draft and message: pressing Comment again on the same text reuses
   // its opid, so the host stores the comment once.
   const draftSave = useRef<{ draft: unknown; message: string; opid: string } | null>(null);
+  // Saves on their way to the host: a post waits for them, so it never overtakes an edit the
+  // person saved just before clicking Post (the post goes on a connection of its own).
+  const saving = useRef(new Set<Promise<unknown>>());
+  const tracked = <T,>(save: Promise<T>): Promise<T> => {
+    saving.current.add(save);
+    const settle = () => saving.current.delete(save);
+    save.then(settle, settle);
+    return save;
+  };
   // Another repository: its Send and Post start idle.
   useEffect(() => {
     setSendState("idle");
@@ -140,10 +149,11 @@ export function useDiffComments({
     const opid =
       prior?.draft === draft && prior.message === message ? prior.opid : `diff-comment-${crypto.randomUUID()}`;
     draftSave.current = { draft, message, opid };
-    const save =
+    const save = tracked(
       bridgeAvailable && repoRoot != null
         ? bridgeSaveComment(repoRoot, record, opid)
-        : Promise.resolve(localCommentRecord(record));
+        : Promise.resolve(localCommentRecord(record)),
+    );
     save
       .then((saved) => {
         if (activeRepoRoot.current !== repoRoot) {
@@ -162,7 +172,9 @@ export function useDiffComments({
     }
     const edited = { ...comment, message, updatedAt: new Date().toISOString() };
     const updated = { ...edited, submissionText: commentSubmissionText(edited, fileDiff) };
-    const save = bridgeAvailable && repoRoot != null ? bridgeSaveComment(repoRoot, updated) : Promise.resolve(updated);
+    const save = tracked(
+      bridgeAvailable && repoRoot != null ? bridgeSaveComment(repoRoot, updated) : Promise.resolve(updated),
+    );
     save
       .then((saved) => {
         if (activeRepoRoot.current === repoRoot) {
@@ -226,8 +238,18 @@ export function useDiffComments({
     if (ids.length > 0) dispatch({ type: "remove-comments", ids });
   };
 
-  /** Posts every saved comment to the worktree's pull request as one review, as `send` sends. */
-  const post = () => postBatch(false);
+  /** Posts every saved comment to the worktree's pull request as one review, as `send` sends; after
+   * any save still on its way, so the review has the wording the person saved. */
+  const post = () => {
+    const saves = [...saving.current];
+    if (saves.length === 0) return postBatch(false);
+    if (postState === "posting") return;
+    setPostState("posting");
+    void Promise.allSettled(saves).then(() => {
+      setPostState("idle");
+      postBatch(false);
+    });
+  };
 
   /** `post`; `fresh` skips the unfinished batch, which the host said never reached GitHub. */
   const postBatch = (fresh: boolean): void => {

@@ -306,6 +306,35 @@ test("a draft edited after a post stops the header saying it posted", async () =
   );
 });
 
+test("Post waits for an edit still being saved, so the review never has the older wording", async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await withHost(
+    async (call) => {
+      if (call.method === "comments.save") {
+        await held;
+        return { comment: call.params.comment };
+      }
+      return { url: `${REVIEW.url}#pullrequestreview-5`, posted: 1, in_body: 0, cleared: [] };
+    },
+    async (calls) => {
+      const probe = await mountHook([comment("c1", "a.ts", 1)]);
+      act(() => probe.hook().editMessage(comment("c1", "a.ts", 1), "fix it now", null));
+      act(() => probe.hook().post());
+      await act(async () => await Promise.resolve());
+      expect(calls.map((call) => call.method)).toEqual(["comments.save"]);
+      expect(probe.hook().postState).toBe("posting");
+      await act(async () => {
+        release();
+        await held;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(calls.map((call) => call.method)).toEqual(["comments.save", "comments.post"]);
+      probe.unmount();
+    },
+  );
+});
+
 test("a review on another machine shows no Post: only this Mac's daemon takes the person's post", async () => {
   await withHost(
     () => ({}),
