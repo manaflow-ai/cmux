@@ -92,6 +92,11 @@ export function takeProjectPreview(folder: string | undefined, now = Date.now())
   return until >= now;
 }
 
+/// The chat in `folder` did not start: no later chat there opens its page.
+export function forgetProjectPreview(folder: string | undefined): void {
+  if (folder) waiting.delete(folder);
+}
+
 /// Whether a chat in `folder` still waits for its page (no taking).
 export function awaitsProjectPreview(folder: string | undefined, now = Date.now()): boolean {
   if (!folder) return false;

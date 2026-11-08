@@ -20,7 +20,7 @@ import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
 import { NewProjectName, NewProjectFailure } from "./NewProjectName";
-import { awaitProjectPreview, newProjectPrompt, projectNameFrom, projectSlug } from "./newProject";
+import { awaitProjectPreview, forgetProjectPreview, newProjectPrompt, projectNameFrom, projectSlug } from "./newProject";
 import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
@@ -732,6 +732,8 @@ export function NewTabScreen(props: Props) {
     setStarting(args[0]);
     const failed = (error: unknown) => {
       created.current = false;
+      // A New project folder whose chat did not start opens no page for a later chat there.
+      forgetProjectPreview(args[2]);
       // A cancelled start (Not now, a newer folder request, another chat taking the page) is no
       // failure: the draft stays and nothing says it failed. A real refusal still says why.
       if (!isStartCancelled(error)) setStartError(errorMessage(error) || t("switch.unknownError"));
@@ -812,6 +814,8 @@ export function NewTabScreen(props: Props) {
     return none ? requestChat(agent, sent.text, cwd, model, true) : requestChat(agent, sent.text, cwd, model);
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
+  // The chips' agent or model pick starts no chat in a folder New project has not made yet.
+  const chipFolder = newProject ? undefined : chatFolder;
   const remembered = useLastPick(chatFolder);
   const harnessesListed = useHarnessesListed();
   const { harness, snapshot: chipSnapshot } = useMemo(
@@ -2024,7 +2028,7 @@ export function NewTabScreen(props: Props) {
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
         {!split && Chips && (
-          <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
+          <Chips snapshot={chipSnapshot} {...(chipFolder ? { cwd: chipFolder } : {})} onAddAgent={openSetup} />
         )}
         <span className="acpmux-composer-actions">
           {props.accessory}
@@ -2343,7 +2347,7 @@ export function NewTabScreen(props: Props) {
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot} plain={plainFooter}>
-              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
+              <Chips snapshot={chipSnapshot} {...(chipFolder ? { cwd: chipFolder } : {})} onAddAgent={openSetup} />
             </ComposerFoot>
           </div>
         )}
