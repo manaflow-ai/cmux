@@ -50,10 +50,13 @@ public final class ServerModel {
     }
 
     /// Stops the source. Its intents in flight never settle once it stops, so they are dropped: a
-    /// later `start()` (the menu bar item shown again) never shows one as pending forever.
+    /// later `start()` (the menu bar item shown again) never shows one as pending forever. Add
+    /// Server's draft, found server and last answer go too: a pairing code from before the stop may
+    /// have expired, so the next opening looks it up again.
     public func stop() {
         source.stop()
         pending.removeAll()
+        dismissApproval()
     }
 
     // MARK: - Derived state
