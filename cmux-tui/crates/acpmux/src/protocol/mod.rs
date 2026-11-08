@@ -369,6 +369,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chats", Request),
         untyped("_acpmux/chats_watch", Request),
         untyped("_acpmux/chat_open", Request),
+        untyped("_acpmux/chat_resolve", Request),
         untyped("_acpmux/chat_roots", Request),
         untyped("_acpmux/chat_roots_record", Request),
         untyped("_acpmux/chat_settings", Request),

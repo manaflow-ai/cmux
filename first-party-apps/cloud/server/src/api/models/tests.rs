@@ -220,6 +220,18 @@ fn a_connect_info_missing_a_catalog_required_field_is_a_bad_response() {
 }
 
 #[test]
+fn a_connect_info_revision_is_a_checked_decimal() {
+    let info = decode_connect_info(OP, with(connect_info(), json!({ "revision": "007" })))
+        .expect("decodes");
+    assert_eq!(info.revision, "7");
+    for bad in ["", "7a", "-1", " 7"] {
+        let error = decode_connect_info(OP, with(connect_info(), json!({ "revision": bad })))
+            .expect_err(bad);
+        assert_eq!(error.code, codes::BAD_RESPONSE, "{bad:?}");
+    }
+}
+
+#[test]
 fn capability_and_service_checks_are_exact_and_fail_closed() {
     let info = decode_connect_info(OP, connect_info()).expect("decodes");
     assert!(info.has_service("daemon"));

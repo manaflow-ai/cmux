@@ -103,6 +103,7 @@ pub mod sizing_policy;
 mod skills_catalog;
 mod state;
 pub mod store_schemas;
+pub mod wait_pattern;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;

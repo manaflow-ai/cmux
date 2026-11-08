@@ -875,6 +875,14 @@ def summarize(records):
         out[key] = {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": pct(values, 1.0)}
     frames = [r.get("mean_interval_ms") for r in good if isinstance(r.get("mean_interval_ms"), (int, float))]
     out["frame_ms"] = round(sum(frames) / len(frames), 1) if frames else None
+    # The instant-splits four numbers (FOUR-NUMBERS table): blank frames, and dropped frames (the main thread's
+    # missed refreshes with --motion, else frames standing still inside the transition).
+    for key, pick in (("blank_frames", lambda r: r.get("blank_frames")),
+                      ("dropped_frames", lambda r: (r.get("main_frames") or {}).get("missed")
+                       if isinstance((r.get("main_frames") or {}).get("missed"), (int, float))
+                       else (r.get("motion") or {}).get("stall_frames"))):
+        values = [pick(r) for r in good]
+        out[key] = {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": pct(values, 1.0)}
     out["over"] = over_budget(out)
     # Opens whose window motion ran in two phases or more (motion_stats): a placement in two steps, or late content.
     out["multi_phase"] = sum(1 for r in good if ((r.get("motion") or {}).get("phases") or 0) >= 2)
@@ -947,6 +955,16 @@ def markdown(results):
                         lines.append(f"| {surface} | {condition} | {'open' if step == 'motion' else 'close'} | {m['n']} | {triple(m, 'motion_ms')} | "
                                      f"{triple(m, 'stall_frames')} | {triple(m, 'longest_stall_ms')} | {triple(m, 'phases')} | "
                                      f"{triple(m, 'main_missed')} | {triple(m, 'main_max_ms')} |")
+    lines += ["", "FOUR-NUMBERS (instant-splits, goals/instant-splits.md in cmuxterm-hq): ms from the click, p50/p95/max. "
+              "first change = commit; settled = final; blank = frames whose pane was flat and unlike before and after; "
+              "dropped = main-thread missed refreshes (--motion), else frames standing still inside the transition.",
+              "", "| surface | condition | first change | settled | blank frames | dropped frames |", "|---|---|---|---|---|---|"]
+    for surface in WANTED:
+        for condition in CONDITIONS:
+            s = results["surfaces"].get(surface, {}).get(condition)
+            if s and s.get("ok"):
+                lines.append(f"| {surface} | {condition} | {triple(s, 'commit_ms')} | {triple(s, 'final_ms')} | "
+                             f"{triple(s, 'blank_frames')} | {triple(s, 'dropped_frames')} |")
     lines += ["", "load average per condition: " + ", ".join(f"{c} {v}" for c, v in results.get("load_avg", {}).items())]
     return "\n".join(lines)
 

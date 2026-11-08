@@ -26,6 +26,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-mcp-connect",
  "cmux-palette-ranker",
  "cmux-panic-log",
@@ -1549,6 +1550,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-local-url"
+version = "0.1.0"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "cmux-mcp-connect"
 version = "0.1.0"
 dependencies = [
@@ -2102,6 +2110,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-palette-ranker",
  "cmux-process",
  "cmux-pty",
