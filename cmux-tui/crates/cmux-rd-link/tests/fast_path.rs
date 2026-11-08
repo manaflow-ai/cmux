@@ -91,7 +91,7 @@ impl Pair {
             self.now += 1_000;
             let tick = self.now / 1_000;
             let mut to_host = self.viewer.poll_transmit(self.now).unwrap();
-            if self.viewer.link().is_established() && tick % 10 == 0 {
+            if self.viewer.link().is_established() && tick.is_multiple_of(10) {
                 to_host.extend(self.viewer.send_datagram(b"input").unwrap());
             }
             for t in to_host {

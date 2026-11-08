@@ -453,7 +453,11 @@ mod tests {
         assert_eq!(lose(&mut selector, LAN), None, "still suspect, nothing visible changed");
         lose(&mut selector, LAN);
         let died = lose(&mut selector, LAN);
-        assert_eq!(died, Some(Switch { from: None, to: None }), "the held path's death is reported");
+        assert_eq!(
+            died,
+            Some(Switch { from: None, to: None }),
+            "the held path's death is reported"
+        );
         assert_eq!(selector.chosen(), None);
     }
 
