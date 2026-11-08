@@ -19,28 +19,30 @@ LINES = "\n".join(["#!/bin/sh", "i=1", "while [ $i -le 80 ]; do",
                    "  echo \"line $i: the quick brown fox jumps over the lazy dog; this long line wraps at the pane edge, "
                    "so a resize re-wraps it (close-variants film, non-private text) $i\"", "  i=$((i+1))", "done", ""])
 LONG = "\n".join(f"{i:03d} " + ("nvim long line with wrap on: the quick brown fox jumps over the lazy dog. " * 4) for i in range(1, 121)) + "\n"
-CLAUDE = "\n".join(["#!/bin/sh", "cd /tmp/cv-repo || exit 1",
-                    "export CLAUDE_CONFIG_DIR=/tmp/cv-claude ANTHROPIC_BASE_URL=http://100.89.225.106:31415 "
+CLAUDE = "\n".join(["#!/bin/sh", "mkdir -p /tmp/jr-cvc /tmp/jr-cvrepo",
+                    "cp /tmp/jr-cv-claude.json /tmp/jr-cvc/.claude.json",
+                    "printf '# throwaway repo for close-variants films\\n' > /tmp/jr-cvrepo/README.md",
+                    "cd /tmp/jr-cvrepo || exit 1",
+                    "export CLAUDE_CONFIG_DIR=/tmp/jr-cvc ANTHROPIC_BASE_URL=http://100.89.225.106:31415 "
                     "ANTHROPIC_AUTH_TOKEN=film-dummy DISABLE_AUTOUPDATER=1 PATH=/opt/homebrew/bin:$PATH",
                     "exec claude", ""])
 CLAUDE_CFG = json.dumps({"hasCompletedOnboarding": True, "theme": "dark", "numStartups": 5, "projects": {
-    p: {"hasTrustDialogAccepted": True, "hasCompletedProjectOnboarding": True} for p in ("/tmp/cv-repo", "/private/tmp/cv-repo")}})
+    p: {"hasTrustDialogAccepted": True, "hasCompletedProjectOnboarding": True} for p in ("/tmp/jr-cvrepo", "/private/tmp/jr-cvrepo")}})
 
-FILES = [{"do": "file", "path": "/tmp/cv-lines.sh", "text": LINES, "title": "set-up: the long-lines script"},
-         {"do": "file", "path": "/tmp/cv-long.txt", "text": LONG, "title": "set-up: the nvim long-lines file"},
-         {"do": "file", "path": "/tmp/cv-claude.sh", "text": CLAUDE, "title": "set-up: Claude Code launcher (subrouter, per-process env)"},
-         {"do": "file", "path": "/tmp/cv-claude/.claude.json", "text": CLAUDE_CFG, "title": "set-up: Claude Code temp config (no onboarding)"},
-         {"do": "file", "path": "/tmp/cv-repo/README.md", "text": "# throwaway repo for close-variants films\n", "title": "set-up: throwaway repo"}]
+FILES = [{"do": "file", "path": "/tmp/jr-cv-lines.sh", "text": LINES, "title": "set-up: the long-lines script"},
+         {"do": "file", "path": "/tmp/jr-cv-long.txt", "text": LONG, "title": "set-up: the nvim long-lines file"},
+         {"do": "file", "path": "/tmp/jr-cv-claude.sh", "text": CLAUDE, "title": "set-up: Claude Code launcher (subrouter, per-process env)"},
+         {"do": "file", "path": "/tmp/jr-cv-claude.json", "text": CLAUDE_CFG, "title": "set-up: Claude Code temp config (no onboarding; the launcher copies it)"}]
 
 # program -> (screen mode, launch steps typed into the survivor)
 def typed(text, wait):
     return [{"do": "type", "text": text, "enter": True, "title": f"set-up: run `{text}`"}, G.settle(wait)]
 
 PROGRAMS = {
-    "nvim": ("ALT", typed("PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/cv-long.txt", 2.0)),
+    "nvim": ("ALT", typed("PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/jr-cv-long.txt", 2.0)),
     "htop": ("ALT", typed("/opt/homebrew/bin/htop", 2.0)),
-    "claude": ("MAIN", typed("sh /tmp/cv-claude.sh", 6.0) + typed("!sh /tmp/cv-lines.sh", 3.0)),
-    "zsh": ("MAIN", typed("sh /tmp/cv-lines.sh", 1.5)),
+    "claude": ("MAIN", typed("sh /tmp/jr-cv-claude.sh", 6.0) + typed("!sh /tmp/jr-cv-lines.sh", 3.0)),
+    "zsh": ("MAIN", typed("sh /tmp/jr-cv-lines.sh", 1.5)),
 }
 
 
