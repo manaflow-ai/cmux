@@ -358,7 +358,12 @@ fn run_agent(mut cfg: Config) -> u8 {
     // Cloud role's binds may go out again (updater/gate.rs). Before any role
     // starts, so before the first bind.
     if cfg.paths.is_system_root() {
-        crate::updater::gate::Gate::new(&cfg.paths).service_started();
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        if let Err(e) = crate::updater::gate::Gate::new(&cfg.paths).service_started(now_ms) {
+            eprintln!("cmux host: the restart gate failed at start ({e}); binds wait for it");
+        }
     }
     let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone())
         .with_root_bootstrap(bootstrap.clone());

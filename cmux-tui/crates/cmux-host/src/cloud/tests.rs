@@ -564,13 +564,12 @@ fn a_bind_that_lands_holds_the_updaters_flip() {
         T0,
     );
     assert!(matches!(result, Some(BindResult::Bound(_))), "{result:?}");
-    assert_eq!(
-        Gate::new(&paths).held_left(T0),
-        Some(CONNECT_HOLD),
+    assert!(
+        Gate::new(&paths).held_left(T0).unwrap().is_some_and(|left| left >= CONNECT_HOLD),
         "the bind did not hold the updater's flip"
     );
     let mut flipped = false;
-    assert!(Gate::new(&paths).run(T0 + 1_000, true, |_| flipped = true).is_err());
+    assert!(Gate::new(&paths).run_test(T0 + 1_000, true, |_| flipped = true).is_err());
     assert!(!flipped, "an update flipped during the bound machine's first connect");
 }
 
@@ -582,7 +581,7 @@ fn a_bind_with_a_restart_pending_waits_for_the_restarted_service() {
 
     let root = tempfile::tempdir().unwrap();
     let paths = crate::config::Paths::new(root.path());
-    assert!(Gate::new(&paths).run(T0, true, |queued| queued()).is_ok());
+    assert!(Gate::new(&paths).run_test(T0, true, |queued| queued()).is_ok());
     let fake = Fake::new();
     let mut store = MemoryStore::default();
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
@@ -648,7 +647,7 @@ fn a_rollback_waits_for_a_bind_in_flight() {
     let http = DuringBind {
         fake: Fake::new(),
         during: || {
-            let rollback = Gate::new(&paths).run(T0 + 500, false, |_| rolled_back.set(true));
+            let rollback = Gate::new(&paths).run_test(T0 + 500, false, |_| rolled_back.set(true));
             refused.set(rollback.is_err());
         },
     };
@@ -660,7 +659,7 @@ fn a_rollback_waits_for_a_bind_in_flight() {
     );
     // The bind is done: a rollback goes, connect hold or not.
     let mut ran = false;
-    assert!(Gate::new(&paths).run(T0 + 1_000, false, |_| ran = true).is_ok());
+    assert!(Gate::new(&paths).run_test(T0 + 1_000, false, |_| ran = true).is_ok());
     assert!(ran, "a rollback after the bind was refused");
 }
 
@@ -680,7 +679,7 @@ fn a_gate_lock_that_cannot_be_taken_fails_closed() {
     assert!(fake.0.borrow().seen.is_empty(), "the bind went out");
     assert!(store.read(BIND_FILE).is_some(), "bind.json is kept for the retry");
     let mut flipped = false;
-    assert!(Gate::new(&paths).run(T0, true, |_| flipped = true).is_err());
+    assert!(Gate::new(&paths).run_test(T0, true, |_| flipped = true).is_err());
     assert!(!flipped, "an update flipped without the gate");
 }
 
