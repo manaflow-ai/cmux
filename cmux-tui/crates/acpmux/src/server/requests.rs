@@ -772,6 +772,28 @@ fn caller_sends_no_files(
 /// `request.sessionId`) for the route [`Hub::key_route`] finds. A method that names no session
 /// or answers itself for a peer's session (`peer_forward.rs`) keeps its params as they are, and
 /// so does `keep`, whose `sessionId` is an exact id this connection owns (`ephemeral.rs`).
+/// A permission answer sent to a chat for an ask pending in an open sub-session below it (the
+/// parent's page draws its children's asks, `hub/asks_below.rs`) names that sub-session from here
+/// on, so every check below is the child's own, as if it had been sent there. Only on this
+/// machine's socket: the answer still needs what an answer to the child needs (the person, or a
+/// proof); a key that does not resolve, or an ask pending in the named chat, stays as it was.
+fn route_ask_below(hub: &Arc<Hub>, m: &str, params: &mut Value) {
+    if m != method::MUX_PERMISSION_RESPOND {
+        return;
+    }
+    let Some(field) = ["sessionId", "session"].into_iter().find(|f| params[*f].is_string()) else {
+        return;
+    };
+    let (Some(key), Some(pid)) = (params[field].as_str(), params["permissionId"].as_str()) else {
+        return;
+    };
+    if let Ok(session) = hub.resolve(key)
+        && let Some(child) = hub.asking_below(&session, pid)
+    {
+        params[field] = Value::String(child);
+    }
+}
+
 fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), RpcError> {
     // A machine named in another case or by a prefix (`new --host`, `dispatch --host`) reads as
     // the one peer it names, by the same rule (`Hub::host_route`).
@@ -856,6 +878,7 @@ pub(super) async fn handle_request(
     // peer; every check below reads the route it found (`hub/key_route.rs`).
     if conn.origin == Origin::Local {
         route_bare_key(hub, m, &mut params)?;
+        route_ask_below(hub, m, &mut params);
     }
     // The pane's fork through a turn is a session/fork, checked as one from
     // here on (`fork_through.rs`).

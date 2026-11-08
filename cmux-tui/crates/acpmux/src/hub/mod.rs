@@ -18,6 +18,7 @@ mod away_recap;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
+mod asks_below;
 mod atomic_json;
 mod build;
 pub use build::{build, install_build, version_line};
@@ -1457,6 +1458,7 @@ impl Hub {
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
+            asks_below: StdMutex::new((0, 0)),
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
@@ -2147,6 +2149,7 @@ impl Hub {
                 | "stopping"
                 | "unstuck"
                 | work_below::RECORD_KIND
+                | asks_below::RECORD_KIND
                 | "queued"
                 | "dequeued"
                 | "queue_removed"
@@ -2468,6 +2471,8 @@ impl Hub {
             self.care_status(status);
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
+            // One that starts or stops waiting on the person changes its parent's asks below.
+            self.refresh_parent_asks_below(session);
             if status == SessionStatus::Closed {
                 self.retention_wake();
             }

@@ -186,6 +186,9 @@ pub struct Session {
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
     pub(super) work_below_since: StdMutex<u64>,
+    /// How many open sub-sessions below it wait on the person, and since when in ms; (0, 0)
+    /// while none does (`asks_below.rs`).
+    pub(super) asks_below: StdMutex<(u32, u64)>,
     /// A turn ended unseen while that work still ran: the chat turns unread when the work ends
     /// (manaflow-ai/cmux#25563, `work_below.rs`).
     pub(super) unread_after_work: AtomicBool,
@@ -772,6 +775,10 @@ impl Session {
             .iter()
             .map(|(k, v)| (k.clone(), v.request.clone()))
             .collect()
+    }
+    /// An open sub-session below it waits on the person (`asks_below.rs`).
+    pub(crate) fn waits_below(&self) -> bool {
+        self.asks_below.lock().unwrap_or_else(|e| e.into_inner()).0 > 0
     }
     pub(crate) fn has_pending_permissions(&self) -> bool {
         !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
