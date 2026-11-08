@@ -328,8 +328,8 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   };
 }
 
-/** An awk function that reads one string field of a journalctl JSON line. */
-const JOURNAL_FIELD = `function field(name,   r) { if (match($0, "\\"" name "\\":\\"[^\\"]*\\"")) { r = substr($0, RSTART, RLENGTH); sub(/^"[^"]*":"/, "", r); sub(/"$/, "", r); return r } return "" }`;
+/** An awk function that reads one string field of a journalctl JSON line, past escaped quotes (`\"` reads as `"`). */
+export const JOURNAL_FIELD = `function field(name,   r) { if (match($0, "\\"" name "\\":\\"([^\\"\\\\\\\\]|\\\\\\\\.)*\\"")) { r = substr($0, RSTART, RLENGTH); sub(/^"[^"]*":"/, "", r); sub(/"$/, "", r); gsub(/\\\\"/, "\\"", r); return r } return "" }`;
 
 /**
  * When the guest set up its carrier: the bind the host finished (bound.json; the platform's bind.json is gone by now,
