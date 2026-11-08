@@ -14,13 +14,19 @@ export type CookieImportCardModel = {
   neverTitle?: string | null;
   /** The browser's app icon as a data URL (PNG); absent shows no icon. */
   icon?: string | null;
+  /** "Keep in sync": a checkbox under the detail when the browser's cookies can be kept in sync
+   * after the import (a Chromium browser); absent or null shows none. */
+  keepInSyncTitle?: string | null;
+  /** The checkbox's first state (`browser.import.cookieSync`, on by default). */
+  keepInSync?: boolean;
 };
 
 /** The person's answer; every answer closes the card. */
 export type CookieImportChoice = "import" | "notNow" | "never";
 
-/** A page command, as the host reads it (`BrowserCookieImportCard.received`). */
-export type CookieImportCommand = { type: CookieImportChoice };
+/** A page command, as the host reads it (`BrowserCookieImportCard.received`). Import carries the
+ * Keep in sync answer when the card showed the checkbox. */
+export type CookieImportCommand = { type: CookieImportChoice; keepInSync?: boolean };
 
 /**
  * The card's looks (gallery). The app draws `split`.
@@ -48,6 +54,7 @@ export function cookieImportModel(state: unknown): CookieImportCardModel | null 
   if (!title || !importTitle || !notNowTitle) return null;
   const never = text("neverTitle");
   const icon = text("icon");
+  const keep = text("keepInSyncTitle");
   return {
     title,
     detail: text("detail"),
@@ -56,5 +63,7 @@ export function cookieImportModel(state: unknown): CookieImportCardModel | null 
     neverTitle: never || null,
     // Only an inline image: the page loads nothing from elsewhere.
     icon: icon.startsWith("data:image/") ? icon : null,
+    keepInSyncTitle: keep || null,
+    keepInSync: value.keepInSync !== false,
   };
 }
