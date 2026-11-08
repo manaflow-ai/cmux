@@ -3,6 +3,7 @@
 
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
+  "plan-ask: <plan>" -> a plan approval as Claude Code's ExitPlanMode asks it, then as "ask:"
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
@@ -849,6 +850,25 @@ def handle_prompt(rid, params):
                     {"optionId": "always", "name": "Allow for this session", "kind": "allow_always"},
                     {"optionId": "once", "name": "Allow", "kind": "allow_once"},
                     {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text.startswith("plan-ask:"):
+        plan = text[len("plan-ask:"):].strip()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "plan-1", "title": "Approve plan", "kind": "switch_mode",
+                             "status": "pending", "rawInput": {"plan": plan},
+                             "_meta": {"claude": {"tool": "ExitPlanMode", "interactive": True}}},
+                "options": [
+                    {"optionId": "yes", "name": "Yes", "kind": "allow_once"},
+                    {"optionId": "no", "name": "No", "kind": "reject_once"},
                 ],
             },
         )
