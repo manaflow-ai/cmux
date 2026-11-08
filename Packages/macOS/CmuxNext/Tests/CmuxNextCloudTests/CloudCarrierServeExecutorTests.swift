@@ -112,6 +112,30 @@ import Testing
         await slow.stop()
     }
 
+    /// A stopped serve that its session drops inside the stop grace still ends a child that ignores stdin EOF:
+    /// the SIGTERM it promised outlives the serve, so the machine's next serve is not left waiting on the socket.
+    @Test func aDroppedStoppedServeStillTerminatesItsChild() async throws {
+        // The child never reads stdin, so only SIGTERM ends it.
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho $$ > \"$d/pid\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile :; do sleep 0.05; done\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { ["CMUX_CLOUD_ACCESS_TOKEN": "t"] }
+        var serve: CloudCarrierServe? = CloudCarrierServe(connector: connector, socket: folder.appendingPathComponent("cmux-link-0123456789ab.sock").path,
+                                                          stopGrace: .milliseconds(200)) { _ in }
+        _ = try await serve?.socketPath()
+        let pid = try #require(Int32(String(contentsOf: folder.appendingPathComponent("pid"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        await serve?.stop()
+        weak var dropped = serve
+        serve = nil
+        let deadline = ContinuousClock.now + .seconds(5)
+        while dropped != nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(dropped == nil, "the stopped serve outlived its session")
+        while kill(pid, 0) == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let alive = kill(pid, 0) == 0
+        if alive { kill(pid, SIGKILL) }
+        #expect(!alive, "the child that ignores stdin EOF survived its dropped serve's stop deadline")
+    }
+
     private actor Gate {
         private var waiter: CheckedContinuation<Void, Never>?
         private var opened = false

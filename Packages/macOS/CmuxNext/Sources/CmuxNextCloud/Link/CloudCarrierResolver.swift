@@ -75,6 +75,8 @@ public actor CloudCarrierServe {
     private let leaseOwner: UInt64
     /// How long a launch waits for another instance to give the socket up (``leaseWait``; a test's own).
     private let leaseBound: Duration
+    /// ``stopGrace``, or a test's own.
+    private let grace: Duration
     private var machine: ServeMachine
     /// Events queued while an earlier one's effects run: each event's effects all run before the next reduces.
     private var queue: [ServeMachine.Event] = []
@@ -106,11 +108,13 @@ public actor CloudCarrierServe {
     }
 
     init(connector: CloudCarrierDial.Connector, socket: String, refreshDelay: @escaping @Sendable (String) -> Duration = { CloudCarrierServe.refreshDelay($0) },
-         leases: CloudCarrierLeases? = nil, leaseWait: Duration = CloudCarrierServe.leaseWait, check: @escaping @Sendable (String) throws -> Void) {
+         leases: CloudCarrierLeases? = nil, leaseWait: Duration = CloudCarrierServe.leaseWait,
+         stopGrace: Duration = CloudCarrierServe.stopGrace, check: @escaping @Sendable (String) throws -> Void) {
         let leases = leases ?? connector.streams?.leases ?? CloudCarrierLeases()
         (self.connector, self.socket, self.check, nextRefresh, self.leases) = (connector, socket, check, refreshDelay, leases)
         leaseOwner = leases.newOwner()
         leaseBound = leaseWait
+        grace = stopGrace
         machine = ServeMachine(socket: socket)
     }
 
@@ -205,13 +209,13 @@ public actor CloudCarrierServe {
         case .armStopDeadline(let child):
             let timer = DemandTimer(owner: "CloudCarrierServe.stopDeadline")
             stopTimers[child] = timer
-            timer.schedule(after: Self.stopGrace) { [weak self] in await self?.send(.stopDeadline(child: child)) }
+            timer.schedule(after: grace) { [weak self] in await self?.send(.stopDeadline(child: child)) }
         case .terminate(let child): children[child]?.terminate()
         case .terminateAfterGrace(let child):
             guard let process = children[child] else { return }
             let timer = DemandTimer(owner: "CloudCarrierServe.stopDeadline")
             stopTimers[child] = timer
-            timer.schedule(after: Self.stopGrace) { process.terminate() }
+            timer.schedule(after: grace) { process.terminate() }
         case .resume(let ids, let result):
             for id in ids { waiters.removeValue(forKey: id)?.resume(with: result.mapError { $0 as any Error }) }
         case .publish(let caller):
