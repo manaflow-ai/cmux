@@ -1,6 +1,6 @@
 // Word changes in the diff viewer (#23154): on by default in cmux NEXT, where the display options
 // are `diff.*` settings, and still off in the classic viewer, which got no reviewed default change.
-// cmux NEXT's defaults are the settings schema's (DiffViewerSettingsSchema.swift, exported to
+// cmux NEXT's defaults are the settings schema's (schemas/settings/source/diff-viewer.json, exported to
 // schemas/settings/settings-schema.json), so a default changed on one side only fails here.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";

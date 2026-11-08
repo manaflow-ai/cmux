@@ -5,7 +5,7 @@
 import React, { useRef, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import type { QuickFamily, QuickMenu } from "./QuickModelMenu";
+import type { QuickFamily, QuickMenu } from "./quickModelMenuModel";
 
 type Props = {
   tab?: string;

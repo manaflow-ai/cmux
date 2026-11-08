@@ -9,7 +9,8 @@ import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
-import { PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { PreviewMore, WrapButton } from "./BlockParts";
+import { usePreview, useSidewaysRef } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
 import { EditDiffLoading, useDiffPainted } from "./EditDiffLoading";
 

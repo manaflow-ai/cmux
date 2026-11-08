@@ -178,6 +178,12 @@ pub enum ResourceOperation {
     ConversationDraft,
     #[serde(rename = "conversation.events")]
     ConversationEvents,
+    #[serde(rename = "diff.comments.delete")]
+    DiffCommentsDelete,
+    #[serde(rename = "diff.comments.list")]
+    DiffCommentsList,
+    #[serde(rename = "diff.comments.save")]
+    DiffCommentsSave,
     #[serde(rename = "git.branches")]
     GitBranches,
     #[serde(rename = "git.commit")]
@@ -198,6 +204,8 @@ pub enum ResourceOperation {
     GitWorktreeApply,
     #[serde(rename = "git.worktree.remove")]
     GitWorktreeRemove,
+    #[serde(rename = "git.worktree.setup")]
+    GitWorktreeSetup,
     #[serde(rename = "history.entries.list")]
     HistoryEntriesList,
     #[serde(rename = "history.entries.remove")]

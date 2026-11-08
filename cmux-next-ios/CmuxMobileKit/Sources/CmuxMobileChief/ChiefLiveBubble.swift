@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -199,7 +200,7 @@ struct ChiefLiveDetailRow: View {
                 }
             }
             if detail.isRunning {
-                ProgressView().controlSize(.mini)
+                CmuxSpinner().controlSize(.mini)
             }
         }
     }

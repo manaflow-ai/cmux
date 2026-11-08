@@ -145,6 +145,12 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onSetAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onRemoveAgentAvatar: ((String) -> Void)?
+    /// The agent session the floating mini stands for (nil: the Chief), and Show in Mini for one
+    /// (nil: the Chief again): the chat menu's Show in Mini row. Unset, or for a chat the mini cannot
+    /// reach (`miniUnreachable`: a Chief home's or another machine's tab), the page hides the row.
+    @ObservationIgnored public var onMiniSubject: (() -> String?)?
+    @ObservationIgnored public var onShowInMini: ((String?) -> Void)?
+    @ObservationIgnored public var miniUnreachable = false
     /// `chief.face`: Chief `chief`'s name and avatar as the sidebar shows them (`name`, `src` or `text`).
     @ObservationIgnored public var onChiefFace: ((String) async -> [String: String])?
     /// Returns bounded project paths for the picker, optionally filtered by query.
@@ -191,6 +197,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onTabRowToolMenuRequested: ((String, String?) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
+    /// `dictation.watchMicrophone {on}`: the view starts or stops watching the microphone for the page.
+    @ObservationIgnored var onWatchMicrophone: ((Bool) -> Void)?
     /// Takes back a long recording the pane's dictation gave the page, for chat `session`
     /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
     @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> AgentPaneIssuedRecording?)?
@@ -308,6 +316,8 @@ public final class AgentPaneModel {
     @ObservationIgnored var chatUploadFolders = ChatUploadFolders.standard
     /// The icons of the apps this pane said attachments came from (`attachment.sourceIcon`).
     @ObservationIgnored let sourceIcons = AttachmentSourceIcons()
+    /// The mic's hand-off to the dictation app `agentPane.dictationSource` names.
+    @ObservationIgnored var dictationHandoff = AgentPaneDictationHandoff()
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     /// The native Debug Settings baseline for the sidebar's latest-reply preview. A user's
     /// `layout.sidebarPreviewVariant` can temporarily override it in the page.
@@ -450,8 +460,8 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .hostGlass, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
-             .sandboxState, .subagentShown: break
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .hostGlass, .projectIcon, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
+             .sandboxState, .subagentShown, .dictationSources, .watchMicrophone: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
         case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
@@ -580,6 +590,15 @@ public final class AgentPaneModel {
             return AgentPaneReply.success(harnessSymbols.dataURL(name).map { ["src": $0] } ?? [:])
         case .removeAgentAvatar(let session):
             onRemoveAgentAvatar?(session)
+            return AgentPaneReply.success()
+        case .miniSubject:
+            guard let onMiniSubject, !miniUnreachable else { return Self.unsupported("agent.mini") }
+            return AgentPaneReply.success(["sessionId": onMiniSubject().map { $0 as Any } ?? NSNull()])
+        case .showInMini(let session):
+            guard let onShowInMini, !miniUnreachable else { return Self.unsupported("agent.mini.show") }
+            // Only the person's click: the mini can open its reply box, which takes the keyboard.
+            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            onShowInMini(session)
             return AgentPaneReply.success()
         case .chiefFace(let chief):
             return AgentPaneReply.success(await onChiefFace?(chief) ?? [:])
@@ -745,6 +764,22 @@ public final class AgentPaneModel {
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
             return AgentPaneReply.success()
+        case .dictationHandoff:
+            // It posts keys into whichever app is in front: only for the person's own click on the mic,
+            // just now (``AgentPaneUserGestures/answerWindow``), spent once. Not the page's
+            // `userGesture` (a page counts a click another process posted too) and not the generic
+            // credit, which any key press leaves for half a minute, so page script cannot wait for
+            // unrelated typing and spend it here. A key on the mic goes through Globe-D instead.
+            guard transport.gestures.consumeAnswerClick() else { return Self.transportFailure(.gestureRequired) }
+            return dictationHandoff.reply(composer)
+        case .watchMicrophone(let on):
+            guard let onWatchMicrophone else { return Self.unsupported("dictation.watchMicrophone") }
+            onWatchMicrophone(on)
+            return AgentPaneReply.success()
+        case .dictationSources:
+            let sources = dictationHandoff.sources()
+            sourceIcons.noteDictationApps(sources.compactMap { $0["bundleId"] as? String })
+            return AgentPaneReply.success(["sources": sources])
         case .dictationRecordingUpload(let path): return await AgentPaneDictationUpload.respond(path, in: self)
         case .dictationRecordingCancel(let path): return AgentPaneDictationUpload.cancel(path, in: self)
         case .openFile(let path, let target): return await openFile(path, target: target)

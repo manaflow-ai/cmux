@@ -250,9 +250,15 @@ jobs:
     # The runner job is only a placement: its failure keeps Blacksmith.
     if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' }}
     environment: cmux-next-vm-image-dev
+    # actions: read lets resolve-exact see whether a cmux-tui artifacts run is still building this tree, so a tree
+    # nobody is building fails at once instead of after the whole wait.
+    permissions:
+      contents: read
+      actions: read
     # Attempt 1 takes the runner job's owned label when it named one; a re-run takes Blacksmith macOS.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
-    timeout-minutes: 45
+    # 30 of these may go to waiting for this commit's tree to be published (below).
+    timeout-minutes: 75
     steps:
       - name: Refuse any ref but feat-cmux-next
         env:
@@ -284,8 +290,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)"
-          git diff --exit-code "$client_commit" HEAD -- cmux-tui
+          # The client must be built from this commit's cmux-tui. cmux-tui artifacts publishes a client per source
+          # tree, under the commit whose run built it, so a commit whose tree an earlier commit already published has
+          # no manifest of its own (run 9: tree 70fc2edd, published by 77a50e53). resolve-exact names that commit for
+          # HEAD's tree key, as release builds do; an equal key means the same cmux-tui inputs. A tree still being
+          # built is waited for, up to 30 minutes, and the wait ends early when no artifacts run is building it.
+          resolved="$(CMUX_TUI_TREE_WAIT_SECONDS=1800 CMUX_TUI_TREE_PUBLISHER_SHA="$GITHUB_SHA" scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"
+          printf '%s\n' "$resolved"
+          client_commit="$(sed -n 's/^commit=//p' <<<"$resolved")"
+          [[ "$client_commit" =~ ^[0-9a-f]{40}$ ]]
           client_bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
           mkdir -p "$client_bundle/Contents"
           env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" \

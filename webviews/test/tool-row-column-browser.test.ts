@@ -145,6 +145,8 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           // A hook's block: its plain status on the row, no "PreToolUse" and no line of its words.
           expect(m.columnText).not.toContain("PreToolUse");
           expect(m.columnText).not.toContain("fixture guard");
+          // A blocked merge says no outcome: its row reads as its line, never "Merged PR #101".
+          expect(m.columnText).not.toContain("Merged");
           expect(m.rows.filter((row) => row.status === "blocked by hook").length).toBe(2);
           // The failed calls keep their word for screen readers, and the lone one its cause.
           expect(m.rows.some((row) => row.status === "Exit 1")).toBe(true);
@@ -198,6 +200,65 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         }
       });
     }
+  for (const [theme, harness, working] of [
+    ["light", "claude", false],
+    ["dark", "codex", false],
+    ["dark", "claude", true],
+    ["light", "codex", true],
+  ] as const)
+    test(`mixed ${theme} ${harness} ${working ? "live" : "finished"} run has one step per call, shared columns and useful drill-in`, async () => {
+      const page = await browser.newPage({ viewport: { width: 900, height: 1000 } });
+      try {
+        const port = (vite.httpServer!.address() as { port: number }).port;
+        await page.goto(
+          `http://127.0.0.1:${port}/test/browser/tool-row-column.html?fixture=mixed&theme=${theme}&width=760&harness=${harness}&working=${working ? 1 : 0}`,
+        );
+        const fixture = page.locator("[data-fixture-mixed]");
+        await fixture
+          .getByRole("button", {
+            name: "Ran 2 commands and used 3 tools",
+          })
+          .click();
+        const steps = fixture.locator("[data-mixed-tool-steps]");
+        // A finished call stays in its run while the live line reads Thinking (#37635): live or
+        // finished, the run lists every call.
+        await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(5);
+        expect(await steps.locator(".is-run").count()).toBe(0);
+        const geometry = await steps.locator(":scope > .cv-step > .cv-tool").evaluateAll((rows) =>
+          rows.map((row) => ({
+            top: row.getBoundingClientRect().top,
+            text: row.querySelector(".cv-tool__text, .cv-command__text")!.getBoundingClientRect().left,
+            icon: getComputedStyle(row.querySelector(".cv-tool__icon")!).visibility,
+          })),
+        );
+        for (let at = 0; at < geometry.length; at++) {
+          expect(geometry[at]!.icon).toBe("visible");
+          expect(Math.abs(geometry[at]!.text - geometry[0]!.text)).toBeLessThanOrEqual(0.5);
+          if (at) expect(Math.abs(geometry[at]!.top - geometry[at - 1]!.top - 22)).toBeLessThanOrEqual(0.5);
+        }
+        await steps.getByRole("button", { name: "Find the retry handler" }).click();
+        // An opened call is its arguments as labeled fields and its output (ToolDetail), never one JSON block.
+        expect(await steps.locator(".cv-tool-detail__key").allTextContents()).toContain("pattern");
+        expect(await steps.textContent()).not.toContain('"pattern"');
+        if (!working) {
+          await steps.getByRole("button", { name: "Capture the repaired screen", exact: false }).click();
+          await steps.getByRole("img", { name: "Capture the repaired screen" }).waitFor();
+          await steps
+            .getByRole("img", { name: "Capture the repaired screen" })
+            .evaluate((image) => (image as HTMLImageElement).decode());
+          expect(
+            await steps
+              .getByRole("img", { name: "Capture the repaired screen" })
+              .evaluate((image) => (image as HTMLImageElement).naturalWidth),
+          ).toBeGreaterThan(0);
+        }
+        expect(await steps.textContent()).not.toContain("Loaded tools");
+        expect(await steps.textContent()).not.toContain("Waiting…");
+      } finally {
+        await page.close();
+      }
+    });
+
   test("the script gallery uses natural word spacing and aligns Raw with the tool icon column", async () => {
     const page = await browser.newPage({ viewport: { width: 640, height: 820 }, deviceScaleFactor: 2 });
     try {

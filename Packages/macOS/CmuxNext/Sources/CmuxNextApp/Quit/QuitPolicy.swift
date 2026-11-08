@@ -19,25 +19,13 @@ enum QuitPolicy {
         return scripted ? .scripted : .interactive
     }
 
-    static func needsFacts(_ origin: QuitOrigin) -> Bool { QuitRules.needsFacts(origin) }
-
-    /// `QuitRules.decide` with the setting's remembered choice (nil for Ask).
-    static func decide(_ origin: QuitOrigin, behavior: QuitBehavior, facts: QuitFacts, alreadyAsked: Bool = false) -> QuitDecision {
-        let remembered: QuitSessionsChoice? = switch behavior {
-        case .ask: nil
+    /// `QuitRules.decide` with the setting's remembered choice.
+    static func decide(_ origin: QuitOrigin, behavior: QuitBehavior) -> QuitSessionsChoice {
+        let remembered: QuitSessionsChoice = switch behavior {
         case .keep: .keep
         case .endKeepLayout: .endKeepLayout
         case .endEverything: .endEverything
         }
-        return QuitRules.decide(origin, remembered: remembered, facts: facts, alreadyAsked: alreadyAsked)
-    }
-
-    /// The setting "Don't ask again" writes for a choice.
-    static func remembered(_ choice: QuitSessionsChoice) -> QuitBehavior {
-        switch choice {
-        case .keep: .keep
-        case .endKeepLayout: .endKeepLayout
-        case .endEverything: .endEverything
-        }
+        return QuitRules.decide(origin, remembered: remembered)
     }
 }
