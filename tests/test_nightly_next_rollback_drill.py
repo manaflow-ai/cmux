@@ -172,6 +172,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("${NIGHTLY_NEXT_R2_PREFIX}${NIGHTLY_APPCAST}", self.rollback_text)
         self.assertIn("&& !inputs.drill", self.job(self.rollback_text, "fix-forward"))
 
+    def test_the_called_rollback_never_waits_on_its_caller(self):
+        caller = re.search(r"\nconcurrency:\n  group: (.*)\n", self.text).group(1)
+        called = re.search(r"\nconcurrency:\n  group: (.*)\n", self.rollback_text).group(1)
+        self.assertIn("nightly-next-rollback-drill-call-", called)
+        self.assertNotIn("drill-call", caller)
+
     def test_every_write_is_guarded_and_runs_only_on_nightly_next(self):
         for name in ("publish", "receipt"):
             job = self.job(self.text, name)

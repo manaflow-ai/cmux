@@ -92,9 +92,10 @@ on:
 permissions: {}
 
 # A drill has a group of its own, so a queued drill never takes the place of a
-# queued real rollback.
+# queued real rollback. It differs from the calling drill run's own group, which
+# shares github.run_id, so the call never waits on its caller.
 concurrency:
-  group: ${{ inputs.drill && format('nightly-next-rollback-drill-{0}', github.run_id) || 'nightly-next-rollback' }}
+  group: ${{ inputs.drill && format('nightly-next-rollback-drill-call-{0}', github.run_id) || 'nightly-next-rollback' }}
   cancel-in-progress: false
 
 env:
