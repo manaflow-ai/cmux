@@ -1,5 +1,9 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-08: the Updated card follows a live interface scale change, review of #38107. The first-frame hold
+  (`SidebarUpdatedCardHost.heldHeight`) keeps the scale it was taken at and is read at the scale now, so a scale
+  decrease shrinks the card with its page instead of holding its old, larger height; #38107 made the page's
+  points follow a live scale change. Regression: `UpdatedCardScaleDownTests`, `UpdatedCardLiveScaleTests`.
 - 2026-11-07: the group editor follows its page's scale, review of #37274 (F1). The density change made the page's
   `--cmux-interface-scale` `Typography.pageScale` (the chrome body size over the Default density's 13 pt, never
   below 1), so the card is 240 x `pageScale` wide, not 240 x `userScale`: at Spacious and at Compact with Text Size

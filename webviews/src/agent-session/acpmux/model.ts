@@ -7,6 +7,7 @@ import {
   gridLength,
   MARK_FOOTER,
   MARK_INDICATOR,
+  MARK_CARD,
   MARK_STATUS,
   MARK_STEP,
   MARK_WORKED,
@@ -59,6 +60,8 @@ import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import {
   pasteChipHeight,
+  PASTE_FROM_HEIGHT,
+  PASTE_ROW_HEIGHT,
   type PasteRange,
   HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
@@ -67,6 +70,8 @@ import {
   promptHead,
   promptParts,
 } from "./conversation/promptCollapse";
+import { sentPasteLook } from "./conversation/sentPasteLook.experiment";
+import { agentText } from "./agentText";
 import { mcpCall } from "./conversation/mcpCalls";
 import { hidesEveryCall, visibleToolItems } from "./conversation/mcpPresentation";
 import { subsessionCall } from "./conversation/subsessionCalls";
@@ -1434,13 +1439,15 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
   row.kind === WORKED
     ? MARK_WORKED
-    : isStepRow(row)
-      ? MARK_STEP
-      : isLiveStep(row, prev)
-        ? MARK_INDICATOR
-        : isStatusRow(row)
-          ? MARK_STATUS
-          : rowMark(row);
+    : isEditCard(row)
+      ? MARK_CARD
+      : isStepRow(row)
+        ? MARK_STEP
+        : isLiveStep(row, prev)
+          ? MARK_INDICATOR
+          : isStatusRow(row)
+            ? MARK_STATUS
+            : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
@@ -1802,6 +1809,14 @@ const isStatusKind = (row: AcpmuxRow) =>
   row.kind === TASK_LINE ||
   row.kind === MESSAGE_RUN ||
   (row.kind === "activity" && isToolRun(row));
+/// A row the transcript draws as an edited-files card (turnChanges/sessionRows.ts `isEditRow`, which
+/// reads this): a run of its own, not shaped (`foldRun`) or a folded copy, with an edit that ran.
+export function isEditCard(row: AcpmuxRow): boolean {
+  if (row.kind !== "activity" || row.foldRun !== undefined || isFoldedCopy(row)) return false;
+  for (const item of row.items ?? [])
+    if ((item.tool?.kind === "edit" || item.tool?.kind === "fileChange") && item.tool.status !== "pending") return true;
+  return false;
+}
 /// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
 /// `isEditRow`): a run of thoughts alone may draw nothing, so it keeps its own spacing. One pass
 /// over the row's items.
@@ -2532,11 +2547,24 @@ function measuredRowHeight(
       // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
       // however long it is (conversation/UserBubble.tsx).
       const { lineHeight } = metrics();
+      // As the bubble draws each paste (conversation/sentPasteLook.experiment.ts): its own text, a
+      // label row, or a card.
+      const look = experimentArm(sentPasteLook);
       contentHeight = 0;
       for (const part of promptParts(row.text, row.pasted!))
         contentHeight +=
           part.kind === "paste"
-            ? pasteChipHeight(lineHeight)
+            ? look === "text"
+              ? (agentText(part.text).signals.length ? PASTE_FROM_HEIGHT : 0) +
+                Math.max(
+                  lineHeight,
+                  // Folded, it draws only its head (conversation/PromptText.tsx PastedText), more
+                  // than the fold holds; the fold below caps the height.
+                  textHeight(promptHead(part.text, HUGE_PROMPT_HEAD_CHARS), contentWidth, entry.prepared, usedPrepared),
+                )
+              : look === "row"
+                ? PASTE_ROW_HEIGHT
+                : pasteChipHeight(lineHeight)
             : Math.max(
                 lineHeight,
                 // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its

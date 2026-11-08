@@ -1414,6 +1414,21 @@ class SameTreeIsAnEvent(unittest.TestCase):
             self.assertNotIn("::error", result.stdout)
             self.assertIn(": skipped", receipt.read())
 
+    def test_a_ready_tree_is_reported_green_and_a_failed_one_red(self):
+        # A job that only ran red stayed a base red while skipped; a ready tree gives the tip a verdict.
+        gate = self.jobs()["same-tree-cmux-tui"]
+        condition = gate["if"]
+        self.assertIn("needs.path_route.outputs.tree_state == 'ready'", condition)
+        self.assertIn("inputs.same_tree_state == 'ready'", condition)
+        self.assertNotIn("deferred", condition)
+        steps = {step["name"]: step for step in gate["steps"]}
+        ready = steps["Report the ready same-tree cmux-tui"]
+        failed = steps["Report the unavailable same-tree cmux-tui"]
+        self.assertIn("== 'ready'", ready["if"])
+        self.assertNotIn("exit 1", ready["run"])
+        self.assertIn("== 'failed'", failed["if"])
+        self.assertIn("exit 1", failed["run"])
+
     def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
         jobs = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         for name, state in (("publish-tree", "ready"), ("notify-unpublished-tree", "failed")):
