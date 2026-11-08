@@ -70,7 +70,8 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
           const later = page.locator(".cv-tool.is-run").nth(1);
           await later.click();
           expect(await later.getAttribute("aria-expanded")).toBe("true");
-          await page.waitForTimeout(400);
+          // Two painted frames: a regrouping or store write after the click would have drawn by then.
+          await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
           expect(await later.getAttribute("aria-expanded")).toBe("true");
           if (output) await page.screenshot({ path: path.join(output, `turn-levels-${variant}-${colorScheme}.png`) });
           expect(errors).toEqual([]);

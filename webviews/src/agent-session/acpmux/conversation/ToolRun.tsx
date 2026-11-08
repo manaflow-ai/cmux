@@ -54,7 +54,7 @@ export function ToolRun({
   // thought, so the thought it opens is on screen.
   const thinking = useTranscriptViewContext() === "thinking";
   const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, holdsThought, true, inherits);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, holdsThought, true, inherits, true);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();

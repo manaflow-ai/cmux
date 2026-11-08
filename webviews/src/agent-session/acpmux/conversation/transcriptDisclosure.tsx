@@ -116,7 +116,8 @@ function inherited(sessionId: string, inherits: string): boolean {
  * default in the Verbose view (a tool's output). The reader's toggles are kept per view, so each
  * view starts from its own defaults and switching back finds the old toggles where they were.
  * `inherits`: keys of the disclosures this one replaced; one the reader opened opens this one until
- * the reader sets this one (Leo, 2026-11-07: "I opened up, expanded the tool calls, and then it
+ * the reader sets this one; `passesDown` (a run's line) hands the reader's choice to those they set
+ * (Leo, 2026-11-07: "I opened up, expanded the tool calls, and then it
  * closed on by itself").
  */
 export function useTranscriptDisclosure(
@@ -124,6 +125,7 @@ export function useTranscriptDisclosure(
   defaultOpen = false,
   verboseOpen = false,
   inherits: readonly string[] = NONE,
+  passesDown = false,
 ): [boolean, DisclosureSetter] {
   const view = useContext(ViewContext);
   const chat = useContext(DisclosureSession);
@@ -139,14 +141,15 @@ export function useTranscriptDisclosure(
     (value) => {
       const current = read(sessionId, key) ?? (opens || inherited(sessionId, from));
       const next = typeof value === "function" ? value(current) : value;
-      // A line the reader set takes the place of the lines it inherits from: one they had set takes
-      // the same choice, so a run line they closed never reopens as its group line when the run splits
-      // back into groups. A line they never set keeps its own default.
-      if (from !== "")
+      // A run's line the reader set takes the place of the group lines it inherits from: one they had
+      // set takes the same choice, so a run line they closed never reopens as its group's line when the
+      // run splits back into groups. A line they never set keeps its own default, and a group's line
+      // passes nothing up, so closing one group never closes its sibling through the run's key.
+      if (passesDown && from !== "")
         for (const other of from.split("\n")) if (read(sessionId, other) !== undefined) save(sessionId, other, next);
       save(sessionId, key, next);
     },
-    [sessionId, key, opens, from],
+    [sessionId, key, opens, from, passesDown],
   );
   return [open, setOpen];
 }

@@ -158,6 +158,19 @@ test("a run line the reader closed stays closed when the run splits back into it
   expect(lines(container)).toEqual([{ text: "Ran 2 commands", open: false }]);
 });
 
+test("closing one of a run's groups leaves its sibling as it was", async () => {
+  const calls = [command("c1", "git pull"), command("c2", "git status"), read("c3", "a.md"), read("c4", "b.md")];
+  const container = await mount(<ToolRows row={run("r1", calls)} sessionId="siblings" />);
+  await open(container, /^Ran 2 commands and read 2 files$/);
+  // A call that is still running leaves the run unfolded: its groups draw, open from the run's line.
+  const live = { ...run("r1", calls), foldRun: false };
+  await update(<ToolRows row={live} sessionId="siblings" />);
+  const groups = () => lines(container);
+  expect(groups().map((line) => line.open)).toEqual([true, true]);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-tool.is-run")!.click());
+  expect(groups().map((line) => line.open)).toEqual([false, true]);
+});
+
 test("an opened run stays open when an aside joins its row to the one before", async () => {
   const before = run("r1", [command("a1", "git pull"), command("a2", "git status")]);
   const later = run("r2", [command("b1", "gh pr merge 1"), read("b2", "approvals.json")]);
