@@ -174,7 +174,7 @@ class LargeJobListGitHub(excuse.GitHub):
 
     def run(self, args):
         assert args[0] == "api", args
-        route = args[-1]
+        route = next(arg for arg in args[1:] if not arg.startswith("-"))  # a projected read appends --jq FILTER
         self.calls.append(route)
         path, _, query = route.partition("?")
         params = dict(part.split("=", 1) for part in query.split("&") if part)
