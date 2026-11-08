@@ -52,6 +52,8 @@ These defaults come from `Keys::default`.
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
 | `Ctrl-b ?` | Open the keyboard shortcut modal |
+| `Ctrl-b a` | Go to the next tab that needs you: a blocked agent, then an unread error or warning, then another unread tab |
+| `Ctrl-b A` | Open a searchable list of the tabs that need you; Enter goes to the selected tab |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
 | `Ctrl-b l` or `Ctrl-b Right` | Focus right |
@@ -69,6 +71,8 @@ These defaults come from `Keys::default`.
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
 Press `Ctrl-b`, release it, then press the suffix. `N` is uppercase and `+` is the plus character (Shift-Equal on a US keyboard). Lowercase `Ctrl-b n` still selects the next screen. Every default Alt action also has a prefix binding, including when `keys.alt_shortcuts` is `false`.
+
+`Ctrl-b a` visits the tabs in the order `cmux attention next` answers: tabs whose agent waits on you (`blocked`) first, then tabs with an unread `error` or `warning` notification, then other unread tabs, each oldest first. A blocked tab stays in the queue after you look at it, so repeated presses cycle through all of them. An unread tab stays in the queue until its notification is cleared. When nothing needs you, a toast says so. See [Notifications](configuration.md#notifications).
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 
@@ -219,6 +223,8 @@ browser-forward
 browser-reload
 browser-edit-url
 show-shortcuts
+next-attention
+attention-list
 detach
 ```
 

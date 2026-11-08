@@ -382,6 +382,28 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 
 WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
+## Notifications
+
+A notification about a tab (`cmux notify --surface <term_â€¦>`, or an agent hook that posts one) marks that tab unread. OSC 9 from a program in a tab is terminal progress metadata, not a notification. When the TUI is attached as a full client, it can also pass the notification to the terminal that hosts it, so the host shows a desktop banner for a tab you cannot see.
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `notifications.desktop` | `"off"`, `"auto"` or `"always"` | `"auto"` | `auto` passes notifications to a host terminal known to show them: OSC 777 for Ghostty (and the cmux app) and WezTerm, OSC 9 for iTerm2, OSC 99 for kitty. `always` also sends OSC 9 to an unknown host. `off` never passes them. A TUI inside a cmux-tui tab passes nothing, because that daemon shows no OSC notifications |
+| `notifications.bell` | boolean | `false` | Also ring the host bell (BEL) for a bell in a tab you cannot see |
+
+A notification goes to the host only when the tab is not drawn or the host window does not have focus. It never goes to the host for the tab that shows the TUI's own host terminal, or when the TUI's session already shows that host terminal (its clients show the notification). At most one passes per second, and one per tab every five seconds. Inside tmux or screen, `auto` passes nothing, because the multiplexer swallows the sequence; `always` still sends it.
+
+The tabs that need you form one queue: tabs whose agent is `blocked` first, then tabs with an unread `error` or `warning` notification, then other unread tabs, each oldest first. `Ctrl-b a` (`keys.next-attention`) goes to the next one, `Ctrl-b A` (`keys.attention-list`) lists them, and `cmux attention next` and `cmux attention list` answer the same queue as JSON.
+
+```json
+{
+  "notifications": {
+    "desktop": "auto",
+    "bell": false
+  }
+}
+```
+
 ## Commands
 
 `commands` is an ordered list of user commands, the cmux-tui equivalent of tmux `bind-key ... command`. Each command names an argv program and optionally binds key chords to it. Pressing a bound chord runs the argv as a new PTY tab in the active pane, exactly like `cmux run`. The child inherits `CMUX_TUI_SOCKET`, so a command script can immediately drive the public CLI against its own session: create workspaces, apply splits, rename tabs, then close its own tab. The working directory defaults to the active pane's current directory; `cwd` values pass through without shell expansion, so use absolute paths or a shell argv for `~`.
@@ -461,6 +483,8 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
 | `keys.browser-edit-url` | chord string or array or `"none"` | `"u"` | Browser URL prompt |
 | `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
+| `keys.next-attention` | chord string or array or `"none"` | `"a"` | Go to the next tab that needs you (see [Notifications](#notifications)) |
+| `keys.attention-list` | chord string or array or `"none"` | `"A"` | Open the searchable list of tabs that need you |
 | `keys.provider-menu` | chord string or array or `"none"` | `"m"` | Open the machine provider menu when the machine rail is focused |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 

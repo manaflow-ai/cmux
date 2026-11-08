@@ -118,7 +118,7 @@ The public resource roots are:
 
 ```text
 server   machine  session  client  workspace  screen  pane  tab
-terminal browser  notification  agent  sidebar
+terminal browser  notification  agent  attention  sidebar
 pairing  projection  provider  raw
 ```
 
@@ -374,6 +374,8 @@ notification create --title <text> --body <text> [--subtitle <text>] [--level <l
 notification clear [--terminal <term_id>]
 notification ack --client <id> <notification-id>...
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
+attention next [--after <tab_…>] [--focus]
+attention list
 agent list|report
 agent plugin list|install|use|update|remove
 pairing request list
@@ -410,6 +412,19 @@ keeps its own unread state. The shared `unread` marker on the console tree is
 unchanged by an acknowledgement. Ids the bounded ledger no longer retains are
 returned under `unknown`, not rejected, so a late acknowledgement after
 eviction is complete.
+
+`attention next` and `attention list` read one `session.snapshot` and answer
+the tabs that need the person, in the order the TUI's `next-attention` key
+(`Ctrl-b a`) visits them: tabs whose agent is `blocked` first, then tabs with
+an unread `error` or `warning` notification, then other unread tabs, each
+oldest first. A queue entry is `{tab, terminal, workspace_id, workspace,
+title, kind, reason, level, since_ms}`; `kind` is `blocked` or `unread`, and
+`reason` is the notification title. `list` answers `{queue}`. `next` answers
+`{target, queue_length, focused}`: `target` is the entry after the focused tab
+(or after `--after <tab_…>`), wrapping, else the first, or null when the queue
+is empty. Focus moves only with `--focus`, which sends `tab <tab> focus`.
+An entry names the tab of its terminal's `tab_id`; a terminal projected into
+several tabs is listed once, for that tab.
 
 `terminal <selector> output read` returns a bounded plain-text window of the
 terminal's journaled output stream: `{text, start_offset, next_offset,

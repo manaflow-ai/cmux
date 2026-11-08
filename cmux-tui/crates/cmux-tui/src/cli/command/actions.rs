@@ -820,6 +820,17 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
             opt("desktop", "<bool>", "Accepted for compatibility; ignored"),
         ],
     ),
+    // attention
+    action(
+        "attention next",
+        None,
+        "Show the next tab that needs you (blocked agents, then unread notifications)",
+        &[
+            opt("after", "<tab_id>", "Start after this tab (default: the focused tab)"),
+            switch("focus", "Also focus that tab"),
+        ],
+    ),
+    action("attention list", None, "List the tabs that need you, in visiting order", &[]),
     // agent
     action(
         "agent list",

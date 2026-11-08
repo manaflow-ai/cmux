@@ -4,6 +4,7 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
+mod attention;
 mod command;
 mod lifecycle;
 mod raw;
@@ -31,6 +32,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "browser",
     "notification",
     "agent",
+    "attention",
     "sidebar",
     "pairing",
     "projection",
@@ -248,6 +250,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
+            CommandPlan::Attention(plan) => attention::run(global, plan),
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
@@ -550,6 +553,7 @@ fn scope_help_for(
         "browser" => Cow::Borrowed(BROWSER_HELP),
         "notification" => Cow::Borrowed(NOTIFICATION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
+        "attention" => Cow::Borrowed(ATTENTION_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
@@ -609,6 +613,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "  machine       Inspect the local machine
   browser       Navigate and attach to browsers
   notification  List and create notifications
   agent         List and report agent state
+  attention     Find the tabs that need you
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
@@ -781,6 +786,20 @@ USAGE
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
+";
+
+const ATTENTION_HELP: &str = "\
+USAGE
+  cmux attention next [--after <tab_id>] [--focus]
+  cmux attention list
+
+next answers the tab the person should go to next, as JSON {target,
+queue_length, focused}: tabs whose agent waits on them (blocked) first, then
+unread error and warning notifications, then other unread ones, each oldest
+first. target is the entry after the focused tab (or after --after), wrapping
+to the first, or null. It moves focus only with --focus. list answers the
+whole queue as {queue}. The TUI key `Ctrl-b a` (next-attention) visits the
+same order; `Ctrl-b A` lists it.
 ";
 
 const SIDEBAR_HELP: &str = "\

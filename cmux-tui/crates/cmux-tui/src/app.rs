@@ -103,6 +103,9 @@ use crate::ui::{
     thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
 };
 
+mod attention_jump;
+mod host_notify_ops;
+
 #[cfg(test)]
 thread_local! {
     static GRAPHICS_ROUTE_COMPARISONS: Cell<usize> = const { Cell::new(0) };
@@ -4521,6 +4524,8 @@ pub enum MenuAction {
         visible: bool,
     },
     ShowShortcuts,
+    /// Focus a tab of the attention list (`attention-list`).
+    FocusAttention(SurfaceId),
     SetClientSizing {
         surface: SurfaceId,
         client: u64,
@@ -4643,6 +4648,10 @@ impl MenuAction {
             MenuAction::SetSidebarViewVisible { visible: false, .. } => menu.hide_sidebar_view,
             MenuAction::ShowShortcuts => {
                 localization::catalog().action_label(Action::ShowShortcuts)
+            }
+            // The list wraps every row in a labeled item; this is the fallback.
+            MenuAction::FocusAttention(_) => {
+                localization::catalog().action_label(Action::NextAttention)
             }
             MenuAction::SetClientSizing { enabled: true, .. } => menu.include_client_size,
             MenuAction::SetClientSizing { enabled: false, .. } => menu.excluded,
@@ -7559,6 +7568,11 @@ pub struct App {
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
+    /// Host terminal notification forwarding (`host_notify.rs`).
+    pub(crate) host_notify: crate::host_notify::HostNotifyGate,
+    /// The host terminal window has focus: false after a focus-out report,
+    /// true again after focus-in (and before any report).
+    pub(crate) host_focused: bool,
     /// Latest output per status-bar command segment, keyed by the segment's
     /// combined left-then-right index. Written by the status command worker.
     status_command_outputs: Arc<Mutex<HashMap<usize, String>>>,
@@ -9811,6 +9825,10 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
+        host_notify: crate::host_notify::HostNotifyGate::new(
+            crate::host_notify::HostTerminalInfo::detect(|name| std::env::var(name).ok()),
+        ),
+        host_focused: true,
         status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
         status_command_worker_stop: None,
         status_poke_pending: Arc::new(AtomicBool::new(false)),
@@ -12576,9 +12594,9 @@ impl App {
 
     fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
         match action {
-            MenuAction::RenameSurface(surface) | MenuAction::MoveTabToWorkspace { surface, .. } => {
-                Some(MenuActionResource::Surface(surface))
-            }
+            MenuAction::RenameSurface(surface)
+            | MenuAction::MoveTabToWorkspace { surface, .. }
+            | MenuAction::FocusAttention(surface) => Some(MenuActionResource::Surface(surface)),
             MenuAction::CopyStatusMessage => {
                 self.status_message.clone().map(MenuActionResource::StatusMessage)
             }
@@ -15789,6 +15807,14 @@ impl App {
                 self.refresh_size_state_label(surface);
                 Ok(RenderAction::Draw)
             }
+            AppEvent::Mux(MuxEvent::Notification(notification)) => {
+                self.forward_notification_to_host(&notification);
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::Bell(surface)) => {
+                self.forward_bell_to_host(surface);
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::BrowserResizeFailed(failure) => {
                 self.status_message =
@@ -16248,12 +16274,14 @@ impl App {
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
             TerminalInput::FocusGained => {
+                self.host_focused = true;
                 self.advance_pointer_focus_generation();
                 self.reassert_scoped_host_terminal_state();
                 self.reassert_visible_surface_sizes();
                 Ok(RenderAction::Draw)
             }
             TerminalInput::FocusLost => {
+                self.host_focused = false;
                 let action = if self.cancel_pointer_interaction() {
                     RenderAction::Draw
                 } else {
@@ -20219,6 +20247,18 @@ impl App {
                 }
                 return Ok(RenderAction::Draw);
             }
+            Action::NextAttention => {
+                self.jump_to_next_attention()?;
+                return Ok(RenderAction::Draw);
+            }
+            Action::AttentionList => {
+                self.finish_active_drag();
+                self.shortcut_help = None;
+                self.prompt = None;
+                self.omnibar = None;
+                self.open_attention_list();
+                return Ok(RenderAction::Draw);
+            }
             Action::ShowShortcuts => {
                 self.shortcut_help = if self.shortcut_help.is_some() {
                     None
@@ -20558,6 +20598,10 @@ impl App {
                 self.run_action(Action::ShowShortcuts)?;
                 return Ok(());
             }
+            MenuAction::FocusAttention(surface) => {
+                self.focus_attention_surface(surface)?;
+                return Ok(());
+            }
             _ => {}
         }
         if menu_action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
@@ -20681,7 +20725,8 @@ impl App {
             | MenuAction::FocusSidebar
             | MenuAction::ActivateSidebarProfile(_)
             | MenuAction::SetSidebarViewVisible { .. }
-            | MenuAction::ShowShortcuts => unreachable!("shared menu actions return above"),
+            | MenuAction::ShowShortcuts
+            | MenuAction::FocusAttention(_) => unreachable!("shared menu actions return above"),
             MenuAction::SetClientSizing { surface, client, enabled } => {
                 self.session.set_client_sizing(surface, client, enabled);
             }
@@ -24918,6 +24963,8 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::ScrollDown
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
+            | Action::NextAttention
+            | Action::AttentionList
     )
 }
 
@@ -24967,6 +25014,7 @@ fn action_prepares_pty_release(action: Action) -> bool {
             | Action::ScrollDown
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
+            | Action::AttentionList
     )
 }
 
@@ -25134,6 +25182,8 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 
 #[cfg(test)]
 mod tests {
+    mod attention;
+
     #[test]
     fn input_class_groups_routing_semantics() {
         let cases = [
@@ -46930,6 +46980,15 @@ mod tests {
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,
+            // Tests never read the developer's environment for the host.
+            host_notify: crate::host_notify::HostNotifyGate::new(
+                crate::host_notify::HostTerminalInfo {
+                    terminal: crate::host_notify::HostTerminal::Ghostty,
+                    multiplexed: false,
+                    cmux_terminal: None,
+                },
+            ),
+            host_focused: true,
             status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
             status_command_worker_stop: None,
             status_poke_pending: Arc::new(AtomicBool::new(false)),
@@ -46980,8 +47039,11 @@ mod tests {
                             browser_source: None,
                             browser_frames_stalled: false,
                             supports_clear_history_key_fallback: false,
-                            notification: unread
-                                .then_some(TabNotificationView { unread: true, level: "warning" }),
+                            notification: unread.then_some(TabNotificationView {
+                                unread: true,
+                                level: "warning",
+                                sequence: 1,
+                            }),
                         }],
                     }],
                 }],

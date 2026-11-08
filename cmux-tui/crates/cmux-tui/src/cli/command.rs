@@ -26,6 +26,7 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
+    Attention(super::attention::AttentionPlan),
 }
 
 #[derive(Clone, Debug)]
@@ -206,6 +207,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
         "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
         "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
+        "attention" => parse_attention(&tokens.words[1..], &mut tokens.flags)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "pairing" => parse_pairing(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -2910,6 +2912,27 @@ pub(super) fn random_prefixed(prefix: &str) -> Result<String, UsageError> {
 
 fn strs(values: &[String]) -> Vec<&str> {
     values.iter().map(String::as_str).collect()
+}
+
+/// `attention next [--after <tab_…>] [--focus]` and `attention list`
+/// (`cli/attention.rs`): a client-side read of `session.snapshot`.
+fn parse_attention(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    use super::attention::AttentionPlan;
+    match strs(words).as_slice() {
+        ["next"] => {
+            let after = flags.take("after");
+            if after
+                .as_deref()
+                .is_some_and(|tab| tab.strip_prefix("tab_").is_none_or(str::is_empty))
+            {
+                return Err(UsageError::new("--after takes a tab id (tab_…)"));
+            }
+            let focus = flags.boolean("focus");
+            Ok(CommandPlan::Attention(AttentionPlan::Next { after, focus }))
+        }
+        ["list"] => Ok(CommandPlan::Attention(AttentionPlan::List)),
+        _ => usage("attention action"),
+    }
 }
 
 fn usage<T>(what: &str) -> Result<T, UsageError> {
