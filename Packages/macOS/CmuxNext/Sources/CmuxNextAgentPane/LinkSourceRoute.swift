@@ -30,7 +30,16 @@ public enum LinkSourceRoute<Pane> {
     /// - Parameter focused: the active window's focused pane, or nil.
     /// - Returns: where the open starts.
     public static func resolve(key: String?, shown: (String) -> Pane?, exists: (String) -> Bool, focused: () -> Pane?) -> Self {
-        if let key, let pane = shown(key) { return .shown(pane) }
-        return focused().map(Self.focused) ?? .none
+        guard let key else { return focused().map(Self.focused) ?? .none }
+        if let pane = shown(key) { return .shown(pane) }
+        return exists(key) ? .hidden(tab: key) : .none
+    }
+
+    /// The pane the open starts from (``shown(_:)`` or ``focused(_:)``); nil for ``hidden(tab:)`` and ``none``.
+    public var pane: Pane? {
+        switch self {
+        case .shown(let pane), .focused(let pane): pane
+        case .hidden, .none: nil
+        }
     }
 }
