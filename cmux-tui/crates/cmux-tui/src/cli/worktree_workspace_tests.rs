@@ -85,11 +85,16 @@ fn created_answer() -> Value {
 
 #[test]
 fn read_run_worktree_create_parses_its_options_and_keeps_the_workspace_options() {
-    let request =
-        parse_create(&strings(&["--worktree", "feature-x", "--repo", "/tmp/repo", "--focus"]))
-            .expect("parsed");
+    let request = parse_create(&strings(&[
+        "--worktree",
+        "feature-x",
+        "--repo",
+        "/cmux-test-no-such-dir/repo",
+        "--focus",
+    ]))
+    .expect("parsed");
     assert_eq!(request.name, "feature-x");
-    assert_eq!(request.repo.as_deref(), Some("/tmp/repo"));
+    assert_eq!(request.repo.as_deref(), Some("/cmux-test-no-such-dir/repo"));
     assert_eq!(
         request.workspace_words,
         strings(&["workspace", "create", "--name", "feature-x", "--focus"])
@@ -114,15 +119,20 @@ fn read_run_worktree_create_makes_the_worktree_then_a_workspace_in_it_and_return
         ("git.worktree.create", Ok(worktree_answer(&root_text))),
         ("workspace.create", Ok(created_answer())),
     ]);
-    let request = parse_create(&strings(&["--worktree", "feature-x", "--repo", "/tmp/repo"]))
-        .expect("parsed");
+    let request = parse_create(&strings(&[
+        "--worktree",
+        "feature-x",
+        "--repo",
+        "/cmux-test-no-such-dir/repo",
+    ]))
+    .expect("parsed");
     let result = create(&daemon, &request, "key-1").expect("created");
     assert_eq!(
         daemon.operations(),
         ["git.worktree.create", "workspace.create", "workspace.agent_folder.set"]
     );
     let made = daemon.params("git.worktree.create");
-    assert_eq!(made["path"], "/tmp/repo");
+    assert_eq!(made["path"], "/cmux-test-no-such-dir/repo");
     assert_eq!(made["name"], "feature-x");
     let workspace = daemon.params("workspace.create");
     assert_eq!(workspace["cwd"], root_text);

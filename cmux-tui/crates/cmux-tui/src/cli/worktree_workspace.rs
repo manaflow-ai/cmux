@@ -244,6 +244,8 @@ pub(in crate::cli) fn create<B: Daemon + ?Sized>(
         Some(repo) => current.join(repo),
         None => current,
     };
+    // `--repo .` or `../x`: the daemon takes an absolute path without steps.
+    let repo = std::fs::canonicalize(&repo).unwrap_or(repo);
     let mut create = words(&["git", "worktree", "create", "--name", &request.name, "--path"]);
     create.push(repo.to_string_lossy().into_owned());
     if let Some(base) = &request.base {
