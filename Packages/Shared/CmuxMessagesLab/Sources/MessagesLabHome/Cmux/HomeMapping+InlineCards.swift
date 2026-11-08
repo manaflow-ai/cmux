@@ -48,7 +48,7 @@ extension HomeMapping {
 
     /// A settled message's card for `url`: the preview this Mac already fetched (its sends, the
     /// Chief's replies, a tap), else the domain card (no grey loading card for a settled message).
-    static func card(_ url: String, title: String? = nil, site: String? = nil, image: String? = nil, theme: String = "dark", links: Links) -> Part {
+    static func card(_ url: String, title: String? = nil, site: String? = nil, image: String? = nil, theme: String? = "dark", links: Links) -> Part {
         guard let meta = links(url) else {
             let host = URL(string: url).map(TextParts.host) ?? url
             return .link(url: url, title: title ?? host, siteName: site ?? host, image: image, theme: theme)
