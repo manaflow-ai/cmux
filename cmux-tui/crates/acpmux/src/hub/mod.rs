@@ -69,9 +69,9 @@ mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
-mod sender_claim_tests;
-#[cfg(test)]
 mod review_queue_tests;
+#[cfg(test)]
+mod sender_claim_tests;
 #[cfg(test)]
 mod shutdown_scan_tests;
 #[cfg(test)]
@@ -273,12 +273,12 @@ pub mod person;
 pub mod presence;
 mod processes;
 mod pull_requests;
-pub(crate) mod review_queue;
 pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+pub(crate) mod review_queue;
 mod touched;
 pub mod vm_boundary;
 pub use vm_boundary::vm_boundary_peer_approves;
