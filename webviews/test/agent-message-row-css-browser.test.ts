@@ -88,6 +88,35 @@ await requireBrowserLane("agent-message-row-css-browser.test.ts", async () => {
       expect(sizes.label.scroll).toBeLessThanOrEqual(sizes.label.client);
     });
 
+    // At a 320px pane a sender's name wider than the line is cut inside its chip, behind an ellipsis,
+    // never clipped bare at the line's end (cmux#37653 review).
+    test("a sender's name wider than a narrow line ends in an ellipsis inside its chip", async () => {
+      const sizes = await page
+        .getByTestId("narrow-sender")
+        .locator(".cv-agentmsg__line")
+        .evaluate((line) => {
+          const tag = line.querySelector<HTMLElement>(".cv-received__sender > .cv-agent-tag")!;
+          // The node that holds the name's text: the open chip's label, else the plain tag.
+          const label = tag.querySelector<HTMLElement>(".cv-agent-tag__label") ?? tag;
+          return {
+            text: label.textContent ?? "",
+            overflow: getComputedStyle(label).textOverflow,
+            cut: label.scrollWidth > label.clientWidth,
+            end: label.getBoundingClientRect().right,
+            // The words end before the chevron, and the chevron inside the line.
+            chevron: line.querySelector(".cv-agentmsg__chevron")!.getBoundingClientRect().toJSON() as DOMRect,
+            lineEnd: line.getBoundingClientRect().right,
+          };
+        });
+      expect(sizes.text).toContain("release-rings-coordinator");
+      expect(sizes.overflow).toBe("ellipsis");
+      // The chip's own box cuts it, so its ellipsis shows inside the line; the line's overflow never
+      // cuts it bare, and the chevron stays in view after it.
+      expect(sizes.cut).toBe(true);
+      expect(sizes.end).toBeLessThanOrEqual(sizes.chevron.left + 0.5);
+      expect(sizes.chevron.right).toBeLessThanOrEqual(sizes.lineEnd + 0.5);
+    });
+
     // A sent message draws as a received one (cmux#37879) on the one message row: its own rules in
     // AgentMessageRow.css reach it. A merge once left a rule above them unclosed, nesting them all
     // under a button's selector, where none of them matched (cmux#37653 review).
