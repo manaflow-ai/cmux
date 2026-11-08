@@ -9,7 +9,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TurnFooter } from "../src/agent-session/acpmux/conversation/TurnRows";
-import { readTokens, replyTimeDetail, tokenRows } from "../src/agent-session/acpmux/conversation/TurnTokens";
+import { readTokens, replyTimeDetail, tokenRows } from "../src/agent-session/acpmux/conversation/turnTokensModel";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {

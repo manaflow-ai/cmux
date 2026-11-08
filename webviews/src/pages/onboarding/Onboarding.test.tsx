@@ -64,12 +64,14 @@ describe("agents", () => {
 });
 
 describe("import", () => {
-  test("idle: Find Browsers, four empty row slots, not looked for yet", () => {
+  test("idle: Find Browsers, no empty rows drawn, not looked for yet", () => {
     const html = render(importState("idle"));
     expect(text(html)).toContain("Import from Browsers");
     expect(text(html)).toContain("Not looked for yet.");
     expect(text(html)).toContain("Find Browsers");
-    expect(html.match(/data-state="slot"/g)?.length).toBe(4);
+    // The browsers' card keeps its room but draws nothing until a look finds something.
+    expect(html.match(/data-state="slot"/g)).toBeNull();
+    expect(html).toContain("data-empty");
   });
   test("detecting keeps the slots and disables the primary", () => {
     const html = render(importState("detecting"));

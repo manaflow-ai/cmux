@@ -52,22 +52,15 @@ import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
-import { rovingTabStopProps } from "../../ui/listRowKeyboard";
+
 import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
 import { AuthorChip } from "./multiplayer/Faces";
-import {
-  pickedSkillsOf,
-  withSkillDollars,
-  withoutSkillDollars,
-  type SkillCatalog,
-  type SlashCommand,
-} from "./slashCommands";
+import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashCommand } from "./slashCommands";
 import { useSkillWords } from "./conversation/skillWords";
 import { withSkillWords } from "./conversation/withSkillWords";
-
-type QueuedEntry = AcpmuxSnapshot["queue"][number];
-
+import { type QueuedEntry, shownText } from "./composerQueueModel";
+import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 /** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
 const FOLD_AT = 3;
 const FOLD_SHOWS = 2;
@@ -159,16 +152,6 @@ function promptVideos(entry: QueuedEntry): QueuedVideo[] | undefined {
     }
   }
   return videos.length ? videos : undefined;
-}
-
-/// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
-/// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
-export function shownText(entry: QueuedEntry, t: Translate, skills?: SkillCatalog): string {
-  const retry = entry.retry;
-  if (!retry) return withoutSkillDollars(entry.prompt, skills);
-  return [`${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim(), retry.error]
-    .filter(Boolean)
-    .join("\n");
 }
 
 /// The most a held list may grow to: the room the pane leaves the composer's stack, that is the

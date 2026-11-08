@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixture counts, not shipped UI; every shown word comes from the catalog.
 // The reply time's tooltip, its token block laid out three ways, from a real Claude turn (7 model
 // calls whose context ended at 139.9K, which read 930.9K from the prompt cache over those calls) and a
-// real Codex one. The `rows` look ships (TurnTokens.tsx `replyTimeDetail`): one count per row, the
+// real Codex one. The `rows` look ships (turnTokensModel.ts `replyTimeDetail`): one count per row, the
 // input labelled as its calls added up, the context apart from that sum. References:
 // codex/live/sidebar-context-window-usage-card, claude/live/status-context-window-usage-popover,
 // cmux/live/status-context-wheel-tooltip.
@@ -41,7 +41,7 @@ export default componentEntry<Props>({
   // A narrow pane too: each row stays one count, its longest (the input) wrapping in the tooltip.
   widths: { narrow: 320, normal: 760 },
   load: async () => {
-    const { compactTokens, replyTimeDetail, tokenRows } = await import("./TurnTokens");
+    const { compactTokens, replyTimeDetail, tokenRows } = await import("./turnTokensModel");
     const { useT, usePaneLanguage } = await import("../i18n");
     return function ReplyTimeTokens({ look, turns }: Props) {
       const t = useT();

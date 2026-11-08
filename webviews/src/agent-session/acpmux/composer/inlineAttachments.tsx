@@ -241,6 +241,20 @@ export function useInlineAttachments(options: Options) {
       live.current.expand(id);
     },
     known,
+    /// The attachments in the text, read from `markdown` (the host's value): with the placeholders this
+    /// composer put there whose node the editor holds, which the host's value may not show yet. A pasted
+    /// or dropped chip is the text's from the moment it is made, so it is never drawn in the strip above
+    /// for a frame (Leo, 2026-11-07: "it pasted above the original picture, which would, like, extend
+    /// the composer"). One whose node a value from outside took away (a command's clear) is the strip's
+    /// again.
+    inText(markdown: string): ReadonlySet<string> {
+      const ids = new Set(inlineTokenIds(markdown, known));
+      if (placed.current.size) {
+        const nodes = new Set(live.current.field.current?.inlineIds() ?? []);
+        for (const id of placed.current) if (nodes.has(id)) ids.add(id);
+      }
+      return ids;
+    },
     /// The field tells its nodes' elements in a microtask after the change that made them (MarkdownField
     /// `tellInlineViews`): their chips draw before that task's frame paints, so a paste's placeholder
     /// shows in the paste's own frame, as the strip's does (composer-paste-instant.test.tsx).

@@ -38,7 +38,8 @@ import {
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
-import { replyTimeDetail, TimedLabel } from "./TurnTokens";
+import { TimedLabel } from "./TurnTokens";
+import { replyTimeDetail } from "./turnTokensModel";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
@@ -70,10 +71,8 @@ import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
-import { useTurnWaterfall } from "./TurnWaterfall";
-
-/// Where a folded run splits (toolGroups.ts), which the row estimate (model.ts) reads too.
-export { runStretches, type RunStretch } from "./toolGroups";
+import { useTurnWaterfall } from "./useTurnWaterfall";
+import { thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -232,31 +231,6 @@ function groupNode(
   }
 }
 
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). The
-/// Codex-style runs fold a finished run (`foldRun`) of two or more entries under one summary line
-/// (toolRunSummary.ts: "Read 6 files, ran 4 commands"), and a run that is one group under that
-/// group's closed line ("Ran 3 commands"), so finished work is one click away between the
-/// paragraphs; coordination cards stay in sight between such lines (`runStretches`). A run not
-/// folded (`foldRun` unset) keeps each group and call on its own line.
-/// Whether the whole run folds under one summary line.
-export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]): boolean {
-  const stretches = runStretches(row, groups);
-  return stretches.length === 1 && stretches[0]!.fold;
-}
-
-/// How many thoughts come before each entry of a run. A thought keeps its number as calls arrive
-/// (a run only grows at its end, and grouping keeps the order), so its open state stays with it when
-/// a call that finished joins it to a group (Codex review of #24075).
-export function thoughtIds(groups: readonly ToolGroup[]): number[] {
-  let thoughts = 0;
-  return groups.map((group) => {
-    const before = thoughts;
-    const items = "items" in group ? group.items : [group.item];
-    thoughts += items.filter((item) => !item.tool && item.kind !== "note").length;
-    return before;
-  });
-}
-
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
   const reveal = useContext(FindReveal);
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
@@ -363,7 +337,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
   const label = footerLabel(t, row);
   // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
-  // row (TurnTokens.tsx `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
+  // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
   // things like that").
   const forced = row.stopForced ? t("stop.forced") : undefined;
@@ -663,6 +637,7 @@ function TurnFailure({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const actionsRef = useRef<HTMLSpanElement>(null);
   const { access } = useContext(TurnActionsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
   const [compacting, setCompacting] = useState(false);
@@ -775,7 +750,7 @@ function TurnFailure({
           )}
         </span>
       </span>
-      <span className="cv-turn-error__actions">
+      <span className="cv-turn-error__actions" ref={actionsRef}>
         {accessButtons}
         {offerLeads && (
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
@@ -795,7 +770,13 @@ function TurnFailure({
           </button>
         )}
         {(cloudSignInLeads || (teamMachine && cloudSignIn)) && (
-          <CloudSignIn signIn={cloudSignIn} rowId={retryRowId} prompt={prompt} keyOnly={teamMachine} />
+          <CloudSignIn
+            signIn={cloudSignIn}
+            rowId={retryRowId}
+            prompt={prompt}
+            keyOnly={teamMachine}
+            actionsRef={actionsRef}
+          />
         )}
         {signInFirst && (
           <button
@@ -806,7 +787,9 @@ function TurnFailure({
             {t("turn.signInAgain")}
           </button>
         )}
-        {localKey && <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly />}
+        {localKey && (
+          <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly actionsRef={actionsRef} />
+        )}
         {offersRetry && (
           <button
             type="button"

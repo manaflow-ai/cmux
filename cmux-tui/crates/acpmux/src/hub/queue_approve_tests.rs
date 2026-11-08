@@ -188,6 +188,66 @@ async fn a_held_prompt_with_a_steer_flag_never_reaches_the_agent() {
     assert_ne!(ran[0]["steer"], true, "it went in as a steer: {:?}", ran[0]);
 }
 
+/// A signed-in link guest's prompt carries its sender (name and picture reach the provenance as
+/// `fromName` / `fromAvatar`), is still held for the owner, and once approved the agent reads who
+/// sent it while the transcript keeps the guest's own words (ask-2a1105b933).
+#[tokio::test]
+async fn a_guests_prompt_names_its_sender_to_the_agent_and_keeps_its_words() {
+    let hub = memory_hub();
+    let (tx, rx) = mpsc::channel(8);
+    let (out_tx, mut out) = mpsc::channel(4096);
+    let local = crate::server::Origin::Local;
+    tokio::spawn(crate::server::serve_connection_with(hub.clone(), rx, out_tx, local));
+    let send = |id: i64, m: &str, params: Value| Message::request(id, m, params).to_line();
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    tx.send(send(1, method::SESSION_NEW, new)).await.unwrap();
+    let created = until(&mut out, |v| v["id"] == 1).await;
+    let session = hub.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap();
+    let avatar = "https://lh3.example.com/a/cy.png";
+    // As `cmux-tui-core` binds a signed-in link guest: its role and picture beside its name.
+    let guest = json!({"id": "guest:s1.g1", "name": "Cy", "approval": "owner", "role": "talk",
+        "avatar": avatar});
+    let held = json!({"sessionId": session.id, "prompt": [{"type": "text", "text": "guest words"}],
+        "_meta": {"acpmux": {"promptId": "g-1", "author": guest}}});
+    tx.send(send(2, method::SESSION_PROMPT, held)).await.unwrap();
+    until(&mut out, |v| {
+        v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "g-1"
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(user_messages(&hub, &session.id, "g-1").is_empty(), "it ran before the owner said");
+    let queued = session.queue();
+    let waiting = queued.iter().find(|q| q.prompt_id == "g-1").expect("held in the queue");
+    assert!(waiting.awaiting_owner, "a signed-in guest's prompt is still held for the owner");
+    let events = hub.events(&session.id, 0, 10_000).unwrap();
+    let record = events.iter().find(|e| e.kind == "queued" && e.msg["promptId"] == "g-1").unwrap();
+    let provenance = &record.msg["_meta"]["provenance"];
+    assert_eq!(
+        (&provenance["fromName"], &provenance["fromAvatar"], &provenance["approval"]),
+        (&json!("Cy"), &json!(avatar), &json!("owner")),
+        "{provenance}"
+    );
+
+    let turn = waiting.turn_id.clone();
+    hub.approve_queued(&session, "g-1", &turn, 0, &OWNER).unwrap();
+    let echo = until(&mut out, |v| {
+        v.pointer("/params/update/content/text")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t.contains("guest words"))
+    })
+    .await;
+    let echoed = echo.pointer("/params/update/content/text").and_then(Value::as_str).unwrap();
+    assert!(
+        echoed.contains("[Message from Cy, a guest in this shared chat]guest words"),
+        "the agent reads who sent it: {echoed}"
+    );
+    let ran = user_messages(&hub, &session.id, "g-1");
+    assert_eq!(ran.len(), 1, "{ran:?}");
+    assert_eq!(ran[0]["text"], "guest words", "the transcript keeps the guest's own words");
+    assert_eq!(ran[0]["_meta"]["provenance"]["fromAvatar"], avatar, "{:?}", ran[0]);
+    hub.shutdown_all().await;
+}
+
 /// A bundle's log in more than one `events/*.ndjson` segment, as import reads it (every segment,
 /// in name order): a prompt queued in a later segment still waits for the owner, so the move is
 /// refused (review of #26747: only `000001.ndjson` was read, and a held prompt in a later segment
