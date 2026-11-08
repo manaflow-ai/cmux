@@ -38,7 +38,8 @@
 }
 /* The one line: it takes the room left and wraps to a second line before it ever cuts a word. */
 .ci-title {
-  flex: 1 1 auto;
+  /* A small basis keeps the line beside the icon in the narrowest pane; it grows to the room left. */
+  flex: 1 1 8em;
   min-width: 0;
   display: -webkit-box;
   overflow: hidden;
@@ -66,19 +67,29 @@
   white-space: nowrap;
 }
 .ci-action {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   padding-inline: var(--ds-space-1);
+  text-overflow: ellipsis;
   font-weight: var(--weight-emphasis, 600);
 }
 .ci-action[data-quiet] {
   color: var(--ci-ink-2);
   font-weight: inherit;
 }
-/* The three answers move as one group: in a narrow pane they wrap under the line together. */
+/* The three answers move as one group: in a narrow pane they wrap under the line together, and in
+   the narrowest (a 200 pt pane) the group wraps inside itself, Import and the close button together
+   at the end; a label too long for the card ends in an ellipsis, never past its edge. */
 .ci-toast-answers {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: 100%;
   margin-inline-start: auto;
 }
 .ci-close {

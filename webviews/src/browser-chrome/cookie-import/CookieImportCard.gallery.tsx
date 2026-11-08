@@ -96,6 +96,24 @@ export default componentEntry<Props>({
       props: { model: chrome, look: "toast", width: 320 },
       note: "A narrow pane: the answers wrap under the line, at the trailing edge.",
     },
+    "toast-min": {
+      props: { model: chrome, look: "toast", width: 184 },
+      note: "The narrowest pane (200 pt less the insets): every answer stays inside the card.",
+    },
+    "toast-min-long-labels": {
+      props: {
+        model: {
+          ...chrome,
+          title: "Cookies aus Google Chrome importieren",
+          importTitle: "Importieren …",
+          notNowTitle: "Jetzt nicht",
+          neverTitle: "Nicht mehr anzeigen",
+        },
+        look: "toast",
+        width: 184,
+      },
+      note: "The narrowest pane with longer labels: a label too long ends in an ellipsis inside the card.",
+    },
     "toast-no-never": {
       props: { model: { ...chrome, neverTitle: null }, look: "toast" },
       note: "No Don't Show Again: Import and the close button.",
