@@ -194,6 +194,17 @@ export function returnBrief(input: ReturnBriefInput): {
       level: "inaccessible",
       detail: "Current account lacks access · check the original owner",
     });
+  } else if (
+    !Number.isFinite(input.now) ||
+    (artifact.expiresAt !== undefined && !Number.isFinite(artifact.expiresAt))
+  ) {
+    // A NaN or infinite time makes every comparison below false, which would pass expiry and freshness.
+    items.push({
+      id: "artifact",
+      label: "Saved result",
+      level: "stale",
+      detail: "Clock or retention time unreadable · refresh before opening",
+    });
   } else if (artifact.expiresAt !== undefined && input.now >= artifact.expiresAt) {
     items.push({
       id: "artifact",
