@@ -78,7 +78,7 @@ pub(super) fn with_terminals(
 fn workspace_keys(workspaces: &[Value]) -> HashSet<String> {
     workspaces
         .iter()
-        .filter_map(|workspace| workspace["extra"]["key"].as_str())
+        .filter_map(|workspace| workspace.pointer("/extra/key")?.as_str())
         .map(workspace_key)
         .collect()
 }
