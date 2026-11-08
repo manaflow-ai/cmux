@@ -5,12 +5,14 @@
 /// stable ID. The handlers bind to these IDs in the App.
 public nonisolated enum ActionCatalog {
     /// Every catalog descriptor, in catalog order.
-    public static var all: [ActionDescriptor] { RustActionCatalog.shared.descriptors }
+    /// Stored, as the Swift catalog's was: objects built against either declaration link (a computed
+    /// `all` has no addressor, so a warm build's stale test objects failed to link).
+    public static let all: [ActionDescriptor] = RustActionCatalog.shared.descriptors
 
     /// IDs from before the catalog or renamed since, mapped to their canonical catalog ID. The
     /// registry folds these on register and lookup so older call sites, keybindings and scripts
     /// keep working.
-    public static var legacyAliases: [ActionID: ActionID] { RustActionCatalog.shared.legacyAliases }
+    public static let legacyAliases: [ActionID: ActionID] = RustActionCatalog.shared.legacyAliases
 
     /// The descriptors one catalog group declares (`AppStoreActionCatalog`, ...), in catalog order.
     static func descriptors(inGroup group: String) -> [ActionDescriptor] {
