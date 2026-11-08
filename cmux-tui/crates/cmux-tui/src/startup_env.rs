@@ -135,11 +135,49 @@ pub(crate) const AGENT_CALLER_ENV: [&str; 7] = [
     "CMUX_AGENT_HARNESS",
 ];
 
-/// Remove the agent caller claims from this process's environment when it
-/// runs as a foreground owner (`server start`, `--headless`, the
-/// interactive mux), so no terminal host, shell or hook it spawns inherits
-/// them. The process acts for the person whose terminals it hosts, not for
-/// the agent that started it.
+/// acpmux session variables beyond [`AGENT_CALLER_ENV`]: the session's token,
+/// its token socket, temp folder and host nonce (`ACPMUX_SESSION_*`,
+/// `ACPMUX_HOST_NONCE`), and acpmux's mark of the agent's session
+/// (`CMUX_AGENT_SESSION`). `ACPMUX_HOME` and `ACPMUX_SOCKET` stay: they name
+/// which acpmux a build uses (per-build isolation), not a session.
+const ACPMUX_SESSION_PREFIX: &str = "ACPMUX_SESSION_";
+const ACPMUX_SESSION_ENV: [&str; 2] = ["ACPMUX_HOST_NONCE", "CMUX_AGENT_SESSION"];
+
+/// The environment keys of the agent that started an owner, from the names
+/// in `env` (W5-R, bench round 4 A6): [`AGENT_CALLER_ENV`], the acpmux
+/// session's own variables, the starter's turn values acpmux never passes on
+/// (`acpmux::config::is_caller_scoped_key`), and, when the starter runs inside
+/// a Claude Code session (`CLAUDECODE`), what that session plants for its
+/// children (`acpmux::config::is_nested_claude_key`: `CLAUDE*`, its
+/// `ANTHROPIC_*` proxy and auth, ...). Every terminal an owner hosts inherits
+/// its environment: a resumed Claude Code that kept them turned transcript
+/// saving off, and the starter's messaging token and acpmux token reached a
+/// process that is not the starter. The person's own values come back from
+/// the login shell each terminal starts.
+pub(crate) fn agent_caller_keys<I, K>(env: I) -> Vec<K>
+where
+    I: IntoIterator<Item = K>,
+    K: AsRef<std::ffi::OsStr>,
+{
+    let keys: Vec<K> = env.into_iter().collect();
+    let inside_claude = keys.iter().any(|key| key.as_ref() == "CLAUDECODE");
+    keys.into_iter()
+        .filter(|key| {
+            let Some(key) = key.as_ref().to_str() else { return false };
+            AGENT_CALLER_ENV.contains(&key)
+                || ACPMUX_SESSION_ENV.contains(&key)
+                || key.starts_with(ACPMUX_SESSION_PREFIX)
+                || acpmux::config::is_caller_scoped_key(key)
+                || (inside_claude && acpmux::config::is_nested_claude_key(key))
+        })
+        .collect()
+}
+
+/// Remove the agent caller claims ([`agent_caller_keys`]) from this process's
+/// environment when it runs as a foreground owner (`server start`,
+/// `--headless`, the interactive mux), so no terminal host, shell or hook it
+/// spawns inherits them. The process acts for the person whose terminals it
+/// hosts, not for the agent that started it.
 ///
 /// # Safety
 ///
@@ -147,7 +185,7 @@ pub(crate) const AGENT_CALLER_ENV: [&str; 7] = [
 /// environment variable is unsound while another thread can read the
 /// environment.
 pub(crate) unsafe fn take_agent_caller_env() {
-    for key in AGENT_CALLER_ENV {
+    for key in agent_caller_keys(std::env::vars_os().map(|(key, _)| key)) {
         // SAFETY: forwarded from this function's own contract (see # Safety).
         unsafe { std::env::remove_var(key) };
     }
