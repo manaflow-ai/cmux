@@ -37,8 +37,22 @@ const reply = readLedger({
   range: { since: NOW - 7 * 24 * HOUR, until: NOW },
   totals: totals({ costUsd: 12, harnessCostUsd: 9, tableCostUsd: 3, unpricedTurns: 2, turns: 40 }),
   rows: [
-    { ...totals({ costUsd: 2, tableCostUsd: 2, turns: 10 }), sessionId: "s1", title: "Docs pass", models: ["model-a"], pullRequests: [], repo: "acme/app", branch: "lane/docs" },
-    { ...totals({ costUsd: 8, harnessCostUsd: 8, turns: 20 }), sessionId: "s2", title: "Upload retry", models: ["model-b"], pullRequests: ["https://example.com/pull/3"] },
+    {
+      ...totals({ costUsd: 2, tableCostUsd: 2, turns: 10 }),
+      sessionId: "s1",
+      title: "Docs pass",
+      models: ["model-a"],
+      pullRequests: [],
+      repo: "acme/app",
+      branch: "lane/docs",
+    },
+    {
+      ...totals({ costUsd: 8, harnessCostUsd: 8, turns: 20 }),
+      sessionId: "s2",
+      title: "Upload retry",
+      models: ["model-b"],
+      pullRequests: ["https://example.com/pull/3"],
+    },
     { ...totals({ unpricedTurns: 4, turns: 4 }), sessionId: "s3", title: "Local model", models: [], pullRequests: [] },
     // Not a row: no session id.
     { ...totals({ costUsd: 99 }), title: "nobody" },

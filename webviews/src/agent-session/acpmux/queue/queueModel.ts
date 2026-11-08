@@ -278,7 +278,8 @@ export async function auditEntries(
     const list = reply?.entries;
     if (Array.isArray(list)) entries.push(...list);
     const next = reply?.next;
-    cursor = (typeof next === "string" && next) || (typeof next === "number" && Number.isFinite(next)) ? next : undefined;
+    cursor =
+      (typeof next === "string" && next) || (typeof next === "number" && Number.isFinite(next)) ? next : undefined;
     if (cursor === undefined) break;
   }
   return entries;

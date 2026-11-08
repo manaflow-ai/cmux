@@ -58,7 +58,11 @@ const rows = [
     tableCostUsd: 6.4,
     models: ["model-code"],
   }),
-  session("s3", "Profile cold startup", 3.15, { repo: "acme/app", branch: "lane/startup", models: ["model-large", "model-small"] }),
+  session("s3", "Profile cold startup", 3.15, {
+    repo: "acme/app",
+    branch: "lane/startup",
+    models: ["model-large", "model-small"],
+  }),
   session("s4", "Review the docs for the 1.0 launch", 1.02, {
     repo: "acme/docs",
     harnessCostUsd: 0.6,
@@ -80,7 +84,10 @@ const totals = Object.fromEntries(Object.keys(zero).map((key) => [key, sum(key a
 
 const rollup = (key: string, members: typeof rows, label?: string) => ({
   ...Object.fromEntries(
-    Object.keys(zero).map((field) => [field, members.reduce((total, row) => total + (row[field as keyof typeof zero] as number), 0)]),
+    Object.keys(zero).map((field) => [
+      field,
+      members.reduce((total, row) => total + (row[field as keyof typeof zero] as number), 0),
+    ]),
   ),
   key,
   ...(label ? { label } : {}),
@@ -93,7 +100,11 @@ const reply = {
   rows,
   rollups: {
     repo: [rollup("acme/app", rows.slice(0, 3)), rollup("acme/docs", [rows[3]!]), rollup("acme/parser", [rows[4]!])],
-    model: [rollup("model-large", [rows[0]!, rows[2]!, rows[3]!]), rollup("model-code", [rows[1]!]), rollup("local-model", [rows[4]!])],
+    model: [
+      rollup("model-large", [rows[0]!, rows[2]!, rows[3]!]),
+      rollup("model-code", [rows[1]!]),
+      rollup("local-model", [rows[4]!]),
+    ],
     day: [
       rollup("2026-11-06", [rows[2]!, rows[3]!]),
       rollup("2026-11-07", [rows[0]!]),
@@ -102,7 +113,10 @@ const reply = {
     person: [rollup("you", rows, "You")],
     workspace: [rollup("w1", rows.slice(0, 2), "App"), rollup("w2", rows.slice(2), "Research")],
     pr: [rollup("https://example.com/acme/app/pull/412", [rows[1]!], "acme/app #412")],
-    vendor: [rollup("vendor-a", [rows[0]!, rows[2]!, rows[3]!], "Vendor A"), rollup("vendor-b", [rows[1]!], "Vendor B")],
+    vendor: [
+      rollup("vendor-a", [rows[0]!, rows[2]!, rows[3]!], "Vendor A"),
+      rollup("vendor-b", [rows[1]!], "Vendor B"),
+    ],
   },
 };
 
@@ -127,7 +141,7 @@ export default componentEntry<Props>({
   load: () => import("./LedgerScreen").then((module) => module.LedgerScreen),
   widths: { narrow: 380, normal: 720, wide: 960 },
   height: 560,
-  anchors: [{ selector: ".lg" }],
+  anchors: [{ selector: ".cst" }],
   variants: {
     bars: {
       note: "Shipped: each session's share is a tonal fill behind its row, the cost at the end with its source mark.",

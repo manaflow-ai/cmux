@@ -11,13 +11,7 @@ import { Keycap } from "../Keycap";
 import { AgentMark } from "../NewTabPage";
 import type { NeedsYouAnswer } from "../needsYou/model";
 import { formatCost } from "../ledger/ledgerModel";
-import {
-  queueAnswers,
-  queueCommand,
-  queueReasons,
-  type QueueItem,
-  type QueueReason,
-} from "./queueModel";
+import { queueAnswers, queueCommand, queueReasons, type QueueItem, type QueueReason } from "./queueModel";
 import { useQueue } from "./useQueue";
 import "./queue.css";
 
@@ -51,9 +45,20 @@ type Props = QueueActions & {
 
 type Notice = { tone: "ok" | "error"; text: string };
 
+const NO_ITEMS: QueueItem[] = [];
 const rowId = (id: string) => `wq-row-${id.replace(/[^A-Za-z0-9_-]/g, "_")}`;
 
-export function QueueScreen({ load, answer, verdict, open, exportAudit, openReview, refreshKey = "", look = "inbox", now }: Props) {
+export function QueueScreen({
+  load,
+  answer,
+  verdict,
+  open,
+  exportAudit,
+  openReview,
+  refreshKey = "",
+  look = "inbox",
+  now,
+}: Props) {
   const t = useT();
   const { state, refresh } = useQueue(load, refreshKey);
   /// Items the person answered here that acpmux may still list: hidden until a read drops them.
@@ -66,7 +71,7 @@ export function QueueScreen({ load, answer, verdict, open, exportAudit, openRevi
   const list = useRef<HTMLDivElement>(null);
 
   const reply = "reply" in state ? state.reply : undefined;
-  const all = reply?.items ?? [];
+  const all = useMemo(() => reply?.items ?? NO_ITEMS, [reply]);
   const items = useMemo(() => all.filter((item) => !answered.has(item.id)), [all, answered]);
   // The rows the first read listed are there at once; a row that arrives later enters.
   const firstRead = useRef<ReadonlySet<string> | undefined>(undefined);
@@ -169,13 +174,19 @@ export function QueueScreen({ load, answer, verdict, open, exportAudit, openRevi
             sendVerdict(current, "accept");
             return true;
           }
-          return give(current, answers.find((each) => each.tone === "allow"));
+          return give(
+            current,
+            answers.find((each) => each.tone === "allow"),
+          );
         case "deny":
           if (current.kind === "pr") {
             setComment({ id: current.id, text: "" });
             return true;
           }
-          return give(current, answers.find((each) => each.tone === "deny"));
+          return give(
+            current,
+            answers.find((each) => each.tone === "deny"),
+          );
         case "choose":
           return give(current, answers.filter((each) => each.tone === "choice")[command.index]);
       }
@@ -207,40 +218,43 @@ export function QueueScreen({ load, answer, verdict, open, exportAudit, openRevi
           {t("waiting.export")}
         </button>
       </div>
+      {/* The keys belong to the whole list (j/k, Return, a, d, 1-9, x), so the list takes the focus
+          and the selected row is marked current; each row's own buttons stay real buttons. */}
+      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the keyboard surface of the list below */}
       <div
         ref={list}
         className="wq-list"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rows hold buttons and a comment field, which a <select> cannot
-        role="listbox"
-        aria-label={t("waiting.title")}
-        aria-activedescendant={current ? rowId(current.id) : undefined}
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- one Tab stop for the list's keys
         tabIndex={0}
+        aria-keyshortcuts="j k Enter a d x"
         onKeyDown={onKeyDown}
       >
-        {/* An answered row stays until acpmux drops it, collapsed: it leaves over the settle and the
+        <ul className="wq-rows" aria-label={t("waiting.title")}>
+          {/* An answered row stays until acpmux drops it, collapsed: it leaves over the settle and the
             rows below close up with it, never in a jump. */}
-        {all.map((item) => (
-          <Row
-            key={item.id}
-            item={item}
-            leaving={answered.has(item.id)}
-            enters={!firstRead.current?.has(item.id)}
-            look={look}
-            now={now ?? reply?.now}
-            selected={item === current}
-            failure={failures.get(item.id)}
-            comment={comment?.id === item.id ? comment.text : undefined}
-            onSelect={setSelected}
-            onOpen={open}
-            onAnswer={give}
-            onVerdict={sendVerdict}
-            onComment={setComment}
-            onCancel={() => {
-              setComment(undefined);
-              list.current?.focus({ preventScroll: true });
-            }}
-          />
-        ))}
+          {all.map((item) => (
+            <Row
+              key={item.id}
+              item={item}
+              leaving={answered.has(item.id)}
+              enters={!firstRead.current?.has(item.id)}
+              look={look}
+              now={now ?? reply?.now}
+              selected={item === current}
+              failure={failures.get(item.id)}
+              comment={comment?.id === item.id ? comment.text : undefined}
+              onSelect={setSelected}
+              onOpen={open}
+              onAnswer={give}
+              onVerdict={sendVerdict}
+              onComment={setComment}
+              onCancel={() => {
+                setComment(undefined);
+                list.current?.focus({ preventScroll: true });
+              }}
+            />
+          ))}
+        </ul>
         {/* One status line, always the same height, so the list never moves when a read lands. */}
         <div className="wq-status" aria-live="polite">
           {status}
@@ -362,14 +376,11 @@ const Row = memo(function Row({
   const showsAnswers = look === "cards" || selected;
   let choice = 0;
   return (
-    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the listbox owns the keys (j/k, Return)
-    <div
+    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- a click picks the row; the list owns the keys (j/k, Return)
+    <li
       id={rowId(item.id)}
       className="wq-row"
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an option holding buttons
-      role="option"
-      tabIndex={-1}
-      aria-selected={selected}
+      aria-current={(selected && !leaving) || undefined}
       aria-hidden={leaving || undefined}
       data-selected={(selected && !leaving) || undefined}
       data-leaving={leaving || undefined}
@@ -413,7 +424,13 @@ const Row = memo(function Row({
             <div className="wq-answers" data-shown={showsAnswers || undefined} aria-hidden={!showsAnswers}>
               {item.kind === "pr" ? (
                 <>
-                  <button type="button" className="wq-button" data-tone="allow" tabIndex={-1} onClick={() => onVerdict(item, "accept")}>
+                  <button
+                    type="button"
+                    className="wq-button"
+                    data-tone="allow"
+                    tabIndex={-1}
+                    onClick={() => onVerdict(item, "accept")}
+                  >
                     {t("waiting.pr.accept")}
                   </button>
                   <button
@@ -460,7 +477,7 @@ const Row = memo(function Row({
           )}
         </div>
       </div>
-    </div>
+    </li>
   );
 });
 
@@ -506,7 +523,13 @@ function CommentBox({
         <button type="button" className="wq-button" onClick={onCancel}>
           {t("waiting.comment.cancel")}
         </button>
-        <button type="button" className="wq-button" data-tone="allow" disabled={!text.trim()} onClick={() => onSend(text)}>
+        <button
+          type="button"
+          className="wq-button"
+          data-tone="allow"
+          disabled={!text.trim()}
+          onClick={() => onSend(text)}
+        >
           {t("waiting.comment.send")}
         </button>
       </div>

@@ -77,7 +77,8 @@ also covers 300 asks, an unreached machine, loading, empty and older.
 ## Host and cost
 
 - The page is a tab of the History screen, with no new Swift view. It reads again when an ask
-  comes or goes in the pane's snapshot (debounced 400 ms) and when the page becomes visible.
+  comes or goes in the pane's snapshot (debounced 400 ms) and after an answer, never on a
+  timer and never only because the person switched back.
   Stale replies are dropped.
 - The relay allowlist lists these methods, with the params shown:
   - `_acpmux/review_queue`: `localOnly`, `limit`

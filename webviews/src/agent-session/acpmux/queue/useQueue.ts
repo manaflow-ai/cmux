@@ -1,8 +1,8 @@
 // Waiting on you's reads (queueModel.ts): one `_acpmux/review_queue` when the page shows, again
 // when the asks acpmux reports change (`refreshKey`: the pane's pending asks, so a new or answered
-// ask anywhere reads it again), when the page comes back to the front, and after an answer. Never
-// on a timer. A read that answers after a newer one started, or after the page unmounted, is
-// dropped.
+// ask anywhere reads it again), and after an answer. Never on a timer, and never again only because
+// the person switched away and back (shared-projections.md). A read that answers after a newer one
+// started, or after the page unmounted, is dropped.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOlderDaemon, readQueue, type QueueReply } from "./queueModel";
 
@@ -26,7 +26,9 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string) {
   const read = useCallback(() => {
     const id = ++request.current;
     setState((previous) =>
-      previous.phase === "ready" ? previous : { phase: "loading", ...("reply" in previous && previous.reply ? { reply: previous.reply } : {}) },
+      previous.phase === "ready"
+        ? previous
+        : { phase: "loading", ...("reply" in previous && previous.reply ? { reply: previous.reply } : {}) },
     );
     loadRef.current().then(
       (value) => {
@@ -35,7 +37,11 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string) {
       (error: unknown) => {
         if (!alive.current || id !== request.current) return;
         if (isOlderDaemon(error)) setState({ phase: "older" });
-        else setState((previous) => ({ phase: "failed", ...("reply" in previous && previous.reply ? { reply: previous.reply } : {}) }));
+        else
+          setState((previous) => ({
+            phase: "failed",
+            ...("reply" in previous && previous.reply ? { reply: previous.reply } : {}),
+          }));
       },
     );
   }, []);
@@ -58,14 +64,6 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string) {
     const timer = setTimeout(read, SETTLE_MS);
     return () => clearTimeout(timer);
   }, [refreshKey, read]);
-
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") read();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [read]);
 
   return { state, refresh: read };
 }

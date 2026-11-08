@@ -16,7 +16,12 @@ export type LedgerRollupDim = Exclude<LedgerGroup, "session">;
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
-const RANGE_MS: Record<LedgerRange, number | undefined> = { "24h": DAY_MS, "7d": 7 * DAY_MS, "30d": 30 * DAY_MS, all: undefined };
+const RANGE_MS: Record<LedgerRange, number | undefined> = {
+  "24h": DAY_MS,
+  "7d": 7 * DAY_MS,
+  "30d": 30 * DAY_MS,
+  all: undefined,
+};
 
 /// How many session rows one read asks for (acpmux's own default).
 export const LEDGER_ROW_LIMIT = 200;
@@ -145,7 +150,9 @@ export function readLedger(value: unknown): LedgerReply {
     });
   }
   return {
-    ...(text(table?.version) ? { priceTable: { version: text(table?.version)!, currency: text(table?.currency) ?? "USD" } } : {}),
+    ...(text(table?.version)
+      ? { priceTable: { version: text(table?.version)!, currency: text(table?.currency) ?? "USD" } }
+      : {}),
     range: {
       ...(typeof range.since === "number" ? { since: range.since } : {}),
       ...(typeof range.until === "number" ? { until: range.until } : {}),
@@ -161,7 +168,9 @@ export function readLedger(value: unknown): LedgerReply {
 /// had no price, so the cost is a floor.
 export type CostSource = "harness" | "table" | "mixed" | "unpriced" | "none";
 
-export function costSource(totals: Pick<LedgerTotals, "harnessCostUsd" | "tableCostUsd" | "unpricedTurns" | "turns">): CostSource {
+export function costSource(
+  totals: Pick<LedgerTotals, "harnessCostUsd" | "tableCostUsd" | "unpricedTurns" | "turns">,
+): CostSource {
   const reported = totals.harnessCostUsd > 0;
   const priced = totals.tableCostUsd > 0;
   if (reported && priced) return "mixed";
@@ -217,7 +226,10 @@ export function ledgerLines(reply: LedgerReply, group: LedgerGroup): LedgerLine[
 }
 
 function sessionDetail(row: LedgerSession): { detail?: string } {
-  const parts = [row.repo && row.branch ? `${row.repo} · ${row.branch}` : (row.repo ?? row.branch), row.models.join(", ")];
+  const parts = [
+    row.repo && row.branch ? `${row.repo} · ${row.branch}` : (row.repo ?? row.branch),
+    row.models.join(", "),
+  ];
   const detail = parts.filter(Boolean).join(" · ");
   return detail ? { detail } : {};
 }
@@ -225,7 +237,12 @@ function sessionDetail(row: LedgerSession): { detail?: string } {
 /// Money, in the page's language: cents always, and a positive amount under a cent says so
 /// instead of reading as nothing.
 export function formatCost(usd: number, locale?: string): string {
-  const format = new Intl.NumberFormat(locale, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const format = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
   if (usd > 0 && usd < 0.005) return `<${format.format(0.01)}`;
   return format.format(usd);
 }
@@ -250,5 +267,7 @@ export function formatDuration(ms: number, locale?: string): string {
 export function groupLabel(group: LedgerGroup, line: LedgerLine, locale?: string): string {
   if (group !== "day" || !/^\d{4}-\d{2}-\d{2}$/.test(line.key)) return line.label;
   const date = new Date(`${line.key}T12:00:00Z`);
-  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", weekday: "short", timeZone: "UTC" }).format(date);
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", weekday: "short", timeZone: "UTC" }).format(
+    date,
+  );
 }

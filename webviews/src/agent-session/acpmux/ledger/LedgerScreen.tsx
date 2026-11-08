@@ -50,7 +50,14 @@ type Props = {
   now?: number;
 };
 
-export function LedgerScreen({ load, openSession, look = "bars", initialRange = "7d", initialGroup = "session", now }: Props) {
+export function LedgerScreen({
+  load,
+  openSession,
+  look = "bars",
+  initialRange = "7d",
+  initialGroup = "session",
+  now,
+}: Props) {
   const t = useT();
   const locale = currentLanguage();
   const [range, setRange] = useState<LedgerRange>(initialRange);
@@ -64,7 +71,10 @@ export function LedgerScreen({ load, openSession, look = "bars", initialRange = 
     (which: LedgerRange) => {
       const id = ++request.current;
       // The last answer stays on screen while the next range loads.
-      setState((previous) => ({ phase: "loading", ...("reply" in previous && previous.reply ? { reply: previous.reply } : {}) }));
+      setState((previous) => ({
+        phase: "loading",
+        ...("reply" in previous && previous.reply ? { reply: previous.reply } : {}),
+      }));
       loadRef.current(ledgerParams(which, now ?? Date.now())).then(
         (value) => {
           if (id === request.current) setState({ phase: "ready", reply: readLedger(value) });
@@ -80,9 +90,10 @@ export function LedgerScreen({ load, openSession, look = "bars", initialRange = 
 
   useEffect(() => {
     read(range);
+    const requests = request;
     return () => {
       // A reply after the page left is dropped.
-      request.current++;
+      requests.current++;
     };
   }, [range, read]);
 
@@ -116,8 +127,8 @@ export function LedgerScreen({ load, openSession, look = "bars", initialRange = 
   };
 
   return (
-    <div className="lg" data-look={look} data-loading={state.phase === "loading" || undefined}>
-      <div className="lg-controls">
+    <div className="cst" data-look={look} data-loading={state.phase === "loading" || undefined}>
+      <div className="cst-controls">
         <Tabs variant="segmented" value={range} onValueChange={(value) => setRange(value as LedgerRange)}>
           <TabsList aria-label={t("ledger.range")}>
             {LEDGER_RANGES.map((each) => (
@@ -127,7 +138,7 @@ export function LedgerScreen({ load, openSession, look = "bars", initialRange = 
             ))}
           </TabsList>
         </Tabs>
-        <span className="lg-fill" />
+        <span className="cst-fill" />
         <Select
           label={t("ledger.group")}
           value={group}
@@ -138,23 +149,23 @@ export function LedgerScreen({ load, openSession, look = "bars", initialRange = 
         />
       </div>
       <Strip totals={reply?.totals} locale={locale} t={t} />
-      <div className="lg-table-note">
+      <div className="cst-table-note">
         {reply?.priceTable && <span>{t("ledger.priceTable", { version: reply.priceTable.version })}</span>}
         {reply && reply.totals.unpricedTurns > 0 && (
           <span>{t("ledger.unpriced", { n: formatCount(reply.totals.unpricedTurns, locale) })}</span>
         )}
-        <span className="lg-fill" />
+        <span className="cst-fill" />
         {/* What the marks after a cost mean, for the marks this list shows. */}
         {LEGEND.filter((source) => lines.some((line) => line.source === source)).map((source) => (
-          <span key={source} className="lg-legend">
+          <span key={source} className="cst-legend">
             <SourceMark source={source} />
             {t(SOURCE_KEY[source]!)}
           </span>
         ))}
       </div>
       {look === "table" && lines.length > 0 && (
-        <div className="lg-head" aria-hidden="true">
-          <span className="lg-head-label">{t(`ledger.group.${group}`)}</span>
+        <div className="cst-head" aria-hidden="true">
+          <span className="cst-head-label">{t(`ledger.group.${group}`)}</span>
           <span>{t("ledger.total.cost")}</span>
           <span>{t("ledger.total.tokensIn")}</span>
           <span>{t("ledger.total.tokensOut")}</span>
@@ -162,10 +173,10 @@ export function LedgerScreen({ load, openSession, look = "bars", initialRange = 
           <span>{t("ledger.total.time")}</span>
         </div>
       )}
-      <div className="lg-scroll">
+      <div className="cst-scroll">
         {lines.length > 0 && (
           <VirtualList
-            className="lg-list"
+            className="cst-list"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
             role="list"
             label={t("ledger.title")}
@@ -175,10 +186,10 @@ export function LedgerScreen({ load, openSession, look = "bars", initialRange = 
             renderRow={renderRow}
           />
         )}
-        <div className="lg-status" aria-live="polite">
+        <div className="cst-status" aria-live="polite">
           {status}
           {state.phase === "failed" && (
-            <button type="button" className="lg-link" onClick={() => read(range)}>
+            <button type="button" className="cst-link" onClick={() => read(range)}>
               {t("ledger.retry")}
             </button>
           )}
@@ -193,16 +204,19 @@ function Strip({ totals, locale, t }: { totals?: LedgerTotals; locale: string; t
   const value = (render: (totals: LedgerTotals) => string) => (totals ? render(totals) : "–");
   const tiles: [string, string][] = [
     [t("ledger.total.cost"), value((each) => formatCost(each.costUsd, locale))],
-    [t("ledger.total.tokensIn"), value((each) => formatCount(each.inputTokens + each.cacheReadTokens + each.cacheWriteTokens, locale))],
+    [
+      t("ledger.total.tokensIn"),
+      value((each) => formatCount(each.inputTokens + each.cacheReadTokens + each.cacheWriteTokens, locale)),
+    ],
     [t("ledger.total.tokensOut"), value((each) => formatCount(each.outputTokens, locale))],
     [t("ledger.total.turns"), value((each) => formatCount(each.turns, locale))],
     [t("ledger.total.tools"), value((each) => formatCount(each.toolCalls, locale))],
     [t("ledger.total.time"), value((each) => formatDuration(each.wallMs, locale))],
   ];
   return (
-    <dl className="lg-strip">
+    <dl className="cst-strip">
       {tiles.map(([label, shown]) => (
-        <div key={label} className="lg-tile">
+        <div key={label} className="cst-tile">
           <dt>{label}</dt>
           <dd>{shown}</dd>
         </div>
@@ -211,7 +225,10 @@ function Strip({ totals, locale, t }: { totals?: LedgerTotals; locale: string; t
   );
 }
 
-const SOURCE_KEY: Record<CostSource, "ledger.source.harness" | "ledger.source.table" | "ledger.source.mixed" | "ledger.source.unpriced" | undefined> = {
+const SOURCE_KEY: Record<
+  CostSource,
+  "ledger.source.harness" | "ledger.source.table" | "ledger.source.mixed" | "ledger.source.unpriced" | undefined
+> = {
   harness: "ledger.source.harness",
   table: "ledger.source.table",
   mixed: "ledger.source.mixed",
@@ -244,52 +261,66 @@ const Line = memo(function Line({
   const cost = formatCost(totals.costUsd, locale);
   const meta = t("ledger.row.meta", {
     turns: formatCount(totals.turns, locale),
-    tokens: formatCount(totals.inputTokens + totals.outputTokens + totals.cacheReadTokens + totals.cacheWriteTokens, locale),
+    tokens: formatCount(
+      totals.inputTokens + totals.outputTokens + totals.cacheReadTokens + totals.cacheWriteTokens,
+      locale,
+    ),
   });
-  const bar = <span className="lg-bar" style={{ "--lg-share": line.share } as React.CSSProperties} aria-hidden="true" />;
+  const bar = (
+    <span className="cst-bar" style={{ "--cst-share": line.share } as React.CSSProperties} aria-hidden="true" />
+  );
   const body =
     look === "table" ? (
       <>
-        <span className="lg-label">{label}</span>
-        <span className="lg-num" title={source}>
+        <span className="cst-label">{label}</span>
+        <span className="cst-num" title={source}>
           {cost}
           <SourceMark source={line.source} />
         </span>
-        <span className="lg-num">{formatCount(totals.inputTokens + totals.cacheReadTokens + totals.cacheWriteTokens, locale)}</span>
-        <span className="lg-num">{formatCount(totals.outputTokens, locale)}</span>
-        <span className="lg-num">{formatCount(totals.turns, locale)}</span>
-        <span className="lg-num">{formatDuration(totals.wallMs, locale)}</span>
+        <span className="cst-num">
+          {formatCount(totals.inputTokens + totals.cacheReadTokens + totals.cacheWriteTokens, locale)}
+        </span>
+        <span className="cst-num">{formatCount(totals.outputTokens, locale)}</span>
+        <span className="cst-num">{formatCount(totals.turns, locale)}</span>
+        <span className="cst-num">{formatDuration(totals.wallMs, locale)}</span>
         {bar}
       </>
     ) : (
       <>
         {look === "bars" && bar}
-        <span className="lg-text">
-          <span className="lg-label">{label}</span>
-          <span className="lg-detail">{line.detail ? `${line.detail} · ${meta}` : meta}</span>
+        <span className="cst-text">
+          <span className="cst-label">{label}</span>
+          <span className="cst-detail">{line.detail ? `${line.detail} · ${meta}` : meta}</span>
         </span>
-        <span className="lg-cost" title={source}>
+        <span className="cst-cost" title={source}>
           {cost}
           <SourceMark source={line.source} />
         </span>
         {look === "stacked" && bar}
       </>
     );
-  return onOpen && line.sessionId ? (
-    <button
-      type="button"
+  return (
+    <div
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized row (absolute, transformed), not a flow <li>
       role="listitem"
-      className="lg-row"
-      data-look={look}
+      className="cst-item"
       style={style}
-      aria-label={`${label}, ${cost}${source ? `, ${source}` : ""}`}
-      onClick={() => onOpen(line.sessionId!)}
     >
-      {body}
-    </button>
-  ) : (
-    <div role="listitem" className="lg-row" data-look={look} style={style}>
-      {body}
+      {onOpen && line.sessionId ? (
+        <button
+          type="button"
+          className="cst-row"
+          data-look={look}
+          aria-label={`${label}, ${cost}${source ? `, ${source}` : ""}`}
+          onClick={() => onOpen(line.sessionId!)}
+        >
+          {body}
+        </button>
+      ) : (
+        <div className="cst-row" data-look={look}>
+          {body}
+        </div>
+      )}
     </div>
   );
 });
@@ -298,5 +329,5 @@ const Line = memo(function Line({
 /// hollow dot for one priced from the table, half for a mix, a dash for no price.
 function SourceMark({ source }: { source: CostSource }) {
   if (source === "harness" || source === "none") return null;
-  return <span className="lg-source" data-source={source} aria-hidden="true" />;
+  return <span className="cst-source" data-source={source} aria-hidden="true" />;
 }

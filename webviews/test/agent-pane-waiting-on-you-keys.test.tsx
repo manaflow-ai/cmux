@@ -64,7 +64,17 @@ const allowDeny = [
   { optionId: "deny", name: "Deny", kind: "reject_once" },
 ];
 const items = [
-  { id: "acpmux:p1", kind: "approval", sessionId: "s1", title: "Upload test", ask: "Run tests", at: 1, score: 9, permissionId: "p1", options: allowDeny },
+  {
+    id: "acpmux:p1",
+    kind: "approval",
+    sessionId: "s1",
+    title: "Upload test",
+    ask: "Run tests",
+    at: 1,
+    score: 9,
+    permissionId: "p1",
+    options: allowDeny,
+  },
   {
     id: "acpmux:p2",
     kind: "question",
@@ -79,7 +89,16 @@ const items = [
       { optionId: "dev", name: "Dev build" },
     ],
   },
-  { id: "pr:u", kind: "pr", sessionId: "s3", title: "Retry", ask: "Review #412", at: 3, score: 1, prUrl: "https://example.com/pull/412" },
+  {
+    id: "pr:u",
+    kind: "pr",
+    sessionId: "s3",
+    title: "Retry",
+    ask: "Review #412",
+    at: 3,
+    score: 1,
+    prUrl: "https://example.com/pull/412",
+  },
 ];
 
 type Calls = { answers: [string, string][]; verdicts: [string, string][]; opened: string[]; exports: number };
@@ -120,9 +139,14 @@ const selected = () => host.querySelector(".wq-row[data-selected]")?.id;
 
 test("the queue is sorted by score and the first ask is selected", async () => {
   const { list } = await render();
-  expect([...host.querySelectorAll(".wq-row")].map((row) => row.id)).toEqual(["wq-row-acpmux_p1", "wq-row-acpmux_p2", "wq-row-pr_u"]);
+  expect([...host.querySelectorAll(".wq-row")].map((row) => row.id)).toEqual([
+    "wq-row-acpmux_p1",
+    "wq-row-acpmux_p2",
+    "wq-row-pr_u",
+  ]);
   expect(selected()).toBe("wq-row-acpmux_p1");
-  expect(list.getAttribute("aria-activedescendant")).toBe("wq-row-acpmux_p1");
+  expect(host.querySelector('.wq-row[aria-current="true"]')?.id).toBe("wq-row-acpmux_p1");
+  expect(list.tabIndex).toBe(0);
 });
 
 test("j and k move; Return goes to the chat; x exports", async () => {

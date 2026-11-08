@@ -51,7 +51,15 @@ test("a read keeps whole items only and sorts them by score, then the oldest ask
       { id: "acpmux:a", kind: "approval", sessionId: "s1", title: "A", ask: "a", at: 5_000, score: 2, options },
       { id: "acpmux:b", kind: "question", sessionId: "s2", title: "B", ask: "b", ageMs: 9_000, score: 2 },
       { id: "acpmux:c", kind: "plan", sessionId: "s3", title: "C", ask: "c", at: 9_000, score: 7, host: "studio" },
-      { id: "pr:https://example.com/pull/1", kind: "pr", title: "PR", ask: "Review", at: 1, score: 1, prUrl: "https://example.com/pull/1" },
+      {
+        id: "pr:https://example.com/pull/1",
+        kind: "pr",
+        title: "PR",
+        ask: "Review",
+        at: 1,
+        score: 1,
+        prUrl: "https://example.com/pull/1",
+      },
       // Not shown: no id, an unknown kind, no chat for an ask.
       { kind: "approval", sessionId: "s4", score: 9 },
       { id: "x", kind: "mystery", sessionId: "s5", score: 9 },
@@ -154,7 +162,10 @@ test("another chat's approval is answered by the host on the click; a peer's ope
   };
   const opened: string[] = [];
   const allow = { id: "allow", label: "Allow", tone: "allow" as const };
-  const local = await answerAnotherChat(call, needsYouItem(item()), allow, { peer: false, open: () => opened.push("s1") });
+  const local = await answerAnotherChat(call, needsYouItem(item()), allow, {
+    peer: false,
+    open: () => opened.push("s1"),
+  });
   expect(local).toBe("answered");
   expect(calls).toEqual([["chat.asks.answer", { sessionId: "s1", permissionId: "p1", optionId: "allow" }]]);
   expect(opened).toEqual([]);
@@ -175,13 +186,29 @@ test("another chat's approval is answered by the host on the click; a peer's ope
 
 test("why an item ranks high, in words the page can say; unknown reasons are left out", () => {
   expect(
-    queueReasons(item({ impactReasons: ["blocksTurn", "queuedPrompts:3", "costUsd:4.5", "subsessions:0", "age", "mystery:2", "queuedPrompts:x"] })),
+    queueReasons(
+      item({
+        impactReasons: [
+          "blocksTurn",
+          "queuedPrompts:3",
+          "costUsd:4.5",
+          "subsessions:0",
+          "age",
+          "mystery:2",
+          "queuedPrompts:x",
+        ],
+      }),
+    ),
   ).toEqual([{ kind: "blocksTurn" }, { kind: "queuedPrompts", n: 3 }, { kind: "costUsd", usd: 4.5 }, { kind: "age" }]);
 });
 
 test("a pull request's verdict names the PR and its chat; other kinds and other machines' send none", () => {
   const pr = item({ id: "pr:u", kind: "pr", prUrl: "https://example.com/pull/7", permissionId: undefined });
-  expect(verdictParams(pr, "accept")).toEqual({ prUrl: "https://example.com/pull/7", sessionId: "s1", verdict: "accepted" });
+  expect(verdictParams(pr, "accept")).toEqual({
+    prUrl: "https://example.com/pull/7",
+    sessionId: "s1",
+    verdict: "accepted",
+  });
   expect(verdictParams(pr, "changes", "  Split the commit  ")).toEqual({
     prUrl: "https://example.com/pull/7",
     sessionId: "s1",
@@ -204,7 +231,7 @@ test("an older acpmux, or a host whose relay does not list the method, reads as 
 });
 
 test("the audit export follows its cursor, and stops at its page cap", async () => {
-  const pages: Record<string, { entries: unknown[]; next?: string }> = {
+  const pages: Record<string, { entries: unknown[]; next?: number }> = {
     "": { entries: [{ seq: 1 }, { seq: 2 }], next: 2 },
     "2": { entries: [{ seq: 3 }], next: 3 },
     "3": { entries: [{ seq: 4 }] },

@@ -51,7 +51,12 @@ export function HistoryScreen({
   return (
     <div className="nt-history" data-tab={shown}>
       {tabbed ? (
-        <Tabs variant="pill" value={shown} onValueChange={(value) => setTab(value as HistoryTab)} className="nt-history-tabs">
+        <Tabs
+          variant="pill"
+          value={shown}
+          onValueChange={(value) => setTab(value as HistoryTab)}
+          className="nt-history-tabs"
+        >
           <TabsList aria-label={nt("history")}>
             <TabsTrigger value="history">{nt("history")}</TabsTrigger>
             {queue && <TabsTrigger value="queue">{t("waiting.title")}</TabsTrigger>}

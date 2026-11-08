@@ -41,8 +41,7 @@ export function historyPages({
     if (!current) throw Object.assign(new Error("not connected"), { code: "native.not_connected" });
     return current;
   };
-  const openChat = (sessionId: string) =>
-    void callNative("chat.asks.open", { sessionId }).catch(() => undefined);
+  const openChat = (sessionId: string) => void callNative("chat.asks.open", { sessionId }).catch(() => undefined);
   const open = (item: QueueItem) => {
     // Another machine's chat is answered there; this pane has no local chat to show for it.
     if (item.host || !item.sessionId) return;
@@ -66,7 +65,10 @@ export function historyPages({
       },
       open,
       exportAudit: async () => {
-        const entries = await auditEntries((params) => connected().audit({ limit: AUDIT_PAGE, ...params }), AUDIT_PAGES);
+        const entries = await auditEntries(
+          (params) => connected().audit({ limit: AUDIT_PAGE, ...params }),
+          AUDIT_PAGES,
+        );
         await copyText(`${JSON.stringify(entries, null, 2)}\n`);
         return entries.length;
       },
