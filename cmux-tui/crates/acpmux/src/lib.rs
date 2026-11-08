@@ -43,6 +43,7 @@ pub mod chats;
 pub mod claude_auth;
 pub mod claude_stdio;
 pub mod cli;
+pub mod cli_caller;
 pub mod client;
 pub mod clock;
 pub mod cloud_host;
