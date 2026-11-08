@@ -54,17 +54,30 @@ const SECRET_FIELD =
   /\b((?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|authorization)["']?\s*[:=]\s*(?:bearer\s+)?)("[^"]*"|'[^']*'|[^\s,;"'`]+)/gi;
 const BEARER = /\b(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}/g;
 /// An absolute or home path, starting a word.
-const PATH = /(^|[\s"'`(=:[])((?:~\/|\/)(?:[\w.@+-]+\/)*[\w.@+-]+\/?)/g;
+/// A quoted absolute or home path, which may hold spaces: the whole quote is the path.
+const QUOTED_PATH = /(["'`])((?:~\/|\/)[^"'`\n]*)\1/g;
+/// An absolute or home path, starting a word (an escaped space stays in it), then the words a name
+/// with spaces may go on with, up to one with an extension (`/a/secret notes.txt`).
+const PATH =
+  /(^|[\s"'`(=:[])((?:~\/|\/)(?:(?:[\w.@+-]|\\ )+\/)*(?:[\w.@+-]|\\ )+\/?)((?:\s[\w@+-]+){0,2}\s[\w@+-]*\.[A-Za-z0-9]{1,8}\b)?/g;
 
 /// `text` with its secrets as ••• and each path outside `root` as …; a path inside `root` reads
 /// relative to it.
 export function redact(text: string, root?: string): string {
   const base = root?.replace(/\/+$/, "");
+  const shown = (path: string) => {
+    if (base && (path === base || path.startsWith(`${base}/`))) return path.slice(base.length + 1) || ".";
+    // A lone slash or a one-segment path (`/s`, `/tmp`) is too short to say where anything lives.
+    return path.split("/").filter(Boolean).length < 2 && !path.startsWith("~") ? path : OUTSIDE;
+  };
   return text
-    .replace(PATH, (_, lead: string, path: string) => {
-      if (base && (path === base || path.startsWith(`${base}/`))) return lead + (path.slice(base.length + 1) || ".");
-      // A lone slash or a one-segment path (`/s`, `/tmp`) is too short to say where anything lives.
-      return lead + (path.split("/").filter(Boolean).length < 2 && !path.startsWith("~") ? path : OUTSIDE);
+    .replace(QUOTED_PATH, (_, quote: string, path: string) => quote + shown(path) + quote)
+    .replace(PATH, (_, lead: string, path: string, tail: string | undefined) => {
+      const out = shown(path);
+      // An outside name with no extension may go on past a space (`secret notes.txt`): its tail
+      // goes with it. A name that already ended (`a.ts`) keeps the words after it.
+      const named = /\.[A-Za-z0-9]{1,8}$/.test(path.split("/").at(-1) ?? "");
+      return lead + out + (tail && (out !== OUTSIDE || named) ? tail : "");
     })
     .replace(ENV_ASSIGNMENT, (_, name: string) => `${name}=${REDACTED}`)
     .replace(SECRET_FIELD, (_, key: string) => `${key}${REDACTED}`)
@@ -154,7 +167,9 @@ function inside(file: TurnFile, root?: string): boolean {
 
 /// A file's path as the poster names it: relative to the chat's folder.
 function shownPath(file: TurnFile, root?: string): string {
-  const path = root && file.path.startsWith(`${root}/`) ? file.path.slice(root.length + 1) : file.path;
+  // The canonical path when it has one: a spelling through a link outside the folder never shows.
+  const source = file.canonical ?? file.path;
+  const path = root && source.startsWith(`${root}/`) ? source.slice(root.length + 1) : source;
   return clip(path.replace(/^\.\//, ""), 40);
 }
 

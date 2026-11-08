@@ -184,3 +184,36 @@ test("a summary the turn went on after does not finish it", () => {
   ];
   expect(buildPoster(rows, {})?.prompt).toBe("finished one");
 });
+
+test("an outside path with spaces is hidden whole, quoted or not", () => {
+  expect(redact("read '/Users/alice/secret notes.txt' now", "/repo")).toBe("read '…' now");
+  expect(redact("read /Users/alice/secret notes.txt now", "/repo")).toBe("read … now");
+  expect(redact("read /Users/alice/my\\ secret.txt now", "/repo")).toBe("read … now");
+  expect(redact("fix /Users/alice/a.ts and README.md", "/repo")).toBe("fix … and README.md");
+  expect(redact('open "/repo/src/my file.ts"', "/repo")).toBe('open "src/my file.ts"');
+});
+
+test("a file spelled through an outside link shows its path in the project", () => {
+  const rows = turn(
+    "edit through a link",
+    1_000,
+    row({
+      id: "link",
+      kind: "activity",
+      items: [
+        {
+          kind: "tool",
+          text: "",
+          tool: {
+            id: "link",
+            kind: "edit",
+            title: "Edit",
+            status: "completed",
+            diffs: [{ path: "/private/tmp/link.ts", canonical: "/repo/link.ts", oldText: "a\n", newText: "b\n" }],
+          },
+        },
+      ],
+    } as Partial<AcpmuxRow> & { id: string; kind: string }),
+  );
+  expect(buildPoster(rows, { cwd: "/repo" })!.hunks.map((hunk) => hunk.path)).toEqual(["link.ts"]);
+});
