@@ -186,6 +186,15 @@ class WorkflowTests(unittest.TestCase):
         for name in ("publish", "order"):
             self.assertIn("github.ref == 'refs/heads/nightly-next'", self.job(self.text, name))
 
+    def test_main_s_cron_dispatches_each_step_on_nightly_next(self):
+        self.assertIn('- cron: "15 9 * * 1"', self.text)
+        self.assertIn('- cron: "15 10 * * 1"', self.text)
+        job = self.job(self.text, "start")
+        self.assertIn("github.event_name == 'schedule'", job)
+        self.assertIn("github.event.schedule == '15 9 * * 1' && 'publish' || 'pull'", job)
+        self.assertIn("--ref nightly-next -f step=\"$STEP\"", job)
+        self.assertNotIn("secrets.", job)
+
     def test_a_failed_pull_still_writes_its_receipt(self):
         job = self.job(self.text, "receipt")
         self.assertIn("if: always() && needs.order.result == 'success'", job)

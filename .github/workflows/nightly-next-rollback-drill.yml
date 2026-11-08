@@ -25,10 +25,15 @@ name: nightly-next rollback drill
 #                 failed pull writes outcome failed.
 #
 # The probe reads feed_s from the receipt: served_at minus pull_ordered_at.
-# main's copy of this file runs the Monday cron (publish 09:15 UTC, pull
-# 10:15 UTC) and dispatches each step here, on nightly-next, where
-# release-next releases the feed's R2 token.
+# GitHub runs a schedule, and registers a dispatch, only from the default
+# branch, so this file is on main too, byte for byte. There the Monday cron
+# (publish 09:15 UTC, pull 10:15 UTC; the probe starts at 09:29) runs job
+# start, which dispatches the step here on nightly-next, where release-next
+# releases the feed's R2 token. Every other job runs only on nightly-next.
 on:
+  schedule:
+    - cron: "15 9 * * 1"
+    - cron: "15 10 * * 1"
   workflow_dispatch:
     inputs:
       step:
@@ -52,6 +57,20 @@ env:
   DRILL_DIR: drill/
 
 jobs:
+  # No secrets: it only dispatches this workflow on nightly-next.
+  start:
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule'
+    permissions:
+      actions: write # dispatch nightly-next-rollback-drill.yml
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STEP: ${{ github.event.schedule == '15 9 * * 1' && 'publish' || 'pull' }}
+    steps:
+      - name: Dispatch the step on nightly-next
+        run: gh workflow run nightly-next-rollback-drill.yml -R "$GITHUB_REPOSITORY" --ref nightly-next -f step="$STEP"
+
   publish:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && inputs.step == 'publish'
     environment: release-next
