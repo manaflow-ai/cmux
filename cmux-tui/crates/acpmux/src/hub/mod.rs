@@ -275,6 +275,7 @@ pub use vm_boundary::vm_boundary_peer_approves;
 mod start_gate;
 pub mod vm_host;
 pub(crate) use start_gate::host_label;
+pub mod races;
 mod subsession_answer;
 mod subsession_guard;
 mod subsession_results;
@@ -458,6 +459,11 @@ pub struct TurnInfo {
 /// Options for `Hub::prompt_with`.
 #[derive(Default)]
 pub struct PromptOptions {
+    /// Internal guard checked after asynchronous prompt setup and immediately before acceptance.
+    /// Public only so callers outside the crate can build options with `..Default::default()`;
+    /// it can only refuse a prompt, never admit one.
+    #[doc(hidden)]
+    pub race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
@@ -875,6 +881,7 @@ pub struct Hub {
     lane_report_reads: lane_report_reads::LaneReportReads,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
+    pub(super) races_running: StdMutex<std::collections::HashSet<String>>,
     /// Creates admitted and still starting (`admission.rs`).
     pub(super) admitting: admission::Admitting,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
@@ -1144,6 +1151,7 @@ impl Hub {
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
             subsessions: Default::default(),
+            races_running: Default::default(),
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
@@ -1294,6 +1302,7 @@ impl Hub {
         if deferred {
             self.logs_ready.send_replace(false);
         }
+        self.resume_races();
     }
 
     pub(super) fn install_stored_session(&self, meta: SessionMeta, deferred: bool, hosted: bool) {
