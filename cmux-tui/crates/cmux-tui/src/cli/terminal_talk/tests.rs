@@ -1293,3 +1293,27 @@ fn w5r_send_with_an_empty_input_box_is_submitted() {
         send::run(&daemon, None, &quick("Reply with exactly P1_RESUMED_OK")).expect("submitted");
     assert_eq!(receipt["state"], "idle");
 }
+
+/// Lead scope (herdr `agent_prompt_stalled`): any send to an agent that
+/// reports through hooks must see the agent leave idle after the submit.
+/// Here the terminal's agent is a hook agent (the snapshot's record), the
+/// screen settles with an empty input box, and no record comes after Enter:
+/// the prompt did not start a turn, so the send fails with the typed error
+/// once the stall limit passed, never an empty success.
+#[test]
+fn w5r_send_to_a_hook_agent_that_never_leaves_idle_is_stalled() {
+    // The hooks reported this terminal's agent session (W3-H keeps it on the
+    // terminal): its agent reports every turn.
+    let mut hooked = snapshot();
+    if let Some(terminal) = hooked.pointer_mut("/terminals/0") {
+        terminal["extra"] = json!({"agent": "claude", "agent_session_id": "5b0e7c1e-0d6c"});
+    }
+    let daemon = FakeDaemon::new(hooked, &[(1, RESUMED_EMPTY), (2, RESUMED_EMPTY)]);
+    let request = SendRequest {
+        timeout: Duration::from_secs(60),
+        ..quick("Reply with exactly P1_RESUMED_OK")
+    };
+    let failure = send::run(&daemon, None, &request).expect_err("no turn started");
+    assert_eq!(failure.failure.error["code"], "send.not_submitted", "{:?}", failure.failure.error);
+    assert_eq!(failure.failure.error["details"]["reason"], "no_agent_report");
+}
