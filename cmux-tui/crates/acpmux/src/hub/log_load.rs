@@ -265,6 +265,9 @@ impl Hub {
                 }
                 self.note_work_child(&m);
             }
+            // Out of the meta lock, as `set_status` does: the session that started it may have
+            // been marked working by it before the restart settled it (`work_below.rs`).
+            self.refresh_parent_work_below(session);
             session.mark_waiting(false);
             if *loaded {
                 self.mark_lost_wait(session);
