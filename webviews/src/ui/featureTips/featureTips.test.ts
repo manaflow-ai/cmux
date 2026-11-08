@@ -335,7 +335,7 @@ describe("feature tips", () => {
 
   test("an app that keeps no records shows none", async () => {
     const refused = () => Promise.reject(new Error("unsupported"));
-    const host: TipHost = { read: refused, write: refused, claim: refused };
+    const host: TipHost = { read: refused, write: refused, claim: refused, reserve: refused };
     const { controller } = await page({ host });
     await settle(TIP_SETTLE_MS * 4);
     expect(controller.shown).toBeNull();

@@ -137,18 +137,16 @@ export function useShareNudge(
     const session = chat.sessionId;
     // Kept before it draws, by the app in one step: a page that reloads, or another pane or window
     // ending a turn at the same time, never shows it again.
-    void host
-      .reserve(SHARE_NUDGE_ID)
-      .then(
-        (show) => {
-          if (!mounted.current) return;
-          setShownIn(show ? session : undefined);
-          setPhase(show ? "shown" : "done");
-        },
-        () => {
-          if (mounted.current) setPhase("done");
-        },
-      );
+    void host.reserve(SHARE_NUDGE_ID).then(
+      (show) => {
+        if (!mounted.current) return;
+        setShownIn(show ? session : undefined);
+        setPhase(show ? "shown" : "done");
+      },
+      () => {
+        if (mounted.current) setPhase("done");
+      },
+    );
   }, [ready, chat.sessionId, host]);
   // The moment passed: the person sent again, moved to another chat, made a second one, or
   // turned tips off.
