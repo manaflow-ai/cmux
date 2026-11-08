@@ -361,12 +361,31 @@ pub fn import_session_dir(root: &Path, chat: &PortableChat, harness: &str) -> Re
         dir.join("manifest.json"),
         serde_json::to_vec_pretty(
             &json!({"schema": "acpmux.bundle.v1", "id": meta.id, "eventCount": event_count, "lastSeq": meta.last_seq}),
-        ),
+        )?,
     )?;
     Ok(dir)
 }
 
 /// Build the portable bundle requested by `_acpmux/chat_export`.
+fn add_live_session(
+    hub: &Hub,
+    session: Arc<Session>,
+    seen: &mut std::collections::HashSet<String>,
+    chats: &mut Vec<PortableChat>,
+) -> std::result::Result<(), RpcError> {
+    let id = session.meta().id;
+    if seen.insert(format!("acpmux:{id}")) {
+        if !hub.store_deferred(&session) {
+            return Err(RpcError::internal("could not store the chat's newest tool output"));
+        }
+        chats.push(
+            from_session(&session, hub.store.as_ref())
+                .map_err(|e| RpcError::internal(e.to_string()))?,
+        );
+    }
+    Ok(())
+}
+
 pub fn export_value(
     hub: &Hub,
     service: Option<&Arc<crate::chats::ChatService>>,
@@ -393,23 +412,10 @@ pub fn export_value(
     }
     let mut chats = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let mut add_session = |session: Arc<Session>| -> std::result::Result<(), RpcError> {
-        let id = session.meta().id;
-        if seen.insert(format!("acpmux:{id}")) {
-            if !hub.store_deferred(&session) {
-                return Err(RpcError::internal("could not store the chat's newest tool output"));
-            }
-            chats.push(
-                from_session(&session, hub.store.as_ref())
-                    .map_err(|e| RpcError::internal(e.to_string()))?,
-            );
-        }
-        Ok(())
-    };
     if all {
         let sessions: Vec<_> = hub.sessions.lock().unwrap().values().cloned().collect();
         for session in sessions {
-            add_session(session)?;
+            add_live_session(hub, session, &mut seen, &mut chats)?;
         }
         if let Some(service) = service {
             let query = crate::chats::ChatQuery::default();
@@ -428,7 +434,7 @@ pub fn export_value(
     } else {
         for key in keys {
             if let Some(id) = key.strip_prefix("acpmux:") {
-                add_session(hub.resolve(id)?)?;
+                add_live_session(hub, hub.resolve(id)?, &mut seen, &mut chats)?;
                 continue;
             }
             let parsed = crate::chats::parse_key(&key)
