@@ -2287,6 +2287,12 @@ async fn dispatch_request_with_identity(
         }
         crate::catalog::RPC_GET => Ok(hub.catalog.get()),
         crate::catalog::RPC_REFRESH => Ok(hub.catalog.refresh(false).await),
+        crate::skills_directory::RPC_LIST => Ok(crate::skills_directory::list(&params, None)),
+        crate::skills_directory::RPC_STATUS => crate::skills_directory::status(&params, None).map_err(|e| RpcError::invalid_params(e.to_string())),
+        crate::skills_directory::RPC_INSTALL if !matches!(conn.origin, Origin::Local | Origin::LocalApp) => Err(RpcError::invalid_params("skills directory changes require the local app or unix socket")),
+        crate::skills_directory::RPC_REMOVE if !matches!(conn.origin, Origin::Local | Origin::LocalApp) => Err(RpcError::invalid_params("skills directory changes require the local app or unix socket")),
+        crate::skills_directory::RPC_INSTALL => crate::skills_directory::install(&params, None).map_err(|e| RpcError::invalid_params(e.to_string())),
+        crate::skills_directory::RPC_REMOVE => crate::skills_directory::remove(&params, None).map_err(|e| RpcError::invalid_params(e.to_string())),
         "_acpmux/peer_add" => {
             let waited = hub.add_peer_from(&params).await?;
             Ok(with_wait(json!({"peers": hub.peers()}), waited))
