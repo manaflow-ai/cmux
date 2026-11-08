@@ -17,6 +17,8 @@ use crate::cli::{Platform, PlatformCallError};
 /// A warm asked again within this long of the last one, for the same account and team, while
 /// that warm still runs for longer than this, is answered from the record with `fresh: false`:
 /// no platform call and no second login copy. Every composer keystroke and app activation can ask.
+/// A warm that found no spare, or failed, is an attempt: within the gap its answer is replayed
+/// with no platform call, so a route that is down is not asked on every activation.
 pub(super) const WARM_GAP_MS: u64 = 120_000;
 
 /// The answer's code when the team cannot be read from the install token: no warm, no copy.
@@ -29,9 +31,13 @@ pub(super) const THROTTLE_UNAVAILABLE: &str = "throttle_unavailable";
 pub(super) struct Request {
     pub(super) platform: Option<String>,
     pub(super) account: String,
+    /// The machine of a copy the App abandoned (the account or team switched mid-copy): its warm
+    /// record no longer counts as copied, so the next warm answers the copy again.
+    #[serde(default)]
+    pub(super) abandoned: Option<String>,
 }
 
-/// The last fresh warm of one account and team, in the start-chat state folder (`spare-warm.json`, one per pair).
+/// The last fresh warm of one account and team (one per pair).
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 struct Record {
     account: String,
@@ -39,6 +45,30 @@ struct Record {
     machine: String,
     warm_until: u64,
     at: u64,
+    /// The platform said the person owns the machine (`vm_kind: "owner"`): a copy target.
+    #[serde(default)]
+    owner: bool,
+    /// The copy was handed to the App and not abandoned since.
+    #[serde(default)]
+    copy_given: bool,
+}
+
+/// The last warm of one account and team that warmed nothing (no spare, or a refusal), and its answer.
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+struct Attempt {
+    account: String,
+    team: String,
+    at: u64,
+    answer: Value,
+}
+
+/// `spare-warm.json` in the start-chat state folder.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default)]
+struct State {
+    #[serde(default)]
+    warms: Vec<Record>,
+    #[serde(default)]
+    attempts: Vec<Attempt>,
 }
 
 /// The platform call: the request, the person's session credential, the backend team it acts in.
@@ -116,54 +146,121 @@ pub(super) fn run(
         ));
     };
     let path = state.join("spare-warm.json");
-    let mut records: Vec<Record> = std::fs::read(&path)
+    let mut file: State = std::fs::read(&path)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default();
-    // A record past its warm is dropped: the file holds at most the pairs warm now.
-    records.retain(|record| record.warm_until > now_ms);
-    if let Some(last) = records.iter().find(|last| {
-        last.account == request.account
-            && last.team.as_deref() == Some(team.as_str())
+    // A record past its warm, or an attempt past the gap, is dropped: the file stays small.
+    file.warms.retain(|record| record.warm_until > now_ms);
+    file.attempts.retain(|attempt| now_ms < attempt.at.saturating_add(WARM_GAP_MS));
+    let pair = |account: &str, other: Option<&str>| {
+        account == request.account && other == Some(team.as_str())
+    };
+    if let Some(machine) = &request.abandoned {
+        let mut found = false;
+        for record in &mut file.warms {
+            if pair(&record.account, record.team.as_deref()) && &record.machine == machine {
+                (record.copy_given, found) = (false, true);
+            }
+        }
+        write(&path, &file);
+        return Some(json!({"ok": true, "abandoned": found}));
+    }
+    let copy =
+        |machine: &str| json!({"machine": machine, "account": request.account, "team": team});
+    let live = file.warms.iter().position(|last| {
+        pair(&last.account, last.team.as_deref())
             && now_ms < last.at.saturating_add(WARM_GAP_MS)
             && last.warm_until > now_ms.saturating_add(WARM_GAP_MS)
-    }) {
-        return Some(
-            json!({"ok": true, "machine": last.machine, "warm_until": last.warm_until, "team": team, "fresh": false}),
-        );
+    });
+    if let Some(index) = live {
+        let last = &file.warms[index];
+        let mut answer = json!({"ok": true, "machine": last.machine, "warm_until": last.warm_until, "team": team, "fresh": false});
+        // A copy abandoned since is answered again from the record: the machine is still warm.
+        if last.owner && !last.copy_given {
+            answer.set("fresh", json!(true));
+            answer.set("copy", copy(&last.machine));
+            file.warms[index].copy_given = true;
+            write(&path, &file);
+        }
+        return Some(answer);
+    }
+    if let Some(attempt) =
+        file.attempts.iter().find(|attempt| pair(&attempt.account, Some(attempt.team.as_str())))
+    {
+        let mut answer = attempt.answer.clone();
+        answer.set("throttled", json!(true));
+        return Some(answer);
     }
     let body = match transport(&request, credential.trim(), &team) {
         Ok(body) => body,
-        Err(error) => return Some(reservations::answer(Err(error))),
+        Err(error) => {
+            return Some(attempted(
+                &path,
+                file,
+                &request.account,
+                &team,
+                now_ms,
+                reservations::answer(Err(error)),
+            ));
+        }
     };
     let Some(machine) = reservations::machine(&body).map(str::to_string) else {
         let reason = body.get("reason").and_then(Value::as_str).unwrap_or("none");
-        return Some(json!({"ok": true, "machine": null, "fresh": false, "reason": reason}));
+        let answer = json!({"ok": true, "machine": null, "fresh": false, "reason": reason});
+        return Some(attempted(&path, file, &request.account, &team, now_ms, answer));
     };
     let warm_until = body.get("warm_until").and_then(Value::as_u64).unwrap_or(now_ms);
     let vm_kind = body.get("vm_kind").and_then(Value::as_str);
+    let owner = vm_kind == Some("owner");
     let mut answer = json!({"ok": true, "machine": machine, "warm_until": warm_until, "team": team, "fresh": true});
     if let Some(kind) = vm_kind {
         answer.set("vm_kind", json!(kind));
     }
     // Only the machine's owner gets a copy nobody asked for, never a team guest.
-    if vm_kind == Some("owner") {
-        answer.set("copy", json!({"machine": machine, "account": request.account, "team": team}));
+    if owner {
+        answer.set("copy", copy(&machine));
     }
-    records.retain(|other| {
-        other.account != request.account || other.team.as_deref() != Some(team.as_str())
-    });
-    records.push(Record {
+    file.warms.retain(|other| !pair(&other.account, other.team.as_deref()));
+    file.attempts.retain(|other| !pair(&other.account, Some(other.team.as_str())));
+    file.warms.push(Record {
         account: request.account,
         team: Some(team),
         machine,
         warm_until,
         at: now_ms,
+        owner,
+        copy_given: owner,
     });
-    if let Ok(bytes) = serde_json::to_vec(&records) {
-        let _ = std::fs::write(&path, bytes);
-    }
+    write(&path, &file);
     Some(answer)
+}
+
+/// Records a warm that warmed nothing, so the gap replays its answer, and returns that answer.
+fn attempted(
+    path: &Path,
+    mut file: State,
+    account: &str,
+    team: &str,
+    now_ms: u64,
+    answer: Value,
+) -> Value {
+    file.attempts.retain(|other| other.account != account || other.team != team);
+    file.attempts.push(Attempt {
+        account: account.to_string(),
+        team: team.to_string(),
+        at: now_ms,
+        answer: answer.clone(),
+    });
+    write(path, &file);
+    answer
+}
+
+/// A state that cannot be written only costs a second warm: the platform extends, never doubles.
+fn write(path: &Path, file: &State) {
+    if let Ok(bytes) = serde_json::to_vec(file) {
+        let _ = std::fs::write(path, bytes);
+    }
 }
 
 #[cfg(test)]
@@ -354,7 +451,6 @@ mod tests {
 
     #[test]
     fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
-        let dir = tempfile::tempdir().unwrap();
         let input = stdin(Some(TEAM));
         let warm = |request: &str,
                     input: &str,
@@ -363,6 +459,7 @@ mod tests {
             &str,
             &str,
         ) -> Result<Value, PlatformCallError>| {
+            let dir = tempfile::tempdir().unwrap();
             run(&flags(request), dir.path(), 1, &mut input.as_bytes(), transport).unwrap()
         };
         let none =
@@ -381,5 +478,75 @@ mod tests {
         );
         assert_eq!(warm(r#"{"account":""}"#, &input, &none)["error_code"], json!("bad_request"));
         assert_eq!(warm(r#"{"account":"u"}"#, "", &none)["error_code"], json!("unauthorized"));
+    }
+
+    #[test]
+    fn no_spare_and_errors_are_attempts_the_gap_throttles() {
+        for answer in [
+            Ok(json!({"machine": null, "reason": "spare.none"})),
+            Err(PlatformCallError::Status { status: 503, code: "owner.unreachable" }),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let calls = Cell::new(0_usize);
+            let transport = |_: &Request, _: &str, _: &str| {
+                calls.set(calls.get().saturating_add(1));
+                answer.clone()
+            };
+            let warm = |now| {
+                run(
+                    &flags(r#"{"account":"user_a"}"#),
+                    dir.path(),
+                    now,
+                    &mut stdin(Some(TEAM)).as_bytes(),
+                    &transport,
+                )
+                .unwrap()
+            };
+            let first = warm(1_000_000);
+            assert!(first.get("copy").is_none());
+            // Every activation within the gap replays the attempt: no platform call.
+            for now in [1_010_000, 1_060_000, 1_110_000] {
+                let again = warm(now);
+                assert_eq!(again["throttled"], json!(true));
+                assert_eq!((again["ok"].clone(), again.get("copy")), (first["ok"].clone(), None));
+            }
+            assert_eq!(calls.get(), 1);
+            // Past the gap the platform is asked again.
+            assert!(warm(1_130_000).get("throttled").is_none());
+            assert_eq!(calls.get(), 2);
+        }
+    }
+
+    #[test]
+    fn an_abandoned_copy_is_answered_again_within_the_gap() {
+        let dir = tempfile::tempdir().unwrap();
+        let calls = Cell::new(0_usize);
+        let transport = |request: &Request, credential: &str, team: &str| {
+            calls.set(calls.get().saturating_add(1));
+            owner(request, credential, team)
+        };
+        let call = |request: &str, now| {
+            run(&flags(request), dir.path(), now, &mut stdin(Some(TEAM)).as_bytes(), &transport)
+                .unwrap()
+        };
+        let warm = |now| call(r#"{"account":"user_a"}"#, now);
+        assert!(warm(1_000_000).get("copy").is_some());
+        // The App's copy was abandoned (an account switch mid-copy).
+        let abandoned = format!(r#"{{"account":"user_a","abandoned":"{MACHINE}"}}"#);
+        assert_eq!(call(&abandoned, 1_010_000), json!({"ok": true, "abandoned": true}));
+        // Within the gap: fresh again with its copy, from the record, with no platform call.
+        let again = warm(1_020_000);
+        assert_eq!(
+            (again["fresh"].clone(), again["copy"]["machine"].clone()),
+            (json!(true), json!(MACHINE))
+        );
+        assert_eq!(calls.get(), 1);
+        // Handed out again: the next warm in the gap copies nothing.
+        assert_eq!(warm(1_030_000)["fresh"], json!(false));
+        assert!(warm(1_040_000).get("copy").is_none());
+        // Another machine's abandon is not this warm's.
+        let other = r#"{"account":"user_a","abandoned":"vm_ffffffffffffffffffff"}"#;
+        assert_eq!(call(other, 1_050_000)["abandoned"], json!(false));
+        assert_eq!(warm(1_060_000)["fresh"], json!(false));
     }
 }

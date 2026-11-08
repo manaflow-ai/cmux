@@ -49,12 +49,6 @@ extension CloudStartChat {
     func passHarnessLogin(harness: String?, target: LoginTarget, codexPrompt: Bool = true, ask: CloudHarnessLoginAsk = .init()) async -> Bool {
         let cloud = services.cloud, userID = cloud.auth.user?.id, asker = self.asker ?? .window(services)
         let teamID = cloud.auth.teamID, machineID = target.machineID, api = cloud.machineAPI.pinningTeam(teamID)
-        // A Claude start waits for a warm copy in flight (CloudStartChat+WarmSpare) instead of racing it on the same
-        // machine; the start stays bound to the account and team it began in.
-        if !target.ownerOnly, harness?.hasPrefix("claude") ?? true, let warm = cloud.spareWarms[cloud.auth.accountKey ?? ""] {
-            await warm.value
-            guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
-        }
         let otherTeams = Self.loginScopes(cloud) // the person's cached login under any of their teams, or their personal scope: one per person
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
@@ -68,6 +62,8 @@ extension CloudStartChat {
             if verdict.gate, verdict.transferProvider != nil, let userID {
                 decision.callerOwns = try await target.callerOwns()
                 verdict = decision.verdict
+                // Only a start that will copy onto the machine a warm is copying to waits for it (Rust's verdict and copy target).
+                if verdict.readsMachine, !target.ownerOnly, let warm = cloud.spareWarmCopies[machineID] { _ = await warm.value }
                 if verdict.readsMachine { try await decision.readGuest(exec: { (try? await api.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause) } // again until a new guest binds
                 // A login the provider rejects (a reused machine's expired token) is replaced like a missing one.
                 if verdict.transferProvider == .claude, decision.verdict.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)) }

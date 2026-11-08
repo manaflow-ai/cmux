@@ -153,10 +153,11 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// `cmux link start-chat warm-spare --request JSON`, the session `access` token then the `install` token on stdin:
     /// the person's spare, warmed. Rust reads the team from the install token and refuses without one. Nil when there
-    /// is nothing to copy: an answer from the record, no spare, a machine they do not own, or a refusal.
-    public func startChatWarmSpare(platform: URL, account: String, access: String, install: String) async -> SpareWarm? {
+    /// is nothing to copy: an answer from the record, no spare, a machine they do not own, or a refusal. `abandoned` names
+    /// a copy the App gave up (the account or team switched): Rust's next warm answers it again.
+    public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, abandoned: String? = nil) async -> SpareWarm? {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        guard let payload = try? JSONSerialization.data(withJSONObject: ["platform": platform.absoluteString, "account": account], options: [.sortedKeys]),
+        guard let payload = try? JSONSerialization.data(withJSONObject: ["platform": platform.absoluteString, "account": account, "abandoned": abandoned].compactMapValues { $0 }, options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
                                         stdin: Data((access + "\n" + install + "\n").utf8)),
               let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
