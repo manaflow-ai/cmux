@@ -119,11 +119,30 @@ impl Hub {
 
     /// A new turn, or a new agent for it, whose prompt is not written yet: no count runs and no
     /// tool call of it is open.
-    pub(super) fn hold_stalled_count(session: &Session) {
+    pub(super) fn hold_stalled_count(&self, session: &Session) {
         *session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
-        session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).reset();
+        self.reset_loop_detector(session);
         session.stalled_gen.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Clear detector state at a turn/agent boundary and publish the clear so clients drop
+    /// attention immediately instead of retaining the previous episode into the next turn.
+    fn reset_loop_detector(&self, session: &Session) {
+        let episode_id = {
+            let mut detector = session.loop_detector.lock().unwrap_or_else(|e| e.into_inner());
+            let episode_id = detector.active().map(|episode| episode.episode_id);
+            detector.reset();
+            episode_id
+        };
+        if let Some(episode_id) = episode_id {
+            self.append(
+                session,
+                "mux",
+                "loop_cleared",
+                serde_json::json!({"episodeId": episode_id}),
+            );
+        }
     }
 
     /// `session`'s running turn starts its stalled count, its prompt written: now, or at
@@ -142,7 +161,7 @@ impl Hub {
         // its log holds (`recover_work` set them).
         if heard_ms.is_none() {
             session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
-            session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).reset();
+            self.reset_loop_detector(session);
         }
         session.heard_at.store(at, Ordering::Relaxed);
         session.stalled_recheck.store(0, Ordering::Relaxed);
