@@ -6,11 +6,15 @@ public import CmuxNextSettings
 import Foundation
 
 /// What the bookmarks bar needs from the app beyond the Bookmarks page's host: the registry's
-/// menus and its refusal toast.
+/// menus, its refusal toast, and the app's own bookmark write.
 @MainActor
 public protocol BookmarksBarHost: BookmarkPageHost {
     /// The registry's Bookmark menu for `bookmark` (nil: the Bookmarks Bar menu of the bar's empty area).
     func bookmarkBarContextMenu(bookmark: String?) -> NSMenu?
+    /// Applies a drop or a move on the bar through the app's bookmark write, as every other
+    /// bookmark edit in the app does (its copy of the tree and the last folder follow at once).
+    /// Throws a ``PageError`` whose message says why it was refused.
+    func bookmarkBarApply(_ operation: BookmarkOperation, profile: String) throws
     /// The owner refused a drop or a move on the bar: say why.
     func bookmarkBarRefused(_ message: String)
 }
@@ -18,9 +22,10 @@ public protocol BookmarksBarHost: BookmarkPageHost {
 public extension PageDescriptor {
     /// The bookmarks bar (`webviews/src/pages/bookmarks-bar`): a transparent WebKit page over the
     /// native strip (``BookmarksBarHostView``), lent to the bar on screen by ``BookmarksBarPages``.
-    /// `cmux.bookmarks.` goes to the daemon relay (the bar may read `children` and apply on a
-    /// gesture), `cmux.bookmarkPage.` to ``BookmarkPageHostProvider`` (profile, icons, open), and
-    /// `cmux.bookmarksBar.` to ``BookmarksBarProvider`` (native menus, layout reports). It takes the
+    /// `cmux.bookmarks.` goes to the daemon relay (the bar reads `children` and hears changes; it
+    /// writes nothing there), `cmux.bookmarkPage.` to ``BookmarkPageHostProvider`` (profile, icons,
+    /// open), and `cmux.bookmarksBar.` to ``BookmarksBarProvider`` (native menus, layout reports,
+    /// drops and moves through the app). It takes the
     /// first click: a Chromium page's own window often holds the key.
     static let bookmarksBar = PageDescriptor(
         id: "cmux.bookmarks-bar", resource: "bookmarks-bar",
@@ -40,6 +45,22 @@ public final class BookmarksBarPage {
         self.view = view
         self.host = host
         self.bar = bar
+    }
+
+    /// A bar page for `owner`: the tree to `relay` (the daemon's), `cmux.bookmarkPage.` to its host
+    /// and `cmux.bookmarksBar.` to the bar provider. It never takes the keys from the page or the
+    /// omnibar (the native bar's items did not), and it keeps the bar's own scale.
+    public static func make(host owner: any BookmarksBarHost, relay: any PageProvider) -> BookmarksBarPage? {
+        let host = BookmarkPageHostProvider(host: owner, tabKey: "")
+        let bar = BookmarksBarProvider(host: owner, pageHost: host)
+        let routes = [PageRoute(prefix: "cmux.bookmarks.", provider: relay),
+                      PageRoute(prefix: BookmarkPageHostProvider.prefix, provider: host),
+                      PageRoute(prefix: BookmarksBarProvider.prefix, provider: bar)]
+        guard let view = PageWebView(descriptor: .bookmarksBar, routes: routes, options: engineOptions) else { return nil }
+        view.refusesKeyFocus = true
+        view.followsUIScale = false
+        bar.page = view
+        return BookmarksBarPage(view: view, host: host, bar: bar)
     }
 
     /// The engine options of a bar page: WebKit (it is transparent over the native strip), the first
@@ -79,12 +100,15 @@ public final class BookmarksBarPages {
             page = fresh
         }
         lent += 1
+        // The new tab's bar gets no gesture made in the last one's (it gates the bar's writes).
+        page.view.forgetUserActivation()
         page.host.tabKey = tabKey
         return page
     }
 
     func giveBack(_ page: BookmarksBarPage) {
         lent -= 1
+        page.view.forgetUserActivation()
         page.bar.onLayout = nil
         page.view.removeFromSuperview()
         guard spare.count < Self.maxSpare else { return page.view.close() }
@@ -183,7 +207,11 @@ public final class BookmarksBarHostView: NSView {
 ///   Bar menu for the bar's empty area.
 /// - `layout {profile, visible: [{id, title, x, width}], overflow: [title]}`: what the bar shows
 ///   for `profile`; the bar view drops a report for a profile it does not show.
-/// - `refused {message}`: the owner refused a drop or a move.
+/// - `apply {op}`: a link dropped on the bar (`{op: "create", parent: "bar", index, title, url}`)
+///   or an item moved along it (`{op: "move", bookmark, parent: "bar", index}`), written by the
+///   app (``BookmarksBarHost/bookmarkBarApply(_:profile:)``) on the person's gesture, one write
+///   per gesture.
+/// - `refused {message}`: a drop or a move was refused, or never reached the app.
 @MainActor
 public final class BookmarksBarProvider: PageProvider {
     public static let prefix = "cmux.bookmarksBar."
@@ -211,10 +239,28 @@ public final class BookmarksBarProvider: PageProvider {
     var onLayout: (@MainActor (Layout) -> Void)?
     /// The menu on screen and its rows' folders (kept while it is open).
     private var openMenu: BookmarksBarMenu?
+    /// The gesture the last write spent (one write per key or pointer event).
+    private var spentGesture: TimeInterval?
 
     public init(host: any BookmarksBarHost, pageHost: BookmarkPageHostProvider) {
         self.host = host
         self.pageHost = pageHost
+    }
+
+    /// The bar's write `op` (a create or a move on the bar root), or nil for anything else.
+    static func operation(_ op: JSONValue) -> BookmarkOperation? {
+        let bar = BookmarkRoot.bar.rawValue
+        guard op["parent"]?.stringValue == bar, let index = op["index"]?.intValue, index >= 0 else { return nil }
+        switch op["op"]?.stringValue {
+        case "move":
+            guard let id = op["bookmark"]?.stringValue else { return nil }
+            return .move(id: id, parent: bar, index: index)
+        case "create":
+            guard let text = op["url"]?.stringValue, let url = URL(string: text) else { return nil }
+            return .create(.bookmark(op["title"]?.stringValue ?? "", url: url, in: bar), index: index)
+        default:
+            return nil
+        }
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -248,6 +294,16 @@ public final class BookmarksBarProvider: PageProvider {
             }
             layout.overflow = (params["overflow"]?.arrayValue ?? []).compactMap(\.stringValue)
             onLayout?(layout)
+            return .object([:])
+        case Self.prefix + "apply":
+            guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
+                throw PageError(code: PageDescriptor.userOnlyCode, message: "A bookmarks bar edit needs a click or a drop.")
+            }
+            guard let operation = params["op"].flatMap(Self.operation) else {
+                throw PageError.invalidParams("a create or a move on the bookmarks bar")
+            }
+            spentGesture = event
+            try host.bookmarkBarApply(operation, profile: pageHost.profile)
             return .object([:])
         case Self.prefix + "refused":
             host.bookmarkBarRefused(params["message"]?.stringValue ?? "")

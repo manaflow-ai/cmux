@@ -1,7 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBookmarks
-import CmuxNextPages
+@testable import CmuxNextDaemon
+@testable import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -125,5 +126,81 @@ struct BookmarksBarPagesTests {
         #expect(view.alphaValue == 1)
         #expect(provider.drawnProfile == "personal")
         personal.removeFromSuperview()
+    }
+
+    /// A page lent to the next tab's bar keeps no gesture made in the last one's: the bar's
+    /// writes need the person's own click or drop in this tab.
+    @Test func aLentPageCarriesNoGestureFromTheLastTab() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = BookmarksBarHostView(tabKey: "tab-1", pages: pages, profile: { "default" })
+        let second = BookmarksBarHostView(tabKey: "tab-2", pages: pages, profile: { "default" })
+        let window = Self.window()
+        defer { window.close() }
+        let content = try #require(window.contentView)
+
+        content.addSubview(first)
+        let view = try #require(first.pageView)
+        let web = view.webView
+        web.noteNativeMenuSelection(at: ProcessInfo.processInfo.systemUptime)
+        #expect(view.recentUserGestureEvent() != nil, "a click in the first tab's bar")
+
+        first.removeFromSuperview()
+        #expect(view.recentUserGestureEvent() == nil, "given back: the gesture is dropped")
+        web.noteNativeMenuSelection(at: ProcessInfo.processInfo.systemUptime)
+        content.addSubview(second)
+        #expect(second.pageView === view, "the same page, lent to the next tab")
+        #expect(view.recentUserGestureEvent() == nil, "lent again: no gesture from before")
+        second.removeFromSuperview()
+    }
+
+    /// A drop or a move on the bar goes through the app's bookmark write: its copy of the tree and
+    /// the last folder change in the same turn (the star right after sees the new bookmark and the
+    /// bar as the last folder). One write per gesture; none without one.
+    @Test func aBarWriteGoesThroughTheAppOncePerGesture() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let json = #"{"app":"cmux-tui","protocol":1,"session":"bar-write","generation":"g1","capabilities":["v2","bookmarks-v1"]}"#
+        services.machines.local.store.noteHandshake(try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8)))
+        let bookmarks = services.bookmarks
+        #expect(bookmarks.usesDaemon)
+        var tree = BookmarkTree()
+        let folder = BookmarkNode.folder("Work", in: BookmarkRoot.other.rawValue)
+        try tree.apply(.create(folder, index: nil))
+        bookmarks.trees["default"] = tree
+        bookmarks.fetched.insert("default")
+        bookmarks.lastFolder["default"] = folder.id
+
+        let host = BookmarkPageHostProvider(host: services, tabKey: "")
+        host.profileOverride = { "default" }
+        let provider = BookmarksBarProvider(host: services, pageHost: host)
+        let url = "https://dropped.example/"
+        let create = CmuxNextSettings.JSONValue.object(["op": .object([
+            "op": .string("create"), "parent": .string("bar"), "index": .number(0),
+            "title": .string("Dropped"), "url": .string(url),
+        ])])
+        let op = BookmarksBarProvider.prefix + "apply"
+
+        await #expect(throws: PageError.self, "no gesture: refused") {
+            _ = try await provider.call(op, params: create, context: PageCallContext(page: PageDescriptor.bookmarksBar.id))
+        }
+        #expect(!bookmarks.isBookmarked(URL(string: url), profile: "default"))
+
+        let drop = PageCallContext(page: PageDescriptor.bookmarksBar.id, userGesture: true, gestureEvent: 10)
+        _ = try await provider.call(op, params: create, context: drop)
+        #expect(bookmarks.isBookmarked(URL(string: url), profile: "default"), "the app's copy has it at once")
+        #expect(bookmarks.defaultFolder(profile: "default") == BookmarkRoot.bar.rawValue, "the bar is the last folder")
+        let created = try #require(bookmarks.tree("default").children(of: BookmarkRoot.bar.rawValue).first)
+
+        let move = CmuxNextSettings.JSONValue.object(["op": .object([
+            "op": .string("move"), "bookmark": .string(folder.id), "parent": .string("bar"), "index": .number(0),
+        ])])
+        await #expect(throws: PageError.self, "the drop's gesture is spent") {
+            _ = try await provider.call(op, params: move, context: drop)
+        }
+        let click = PageCallContext(page: PageDescriptor.bookmarksBar.id, userGesture: true, gestureEvent: 11)
+        _ = try await provider.call(op, params: move, context: click)
+        #expect(bookmarks.tree("default").children(of: BookmarkRoot.bar.rawValue).map(\.id) == [folder.id, created.id])
     }
 }

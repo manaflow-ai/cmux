@@ -103,13 +103,11 @@
       ]
     },
     "bookmarks-bar": {
-      "description": "The bookmarks bar under a browser tab's toolbar. Reads only what it draws (the bar's row, whether Other Bookmarks has any, a folder menu's subtree on a click) with bookmarks.children; a link dropped on it or an item dragged along it is one bookmarks.apply on the person's gesture; it hears bookmarks-changed and re-reads its row.",
+      "description": "The bookmarks bar under a browser tab's toolbar. Reads only what it draws (the bar's row, whether Other Bookmarks has any, a folder menu's subtree on a click) with bookmarks.children; a link dropped on it or an item dragged along it is written by the app (which keeps its own copy and the last folder up to date), never by the page; it hears bookmarks-changed and re-reads its row.",
       "read": [
         "bookmarks.children"
       ],
-      "gesture": [
-        "bookmarks.apply"
-      ],
+      "gesture": [],
       "confirm": [],
       "events": [
         "bookmarks-changed"

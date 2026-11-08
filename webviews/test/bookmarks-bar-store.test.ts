@@ -1,11 +1,13 @@
 // The bookmarks bar's store: it reads the profile, then only the bar's row and Other Bookmarks'
 // count (never the whole tree); re-reads on a newer change of its profile or a relay resync; a
-// profile change clears the old row; a folder's menu reads its subtree on the click; a refused
-// drop says why through the host.
+// profile change clears the old row; a folder's menu reads its subtree on the click; a drop or a
+// move is written by the app, never straight to the daemon, and a refused one says why through the
+// host; a change subscription that failed while the daemon was away is made again on reconnect.
 import { expect, test } from "bun:test";
 import { BarOps, BookmarksBarStore } from "../src/browser-chrome/bookmarks-bar/store";
 import { BookmarkOps, HostOps, type Bookmark } from "../src/pages/bookmarks/types";
 import { pageError, type PageClient } from "../src/pages/shared/pageClient";
+import { PAGE_CONNECTION } from "../src/pages/shared/pageStreams";
 
 const tick = () => new Promise<void>((done) => setTimeout(done, 0));
 const words = { empty: "(empty)", openAll: (count: number) => `Open All (${count})` };
@@ -21,7 +23,9 @@ const row = (id: string, parent: string, index: number, kind: Bookmark["kind"] =
   created_ms: 0,
 });
 
-function fakeClient(options: { refuse?: boolean } = {}) {
+function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean } = {}) {
+  let changesFail = options.changesFailFirst === true;
+  const subscribed: string[] = [];
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
   const streams = new Map<string, (data: unknown) => void>();
   let profile = "default";
@@ -54,10 +58,15 @@ function fakeClient(options: { refuse?: boolean } = {}) {
           truncated: all.length > limit,
         } as R;
       }
-      if (op === BookmarkOps.apply && options.refuse) throw pageError("bookmarks.limit", "Too many bookmarks.");
+      if (op === BarOps.apply && options.refuse) throw pageError("cmux.bookmarks.refused", "Too many bookmarks.");
       return {} as R;
     },
     subscribe: async <E>(stream: string, onEvent: (data: E, seq: number) => void) => {
+      subscribed.push(stream);
+      if (stream === BookmarkOps.changed && changesFail) {
+        changesFail = false;
+        throw pageError("cmux.daemon.not_connected", "The daemon is not connected.");
+      }
       streams.set(stream, (data) => onEvent(data as E, 0));
       return () => streams.delete(stream);
     },
@@ -66,6 +75,7 @@ function fakeClient(options: { refuse?: boolean } = {}) {
   return {
     client,
     calls,
+    subscribed,
     emit: (stream: string, data: unknown) => streams.get(stream)?.(data),
     setProfile: (next: string) => (profile = next),
     bump: () => (revision += 1),
@@ -137,14 +147,50 @@ test("a folder's menu reads its subtree on the click and sends nested rows", asy
   ]);
 });
 
-test("a drop is one apply with a key; a refusal is said through the host and the row is read again", async () => {
+test("a drop and a move are written by the app, never straight to the daemon", async () => {
+  const fake = fakeClient();
+  const store = new BookmarksBarStore(fake.client, words);
+  await store.start();
+  await store.drop("https://new.example/", "New", 1);
+  await store.move("work", 2);
+  expect(fake.calls.filter((call) => call.op === BarOps.apply).map((call) => call.params)).toEqual([
+    {
+      op: expect.objectContaining({ op: "create", parent: "bar", index: 1, url: "https://new.example/", title: "New" }),
+    },
+    { op: { op: "move", bookmark: "work", parent: "bar", index: 1 } },
+  ]);
+  expect(fake.calls.map((call) => call.op)).not.toContain(BookmarkOps.apply);
+});
+
+test("a change subscription that failed while the daemon was away is made again on reconnect", async () => {
+  const fake = fakeClient({ changesFailFirst: true });
+  const store = new BookmarksBarStore(fake.client, words);
+  await store.start();
+  expect(store.getSnapshot().loaded).toBe(true);
+  const reads = () => fake.calls.filter((call) => call.op === BarOps.children).length;
+  fake.emit(PAGE_CONNECTION, { connected: true });
+  await tick();
+  await tick();
+  const before = reads();
+  fake.bump();
+  fake.emit(BookmarkOps.changed, { browser_profile_id: "default", bookmarks_revision: 2 });
+  await tick();
+  expect(reads()).toBe(before + 2);
+  // Once it holds, a later reconnect does not subscribe again.
+  fake.emit(PAGE_CONNECTION, { connected: true });
+  await tick();
+  await tick();
+  expect(fake.subscribed.filter((stream) => stream === BookmarkOps.changed)).toHaveLength(2);
+});
+
+test("a refusal is said through the host and the row is read again", async () => {
   const fake = fakeClient({ refuse: true });
-  const store = new BookmarksBarStore(fake.client, words, () => "k1");
+  const store = new BookmarksBarStore(fake.client, words);
   await store.start();
   const reads = fake.calls.filter((call) => call.op === BarOps.children).length;
   await store.drop("https://new.example/", "New", 1);
-  const apply = fake.calls.find((call) => call.op === BookmarkOps.apply);
-  expect(apply?.params).toMatchObject({ idempotency_key: "k1", ops: [{ op: "create", parent: "bar", index: 1 }] });
+  const apply = fake.calls.find((call) => call.op === BarOps.apply);
+  expect(apply?.params).toMatchObject({ op: { op: "create", parent: "bar", index: 1 } });
   await tick();
   expect(fake.calls.find((call) => call.op === BarOps.refused)?.params).toEqual({ message: "Too many bookmarks." });
   expect(fake.calls.filter((call) => call.op === BarOps.children).length).toBeGreaterThan(reads);
