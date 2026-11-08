@@ -357,6 +357,9 @@ nonisolated enum AcpmuxPaneMethods {
 
     public static let gestureRules: [String: GestureRule] = [
         "session/prompt": .always,
+        // Fixing a GitHub link creates a worktree and starts an agent turn; it is a person click,
+        // never a scriptable background launch.
+        "chat.fix_from_link": .always,
         // A side session's question is its first prompt.
         "_acpmux/btw": .always,
         // A saved guidance edit reaches every new chat's agent.

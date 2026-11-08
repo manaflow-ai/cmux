@@ -50,6 +50,7 @@
   ],
   "gesture_rules": {
     "session/prompt": "always",
+    "chat.fix_from_link": "always",
     "_acpmux/queue_approve": "always",
     "_acpmux/btw": "always",
     "_acpmux/context_override": "always",

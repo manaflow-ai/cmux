@@ -429,6 +429,8 @@ extension AgentPaneTransport {
                     granted = gestures.takeSeedStart()
                 }
             } else {
+                let fixRetry = facts.method == "chat.fix_from_link"
+                    && fixTrustCredit.take(connection: id, cwd: box.param("cwd"), at: gestures.uptime)
                 // The start's credit is spent by the first prompt, whatever grants it.
                 let credit = facts.method == "session/prompt"
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
@@ -437,7 +439,7 @@ extension AgentPaneTransport {
                 // backs Send, Retry and Approve, nothing else (``AgentPaneUserGestures/consumePosted(for:)``).
                 granted = redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
                     && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
-                    || gestures.consumePosted(for: facts.method)
+                    || gestures.consumePosted(for: facts.method) || fixRetry
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
                 // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.
@@ -448,6 +450,12 @@ extension AgentPaneTransport {
                 }
                 if granted, facts.needsGesture, remoteWire, facts.method == "acp.trust.set" {
                     remoteTrustCredit.give(connection: id, at: ProcessInfo.processInfo.systemUptime)
+                }
+                if granted, facts.method == "chat.fix_from_link", !fixRetry {
+                    fixTrustCredit.begin(connection: id, cwd: box.param("cwd"), at: gestures.uptime)
+                }
+                if granted, facts.method == "acp.trust.set" {
+                    fixTrustCredit.trust(connection: id, cwd: box.param("cwd"), level: box.param("level"), at: gestures.uptime)
                 }
             }
             if !granted {

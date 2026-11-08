@@ -3,6 +3,43 @@ import CmuxNextPages
 import os
 import CmuxNextCompat
 
+/// One bounded retry proof for a fix-from-link request refused by folder trust. The initial
+/// click creates `pending`; only a matching trusted answer promotes it to `retry`, and one retry
+/// spends it. A successful start clears both through `chat.persistSession`.
+struct AgentPaneFixTrustCredit {
+    private var pending: (connection: Int, cwd: String?, at: TimeInterval)?
+    private var retry: (connection: Int, cwd: String?, at: TimeInterval)?
+    private static let lifetime: TimeInterval = 120
+
+    mutating func begin(connection: Int, cwd: String?, at: TimeInterval) {
+        pending = (connection, cwd, at)
+        retry = nil
+    }
+
+    mutating func trust(connection: Int, cwd: String?, level: String?, at: TimeInterval) {
+        guard let pending, pending.connection == connection, pending.cwd == cwd,
+              at - pending.at <= Self.lifetime else { return }
+        if level == "trusted" {
+            retry = pending
+            self.pending = nil
+        } else {
+            self.pending = nil
+            retry = nil
+        }
+    }
+
+    mutating func take(connection: Int, cwd: String?, at: TimeInterval) -> Bool {
+        guard let retry, retry.connection == connection, retry.cwd == cwd else { return false }
+        self.retry = nil
+        return at - retry.at <= Self.lifetime
+    }
+
+    mutating func clear() {
+        pending = nil
+        retry = nil
+    }
+}
+
 /// The host side of the pane's acpmux connection (design B, localapp-isolation-spike.md): the
 /// host owns the WebSocket, puts the LocalApp token in the first frame, checks every page frame
 /// against ``AcpmuxPaneMethods`` and relays frames both ways through the page bridge. The page
@@ -113,6 +150,8 @@ import CmuxNextCompat
     /// connection goes with it within ``startCreditLifetime``. On another machine the start needs
     /// that gesture; on this Mac it needs none but carries one it finds.
     var startCredit = AgentPaneGestureCredit()
+    /// A fix action's initial click may retry once after its matching folder Trust answer.
+    var fixTrustCredit = AgentPaneFixTrustCredit()
     /// Starts and opens of a chat here that may still replace an unstarted new chat: while any is
     /// out, a Sandboxed send (`sandbox.run`) is refused (``AcpmuxPaneReplacements``).
     public let replacements = AcpmuxPaneReplacements()
@@ -283,6 +322,7 @@ import CmuxNextCompat
         }
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()
+        fixTrustCredit.clear()
         pickCredit.clear()
         signInPageCredit.clear()
         decisions.reset()
@@ -416,6 +456,7 @@ import CmuxNextCompat
         socket.close(code: 1000, reason: "", error: nil)
         gestures.recordQuestionReturn(false)
         gestures.clearTickets(connection: id)
+        fixTrustCredit.clear()
         questionKeyCredit = nil
         questionKeyTickets = questionKeyTickets.filter { $0.value.connection != id }
         decisions.reset()
@@ -423,6 +464,9 @@ import CmuxNextCompat
         localAppToken = nil
         promptRelay?.ended()
     }
+
+    /// Clears the one-shot fix retry proof after the action has created its session.
+    func clearFixTrustCredit() { fixTrustCredit.clear() }
 
     func offerQuestionKeyCredit(target: PageQuestionKeyTarget, intent: AgentPaneGestureIntent,
                                 context: AcpmuxDecisionContexts.Context, connection: Int, witness: UUID,

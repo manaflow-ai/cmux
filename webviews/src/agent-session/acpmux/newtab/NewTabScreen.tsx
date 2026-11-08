@@ -651,6 +651,9 @@ export function NewTabScreen(props: Props) {
     : project && project !== props.cwd
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Issue fixes must never treat the tab's home or private agent-home as a checkout pick. An
+  // absent folder lets the host search only its approved local checkout roots.
+  const fixFolder = [project, askFolder].find((folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder));
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
   const envFolder = none
@@ -940,10 +943,14 @@ export function NewTabScreen(props: Props) {
   const typed = useMemo(() => (fieldReady ? (field.current?.agentText(text) ?? text) : text), [text, fieldReady]);
   const fixFromLink = useMemo(
     () =>
-      !shell && !machine && (props.runMode?.mode ?? "persistent") === "persistent" && attachments.length === 0
+      !shell &&
+      !machine &&
+      !environment &&
+      (props.runMode?.mode ?? "persistent") === "persistent" &&
+      attachments.length === 0
         ? githubIssueLink(typed)
         : undefined,
-    [typed, shell, machine, props.runMode?.mode, attachments.length],
+    [typed, shell, machine, environment, props.runMode?.mode, attachments.length],
   );
   // The create actions the buttons under the field offer, at the end of the rows too.
   const creates = useMemo(
@@ -2203,7 +2210,7 @@ export function NewTabScreen(props: Props) {
                   if (fixing) return;
                   setFixing(true);
                   void Promise.resolve()
-                    .then(() => props.onFixFromLink?.(fixFromLink.url, project ?? askFolder, harness, chipModel))
+                    .then(() => props.onFixFromLink?.(fixFromLink.url, fixFolder, harness, chipModel))
                     .then(
                       () => setFixing(false),
                       () => setFixing(false),
