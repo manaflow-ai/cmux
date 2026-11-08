@@ -63,6 +63,8 @@ mod fork;
 #[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
+mod ledger_hub_tests;
+#[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
@@ -139,6 +141,7 @@ mod new_request;
 pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
+pub mod ledger;
 mod model_hint;
 mod models_view;
 mod paging;
@@ -631,6 +634,8 @@ pub struct Hub {
     pub(crate) list_guard: list_guard::ListGuard,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
+    /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
+    pub(crate) ledger: ledger::Ledger,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -1001,6 +1006,8 @@ impl Hub {
             caller_registry::CallerRegistry::load(caller_registry::state_file(&config));
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        // Beside the session store in its home; a memory store keeps it in memory only.
+        let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
@@ -1027,6 +1034,7 @@ impl Hub {
             events,
             list_guard: Default::default(),
             usage_stats: Default::default(),
+            ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             review_index: Default::default(),
             audit,
@@ -1303,6 +1311,13 @@ impl Hub {
         // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
         self.settle_legacy_grants(&mut metas);
         self.store_load.total.store(metas.len(), Ordering::SeqCst);
+        // A first start with no ledger file: each session's running totals (`hub/ledger`).
+        if self.ledger.wants_seed() {
+            // Forks' own turns are read first, so the ledger's lock waits on no log read.
+            let seeds: Vec<_> =
+                metas.iter().map(|m| ledger::Seed::of(m, self.fork_own_turns(m))).collect();
+            self.ledger.seed(seeds);
+        }
         for meta in metas {
             let hosted = hosted.contains(&meta.id);
             self.install_stored_session(meta, deferred, hosted);
@@ -2191,6 +2206,8 @@ impl Hub {
                 m.harness_failures.observe(&record.msg, record.seq, record.at);
             }
         }
+        // The cost ledger's index: O(1), no IO (its writer thread writes the file).
+        self.ledger.observe(session, &record);
         if matches!(
             kind,
             "status"

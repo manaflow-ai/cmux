@@ -217,7 +217,7 @@ fn printed_url(output: &str) -> Option<&str> {
 /// Notes a `tool_call` or `tool_call_update` into `m`: a shell call that runs `gh pr create` is
 /// remembered, and the pull request URL its output prints joins `m.pull_requests`, opened `at`
 /// (`m.pull_request_times`). Returns a URL that joined it, for the review queue
-/// (`review_queue.rs`).
+/// (`review_queue.rs`) and the cost ledger (`hub/ledger`).
 pub(super) fn absorb(
     session: &Session,
     update: &Value,
