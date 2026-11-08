@@ -1005,7 +1005,7 @@ impl Peer {
 
     /// Chat `id`'s attach went into the link's queue, under `attach_order`: the peer's
     /// subscription for it streams what its `kinds` filter lets through.
-    fn note_attach_queued(&self, id: &str, params: &Value) {
+    pub(crate) fn note_attach_queued(&self, id: &str, params: &Value) {
         let every = crate::hub::EventFilter::parse(params.get("kinds")).is_ok_and(|f| f.is_all());
         self.attach_filters.lock_or_recover().entry(id.to_owned()).or_default().narrowed = !every;
     }

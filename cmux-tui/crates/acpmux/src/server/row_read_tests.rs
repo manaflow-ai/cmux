@@ -108,18 +108,20 @@ async fn a_read_without_the_flag_goes_to_the_peer() {
 
 /// A chat another client here attached with a `kinds` filter streams only those kinds over the
 /// link: a send's subscription goes to the peer to widen it, and once an attach with no filter
-/// went out, the next one is answered here again.
+/// reached the link, the next one is answered here again. This link has no transport, so what
+/// reached it is noted as the queue would (`Peer::note_attach_queued`).
 #[tokio::test]
 async fn a_subscription_after_a_filtered_attach_goes_to_the_peer() {
     let (hub, peer) = hub_with_peer();
     hub.seed_peer_back(&peer, vec![row()]);
     let key = format!("far/{CHAT}");
-    let watch = json!({"sessionId": key, "limit": 0, "eventStream": true, "kinds": ["tool_call"]});
-    assert!(call(&hub, method::MUX_ATTACH, watch).await.is_err(), "the watch goes to the peer");
+    peer.mark_attached(CHAT);
+    peer.note_attach_queued(CHAT, &json!({"sessionId": CHAT, "kinds": ["tool_call"]}));
     assert!(!peer.streams_every_kind(CHAT));
     let sub = json!({"sessionId": key, "limit": 0, "row": true});
     let widened = call(&hub, method::MUX_ATTACH, sub.clone()).await;
     assert!(widened.is_err(), "a filtered stream is widened by the peer: {widened:?}");
+    peer.note_attach_queued(CHAT, &json!({"sessionId": CHAT, "limit": 0}));
     assert!(peer.streams_every_kind(CHAT));
     let again = call(&hub, method::MUX_ATTACH, sub).await.expect("answered here");
     assert_eq!(again["row"], true, "{again}");
