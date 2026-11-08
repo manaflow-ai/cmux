@@ -702,7 +702,7 @@ density; a pill too tall to center under the window's top stops 1 pt below it. T
 alone, centers on the trailing column (`SidebarStyle.trailingColumnFrame`) that the rows' status marks, unread dots
 and footer Search share; with the chooser segment shown the pair keeps the row's trailing inset. Debug
 `chrome.topRowLine`: `lights` (default), `tabs`, `titlebar`, `off`. Regression: `TopRowAlignmentTests`,
-`TopRowSidebarColumnTests`; live lines: `debug.top_alignment`, tour `top-alignment`.
+`TopRowSidebarColumnTests`; live lines: `debug.top_alignment`, tours `top-alignment`, `top-alignment-cozy` and `top-alignment-spacious` (one tour holds 30 steps).
 
 ## The notice card's rows share one leading edge and show whole (2026-11-05)
 
