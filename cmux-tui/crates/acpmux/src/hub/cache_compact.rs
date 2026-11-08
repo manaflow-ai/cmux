@@ -11,12 +11,12 @@
 //! ([`KIND`]), which reads the still-warm cache.
 //!
 //! It fires only when the chat is idle (no turn running or starting, nothing queued, no
-//! permission, question or continuation waiting), nobody is typing in it, its composer holds no
-//! draft and its last turn was not a Web or phone one (a local prompt would lift the remote
-//! floor that turn left, `remote_floor.rs`); it is sent `no_queue`, so a turn that starts at that
-//! moment refuses it rather than queueing it. It runs once per idle stretch: the compaction's own
-//! context is far under any threshold, so its usage arms no timer, and the next turn's usage arms
-//! one again.
+//! permission, question or continuation waiting), nobody is typing in it, no composer (the
+//! shared draft or any surface's own) holds unsent text and its last turn was not a Web or phone
+//! one (a local prompt would lift the remote floor that turn left, `remote_floor.rs`); it is sent
+//! `no_queue`, so a turn that starts at that moment refuses it rather than queueing it. It runs
+//! once per idle stretch: the compaction's own context is far under any threshold, so its usage
+//! arms no timer, and the next turn's usage arms one again.
 //!
 //! The timer: one task per session, in [`TIMERS`] under the session's id with a generation of its
 //! own. Stop condition: it fires once at its deadline and ends, removing its entry if the entry is
@@ -146,8 +146,10 @@ impl Hub {
         let typing = presence.get("participants").and_then(Value::as_array).is_some_and(|people| {
             people.iter().any(|p| p.get("typing").and_then(Value::as_bool) == Some(true))
         });
+        // The shared draft, and any surface's own unsent text (`_acpmux/composer_set`).
         let draft = session
-            .read_meta(|m| m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()));
+            .read_meta(|m| m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()))
+            || session.composers.lock().unwrap_or_else(|e| e.into_inner()).any_draft();
         idle && !remote && !typing && !draft
     }
 

@@ -705,6 +705,14 @@ path = "tests/test_swiftpm_test_product.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tailnet_build_delivery.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_tailnet_go.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tap_test_health.py"
 lane = "linux-guard"
 
