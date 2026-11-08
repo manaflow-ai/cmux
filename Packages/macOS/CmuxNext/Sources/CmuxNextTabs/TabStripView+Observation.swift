@@ -22,10 +22,12 @@ extension TabStripView {
     func startObservingTokens() {
         guard tokenObservationTask == nil else { return }
         tokenObservationTask = Task { [weak self] in
-            let changes = ObservationStream { TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.body.pointSize) }
+            let changes = ObservationStream {
+                TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.tabTitle.pointSize, trailingButtons: TabTunables.trailingButtons.value)
+            }
             for await snapshot in changes {
                 guard let self else { return }
-                if snapshot.metrics != self.metrics || snapshot.titleFont != self.tabTitleFontSize {
+                if snapshot.metrics != self.metrics || snapshot.titleFont != self.tabTitleFontSize || snapshot.trailingButtons != self.trailingButtons {
                     self.applyTokens(animated: true)
                 }
             }
@@ -33,5 +35,5 @@ extension TabStripView {
     }
 
     /// Current tab title font size, for change detection.
-    var tabTitleFontSize: CGFloat { cells.values.first?.titleFont.pointSize ?? Typography.body.pointSize }
+    var tabTitleFontSize: CGFloat { cells.values.first?.titleFont.pointSize ?? Typography.tabTitle.pointSize }
 }

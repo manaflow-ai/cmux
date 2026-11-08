@@ -1,12 +1,12 @@
 public import CmuxNextCloud
-import Foundation
+public import Foundation
 
 /// The signed-in account's Cloud machines in the composer's environment picker, beside the peers
 /// acpmux lists: a paused machine, or one the local acpmux has no link to, still shows with its
 /// state, and the person can resume or open it from there. Fixed param keys (any other is
 /// refused); a machine id is checked here and again by the App against the machines it loaded.
 ///
-/// - `cloudMachine.list {}` -> `{signedIn, loaded, machines: [{id, name, stage}]}`, read-only.
+/// - `cloudMachine.list {}` -> `{signedIn, loaded, machines: [{id, name, stage, evictAt?}]}`, read-only.
 ///   `stage` is the machine's `CloudMachineStage` name (`ready`, `paused`, `connecting`, …);
 ///   `loaded` is false until the App holds a list the server answered for the account signed in.
 /// - `cloudMachine.recoveryList {}` -> the same inventory, refreshed for a disconnected chat.
@@ -18,8 +18,13 @@ import Foundation
 ///   the App reads the machine again first, and one that turned live is attached, not resumed.
 /// - `cloudMachine.pause {id}` -> `{}`: Pause Machine, for a running machine only (the chat menu
 ///   of a chat on that machine, cmuxterm-hq#4755).
+/// - `cloudMachine.delete {id}` -> `{}`: Delete Machine… in the chat menu: the App's Kill Machine,
+///   which asks the person first (its confirmation sheet) and deletes only on their answer.
+/// - `cloudMachine.prewarm {id}` -> `{}`: a passive typing hint; wakes a loaded paused machine
+///   through the predictive/script route and never consumes a user gesture.
 ///
-/// Open, Resume, Attach and Pause change a machine: each takes the person's own click (one gesture).
+/// Open, Resume, Attach, Pause and Delete change a machine: each takes the person's own click (one gesture;
+/// Attach its scope-add credit, so the Enter of a prompt that wakes the machine still sends it).
 public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     case list
     case recoveryList
@@ -27,10 +32,12 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     case resume(id: String)
     case attach(id: String)
     case pause(id: String)
+    case delete(id: String)
+    case prewarm(id: String)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
-        "cloudMachine.list", "cloudMachine.recoveryList", "cloudMachine.open", "cloudMachine.resume", "cloudMachine.attach", "cloudMachine.pause",
+        "cloudMachine.list", "cloudMachine.recoveryList", "cloudMachine.open", "cloudMachine.resume", "cloudMachine.attach", "cloudMachine.pause", "cloudMachine.delete", "cloudMachine.prewarm",
     ]
     /// Longest id the page may send back (the API's ids are far shorter).
     static let maximumIDLength = 128
@@ -44,12 +51,14 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
         case "cloudMachine.list", "cloudMachine.recoveryList":
             guard params.isEmpty else { return nil }
             self = method == "cloudMachine.list" ? .list : .recoveryList
-        case "cloudMachine.open", "cloudMachine.resume", "cloudMachine.attach", "cloudMachine.pause":
+        case "cloudMachine.open", "cloudMachine.resume", "cloudMachine.attach", "cloudMachine.pause", "cloudMachine.delete", "cloudMachine.prewarm":
             guard Set(params.keys) == ["id"], let id = Self.machineID(params["id"]) else { return nil }
             switch method {
             case "cloudMachine.open": self = .open(id: id)
             case "cloudMachine.resume": self = .resume(id: id)
             case "cloudMachine.attach": self = .attach(id: id)
+            case "cloudMachine.prewarm": self = .prewarm(id: id)
+            case "cloudMachine.delete": self = .delete(id: id)
             default: self = .pause(id: id)
             }
         default:
@@ -73,6 +82,8 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
         case .resume: "cloudMachine.resume"
         case .attach: "cloudMachine.attach"
         case .pause: "cloudMachine.pause"
+        case .delete: "cloudMachine.delete"
+        case .prewarm: "cloudMachine.prewarm"
         }
     }
 }
@@ -88,8 +99,11 @@ public final class AgentPaneCloudMachines {
         public var name: String
         /// The machine's `CloudMachineStage` name.
         public var stage: String
-        public init(id: String, name: String, stage: String) {
-            (self.id, self.name, self.stage) = (id, name, stage)
+        /// When the server deletes the machine if it stays paused (cmux-platform `evict_at`); nil
+        /// when the record does not say.
+        public var evictAt: Date?
+        public init(id: String, name: String, stage: String, evictAt: Date? = nil) {
+            (self.id, self.name, self.stage, self.evictAt) = (id, name, stage, evictAt)
         }
     }
 
@@ -157,6 +171,12 @@ public final class AgentPaneCloudMachines {
         }
     }
 
+    /// A typing prewarm (``prewarm``) is a hint: it resumes (`resume`, script-originated) only a paused machine of the
+    /// loaded list while the App may call Cloud (`allowed`). True once the resume was accepted.
+    public static func prewarmIfPaused(allowed: Bool, status: CloudMachine.Status?, resume: @MainActor () async throws -> Void) async -> Bool {
+        guard allowed, status == .paused else { return false }
+        return (try? await resume()) != nil
+    }
 
     /// Runs Open Machine on a machine of the loaded list; false when it is not one.
     public var open: (@MainActor (String) -> Bool)?
@@ -166,6 +186,11 @@ public final class AgentPaneCloudMachines {
     public var attach: (@MainActor (String) async -> Bool)?
     /// Runs Pause Machine on a running machine of the loaded list; false otherwise.
     public var pause: (@MainActor (String) -> Bool)?
+    /// Runs Kill Machine (its confirmation first) on a machine of the loaded list; false otherwise.
+    public var delete: (@MainActor (String) -> Bool)?
+    /// Sends a passive predictive wake hint to a paused machine of the loaded list; false otherwise.
+    /// Unlike user actions, this never consumes a page gesture.
+    public var prewarm: (@MainActor (String) async -> Bool)?
 
     public init() {}
 }
@@ -178,7 +203,12 @@ extension AgentPaneCloudMachineRequest {
         case .list, .recoveryList:
             guard let list = (self == .recoveryList ? machines?.recoveryList : machines?.list) else { return AgentPaneModel.unsupported(method) }
             let inventory = await list()
-            let rows: [[String: Any]] = inventory.machines.prefix(Self.maximumListed).map { ["id": $0.id, "name": $0.name, "stage": $0.stage] }
+            let rows: [[String: Any]] = inventory.machines.prefix(Self.maximumListed).map { machine in
+                var row: [String: Any] = ["id": machine.id, "name": machine.name, "stage": machine.stage]
+                // Epoch ms, as the page reads it (cloudMachines.ts `evictAt`).
+                if let evictAt = machine.evictAt { row["evictAt"] = (evictAt.timeIntervalSince1970 * 1000).rounded() }
+                return row
+            }
             var value: [String: Any] = ["signedIn": inventory.signedIn, "loaded": inventory.loaded, "machines": rows, "complete": inventory.complete && inventory.machines.count <= Self.maximumListed]
             if let account = inventory.account { value["account"] = account.map { $0 as Any? ?? NSNull() } }
             return AgentPaneReply.success(value)
@@ -186,10 +216,18 @@ extension AgentPaneCloudMachineRequest {
         case .resume(let id): return run(machines?.resume, on: id, gestures: gestures)
         case .attach(let id):
             guard let attach = machines?.attach else { return AgentPaneModel.unsupported(method) }
-            guard gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+            // The gesture's scope-add credit, not its grant: a send in a chat whose machine is
+            // paused wakes it with the Enter that sent the prompt, and the prompt then goes with
+            // that Enter's grant once the chat is back (webviews cloudWake.ts).
+            guard gestures.consumeScope() else { return AgentPaneModel.transportFailure(.gestureRequired) }
             guard await attach(id) else { return Self.notRun(method) }
             return AgentPaneReply.success()
         case .pause(let id): return run(machines?.pause, on: id, gestures: gestures)
+        case .delete(let id): return run(machines?.delete, on: id, gestures: gestures)
+        case .prewarm(let id):
+            guard let prewarm = machines?.prewarm else { return AgentPaneModel.unsupported(method) }
+            guard await prewarm(id) else { return Self.notRun(method) }
+            return AgentPaneReply.success()
         }
     }
 

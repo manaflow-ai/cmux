@@ -11,6 +11,15 @@ public protocol InstallAuthTransport: Sendable {
     /// bearer and extra request `headers` (for example the client version).
     /// Returns the status and body.
     func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data)
+    /// GETs `path` (relative to the API Worker, query included) with an optional bearer and extra `headers`.
+    func get(_ path: String, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data)
+}
+
+extension InstallAuthTransport {
+    /// A transport that only posts (the install-auth exchange needs no GET) answers a GET as unsupported.
+    public func get(_ path: String, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
+        throw URLError(.unsupportedURL)
+    }
 }
 
 /// What the install keeps between launches (never the token).
@@ -129,6 +138,13 @@ public actor InstallAuthClient {
         inflight = task
         defer { inflight = nil }
         return try await task.value
+    }
+
+    /// A valid install token, minted in the caller's own task, so cancelling the caller cancels
+    /// the mint's requests. For a client with one caller: nothing is shared with other callers.
+    public func installTokenInCallerTask() async throws -> String {
+        if let token, token.expiresAt.timeIntervalSince(now()) > Self.refreshMargin { return token.value }
+        return try await mintRecovering()
     }
 
     /// The op classes the phone's install asks for (``InstallProfile/ios``).

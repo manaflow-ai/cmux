@@ -32,6 +32,9 @@ mod session_reset;
 pub(super) use session_reset::run_session_reset_state;
 mod server_ensure;
 mod settings;
+#[cfg(test)]
+pub(super) use settings::KEY_ALIASES;
+pub(super) use settings::{SettingsList, human_rows as settings_human_rows, resolve_alias};
 mod sidebar_doc;
 mod state;
 mod workspace;
@@ -151,6 +154,12 @@ struct Tokens {
 }
 
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
+    if let [scope, verb, rest @ ..] = args
+        && matches!(scope.as_str(), "settings" | "config")
+        && verb == "list"
+    {
+        return settings::request_list(rest);
+    }
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
     flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
@@ -182,6 +191,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "notification" => parse_notification(words, &mut tokens.flags)?,
         "attention" => state::parse_attention(&strs(words), &mut selectors, &mut tokens.flags)?,
         "room" => state::parse_room(&strs(words), &mut tokens.flags)?,
+        "space" => parse_space(&strs(words), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
         "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
@@ -199,12 +209,22 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     Ok(plan)
 }
 
+/// `space list` is the friendly name for the daemon's room listing. Mutating
+/// space verbs are app actions and are dispatched by the app parser first.
+fn parse_space(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    match words {
+        ["list"] => state::parse_room(&["list"], flags),
+        _ => usage("space action"),
+    }
+}
+
 fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
         ["ensure"] => server_ensure::parse(flags)?,
         ["stop"] => stop_action(flags)?,
+        ["restart"] => restart_action(flags)?,
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
         ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
             state_dir: flags.take("state-dir").map(PathBuf::from),
@@ -226,6 +246,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
                         "ensure",
                         "status",
                         "stop",
+                        "restart",
                         "reload-config",
                         "compact-registry",
                     ],
@@ -246,23 +267,40 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
 /// defaults to the bound `server ensure` gives a restore
 /// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
 fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
-    const MAX_RESTORE_WAIT_SECONDS: u64 = 3600;
-    let restore_wait = match flags.take("restore-wait-seconds") {
-        None => crate::local_owner::RESTORE_DEADLINE,
-        Some(value) => match value.parse::<u64>() {
-            Ok(seconds @ 1..=MAX_RESTORE_WAIT_SECONDS) => std::time::Duration::from_secs(seconds),
-            _ => {
-                return Err(UsageError::new(
-                    crate::localization::catalog().local_server.stop_restore_wait_invalid,
-                ));
-            }
-        },
-    };
     Ok(super::lifecycle::ServerAction::Stop {
+        restore_wait: restore_wait(flags)?,
         force: flags.boolean("force"),
         end_terminals: flags.boolean("end-terminals"),
-        restore_wait,
     })
+}
+
+/// `server restart`: `[--force] [--restore-wait-seconds <n>]`, the stop's
+/// options. A restart keeps every terminal, so `--end-terminals` is refused.
+fn restart_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
+    if flags.boolean("end-terminals") {
+        return Err(UsageError::new(
+            crate::localization::catalog().local_server.restart_end_terminals,
+        ));
+    }
+    Ok(super::lifecycle::ServerAction::Restart {
+        restore_wait: restore_wait(flags)?,
+        force: flags.boolean("force"),
+    })
+}
+
+fn restore_wait(flags: &mut Flags) -> Result<std::time::Duration, UsageError> {
+    const MAX_RESTORE_WAIT_SECONDS: u64 = 3600;
+    match flags.take("restore-wait-seconds") {
+        None => Ok(crate::local_owner::RESTORE_DEADLINE),
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds @ 1..=MAX_RESTORE_WAIT_SECONDS) => {
+                Ok(std::time::Duration::from_secs(seconds))
+            }
+            _ => Err(UsageError::new(
+                crate::localization::catalog().local_server.stop_restore_wait_invalid,
+            )),
+        },
+    }
 }
 
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
@@ -382,7 +420,9 @@ fn parse_session(
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
         ["list"] => request(ResourceOperation::SessionList, selectors, flags, Map::new()),
-        [selector, "show"] => {
+        // `session current` alone is `session current show`: an agent's
+        // first "which session am I in" (`cmux identify` has the whole path).
+        [selector, "show"] | [selector] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionGet, selectors, flags, Map::new())
         }
@@ -1124,7 +1164,16 @@ fn parse_terminal(
         }
         [selector, "read"] | [selector, "screen", "read"] => {
             selectors.insert("terminal", "term", selector)?;
-            request(ResourceOperation::TerminalScreenRead, selectors, flags, Map::new())
+            let mut params = Map::new();
+            // `terminal-read-unwrap-v1`: soft wraps joined, and the last N
+            // lines of scrollback and screen.
+            if flags.boolean("unwrap") {
+                params.insert("unwrap".into(), Value::Bool(true));
+            }
+            if let Some(lines) = flags.take("lines") {
+                insert_bounded_u32(&mut params, "lines", "--lines", lines, 1, 10_000)?;
+            }
+            request(ResourceOperation::TerminalScreenRead, selectors, flags, params)
         }
         [selector, "state", "read"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -1179,6 +1228,11 @@ fn parse_terminal(
             if let Some(timeout) = flags.take("timeout-ms") {
                 insert_decimal(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
             }
+            // `terminal-wait-new-v1`: only output printed below the cursor's
+            // line from now on can match, never a typed command's echo.
+            if flags.boolean("new") {
+                params.insert("new".into(), Value::Bool(true));
+            }
             request(ResourceOperation::TerminalWait, selectors, flags, params)
         }
         [selector, "copy"] => {
@@ -1187,6 +1241,9 @@ fn parse_terminal(
             if let Some(mode) = flags.take("mode") {
                 validate_one_of("--mode", &mode, &["screen", "selection", "scrollback"])?;
                 params.insert("mode".into(), Value::String(mode));
+            }
+            if flags.boolean("unwrap") {
+                params.insert("unwrap".into(), Value::Bool(true));
             }
             request(ResourceOperation::TerminalCopy, selectors, flags, params)
         }
@@ -1314,6 +1371,17 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
         }
         ["clear"] => {
             let mut params = Map::new();
+            // One row by its id (the notifications panel's Clear on a row);
+            // the daemon takes one of notification, terminal or workspace.
+            if let Some(notification) = flags.take("notification") {
+                if flags.values.contains_key("terminal") || flags.values.contains_key("workspace") {
+                    return Err(UsageError::new(
+                        "give one of --notification, --terminal or --workspace",
+                    ));
+                }
+                validate_prefixed_id("notification", "notification", &notification)?;
+                params.insert("notification_id".into(), Value::String(notification));
+            }
             notification_scope(&mut params, flags)?;
             request(ResourceOperation::NotificationClear, &selectors, flags, params)
         }
@@ -2876,6 +2944,11 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
         },
         plan.kind,
     ) {
+        Ok(result) if global.output == super::OutputMode::Human && result == json!([]) => {
+            // An empty list printed nothing at all (bench round 3).
+            println!("{}", no_plugins_line(plan.kind));
+            0
+        }
         Ok(result) => super::wire::print_local_success(&result, global.output),
         Err(error) => {
             let value = json!({
@@ -2894,7 +2967,7 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     if result.failed {
         let error = json!({
             "code": "local.agent_hooks",
-            "message": "one or more coding-agent hook operations failed",
+            "message": agent_hooks_failure_message(&result.value),
             "details": result.value,
             "retryable": false,
         });
@@ -2902,6 +2975,23 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     } else {
         super::wire::print_local_success(&result.value, global.output)
     }
+}
+
+/// What `cmux agent|sidebar plugin list` prints when no plugin is installed.
+fn no_plugins_line(kind: crate::plugin_manager::PluginKind) -> String {
+    format!("No plugins are installed. {} install <git-url> installs one.", kind.command_prefix())
+}
+
+/// The message of a failed `agent hook install|uninstall|status`: the
+/// operations' own errors (`<provider>: <cause>`), which text output shows
+/// only in the message.
+fn agent_hooks_failure_message(value: &Value) -> String {
+    let errors: Vec<&str> =
+        value["errors"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    if errors.is_empty() {
+        return "one or more coding-agent hook operations failed".to_owned();
+    }
+    format!("coding-agent hook operations failed: {}", errors.join("; "))
 }
 
 pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthorityPlan) -> i32 {
@@ -2951,6 +3041,22 @@ pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthority
 mod tests {
     use super::*;
 
+    /// `cmux agent hook status` text output said only "One or more
+    /// coding-agent hook operations failed" (bench round 3); the cause was
+    /// in `--json` alone.
+    #[test]
+    fn w4j_a_hook_failure_message_names_each_cause() {
+        let value = json!({"errors": ["copilot: ~/.copilot/config.json is not valid JSON"]});
+        assert_eq!(
+            agent_hooks_failure_message(&value),
+            "coding-agent hook operations failed: copilot: ~/.copilot/config.json is not valid JSON"
+        );
+        assert_eq!(
+            agent_hooks_failure_message(&json!({"errors": []})),
+            "one or more coding-agent hook operations failed"
+        );
+    }
+
     fn raw_request(args: &[&str]) -> Value {
         match parse(&strings(args), super::super::Surface::CmuxTui).unwrap() {
             CommandPlan::RawCommand(plan) => plan.request,
@@ -2974,6 +3080,9 @@ mod tests {
         let group = protocol(&["workspace", "group", "create", "--name", "Work"]);
         assert_eq!(operation(&group), "workspace_group.create");
         assert_eq!(group.params["name"], "Work");
+        assert!(group.params.get("reuse").is_none(), "a plain create makes a group");
+        let reuse = protocol(&["workspace", "group", "create", "--name", "Leads", "--reuse"]);
+        assert_eq!(reuse.params["reuse"], true);
         let remove = protocol(&[
             "workspace",
             "group",
@@ -3081,6 +3190,14 @@ mod tests {
     }
 
     #[test]
+    fn confirm_takes_no_value() {
+        let tokens = tokenize(&strings(&["workspace", "create", "--confirm", "--name", "v"]))
+            .expect("--confirm must tokenize as a switch");
+        assert_eq!(tokens.flags.values.get("confirm"), Some(&None));
+        assert_eq!(tokens.flags.values.get("name"), Some(&Some("v".to_string())));
+    }
+
+    #[test]
     fn non_boolean_flags_still_consume_the_next_token() {
         let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
             .expect("value flag must tokenize");
@@ -3147,6 +3264,22 @@ mod tests {
         let literal = protocol(&["settings", "set", "--", "custom.label", "--literal"]);
         assert_eq!(literal.params["key"], "custom.label");
         assert_eq!(literal.params["value"], "--literal");
+    }
+
+    /// `cmux config set on cloud` sets `chat.on` through the daemon, the route CRUD takes.
+    #[cfg(unix)]
+    #[test]
+    fn settings_crud_reads_a_key_alias_as_its_key() {
+        assert!(super::super::daemon_settings_scope(&strings(&["config", "set", "on", "cloud"])));
+        let set = protocol(&["config", "set", "on", "cloud"]);
+        assert_eq!(operation(&set), "settings.set");
+        assert_eq!(
+            set.params,
+            serde_json::json!({"key": "chat.on", "value": "cloud", "machine": "current", "session": "current"})
+        );
+        for verb in ["get", "reset", "unset"] {
+            assert_eq!(protocol(&["settings", verb, "on"]).params["key"], "chat.on", "{verb}");
+        }
     }
 
     #[test]
@@ -3463,6 +3596,25 @@ mod tests {
                 parse(&strings(both), super::super::Surface::CmuxTui).is_err(),
                 "{both:?}: a workspace and a terminal scope together"
             );
+        }
+    }
+
+    /// `notification clear --notification <id>` clears that one row (the
+    /// notifications panel's Clear on a row); it is one scope, never two.
+    #[test]
+    fn notification_clear_takes_one_notification_id() {
+        const NOTIFICATION: &str = "notification_00000000000000000000000000000041";
+        const WS: &str = "ws_00000000000000000000000000000042";
+        let clear = protocol(&["notification", "clear", "--notification", NOTIFICATION]);
+        assert_eq!(clear.operation.name().unwrap(), "notification.clear");
+        assert_eq!(clear.params["notification_id"], NOTIFICATION);
+        assert!(clear.params.get("terminal_id").is_none());
+        assert!(clear.params.get("workspace_id").is_none());
+        for bad in [
+            &["notification", "clear", "--notification", NOTIFICATION, "--workspace", WS][..],
+            &["notification", "clear", "--notification", "ws_00000000000000000000000000000042"],
+        ] {
+            assert!(parse(&strings(bad), super::super::Surface::CmuxTui).is_err(), "{bad:?}");
         }
     }
 
@@ -4160,9 +4312,9 @@ mod tests {
     #[test]
     fn agent_commands_use_canonical_public_states() {
         const TERMINAL: &str = "term_55555555555555555555555555555555";
+        // agent list --state takes the shared status words and maps them
+        // (command/agent_list.rs tests); agent report takes the daemon state.
         for state in ["working", "blocked", "idle", "done", "unknown"] {
-            let list = protocol(&["agent", "list", "--terminal", TERMINAL, "--state", state]);
-            assert_eq!(list.params["state"], state);
             let report = protocol(&[
                 "agent",
                 "report",

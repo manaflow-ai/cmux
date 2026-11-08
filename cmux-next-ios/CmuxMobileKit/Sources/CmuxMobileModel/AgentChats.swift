@@ -91,4 +91,107 @@ public protocol AgentChatsBackend: AnyObject {
     /// Open Chat Folder in Terminal: a new terminal tab beside the chat's tab, in the chat's
     /// folder. Returns it once the Mac lists it.
     func openChatFolderInTerminal(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// Stop: the chat's running turn stops (`session/cancel`). acpmux refuses a chat the Mac
+    /// started (only its owner stops it); that refusal is thrown.
+    func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws
+    /// Launch Claude Teams or Launch Codex Teams: a new terminal tab beside `tab` (else in the
+    /// workspace's first pane), in `folder`, that runs the team's line. Returns it once the
+    /// Mac lists it.
+    func launchAgentTeams(_ teams: AgentTeamsLaunch, beside tab: WorkspaceTab?, folder: String?,
+                          in workspace: Workspace) async throws -> WorkspaceTab
+}
+
+extension AgentChatsBackend {
+    public func launchAgentTeams(_ teams: AgentTeamsLaunch, beside tab: WorkspaceTab?, folder: String?,
+                                 in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError(String(localized: "This Mac can't open a terminal from iPhone."), isForPerson: true)
+    }
+}
+
+/// The Mac's Launch Claude Teams and Launch Codex Teams (CmuxNextApp `AgentTeamsLaunch`): the
+/// line each types into a new terminal. The variable is a prefix of the one command, so it
+/// never stays in the shell.
+public enum AgentTeamsLaunch: String, CaseIterable, Hashable, Sendable {
+    case claude
+    case codex
+
+    public var title: String {
+        switch self {
+        case .claude: String(localized: "Launch Claude Teams")
+        case .codex: String(localized: "Launch Codex Teams")
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .claude: "person.3"
+        case .codex: "person.3.fill"
+        }
+    }
+
+    public var line: String {
+        switch self {
+        case .claude: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude --teammate-mode in-process\n"
+        case .codex: "codex -c features.multi_agent=true\n"
+        }
+    }
+}
+
+/// acpmux kept a chat running because it was started on the Mac (only its owner stops it,
+/// `remote.session_cancel_ownership`); `message` is acpmux's.
+public struct AgentChatOwnedByMac: Error, LocalizedError, Hashable, Sendable {
+    public var message: String
+    public init(_ message: String) { self.message = message }
+    public var errorDescription: String? { message }
+}
+
+/// What Stop All Agents did: the chats it stopped, those acpmux kept running (started on the
+/// Mac, which only the Mac stops) with its reason, and those it couldn't reach.
+public struct AgentChatsStopResult: Hashable, Sendable {
+    public var stopped: [AgentChatListing]
+    public var refused: [AgentChatListing]
+    public var reason: String?
+    public var failed: [AgentChatListing] = []
+    public var failure: String?
+
+    public init(stopped: [AgentChatListing], refused: [AgentChatListing], reason: String?) {
+        self.stopped = stopped
+        self.refused = refused
+        self.reason = reason
+    }
+
+    /// The toast's line, in the Mac's wording ("Stopped 2 agents").
+    public var summary: String {
+        var parts = [stopped.count == 1 ? "Stopped 1 agent." : "Stopped \(stopped.count) agents."]
+        if !refused.isEmpty {
+            parts.append(refused.count == 1 ? "1 started on the Mac keeps running: stop it on the Mac."
+                                            : "\(refused.count) started on the Mac keep running: stop them on the Mac.")
+        }
+        if !failed.isEmpty { parts.append(failed.count == 1 ? "Couldn't stop 1." : "Couldn't stop \(failed.count).") }
+        return parts.joined(separator: " ")
+    }
+
+    /// The alert's detail: why one was kept, or why one couldn't be stopped.
+    public var detail: String? { reason ?? failure }
+}
+
+extension AgentChatsBackend {
+    /// Stop All Agents (the Mac's `home.stopAllAgents`): every working chat of the list, one
+    /// `session/cancel` each, in order. A refused one stays running and is counted.
+    public func stopAll(_ chats: [AgentChatListing], on macID: String) async -> AgentChatsStopResult {
+        var result = AgentChatsStopResult(stopped: [], refused: [], reason: nil)
+        for chat in chats where chat.isActive && !chat.archived {
+            do {
+                try await stopAgentChat(chat, on: macID)
+                result.stopped.append(chat)
+            } catch let owned as AgentChatOwnedByMac {
+                result.refused.append(chat)
+                result.reason = result.reason ?? owned.message
+            } catch {
+                result.failed.append(chat)
+                result.failure = result.failure ?? (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            }
+        }
+        return result
+    }
 }

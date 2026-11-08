@@ -10,11 +10,20 @@ export interface Principal {
   readonly identity: string
   readonly user?: string
   readonly team?: string
+  /**
+   * The user's role in `team` (owner, admin, member), set only by the Worker from TeamDO's
+   * `memberRole` (`principalForOwner`); the personal team's user is `owner`. Owners that scope
+   * actions inside a team (SchedulerDO's private automations and editors) read it; a frame or
+   * params never carries it, and a principal without it is treated as a member.
+   */
+  readonly team_role?: string
   readonly install?: string
   readonly agent?: string
   /** Automation principals only (built by the API Worker): the run that is calling. */
   readonly run?: string
   readonly grant?: string
+  /** Install authority incarnation, resolved by UserDO for owner socket and network fences. */
+  readonly install_authority?: string
   /**
    * How the connection authenticated: a human session or an install token.
    * `system` is built only inside a Durable Object for its own internal ops

@@ -29,6 +29,7 @@ pub enum Action {
     Send,
     Steer,
     Cancel,
+    Retry,
     Stop,
     Delete,
     Rename,
@@ -334,6 +335,15 @@ impl App {
             Action::Send => self.send_prompt(false),
             Action::Steer => self.send_prompt(true),
             Action::Cancel => self.cancel(),
+            Action::Retry => {
+                if let Some(id) = sid {
+                    self.request_bg(
+                        method::MUX_RETRY,
+                        json!({"sessionId": id}),
+                        Some("retry sent".into()),
+                    );
+                }
+            }
             Action::Stop | Action::Delete => {
                 if let Some(id) = sid {
                     let purge = action == Action::Delete;
@@ -528,7 +538,7 @@ impl App {
                 if let Some(u) = &self.web_url {
                     // Deep link to the selected session; the token stays out of the status bar.
                     let url = match self.selected_id() {
-                        Some(id) => format!("{u}&session={id}"),
+                        Some(id) => crate::hub::web_url_for_session(u, &id),
                         None => u.clone(),
                     };
                     let _ = std::process::Command::new(if cfg!(target_os = "macos") {

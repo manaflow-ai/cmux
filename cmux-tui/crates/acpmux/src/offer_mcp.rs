@@ -73,7 +73,9 @@ fn tools() -> Value {
 /// What the server tells the agent once, at `initialize` (MCP `instructions`).
 pub const INSTRUCTIONS: &str = "Work the user did not ask for: suggest it with offer_session (one task) \
 or suggest_tasks (a few at once) and let the user start it; start a session yourself only when the \
-user asked for one.";
+user asked for one. When you notice side work the user would likely want (a bug, a follow-up, a \
+cleanup) that does not belong in this task, offer it instead of doing it inline or only mentioning \
+it: the chat draws it as a card the user starts as a new chat, or has you do here.";
 
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {

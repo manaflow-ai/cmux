@@ -94,6 +94,12 @@ public final class WindowOverlayHost {
         panel.onCancel = { [weak self] in self?.escape() }
         panel.onCycleKeyView = { [weak self] forward in self?.cycleKeyView(forward: forward) ?? false }
         panel.onMouseEvent = { [weak self] event in self?.panelMouseEvent(event) ?? false }
+        for container in [panel.paneContainer, panel.windowContainer, panel.modalContainer] {
+            container.clickRegions = { [weak self] view in
+                guard let self, let handle = handles.first(where: { ($0.clipView ?? $0.content) === view }) else { return nil }
+                return clickRegions(of: handle)
+            }
+        }
         if isAppHost {
             // Above the app's own windows while cmux is active; hidden while
             // another app is active, so it never covers other apps.
@@ -319,6 +325,8 @@ public final class WindowOverlayHost {
         handles.forEach(layout)
         updateMouseRouting()
         placeAgentCursor()
+        // A copy: a callback may resize, move or end its overlay.
+        for handle in handles { handle.onWindowGeometryChange?() }
     }
 
     private func syncAppPanel() {

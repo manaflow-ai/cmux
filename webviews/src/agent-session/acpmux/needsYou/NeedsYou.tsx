@@ -4,43 +4,46 @@
 // of its choices), jumps to where it was asked (Go to source) and can be asked about in a side
 // question seeded with the ask (Ask about this), so nobody re-reads a thread to answer it. An ask
 // leaves the list once acpmux says it was answered, wherever that was (asks.ts).
+//
+// A row has stages (Leo 2026-10-21: "THERE'S MULTIPLE STATES WHERE YOU CAN MAYBE EXPAND, ANSWER
+// INLINE AND MAYBE EXPAND FURTHER FOR THE CONTEXT AND MAYBE JUMP TO THAT WORKSPACE... OR OPEN NEW
+// WORKSPACE... OR OPEN ON RIGHT"): the one-line card; expanded, with the whole ask, every option
+// and a typed answer for a question, and the ways to open its chat (on the right, the default; the
+// workspace that shows it; a new workspace); and its context, the last turns before the ask.
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { AgentMark } from "../../shared/AgentMark";
 import { useMinuteClock } from "../clock";
 import { agentDisplayName } from "../agents";
-import { HEADER_GLYPH } from "../header/ChatHeaderTools";
+import { HEADER_GLYPH } from "../header/chatHeaderToolsModel";
 import { HeaderIcon } from "../header/HeaderIcon";
-import { useT, type StringKey, type Translate } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { Keycap } from "../Keycap";
 import { shortAge } from "../sessionList";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import { onOpenNeedsYou } from "./links";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
+import type { AskContext } from "./context";
+import { reply as questionReply, selection, type AgentQuestion, type QuestionReply } from "../question/model";
 import "./needsYou.css";
+import {
+  answerKey,
+  askText,
+  keyedAnswer,
+  sideQuestionPrompt,
+  type NeedsYouActions,
+  type NeedsYouMode,
+  type NeedsYouPlace,
+} from "./needsYouModel";
 
-/// The Debug choice `agentPane.debug.needsYou` (data-needs-you on <html>): `pinned` (the default)
-/// draws each ask with its answers; `compact` one line per ask; `off` no badge at all. The host
-/// also writes `off` while the App Store's Needs You item is not installed
-/// (`agentPane.needsYou.enabled`, off by default): no badge, no list, and no link opens one.
-export type NeedsYouMode = "pinned" | "compact" | "off";
+export type { NeedsYouActions, NeedsYouPlace } from "./needsYouModel";
 
-export function needsYouMode(
-  root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement,
-): NeedsYouMode {
-  const value = root?.dataset.needsYou;
-  return value === "off" || value === "compact" ? value : "pinned";
-}
-
-export type NeedsYouActions = {
-  /// Sends a one-click answer; rejects when acpmux refused it.
-  answer(item: NeedsYouItem, answer: NeedsYouAnswer): Promise<unknown>;
-  /// Opens the chat the ask is in, at the ask.
-  goTo(item: NeedsYouItem): void;
-  /// Opens a side session about the asking chat (`_acpmux/btw`) beside it, its first prompt the
-  /// question seeded with the ask; rejects when it could not.
-  ask(item: NeedsYouItem, question: string): Promise<unknown>;
-};
+const PLACES: readonly { place: NeedsYouPlace; label: StringKey }[] = [
+  { place: "right", label: "needsYou.openRight" },
+  { place: "workspace", label: "needsYou.jumpToWorkspace" },
+  { place: "newWorkspace", label: "needsYou.openNewWorkspace" },
+];
 
 const KINDS: Record<NeedsYouKind, StringKey> = {
   approval: "needsYou.kind.approval",
@@ -48,6 +51,7 @@ const KINDS: Record<NeedsYouKind, StringKey> = {
   verify: "needsYou.kind.verify",
   held: "needsYou.kind.held",
   input: "needsYou.kind.input",
+  tab: "needsYou.kind.tab",
 };
 
 const CHIEF_AVATAR = new URL("../mascots/ChiefMascotOrb.png", import.meta.url).href;
@@ -139,6 +143,14 @@ export function NeedsYouButton({
               setOpen(false);
               actions.goTo(item);
             },
+            ...(actions.open
+              ? {
+                  open: (item: NeedsYouItem, place: NeedsYouPlace) => {
+                    setOpen(false);
+                    actions.open?.(item, place);
+                  },
+                }
+              : {}),
           }}
           focus={focus}
         />
@@ -169,8 +181,32 @@ export function NeedsYouPanel({
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set());
   const shown = items.filter((item) => !sent.has(item.id));
   const missing = focus !== undefined && !items.some((item) => item.id === focus);
+  // y and n answer an approval as its card does: the row with focus, else the top one. The key
+  // presses the row's own button, so it answers once and says so when acpmux refuses.
+  const panel = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const element = panel.current;
+    if (!element) return;
+    const onKey = (event: KeyboardEvent) => {
+      const button = keyedAnswer(event, element);
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      button.click();
+    };
+    element.addEventListener("keydown", onKey);
+    return () => element.removeEventListener("keydown", onKey);
+  }, []);
   return (
-    <div ref={panelRef} className="acpmux-needs-you-panel" data-mode={mode} tabIndex={-1}>
+    <div
+      ref={(element) => {
+        panel.current = element;
+        if (panelRef) panelRef.current = element;
+      }}
+      className="acpmux-needs-you-panel"
+      data-mode={mode}
+      tabIndex={-1}
+    >
       <header className="acpmux-needs-you-head">
         <span className="acpmux-needs-you-title">{t("needsYou.title")}</span>
         {shown.length > 0 && <span className="acpmux-needs-you-total">{shown.length}</span>}
@@ -229,10 +265,18 @@ function NeedsYouRow({
   const [failed, setFailed] = useState(false);
   const [sending, setSending] = useState<string>();
   const [asking, setAsking] = useState(false);
+  // The row's stage: the one-line card, expanded, or expanded with its context.
+  const [stage, setStage] = useState<"row" | "expanded" | "context">("row");
+  const expanded = stage !== "row";
   useEffect(() => {
     if (focused) row.current?.scrollIntoView({ block: "nearest" });
   }, [focused]);
   const answer = (choice: NeedsYouAnswer) => {
+    // Review opens a guest's held message on its card, where the owner reads it whole and answers.
+    if (choice.id === "review") {
+      actions.goTo(item);
+      return;
+    }
     if (sending) return;
     setSending(choice.id);
     setFailed(false);
@@ -242,10 +286,19 @@ function NeedsYouRow({
       onRefused();
     });
   };
-  const compact = mode === "compact";
+  const compact = mode === "compact" && !expanded;
   const age = shortAge(item.at, now, t);
+  // An expanded question takes its whole answer in the form; the one-click row is for the card.
+  const form = expanded && item.question && item.permissionId && actions.reply ? item.question : undefined;
+  const toggle = () => setStage((now) => (now === "row" ? "expanded" : "row"));
   return (
-    <li ref={row} className="acpmux-needs-you-item" data-kind={item.kind} data-focused={focused ? "" : undefined}>
+    <li
+      ref={row}
+      className="acpmux-needs-you-item"
+      data-kind={item.kind}
+      data-focused={focused ? "" : undefined}
+      data-stage={stage === "row" ? undefined : stage}
+    >
       <div className="acpmux-needs-you-meta">
         <Avatar item={item} />
         <span className="acpmux-needs-you-who">{item.who.chief ? t("needsYou.chief") : item.who.name}</span>
@@ -256,7 +309,20 @@ function NeedsYouRow({
         <span className="acpmux-needs-you-end">
           {age && <span className="acpmux-needs-you-age">{age}</span>}
           <span className="acpmux-needs-you-tools">
-            {!compact && (
+            {/* A marked tab names no chat to ask about or open elsewhere: Go to is its one action. */}
+            {item.kind !== "tab" && (
+              <button
+                type="button"
+                className="acpmux-needs-you-expand"
+                aria-label={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
+                title={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
+                aria-expanded={expanded}
+                onClick={toggle}
+              >
+                <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={14} />
+              </button>
+            )}
+            {!compact && item.kind !== "tab" && (
               <button
                 type="button"
                 className="acpmux-needs-you-ask-about"
@@ -280,37 +346,230 @@ function NeedsYouRow({
           </span>
         </span>
       </div>
-      <p className="acpmux-needs-you-ask">{askText(item, t)}</p>
+      {/* The ask itself expands the row too: the person reads it and wants the rest. */}
+      <p className="acpmux-needs-you-ask">
+        {/* A marked tab's reason goes to the tab: it has no chat to expand. */}
+        <button
+          type="button"
+          className="acpmux-needs-you-ask-toggle"
+          aria-expanded={item.kind === "tab" ? undefined : expanded}
+          onClick={item.kind === "tab" ? () => actions.goTo(item) : toggle}
+        >
+          {askText(item, t)}
+        </button>
+      </p>
       {!compact && item.detail && (
         <p className="acpmux-needs-you-detail" data-code={item.command ? "" : undefined}>
           {item.detail}
         </p>
       )}
-      {!compact && item.answers.length > 0 && (
+      {form && (
+        <QuestionForm
+          question={form}
+          send={(sent) => actions.reply!(item, sent)}
+          onSent={onSent}
+          onRefused={onRefused}
+        />
+      )}
+      {!compact && !form && item.answers.length > 0 && (
         <div className="acpmux-needs-you-actions">
           {/* Claude's permission card: the answers as numbered rows, the first one ready. */}
           <fieldset className="acpmux-needs-you-options" aria-label={askText(item, t)}>
-            {item.answers.map((choice) => (
-              <button
-                key={choice.id}
-                type="button"
-                className="acpmux-needs-you-answer"
-                data-tone={choice.tone}
-                disabled={sending !== undefined}
-                aria-busy={sending === choice.id}
-                onClick={() => answer(choice)}
-              >
-                <span className="acpmux-needs-you-answer-label">
-                  {choice.id === "resume" && item.kind === "held" ? t("needsYou.resume") : choice.label}
-                </span>
-              </button>
-            ))}
+            {item.answers.map((choice) => {
+              const key = answerKey(item, choice);
+              return (
+                <button
+                  key={choice.id}
+                  type="button"
+                  className="acpmux-needs-you-answer"
+                  data-tone={choice.tone}
+                  data-answer-key={key}
+                  aria-keyshortcuts={key}
+                  disabled={sending !== undefined}
+                  aria-busy={sending === choice.id}
+                  onClick={() => answer(choice)}
+                >
+                  <span className="acpmux-needs-you-answer-label">
+                    {item.kind !== "held"
+                      ? choice.label
+                      : item.promptId
+                        ? t("queue.held.review")
+                        : choice.id === "resume"
+                          ? t("needsYou.resume")
+                          : choice.label}
+                  </span>
+                  {key && <Keycap>{key.toUpperCase()}</Keycap>}
+                </button>
+              );
+            })}
           </fieldset>
         </div>
       )}
       {failed && <p className="acpmux-needs-you-error">{t("needsYou.answerFailed")}</p>}
+      {expanded && (
+        <div className="acpmux-needs-you-more">
+          {actions.context && (
+            <button
+              type="button"
+              className="acpmux-needs-you-more-button"
+              aria-expanded={stage === "context"}
+              onClick={() => setStage((now) => (now === "context" ? "expanded" : "context"))}
+            >
+              {stage === "context" ? t("needsYou.contextHide") : t("needsYou.context")}
+            </button>
+          )}
+          {/* Another chat opens where the person picks; this chat's ask is already on screen. */}
+          {actions.open &&
+            actions.opensElsewhere?.(item) &&
+            PLACES.map(({ place, label }) => (
+              <button
+                key={place}
+                type="button"
+                className="acpmux-needs-you-more-button"
+                data-place={place}
+                onClick={() => actions.open?.(item, place)}
+              >
+                {t(label)}
+              </button>
+            ))}
+        </div>
+      )}
+      {stage === "context" && actions.context && <AskContextTurns item={item} context={actions.context(item)} />}
       {asking && !compact && <SideQuestion item={item} ask={actions.ask} onAsked={() => setAsking(false)} />}
     </li>
+  );
+}
+
+/// The context stage: the last turns before the ask, read-only, oldest first. Another chat's is
+/// only its latest message, and says so.
+function AskContextTurns({ item, context }: { item: NeedsYouItem; context: AskContext }) {
+  const t = useT();
+  const agent = item.who.chief ? t("needsYou.chief") : item.who.name;
+  return (
+    <div className="acpmux-needs-you-context" aria-label={t("needsYou.context")}>
+      {context.turns.length === 0 ? (
+        <p className="acpmux-needs-you-context-note">{t("needsYou.contextEmpty")}</p>
+      ) : (
+        <ol className="acpmux-needs-you-context-turns">
+          {context.turns.map((turn) => (
+            <li key={turn.id} className="acpmux-needs-you-context-turn" data-who={turn.who}>
+              <span className="acpmux-needs-you-context-who">
+                {turn.who === "person" ? t("needsYou.contextYou") : agent}
+              </span>
+              <span className="acpmux-needs-you-context-text">{turn.text}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {context.partial && <p className="acpmux-needs-you-context-note">{t("needsYou.contextPartial")}</p>}
+    </div>
+  );
+}
+
+/// An expanded question: every item with all its options (radio or checkbox), an Other field where
+/// the ask takes typed text, and Submit, which sends the whole answer in the harness's shape
+/// (question/model.ts `reply`). A click picks and never sends, as the ask's card (QuestionCard).
+function QuestionForm({
+  question,
+  send,
+  onSent,
+  onRefused,
+}: {
+  question: AgentQuestion;
+  send(sent: QuestionReply): Promise<unknown>;
+  onSent(): void;
+  onRefused(): void;
+}) {
+  const t = useT();
+  const [picks, setPicks] = useState<Readonly<Record<string, readonly string[]>>>({});
+  const [other, setOther] = useState<Readonly<Record<string, string>>>({});
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const answered = (id: string) => (picks[id]?.length ?? 0) > 0 || Boolean(other[id]?.trim());
+  const ready = question.items.every((item) => answered(item.id));
+  const pick = (itemId: string, optionId: string, multi: boolean) => {
+    setPicks((before) => {
+      const now = before[itemId] ?? [];
+      const next = multi
+        ? now.includes(optionId)
+          ? now.filter((id) => id !== optionId)
+          : [...now, optionId]
+        : [optionId];
+      return { ...before, [itemId]: next };
+    });
+    // One answer to a single choice: a picked option replaces typed text.
+    if (!multi) setOther((before) => ({ ...before, [itemId]: "" }));
+  };
+  const type = (itemId: string, text: string, multi: boolean) => {
+    setOther((before) => ({ ...before, [itemId]: text }));
+    if (!multi && text.trim()) setPicks((before) => ({ ...before, [itemId]: [] }));
+  };
+  const submit = () => {
+    if (busy || !ready) return;
+    let sent: QuestionReply;
+    try {
+      sent = questionReply(question, {
+        selections: Object.fromEntries(
+          question.items.map((item) => {
+            const chosen = picks[item.id] ?? [];
+            // Option ids in the order the item lists them (question/model.ts `Selection`).
+            const ordered = item.options.map((option) => option.id).filter((id) => chosen.includes(id));
+            return [item.id, selection(ordered, item.allowsOther ? other[item.id] : undefined)];
+          }),
+        ),
+      });
+    } catch {
+      setFailed(true);
+      return;
+    }
+    setBusy(true);
+    setFailed(false);
+    send(sent).then(onSent, () => {
+      setBusy(false);
+      setFailed(true);
+      onRefused();
+    });
+  };
+  return (
+    <form
+      className="acpmux-needs-you-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
+      {question.items.map((item) => (
+        <fieldset key={item.id} className="acpmux-needs-you-form-item" disabled={busy}>
+          <legend className="acpmux-needs-you-form-prompt">{item.prompt}</legend>
+          {item.options.map((option) => (
+            <label key={option.id} className="acpmux-needs-you-form-option">
+              <input
+                type={item.multiSelect ? "checkbox" : "radio"}
+                name={`${question.id}:${item.id}`}
+                aria-label={option.label}
+                checked={picks[item.id]?.includes(option.id) ?? false}
+                onChange={() => pick(item.id, option.id, item.multiSelect)}
+              />
+              <span className="acpmux-needs-you-form-label">{option.label}</span>
+              {option.detail && <span className="acpmux-needs-you-form-detail">{option.detail}</span>}
+            </label>
+          ))}
+          {item.allowsOther && (
+            <input
+              className="acpmux-needs-you-side-field acpmux-needs-you-form-other"
+              value={other[item.id] ?? ""}
+              aria-label={t("needsYou.otherAnswer")}
+              placeholder={t("needsYou.otherAnswer")}
+              onChange={(event) => type(item.id, event.target.value, item.multiSelect)}
+            />
+          )}
+        </fieldset>
+      ))}
+      {failed && <p className="acpmux-needs-you-error">{t("needsYou.answerFailed")}</p>}
+      <button type="submit" className="acpmux-needs-you-side-send" disabled={busy || !ready} aria-busy={busy}>
+        {t("needsYou.submit")}
+      </button>
+    </form>
   );
 }
 
@@ -365,6 +624,13 @@ function SideQuestion({ item, ask, onAsked }: { item: NeedsYouItem; ask: NeedsYo
 }
 
 function Avatar({ item }: { item: NeedsYouItem }) {
+  // A marked tab is in a workspace, not a chat: the workspace glyph, by its title.
+  if (item.kind === "tab")
+    return (
+      <span className="acpmux-needs-you-avatar">
+        <Icon name="workspace" size={12} />
+      </span>
+    );
   if (item.who.chief)
     return (
       <img
@@ -381,28 +647,4 @@ function Avatar({ item }: { item: NeedsYouItem }) {
       <AgentMark agent={item.who.harness} size={14} reserve />
     </span>
   );
-}
-
-/// The ask's line: its own text, else what its kind says (a permission asks to allow, anything
-/// else for an answer).
-export function askText(item: NeedsYouItem, t: Translate): string {
-  if (item.kind === "held") return t("needsYou.held", { n: item.held ?? 1, peer: item.ask });
-  return item.ask || t(item.kind === "approval" ? "needsYou.waitingPermission" : "needsYou.waiting");
-}
-
-/// The side session's first prompt (`_acpmux/btw`): the ask, then the person's question, so the
-/// side session answers about this ask from the chat's conversation without the chat re-reading.
-export function sideQuestionPrompt(item: NeedsYouItem, question: string): string {
-  // l10n-allow: a prompt to the agent, never shown to the person
-  const lines = [
-    "I am about to answer an open ask from this chat and want to understand it first.",
-    `The ask (${item.kind}): ${item.ask || "waiting for my answer"}`,
-    ...(item.detail ? [`Details: ${item.detail}`] : []),
-    ...(item.question?.items[0]?.options.length
-      ? [`Choices: ${item.question.items[0].options.map((option) => option.label).join(" / ")}`]
-      : []),
-    `My question: ${question}`,
-    "Answer briefly from what this chat has done: what the agent is doing, why it asks, and what each answer would lead to.",
-  ];
-  return lines.join("\n");
 }

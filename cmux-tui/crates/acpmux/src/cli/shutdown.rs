@@ -67,12 +67,12 @@ fn preserve_restart_listener(status: &Value) -> Result<()> {
     let Some(listen) = status.get("listen").and_then(Value::as_str) else {
         return Ok(());
     };
-    // web_url appends the raw token after this exact prefix; do not decode
-    // it or split on '&', both of which would change a custom credential.
-    let token = status
-        .get("webUrl")
-        .and_then(Value::as_str)
-        .and_then(|url| url.split_once("?token=").map(|(_, token)| token));
+    // web_url appends the raw token after this exact prefix (`#token=`; an
+    // older daemon wrote `?token=`); do not decode it or split on '&', both
+    // of which would change a custom credential.
+    let token = status.get("webUrl").and_then(Value::as_str).and_then(|url| {
+        url.split_once("#token=").or_else(|| url.split_once("?token=")).map(|(_, token)| token)
+    });
     // Tagged/dev homes deliberately cannot claim the shared fixed port. A
     // restart cannot reapply that policy after stopping the explicit daemon,
     // so refuse before shutdown rather than silently moving the listener.
@@ -91,6 +91,13 @@ fn preserve_restart_listener(status: &Value) -> Result<()> {
             && websocket.token_rotated >= crate::daemon::TOKEN_ROTATION,
         "cannot restart with an unsaved --token override; the daemon is still running"
     );
+    // A network listen opted in with `--insecure-network-listen` lasts one run: the restarted
+    // daemon reads only config.json and would refuse the address, leaving no daemon. Refuse
+    // before stopping this one unless the saved opt-in covers it.
+    let bound: Vec<std::net::SocketAddr> = listen.parse().into_iter().collect();
+    crate::server::ws_auth::check_listen(listen, &bound, websocket.allow_insecure_network).map_err(
+        |e| e.context("cannot restart: the daemon runs with --insecure-network-listen, which a restart does not keep; the daemon is still running"),
+    )?;
     if websocket.listen == listen {
         return Ok(());
     }

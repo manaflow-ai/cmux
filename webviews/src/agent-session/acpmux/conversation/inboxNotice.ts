@@ -8,9 +8,29 @@
 // and a preview has them read back from its text. Notices next to each other draw as one group
 // (`mergeInboxNotices`), a thread named in two of them once.
 import type { AcpmuxRow } from "../model";
+import { withoutRelayEnvelope, withoutRelayHead } from "./relayEnvelope";
+import { bareSender, senderRecord, senderUnverified, type SenderRecord } from "./senderIdentity";
+import type { SentFrom } from "./sentFromHarness";
 
-/// One message of a thread, as the notice or `_acpmux/inbox_thread` gives it.
-export type InboxMessage = { promptId?: string; from: string; at?: number; text: string };
+/// Who sent a message, as acpmux records it (`sender`, prompt_provenance.rs
+/// `sender_record_with_auth`): the sending chat's id when acpmux proved it, and the name it gave
+/// (its label, never cut). A chip opens the sender by these, never by `from`, the line's display
+/// text (Leo, 2026-11-07: clicking a sender "just fundamentally doesn't load"). The record's
+/// verification and harness read as `unverified` and `harness` beside it.
+export type SenderRef = { session?: string; label?: string };
+
+/// One message of a thread, as the notice or `_acpmux/inbox_thread` gives it. `from` is the bare
+/// name (senderIdentity.ts); `unverified` when acpmux could not verify who sent it, `harness` the
+/// sender's family from its record.
+export type InboxMessage = {
+  promptId?: string;
+  from: string;
+  sender?: SenderRef;
+  at?: number;
+  text: string;
+  unverified?: true;
+  harness?: string;
+};
 
 /// One thread of a notice.
 export type InboxThread = {
@@ -22,6 +42,15 @@ export type InboxThread = {
   from: string[];
   /// The newest message's sender's session, when it is a chat here.
   fromSession?: string;
+  /// The newest message's sender, as acpmux recorded it (its label and session).
+  sender?: SenderRef;
+  /// The newest message's sender's harness family (`claude`, `codex`, ...), when acpmux bound it
+  /// (prompt_provenance.rs `fromHarness`; cmux#30247) or its sender record names it: its line draws
+  /// that harness's mark.
+  fromHarness?: string;
+  /// acpmux could not verify the newest message's sender (its record's `verification`, or an older
+  /// acpmux's suffix on its name): the line's subtle marker, never words in the name.
+  unverified?: true;
   /// The new messages the notice brought.
   count: number;
   /// The newest one's first line.
@@ -32,6 +61,9 @@ export type InboxThread = {
   promptIds: string[];
   /// The messages whole, oldest first, when the notice holds them.
   messages?: InboxMessage[];
+  /// Where each message says it came from, by its prompt id (`sender_claim`, sentFromHarness.ts):
+  /// a sender chip under it.
+  sentFrom?: Record<string, SentFrom>;
 };
 
 export type InboxNotice = { threads: InboxThread[] };
@@ -41,6 +73,16 @@ export type InboxNotice = { threads: InboxThread[] };
 export const inboxThreadKey = (rowId: string, threadId: string) => `${rowId}\u0000${threadId}`;
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
+/// The session and label of acpmux's sender record (senderIdentity.ts `senderRecord`).
+const senderRef = (record: SenderRecord | undefined): SenderRef | undefined =>
+  record?.session || record?.label
+    ? { ...(record.session && { session: record.session }), ...(record.label && { label: record.label }) }
+    : undefined;
+
+/// The key a sender's chat is asked for by: its session id, else the name it gave, else `from`.
+export const senderKey = (from: string, sender: SenderRef | undefined): string =>
+  sender?.session ?? sender?.label ?? from.trim();
+
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.trim() !== "") : [];
 
@@ -52,8 +94,10 @@ export function threadLabel(threadId: string): string {
   return pr ? `#${pr[1]}` : "";
 }
 
-/// The daemon's label without the quotes it puts around a topic for the agent.
-const shownLabel = (label: string, threadId: string): string => {
+/// The daemon's label without the quotes it puts around a topic for the agent, nor the unverified
+/// suffix an older acpmux put on a self-named sender's thread.
+const shownLabel = (written: string, threadId: string): string => {
+  const label = bareSender(written).name;
   const quoted = /^"([\s\S]*)"$/.exec(label);
   if (quoted) return quoted[1]!;
   return label === "messages" ? "" : label || threadLabel(threadId);
@@ -82,34 +126,56 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
     if (!threadId) continue;
     const promptIds = strings(p.promptIds);
     const count = typeof p.new === "number" && p.new > 0 ? p.new : Math.max(1, promptIds.length);
-    const messages = Array.isArray(p.messages)
-      ? p.messages.flatMap((m): InboxMessage[] => {
-          const r = m as Record<string, unknown> | null;
-          if (!r || typeof r.text !== "string") return [];
-          return [
-            {
-              from: text(r.from),
-              text: r.text,
-              ...(typeof r.promptId === "string" && { promptId: r.promptId }),
-              ...(typeof r.at === "number" && { at: r.at }),
-            },
-          ];
-        })
-      : undefined;
+    const messages = Array.isArray(p.messages) ? inboxMessages(p.messages) : undefined;
     const newest = messages?.at(-1)?.text;
+    const senders = strings(p.from).map(bareSender);
+    const record = senderRecord(p.sender);
+    const sender = senderRef(record);
+    const harness = text(p.fromHarness) || record?.harness || messages?.at(-1)?.harness;
+    const unverified =
+      senderUnverified(record, senders.at(-1)?.declared ?? false) || messages?.at(-1)?.unverified === true;
     threads.push({
       threadId,
       label: shownLabel(text(p.label), threadId),
-      from: strings(p.from),
+      from: [...new Set(senders.map((sender) => sender.name).filter(Boolean))],
       ...(text(p.fromSession) && { fromSession: text(p.fromSession) }),
+      ...(sender && { sender }),
+      ...(harness && { fromHarness: harness }),
+      ...(unverified && { unverified: true as const }),
       count,
-      preview: text(p.preview).trim() || previewFromText(notice, threadId) || firstLine(newest ?? ""),
+      preview:
+        withoutRelayHead(text(p.preview).trim()) ||
+        withoutRelayHead(previewFromText(notice, threadId)) ||
+        firstLine(newest ?? ""),
       blocker: p.blocker === true || previewLineBlocks(notice, threadId),
       promptIds,
       ...(messages?.length && { messages }),
     });
   }
   return threads.length ? { threads } : undefined;
+}
+
+/// A thread's messages as acpmux records them (a notice's `messages`, `_acpmux/inbox_thread`), each
+/// without the broker label it came in (relayEnvelope.ts): every one is another agent's.
+export function inboxMessages(records: unknown[]): InboxMessage[] {
+  return records.flatMap((m): InboxMessage[] => {
+    const r = m as Record<string, unknown> | null;
+    if (!r || typeof r.text !== "string") return [];
+    const name = bareSender(text(r.from));
+    const record = senderRecord(r.sender);
+    const sender = senderRef(record);
+    return [
+      {
+        from: name.name,
+        ...(sender && { sender }),
+        text: withoutRelayEnvelope(r.text),
+        ...(senderUnverified(record, name.declared) && { unverified: true as const }),
+        ...(record?.harness && { harness: record.harness }),
+        ...(typeof r.promptId === "string" && { promptId: r.promptId }),
+        ...(typeof r.at === "number" && { at: r.at }),
+      },
+    ];
+  });
 }
 
 /// Whether the notice's text tags a thread a blocker (one logged before `blocker` was a part).
@@ -158,6 +224,7 @@ export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice
       blocker: held.blocker || next.blocker,
       promptIds: [...held.promptIds, ...next.promptIds],
     };
+    if (held.sentFrom || next.sentFrom) joined.sentFrom = { ...held.sentFrom, ...next.sentFrom };
     // Whole only when both notices held their messages whole.
     delete joined.messages;
     if (held.messages && next.messages) joined.messages = [...held.messages, ...next.messages];

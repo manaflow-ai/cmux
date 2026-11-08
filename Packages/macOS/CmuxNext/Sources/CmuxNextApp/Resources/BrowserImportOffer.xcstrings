@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "browserImportOffer.syncStopped": {
+      "comment": "Toast when keeping cookies in sync stops because the source browser's cookies can no longer be read (its Keychain key was denied or its profile is gone). %@: the browser's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped keeping cookies in sync with %@: cmux could not read them. Import again to turn it back on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقّف إبقاء ملفات تعريف الارتباط متزامنة مع %@: تعذّر على cmux قراءتها. استورد مرة أخرى لإعادة تشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usklađivanje kolačića s %@ je zaustavljeno: cmux ih nije mogao pročitati. Uvezite ponovo da ga ponovo uključite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holder ikke længere cookies synkroniseret med %@: cmux kunne ikke læse dem. Importér igen for at slå det til igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookies werden nicht mehr mit %@ synchron gehalten: cmux konnte sie nicht lesen. Importiere erneut, um es wieder einzuschalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se dejó de sincronizar las cookies con %@: cmux no pudo leerlas. Vuelve a importar para activarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les cookies ne sont plus synchronisés avec %@ : cmux n’a pas pu les lire. Importez à nouveau pour le réactiver."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizzazione dei cookie con %@ interrotta: cmux non è riuscito a leggerli. Importa di nuovo per riattivarla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ との Cookie の同期を停止しました：cmux が読み取れませんでした。もう一度インポートすると再開します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានឈប់ធ្វើសមកាលកម្មខូគីជាមួយ %@៖ cmux មិនអាចអានវាបានទេ។ នាំចូលម្ដងទៀតដើម្បីបើកវាឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@와(과)의 쿠키 동기화를 중지했습니다. cmux가 쿠키를 읽을 수 없습니다. 다시 켜려면 다시 가져오세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slutter å holde informasjonskapsler synkronisert med %@: cmux kunne ikke lese dem. Importer på nytt for å slå det på igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymano synchronizację plików cookie z %@: cmux nie mógł ich odczytać. Zaimportuj ponownie, aby ją włączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sincronização de cookies com %@ parou: o cmux não conseguiu lê-los. Importe novamente para reativá-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синхронизация файлов cookie с %@ остановлена: cmux не смог их прочитать. Импортируйте снова, чтобы включить её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดซิงค์คุกกี้กับ %@ แล้ว: cmux อ่านคุกกี้ไม่ได้ นำเข้าอีกครั้งเพื่อเปิดใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çerezler artık %@ ile eşitlenmiyor: cmux onları okuyamadı. Yeniden açmak için tekrar içe aktarın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синхронізацію файлів cookie з %@ зупинено: cmux не зміг їх прочитати. Імпортуйте знову, щоб увімкнути її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã ngừng đồng bộ cookie với %@: cmux không đọc được chúng. Hãy nhập lại để bật lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止与 %@ 同步 Cookie：cmux 无法读取它们。再次导入即可重新开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止與 %@ 同步 Cookie：cmux 無法讀取它們。再次匯入即可重新開啟。"
+          }
+        }
+      }
+    },
     "browserImportOffer.turnedOff": {
       "comment": "Refusal shown when an Import from Browser action runs while browser.import.enabled is off.",
       "extractionState": "manual",
@@ -525,138 +657,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "從 %@ 匯入 Cookie"
-          }
-        }
-      }
-    },
-    "browserImportOffer.cookies.detail": {
-      "comment": "Cookie import banner in browser tabs: the line under the title.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stay signed in to your sites. Nothing leaves this Mac."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ابقَ مسجّل الدخول إلى مواقعك. لا شيء يغادر جهاز Mac هذا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ostanite prijavljeni na svoje stranice. Ništa ne napušta ovaj Mac."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forbliv logget ind på dine websteder. Intet forlader denne Mac."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bleib bei deinen Websites angemeldet. Nichts verlässt diesen Mac."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantén la sesión iniciada en tus sitios. Nada sale de este Mac."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restez connecté à vos sites. Rien ne quitte ce Mac."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resta connesso ai tuoi siti. Nulla lascia questo Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイトにサインインしたままにできます。データはこの Mac の外に出ません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បន្តចូលគណនីគេហទំព័ររបស់អ្នក។ គ្មានអ្វីចាកចេញពី Mac នេះទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이트에 로그인된 상태를 유지합니다. 이 Mac 밖으로 나가는 것은 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forbli logget på nettstedene dine. Ingenting forlater denne Macen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pozostań zalogowany w swoich witrynach. Nic nie opuszcza tego Maca."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continue conectado aos seus sites. Nada sai deste Mac."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оставайтесь в своих учётных записях на сайтах. Ничто не покидает этот Mac."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ลงชื่อเข้าใช้เว็บไซต์ของคุณต่อไป ไม่มีข้อมูลใดออกจาก Mac เครื่องนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sitelerinizde oturumunuz açık kalsın. Hiçbir şey bu Mac'ten çıkmaz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Залишайтеся в обліковому записі на своїх сайтах. Ніщо не залишає цей Mac."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Luôn đăng nhập vào các trang của bạn. Không có gì rời khỏi máy Mac này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保持网站的登录状态。所有数据都不会离开这台 Mac。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保持網站的登入狀態。所有資料都不會離開這台 Mac。"
           }
         }
       }

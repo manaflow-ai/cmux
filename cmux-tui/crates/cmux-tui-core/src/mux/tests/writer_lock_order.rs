@@ -199,3 +199,145 @@ fn settling_a_late_registry_receipt_does_not_relock_state() {
     );
     assert!(settled.load(Ordering::SeqCst), "the owed state update ran");
 }
+
+/// A rename's registry commit rides the journal writer batch. The request
+/// held the mux state lock across that receipt wait (up to the 30 s durable
+/// wait), so every state reader (list-workspaces, identify, terminal I/O
+/// placement) queued behind the disk. State must be free while it waits.
+#[test]
+fn a_rename_waiting_for_its_writer_receipt_does_not_hold_state() {
+    let (mux, root) = persistent_mux("rename-receipt");
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let workspace = mux.with_state(|state| state.workspaces[0].id);
+    mux.flush_terminal_journal().unwrap();
+    let (entered, entered_receiver) = sync_channel(1);
+    let (release, release_receiver) = sync_channel(1);
+    mux.install_journal_before_commit_for_test(entered, release_receiver);
+
+    let renaming_mux = mux.clone();
+    let renamer = std::thread::spawn(move || {
+        renaming_mux.rename_workspace_at_revision(workspace, "renamed under load".into(), None)
+    });
+    // The writer is paused inside a batch, and the rename (registry held)
+    // waits for the receipt of the batch that carries it.
+    entered_receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while mux.workspace_registry.try_lock().is_ok() {
+        assert!(Instant::now() < deadline, "the rename never took the registry");
+        std::thread::yield_now();
+    }
+    std::thread::sleep(Duration::from_millis(50));
+    let old_name = mux.with_state(|state| state.workspaces[0].name.clone());
+    let mut state_free = false;
+    let mut names_seen_while_waiting = Vec::new();
+    for _ in 0..20 {
+        if let Ok(state) = mux.state.try_lock() {
+            state_free = true;
+            names_seen_while_waiting.push(state.workspaces[0].name.clone());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!renamer.is_finished(), "the rename replied before its commit was durable");
+    release.send(()).unwrap();
+    let renamed = renamer.join().unwrap();
+    // Other readers may see the old name only while the rename waits for
+    // durability; the rename's own reply comes after the new name is in
+    // state, so a caller that renames and then lists sees the new name.
+    assert!(
+        names_seen_while_waiting.iter().all(|name| *name == old_name),
+        "readers saw a name the journal had not made durable: {names_seen_while_waiting:?}"
+    );
+
+    assert!(
+        state_free,
+        "a request that waits for its journal writer receipt must not hold the state lock"
+    );
+    assert!(renamed.unwrap().is_some(), "the rename committed");
+    assert_eq!(
+        mux.with_state(|state| state.workspaces[0].name.clone()),
+        "renamed under load",
+        "the committed name is in state after the receipt"
+    );
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A request that finds an earlier commit still unanswered waits for its
+/// answer before it builds on it (cx-g1fa.3). It waited with the registry
+/// connection pinned: the journal writer needs that connection to commit
+/// and answer, so the wait could only run out (2 s) and fail the request.
+/// The connection must stay free while a request waits for that answer.
+#[test]
+fn waiting_for_an_earlier_indeterminate_commit_leaves_the_connection_free() {
+    let mux = test_mux();
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let workspace = mux.with_state(|state| state.workspaces[0].id);
+    let (answer, pending) = crate::journal_ingress::PendingRegistryReceipt::for_test();
+    mux.workspace_registry.lock().unwrap().connection.hold_unsettled_for_test(pending, None);
+
+    let renaming_mux = mux.clone();
+    let renamer = std::thread::spawn(move || {
+        renaming_mux.rename_workspace_at_revision(workspace, "after the late answer".into(), None)
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while mux.workspace_registry.try_lock().is_ok() {
+        assert!(Instant::now() < deadline, "the rename never took the registry");
+        std::thread::yield_now();
+    }
+    // The rename is now waiting for the unanswered commit (2 s bound).
+    std::thread::sleep(Duration::from_millis(100));
+    let mut connection_free = true;
+    for _ in 0..20 {
+        connection_free &= mux.registry_connection.try_get().is_some();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    answer
+        .send(Ok(crate::workspace_registry::RegistryReceipt::Terminal(
+            crate::workspace_registry::TerminalRegistryCommit {
+                revision: 1,
+                result: serde_json::json!({}),
+                replayed: false,
+            },
+        )))
+        .unwrap();
+    let renamed = renamer.join().unwrap();
+
+    assert!(
+        connection_free,
+        "a request waiting for an earlier commit's answer must not hold the registry \
+         connection: the journal writer needs it to answer"
+    );
+    assert!(renamed.unwrap().is_some(), "the rename committed after the late answer");
+}
+
+/// A pinned request settles the late answers that arrived when it pinned.
+/// An answer that arrives after that settle (the writer drops the
+/// connection, then sends its receipts) is not in the request's state: a
+/// prepare that builds on it would write over the late commit (a late
+/// rename is lost). The pinned prepare must refuse; the next pin settles it.
+#[test]
+fn a_pinned_prepare_refuses_a_commit_that_landed_after_its_settle() {
+    let mux = test_mux();
+    let registry = mux.workspace_registry.lock().unwrap();
+    let (answer, pending) = crate::journal_ingress::PendingRegistryReceipt::for_test();
+    registry.connection.hold_unsettled_for_test(pending, None);
+    let state = mux.lock_state_pinned(&registry).unwrap();
+    answer
+        .send(Ok(crate::workspace_registry::RegistryReceipt::Terminal(
+            crate::workspace_registry::TerminalRegistryCommit {
+                revision: 1,
+                result: serde_json::json!({}),
+                replayed: false,
+            },
+        )))
+        .unwrap();
+    let refused = registry.connection.drain_unsettled();
+    drop(state);
+    assert!(refused.is_err(), "a pinned prepare built on a commit its state does not hold");
+
+    let state = mux.lock_state_pinned(&registry).unwrap();
+    let settled = registry.connection.drain_unsettled();
+    drop(state);
+    drop(registry);
+    assert!(settled.is_ok(), "the next pin settles the late answer: {settled:?}");
+}

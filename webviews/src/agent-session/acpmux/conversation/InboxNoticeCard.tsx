@@ -8,30 +8,39 @@
 // (`_acpmux/inbox_thread`, through `chat.inbox.thread`) when the line first opens, without marking
 // them read (the person reading is not the agent). Nothing of the notice's text for the agent shows.
 // Two or more threads (a notice of several, or notices next to each other, mergeInboxNotices) draw
-// as one group in the look of the waiting messages' group (PendingMessagesCard.tsx): one line, "N
-// messages from M sessions" and the senders muted, that opens to the threads' lines; the versions
+// as one group: one line, "N messages from M sessions" and the senders muted, a sibling of the tool rows (the tool row's box, its
+// glyph the sender's mark in their icon column), that opens to the threads' lines; the versions
 // beside it are inboxNoticeLook.ts's. Whether a line or the group is open lasts while the page does
 // (incomingOpened.ts), and the row estimator (model.ts) reads it. Everything opens on the click,
 // with no fade in.
-import { useContext, useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
-import { Icon } from "../icons/Icon";
-import { rowIconSize } from "../icons/iconSize";
-import { DisclosureRow } from "../subagents/DisclosureRow";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
-import { FindReveal } from "./chatFind";
-import { SenderName } from "./IncomingMessageCard";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { FindReveal, foldFind } from "./chatFind";
+import { ReceivedMark, SenderChip } from "./IncomingMessageCard";
+import { AgentMessageRow } from "./AgentMessageRow";
+import { messagePreview } from "./agentMessageRowModel";
+import { MessageGroupHead } from "./MessageGroupHead";
+import { groupSender } from "./messageGroupHeadModel";
+import { messageOpened, setDigestOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
-import { inboxCounts, inboxThreadKey, type InboxMessage, type InboxNotice, type InboxThread } from "./inboxNotice";
-import { useInboxNoticeLook } from "./inboxNoticeLook";
+import {
+  inboxCounts,
+  inboxThreadKey,
+  senderKey,
+  type InboxMessage,
+  type InboxNotice,
+  type InboxThread,
+} from "./inboxNotice";
+import { foldsThreads, useInboxNoticeLook } from "./inboxNoticeLook";
 import { Markdown } from "./Markdown";
-import "./PendingMessagesCard.css";
+import { inboxHover } from "./MessageGroupHover";
+import { withoutRelayEnvelope } from "./relayEnvelope";
+import { bareSender } from "./senderIdentity";
+import { SentFromLine } from "./SentFromLine";
 import "./InboxNoticeCard.css";
-
-const ROW_ICON = rowIconSize(12);
 
 /// Reads a thread's messages, oldest first (App.tsx `readInboxThread`, `chat.inbox.thread`).
 export type ReadInboxThread = (threadId: string) => Promise<InboxMessage[]>;
@@ -39,6 +48,13 @@ export type ReadInboxThread = (threadId: string) => Promise<InboxMessage[]>;
 /// The sender a thread's line names: the newest message's.
 function newestSender(thread: InboxThread): string {
   return thread.messages?.at(-1)?.from || thread.from.at(-1) || "";
+}
+
+/// The key the newest sender's chat is asked for by (`senderKey`), when acpmux recorded who sent it.
+function newestLookup(thread: InboxThread): string | undefined {
+  const newest = thread.messages?.at(-1);
+  const sender = newest ? newest.sender : thread.sender;
+  return sender && senderKey(newestSender(thread), sender);
 }
 
 /// One thread's received line, and its messages under it once opened.
@@ -49,6 +65,7 @@ function InboxThreadLine({
   onOpen,
   readThread,
   githubRepository,
+  actions,
 }: {
   rowId: string;
   thread: InboxThread;
@@ -56,6 +73,7 @@ function InboxThreadLine({
   onOpen(sessionId: string): void;
   readThread?: ReadInboxThread;
   githubRepository?: string;
+  actions?: ReactNode;
 }) {
   const t = useT();
   const session = useContext(PromptMarksSession);
@@ -72,15 +90,29 @@ function InboxThreadLine({
   const [read, setRead] = useState<{ for: string; messages?: InboxMessage[] }>();
   const fetched = read?.for === readFor ? read : undefined;
   const messages = own ?? fetched?.messages;
+  // A line whose preview holds none of the message (an older acpmux cut a relayed message's preview
+  // inside the broker's label: inboxNotice.ts) reads its messages as it draws, so its line says what
+  // was sent; any other reads them when the person opens it.
+  const wanted = open || !thread.preview;
   useEffect(() => {
-    if (!open || own || fetched || !readThread) return;
+    if (!wanted || own || fetched || !readThread) return;
     let live = true;
     readThread(thread.threadId).then(
       (all) => {
         if (!live) return;
         const ids = new Set(thread.promptIds);
         const mine = all.filter((m) => m.promptId !== undefined && ids.has(m.promptId));
-        const shown = mine.length ? mine : all.slice(-thread.count);
+        // Whatever the reader hands back (the native `chat.inbox.thread` passes acpmux's records
+        // through) draws without the broker's label or an older acpmux's suffix on the name.
+        const shown = (mine.length ? mine : all.slice(-thread.count)).map((m) => {
+          const from = bareSender(m.from);
+          return {
+            ...m,
+            from: from.name,
+            text: withoutRelayEnvelope(m.text),
+            ...(from.declared && m.unverified === undefined && { unverified: true as const }),
+          };
+        });
         // Nothing read keeps the preview, and is not asked for again until new messages come.
         setRead({ for: readFor, ...(shown.length > 0 && { messages: shown }) });
       },
@@ -91,18 +123,31 @@ function InboxThreadLine({
     return () => {
       live = false;
     };
-  }, [open, own, fetched, readFor, readThread, thread]);
+  }, [wanted, own, fetched, readFor, readThread, thread]);
   const name = newestSender(thread);
+  const lookup = newestLookup(thread);
+  const newest = messages?.at(-1);
+  // Its session: the thread's, else its sender record's (an acpmux that names the sender's session
+  // only there), so the name resolves and opens its chat.
+  const senderSession = thread.fromSession ?? newest?.sender?.session ?? thread.sender?.session;
   const sender = useMemo<IncomingMessage>(
-    () => ({ name, text: "", raw: "", ...(thread.fromSession && { sessionId: thread.fromSession }) }),
-    [name, thread.fromSession],
+    () => ({
+      name,
+      ...(lookup && { lookup }),
+      text: "",
+      raw: "",
+      ...(senderSession && { sessionId: senderSession }),
+      ...((thread.fromHarness ?? newest?.harness) && { harness: thread.fromHarness ?? newest?.harness }),
+      ...((thread.unverified || newest?.unverified) && { unverified: true as const }),
+    }),
+    [name, lookup, senderSession, thread.fromHarness, thread.unverified, newest?.harness, newest?.unverified],
   );
   const whole = messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
   const repository = githubRepository ?? mentionedRepository(whole);
   // Find opens the line that holds the match (the row's text is every thread's messages).
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === rowId ? reveal.needle : "";
-  const holds = Boolean(needle && whole.toLocaleLowerCase().includes(needle));
+  const holds = Boolean(needle && foldFind(whole).includes(needle));
   useLayoutEffect(() => {
     if (!holds || open) return;
     show(true);
@@ -111,46 +156,73 @@ function InboxThreadLine({
   }, [holds, reveal]);
   // Several messages each say who sent them; one alone is under its sender's line already.
   const heads = (messages?.length ?? 0) > 1;
+  // The newest message's first line: the notice's preview, else the message once read.
+  const preview = thread.preview || (newest ? messagePreview(newest.text) : "");
+  // The one message row (AgentMessageRow.tsx), as a received message draws: the sender's name after
+  // its family's mark, the thread's label and "+N more" after the name, then the first
+  // line; opened, the thread's messages whole in the card (Leo, 2026-11-07: "why can't I see the
+  // full excerpt of its message?").
   return (
-    <DisclosureRow
+    <AgentMessageRow
+      direction="received"
+      keepsPreviewOpen
       className="cv-received cv-inbox__thread"
-      open={open}
-      onOpenChange={show}
-      fadeIn={false}
-      leading={<SenderName message={sender} onOpen={onOpen} />}
-      toggleLabel={t("message.collapsedLabel", { from: name, preview: thread.preview || t("message.noText") })}
-      label={
+      // Find counts the thread's messages, never the line that sums them up (IncomingMessageCard.tsx).
+      lineAttributes={{ "data-find-skip": "" }}
+      icon={<ReceivedMark message={sender} />}
+      // The sender named once, first, as every received line reads (cmux#25002, #32711): the
+      // family mark before it says which way the message went.
+      sentence={"\u0000"}
+      previewClassName="cv-received__preview"
+      name={name}
+      nameSlot={<SenderChip message={sender} onOpen={onOpen} />}
+      unverified={sender.unverified === true}
+      detail={
         <>
-          {thread.label && <span className="cv-inbox__label">{thread.label}</span>}
-          <span className="cv-received__preview" data-find-skip="">
-            {thread.preview || t("message.noText")}
-          </span>
+          {/* A thread keyed by its sender (`declared:NAME`) is labeled with that name: said once. */}
+          {thread.label && thread.label !== name && <span className="cv-inbox__label">{thread.label}</span>}
           {thread.count > 1 && <span className="cv-inbox__more">{t("tools.more", { n: thread.count - 1 })}</span>}
         </>
       }
-    >
-      <CardCopy text={whole} />
-      <div className="cv-received__text selectable">
-        {messages ? (
-          messages.map((message, index) => (
-            <section key={message.promptId ?? index} className="cv-inbox__message">
-              {heads && message.from && (
-                <div className="cv-inbox__from" data-find-skip="">
-                  {message.from}
-                </div>
-              )}
-              <Markdown githubRepository={repository} commits="quiet" messageAt={message.at ?? messageAt}>
-                {message.text}
-              </Markdown>
-            </section>
-          ))
-        ) : (
-          <Markdown githubRepository={repository} commits="quiet" messageAt={messageAt}>
-            {thread.preview || t("message.noText")}
-          </Markdown>
-        )}
-      </div>
-    </DisclosureRow>
+      preview={preview}
+      label={t("message.collapsedLabel", { from: name, preview: preview || t("message.noText") })}
+      open={open}
+      onToggle={() => show(!open)}
+      actions={actions}
+      body={
+        <>
+          <CardCopy text={whole} />
+          <div className="cv-received__text selectable">
+            {messages ? (
+              messages.map((message, index) => (
+                <section key={message.promptId ?? index} className="cv-inbox__message">
+                  {heads && message.from && (
+                    <div className="cv-inbox__from" data-find-skip="">
+                      {message.from}
+                    </div>
+                  )}
+                  <Markdown githubRepository={repository} commits="quiet" messageAt={message.at ?? messageAt}>
+                    {message.text}
+                  </Markdown>
+                  {message.promptId && thread.sentFrom?.[message.promptId] && (
+                    <SentFromLine from={thread.sentFrom[message.promptId]!} />
+                  )}
+                </section>
+              ))
+            ) : thread.preview ? (
+              <>
+                <Markdown githubRepository={repository} commits="quiet" messageAt={messageAt}>
+                  {thread.preview}
+                </Markdown>
+                {thread.promptIds.length === 1 && thread.sentFrom?.[thread.promptIds[0]!] && (
+                  <SentFromLine from={thread.sentFrom[thread.promptIds[0]!]!} />
+                )}
+              </>
+            ) : null}
+          </div>
+        </>
+      }
+    />
   );
 }
 
@@ -161,6 +233,7 @@ export function InboxNoticeCard({
   onOpen,
   readThread,
   githubRepository,
+  actions,
 }: {
   /// The row's id, which keeps its lines and its group open across remounts.
   rowId: string;
@@ -170,6 +243,7 @@ export function InboxNoticeCard({
   onOpen(sessionId: string): void;
   readThread?: ReadInboxThread;
   githubRepository?: string;
+  actions?: ReactNode;
 }) {
   const t = useT();
   const look = useInboxNoticeLook();
@@ -180,7 +254,7 @@ export function InboxNoticeCard({
     setOpen(next);
   };
   const bodyId = useId();
-  const grouped = notice.threads.length > 1 && look === "group";
+  const grouped = notice.threads.length > 1 && foldsThreads(look);
   // Find opens the group for a match in one of its threads; the thread's line opens itself.
   const reveal = useContext(FindReveal);
   const holdsMatch = grouped && Boolean(reveal && reveal.rowId === rowId);
@@ -199,6 +273,7 @@ export function InboxNoticeCard({
       onOpen={onOpen}
       readThread={readThread}
       githubRepository={githubRepository}
+      actions={actions}
     />
   ));
   if (!grouped) {
@@ -210,27 +285,47 @@ export function InboxNoticeCard({
     senders.length === 1
       ? t("message.waitingFromOne", { n: messages })
       : t("message.waitingFrom", { n: messages, sessions: senders.length });
+  // One sender: its mark, from its newest thread (its session and bound harness); several, even
+  // under one name (two sessions, or two harnesses: cmux#30821), the messages glyph.
+  const lead =
+    senders.length === 1
+      ? groupSender(
+          notice.threads.map((thread) => ({
+            name: newestSender(thread) || senders[0]!,
+            ...(newestLookup(thread) && { lookup: newestLookup(thread) }),
+            text: "",
+            raw: "",
+            ...((thread.fromSession ?? thread.sender?.session) && {
+              sessionId: thread.fromSession ?? thread.sender?.session,
+            }),
+            ...(thread.fromHarness && { harness: thread.fromHarness }),
+          })),
+        )
+      : undefined;
   return (
-    <div className="cv-pending cv-inbox" data-open={open || undefined}>
+    <div className="cv-inbox cv-inbox--group" data-look={look} data-open={open || undefined}>
       {/* Find counts the messages' words, not the head's names. */}
-      <div className="cv-pending__line" data-find-skip="">
-        <button
-          type="button"
-          className="cv-pending__toggle"
-          aria-expanded={open}
-          aria-controls={open ? bodyId : undefined}
-          title={senders.join(", ")}
-          onClick={() => show(!open)}
-        >
-          <span className="cv-pending__icon">
-            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
-          </span>
-          <span className="cv-pending__count">{count}</span>
-          <span className="cv-pending__senders">{senders.join(", ")}</span>
-        </button>
-      </div>
+      <MessageGroupHead
+        sender={lead && { ...lead, name: senders[0]! }}
+        count={count}
+        senders={senders.join(", ")}
+        open={open}
+        bodyId={bodyId}
+        onToggle={() => {
+          // The head opens the group with every thread's messages open (incomingOpened.ts).
+          setDigestOpened(
+            session,
+            rowId,
+            notice.threads.map((thread) => inboxThreadKey(rowId, thread.threadId)),
+            !open,
+          );
+          setOpen(!open);
+        }}
+        className="cv-inbox__head"
+        messages={inboxHover(notice.threads)}
+      />
       {open && (
-        <div id={bodyId} className="cv-pending__body">
+        <div id={bodyId} className="cv-inbox__body">
           {lines}
         </div>
       )}

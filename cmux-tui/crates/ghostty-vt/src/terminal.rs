@@ -28,6 +28,8 @@ use vt_boundary::*;
 
 mod replay_rows;
 
+mod settled_replay;
+
 mod color_override;
 use color_override::*;
 
@@ -50,6 +52,10 @@ pub use clipboard_read::{
 
 mod callbacks;
 pub use callbacks::{Callbacks, NotifyFn, PtyWriteFn};
+
+mod active_text;
+
+mod logical_text;
 
 mod clear_history;
 
@@ -203,6 +209,15 @@ pub struct VtReplay {
     /// and after anything the consumer appends, immediately before the live
     /// stream that completes it.
     pub pending_sequence: Vec<u8>,
+}
+
+/// A replay that keeps only the newest rows of the history
+/// ([`Terminal::vt_replay_tail_theme_portable_with_aliases`]).
+#[derive(Debug, Clone)]
+pub struct VtReplayTail {
+    pub replay: VtReplay,
+    /// Rows of history older than the replay's first row, left out.
+    pub history_rows_omitted: u64,
 }
 
 impl VtReplay {
@@ -377,6 +392,9 @@ pub struct Terminal {
     /// Stable primary-screen row markers (`terminal.history`).
     history_markers: history::HistoryMarkers,
     empty_kitty_probe_filter: EmptyKittyProbeFilter,
+    /// A resize may have put off a prompt clear the replay must show run
+    /// (`settled_replay`); false once a snapshot showed none waits.
+    prompt_clear_may_wait: bool,
 }
 
 enum PendingSequenceReplay<'a> {
@@ -480,6 +498,24 @@ impl Terminal {
             unsafe { sys::ghostty_terminal_free(raw) };
             return Err(error);
         }
+        // A resize's prompt clear (OSC 133 redraw=1) waits for the shell's
+        // next byte and runs only if the grid then differs from the grid
+        // the shell drew at. A bounce (34 -> 35 -> 34 columns) whose
+        // SIGWINCHes the shell reads as one keeps its prompt: zsh redraws
+        // nothing for an unchanged size, so an immediate clear left a new
+        // pane empty (close-then-type P0). The host and the daemon's
+        // mirror get the same bytes and resizes, so both stay the same.
+        let prompt_clear_waits = true;
+        if let Err(error) = check(unsafe {
+            sys::ghostty_terminal_set(
+                raw,
+                sys::GHOSTTY_TERMINAL_OPT_PROMPT_REDRAW_WAITS_FOR_SHELL,
+                (&prompt_clear_waits as *const bool).cast(),
+            )
+        }) {
+            unsafe { sys::ghostty_terminal_free(raw) };
+            return Err(error);
+        }
 
         let mut term = Terminal {
             raw,
@@ -503,6 +539,7 @@ impl Terminal {
             c1_normalizer: C1Normalizer::default(),
             history_markers: Default::default(),
             empty_kitty_probe_filter: EmptyKittyProbeFilter,
+            prompt_clear_may_wait: false,
         };
         // SAFETY: `hooks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
@@ -1033,6 +1070,7 @@ impl Terminal {
             cell_height: cell_height_px,
         };
         if reflows {
+            self.prompt_clear_may_wait = true;
             self.bump_history_epoch();
             self.reset_history_anchor();
             self.history_markers_reflowed();
@@ -2007,6 +2045,20 @@ impl Terminal {
         self.vt_replay_bounded_with_palette(max_bytes, true)
     }
 
+    /// Tests: [`Self::vt_replay_bounded_with_palette`] with the second text
+    /// layout always run, as before the one-pass reuse, as the reference.
+    #[cfg(test)]
+    pub(crate) fn vt_replay_bounded_two_pass_for_test(
+        &mut self,
+        max_bytes: usize,
+        include_palette: bool,
+    ) -> Result<VtReplay> {
+        FORCE_TWO_PASS.with(|force| force.set(true));
+        let replay = self.vt_replay_bounded_with_palette(max_bytes, include_palette);
+        FORCE_TWO_PASS.with(|force| force.set(false));
+        replay
+    }
+
     /// Theme-portable replay for process-separated renderers.
     ///
     /// This reproduces cells, styles, modes, cursor, history, and Kitty
@@ -2028,6 +2080,21 @@ impl Terminal {
         max_bytes: usize,
     ) -> Result<VtReplay> {
         self.vt_replay_bounded_with_palette(max_bytes, false)
+    }
+
+    /// [`Self::vt_replay_bounded_theme_portable_with_aliases`] that keeps at
+    /// most `max_history_rows` rows of scrollback above the active area: the
+    /// latest screen first, for a viewer that fetches older rows later. The
+    /// active area itself always comes whole, and so do the rows of the
+    /// visible Kitty images' anchors.
+    /// `history_rows_omitted` says how many older rows were left out (0: the
+    /// replay holds the whole history).
+    pub fn vt_replay_tail_theme_portable_with_aliases(
+        &mut self,
+        max_bytes: usize,
+        max_history_rows: u64,
+    ) -> Result<VtReplayTail> {
+        self.vt_replay_bounded_tail(max_bytes, false, Some(max_history_rows))
     }
 
     /// Bytes appended after the formatted replay for state Ghostty's VT
@@ -2094,6 +2161,15 @@ impl Terminal {
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<VtReplay> {
+        self.vt_replay_bounded_tail(max_bytes, include_palette, None).map(|tail| tail.replay)
+    }
+
+    fn vt_replay_bounded_tail(
+        &mut self,
+        max_bytes: usize,
+        include_palette: bool,
+        max_history_rows: Option<u64>,
+    ) -> Result<VtReplayTail> {
         let (inflight, pending) = self.replay_inflight_and_pending(max_bytes)?;
         let state_suffix = self.replay_state_suffix();
         let remaining = max_bytes
@@ -2113,22 +2189,44 @@ impl Terminal {
             let visible_start = catalog.visible_anchor_start().unwrap_or(viewport_start);
             viewport_start.min(visible_start)
         });
-        let active_text = self.vt_replay_text_layout_bounded(
-            remaining,
-            catalog.placement_rows(),
-            active_start,
-            include_palette,
-        )?;
+        // While a resize's prompt clear waits for the shell, the text comes
+        // from a copy that has run it, so a byte mirror matches this
+        // terminal after the shell's redraw (`settled_replay`).
+        let settled = self.settled_prompt_copy();
+        let active_text = self.with_replay_grid(settled.as_ref(), |term| {
+            term.vt_replay_text_layout_bounded(
+                remaining,
+                catalog.placement_rows(),
+                active_start,
+                include_palette,
+                max_history_rows,
+            )
+        })?;
         let visible_cost =
             active_text.range.map(|range| catalog.visible_cost(range, remaining)).unwrap_or(0);
 
         let text_budget = remaining.saturating_sub(visible_cost);
-        let text = self.vt_replay_text_layout_bounded(
-            text_budget,
-            catalog.placement_rows(),
-            active_start,
-            include_palette,
-        )?;
+        // With no visible image to make room for, the budget is the one the
+        // text was just laid out with, and the layout (a read of the screen
+        // with the same arguments) is the same: no second formatter pass.
+        #[cfg(test)]
+        let reuse = text_budget == remaining && !FORCE_TWO_PASS.with(std::cell::Cell::get);
+        #[cfg(not(test))]
+        let reuse = text_budget == remaining;
+        let text = if reuse {
+            active_text
+        } else {
+            self.with_replay_grid(settled.as_ref(), |term| {
+                term.vt_replay_text_layout_bounded(
+                    text_budget,
+                    catalog.placement_rows(),
+                    active_start,
+                    include_palette,
+                    max_history_rows,
+                )
+            })?
+        };
+        let history_rows_omitted = text.range.map_or(0, |range| range.start);
         let graphics_budget = remaining.saturating_sub(text.bytes.len());
         let graphics = catalog.plan(text.range, graphics_budget, false);
         let reset_before_images = text.range.is_none();
@@ -2158,12 +2256,13 @@ impl Terminal {
         bytes.extend_from_slice(&state_suffix);
         let replay_cursor_offset = u32::try_from(bytes.len()).map_err(|_| Error::OutOfSpace)?;
         bytes.extend_from_slice(&inflight);
-        Ok(VtReplay {
+        let replay = VtReplay {
             bytes,
             kitty_image_aliases: graphics.aliases,
             kitty_state: self.kitty_replay_state(replay_cursor_offset)?,
             pending_sequence: pending,
-        })
+        };
+        Ok(VtReplayTail { replay, history_rows_omitted })
     }
 
     /// Bounded byte-only compatibility replay. This discards Kitty aliases.
@@ -2177,7 +2276,10 @@ impl Terminal {
         placement_rows: &KittyReplayRowIndex,
         minimum_start: Option<u64>,
         include_palette: bool,
+        max_history_rows: Option<u64>,
     ) -> Result<ReplayText> {
+        #[cfg(test)]
+        REPLAY_TEXT_LAYOUTS.with(|count| count.set(count.get() + 1));
         let Some(scrollbar) = self.scrollbar() else {
             return Ok(ReplayText::minimal(max_bytes));
         };
@@ -2190,10 +2292,17 @@ impl Terminal {
             .unwrap_or_else(|| scrollbar.total.saturating_sub(screen_rows))
             .min(scrollbar.total - 1);
         let minimum_rows = scrollbar.total.saturating_sub(minimum_start).max(screen_rows);
+        // The newest rows a tail replay may hold: the screen and its history
+        // allowance, never fewer than the rows that must come whole.
+        let limit = max_history_rows
+            .map_or(scrollbar.total, |history| {
+                screen_rows.saturating_add(history).max(minimum_rows)
+            })
+            .min(scrollbar.total);
         let mut tail_rows =
             vt_replay_row_window(scrollbar.total, screen_rows, self.cols(), max_bytes)
                 .max(minimum_rows)
-                .min(scrollbar.total);
+                .min(limit);
         let mut best = None;
         let mut failed_start = None;
 
@@ -2208,7 +2317,7 @@ impl Terminal {
                 max_bytes,
                 include_palette,
             )? {
-                if tail_rows == scrollbar.total {
+                if tail_rows == limit {
                     return Ok(replay);
                 }
                 if let Some(failed_start) = failed_start {
@@ -2221,7 +2330,7 @@ impl Terminal {
                     );
                 }
                 best = Some(replay);
-                let next = tail_rows.saturating_mul(2).min(scrollbar.total);
+                let next = tail_rows.saturating_mul(2).min(limit);
                 if next == tail_rows {
                     break;
                 }
@@ -3122,6 +3231,22 @@ impl Drop for Terminal {
         }
     }
 }
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: text layouts (formatter passes) since the thread started.
+    static REPLAY_TEXT_LAYOUTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Tests: lay the text out twice, as before the reuse.
+    static FORCE_TWO_PASS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+#[path = "replay_layout_tests.rs"]
+mod replay_layout_tests;
+
+#[cfg(test)]
+#[path = "prompt_clear_tests.rs"]
+mod prompt_clear_tests;
 
 #[path = "terminal_history.rs"]
 mod history;

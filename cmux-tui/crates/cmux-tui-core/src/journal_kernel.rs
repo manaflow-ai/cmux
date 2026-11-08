@@ -13,8 +13,15 @@ use crate::{
     SessionJournalRecord,
 };
 
+/// The live ring keeps the newest records decoded for the subscribers that
+/// keep up; a subscriber behind it pages from SQLite on a reader of its own
+/// (`SharedJournalRead::Gap`), as Chrome keeps bounded in-memory history
+/// and pages the rest. Both bounds hold: at most this many records, and at
+/// most [`JOURNAL_FANOUT_BYTE_CAPACITY`] of resident bytes (the soak lead of
+/// 2026-10-28: agent turns' 8 KiB texts grew a 128 MiB-capped ring
+/// ~4.4 MB/h in a daemon that should stay small).
 const JOURNAL_FANOUT_CAPACITY: usize = 8192;
-const JOURNAL_FANOUT_BYTE_CAPACITY: usize = 128 * 1024 * 1024;
+const JOURNAL_FANOUT_BYTE_CAPACITY: usize = 4 * 1024 * 1024;
 const JOURNAL_READ_PAGE_SIZE: usize = 1024;
 
 /// One decoded journal record shared by every live subscriber.
@@ -188,6 +195,9 @@ pub(crate) enum SharedJournalRead {
 struct JournalFanoutState {
     epoch: u64,
     requested_epoch: u64,
+    /// The `requested_epoch` the tailer last read through and published: while it is behind,
+    /// a commit already acknowledged to its writer may be missing from the ring.
+    published_epoch: u64,
     shutdown_requested: bool,
     head_sequence: u64,
     records: VecDeque<Arc<JournalDocument>>,
@@ -197,12 +207,37 @@ struct JournalFanoutState {
     database_reader_count: u64,
 }
 
+/// Tests: the tailer's gate, closed while the flag is true.
+#[cfg(test)]
+type TailerGate = Arc<(Mutex<bool>, Condvar)>;
+
+/// Tests: releases the tailer held by [`JournalKernel::hold_tailer_for_test`] on drop.
+#[cfg(test)]
+pub(crate) struct TailerHold {
+    kernel: Arc<JournalKernel>,
+    hold: TailerGate,
+}
+
+#[cfg(test)]
+impl Drop for TailerHold {
+    fn drop(&mut self) {
+        *self.kernel.tailer_hold.lock().recover_poison() = None;
+        let (held, released) = &*self.hold;
+        *held.lock().recover_poison() = false;
+        released.notify_all();
+    }
+}
+
 /// Session-local journal runtime. It owns the only persistent live-tail
 /// SQLite reader and publishes a bounded ring of decoded records.
 pub(crate) struct JournalKernel {
     state: Mutex<JournalFanoutState>,
     changed: Condvar,
     tailer: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// Tests: while set, the tailer waits here before each read pass, so the ring trails the
+    /// writer's commits on purpose.
+    #[cfg(test)]
+    tailer_hold: Mutex<Option<TailerGate>>,
     enabled: bool,
     producers: RwLock<HashMap<String, Arc<CompiledJournalProducer>>>,
     /// The registry file, so a reader behind the ring opens its own
@@ -246,6 +281,7 @@ impl JournalKernel {
                 state: Mutex::new(JournalFanoutState {
                     epoch: 0,
                     requested_epoch: 0,
+                    published_epoch: 0,
                     shutdown_requested: false,
                     head_sequence: 0,
                     records: VecDeque::new(),
@@ -256,6 +292,8 @@ impl JournalKernel {
                 }),
                 changed: Condvar::new(),
                 tailer: Mutex::new(None),
+                #[cfg(test)]
+                tailer_hold: Mutex::new(None),
                 enabled: false,
                 producers: RwLock::new(producers),
                 database_path: None,
@@ -268,6 +306,7 @@ impl JournalKernel {
             state: Mutex::new(JournalFanoutState {
                 epoch: 0,
                 requested_epoch: 0,
+                published_epoch: 0,
                 shutdown_requested: false,
                 head_sequence,
                 records: VecDeque::new(),
@@ -278,6 +317,8 @@ impl JournalKernel {
             }),
             changed: Condvar::new(),
             tailer: Mutex::new(None),
+            #[cfg(test)]
+            tailer_hold: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(producers),
             database_path: Some(database_path),
@@ -320,6 +361,23 @@ impl JournalKernel {
         let mut state = self.state.lock().recover_poison();
         state.requested_epoch = state.requested_epoch.wrapping_add(1);
         self.changed.notify_all();
+    }
+
+    /// Whether the ring holds every commit acknowledged so far: false while the tailer has
+    /// not yet read through the last [`Self::notify_commit`]. A reader that must see a
+    /// commit its caller already saw acknowledged (`history.entries.list` after an agent
+    /// hook) reads the database instead of the ring until then.
+    pub(crate) fn ring_is_current(&self) -> bool {
+        let state = self.state.lock().recover_poison();
+        state.published_epoch == state.requested_epoch
+    }
+
+    /// Tests: hold the tailer before its next read pass until the returned guard drops.
+    #[cfg(test)]
+    pub(crate) fn hold_tailer_for_test(self: &Arc<Self>) -> TailerHold {
+        let hold = Arc::new((Mutex::new(true), Condvar::new()));
+        *self.tailer_hold.lock().recover_poison() = Some(hold.clone());
+        TailerHold { kernel: self.clone(), hold }
     }
 
     pub(crate) fn epoch(&self) -> u64 {
@@ -582,7 +640,17 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
                 state = kernel.changed.wait_timeout(state, remaining).recover_poison().0;
             }
         };
+        #[cfg(test)]
+        let hold = kernel.tailer_hold.lock().recover_poison().clone();
         drop(kernel);
+        #[cfg(test)]
+        if let Some(hold) = hold {
+            let (held, released) = &*hold;
+            let mut held = held.lock().recover_poison();
+            while *held {
+                held = released.wait(held).recover_poison();
+            }
+        }
         observed_request_epoch = requested_epoch;
 
         let mut appended = VecDeque::new();
@@ -622,15 +690,38 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
         state.available = !read_failed;
         if !read_failed {
             retry.reset();
-            for record in appended {
-                let state = &mut *state;
-                push_bounded_journal_document(&mut state.records, &mut state.record_bytes, record);
-            }
+            publish_journal_batch(&mut state, appended, last_sequence);
             last_sequence = candidate_sequence;
             state.head_sequence = candidate_sequence;
+            // Every commit requested before this pass's read is in the ring now.
+            state.published_epoch = requested_epoch;
         }
         state.epoch = state.epoch.wrapping_add(1);
         kernel.changed.notify_all();
+    }
+}
+
+/// Appends one tailer batch read after `last_sequence` to the live ring.
+/// The batch itself was bounded while it was read, so it may start past
+/// `last_sequence + 1` (a batch over the byte cap kept only its newest
+/// records): the ring then drops every older record first. The ring must
+/// stay contiguous, because `read_after` finds a sequence by its position;
+/// a reader behind the batch's first record then gets a `Gap` and pages
+/// from SQLite, instead of silently skipping the records the batch shed.
+fn publish_journal_batch(
+    state: &mut JournalFanoutState,
+    appended: VecDeque<Arc<JournalDocument>>,
+    last_sequence: u64,
+) {
+    if appended
+        .front()
+        .is_some_and(|first| first.record.sequence != last_sequence.saturating_add(1))
+    {
+        state.records.clear();
+        state.record_bytes = 0;
+    }
+    for record in appended {
+        push_bounded_journal_document(&mut state.records, &mut state.record_bytes, record);
     }
 }
 
@@ -649,6 +740,19 @@ fn push_bounded_journal_document(
         }
     }
 }
+
+impl JournalKernel {
+    /// Tests: the ring's records and their resident bytes.
+    #[cfg(test)]
+    pub(crate) fn ring_for_test(&self) -> (usize, usize) {
+        let state = self.state.lock().recover_poison();
+        (state.records.len(), state.record_bytes)
+    }
+}
+
+#[cfg(test)]
+#[path = "journal_kernel_ring_tests.rs"]
+mod ring_tests;
 
 #[cfg(test)]
 mod performance_tests {
@@ -777,6 +881,7 @@ mod performance_tests {
             state: Mutex::new(JournalFanoutState {
                 epoch: 7,
                 requested_epoch: 0,
+                published_epoch: 0,
                 shutdown_requested: false,
                 head_sequence: 0,
                 records: VecDeque::new(),
@@ -786,6 +891,8 @@ mod performance_tests {
             }),
             changed: Condvar::new(),
             tailer: Mutex::new(None),
+            #[cfg(test)]
+            tailer_hold: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
             database_path: None,
@@ -793,6 +900,77 @@ mod performance_tests {
         let observed = kernel.epoch();
         kernel.wake_waiters();
         assert_ne!(kernel.wait(observed, Duration::ZERO), observed);
+    }
+
+    /// A tailer batch over the byte cap keeps only its newest records; the
+    /// ring must not keep its older records beside them with a hole between
+    /// (a caught-up reader then skipped the shed records with no Gap; the
+    /// 4 MiB cap makes such a batch common). Several payload sizes, as the
+    /// hole depended on how many old records fit beside the batch.
+    #[test]
+    fn a_batch_trimmed_by_the_cap_leaves_no_hole_a_reader_could_skip() {
+        for padding in [16 * 1024, 40 * 1024, 60 * 1024, 87 * 1024] {
+            let kernel = JournalKernel {
+                state: Mutex::new(JournalFanoutState {
+                    epoch: 0,
+                    requested_epoch: 0,
+                    published_epoch: 0,
+                    shutdown_requested: false,
+                    head_sequence: 0,
+                    records: VecDeque::new(),
+                    record_bytes: 0,
+                    available: true,
+                    database_reader_count: 0,
+                }),
+                changed: Condvar::new(),
+                tailer: Mutex::new(None),
+                #[cfg(test)]
+                tailer_hold: Mutex::new(None),
+                enabled: true,
+                producers: RwLock::new(HashMap::new()),
+                database_path: None,
+            };
+            let big = |sequence: u64| {
+                let mut record = record(sequence);
+                record.payload = json!({"padding": "x".repeat(padding)});
+                Arc::new(JournalDocument::new(record))
+            };
+            {
+                let mut state = kernel.state.lock().unwrap();
+                // A caught-up ring: 1..=10, small records.
+                let first: VecDeque<_> = (1..=10)
+                    .map(|sequence| Arc::new(JournalDocument::new(record(sequence))))
+                    .collect();
+                publish_journal_batch(&mut state, first, 0);
+                state.head_sequence = 10;
+                // One batch 11..=200, read while the tailer was late, bounded
+                // as it was read.
+                let mut batch = VecDeque::new();
+                let mut batch_bytes = 0;
+                for sequence in 11..=200 {
+                    push_bounded_journal_document(&mut batch, &mut batch_bytes, big(sequence));
+                }
+                publish_journal_batch(&mut state, batch, 10);
+                state.head_sequence = 200;
+                let sequences: Vec<u64> =
+                    state.records.iter().map(|doc| doc.record.sequence).collect();
+                assert!(
+                    sequences.windows(2).all(|pair| pair[1] == pair[0] + 1),
+                    "padding {padding}: the ring has a hole: {sequences:?}"
+                );
+            }
+            // A reader caught up to 10 gets a Gap (it pages from SQLite), or
+            // a page that starts exactly at 11: never a later record.
+            match kernel.read_after(10, 4) {
+                SharedJournalRead::Gap { .. } => {}
+                SharedJournalRead::Page(page) => assert_eq!(
+                    page.records.first().map(|doc| doc.record.sequence),
+                    Some(11),
+                    "padding {padding}: a reader at 10 skipped records"
+                ),
+                SharedJournalRead::Unavailable => panic!("unavailable"),
+            }
+        }
     }
 
     #[test]
@@ -806,9 +984,17 @@ mod performance_tests {
                 Arc::new(JournalDocument::new(record(sequence))),
             );
         }
-        assert_eq!(records.len(), JOURNAL_FANOUT_CAPACITY);
-        assert_eq!(records.front().unwrap().record.sequence, 138);
-        assert_eq!(records.back().unwrap().record.sequence, JOURNAL_FANOUT_CAPACITY as u64 + 137);
+        // Whichever bound binds first (the byte cap, for these records), the
+        // ring holds the newest records, contiguous, within both bounds.
+        let newest = JOURNAL_FANOUT_CAPACITY as u64 + 137;
+        assert!(records.len() <= JOURNAL_FANOUT_CAPACITY);
+        assert!(record_bytes <= JOURNAL_FANOUT_BYTE_CAPACITY);
+        assert_eq!(records.back().unwrap().record.sequence, newest);
+        assert_eq!(
+            records.front().unwrap().record.sequence,
+            newest + 1 - records.len() as u64,
+            "the ring is not the newest contiguous records"
+        );
         assert_eq!(
             record_bytes,
             records.iter().map(|record| record.resident_bytes()).sum::<usize>()
@@ -830,6 +1016,7 @@ mod performance_tests {
             state: Mutex::new(JournalFanoutState {
                 epoch: 1,
                 requested_epoch: 1,
+                published_epoch: 1,
                 shutdown_requested: false,
                 head_sequence: JOURNAL_FANOUT_CAPACITY as u64,
                 records,
@@ -839,6 +1026,8 @@ mod performance_tests {
             }),
             changed: Condvar::new(),
             tailer: Mutex::new(None),
+            #[cfg(test)]
+            tailer_hold: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
             database_path: None,

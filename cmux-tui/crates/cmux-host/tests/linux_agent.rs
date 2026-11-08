@@ -63,6 +63,8 @@ impl Harness {
         fs::create_dir_all(home.join(".local/state/cmux/remote/sessions/cloud/auth")).unwrap();
         fs::write(home.join(".local/state/cmux/remote/sessions/cloud/auth/identity.json"), "{}")
             .unwrap();
+        fs::write(home.join(".local/state/cmux/remote/sessions/cloud/lifecycle-fence.json"), "{}")
+            .unwrap();
         let bin = dir.path().join("bin/cmux-tui");
         fs::create_dir_all(bin.parent().unwrap()).unwrap();
         let daemon_log = dir.path().join("daemon.log");
@@ -93,6 +95,10 @@ impl Harness {
     }
 
     fn start(&self, log: &Path) -> Child {
+        self.start_with_args(log, &[])
+    }
+
+    fn start_with_args(&self, log: &Path, extra: &[&str]) -> Child {
         let out = fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -101,6 +107,7 @@ impl Harness {
         let me = String::from_utf8(Command::new("id").arg("-un").output().unwrap().stdout).unwrap();
         Command::new(env!("CARGO_BIN_EXE_cmux-host"))
             .arg("run")
+            .args(extra)
             .arg("--root")
             .arg(&self.root)
             .args([
@@ -120,6 +127,11 @@ impl Harness {
             .arg(log)
             // Service-manager variables must not reach the session host.
             .env("INVOCATION_ID", "test-invocation")
+            // Trusted non-secret turn scope must reach the daemon; arbitrary platform keys must not.
+            .env("CMUX_PLATFORM_ORIGIN", "https://platform.example")
+            .env("CMUX_PLATFORM_WORKSPACE_ID", "workspace-a")
+            .env("CMUX_PLATFORM_MACHINE_ID", "logical-machine-a")
+            .env("CMUX_PLATFORM_TOKEN", "must-not-inherit")
             // Must not reach the session host: the entry comes from host.json.
             .env("CMUX_TUI_REMOTE_WS_BIND", "0.0.0.0:9")
             .env("CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER", "1")
@@ -281,7 +293,9 @@ fn agent_binds_parks_adopts_and_restarts() {
     let spawn = index(&l, write, "spawn-daemon");
     index(&l, spawn, "rekey id=vm-a");
     assert_eq!(fs::read_to_string(h.at("/etc/cmux/daemon-instance-id")).unwrap(), "vm-a\n");
-    assert!(!h.home.join(".local/state/cmux/remote/sessions/cloud/auth").exists());
+    // The whole session goes, lifecycle fence included: a fence left
+    // without `auth/` makes the session host refuse to start.
+    assert!(!h.home.join(".local/state/cmux/remote/sessions/cloud").exists());
     wait_until("rekey job", || h.at("/etc/machine-id").is_file());
     wait_until("daemon argv", || {
         fs::read_to_string(&h.daemon_log).unwrap_or_default().contains("server start")
@@ -300,6 +314,14 @@ fn agent_binds_parks_adopts_and_restarts() {
     assert!(env.lines().any(|l| l == "TERM_PROGRAM=ghostty"), "{env}");
     assert!(!env.contains("INVOCATION_ID"), "{env}");
     assert!(!env.contains("CMUX_SERVER_MODE"), "{env}");
+    for expected in [
+        "CMUX_PLATFORM_ORIGIN=https://platform.example",
+        "CMUX_PLATFORM_WORKSPACE_ID=workspace-a",
+        "CMUX_PLATFORM_MACHINE_ID=logical-machine-a",
+    ] {
+        assert!(env.lines().any(|line| line == expected), "missing {expected}: {env}");
+    }
+    assert!(!env.contains("CMUX_PLATFORM_TOKEN"), "{env}");
     assert!(!env.contains("CMUX_TUI_REMOTE_WS"), "{env}");
     let out = fs::read_to_string(h.root.parent().unwrap().join("agent.out")).unwrap();
     assert!(!out.contains("trusted-carrier"), "{out}");
@@ -380,6 +402,72 @@ fn agent_binds_parks_adopts_and_restarts() {
     terminate(&mut agent);
 }
 
+/// With carrier.json, the session host's relay ticket command is the host
+/// entry's `cloud carrier-ticket` (here the standalone `cmux-host`), not
+/// the session host's own binary, which has no `host` verbs: the command
+/// runs the verb, which answers a refusal with its code because no Cloud
+/// agent listens here.
+#[test]
+fn the_relay_ticket_command_runs_the_host_entrys_carrier_ticket_verb() {
+    let h = Harness::new();
+    let carrier = h.at("/var/lib/cmux/carrier.json");
+    fs::create_dir_all(carrier.parent().unwrap()).unwrap();
+    fs::write(
+        &carrier,
+        r#"{"relay": "relay+do://relay.cmux.dev", "machine": "vm_0123456789abcdefghij",
+            "slot": "AAAAAAAAAAAAAAAAAAAAAA", "team": "team_0123456789abcdefghij",
+            "issuer": "cmux:cloud:production",
+            "keyset": {"version": "0123456789abcdef", "keys": {"k1": {
+                "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": "k1",
+                "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}}}"#,
+    )
+    .unwrap();
+    fs::set_permissions(&carrier, fs::Permissions::from_mode(0o600)).unwrap();
+    let log = h.root.parent().unwrap().join("actions.log");
+    let mut agent = AgentProc(h.start(&log));
+    wait_until("daemon argv with the carrier flags", || {
+        fs::read_to_string(&h.daemon_log).unwrap_or_default().contains("--relay-ticket-command")
+    });
+    let line = fs::read_to_string(&h.daemon_log).unwrap();
+    let words: Vec<&str> = line.split_whitespace().collect();
+    let flag = |name: &str| {
+        words
+            .windows(2)
+            .filter(|pair| pair[0] == name)
+            .map(|pair| pair[1].to_owned())
+            .collect::<Vec<_>>()
+    };
+    let program = flag("--relay-ticket-command");
+    let args = flag("--relay-ticket-command-arg");
+    assert_eq!(program.len(), 1, "{line}");
+    assert_ne!(
+        Path::new(&program[0]),
+        h.bin,
+        "the ticket command is the session host's binary, which has no host verbs: {line}"
+    );
+    assert_eq!(program[0], env!("CARGO_BIN_EXE_cmux-host"), "{line}");
+    assert_eq!(args, ["cloud", "carrier-ticket"], "{line}");
+    terminate(&mut agent);
+
+    let ticket = Command::new(&program[0])
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = ticket.id();
+    wait_until("the ticket command to exit", || !alive(pid));
+    let out = ticket.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{stderr}");
+    assert!(out.stdout.is_empty());
+    assert!(
+        stderr.starts_with("cmux host cloud carrier-ticket: vm.agent_unreachable: "),
+        "the verb did not run: {stderr}"
+    );
+}
+
 /// Without host.json the session host binds loopback with enrolled auth,
 /// even when the agent's environment asks for the trusted carrier.
 #[test]
@@ -435,4 +523,11 @@ fn a_shared_writable_host_config_is_refused() {
     let out = fs::read_to_string(h.root.parent().unwrap().join("agent.out")).unwrap();
     assert!(out.contains("host.json refused") && out.contains("writable"), "{out}");
     terminate(&mut agent);
+}
+
+/// `cloud clone-mark` writes acpmux's marker where acpmux reads it: `clone-boot` in the work
+/// user's `~/.acpmux` (#33140). The path comes from `role::acpmux_home`, not a literal root.
+#[test]
+fn clone_mark_writes_in_the_work_users_acpmux_home() {
+    assert_eq!(cmux_host::cloud::clone_mark::marker(), "/home/cmux/.acpmux/clone-boot");
 }

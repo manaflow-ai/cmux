@@ -4,7 +4,8 @@ import type { AcpmuxSnapshot } from "./model";
 import { type StartRefusalAction, startRefusalAction } from "./startRefusal";
 
 /// A harness switch's line above the composer (harnessSwitch.ts). Starting draws nothing here:
-/// a prompt queued behind it says "Starting Codex…" on itself, and the composer stays usable.
+/// a prompt held behind it reads as sent with Thinking under it, and the composer stays usable,
+/// its Stop taking the prompt back (Leo, 2026-11-01).
 /// Failed says why, with Retry; the prompts it held are back in the composer. Deferred says the
 /// pick waits for the next prompt while the current reply keeps streaming. A refusal with a way out
 /// (startRefusal.ts) offers it in one click beside Retry: New Cloud Machine, or Choose Folder. A

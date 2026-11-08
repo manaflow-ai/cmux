@@ -19,6 +19,7 @@
 #   ref-sdk <mac-binary>           print the SDK version recorded in a Mac binary
 #   hosts <sha> <ghostty-sha> [version]  cmux-app-host, cmux-browser-host, cmux-cloud and the
 #                                  agent screen-detection plugin for both macOS targets
+#   acpmux                          focused feature-enabled acpmux link for both targets
 #   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, cmux-tui-host, cmux-holder, acpmux, cmux-relay, chatmux-relay
 #                                  (framework stubs) for both macOS targets
 #   all <sha> <ghostty-sha> <version>   hosts and bins, every cargo invocation at once
@@ -155,11 +156,26 @@ cmd_weaken_compiler_rt() {
 
 cmd_toolchain() {
   local sdk=${1:?sdk version} zig_lib
-  zig_lib="$(dirname "$(readlink -f "$(command -v zig)")")/lib"
+  # The reviewed installer may expose Zig through a wrapper rather than a symlink.
+  zig_lib="$(zig env | python3 -c 'import json, re, sys
+text = sys.stdin.read()
+try:
+    print(json.loads(text)["lib_dir"])
+except (ValueError, KeyError):
+    found = re.search(r"(?m)^\s*\.lib_dir\s*=\s*\"([^\"]+)\"", text)
+    if not found: raise SystemExit("zig env has no lib_dir")
+    print(found.group(1))')"
   [[ -f "$zig_lib/libc/darwin/libSystem.tbd" ]] || die "zig darwin libSystem stub not found under $zig_lib"
   rm -rf "${SYSROOT:?}" "${XC_ROOT:?}/bin"; mkdir -p "$SYSROOT/usr/lib"
   cp -r "$zig_lib/libc/include/any-darwin-any" "$SYSROOT/usr/include"
-  cp "$zig_lib/libc/darwin/libSystem.tbd" "$SYSROOT/usr/lib/"
+  # Zig 0.17.0's stub also lists the arm64e.x1 architecture, which ld64.lld
+  # 20 rejects ("unknown architecture"), and then loads no libSystem symbol at
+  # all. No cmux binary targets arm64e.x1, so drop those targets.
+  perl -0pe 's/,?[ \t\n]*arm64e\.x1-(?:macos|maccatalyst)//g; s/,([ \t\n]*\])/$1/g; s/\[([ \t\n]*),/[$1/g' \
+    "$zig_lib/libc/darwin/libSystem.tbd" > "$SYSROOT/usr/lib/libSystem.tbd"
+  ! grep -q 'arm64e\.x1' "$SYSROOT/usr/lib/libSystem.tbd" || die "arm64e.x1 targets left in libSystem.tbd"
+  ! grep -qE '\[[[:space:]]*\]|target:[[:space:]]*$' "$SYSROOT/usr/lib/libSystem.tbd" ||
+    die "dropping arm64e.x1 left an empty target in libSystem.tbd"
   # libc, libm, libpthread and libdl are libSystem on macOS.
   for l in c m pthread dl; do ln -sf libSystem.tbd "$SYSROOT/usr/lib/lib$l.tbd"; done
   # Rust std links -liconv. No iconv symbol is imported, so the stub only names the dylib.
@@ -230,17 +246,27 @@ cmd_hosts() {
       CMUX_BUILD_SHA=$sha cargo build -p cmux-browser-host --bin cmux-browser-host --release --locked --target "$t")
     (cd "$repo_root/first-party-apps/cloud/server" && cargo build --bin cmux-cloud --release --locked --target "$t")
     # The agent screen-detection plugin is its own Cargo workspace (own Cargo.lock).
-    # Optional: a failed build publishes the tree without it (the app then runs
-    # no default detector), so never let a stale copy stand in for it.
+    # Required: a failed build fails the publication, and a stale copy never
+    # stands in for it.
     rm -f "$CARGO_TARGET_DIR/$t/release/cmux-agent-screen-detection" "$out/cmux-tui-agent-screen-detection-$t"
     (cd "$repo_root/cmux-tui" && cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
-      --release --locked --target "$t") || echo "cmux-agent-screen-detection did not build for $t; publishing without it" >&2
+      --release --locked --target "$t")
     echo "hosts $t: $(( $(date +%s) - start )) s"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-app-host" "$out/cmux-tui-app-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
-    # Optional: a missing detector prints a warning annotation, never an error.
+    # Required: a missing detector prints an error annotation and fails.
     "$repo_root/scripts/ci/stage-agent-detector.sh" "$CARGO_TARGET_DIR/$t/release" "$t" "$out/cmux-tui-agent-screen-detection-$t"
+  done
+}
+
+# The focused check uses exactly the production compiler wrappers and sysroot.
+cmd_acpmux() {
+  export CARGO_TARGET_DIR="${XC_CARGO_TARGET_DIR:-$XC_ROOT/target-acpmux}"
+  for t in "${TARGETS[@]}"; do
+    use_target "$t" "${MIN_OS[$t]}"
+    (cd "$repo_root/cmux-tui" && cargo build --locked -p acpmux --bin acpmux --target "$t" \
+      $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t"))
   done
 }
 
@@ -263,7 +289,8 @@ cmd_bins() {
       cargo build -p cmux-holder --bin cmux-holder --release --locked --target "$t"
       cargo build -p cmux-relay --bin cmux-relay --release --locked --target "$t"
       cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target "$t"
-      cargo build -p acpmux --bin acpmux --release --locked --target "$t")
+      cargo build -p acpmux --bin acpmux --release --locked --target "$t" \
+        $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t"))
     echo "bins $t: $(( $(date +%s) - start )) s"
     local r="$CARGO_TARGET_DIR/$t/release"
     cp "$r/cmux-tui" "$out/cmux-tui-$t"
@@ -300,17 +327,17 @@ cmd_all() {
       "cmux-app-host" "cd $(q "$tui") && $stamps $build -p cmux-app-host --bin cmux-app-host" \
       "cmux-browser-host" "cd $(q "$tui") && CMUX_BUILD_SHA=$(q "$sha") $build -p cmux-browser-host --bin cmux-browser-host" \
       "cmux-cloud" "cd $(q "$repo_root/first-party-apps/cloud/server") && $build --bin cmux-cloud" \
-      "?cmux-agent-screen-detection" "cd $(q "$tui") && { $build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml || echo 'cmux-agent-screen-detection did not build for $t; publishing without it' >&2; }" \
+      "cmux-agent-screen-detection" "cd $(q "$tui") && $build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml" \
       "cmux-relay" "cd $(q "$tui") && $stamps $build -p cmux-relay --bin cmux-relay" \
       "chatmux-relay" "cd $(q "$tui") && $stamps $build -p chatmux-relay --bin chatmux-relay" \
-      "acpmux" "cd $(q "$tui") && $stamps $build -p acpmux --bin acpmux"
+      "acpmux" "cd $(q "$tui") && $stamps $build -p acpmux --bin acpmux $("$repo_root/scripts/ci/acpmux-build-features.sh" "$tui/crates/acpmux/Cargo.toml" "$t")"
     echo "all $t: $(( $(date +%s) - start )) s"
     local r="$target_dir/$t/release"
     cp "$r/cmux-app-host" "$out/cmux-tui-app-host-$t"
     cp "$r/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
     cp "$r/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
     rm -f "$out/cmux-tui-agent-screen-detection-$t"
-    # Optional: a missing detector prints a warning annotation, never an error.
+    # Required: a missing detector prints an error annotation and fails.
     "$repo_root/scripts/ci/stage-agent-detector.sh" "$r" "$t" "$out/cmux-tui-agent-screen-detection-$t"
     cp "$r/cmux-tui" "$out/cmux-tui-$t"
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
@@ -471,6 +498,7 @@ case "$command" in
   ref-sdk) cmd_ref_sdk "$@" ;;
   hosts) cmd_hosts "$@" ;;
   bins) cmd_bins "$@" ;;
+  acpmux) cmd_acpmux ;;
   all) cmd_all "$@" ;;
   weaken-compiler-rt) cmd_weaken_compiler_rt "$@" ;;
   parity-bins) cmd_parity_bins ;;

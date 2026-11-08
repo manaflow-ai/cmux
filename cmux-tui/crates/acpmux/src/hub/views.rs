@@ -3,7 +3,41 @@
 use super::*;
 use cmux_json::JsonSet as _;
 
+mod host_build;
 mod host_load;
+
+pub(crate) use host_build::{host_build_differs, other_build_host_line, other_build_hosts_line};
+
+/// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
+/// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
+pub const SUBAGENTS_RUNNING: &str = "subagents_running";
+
+/// The most running subagents a summary names (`subagentNames`); `subagentsRunning` counts all.
+pub const SUBAGENT_NAMES: usize = 5;
+
+/// What a session runs below its turn now, as its summary says it.
+#[derive(Debug, PartialEq)]
+pub(crate) struct RunningWork {
+    /// Its subagents that run now, at any depth (`SubagentTree::running_now`).
+    pub subagents: usize,
+    /// The first [`SUBAGENT_NAMES`] of their labels, oldest first; an unnamed one has none.
+    pub names: Vec<String>,
+    /// Its background commands that run now (`processes.rs`).
+    pub commands: usize,
+}
+
+/// `session`'s running work: without a running turn (`turn_runs` false) only its background
+/// subagents still run. `commands` is the session's running background commands.
+pub(crate) fn running_work(session: &Session, turn_runs: bool, commands: usize) -> RunningWork {
+    let tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+    let running = tree.running_now(turn_runs);
+    let names = running
+        .iter()
+        .filter_map(|(_, label)| label.map(str::to_owned))
+        .take(SUBAGENT_NAMES)
+        .collect();
+    RunningWork { subagents: running.len(), names, commands }
+}
 
 /// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
 /// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
@@ -40,6 +74,21 @@ fn summary_title(title: &str) -> String {
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 const COORDINATOR_PARENT_TAG: &str = "mux.parent";
 
+/// The direct parent has the same precedence as lineage_of(), without walking
+/// ancestors to calculate a root that chat decoration never uses.
+fn activity_parent(m: &SessionMeta) -> Option<&str> {
+    m.lineage
+        .as_ref()
+        .map(|l| l.parent.as_str())
+        .or_else(|| m.subsession.as_ref().map(|s| s.started_by.as_str()))
+        .or_else(|| live_activity_tag(m, SPAWNED_BY_TAG, crate::store::now_ms()))
+}
+
+fn live_activity_tag<'a>(m: &'a SessionMeta, key: &str, at: u64) -> Option<&'a str> {
+    let tag = m.tags.get(key)?;
+    tag.expires_at.is_none_or(|expires| expires > at).then_some(tag.value.as_str())
+}
+
 /// Whether a session is agent-started and therefore must be explicitly opened before a client
 /// projects it into an automatic sidebar row. The durable `parent` and validated `spawnedBy`
 /// fields cover current and older daemons; the raw tags preserve the classification when a
@@ -59,7 +108,8 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 /// The session's status dot, decided here once so every client draws the
 /// same one (cx-zlox). First match wins:
 ///
-/// - `input`: a permission or question waits for the person.
+/// - `input`: a permission or question waits for the person, here or in an
+///   open sub-session below it (`subsessionsWaiting`, `asks_below.rs`).
 /// - `working`: a turn runs.
 /// - `failed`: the last turn failed (also when the agent then exited).
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
@@ -68,7 +118,11 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 /// - `working` again: work the session started runs on past its last turn
 ///   (`subagentsWorkingSince`: a background subagent or a working
 ///   sub-session, `work_below.rs`), except on a peer gone unreachable. A
-///   task is not done until its subagents are (manaflow-ai/cmux#25230).
+///   task is not done until its subagents are (manaflow-ai/cmux#25230). So
+///   is a background command its turn left running (`commandsRunning`, a
+///   Claude background shell): the chat shows it running, and its row spun
+///   for none (manaflow-ai/cmux#32727). Only the dot: the turn's unread mark
+///   and its end notice do not wait for the command.
 /// - `done`: the last turn answered. Whether the person saw it is each
 ///   client's own record.
 /// - null: nothing to show (no turn yet, a cancelled turn, closed).
@@ -91,6 +145,9 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "disconnected" if !summary["turn"].is_null() => Some("lost"),
         "waiting" => Some("input"),
         _ if pending => Some("input"),
+        // A sub-session below it waits on the person: its run stalls there until someone answers,
+        // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
+        _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
@@ -98,6 +155,7 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         // (`disconnected`) still works while a sub-session it started runs.
         "unreachable" => answered.then_some("done"),
         _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
+        _ if summary["commandsRunning"].as_u64().unwrap_or(0) > 0 => Some("working"),
         _ if answered => Some("done"),
         _ => None,
     }
@@ -175,7 +233,13 @@ pub fn lane(summary: &Value) -> Value {
             "working",
             summary["turn"]["startedAt"].as_u64().or(summary["subagentsWorkingSince"].as_u64()),
         ),
-        Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
+        Some("input") => (
+            "input",
+            summary["inputSince"]
+                .as_u64()
+                .or(summary["subsessionsWaitingSince"].as_u64())
+                .or(updated),
+        ),
         Some("failed") => ("failed", ended),
         Some("lost") if in_turn => ("lost", updated),
         Some("lost") => ("lost", summary["lastTurn"]["endedAt"].as_u64().or(updated)),
@@ -330,18 +394,30 @@ impl Hub {
     /// while that session is here, listed (not archived) and a root itself: one level, so a loop
     /// of tags or a parent nobody sees never hides a chat. `parent` gives the whole tree.
     pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
-        let parent = match self.lineage_of(m) {
-            Some(lineage) => lineage.parent,
-            None => live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned(),
-        };
+        self.listed_parent(&m.id, activity_parent(m)?.to_owned())
+    }
+
+    /// Chat decoration needs only the direct parent, never the full metadata or
+    /// the lineage root walk. Release the child's lock before looking up its parent.
+    pub(crate) fn spawned_by_session(&self, session: &Session) -> Option<String> {
+        let parent = session.read_meta(|m| activity_parent(m).map(str::to_owned))?;
+        self.listed_parent(&session.id, parent)
+    }
+
+    fn listed_parent(&self, id: &str, parent: String) -> Option<String> {
+        if parent == id {
+            return None;
+        }
         let session =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&parent).cloned()?;
-        let pm = session.meta();
-        let tags = live_tags(&pm);
-        let listed = tags.get(SPAWNED_BY_TAG).is_none()
-            && self.lineage_of(&pm).is_none()
-            && tags.get("archived").is_none();
-        (parent != m.id && listed).then_some(parent)
+        let listed = session.read_meta(|m| {
+            let at = crate::store::now_ms();
+            m.lineage.is_none()
+                && m.subsession.is_none()
+                && live_activity_tag(m, SPAWNED_BY_TAG, at).is_none()
+                && live_activity_tag(m, "archived", at).is_none()
+        });
+        listed.then_some(parent)
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
@@ -361,6 +437,8 @@ impl Hub {
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
+        // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
+        let notice = turn.as_ref().is_some_and(|t| t.notice);
         let lineage = self.lineage_of(&m);
         let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
@@ -396,6 +474,7 @@ impl Hub {
             created_at: m.created_at,
             updated_at: m.updated_at,
             last_seq: m.last_seq,
+            transcript_seq: m.transcript_seq,
             event_count: m.event_count,
             turn_count: m.turn_count,
             parent_id: m.parent_id.clone(),
@@ -405,6 +484,7 @@ impl Hub {
             parent: lineage.as_ref().map(|l| l.parent.clone()),
             root: lineage.as_ref().map_or_else(|| m.id.clone(), |l| l.root.clone()),
             spawn_tool_call_id: lineage.as_ref().and_then(|l| l.tool_call_id.clone()),
+            created_by: m.created_by.clone(),
             pull_requests: m.pull_requests.clone(),
             started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
@@ -420,6 +500,11 @@ impl Hub {
             queue_paused: session.queue_paused(),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
+            // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
+            // session/new or session/load): the busy("starting") of `stop_if_idle.rs`. So is a
+            // prompt's start that waits to be tried again (`start_retry.rs`).
+            starting: session.spawn_lock.try_lock().is_err()
+                || session.start_retry_waits.load(Ordering::SeqCst),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
@@ -459,10 +544,13 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    awaiting_owner: q.awaiting_owner,
+                    revision: q.revision,
                     // Another agent's message the person's Stop holds (`cancel.rs`): it waits for
                     // their next completed turn or a resume, not for the turn to end.
                     held_by_stop: q.held
-                        && q.run.agent.is_some()
+                        && (q.run.agent.is_some()
+                            || super::inbox::is_notice(q.run.provenance.as_ref()))
                         && session.stop_hold.load(Ordering::SeqCst) != 0,
                     from_agent: q.run.agent.clone(),
                     // The sending session and its harness, as the daemon bound them.
@@ -472,6 +560,15 @@ impl Hub {
                     class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
                     subagent_retry: super::subagent_retry::listed(q.run.provenance.as_ref()),
+                    provenance: super::digest::listed_provenance(
+                        q.run.provenance.as_ref(),
+                        q.run.agent.as_deref(),
+                    ),
+                    inbox_notice: q
+                        .run
+                        .provenance
+                        .clone()
+                        .filter(|p| super::inbox::is_notice(Some(p))),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named_sourced(
                         &q.run.blocks,
@@ -541,8 +638,35 @@ impl Hub {
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
+        if let Some(dirs) = super::additional_dirs::acp_value(&m) {
+            summary.set(super::additional_dirs::FIELD, dirs);
+        }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
+        let waiting = self.subsessions_waiting(session);
+        summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
+        summary.set("subsessionsWaitingSince", json!(waiting.map(|(_, since)| since)));
+        // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
+        // being able to see the # of associated subagents and whatnot"): its running subagents,
+        // their first names, and its running background commands (`running_work`).
+        let work = running_work(
+            session,
+            summary.get("turn").is_some_and(Value::is_object),
+            self.running_processes_read(session),
+        );
+        summary.set("subagentsRunning", json!(work.subagents));
+        summary.set("subagentNames", json!(work.names));
+        summary.set("commandsRunning", json!(work.commands));
+        // The build its live agent host runs, and whether it differs from this daemon's: a
+        // host that has not hibernated since an update (`views/host_build.rs`).
+        let host_build = host_build::live_host_build(session);
+        summary.set("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build())));
+        summary.set("hostBuild", json!(host_build));
+        if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
+            // A History of the person's prompts leaves it out (`turn.notice`).
+            turn.insert("notice".into(), Value::Bool(true));
+        }
         // Its agent restarts on its profile's new launch when the turn ends (`profile_respawn.rs`).
         summary.set(
             "respawnPending",
@@ -565,16 +689,32 @@ impl Hub {
         let m = session.meta();
         let mut v = self.session_summary(session);
         v.set("modes", m.modes.clone().unwrap_or(Value::Null));
-        v.set("configOptions", m.config_options.clone().unwrap_or(Value::Null));
+        v.set("configOptions", m.config_options.as_deref().cloned().unwrap_or(Value::Null));
         v.set("models", m.models.clone().unwrap_or(Value::Null));
         v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
         v.set("agentCapabilities", m.agent_capabilities.clone().unwrap_or(Value::Null));
         v.set("usage", m.usage.clone().unwrap_or(Value::Null));
-        v.set("goal", m.goal.clone().unwrap_or(Value::Null));
+        v.set("goal", m.goal.as_ref().map(crate::goal::GoalState::to_value).unwrap_or(Value::Null));
         // What the context holds by category, as Claude Code's /context says after each turn.
         v.set("contextBreakdown", m.context_breakdown.clone().unwrap_or(Value::Null));
         // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
         v.set("usageLimits", m.usage_limits.clone().unwrap_or(Value::Null));
+        // The `/status` card's machine, sign-in, route and settings (`session_status.rs`): this
+        // daemon's, so a peer's chat names the peer's own. `machine`, never `host`: a client
+        // reads `host` as "runs on another machine".
+        v.set("machine", json!(crate::pairing::machine_name()));
+        let argv = m.spawn_argv.as_ref().unwrap_or(&m.harness_argv);
+        let profile_env = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let in_profile = |k: &str| profile_env.as_ref().is_some_and(|env| env.contains_key(k));
+        if let Some(facts) = crate::session_status::facts(&m.id, &m.cwd, argv, in_profile) {
+            v.set("authSource", json!(facts.auth_source));
+            v.set("route", json!(facts.route));
+            v.set("settingsSources", json!(facts.settings));
+            // No plan limits to report (an API key, a cloud provider): the card hides the row.
+            if !facts.plan_limits && m.usage_limits.is_none() {
+                v.set("usageLimitsApply", json!(false));
+            }
+        }
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
             v.set("availableCommands", commands.clone());
@@ -624,16 +764,19 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
-        let mut live = 0;
+        let (mut live, mut other_build) = (0, 0);
         for s in &sessions {
-            if s.child.lock().await.is_some() {
+            if let Some(child) = s.child.lock().await.as_ref() {
                 live += 1;
+                if host_build_differs(child.host_build().as_deref(), build()) {
+                    other_build += 1;
+                }
             }
         }
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
-            "build": BUILD,
+            "build": build(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
             "pid": std::process::id(),
@@ -657,7 +800,15 @@ impl Hub {
             "socket": crate::config::socket_path(),
             "store": cfg.store,
             "sessions": sessions.len(),
+            // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
+            // `acpmux ls` says so, `acpmux send --status` lists them.
+            "outboxPending": self.outbox_unsettled(),
+            // Each host's last shadow admission verdict (`shadow_admission.rs`): what a
+            // pressure-aware admission would say. Nothing is deferred on it.
+            "shadowAdmission": crate::shadow_admission::last_verdicts(),
             "liveAgents": live,
+            // Live agent hosts still on another build than this one (`views/host_build.rs`).
+            "hostsOnOtherBuilds": other_build,
             "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain

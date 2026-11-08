@@ -1,7 +1,7 @@
 // Reply Markdown a longer fence or an escaped pipe has to survive: an agent that quotes Markdown opens
 // with four backticks to show its own three, and shell pipes in a table cell arrive as `\|`.
 import { expect, test } from "bun:test";
-import { parseMarkdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { parseMarkdown } from "../src/agent-session/acpmux/conversation/markdownModel";
 import { tableMarkdown, type Table } from "../src/agent-session/acpmux/conversation/tableFormats";
 
 test("a four-backtick fence holds an inner three-backtick fence as its text", () => {
@@ -39,4 +39,18 @@ test("copying such a table as Markdown escapes the pipes again, so it round-trip
   expect(markdown).toContain("| `a \\| b` | x |");
   const [again] = parseMarkdown(markdown);
   expect((again as Table & { type: "table" }).rows).toEqual([["`a | b`", "x"]]);
+});
+
+test("a display-math bracket inside a quoted fence stays the code's own text", () => {
+  // The inner three-backtick pair must not read as the quoted fence closing: `\[x\]` is code there,
+  // not an equation to rewrite into dollars.
+  const blocks = parseMarkdown("````md\n```js\n\\[x\\]\n```\n````\n\n\\[y\\]");
+  expect(blocks[0]).toMatchObject({ type: "code", code: "```js\n\\[x\\]\n```" });
+  expect(blocks[1]).toMatchObject({ type: "math", tex: "y" });
+});
+
+test("a line with backticks in its info string does not break the paragraph around it", () => {
+  const blocks = parseMarkdown("intro line\n```x``` still prose\nmore prose");
+  expect(blocks).toHaveLength(1);
+  expect(blocks[0]).toMatchObject({ type: "paragraph" });
 });

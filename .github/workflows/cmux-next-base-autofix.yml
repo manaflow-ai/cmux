@@ -135,7 +135,7 @@ jobs:
     name: action export areas
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -183,14 +183,18 @@ jobs:
   # (with the base tier on, until that run is dispatched: within 15 minutes of a landing), at most 45
   # minutes, and gives up at once when none will. A miss of any kind leaves the exports to the Mac job,
   # as before. vars.CMUX_NEXT_BASE_EXPORTS_REUSE=0 turns it off.
+  # Only the run that carries the exports waits: while another run's pushed-exports or Mac job is
+  # queued or running (mac_busy, base-autofix-mac-busy.sh) this is skipped, the run defers its exports
+  # (mac-exports-deferred) and its autofix repairs the rest at once. Every run's autofix needs this
+  # job, so with every run waiting here (2026-11-01) a formatting repair waited up to 45 minutes too.
   pushed-exports:
     name: exports from the push's generated files
     # The read App's key (GLAEDA_ROUTE_APP_KEY) is this environment's, as in
     # cmux-next-generated-catch-up.yml; on feat-cmux-next only.
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'ci-routing-agent' || '' }}
     needs: action-areas
-    if: needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 62
     permissions:
       contents: read
@@ -198,6 +202,8 @@ jobs:
     # always succeeds and the Mac job (which needs it) runs on any miss. A hit counts only once its
     # changed exports are uploaded: a failed upload is a miss too.
     outputs:
+      deferred: ${{ steps.carrier.outputs.mac_busy }}
+      deferred_run: ${{ steps.carrier.outputs.mac_busy_run }}
       hit: ${{ steps.lookup.outputs.hit == 'true' && (steps.lookup.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
       exports: ${{ steps.lookup.outputs.exports }}
       made_at: ${{ steps.lookup.outputs.made_at }}
@@ -223,9 +229,27 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
 
+      # The first admission read uses github.token and fails open. Recheck with the token this
+      # job already minted before starting another 45-minute lookup. Only an older carrier counts,
+      # so simultaneous candidates cannot all defer to one another. Unknown still takes the fallback.
+      - name: Recheck the export carrier with the read token
+        id: carrier
+        if: steps.checkout.outcome == 'success' && steps.read-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          COALESCE: ${{ vars.CMUX_NEXT_BASE_EXPORTS_COALESCE }}
+        run: |
+          if [[ "$COALESCE" == '0' ]]; then
+            echo 'mac_busy=false' >> "$GITHUB_OUTPUT"
+          else
+            bash scripts/cmux-next/base-autofix-mac-busy.sh "$GITHUB_RUN_ID" "$GITHUB_REF_NAME" --older-only >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Take this push's packed exports
         id: lookup
-        if: steps.checkout.outcome == 'success'
+        if: steps.checkout.outcome == 'success' && steps.carrier.outputs.mac_busy != 'true'
         continue-on-error: true
         timeout-minutes: 50
         env:
@@ -250,23 +274,25 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # This run left its Mac exports to another run's queued or running Mac job. It ends green, and
-  # base-autofix-since.sh passes over a run with this job, so the next run still covers its changes.
-  # A run that took this push's packed exports has nothing to leave.
+  # This run left its exports to another run's queued or running pushed-exports or Mac job, and looked
+  # for no pack itself (pushed-exports is skipped or deferred after its App-token recheck). It ends
+  # green, and base-autofix-since.sh passes over it, so the next run still covers its changes.
   mac-exports-deferred:
     name: Mac exports deferred
     needs: [action-areas, pushed-exports]
-    if: needs.action-areas.outputs.mac_busy == 'true' && needs.pushed-exports.outputs.hit != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    if: >-
+      ${{ !cancelled() && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) &&
+          (needs.action-areas.outputs.mac_busy == 'true' || needs.pushed-exports.outputs.deferred == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 2
     permissions: {}
     steps:
       - name: Name the run that carries the exports
         env:
-          BUSY_RUN: ${{ needs.action-areas.outputs.mac_busy_run }}
+          BUSY_RUN: ${{ needs.action-areas.outputs.mac_busy_run || needs.pushed-exports.outputs.deferred_run }}
           SERVER: ${{ github.server_url }}/${{ github.repository }}
         run: |
-          echo "Mac exports left to run $SERVER/actions/runs/$BUSY_RUN, whose Mac job was already queued or running; the next run's changes include this run's." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Mac exports left to run $SERVER/actions/runs/$BUSY_RUN, whose pushed-exports or Mac job was already queued or running; the next run's changes include this run's." | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Regenerates the action exports and the settings exports on a Mac with a
   # read-only token and hands them to autofix as the action-exports artifact
@@ -275,17 +301,18 @@ jobs:
   action-exports:
     name: action exports (Mac)
     needs: [action-areas, pushed-exports]
-    if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.hit != 'true'
+    if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true'
     # No concurrency group: a queued job keeps its place. Cancelling a running one meant that with
     # merges minutes apart no Mac export ever finished (2026-10-19), and replacing a pending one did
     # the same once the Mac runners were saturated: each job waited minutes for a runner and the next
     # push replaced it before it started (2026-10-21, 11:15-11:36Z, no export after 02:14Z). Instead a
     # run skips this job while another run's is queued or running (base-autofix-mac-busy.sh) and ends
     # green with mac-exports-deferred; the next run's "since" passes over it (base-autofix-since.sh).
-    # The exports need a logged-in session, not the console gui token, so once the
-    # fleet carries glaeda#1530's session label (vars.CI_SESSION_LABEL is 1) this
-    # takes it and runs beside a console GUI job; until then the gui label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || vars.CI_PR_POOL_OWNED == '1' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # The exports need a logged-in session, which the gui label's runners have. They never
+    # name the session label: it held jobs for hours with its runners online and busy
+    # (cmux#24295, 2026-10-29), and this job has no placement to judge its queue
+    # (tests/test_ci_runs_on_fallback.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6' || vars.CI_PR_POOL_OWNED == '1' && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     # One action regeneration and up to three settings regenerations on a moving tip
     # (base-autofix-action-exports.sh, base-autofix-settings-exports.sh).
     timeout-minutes: 90
@@ -453,7 +480,7 @@ jobs:
     name: webviews vp fmt
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -511,7 +538,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-target-graph-${{ github.ref_name }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 15
     permissions:
       actions: write # dispatch cmux-tui-artifacts.yml for the bot head (publish-bot-head-tree.sh)
@@ -612,7 +639,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-${{ github.ref_name }}${{ (needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' && format('-exports-{0}', github.run_id) || '' }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 20
     permissions:
       actions: write # read the last successful run; dispatch cmux-tui-artifacts.yml for the bot head
@@ -832,7 +859,7 @@ jobs:
     concurrency:
       group: cmux-next-ghosttykit-checksum
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 100
     permissions:
       actions: write # dispatch build-ghosttykit.yml and read its runs

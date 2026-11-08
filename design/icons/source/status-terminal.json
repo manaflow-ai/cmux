@@ -254,6 +254,12 @@
    ]
   },
   {
+   "name": "status.check",
+   "meaning": "Finished, as a bare check after the total (a done line's end)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5.75 12.5L10 16.75L18.25 7.75' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5.75 12.5L10 16.75L18.25 7.75' fill='none' stroke='currentColor' stroke-width='1.85' stroke-linecap='round' stroke-linejoin='round'/></svg>"
+  },
+  {
    "name": "status.critical",
    "meaning": "Critical",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-critical' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 7.95v4.5'/><circle cx='12' cy='15.6' r='0.99' fill='#000' stroke='none'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-critical)'><path d='M8.625 3.9h6.75L20.1 8.625v6.75L15.375 20.1h-6.75L3.9 15.375v-6.75Z'/></g></svg>",
@@ -441,6 +447,50 @@
    "replaces": [
     "terminal"
    ]
+  },
+  {
+   "name": "tab.terminal",
+   "meaning": "Terminal, at tab size (the tab strip and vertical tabs)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13 18H19.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13 18H19.5'/></svg>",
+   "cat": null,
+   "alts": [
+    {
+     "label": "chevron 5.5 wide, underscore on its baseline",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5 6.5L10.5 12L5 17.5M12.5 17.5H19'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5 6.5L10.5 12L5 17.5M12.5 17.5H19'/></svg>"
+    },
+    {
+     "label": "short chevron, underscore below it",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 6L10 10.5L5.5 15M12 18H18.5'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 6L10 10.5L5.5 15M12 18H18.5'/></svg>"
+    }
+   ],
+   "note": "The terminal glyph without its window frame: the prompt chevron and the underscore cursor on the chevron's baseline. A tab icon draws at 12 to 16 pt, where the frame's corners and the inner marks crowd each other (Leo 2026-11-07: the terminal icon at the top should be just the chevron and the underscore). Open shapes, so Solid is Line at stroke 2. Ink 16.5 x 13.5 centred on 12,12.",
+   "sf": "terminal",
+   "replaces": []
+  },
+  {
+   "name": "tab.terminal.dead",
+   "meaning": "Terminal process exited, at tab size",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13.5 13.5L18.5 18.5M18.5 13.5L13.5 18.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13.5 13.5L18.5 18.5M18.5 13.5L13.5 18.5'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "tab.terminal with an x where the cursor was, as terminal.dead is to terminal. No cat on a dead process.",
+   "sf": "xmark.octagon",
+   "replaces": []
+  },
+  {
+   "name": "terminal.prompt",
+   "meaning": "Terminal command (the prompt alone, no window box)",
+   "sf": "terminal",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8l4 4-4 4M12.5 16H18'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8l4 4-4 4M12.5 16H18'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "terminal's >_ without the rounded window box, for rows that list commands (Session Info Background tasks). Leo 2026-10-24: \"remove the box for the terminal so it's just the >_\".",
+   "replaces": []
   },
   {
    "name": "terminal.copymode",

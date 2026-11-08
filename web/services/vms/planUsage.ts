@@ -6,7 +6,7 @@
 // Max count compute-seconds: a running machine draws one compute unit per
 // vCPU, or per 2 GB of memory when its memory is larger, every second. Pro and
 // Max also cap the total disk of their saved machines, because a paused
-// machine keeps its disk. Founder's Edition, operator grants, and Team are not
+// machine keeps its disk. Legacy lifetime grants, operator grants, and Team are not
 // recurring personal subscriptions and have no allowance here; an operator
 // grant to a user who also holds a Pro or Max subscription is metered by that
 // subscription. A machine is metered at its current recorded shape, so a
@@ -154,7 +154,7 @@ async function stripePersonalPeriod(
     eq(stripeSubscriptions.scope, "user"),
     inArray(stripeSubscriptions.plan, PERSONAL_PLANS),
     inArray(stripeSubscriptions.status, [...statuses]),
-    // Founder's Edition is a one-time purchase stored as an active Pro row.
+    // Legacy lifetime grants are one-time purchases stored as an active Pro row.
     sql`${stripeSubscriptions.id} not like 'founders\\_%'`,
     sql`coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') <> 'true'`,
   )).orderBy(desc(stripeSubscriptions.updatedAt)).limit(10);

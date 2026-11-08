@@ -26,9 +26,14 @@
 //!   prompts or answers hold every word of `query`, each with its newest such
 //!   message and a snippet, read now from the harnesses' stores within a time
 //!   budget (`chats/search.rs`).
-//! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`):
+//! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`), with the chat's
+//!   value as `chat`:
 //!   `adopt` with ready `session/new` params, `terminal` with argv/env/cwd,
 //!   or `readOnly`; `needsFolder` when the person must pick the folder.
+//! - `_acpmux/chat_resolve {ref}`: the chat a pasted reference names (`/resume <ref>`,
+//!   `chats/resolve.rs`): a session id, its start, a transcript path, a key or a resume
+//!   command. `{status: found, key, chat}`, `{status: ambiguous, chats}` (newest first, at most
+//!   5), `{status: notFound}` or `{status: tooShort}`.
 //! - `_acpmux/chat_transcript {key}`: the chat's past turns, read now from its
 //!   harness's store: `{key, harness, title, cwd, turns: [{prompt, answer,
 //!   promptAt?, answerAt?}]}`, the newest 200. A harness with no reader, or a
@@ -57,6 +62,7 @@
 mod offers;
 mod search;
 mod stats;
+mod workspace_purge;
 
 use crate::no_panic::JsonExt;
 use std::path::PathBuf;
@@ -67,6 +73,7 @@ use tokio::sync::broadcast::error::RecvError;
 
 use super::{Conn, Origin};
 use crate::chats::{ChatQuery, ChatService, activity_change, change_value, changes_activity};
+use crate::heap_future::heap;
 use crate::hub::Hub;
 use crate::hub::HubEvent;
 use crate::rpc::{Message, RpcError};
@@ -86,8 +93,15 @@ pub(super) async fn route(
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = super::vault::dispatch(conn, m).await {
+        return reply;
+    }
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
-    if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
+    if let Some(reply) = heap(|| super::secrets::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    // So do the MCP connect methods: the person answers the card (`mcp_connect.rs`).
+    if let Some(reply) = heap(|| super::mcp_connect::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     // A one-shot completion runs a harness CLI with the user's own login:
@@ -100,11 +114,14 @@ pub(super) async fn route(
         return reply;
     }
     // So do the sub-session methods (`subsessions.rs`): this daemon's own sessions only.
-    if let Some(reply) = super::subsessions::dispatch(hub, conn, m, &params).await {
+    if let Some(reply) = heap(|| super::subsessions::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::races::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     // So do the forum methods (`forum.rs`): this daemon's own log.
-    if let Some(reply) = super::forum::dispatch(hub, conn, m, &params).await {
+    if let Some(reply) = heap(|| super::forum::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     // So do the process methods (`processes.rs`).
@@ -118,7 +135,19 @@ pub(super) async fn route(
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
         return reply;
     }
-    if let Some(reply) = super::bg_tasks::dispatch(hub, conn, m, &params).await {
+    if let Some(reply) = heap(|| super::bg_tasks::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::memory_inbox::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::workflow_runs::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::workflow_activity::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
@@ -127,7 +156,11 @@ pub(super) async fn route(
         if conn.origin != Origin::Local {
             return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
         }
-        return hub.transfer_request(m, &params).await;
+        return heap(|| hub.transfer_request(m, &params)).await;
+    }
+    // An incognito workspace's chats, ended and deleted (`workspace_purge.rs`): local only.
+    if m == workspace_purge::METHOD {
+        return heap(|| workspace_purge::handle(hub, conn.origin, &params)).await;
     }
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
@@ -135,7 +168,7 @@ pub(super) async fn route(
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
-        return super::requests::handle_request(hub, conn, m, params).await;
+        return heap(|| super::requests::handle_request(hub, conn, m, params)).await;
     }
     if conn.origin != Origin::Local {
         return Err(RpcError::method_not_found(&format!(
@@ -208,8 +241,48 @@ pub(super) async fn route(
                     RpcError::not_found(format!("no chat {}", crate::chats::key_text(&key)))
                 })?;
                 let home = dirs::home_dir().unwrap_or_default();
-                crate::chats::plan_open(&chat, &profiles, cwd.as_deref(), &home)
-                    .map_err(RpcError::invalid_params)
+                let mut plan = crate::chats::plan_open(&chat, &profiles, cwd.as_deref(), &home)
+                    .map_err(RpcError::invalid_params)?;
+                // The chat itself (title, folder, harness), so a client that opens it holds no
+                // copy of the index to name it.
+                plan.set("chat", crate::chats::chat_value(&chat));
+                Ok(plan)
+            })
+            .await
+        }
+        // `/resume <ref>`: the one chat a pasted id, id start, path or command names.
+        "_acpmux/chat_resolve" => {
+            let service =
+                service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
+            let text = params
+                .get("ref")
+                .and_then(Value::as_str)
+                .filter(|text| text.len() <= 4096)
+                .map(str::to_owned)
+                .ok_or_else(|| RpcError::invalid_params("ref must be a string"))?;
+            blocking(move || {
+                Ok(match service.resolve_ref(&text) {
+                    crate::chats::Resolved::Found(key) => match service.get(&key) {
+                        Some(chat) => json!({
+                            "status": "found",
+                            "key": crate::chats::key_text(&key),
+                            "chat": crate::chats::chat_value(&chat),
+                        }),
+                        None => json!({"status": "notFound"}),
+                    },
+                    crate::chats::Resolved::Ambiguous(keys) => {
+                        let chats: Vec<Value> = keys
+                            .iter()
+                            .filter_map(|key| service.get(key))
+                            .map(|chat| crate::chats::chat_value(&chat))
+                            .collect();
+                        json!({"status": "ambiguous", "chats": chats})
+                    }
+                    crate::chats::Resolved::TooShort => json!({"status": "tooShort"}),
+                    crate::chats::Resolved::NotFound | crate::chats::Resolved::Unindexed(_) => {
+                        json!({"status": "notFound"})
+                    }
+                })
             })
             .await
         }
@@ -334,6 +407,7 @@ pub(super) async fn route(
             let forced = full_access_managed
                 .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
             hub.apply_full_access_push(forced).await;
+            hub.set_session_recap(settings.session_recap);
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;
@@ -454,7 +528,8 @@ fn forward(hub: Arc<Hub>, service: Arc<ChatService>, conn: Arc<Conn>, generation
             }
             match next {
                 Ok(changes) => {
-                    let activity = hub.chat_activity();
+                    // One activity per batch, shared by every watcher of it.
+                    let activity = hub.chat_activity_for_batch(&changes);
                     for change in changes.iter() {
                         let mut value = change_value(change);
                         if let Some(chat) = value.get_mut("chat") {

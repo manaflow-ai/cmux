@@ -42,8 +42,8 @@ async fn pending_retry_survives_restart_at_its_original_deadline_once() {
     drop(rpc);
 
     // A crash may persist the schedule before the async session metadata writer catches up.
-    // The retry and its failed cut turn must be recovered from the journal in that case too.
-    let meta_path = daemon.home.join("sessions").join(&session).join("session.json");
+    // The retry and its failed cut turn must be recovered from the log in that case too.
+    let meta_path = daemon.saved_meta_path(&session);
     let mut meta: Value = serde_json::from_slice(&std::fs::read(&meta_path).unwrap()).unwrap();
     meta.as_object_mut().unwrap().remove("lastTurn");
     std::fs::write(&meta_path, serde_json::to_vec(&meta).unwrap()).unwrap();
@@ -340,4 +340,60 @@ async fn pending_retry_stopped_after_recovery_stays_stopped_across_restart() {
             |e| e["kind"] == "turn_started" && e["msg"]["promptId"] == "retry-stopped~resume-1"
         )
     );
+}
+
+/// A turn still running in its agent host when the daemon restarts is `running` from its
+/// adoption on. The log has no `ready` between `host_adopted` and that turn's end: the adoption
+/// logged `ready` before it recovered the turn, so a client that attached between the two saw an
+/// idle chat (`adopted_running_prompt_resend_joins_its_live_outcome` read `ready` on a loaded
+/// fleet Mac).
+#[tokio::test]
+async fn an_adopted_running_turn_is_never_logged_ready() {
+    let mut daemon = Daemon::new("adopt-ready", "approve-all");
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let params = json!({"sessionId": session,
+        "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]});
+    let mut rpc = daemon.rpc().await;
+    rpc.send("session/prompt", params).await;
+    daemon.wait_event(&session, "running hosted turn", |e| chunk(e, "before-gate"));
+    daemon.sigkill();
+    drop(rpc);
+    daemon.start();
+    daemon.wait_event(&session, "host adoption", |e| e["kind"] == "host_adopted");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "the adopted turn's end", |e| e["kind"] == "turn_result");
+    let events = daemon.events(&session);
+    let adopted = events.iter().position(|e| e["kind"] == "host_adopted").unwrap();
+    let ended = events.iter().position(|e| e["kind"] == "turn_result").unwrap();
+    let statuses: Vec<&Value> = events[adopted..ended]
+        .iter()
+        .filter(|e| e["kind"] == "status")
+        .map(|e| &e["msg"]["status"])
+        .collect();
+    assert!(!statuses.iter().any(|s| *s == "ready"), "statuses after adoption: {statuses:?}");
+}
+
+/// A chat saved `waiting` with nothing left to ask (the previous daemon sent the answer and
+/// stopped before it logged `ready`) is `ready` once its idle host is adopted: the adoption
+/// replaces a loaded status that nothing it recovered set, as a turn's end does.
+#[tokio::test]
+async fn an_adopted_idle_chat_saved_waiting_with_nothing_asked_is_ready() {
+    let mut daemon = Daemon::new("adopt-waiting", "approve-all");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    assert_eq!(rpc.call("session/prompt", prompt).await["stopReason"], "end_turn");
+    drop(rpc);
+    daemon.sigkill();
+    let path = daemon.saved_meta_path(&session);
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    meta["status"] = json!("waiting");
+    std::fs::write(&path, serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "host adoption", |e| e["kind"] == "host_adopted");
+    let attached =
+        daemon.rpc().await.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(attached["session"]["status"], "ready", "{attached:#}");
 }

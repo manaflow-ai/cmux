@@ -33,6 +33,10 @@ public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable
     case none
     /// A header per folder: the front tab's working directory.
     case folder
+    /// Projects and Recents, as the ChatGPT app's sidebar (Lawrence 2026-11-05): every group under a
+    /// "Projects" header (the first five, then "Show N more"), then every workspace in no group under
+    /// "Recents", the newest activity first.
+    case recents
 }
 
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
@@ -79,6 +83,16 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// workspace titlebar dropdowns at all, i just want to have linear list of workspaces"): the +
     /// stands alone, and its right-click menu still holds the same chooser.
     public var showNewWorkspaceChooser = false
+    /// The sidebar prototypes Leo asked for as first-class toggles instead of palette or Debug
+    /// switches (2026-10-21: "They're just toggles in the app store area"), each off by default and
+    /// on when its key or its Debug tunable is (`SidebarFeatures`):
+    /// `sidebar.workspacesAsTabs`, one line per workspace and Cmd-Shift-[ / ] step workspaces;
+    public var workspacesAsTabs = false
+    /// `sidebar.chromeGroups`, a group's chip joined to a thicker rail with a clipped join and a rounded end;
+    public var chromeGroups = false
+    /// `sidebar.sideBySide`, a row press navigates on release, so a held row drags onto a pane's
+    /// edge to show its workspace beside the shown one.
+    public var sideBySide = false
     /// `sidebar.noFade`: the whole left sidebar shows with no edge fade, and the bottom profile and
     /// search bar hides (Lawrence 2026-10-26). Off by default: the edges fade and the bar shows.
     public var noFade = false
@@ -118,6 +132,14 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupHeader.unreadCount`: a collapsed group's header shows its members' unread
     /// total on the right. Off by default, as ``groupHeaderMemberCount``.
     public var groupHeaderUnreadCount = false
+    /// `sidebar.groupHeader.background`: a group header's background is glass, solid, or (the default, `auto`)
+    /// glass where the sidebar is see-through and solid where it is opaque. It always shows (Lawrence 2026-11-05).
+    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .auto
+    /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
+    /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
+    public var groupPalette: GroupPalette = .glass
+    /// `sidebar.groupGradient` (``GroupGradient``): the gradient the ``GroupPalette/gradient`` palette steps through.
+    public var groupGradient: GroupGradient = .sunset
     /// Compact (the default), comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .compact

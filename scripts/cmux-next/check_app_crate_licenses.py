@@ -51,9 +51,22 @@ FIRST_PARTY_GPL = {
     "cmux-layout-reducer",
     "cmux-layout-reducer-ffi",
     "cmux-focus-core",
+    "cmux-imessage",
     "cmux-tasks-core",
+    "cmux-bookmarks-core",
+    "cmux-cloud-start-core",
+    "cmux-cloud-config",
+    "cmux-cloud-tasks",
+    "cmux-cookie-sync",
+    "cmux-daemon-conn-core",
+    "cmux-daemon-launch-core",
+    "cmux-local-auth",
     "cmux-palette-ranker",
     "cmux-remote-browser",
+    "cmux-sdk",
+    "cmux-sdk-ffi",
+    "cmux-terminal-prediction",
+    "cmux-window-rules",
 }
 
 BANNED = [

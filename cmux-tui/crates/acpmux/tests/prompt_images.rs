@@ -177,6 +177,52 @@ async fn new_session(c: &mut Client) -> String {
     created["result"]["sessionId"].as_str().unwrap().to_owned()
 }
 
+#[tokio::test]
+async fn a_prompt_keeps_all_1024_attachment_display_parts() {
+    let hub = hub(&store("many-display-parts"));
+    let mut c = client(&hub);
+    let session = new_session(&mut c).await;
+    let mut blocks = Vec::new();
+    let mut display = Vec::new();
+    let mut expected = Vec::new();
+    for index in 0..1_024 {
+        let text = format!("file contents {index}");
+        let name = format!("notes-{index:04}.txt");
+        let source = json!({
+            "name": format!("Editor {index}"),
+            "bundleId": "com.example.Editor",
+            "site": "example.com"
+        });
+        blocks.push(json!({"type": "text", "text": text}));
+        display.push(json!({
+            "kind": "file", "blockIndex": index, "name": name,
+            "mimeType": "text/plain", "size": text.len(), "placed": true, "source": source
+        }));
+        expected.push(json!({
+            "kind": "file", "name": name, "mimeType": "text/plain", "size": text.len(),
+            "text": text, "placed": true, "source": source
+        }));
+    }
+    // Metadata order is not prompt order: each descriptor must stay with its own ACP block.
+    display.reverse();
+    let reply = c
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"inlineParts": display}}}),
+        )
+        .await;
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "{reply}");
+
+    let sent = user_messages(&mut c, &session).await;
+    assert_eq!(sent.len(), 1);
+    let parts = sent[0]["inlineParts"].as_array().expect("recorded attachment parts");
+    assert_eq!(parts.len(), expected.len());
+    for (index, (part, expected)) in parts.iter().zip(&expected).enumerate() {
+        assert_eq!(part, expected, "attachment {index}");
+    }
+    hub.shutdown_all().await;
+}
+
 /// Waits (test polling) until `session`'s transcript has a record `pred` accepts.
 async fn wait_event(c: &mut Client, session: &str, what: &str, pred: impl Fn(&Value) -> bool) {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);

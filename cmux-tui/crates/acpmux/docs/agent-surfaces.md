@@ -8,7 +8,7 @@ by who is calling, not by what is possible.
 | --- | --- | --- | --- |
 | A script, a person, or an agent with a shell | `acpmux new -n NAME --worktree REPO[@BASE] --prompt-file F --report-to ME -d` | `acpmux send`, `acpmux wait`, `acpmux last` | Optional `--group G` on the same command (runs `cmux agent open`) |
 | An agent inside acpmux that wants a child of another harness, from its shell | `acpmux run --parent $ACPMUX_SESSION_ID -m codex PROMPT` (prints its reply), or `acpmux new --parent ... -d` | as below: it is the same sub-session | it lists under the parent's chat |
-| An agent inside acpmux that wants a child (`cmux-subsessions` MCP) | `start_session {prompt, name, worktree: true}` | `send_message`, `wait_for_sessions`, `get_session` | `app_agent_open {session, group}` through the cmux MCP |
+| An agent inside acpmux that wants a child (`cmux-subsessions` MCP) | `start_session {prompt, name, worktree: true}`, or `{prompt, fork: true}` for a fork of its own chat with its history | `send_message`, `wait_for_sessions`, `get_session` | `app_agent_open {session, group}` through the cmux MCP |
 | The cmux app or an agent with the cmux MCP | the app's own New Chat, or one of the two above | the chat pane | `app_agent_open` (`cmux agent open SESSION [--group G]`), or a tab of a pane: `app_agent_open_tab` (`cmux agent open-tab SESSION --target PANE`) |
 
 ## The launcher: `acpmux new`
@@ -17,7 +17,7 @@ by who is calling, not by what is possible.
 acpmux new -n gui/composer \
   --worktree ~/Projects/cmux@origin/feat-cmux-next \
   --prompt-file ~/briefs/composer.md \
-  --report-to cosmic-gray/claude-sr2 \
+  --report-to my-mac/coordinator \
   --group "GUI push" -m claude --policy approve-all -d
 ```
 
@@ -28,7 +28,7 @@ acpmux new -n gui/composer \
   a new worktree (a failed fill then removes only the folder, never the
   branch); nothing is ever copied to `<name>-2`. Over the local unix
   socket only: on another machine, run the command there (`ssh HOST acpmux
-  new ...`); `--worktree --host` is refused.
+  new ...`); `--worktree --machine` is refused.
 - **Prompt.** `--prompt-file` is read when the command runs, from its
   absolute path; use `--prompt-file -` to read stdin. A missing or empty file fails before anything starts. The
   first prompt is: who started the session and how to report back
@@ -58,9 +58,9 @@ acpmux new -n gui/composer \
   sent. To recover, run `cmux --json workspace group list`, then use
   `cmux workspace group remove --workspace <WORKSPACE>` or
   `cmux workspace group <GROUP> delete` for an unwanted group.
-  It needs the cmux app on this machine. With `--host HOST`, the
+  It needs the cmux app on this machine. With `--machine MACHINE`, the
   returned session ID is mirrored locally, so the workspace opens here while
-  the agent runs there. A wrapper executing acpmux on HOST must omit `--group`
+  the agent runs there. A wrapper executing acpmux on MACHINE must omit `--group`
   there and run `cmux agent open ID --group G` on the controller Mac afterward.
 
 ## Wrapping it

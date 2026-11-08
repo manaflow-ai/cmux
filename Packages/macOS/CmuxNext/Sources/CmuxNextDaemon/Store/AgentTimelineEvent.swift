@@ -23,11 +23,15 @@ public struct AgentTimelineEvent: Sendable, Hashable {
     public var text: String?
     /// The agent's name when known ("claude", "codex").
     public var agent: String?
+    /// A turn acpmux's own notice started (other agents' messages arrived), not a prompt anyone
+    /// typed: its work counts, but a History of what was asked leaves it out.
+    public var isNotice = false
 
-    public init(kind: Kind, atMs: UInt64, text: String? = nil, agent: String? = nil) {
+    public init(kind: Kind, atMs: UInt64, text: String? = nil, agent: String? = nil, isNotice: Bool = false) {
         self.kind = kind
         self.atMs = atMs
         self.text = text
         self.agent = agent
+        self.isNotice = isNotice
     }
 }

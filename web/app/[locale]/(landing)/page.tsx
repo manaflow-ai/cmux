@@ -169,12 +169,9 @@ function HomeContent() {
               <span className="text-muted shrink-0">-</span>
               <span>
                 <strong className="font-medium">
-                  <a
-                    href="https://github.com/manaflow-ai/cmux#founders-edition"
-                    className={linkClass}
-                  >
+                  <Link href="/ios" className={linkClass}>
                     {t("feature.ios")}
-                  </a>
+                  </Link>
                 </strong>
                 <span className="text-muted">{t("feature.iosDesc")}</span>
               </span>
@@ -226,16 +223,7 @@ function HomeContent() {
             <div>
               <p className="font-medium mb-1">{t("faqIosQ")}</p>
               <p className="text-muted">
-                {t.rich("faqIosA", {
-                  foundersLink: (chunks) => (
-                    <a
-                      href="https://github.com/manaflow-ai/cmux#founders-edition"
-                      className={linkClass}
-                    >
-                      {chunks}
-                    </a>
-                  ),
-                })}
+                {t("faqIosA")}
               </p>
             </div>
             <div>
@@ -430,16 +418,7 @@ function HomeContent() {
             <div>
               <p className="font-medium mb-1">{t("faqSupportQ")}</p>
               <p className="text-muted">
-                {t.rich("faqSupportA", {
-                  foundersLink: (chunks) => (
-                    <a
-                      href="https://github.com/manaflow-ai/cmux#founders-edition"
-                      className={linkClass}
-                    >
-                      {chunks}
-                    </a>
-                  ),
-                })}
+                {t("faqSupportA")}
               </p>
             </div>
             <div>

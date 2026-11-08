@@ -40,6 +40,12 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "auto_resume_settled"
         // Work the session started runs past its turn, or ended (`hub/work_below.rs`).
         | "subagents_working"
+        // A sub-session below it started or stopped waiting on the person (`hub/asks_below.rs`).
+        | "subsessions_waiting"
+        // How many subagents run changed, or a background command started or ended: the
+        // summary's `subagentsRunning`, `subagentNames` and `commandsRunning` (`hub/views.rs`).
+        | "subagents_running"
+        | "process_update"
         // What its harness spent and holds, read after a turn (`hub/usage_view.rs`).
         | "usage_stats" => record_kind,
         // A Stop's turn reads `stopping`, or a stuck chat works again: the row's `state`.
@@ -61,5 +67,18 @@ mod tests {
             Some("auto_resume_restored")
         );
         assert_eq!(super::session_change_kind("auto_resume_stopped"), Some("auto_resume_stopped"));
+    }
+
+    /// The hover card's live counts reach watchers as the summary changes.
+    #[test]
+    fn running_work_changes_publish_a_session_change() {
+        assert_eq!(super::session_change_kind("subagents_running"), Some("subagents_running"));
+        assert_eq!(super::session_change_kind("process_update"), Some("process_update"));
+    }
+
+    /// A parent's row reads `input` while a sub-session below it waits (`hub/asks_below.rs`).
+    #[test]
+    fn asks_below_publish_a_session_change() {
+        assert_eq!(super::session_change_kind("subsessions_waiting"), Some("subsessions_waiting"));
     }
 }

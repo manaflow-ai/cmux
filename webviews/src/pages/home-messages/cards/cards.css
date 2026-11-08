@@ -1,0 +1,584 @@
+/* The cards drawn in a Home chat (design/home.md, seam 2.4): the MCP connect card, the agent pills
+   and pane, link chip previews, the first-run panel and the header toggles. Theme tokens only:
+   gray fills, the accent only for an unread dot and a toggle that is on. */
+
+/* MCP connect card (Swift McpConnectCardView). */
+.hm-mcp {
+  box-sizing: border-box;
+  max-width: 520px;
+  padding: 12px;
+  border: 1px solid var(--cmux-separator);
+  border-radius: 12px;
+  background: var(--cmux-elevated-background);
+  color: var(--cmux-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.hm-mcp[data-style="compactRow"] {
+  padding: 8px 12px;
+}
+.hm-mcp[data-style="bubble"] {
+  border-radius: 16px;
+}
+.hm-mcp[data-style="dangerForward"][data-risky] {
+  border-color: color-mix(in srgb, var(--cmux-app-warning) 60%, transparent);
+}
+.hm-mcp__stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.hm-mcp__stack--center {
+  align-items: center;
+  text-align: center;
+}
+.hm-mcp__stack--center > :is(.hm-mcp__bullets, .hm-mcp__facts, .hm-mcp__risks, .hm-mcp__buttons) {
+  align-self: stretch;
+  text-align: start;
+}
+.hm-mcp__head,
+.hm-mcp__line,
+.hm-mcp__scope-row,
+.hm-mcp__buttons,
+.hm-mcp__phase {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+  min-width: 0;
+}
+.hm-mcp__buttons {
+  justify-content: flex-end;
+}
+.hm-mcp__spacer {
+  flex: 1;
+}
+.hm-mcp__names {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.hm-mcp__title {
+  flex: 1;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: 600;
+}
+.hm-mcp__stack--center > .hm-mcp__title {
+  flex: none;
+}
+.hm-mcp__emphasis {
+  font-weight: 600;
+}
+.hm-mcp__label {
+  color: var(--cmux-text-tertiary);
+  font-size: var(--text-caption);
+}
+.hm-mcp__secondary {
+  color: var(--cmux-text-secondary);
+}
+.hm-mcp__failed {
+  color: var(--cmux-app-danger);
+  font-size: var(--text-caption);
+}
+.hm-mcp__mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 6px;
+  background: var(--cmux-hover);
+  color: var(--cmux-text);
+  font-weight: 600;
+}
+.hm-mcp__mark[data-size="20"] {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: var(--text-caption);
+}
+.hm-mcp__mark[data-size="28"] {
+  width: 28px;
+  height: 28px;
+  font-size: var(--text-body);
+}
+.hm-mcp__mark[data-size="32"] {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-size: var(--text-title);
+}
+.hm-mcp__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cmux-app-warning);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+.hm-mcp__badge[data-ok] {
+  color: var(--cmux-text-secondary);
+}
+.hm-mcp__facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  align-self: stretch;
+}
+.hm-mcp__fact {
+  display: contents;
+}
+.hm-mcp__fact dt {
+  align-self: baseline;
+}
+.hm-mcp__value {
+  margin: 0;
+  align-self: baseline;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.hm-mcp__value--mono {
+  font-family: var(--cmux-mono-font, ui-monospace, monospace);
+  font-size: var(--text-detail);
+}
+.hm-mcp__risks,
+.hm-mcp__bullets,
+.hm-mcp__tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hm-mcp__risks li {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--cmux-app-warning);
+  font-size: var(--text-caption);
+}
+.hm-mcp__bullets li::before {
+  content: "•";
+  margin-inline-end: 8px;
+  color: var(--cmux-text-tertiary);
+}
+.hm-mcp__link,
+.hm-mcp__connected {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.hm-mcp__link {
+  color: var(--cmux-text-secondary);
+}
+.hm-mcp__tools {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hm-mcp__tool-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cmux-text-tertiary);
+}
+.hm-mcp__tool-list li[data-flagged] {
+  color: var(--cmux-app-danger);
+}
+.hm-mcp__tool-list li .hm-mcp__value--mono {
+  color: var(--cmux-text);
+}
+.hm-mcp__key {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-self: stretch;
+}
+.hm-mcp__key-field {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--cmux-separator);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cmux-text);
+  font-family: var(--cmux-mono-font, ui-monospace, monospace);
+  font-size: var(--text-detail);
+}
+
+/* Agent pills (Swift HomeAgentPills): capsules with a hairline; chips keep one row. */
+.hm-pills {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 4px 0;
+}
+.hm-pills[data-shape="chip"] {
+  flex-direction: row;
+  flex-wrap: wrap;
+  /* One row: a chip that wraps is left out, so the row's height never depends on its width. */
+  max-height: calc(26px + 8px);
+  overflow: hidden;
+}
+.hm-pills__item {
+  display: flex;
+  max-width: 100%;
+}
+.hm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-width: 120px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--cmux-text-secondary) 32%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cmux-hover) 55%, transparent);
+  color: var(--cmux-text);
+  font: inherit;
+  font-size: var(--text-body);
+  cursor: default;
+}
+.hm-pill:hover {
+  background: var(--cmux-hover);
+}
+.hm-pills[data-shape="twoLine"] .hm-pill {
+  height: auto;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--cmux-hover);
+}
+.hm-pills[data-shape="chip"] .hm-pill {
+  height: 24px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 0;
+  background: var(--cmux-hover);
+  font-size: var(--text-detail);
+}
+.hm-pill__mark {
+  flex: none;
+  color: var(--cmux-text-secondary);
+}
+.hm-pill__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 320px;
+  text-align: start;
+}
+.hm-pill__title,
+.hm-pill__status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-pills[data-shape="twoLine"] .hm-pill__title {
+  font-weight: 600;
+}
+.hm-pill__status {
+  color: var(--cmux-text-secondary);
+  font-size: var(--text-detail);
+}
+.hm-pill__dot {
+  flex: none;
+  color: var(--cmux-accent);
+}
+.hm-pill__chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--cmux-text-secondary);
+}
+
+/* Link chips and their preview card (Swift HomeLinkPreviewCardView): the shared link card's glass. */
+.hm-link-preview__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+}
+.hm-link-preview__title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.hm-link-preview__status {
+  flex: none;
+  color: var(--cmux-text-secondary);
+  font-size: var(--text-caption);
+}
+.hm-link-preview__status[data-tone="success"] {
+  color: var(--cmux-app-success);
+}
+.hm-link-preview__status[data-tone="danger"] {
+  color: var(--cmux-app-danger);
+}
+.hm-link-preview__lines {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--cmux-text-secondary);
+  font-size: var(--text-caption);
+  white-space: pre-wrap;
+}
+.hm-link-preview__lines[data-mono] {
+  font-family: var(--cmux-mono-font, ui-monospace, monospace);
+}
+.hm-link-preview__thumbnail {
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--cmux-hover);
+}
+
+/* First-run panel (Swift HomeFirstRunView): one centered column, at most 340 px. */
+.hm-first-run {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 24px;
+  overflow: hidden;
+  color: var(--cmux-text);
+}
+.hm-first-run__column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  max-width: 340px;
+}
+.hm-first-run__column[data-fit-actions="out"] {
+  visibility: hidden;
+}
+/* A part that does not fit takes no room but stays measurable, so it comes back when it fits. */
+.hm-first-run [data-fit="out"] {
+  position: absolute;
+  inset-inline: 0;
+  visibility: hidden;
+}
+.hm-first-run__intro {
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--cmux-hover);
+  font-size: var(--text-detail);
+  white-space: pre-line;
+  animation: hm-first-run-intro var(--cmux-motion-standard) var(--cmux-ease-out) both;
+}
+@keyframes hm-first-run-intro {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.hm-first-run__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 16px;
+  text-align: center;
+}
+.hm-first-run__face {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  object-fit: cover;
+}
+.hm-first-run__face--monogram {
+  background: var(--cmux-hover);
+  color: var(--cmux-text-secondary);
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+.hm-first-run__face--glyph {
+  font-size: var(--text-title);
+}
+.hm-first-run__hero-title {
+  margin-top: 8px;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+}
+.hm-first-run__hero-body {
+  margin-top: 4px;
+  color: var(--cmux-text-secondary);
+  font-size: var(--text-detail);
+}
+.hm-first-run__starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.hm-first-run__starters[data-look="stacked"] {
+  flex-direction: column;
+}
+.hm-first-run__starter {
+  max-width: 100%;
+  height: 28px;
+  padding: 0 12px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  background: var(--cmux-hover);
+  color: var(--cmux-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-first-run__starters[data-look="plain"] .hm-first-run__starter {
+  background: transparent;
+}
+.hm-first-run__rows,
+.hm-first-run__agents {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hm-first-run__agents {
+  margin-top: 8px;
+}
+.hm-first-run__agents-header {
+  color: var(--cmux-text-tertiary);
+  font-size: var(--text-detail);
+  font-weight: 600;
+}
+.hm-first-run__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--cmux-separator);
+  border-radius: 6px;
+  background: var(--cmux-elevated-background);
+  color: var(--cmux-text);
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: start;
+  cursor: default;
+}
+.hm-first-run__row:hover {
+  background: color-mix(in srgb, var(--cmux-elevated-background), var(--cmux-hover));
+}
+.hm-first-run__row-icon {
+  display: inline-flex;
+  flex: none;
+}
+.hm-first-run__row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-first-run__row-trailing {
+  flex: none;
+  color: var(--cmux-text-tertiary);
+  font-size: var(--text-detail);
+}
+.hm-first-run__row[data-status="needsYou"] .hm-first-run__row-trailing {
+  color: var(--cmux-app-warning);
+}
+.hm-first-run__row[data-status="failed"] .hm-first-run__row-trailing {
+  color: var(--cmux-app-danger);
+}
+.hm-first-run__row[data-status="done"] .hm-first-run__row-trailing {
+  color: var(--cmux-app-success);
+}
+.hm-first-run__switch {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--cmux-separator);
+  border-radius: 6px;
+  background: var(--cmux-elevated-background);
+  font-size: var(--text-detail);
+}
+.hm-first-run__switch-head,
+.hm-first-run__switch-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+}
+.hm-first-run__switch-head {
+  color: var(--cmux-text-tertiary);
+  font-weight: 600;
+}
+.hm-first-run__keys {
+  color: var(--cmux-text-tertiary);
+  white-space: nowrap;
+}
+.hm-first-run__switch-hide,
+.hm-first-run__switch-settings {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cmux-text-tertiary);
+  font: inherit;
+  font-size: var(--text-caption);
+  font-weight: 400;
+}
+.hm-first-run__switch-settings {
+  align-self: flex-start;
+  color: var(--cmux-text);
+}
+.hm-first-run__switch-note {
+  margin: 4px 0 0;
+  color: var(--cmux-text-tertiary);
+  font-size: var(--text-caption);
+}
+
+/* Header toggles (Swift HomeHeaderPanelBar): 28 px quiet icon buttons, 4 px apart. */
+.hm-header-panels {
+  display: inline-flex;
+  gap: 4px;
+}
+.hm-header-panels__button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cmux-text-secondary);
+}
+.hm-header-panels__button:hover {
+  background: var(--cmux-hover);
+}
+.hm-header-panels__button[aria-pressed="true"] {
+  color: var(--cmux-lit-glyph);
+}

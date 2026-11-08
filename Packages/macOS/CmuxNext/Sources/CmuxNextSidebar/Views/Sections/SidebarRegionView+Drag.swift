@@ -48,11 +48,13 @@ extension SidebarRegionView {
     func dragMoved(_ subject: SidebarRegionDragSubject, from start: NSPoint, _ event: NSEvent) -> Bool {
         guard allowsDrag, isMovable(subject) else { return false }
         // A section the list draws (the sidebar document): its item drags as any list row does, in the list's one drag.
-        if let list = docList {
-            guard case let .item(id) = subject, let section = content?.sections.first?.id else { return false }
+        if let list = docList, case let .item(id) = subject {
+            guard let section = content?.sections.first?.id else { return false }
             if docSpentPress == id { return true } // a cancelled drag: this press starts no other
             return list.dragTile(id, section: section.rawValue, in: self, from: start, event)
         }
+        if docList != nil, case let .section(id) = subject,
+           content?.sections.first(where: { $0.id == id })?.content != .app { return false }
         let point = convert(event.locationInWindow, from: nil)
         if reorder == nil {
             let origin = convert(start, from: nil)
@@ -87,6 +89,8 @@ extension SidebarRegionView {
             SidebarReorderLift.follow(drag.lift, top: origin.y, visible: host.visibleRect)
         }
         if holdsDragOut(drag, at: convert(point, to: nil)) { return } // the band keeps its order; a release out there removes the item
+        if case let .section(id) = drag.subject,
+           sectionDropTarget?(id, convert(point, to: nil)) != nil { return }
         if isWorkspaceItem(drag.subject), let probe = dropToListProbe {
             drag.dropsToList = probe(convert(point, to: nil))
             if drag.dropsToList {
@@ -113,7 +117,7 @@ extension SidebarRegionView {
     /// Ends the drag released at `windowPoint` (a tile's mouse-up): the release, not the last move, decides
     /// whether an item the App removes on a drag out comes off. Nil: no release point (a programmatic end).
     func finishDrag(at windowPoint: NSPoint? = nil) {
-        if let list = docList {
+        if reorder == nil, let list = docList {
             docSpentPress = nil
             if list.drag?.tileSource != nil { list.finishDrag(at: windowPoint) }
             endDocPress()
@@ -121,8 +125,21 @@ extension SidebarRegionView {
         }
         guard let drag = reorder else { return }
         if let windowPoint { _ = holdsDragOut(drag, at: windowPoint) }
+        let sectionMove: SidebarLayoutOp? = if case let .section(id) = drag.subject, let windowPoint {
+            sectionDropTarget?(id, windowPoint)
+        } else { nil }
         reorder = nil
         _ = dropToListProbe?(nil)
+        if case let .section(id) = drag.subject { _ = sectionDropTarget?(id, nil) }
+        if let sectionMove {
+            // The shared document applies the move. Keep the source's own
+            // content until that change arrives; the lift ends on release.
+            reorderSections = nil
+            drag.lift.removeFromSuperview()
+            for view in drag.hidden { view.alphaValue = 1 }
+            onSectionDrop?(sectionMove)
+            return
+        }
         if drag.dropsToList, case let .item(id) = drag.subject {
             // The document moves the item into the list (no remove): the band shows it until the move lands.
             onDropToList?(id)
@@ -177,6 +194,7 @@ extension SidebarRegionView {
         guard let drag = reorder else { return }
         reorder = nil
         _ = dropToListProbe?(nil)
+        if case let .section(id) = drag.subject { _ = sectionDropTarget?(id, nil) }
         reorderSections = nil
         relayout(animated: true)
         land(drag)

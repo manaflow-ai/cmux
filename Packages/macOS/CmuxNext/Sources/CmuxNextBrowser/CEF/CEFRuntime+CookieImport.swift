@@ -30,6 +30,12 @@ extension CEFRuntime {
                       start: (UnsafePointer<CChar>, Int32) -> Int32) async throws -> CEFSiteReply {
         let key = storage.cachePath(for: profile).path
         usedProfiles.insert(profile)
+        return try await engineReply(label: label, timeout: timeout) { id in key.withCString { start($0, id) } }
+    }
+
+    /// One shim call that no browser owns and that the shim answers with a site reply (browser 0):
+    /// `start` gets the reply id and returns 1 when it started.
+    func engineReply(label: String, timeout: Duration, start: (Int32) -> Int32) async throws -> CEFSiteReply {
         let id = nextSiteReply
         nextSiteReply = nextSiteReply == .max ? 1 : nextSiteReply + 1
         siteReplyBrowsers[id] = 0
@@ -37,7 +43,7 @@ extension CEFRuntime {
             siteReplyBrowsers[id] = nil
             earlySiteReplies[id] = nil
         }
-        guard key.withCString({ start($0, id) }) == 1 else { throw BrowserTabError.closed }
+        guard start(id) == 1 else { throw BrowserTabError.closed }
         if let early = earlySiteReplies[id] { return early }
         return try await siteReplies.reply(for: id, timeout: timeout) { BrowserTabError.timedOut("CEF \(label) (\(timeout))") }
     }

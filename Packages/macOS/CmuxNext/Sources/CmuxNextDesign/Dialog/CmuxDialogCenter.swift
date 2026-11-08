@@ -29,7 +29,7 @@ public final class CmuxDialogCenter {
         /// Weak: the dialog never keeps its tab or window alive.
         var scope: CmuxDialogWeakScope
         var completion: (CmuxDialogAnswer) -> Void
-        var view: CmuxDialogView?
+        var dialog: CmuxDialogPresentation?
         /// The tab view's deallocation marker (`CmuxDialogScopeLifetime`).
         var lifetime: UUID?
         /// The window's close observer.
@@ -41,8 +41,11 @@ public final class CmuxDialogCenter {
         case app
     }
 
-    /// The host that places dialogs. Replaced by the R84 overlay host.
-    public var host: any CmuxDialogHosting
+    /// The host that places dialogs. The app's composition root gives the shared center a host that draws
+    /// them (CmuxNextPages `OverlayDialogDrawing`); a dialog shown before that moves to the new host.
+    public var host: any CmuxDialogHosting {
+        didSet { rehost(from: oldValue) }
+    }
     private var entries: [Int: Entry] = [:]
     private var queue = CmuxDialogQueue<ScopeKey>()
     private var nextID = 1
@@ -83,10 +86,26 @@ public final class CmuxDialogCenter {
         return id
     }
 
-    /// Shows `spec` in `scope` and waits for the answer.
+    /// Shows `spec` in `scope` and waits for the answer. Cancelling the waiting task dismisses the
+    /// dialog, which answers its cancel (nobody waits on it any more).
     public func present(_ spec: CmuxDialogSpec, in scope: CmuxDialogScope) async -> CmuxDialogAnswer {
-        await withCheckedContinuation { continuation in
-            present(spec, in: scope) { continuation.resume(returning: $0) }
+        let shown = Shown()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                shown.id = present(spec, in: scope) { continuation.resume(returning: $0) }
+                if Task.isCancelled { shown.dismiss(from: self) }
+            }
+        } onCancel: {
+            // task-owner: one hop to the main actor to dismiss the dialog this cancelled wait showed
+            Task { @MainActor in shown.dismiss(from: self) }
+        }
+    }
+
+    /// The dialog an awaited ``present(_:in:)`` showed, for its cancellation.
+    @MainActor private final class Shown {
+        var id: Int?
+        func dismiss(from center: CmuxDialogCenter) {
+            if let id { center.dismiss(id) }
         }
     }
 
@@ -105,13 +124,31 @@ public final class CmuxDialogCenter {
     /// Sets one field of dialog `id` (it must be visible).
     @discardableResult
     public func setValue(_ value: CmuxDialogValue, for field: String, in id: Int) -> Bool {
-        entries[id]?.view?.setValue(value, for: field) ?? false
+        entries[id]?.dialog?.setValue(value, for: field) ?? false
     }
 
     /// Runs one key against the visible dialog `id`, as if typed.
     @discardableResult
     public func key(_ key: CmuxDialogKeys.Key, modifiers: CmuxDialogKeys.Modifiers = [], in id: Int) -> Bool {
-        entries[id]?.view?.handle(key, modifiers: modifiers) ?? false
+        entries[id]?.dialog?.handle(key, modifiers: modifiers) ?? false
+    }
+
+    /// Some dialog is open: a scan of the open dialogs (0 or 1 as a rule), so every key-down can skip the lookup.
+    public var showsDialog: Bool { entries.values.contains { $0.dialog != nil } }
+
+    /// A key-down that missed the dialog blocking keys in `host` (its overlay did not have the
+    /// keyboard): the dialog keyboard answers it (`CmuxDialogKeys`: Return presses the default
+    /// button, Tab moves focus), and the view under the dialog never gets it (QA chrome-parity-v2-1:
+    /// a Return and a typed line under the paste confirm reached the terminal it blocks). Command and
+    /// Control chords keep their routes, Escape has the caller's missed-modal route, and a key while
+    /// `keyWindow`'s keyboard is in the dialog itself is AppKit's to deliver. True when it took the key.
+    public func answersMissedKey(_ event: NSEvent, in host: NSWindow, focusedArea: NSView?, keyWindow: NSWindow) -> Bool {
+        guard event.modifierFlags.isDisjoint(with: [.command, .control]), event.keyCode != 53,
+              let id = dialogBlockingKeys(in: host, focusedArea: focusedArea), let dialog = entries[id]?.dialog else { return false }
+        if let view = dialog.view, let responder = keyWindow.firstResponder as? NSView,
+           responder === view || responder.isDescendant(of: view) { return false }
+        if let key = CmuxDialogPresentation.key(event) { dialog.handle(key, modifiers: CmuxDialogPresentation.modifiers(event)) }
+        return true
     }
 
     /// Ends dialog `id` as its cancel answer (tab closed, app quitting,
@@ -165,15 +202,16 @@ public final class CmuxDialogCenter {
             switch scope {
             case .window(let scoped): return scoped === window
             case .tab(let view):
-                guard view.window === window else { return false }
+                // A parked (hidden) tab's dialog shows nothing: the shown tab's keys stay its own (review of #31849).
+                guard view.window === window, !view.isHiddenOrHasHiddenAncestor else { return false }
                 return holds(responder, view) || focusedArea.map { view === $0 || view.isDescendant(of: $0) } == true
             case .app: return false
             }
         }?.id
     }
 
-    /// The view of visible dialog `id` (screenshots, tests).
-    public func view(_ id: Int) -> CmuxDialogView? { entries[id]?.view }
+    /// Visible dialog `id` (screenshots, tests).
+    public func dialog(_ id: Int) -> CmuxDialogPresentation? { entries[id]?.dialog }
 
     /// Observes opens and answers; keep the token to stop.
     public func observe(_ observer: @escaping (Event) -> Void) -> UUID {
@@ -192,37 +230,35 @@ public final class CmuxDialogCenter {
             dismiss(id)
             return
         }
-        let view = CmuxDialogView(spec: entry.spec, activeLook: scope.window?.backdropActiveLook)
-        view.onPress = { [weak self] button in self?.press(id, button: button) }
-        entries[id]?.view = view
-        host.show(view, in: scope) { [weak self] in self?.dismiss(id) }
+        let dialog = CmuxDialogPresentation(id: id, spec: entry.spec, activeLook: scope.window?.backdropActiveLook)
+        dialog.onPress = { [weak self] button in self?.press(id, button: button) }
+        entries[id]?.dialog = dialog
+        host.show(dialog, in: scope) { [weak self] in self?.dismiss(id) }
+    }
+
+    /// Shows the dialogs `old` showed on ``host`` instead, so none is left in a host that no longer draws.
+    private func rehost(from old: any CmuxDialogHosting) {
+        guard old !== host else { return }
+        for id in entries.keys.sorted() {
+            guard let dialog = entries[id]?.dialog else { continue }
+            old.hide(dialog)
+            show(id)
+        }
     }
 
     private func finish(_ id: Int, _ answer: CmuxDialogAnswer) {
         guard let entry = entries.removeValue(forKey: id) else { return }
         if let observer = entry.closeObserver { NotificationCenter.default.removeObserver(observer) }
-        if let view = entry.view { host.hide(view) }
+        if let dialog = entry.dialog { host.hide(dialog) }
         let next = queue.remove(id)
         entry.completion(answer)
         emit(.answered(id: id, answer: answer))
         if let next { show(next) }
     }
 
-    /// The visible view's values, else the spec's initial values.
+    /// The visible dialog's values, else the spec's initial values.
     private func values(of entry: Entry) -> [String: CmuxDialogValue] {
-        if let view = entry.view { return view.values }
-        var values: [String: CmuxDialogValue] = [:]
-        for field in entry.spec.fields {
-            switch field {
-            case .text(let id, _, let initial, _, _): values[id] = .text(initial)
-            case .choice(let id, _, let options, let selected):
-                let enabled = options.filter(\.isEnabled)
-                values[id] = .text(selected.flatMap { s in enabled.first { $0.value == s }?.value } ?? enabled.first?.value ?? "")
-            case .check(let id, _, let on): values[id] = .bool(on)
-            case .preview: break
-            }
-        }
-        return values
+        entry.dialog?.values ?? CmuxDialogPresentation.initialValues(entry.spec)
     }
 
     private func emit(_ event: Event) {

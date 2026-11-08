@@ -10,7 +10,17 @@ import { UpdatesView } from "./UpdatesView";
 export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
   const { t, format } = strings;
   if (snap.installed.length === 0)
-    return <div className="apps-empty">{snap.loading ? "" : t("store.empty.noneInstalled")}</div>;
+    // Loading and empty share one apps-state box, so the swap to either result does not jump.
+    return snap.loading ? (
+      <output className="apps-empty apps-state" aria-busy="true" data-installed-state="loading">
+        <strong>{t("store.detail.loading")}</strong>
+      </output>
+    ) : (
+      <div className="apps-empty apps-state" data-installed-state="empty">
+        <strong>{t("store.empty.noneInstalled")}</strong>
+        <span>{t("store.empty.noneInstalledHint")}</span>
+      </div>
+    );
   return (
     <div className="apps-scroll">
       <div className="apps-installed">

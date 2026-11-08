@@ -3,18 +3,25 @@
 //! after that whole turn (`queue.rs` `queue_slot`, `Session::turn_claimed`).
 
 use super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 const WAIT: Duration = Duration::from_secs(20);
 
 /// A hub with one open chat on the stand-in agent, its store in memory.
 async fn chat() -> (Arc<Hub>, Arc<Session>) {
+    chat_with_store(None).await
+}
+
+async fn chat_with_store(store: Option<Box<dyn crate::store::Store>>) -> (Arc<Hub>, Arc<Session>) {
     use crate::config::{Config, StoreMode};
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
     cfg.store.mode = StoreMode::Memory;
-    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let store = store.unwrap_or_else(|| {
+        crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap()
+    });
     let hub = Hub::new(cfg, store);
     let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let session = hub.new_session(req).await.unwrap();
@@ -88,4 +95,136 @@ async fn a_prompt_behind_one_about_to_start_its_turn_is_accepted_queued_at_once(
         .map(|r| r.msg["promptId"].clone())
         .collect();
     assert_eq!(order, [json!("g1-a"), json!("g1-b")]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn exact_prompt_stop_fences_admission_before_turn_without_stopping_next_person() {
+    let (hub, session) = chat().await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let (accepted_tx, _accepted) = tokio::sync::oneshot::channel();
+    let stopped = prompt(&hub, &session, "workflow-dequeued", "must not reach agent", accepted_tx);
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    assert!(session.turn().is_none());
+    hub.cancel_prompt(&session, "workflow-dequeued").await.unwrap();
+    release.send(()).unwrap();
+    let result = tokio::time::timeout(WAIT, stopped).await.unwrap().unwrap();
+    assert!(result.is_err() || result.unwrap()["stopReason"] == "cancelled");
+    assert!(
+        !hub.events(&session.id, 0, 10000)
+            .unwrap()
+            .iter()
+            .any(|event| event.kind == "user_message"
+                && event.msg["promptId"] == "workflow-dequeued")
+    );
+    let (accepted_tx, _accepted) = tokio::sync::oneshot::channel();
+    let next = prompt(&hub, &session, "person-after-pause", "person next", accepted_tx);
+    assert_eq!(
+        tokio::time::timeout(WAIT, next).await.unwrap().unwrap().unwrap()["stopReason"],
+        "end_turn"
+    );
+    // Reconstruct the lazy cache as after a daemon restart: the fence is durable.
+    hub.clear_prompt_stop_cache_for_test(&session);
+    let turn = TurnInfo::prompted(
+        "workflow",
+        "replay",
+        "new-turn",
+        "workflow-dequeued~resume-1",
+        Control::Local,
+    );
+    assert!(hub.start_turn(&session, None, false, false, turn).is_err());
+    hub.shutdown_all().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn race_guard_refuses_prompt_cancelled_at_final_acceptance_fence() {
+    let (hub, session) = chat().await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let active = std::sync::Arc::new(AtomicBool::new(true));
+    let guard_active = active.clone();
+    let opts = PromptOptions {
+        prompt_id: Some("race-cancel-fence".into()),
+        race_guard: Some(std::sync::Arc::new(move || {
+            if guard_active.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err(RpcError::invalid_params("race cancelled")
+                    .with_data(json!({"reason": "race.cancelled"})))
+            }
+        })),
+        ..PromptOptions::default()
+    };
+    let pending = {
+        let hub = hub.clone();
+        let session = session.clone();
+        tokio::spawn(async move {
+            hub.prompt_with(
+                &session,
+                vec![json!({"type":"text","text":"must not reach agent"})],
+                "race-test",
+                false,
+                opts,
+            )
+            .await
+        })
+    };
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    active.store(false, Ordering::SeqCst);
+    release.send(()).unwrap();
+    let result = tokio::time::timeout(WAIT, pending).await.unwrap().unwrap();
+    assert!(result.is_err(), "cancelled race prompt was accepted: {result:?}");
+    assert!(!hub.events(&session.id, 0, 10_000).unwrap().iter().any(|event| {
+        event.kind == "user_message" && event.msg["promptId"] == "race-cancel-fence"
+    }));
+    hub.shutdown_all().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn exact_prompt_stop_survives_malformed_lines_and_an_unterminated_log_tail() {
+    use std::io::Write;
+    let directory = cmux_unix_socket::short_test_dir("prompt-stop-corrupt");
+    let store = crate::store::LocalStore::new(directory.path().to_owned(), 1 << 20).unwrap();
+    let (hub, session) = chat_with_store(Some(Box::new(store))).await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let (accepted_tx, _accepted) = tokio::sync::oneshot::channel();
+    let stopped = prompt(&hub, &session, "workflow-torn", "must not reach agent", accepted_tx);
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    hub.store.flush_session(&session.id).unwrap();
+    hub.store.close_log(&session.id);
+    let path = directory.path().join(&session.id).join("events").join("000001.ndjson");
+    let mut log = std::fs::OpenOptions::new().append(true).open(path).unwrap();
+    // Existing malformed history must not freeze the chat. A real truncated final line
+    // also joins the next append: acknowledgement must prove the stop can be read back.
+    log.write_all(b"{malformed history}\n{\"seq\":999").unwrap();
+    log.sync_all().unwrap();
+    drop(log);
+    hub.cancel_prompt(&session, "workflow-torn").await.unwrap();
+    release.send(()).unwrap();
+    let result = tokio::time::timeout(WAIT, stopped).await.unwrap().unwrap();
+    assert!(result.is_err() || result.unwrap()["stopReason"] == "cancelled");
+
+    let (accepted_tx, _accepted) = tokio::sync::oneshot::channel();
+    let next = prompt(&hub, &session, "person-after-torn", "person next", accepted_tx);
+    assert_eq!(
+        tokio::time::timeout(WAIT, next).await.unwrap().unwrap().unwrap()["stopReason"],
+        "end_turn"
+    );
+    hub.clear_prompt_stop_cache_for_test(&session);
+    let turn = TurnInfo::prompted(
+        "workflow",
+        "late retry",
+        "retry-turn",
+        "workflow-torn~resume-1",
+        Control::Local,
+    );
+    assert!(
+        hub.start_turn(&session, None, false, false, turn).is_err(),
+        "acknowledged stop was lost inside the malformed tail"
+    );
+    hub.shutdown_all().await;
 }

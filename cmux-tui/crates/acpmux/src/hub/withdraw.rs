@@ -168,10 +168,16 @@ impl Hub {
     pub(crate) fn prompt_provenance(
         params: &Value,
         origin: crate::server::Origin,
+        trigger: bool,
     ) -> Result<Option<Value>, RpcError> {
         use crate::prompt_provenance::Sender;
-        let sender =
-            if origin == crate::server::Origin::Local { Sender::Local } else { Sender::Other };
+        let sender = if trigger {
+            Sender::Trigger
+        } else if origin == crate::server::Origin::Local {
+            Sender::Local
+        } else {
+            Sender::Other
+        };
         crate::prompt_provenance::of(params, sender)
     }
 
@@ -314,6 +320,7 @@ impl Hub {
         let mut found = lookup()?;
         // A person's prompt (`author.rs`) is no agent message either.
         if found.provenance.is_none()
+            || crate::prompt_provenance::is_unverified(found.provenance.as_ref())
             || crate::author::of_provenance(found.provenance.as_ref()).is_some()
         {
             let message = "the prompt is the person's own, not an agent message";

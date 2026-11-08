@@ -17,6 +17,8 @@ import type { OwnedMeshRule, SameMesh } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import type { UpstreamError } from "./client.ts";
+import type { PendingMeshCreation } from "../proofs/mesh-creation.ts";
+import type { Option } from "effect";
 
 /** A private network the provider just created. Only `createNetwork` makes one. */
 export interface CreatedNetwork {
@@ -49,6 +51,8 @@ export interface CreatedRule {
 }
 
 export interface UpstreamMeshService {
+  readonly recoverNetwork: <C, M>(mesh: Named<M, MeshId>, proofs: { readonly scope: KeyHasScope<C, "mesh:write">; readonly pending: PendingMeshCreation<C, M> }) => Effect.Effect<Option.Option<CreatedNetwork>, UpstreamError>;
+  readonly createJournalledNetwork: <C, M>(mesh: Named<M, MeshId>, proofs: { readonly scope: KeyHasScope<C, "mesh:write">; readonly mayCreate: TenantMayCreate<C, "mesh">; readonly pending: PendingMeshCreation<C, M> }) => Effect.Effect<CreatedNetwork, UpstreamError>;
   readonly createNetwork: <C, M>(
     mesh: Named<M, MeshId>,
     proofs: { readonly scope: KeyHasScope<C, "mesh:write">; readonly mayCreate: TenantMayCreate<C, "mesh"> },
@@ -122,6 +126,12 @@ export interface UpstreamMeshService {
       readonly meshScope: KeyHasScope<C, "mesh:write">;
       readonly vmScope: KeyHasScope<C, "vm:write">;
     },
+  ) => Effect.Effect<{ readonly ipv4: string | null }, UpstreamError>;
+  /** Read only the current address on this exact owned network. Never attaches a VM. */
+  readonly readVmAddress: <C, M, V>(
+    mesh: Named<M, MeshId>, vm: Named<V, VmId>,
+    proofs: { readonly ownsMesh: TenantOwnsResource<C, M>; readonly ownsVm: TenantOwnsResource<C, V>;
+      readonly meshScope: KeyHasScope<C, "mesh:read">; readonly vmScope: KeyHasScope<C, "vm:read"> },
   ) => Effect.Effect<{ readonly ipv4: string | null }, UpstreamError>;
   readonly detachVm: <C, V>(
     vm: Named<V, VmId>,

@@ -17,7 +17,7 @@ struct AgentReplyPullRequestsTests {
     /// check rollup hangs off the last commit.
     private static func node(_ number: Int) -> String {
         """
-        {"pullRequest":{"url":"https://github.com/o/r/pull/\(number)","number":\(number),"title":"Retry",
+        {"issueOrPullRequest":{"url":"https://github.com/o/r/pull/\(number)","number":\(number),"title":"Retry",
         "state":"OPEN","isDraft":false,"updatedAt":"2026-10-20T01:02:03Z","changedFiles":3,
         "baseRefName":"feat-cmux-next","headRefName":"work","additions":12,"deletions":4,"author":{"login":"octocat"},
         "labels":{"nodes":[{"name":"risk:normal"},{"name":"agent"}]},
@@ -58,7 +58,7 @@ struct AgentReplyPullRequestsTests {
 
     /// How many pull requests every `gh api graphql` call of this rig asked about.
     private static func asked(_ gh: String) -> Int {
-        callLines(gh).reduce(0) { $0 + $1.components(separatedBy: "pullRequest(number:").count - 1 }
+        callLines(gh).reduce(0) { $0 + $1.components(separatedBy: "issueOrPullRequest(number:").count - 1 }
     }
 
     @Test func readsThePullRequestByItsLink() async throws {
@@ -197,7 +197,7 @@ struct AgentReplyPullRequestsTests {
         // `AgentPanePullRequest.identity` matches a head check against a base one by its workflow
         // as well as its name, so trimming these fields would quietly degrade the match to the
         // name alone and excuse a red of one workflow with a same-named red of another.
-        #expect(query.components(separatedBy: "checkSuite { workflowRun { databaseId workflow { databaseId name } } }").count == 3,
+        #expect(query.components(separatedBy: "checkSuite { workflowRun { databaseId event workflow { databaseId name } } }").count == 3,
                 "the run fields belong to both rollups the query reads")
         // And the base branch's tip is read beside the head's, which is what "also red on base"
         // compares against.

@@ -1,5 +1,5 @@
 //! Help examples for the work groups: `task`, `process`, `worktree`, `briefs`, `bead`, `inbox`,
-//! `forum`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
+//! `forum`, `watch`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
 
 use super::Example;
 
@@ -120,6 +120,44 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "group",
+        &[
+            ("List sidebar groups, duplicates marked", "acpmux group ls"),
+            ("Put a session in the Leads group", "acpmux group move coord Leads"),
+            ("Merge same-named groups", "acpmux group tidy --apply"),
+        ],
+    ),
+    (
+        "race",
+        &[
+            (
+                "Race two models on a task and let a third review",
+                "acpmux race new -m claude -m codex --reviewer claude 'Fix the flaky test'",
+            ),
+            ("List this chat's races", "acpmux race ls"),
+        ],
+    ),
+    (
+        "race new",
+        &[(
+            "Race two models on a task in a file",
+            "acpmux race new -m claude -m codex --reviewer claude --prompt-file task.md",
+        )],
+    ),
+    ("race show", &[("Read a race and the reviewer's pick", "acpmux race show RACE_ID")]),
+    ("race stop", &[("Stop a race's agents, keeping its results", "acpmux race stop RACE_ID")]),
+    ("race ls", &[("List this chat's races", "acpmux race ls")]),
+    ("race stats", &[("Wins per model in this chat", "acpmux race stats")]),
+    ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
+    ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
+    (
+        "group tidy",
+        &[
+            ("See which groups a tidy would merge", "acpmux group tidy"),
+            ("Merge them", "acpmux group tidy --apply"),
+        ],
+    ),
+    (
         "worktree",
         &[
             ("List worktrees a cleanup would touch", "acpmux worktree list"),
@@ -203,7 +241,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Link a session to a tracker bead", "acpmux bead link fix-27310 cx-cus7j"),
             (
-                "Link a peer's session to two beads",
+                "Link another machine's session to two beads",
                 "acpmux bead link mini-3/review-27 cx-cus7j cx-ncc.112",
             ),
         ],
@@ -256,6 +294,34 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[("From the agent session that read it, mark a rule read", "acpmux forum ack post-3f9a")],
     ),
     (
+        "watch",
+        &[
+            (
+                "From a coordinator session, be woken when a worker is done or blocked",
+                "acpmux watch add review-27310 fix-27311",
+            ),
+            ("List watches and the wakes they owe", "acpmux watch ls"),
+        ],
+    ),
+    (
+        "watch add",
+        &[
+            (
+                "Wake coord once when a worker on any host reports a blocker",
+                "acpmux watch add review-27310 my-linux/fix-27311 --to coord --match BLOCKER",
+            ),
+            (
+                "Wake coord only when a worker asks for permission or closes",
+                "acpmux watch add fix-27311 --to coord --until permission,closed",
+            ),
+        ],
+    ),
+    ("watch ls", &[("List watches and the wakes they still owe", "acpmux watch ls --json")]),
+    (
+        "watch rm",
+        &[("Remove a watch; wakes it already owes still arrive", "acpmux watch rm 019a3f9c")],
+    ),
+    (
         "chats",
         &[
             ("List this device's chats, newest first", "acpmux chats list"),
@@ -271,6 +337,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux chats list --harness codex --folder ~/wt/cmux",
             ),
             ("Find chats about the resize lag", "acpmux chats list -q resize -n 10"),
+        ],
+    ),
+    (
+        "chats search",
+        &[
+            ("Find chats that talked about the resize lag", "acpmux chats search resize lag"),
+            (
+                "Search only Codex chats in one folder",
+                "acpmux chats search flaky test --harness codex --folder ~/wt/cmux -n 5",
+            ),
         ],
     ),
     (

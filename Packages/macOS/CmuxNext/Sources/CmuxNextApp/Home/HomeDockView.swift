@@ -1,7 +1,9 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
+import CmuxNextLayout
 import CmuxNextPages
 
 /// The docked Home's two views over `HomeDockSwitchView` (cx-ebm.59.5, cx-frn2y): Messages, the native MessagesLab
@@ -88,3 +90,4 @@ final class HomeDockView: HomeDockSwitchView, PageWebViewContainer {
         channels?.close()
     }
 }
+extension HomeDockView: ChiefPanelContent { var chiefIsAnswering: Bool { mode == .messages && messages?.host?.chiefIsAnswering == true }; var chiefShowsThrough: Bool { get { messages?.host?.chiefShowsThrough == true } set { messages?.host?.chiefShowsThrough = newValue } } }

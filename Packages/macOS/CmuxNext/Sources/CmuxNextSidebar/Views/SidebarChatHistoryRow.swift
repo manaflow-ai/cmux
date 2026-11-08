@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentBrands
 import CmuxNextDesign
 
 /// A history block's header: its name in the section header's quiet style; Earlier's folds the
@@ -72,21 +73,24 @@ final class SidebarChatHistoryHeader: NSView {
         // On the sidebar's trailing column, as every row's mark and header chevron (Leo 2026-10-28: "the alignment").
         chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: bounds.width, centerY: bounds.midY, side: side)
         let h = ceil(name.intrinsicContentSize.height)
-        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
+        let x = SidebarStyle.columns(rowWidth: bounds.width).lead - SidebarStyle.labelCellPadding
         let trailing = foldable ? SidebarStyle.trailingColumnStart(rowWidth: bounds.width) - Metrics.space2 : bounds.width - Metrics.space2
-        name.frame = NSRect(x: x, y: (bounds.height - h) / 2, width: max(0, trailing - x), height: h)
+        name.frame = NSRect(x: x, y: SidebarStyle.textY(name, centerY: bounds.midY), width: max(0, trailing - x), height: h)
     }
 }
 
-/// One history row: the chat's title and a faint age on the right, compact like a workspace row,
-/// with the sidebar's hover fill. No kind icon (Leo 2026-10-15). A click resumes the chat; the
-/// right-click menu pins or unpins it.
+/// One history row: a harness mark, the chat's title and a faint age on the right, compact like a
+/// workspace row, with the sidebar's hover fill. A click resumes the chat; the right-click menu
+/// pins or unpins it.
 final class SidebarChatHistoryRow: NSView {
     var onClick: (() -> Void)?
     /// The right-click menu (the app's, from the action registry), built when it opens.
     var makeMenu: (() -> NSMenu?)?
+    private let icon = NSImageView()
     private let title = SidebarRowView.label(font: SidebarStyle.titleFont)
     private let meta = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    private(set) var harness: String?
+    private(set) var harnessMarkColor: GroupColor?
     private var quiet = false
     private var tracking: NSTrackingArea?
     private(set) var isHovered = false { didSet { if isHovered != oldValue { tint() } } }
@@ -96,7 +100,9 @@ final class SidebarChatHistoryRow: NSView {
         wantsLayer = true
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
         title.lineBreakMode = .byTruncatingTail
-        [title, meta].forEach(addSubview)
+        icon.imageScaling = .scaleProportionallyDown
+        icon.setAccessibilityElement(false)
+        [icon, title, meta].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
     }
@@ -109,14 +115,31 @@ final class SidebarChatHistoryRow: NSView {
     var titleText: String { title.stringValue }
     var metaText: String? { meta.isHidden ? nil : meta.stringValue }
 
-    func configure(title: String, meta: String?, quiet: Bool) {
+    func configure(title: String, meta: String?, harness: String? = nil, quiet: Bool) {
         self.title.setString(title)
         self.meta.setString(meta ?? "")
         self.meta.isHidden = meta == nil
+        self.harness = harness
+        harnessMarkColor = harness.flatMap { AgentBrandCatalog.brand(for: $0) == nil ? GroupColor.unset(id: $0) : nil }
+        icon.image = Self.harnessImage(harness, side: SidebarStyle.kindGlyphSize)
+        icon.isHidden = icon.image == nil
         self.quiet = quiet
-        setAccessibilityLabel(meta.map { "\(title), \($0)" } ?? title)
+        setAccessibilityLabel([title, harness, meta].compactMap { $0 }.joined(separator: ", "))
         tint()
         needsLayout = true
+    }
+
+    /// Catalog ids (`codex`, `claude-code`) are harness ids, not brand ids. Resolve through the
+    /// catalog first; unknown harnesses retain a stable, per-harness person mark and tint.
+    private static func harnessImage(_ harness: String?, side: CGFloat) -> NSImage? {
+        guard let harness, !harness.isEmpty else { return nil }
+        if let brand = AgentBrandCatalog.brand(for: harness),
+           let image = AgentBrandCatalog.templateImage(brand: brand.rawValue, size: side) {
+            return image
+        }
+        let image = NSImage(systemSymbolName: "person.crop.circle", accessibilityDescription: nil)
+        image?.isTemplate = true
+        return image
     }
 
     func tint() {
@@ -124,6 +147,7 @@ final class SidebarChatHistoryRow: NSView {
             layer?.backgroundColor = isHovered ? Palette.hoverFill.cgColor : nil
             title.setColor(quiet ? Palette.textSecondary : Palette.textPrimary)
             meta.setColor(Palette.textTertiary)
+            icon.contentTintColor = harnessMarkColor.map(SidebarStyle.color) ?? Palette.textSecondary
         }
     }
 
@@ -177,6 +201,15 @@ final class SidebarChatHistoryRow: NSView {
 
     override func layout() {
         super.layout()
+        // The harness mark takes the grid's icon column box; its image centers in it (scaled down only).
+        let iconSide = icon.isHidden ? 0 : SidebarStyle.iconColumnBox
+        let leading = SidebarStyle.titleLeading
+        let textX = SidebarStyle.titleTextX(leading: leading, iconSide: iconSide)
+        if iconSide > 0 {
+            icon.frame = NSRect(x: leading, y: (bounds.height - iconSide) / 2, width: iconSide, height: iconSide)
+        } else {
+            icon.frame = .zero
+        }
         let size = meta.isHidden ? .zero : meta.intrinsicContentSize
         let metaWidth = ceil(size.width)
         // The meta's text ends `space2` from the edge; its frame adds the label's padding around
@@ -184,8 +217,8 @@ final class SidebarChatHistoryRow: NSView {
         let metaText = NSRect(x: bounds.width - Metrics.space2 - metaWidth, y: (bounds.height - size.height) / 2, width: metaWidth, height: size.height)
         meta.frame = meta.frame(forAlignmentRect: metaText)
         let h = ceil(title.intrinsicContentSize.height)
-        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
+        let x = textX - SidebarStyle.labelCellPadding
         let trailing = meta.isHidden ? bounds.width - Metrics.space2 : metaText.minX - Metrics.space2
-        title.frame = NSRect(x: x, y: (bounds.height - h) / 2, width: max(0, trailing - x), height: h)
+        title.frame = NSRect(x: x, y: SidebarStyle.textY(title, centerY: bounds.midY), width: max(0, trailing - x), height: h)
     }
 }

@@ -67,3 +67,19 @@ fn the_known_params_are_the_macos_hosts() {
         .collect();
     assert_eq!(rust, swift, "policy.json known_params vs AcpmuxPaneMethods.knownParams");
 }
+
+#[test]
+fn the_act_as_me_covers_are_the_macos_hosts() {
+    let swift: BTreeSet<String> = strings(&block(
+        &read("AgentPaneActAsMe.swift"),
+        "public nonisolated static let covers: Set<String> = [",
+        "\n    ]",
+    ))
+    .into_iter()
+    .collect();
+    assert_eq!(
+        policy().act_as_me_covers,
+        swift,
+        "policy.json act_as_me_covers vs AgentPaneActAsMe.covers"
+    );
+}

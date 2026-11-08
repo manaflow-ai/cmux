@@ -12,7 +12,11 @@
 #include <set>
 #include <string>
 
+#include "devtools_ready.h"
+#include "include/base/cef_callback.h"
 #include "include/cef_command_ids.h"
+#include "include/wrapper/cef_closure_task.h"
+#include "devtools_dock_state.h"
 #include "shim_internal.h"
 
 namespace cmux_shim {
@@ -30,6 +34,13 @@ struct Placement {
 // Inspected browser id -> where its DevTools goes next.
 std::map<int, Placement>& placements() {
   static std::map<int, Placement> map;
+  return map;
+}
+
+// Inspected browser id -> the background its next DevTools starts with
+// (cmux_shim_devtools_set_background: the pane's theme color).
+std::map<int, cef_color_t>& backgrounds() {
+  static std::map<int, cef_color_t> map;
   return map;
 }
 
@@ -78,16 +89,66 @@ void SelectPanel(CefRefPtr<CefBrowser> devtools, const std::string& panel, bool 
   devtools->GetMainFrame()->ExecuteJavaScript(script, "devtools://cmux/show-panel", 0);
 }
 
-class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKeyboardHandler, public CefLoadHandler {
+// DevTools browsers whose own window this file made invisible (by id: no weak reference to a Chromium window
+// class, which may refuse one; the window is found again from the browser's view when it is shown).
+std::set<int>& HiddenDevTools() {
+  static std::set<int> set;
+  return set;
+}
+
+// The window that shows a DevTools browser's view, or nil (no view yet, or closed).
+NSWindow* DevToolsWindowOf(CefRefPtr<CefBrowser> browser) {
+  if (!browser) return nil;
+  CefWindowHandle handle = browser->GetHost()->GetWindowHandle();
+  if (!handle) return nil;
+  id object = (__bridge id)handle;
+  if (![object isKindOfClass:[NSView class]]) return nil;
+  return ((NSView*)object).window;
+}
+
+// The DevTools browser's own window (a Chromium child window over the host's parent view); nil when its view sits
+// in the parent's own window (never hide that one).
+NSWindow* DevToolsOwnWindow(CefRefPtr<CefBrowser> browser, void* parent_view) {
+  NSWindow* window = DevToolsWindowOf(browser);
+  id parent = parent_view ? (__bridge id)parent_view : nil;
+  NSWindow* parent_window = [parent isKindOfClass:[NSView class]] ? ((NSView*)parent).window : nil;
+  if (!window || window == parent_window) return nil;
+  return window;
+}
+
+// Shows a DevTools window kept invisible until its frontend loaded (DevToolsClient). Reads no parent view: the
+// backstop runs later, when the host view may be gone; an opaque window (the parent's own) stays as it is.
+void RevealDevTools(CefRefPtr<CefBrowser> browser) {
+  if (!browser || HiddenDevTools().erase(browser->GetIdentifier()) == 0) return;
+  if (NSWindow* window = DevToolsWindowOf(browser)) window.alphaValue = 1;
+}
+
+class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKeyboardHandler, public CefLoadHandler,
+                       public CefDisplayHandler {
  public:
-  DevToolsClient(int inspected, bool docked) : inspected_(inspected), docked_(docked) {}
+  DevToolsClient(int inspected, void* parent_view)
+      : inspected_(inspected), docked_(parent_view != nullptr), parent_view_(parent_view) {}
 
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+  CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
+
+  // The frontend's ready marker (devtools_ready.h): it reported loadCompleted and drew a frame since. Not logged.
+  bool OnConsoleMessage(CefRefPtr<CefBrowser> browser, cef_log_severity_t, const CefString& message, const CefString&,
+                        int) override {
+    if (!IsDevToolsReadyMessage(message.ToString())) return false;
+    RevealDevTools(browser);
+    return true;
+  }
 
   void OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int) override {
     if (!frame || !frame->IsMain()) return;
+    if (docked_) {
+      // Relay the frontend's loadCompleted (devtools_ready.h); a frontend that never reports shows after the backstop.
+      frame->ExecuteJavaScript(DevToolsReadyScript(), "devtools://cmux/frontend-ready", 0);
+      CefPostDelayedTask(TID_UI, base::BindOnce(&RevealDevTools, browser), kDevToolsRevealBackstopMs);
+    }
     loaded_frontends().insert(inspected_);
     auto it = pending_panels().find(inspected_);
     if (it != pending_panels().end()) {
@@ -96,7 +157,24 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
     }
   }
 
+  void OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode, const CefString&,
+                   const CefString&) override {
+    if (frame && frame->IsMain()) RevealDevTools(browser);
+  }
+
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
+    // BROWSER VIDEO F1b: until its frontend loaded, a docked (or panel) DevTools paints its document unthemed, white
+    // in a dark theme. As Chrome's DevToolsWindow shows DevTools only after loadCompleted, its window stays
+    // invisible over the pane's themed ground (the host view under it) until the frontend's ready marker.
+    if (docked_) {
+      if (NSWindow* window = DevToolsOwnWindow(browser, parent_view_)) {
+        HiddenDevTools().insert(browser->GetIdentifier());
+        window.alphaValue = 0;
+        // A frontend whose renderer ends, or whose load never ends, still shows: the backstop counts from creation
+        // too (the load-end backstop below only exists once the load ended).
+        CefPostDelayedTask(TID_UI, base::BindOnce(&RevealDevTools, browser), kDevToolsRevealBackstopMs * 3);
+      }
+    }
     auto& map = devtools_browsers();
     if (map.count(inspected_) == 0) {
       map[inspected_] = browser;
@@ -118,6 +196,7 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
   }
 
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
+    HiddenDevTools().erase(browser->GetIdentifier());
     auto& map = devtools_browsers();
     auto it = map.find(inspected_);
     if (it != map.end() && it->second->IsSame(browser)) {
@@ -139,16 +218,23 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
  private:
   int inspected_;
   bool docked_;
+  void* parent_view_;  // NSView*, the host view DevTools docks over; nullptr for Chromium's own window
   IMPLEMENT_REFCOUNTING(DevToolsClient);
 };
 
 }  // namespace
 
 void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
-                          bool* use_default_window) {
+                          CefBrowserSettings& settings, bool* use_default_window) {
   // The host decides now (synchronously, from this event) and calls
-  // cmux_shim_devtools_set_placement.
+  // cmux_shim_devtools_set_background and cmux_shim_devtools_set_placement.
   Emit(CMUX_SHIM_DEVTOOLS_WILL_OPEN, inspected);
+  // Until its frontend draws, DevTools shows its browser's background. With
+  // none of its own Chromium uses CefSettings.background_color from CEF start
+  // (the theme the app launched in): a dark block in a light pane (BROWSER
+  // VIDEO F1). Like every page of the pane, DevTools starts on its theme color.
+  auto color = backgrounds().find(inspected);
+  settings.background_color = color != backgrounds().end() && color->second ? color->second : BackgroundColor();
   Placement placement;
   auto it = placements().find(inspected);
   if (it != placements().end()) {
@@ -163,7 +249,7 @@ void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<C
   }
   info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
   window_info = info;
-  client = new DevToolsClient(inspected, placement.parent_view != nullptr);
+  client = new DevToolsClient(inspected, placement.parent_view);
   if (use_default_window) {
     // Never a Views-hosted popup: the window info above decides.
     *use_default_window = true;
@@ -172,6 +258,7 @@ void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<C
 
 void ForgetDevTools(int inspected) {
   placements().erase(inspected);
+  backgrounds().erase(inspected);
 }
 
 }  // namespace cmux_shim
@@ -186,6 +273,10 @@ void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn key) {
 
 void cmux_shim_devtools_set_placement(int browser_id, void* parent_view, int x, int y, int width, int height) {
   placements()[browser_id] = Placement{parent_view, x, y, width, height};
+}
+
+void cmux_shim_devtools_set_background(int browser_id, unsigned int argb) {
+  backgrounds()[browser_id] = static_cast<cef_color_t>(argb);
 }
 
 int cmux_shim_devtools_command(int browser_id, int command, int x, int y) {
@@ -223,6 +314,31 @@ int cmux_shim_devtools_command(int browser_id, int command, int x, int y) {
     default:
       return 0;
   }
+}
+
+int cmux_shim_devtools_set_frontend_dock_side(int browser_id, int side) {
+  // The DevTools frontend keeps its dock side in its own setting (currentDockState, a JSON string in the profile's
+  // devtools.preferences dictionary) and applies it when it loads; the fork reports that as a dock-side choice.
+  // Chrome keeps one side, the frontend's: write the host's side there before DevTools opens, so the frontend loads
+  // on it and never moves DevTools.
+  const std::string value = DevToolsDockStateValue(side);
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  CefRefPtr<CefRequestContext> context = browser ? browser->GetHost()->GetRequestContext() : nullptr;
+  if (value.empty() || !context) return 0;
+  const char* pref = "devtools.preferences";
+  if (!context->CanSetPreference(pref)) return 0;
+  CefRefPtr<CefValue> current = context->GetPreference(pref);
+  CefRefPtr<CefDictionaryValue> prefs = current && current->GetType() == VTYPE_DICTIONARY
+                                            ? current->GetDictionary()->Copy(false)
+                                            : CefDictionaryValue::Create();
+  if (prefs->GetType(kDevToolsDockStateKey) == VTYPE_STRING && prefs->GetString(kDevToolsDockStateKey).ToString() == value) {
+    return 1;
+  }
+  prefs->SetString(kDevToolsDockStateKey, value);
+  CefRefPtr<CefValue> updated = CefValue::Create();
+  updated->SetDictionary(prefs);
+  CefString error;
+  return context->SetPreference(pref, updated, error) ? 1 : -1;
 }
 
 int cmux_shim_devtools_browser(int browser_id) {

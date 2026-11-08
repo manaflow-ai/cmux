@@ -54,10 +54,12 @@ struct TornOffWorkspaceNameTests {
         #expect(reader.newWorkspaceName(Self.chatTab("s1", name: "Release notes")) == "Release notes")
     }
 
-    @Test func aChatTitledOnlyByItsFirstPromptKeepsTheDaemonsNameButReadsAsTheChat() throws {
+    @Test func aChatTitledOnlyByItsFirstPromptKeepsTheDaemonsName() throws {
         // A name written now lasts: the prompt would stand in for the agent's title for good.
         let reader = Self.reader(Self.turns(["s1": "fix the flaky test in Foo"], generated: false))
         #expect(reader.newWorkspaceName(Self.chatTab("s1")) == nil)
+        // The titlebar's live label reads as the chat's tab, never workspace-N (#36148, Leo 2026-11-05: "this workspace
+        // didn't inherit the agent chat name"); it is never written, so the daemon's name stays the workspace's name.
         #expect(reader.displayName(try Self.workspace("workspace-41"), front: Self.chatTab("s1")) == "fix the flaky test in Foo")
     }
 

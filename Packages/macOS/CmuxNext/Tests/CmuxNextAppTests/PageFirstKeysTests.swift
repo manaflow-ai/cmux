@@ -25,8 +25,8 @@ import Testing
         Key(name: "Opt-Cmd-G", characters: "g", keyCode: 5, modifiers: [.command, .option]),
     ]
 
-    /// Rich-text editing chords bound to a cmux navigation action (Cmd-B Toggle Sidebar, Cmd-I New
-    /// Agent Chat, Shift-Cmd-E Focus Right Sidebar): Bold, Italic and Center in Google Docs (#27619).
+    /// Rich-text editing chords bound to a cmux navigation action (Cmd-B Toggle Sidebar, Cmd-I Open
+    /// Chief Dock, Shift-Cmd-E Focus Right Sidebar): Bold, Italic and Center in Google Docs (#27619).
     nonisolated static let editingKeys: [Key] = [
         Key(name: "Cmd-B", characters: "b", keyCode: 11),
         Key(name: "Cmd-I", characters: "i", keyCode: 34),
@@ -132,6 +132,18 @@ import Testing
             Issue.record("\(key) did not run its cmux action first")
             return
         }
+    }
+
+    /// Shift-Cmd-L opens a new browser from a focused Chromium page as from any other pane
+    /// (https://github.com/manaflow-ai/cmux/issues/32789). Opening a tab is a window key, like Chrome's
+    /// reserved Cmd-T: it never waits for the page, though Shift-Cmd-L is also an editing chord.
+    @Test func openBrowserRunsBeforeAChromiumPage() throws {
+        let key = Key(name: "Shift-Cmd-L", characters: "L", keyCode: 37, modifiers: [.command, .shift])
+        guard case .run(let candidate) = try Self.decision(key, facts: Self.chromium) else {
+            Issue.record("Shift-Cmd-L waited for the page instead of opening a browser")
+            return
+        }
+        #expect(candidate.id == "openBrowser")
     }
 
     /// A WebKit page reports no unhandled keys, so cmux keeps running Find first there.

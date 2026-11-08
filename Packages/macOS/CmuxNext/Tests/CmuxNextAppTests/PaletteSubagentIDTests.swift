@@ -57,7 +57,7 @@ struct PaletteSubagentIDTests {
             PaletteNavigationEntry(id: "web", kind: .tab(.browser), title: "about:blank", workspaceTitle: "w"),
             PaletteNavigationEntry(id: "shell", kind: .tab(.terminal), title: "zsh", workspaceTitle: "w"),
         ]
-        let titled = PaletteNavigationEntries.titled(entries) { entry in
+        let titled = PaletteNavigationEntry.titled(entries) { entry in
             ["chat": "Fix the tab close race", "empty": "Empty chat", "web": "New Tab", "shell": "never asked"][entry.id]
         }
         #expect(titled.map(\.title) == ["Fix the tab close race", "Empty chat", "New Tab", "zsh"])

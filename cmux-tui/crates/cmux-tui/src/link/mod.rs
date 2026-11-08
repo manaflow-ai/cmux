@@ -3,32 +3,36 @@
 //! to paired peers only, no relay.
 
 mod access_cli;
+mod acpmux;
 mod agent_cli;
-mod cloud;
 mod cloud_fs;
 mod control;
+mod daemon_entry;
+pub(crate) use daemon_entry::DaemonEntryStartup;
 mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
-mod start_chat_cli;
-mod sync_cli;
-// Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
-// map and a token format); tested now.
-#[cfg_attr(not(test), allow(dead_code))]
-mod host_inbound;
 mod inbound;
 #[cfg(target_os = "macos")]
 mod launchd;
 mod lines;
 pub(crate) mod machine_gate;
+mod machine_pin;
 pub(crate) mod machine_update;
 mod mesh;
-mod mesh_cloud;
 mod paired_streams;
 mod process_exit;
+// `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
+#[cfg_attr(not(test), allow(dead_code))]
+mod seed;
+mod seed_cli;
+mod start_chat_cli;
 mod state;
+mod sync_cli;
 
+#[cfg(test)]
+mod acpmux_tests;
 #[cfg(test)]
 mod e2e_tests;
 #[cfg(test)]
@@ -55,6 +59,7 @@ use cmux_wg::{InterfaceAddress, WgMesh, WgMeshConfig};
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+use self::acpmux::AcpmuxTarget;
 use self::control::{Peers, serve_local, serve_overlay};
 use self::dial::Overlay as _;
 use self::mesh::MeshOverlay;
@@ -62,8 +67,7 @@ use self::state::{LINK_MTU, LinkConfig, LinkState};
 use crate::localization::catalog;
 
 /// The data behind `mutex`, also after a panic in another holder. The link's
-/// maps (peers, Cloud records, gateways) are consistent after every single
-/// step, so a poisoned lock is safe to keep using; the link never panics on it.
+/// peer map is consistent after every single step, so a poisoned lock is safe to keep using; the link never panics on it.
 fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -99,8 +103,8 @@ pub(crate) fn start_link_entry(
     Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate(), checks)?))
 }
 
-/// The gate of the remote entry: exactly the seven `fs-v1` ops, every
-/// other frame denied (`remote_denied`).
+/// The gate of the remote entry: exactly the seven `fs-v1` ops and the two
+/// `git-seed-v1` ops, every other frame denied (`remote_denied`).
 fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
     Arc::new(cmux_tui_core::server::FsGate)
 }
@@ -115,6 +119,12 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
     }
+    if args.first().map(String::as_str) == Some("seed") {
+        if matches!(args.get(1).map(String::as_str), Some("push" | "clone" | "pull")) {
+            return seed_cli::run(args.get(1..).unwrap_or_default());
+        }
+        return seed::run(&args[1..]);
+    }
     // So do `agent` and `access`.
     if args.first().map(String::as_str) == Some("agent") {
         return agent_cli::run(&args[1..]);
@@ -123,6 +133,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return access_cli::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("machine") {
+        if args.get(1).map(String::as_str) == Some("pin") {
+            return machine_pin::run(args.get(2..).unwrap_or_default());
+        }
         return machine_update::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("start-chat") {
@@ -468,16 +481,13 @@ async fn serve(
     let own = overlay_address(&config.install);
     let mesh = WgMesh::start(
         WgMeshConfig {
-            private_key: private_key.clone(),
+            private_key,
             addresses: vec![InterfaceAddress { address: IpAddr::V6(own), prefix: 128 }],
             mtu: LINK_MTU,
         },
         socket,
     )?;
-    let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
-    // Cloud host ids resolve through the host credential relay, which is
-    // not served yet: Cloud dials report `unreachable` until it ships.
-    let resolver = Arc::new(cloud::CloudResolver::new(cloud::RelaySource));
+    let overlay = Arc::new(MeshOverlay::new(mesh));
     let peers = Arc::new(Peers::load(state.peers_path())?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
@@ -502,9 +512,11 @@ async fn serve(
     if let Some(ready) = ready {
         ready.send(&ready_line);
     }
+    // A paired peer's `acpmux` stream goes to this user's acpmux listener.
+    let acpmux = AcpmuxTarget::from_acpmux_home();
     let result = tokio::select! {
-        served = serve_local(local, overlay.clone(), peers.clone(), resolver, status) => served.map_err(anyhow::Error::from),
-        () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
+        served = serve_local(local, overlay.clone(), peers.clone(), status) => served.map_err(anyhow::Error::from),
+        () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
     };
@@ -516,11 +528,10 @@ async fn serve(
 /// Bind the local socket at mode 0600 in a 0700 directory, replacing a
 /// stale socket but never a live one.
 fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     if let Some(parent) = path.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
         // Never bind in a folder another user or a symlink put there.
-        state::check_socket_dir(parent)?;
+        state::ensure_socket_dir(parent)?;
     }
     if path.exists() {
         if std::os::unix::net::UnixStream::connect(path).is_ok() {

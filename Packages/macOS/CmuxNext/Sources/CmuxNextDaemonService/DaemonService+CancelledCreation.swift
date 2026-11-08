@@ -9,6 +9,40 @@ extension DaemonService {
 
     /// Cancels the split that shows provisional pane `handle`; false for any other pane.
     public func cancelCreation(pane handle: PaneID) -> Bool { CancelledCreationClose(daemon: self).cancel { $0.cancel(pane: handle) } }
+
+    /// Close Pane on pane `handle`, on this pane's own daemon. A stand-in pane still opening (a dock's, Cmd-N's first
+    /// pane) leaves the records in this turn (``DaemonStore/intendStandInPaneClose(_:)``) and its close waits, off the
+    /// key's turn, for the daemon's pane that takes it over (``DaemonStore/daemonTarget(_:)``). The close's intent
+    /// always leaves: with the reply, the refusal, or, when the command never ran (no connection), its failure; with no
+    /// connection now no intent is made at all (#34448: it stayed in the log and hid the pane for good). `finished`
+    /// runs on the main actor once the command ran: false when it closed (or there was nothing to close).
+    public func closePane(_ handle: PaneID, finished: @escaping @MainActor @Sendable (_ failed: Bool) -> Void) {
+        let store = store
+        let closing = connection == nil ? nil : store.intendStandInPaneClose(handle)
+        send("close-pane", onFailure: { _ in if let closing { store.rejectIntent(closing) } }) { connection in
+            do {
+                try await connection.closePane(store.daemonTarget(handle))
+                if let closing {
+                    let sequence = await connection.eventSequence()
+                    await MainActor.run {
+                        if let sequence { store.noteSettled(closing, at: sequence) } else { store.noteSettledAtNextSnapshot(closing) }
+                    }
+                }
+                await MainActor.run { finished(false) }
+            } catch is PendingPaneNotCreated {
+                await MainActor.run {
+                    if let closing { store.rejectIntent(closing) }
+                    finished(false)
+                }
+            } catch {
+                await MainActor.run {
+                    if let closing { store.rejectIntent(closing) }
+                    finished(true)
+                }
+                throw error
+            }
+        }
+    }
 }
 
 /// A person's close of a tab or pane this client is still creating ("Close before create",

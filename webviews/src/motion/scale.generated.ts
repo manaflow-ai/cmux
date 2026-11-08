@@ -17,3 +17,22 @@ export type MotionStep = keyof typeof MOTION_MS;
 
 /** Anything entering eases out (`--cmux-ease-out`). */
 export const MOTION_EASE_OUT = "cubic-bezier(0, 0, 0.58, 1)";
+
+/**
+ * The one spring (`--cmux-ease-spring`): a selection or view that travels to where it lands and settles with a touch of give (a sliding tab indicator, the chat switch); run over its step (large, 240 ms) it is visibly settled by 58% (about 140 ms) and at rest by the end.
+ */
+export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1.006 58%, 1.004 72%, 1)";
+
+/** The step the spring runs over (`MOTION_MS[MOTION_SPRING_STEP]`). */
+export const MOTION_SPRING_STEP: MotionStep = "large";
+
+/**
+ * The settle (`--cmux-ease-settle`, over `--cmux-motion-settle`): a fold, a Show more or a panel that grows or shrinks to its new height: a strong ease-out that starts at full speed and decelerates into its end on a long soft tail, never past it (Leo 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key"). Measured on the reference panel's folds (split-motion-sweep, 4 events): a first-order exponential, 1 - e^(-t/38 ms), about 53% of the way in the first frame and within 0.5 pt of rest by about 225 ms, fold and unfold alike; this cubic-bezier over 265 ms is within 1.1% of it at every point. The exact curve as linear(0, .393, .632, .778, .866, .920, .952, .972, .984, .991, .996, .998, 1) over 230 ms is not the value because WebKit before Safari 17.2 (macOS 14.0 and 14.1) has no linear() easing. Native: the same CAMediaTimingFunction(0.16, 1, 0.3, 1) over 0.265 s, or, where a spring must take an interruption, an overdamped one with mass 1, stiffness 20800 and damping 826.
+ */
+export const MOTION_SETTLE = "cubic-bezier(0.16, 1, 0.3, 1)";
+
+/** How long the settle runs (ms, `--cmux-motion-settle`): measured, not a step of the scale. */
+export const MOTION_SETTLE_MS = 265;
+
+/** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
+export const SPINNER_PERIOD_MS = 2000;

@@ -75,7 +75,7 @@
             "step": 1,
             "unit": "count"
           },
-          "default": 50,
+          "default": 1000,
           "keywords": [
             "subagent",
             "sub-session",
@@ -104,7 +104,7 @@
             "step": 1,
             "unit": "count"
           },
-          "default": 16,
+          "default": 1000,
           "keywords": [
             "subagent",
             "sub-session",

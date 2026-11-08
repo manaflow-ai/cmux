@@ -1,5 +1,6 @@
 //! A peer's refusal of a `session/new` this daemon forwarded (`acpmux new --host HOST`) says
-//! what works instead: `data.try` is a command to copy, and the message ends with it (Leo,
+//! what works instead: `data.try` is a command to copy, and the message names it between a
+//! first and a last line that both say `refused by HOST` (`refused_by`) (Leo,
 //! 2026-10-24: "we improve the instructions and the error messages and the hints"). The
 //! peer's rules (`remote_guard.rs`) stay as they are; only the way out is named:
 //!
@@ -62,12 +63,55 @@ pub(in crate::server) async fn new_on(
 ) -> Result<Value, RpcError> {
     let method = crate::rpc::method::SESSION_NEW;
     let web = via_web(&p);
-    peer.request(method, p).await.map_err(|e| {
+    // Creation is interactive (New Tab and composer), unlike a prompt's unbounded turn, but
+    // this hazard bound outlasts the peer's own pooled-start envelope: the peer answers a slow
+    // valid start, or fails it itself, before this ends. A peer that stays connected and never
+    // answers is the remaining real hazard; dropping the request removes its pending reply.
+    // timeout: a remote handler that never answers needs a finite forwarding fallback, while a
+    // live start remains well beyond the old local 90-second budget.
+    // Match `peer::send_request`: the forwarded request must outlive both the
+    // generic peer budget and the peer's pooled-start hazard envelope.
+    // The start as sent, for a refusal of full access (`try_asking`).
+    let asked = p.clone();
+    let timings = peer.timings();
+    let budget = timings.request.max(timings.start);
+    let start_timeout = || {
+        RpcError::internal(format!(
+            "session/new on peer {} did not answer within {} seconds; the session may still start there. Check that host's sessions before retrying",
+            peer.name, budget.as_secs()
+        ))
+        .with_data(json!({"reason": "peer_start_timeout", "host": peer.name}))
+    };
+    let result =
+        tokio::time::timeout(budget, peer.request(method, p)).await.map_err(|_| start_timeout())?;
+    // `Peer::send_request` gives session/new this same budget, and a timeout polls its inner
+    // future first, so the request's own deadline usually ends it first: that is the same
+    // start timeout, said the same way.
+    if let Err(e) = &result
+        && e.data.is_none()
+        && is_request_timeout(&peer.name, &e.message)
+    {
+        return Err(start_timeout());
+    }
+    result.map_err(|e| {
+        // Full access refused: the way out is asking there, not this start on HOST (`explain`).
+        let e = crate::hub::full_access_children::refused_by(&peer.name, &asked, e);
+        if e.data.as_ref().is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) {
+            return try_asking(&peer.name, params, e);
+        }
         let (build, served_peer) =
             (peer.remote_build(), peer.served_as().as_deref() == Some("peer"));
         update_first(&e, &peer.name, build.as_deref(), served_peer && !web, params)
             .unwrap_or_else(|| explain(peer, params, e))
     })
+}
+
+/// Whether `message` is `Peer::send_request`'s own deadline (`peer NAME timed out after Ns`).
+fn is_request_timeout(peer: &str, message: &str) -> bool {
+    message
+        .strip_prefix("peer ")
+        .and_then(|rest| rest.strip_prefix(peer))
+        .is_some_and(|rest| rest.starts_with(" timed out after "))
 }
 
 /// Whether this daemon forwarded `p` for a Web client (`mark_forwarded`'s `via: web`): the
@@ -114,7 +158,7 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
             )
         }
     };
-    let message = format!("{}{why}; instead: {command}", e.message);
+    let message = refused_by(&peer.name, &format!("{}{why}", e.message), &command);
     let mut data = match e.data {
         Some(Value::Object(o)) => Value::Object(o),
         _ => json!({}),
@@ -126,6 +170,44 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
         data.set("runOn", json!(host));
     }
     RpcError::new(e.code, message).with_data(data)
+}
+
+/// `e`, a refusal of full access by `host` (`hub/full_access_children.rs` `refused_by`, which
+/// sets `data.fullAccessRefusedBy`), with `data.try` the same start there asking
+/// (`--policy ask`), also at the end of its message, as its message says; any other error
+/// unchanged.
+fn try_asking(host: &str, params: &Value, mut e: RpcError) -> RpcError {
+    let Some(data) = e.data.as_mut().filter(|d| d.get("fullAccessRefusedBy").is_some()) else {
+        return e;
+    };
+    let mut p = params.clone();
+    crate::hub::merge_mux_meta(&mut p, json!({"policy": "ask"}));
+    if let Some(argv) = p.pointer_mut("/_meta/acpmux/argv").and_then(Value::as_array_mut) {
+        let mut words: Vec<String> =
+            argv.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+        if !change_option(&mut words, "--policy", Some("ask")) {
+            // After the subcommand (the first word that is no global switch, such as `--json`),
+            // before any prompt words: acpmux takes `--policy` only as a `new` option.
+            let sub = words.iter().position(|w| !w.starts_with('-')).unwrap_or(words.len());
+            words.insert((sub + 1).min(words.len()), "--policy=ask".to_owned());
+        }
+        *argv = words.into_iter().map(Value::String).collect();
+    }
+    let start = Start { mode: None, ..Start::of(&p) };
+    let command = command(&p, &start, Some(host), false).render(None);
+    data.set("try", json!(command));
+    e.message = refused_by(host, &e.message, &command);
+    e
+}
+
+/// A forwarded start's refusal by `host`, as its message reads: `refused by HOST: REASON` on the
+/// first line, then the command that works, then the refusal again, so a caller that reads only
+/// the first line or only the last (`| tail -1`) still sees nothing started. A command with a
+/// prompt file spans lines (`Retry::render`), which is why the last line says it once more.
+fn refused_by(host: &str, reason: &str, command: &str) -> String {
+    format!(
+        "refused by {host}: {reason}; nothing was started. Instead:\n{command}\nrefused by {host}: nothing was started; the command above runs it"
+    )
 }
 
 /// A start with no folder that `peer_name` refused as outside its roots, from a peer of
@@ -144,20 +226,20 @@ fn update_first(
 ) -> Option<RpcError> {
     let named_folder = params.get("cwd").is_some_and(|c| !c.is_null());
     let served = e.data.as_ref().and_then(|d| d.get("servedAs")).is_some();
-    if !served_peer || named_folder || served || build == Some(crate::hub::BUILD) {
+    if !served_peer || named_folder || served || build == Some(crate::hub::build()) {
         return None;
     }
     if reason_of(e).as_deref() != Some(CWD_OUTSIDE_ROOTS) {
         return None;
     }
     // `--if-idle`: the update never restarts the peer under a session mid-turn there.
-    let update = format!("acpmux host update {peer_name} --if-idle");
+    let update = format!("acpmux machine update {peer_name} --if-idle");
     let then = command(params, &Start::of(params), Some(peer_name), false).render(None);
     let message = format!(
         "{}: {peer_name} runs acpmux build {} (this daemon: {}), from before a start with no folder runs in a scratch folder there; run `{update}`, then `{then}`",
         e.message,
         build.unwrap_or("unknown"),
-        crate::hub::BUILD
+        crate::hub::build()
     );
     Some(RpcError::new(e.code, message).with_data(json!({
         "reason": "peer_version_skew",
@@ -231,10 +313,10 @@ fn command(params: &Value, start: &Start, host: Option<&str>, on_host: bool) -> 
         };
     };
     if on_host {
-        change_option(&mut words, "--host", None);
+        change_option(&mut words, "--machine", None);
     } else if let Some(host) = host {
         // Pin an automatic placement to the peer that actually refused this start.
-        change_option(&mut words, "--host", Some(host));
+        change_option(&mut words, "--machine", Some(host));
     }
     change_option(&mut words, "--mode", None);
     // `suggest` already selected the usable folder (or the scratch-folder fallback).
@@ -261,6 +343,15 @@ fn change_option(words: &mut Vec<String>, option: &str, value: Option<&str>) -> 
     // whole CLI grammar inside the request handler exhausts a debug worker's 2 MiB stack.
     let new = crate::cli::command::NewArgs::augment_args(clap::Command::new("new"));
     let args: Vec<_> = new.get_arguments().collect();
+    // A long flag by its name or a hidden alias (`--host` is `--machine`'s), so either spelling
+    // is read with its value and counts as the same option.
+    let arg_of = |name: &str| {
+        args.iter().copied().find(|a| {
+            a.get_long() == Some(name) || a.get_all_aliases().is_some_and(|all| all.contains(&name))
+        })
+    };
+    let wanted = option.trim_start_matches('-');
+    let wanted_id = arg_of(wanted).map(|a| a.get_id().clone());
     let mut i = 0;
     while let Some(word) = words.get(i) {
         if word == "--" {
@@ -268,10 +359,12 @@ fn change_option(words: &mut Vec<String>, option: &str, value: Option<&str>) -> 
         }
         if let Some(long) = word.strip_prefix("--") {
             let (name, inline) = long.split_once('=').map_or((long, false), |(k, _)| (k, true));
-            let takes =
-                args.iter().any(|a| a.get_long() == Some(name) && a.get_action().takes_values());
+            let arg = arg_of(name);
+            let takes = arg.is_some_and(|a| a.get_action().takes_values());
             let end = (i + if takes && !inline { 2 } else { 1 }).min(words.len());
-            if name == option.trim_start_matches('-') {
+            if name == wanted
+                || (wanted_id.is_some() && arg.map(|a| a.get_id()) == wanted_id.as_ref())
+            {
                 let replacement = value.map(|v| format!("{option}={v}"));
                 words.splice(i..end, replacement);
                 return true;
@@ -334,11 +427,11 @@ impl Start {
         }
     }
 
-    /// `acpmux new [--host HOST] ... -d`, each value quoted for a POSIX shell.
+    /// `acpmux new [--machine MACHINE] ... -d`, each value quoted for a POSIX shell.
     fn command(&self, host: Option<&str>) -> String {
         let mut words = vec!["acpmux".to_owned(), "new".to_owned()];
         let flags = [
-            ("--host", host.map(str::to_owned)),
+            ("--machine", host.map(str::to_owned)),
             ("--preset", self.preset.clone()),
             ("-m", self.model.clone()),
             ("-e", self.effort.clone()),
@@ -369,7 +462,7 @@ impl Start {
 
 #[derive(Debug, PartialEq)]
 enum Hint {
-    /// `acpmux new --host HOST ...` from here.
+    /// `acpmux new --machine MACHINE ...` from here.
     Here(Start),
     /// The start on HOST itself.
     OnHost(Start),
@@ -435,10 +528,30 @@ mod tests {
     fn a_start_is_spelled_as_the_flags_that_make_it() {
         assert_eq!(
             start().command(Some("gcp-1")),
-            "acpmux new --host gcp-1 -m codex/gpt-6 -n lane --cwd /home/cmux/hb-acpmux/x --policy approve-all --mode auto -d"
+            "acpmux new --machine gcp-1 -m codex/gpt-6 -n lane --cwd /home/cmux/hb-acpmux/x --policy approve-all --mode auto -d"
         );
         let odd = Start { cwd: Some("/tmp/a b/it's".into()), ..Start::default() };
         assert_eq!(odd.command(None), r"acpmux new --cwd '/tmp/a b/it'\''s' -d");
+    }
+
+    /// A refusal reads `refused by HOST: REASON` on its first line and again on its last, so a
+    /// caller piping through `tail -1` sees it failed, not only the end of a multi-line command.
+    #[test]
+    fn a_refusal_says_refused_by_its_host_first_and_last() {
+        let command = "printf %s 'line one\nline two' | (ssh -- vm 'acpmux new -d')";
+        let message = refused_by("vm", "a permission policy other than ask", command);
+        let lines: Vec<&str> = message.lines().collect();
+        assert_eq!(
+            lines.first().copied(),
+            Some(
+                "refused by vm: a permission policy other than ask; nothing was started. Instead:"
+            )
+        );
+        assert_eq!(lines[1..lines.len() - 1].join("\n"), command);
+        assert_eq!(
+            lines.last().copied(),
+            Some("refused by vm: nothing was started; the command above runs it")
+        );
     }
 
     fn peer(try_cwd: Option<&str>) -> Found<'_> {
@@ -505,7 +618,7 @@ mod tests {
         assert_eq!(
             got,
             r#"printf %s 'line 1; $(touch nope)
-line '\''two'\''' | (acpmux new --host=b -m codex --prompt-file=/dev/stdin --tag 'a=$()' 'a prompt with '\''quotes'\'' and
+line '\''two'\''' | (acpmux new --machine=b -m codex --prompt-file=/dev/stdin --tag 'a=$()' 'a prompt with '\''quotes'\'' and
 newlines')"#
         );
     }
@@ -548,6 +661,49 @@ newlines')"#
                 "--cwd=/bad"
             ]
         );
+    }
+
+    /// `--machine` and its old spelling `--host` are one option: either is replaced, value and all.
+    #[test]
+    fn option_rewrites_take_machine_and_its_host_alias_as_one() {
+        for given in [["--machine", "auto"], ["--host", "auto"]] {
+            let mut words: Vec<String> = ["new", given[0], given[1], "-m", "codex", "hi"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            assert!(change_option(&mut words, "--host", Some("b")), "{given:?}");
+            assert_eq!(words, ["new", "--host=b", "-m", "codex", "hi"], "{given:?}");
+        }
+        let mut words: Vec<String> =
+            ["new", "--machine=x", "hi"].into_iter().map(str::to_owned).collect();
+        assert!(change_option(&mut words, "--host", None));
+        assert_eq!(words, ["new", "hi"]);
+    }
+
+    /// A full-access refusal's way out names `--policy` after the subcommand, also when a global
+    /// switch comes first (`acpmux --json new ...`).
+    #[test]
+    fn try_asking_puts_the_policy_after_the_subcommand() {
+        let refused =
+            || RpcError::invalid_params("refused").with_data(json!({"fullAccessRefusedBy": "b"}));
+        for (argv, want) in [
+            (
+                json!(["--json", "new", "--machine", "b", "-d", "hi"]),
+                "acpmux --json new --policy=ask --machine=b -d hi",
+            ),
+            (json!(["new", "--machine=b", "hi"]), "acpmux new --policy=ask --machine=b hi"),
+            (
+                json!(["new", "--policy", "approve-all", "--machine=b", "hi"]),
+                "acpmux new --policy=ask --machine=b hi",
+            ),
+        ] {
+            let params = json!({"_meta": {"acpmux": {"argv": argv}}});
+            let e = try_asking("b", &params, refused());
+            assert_eq!(e.data.as_ref().unwrap()["try"], want, "{argv}");
+        }
+        // Any other refusal is left as it was.
+        let other = RpcError::invalid_params("other");
+        assert!(try_asking("b", &json!({}), other).data.is_none());
     }
 
     #[test]
@@ -684,17 +840,17 @@ newlines')"#
         let data = e.data.clone().unwrap();
         assert_eq!(data["reason"], "peer_version_skew");
         assert_eq!(data["refused"], CWD_OUTSIDE_ROOTS);
-        assert_eq!(data["try"], "acpmux host update gcp-codex-lane-1 --if-idle");
-        assert_eq!(data["then"], "acpmux new --host=gcp-codex-lane-1 -m claude hi");
+        assert_eq!(data["try"], "acpmux machine update gcp-codex-lane-1 --if-idle");
+        assert_eq!(data["then"], "acpmux new --machine=gcp-codex-lane-1 -m claude hi");
         assert!(e.message.contains("972843ddd"), "{}", e.message);
-        let update = "`acpmux host update gcp-codex-lane-1 --if-idle`";
+        let update = "`acpmux machine update gcp-codex-lane-1 --if-idle`";
         assert!(e.message.contains(update), "{}", e.message);
         // A folder named, a peer that says how it served us, or one of this build: as before.
         let named = json!({"cwd": "/tmp/x", "_meta": {"acpmux": {"argv": argv}}});
         assert!(update_first(&refused(), "gcp-codex-lane-1", old, true, &named).is_none());
         let told = refused().with_data(json!({"reason": CWD_OUTSIDE_ROOTS, "servedAs": "remote"}));
         assert!(update_first(&told, "gcp-codex-lane-1", old, true, &params).is_none());
-        let same = Some(crate::hub::BUILD);
+        let same = Some(crate::hub::build());
         assert!(update_first(&refused(), "gcp-codex-lane-1", same, true, &params).is_none());
         // A peer that serves this daemon as Web refuses no folder on any build: no update hint.
         assert!(update_first(&refused(), "gcp-codex-lane-1", old, false, &params).is_none());

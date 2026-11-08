@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -28,6 +28,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 
+use cmux_link::carrier_grant::CarrierGrant;
+
+use crate::acpmux_bridge;
 use crate::crypto::ServiceAuthority;
 use crate::daemon::ServerConnection;
 use crate::service::{
@@ -256,6 +259,10 @@ pub struct DaemonServices {
     workspace: WorkspaceService,
     mux_socket: Option<PathBuf>,
     mux_upload_budget: MuxUploadBudget,
+    /// The Unix sockets [`Service::LocalSocket`] may reach, fixed at start.
+    local_sockets: Arc<[PathBuf]>,
+    /// acpmux's carrier socket, which [`Service::Acpmux`] bridges to.
+    acpmux_socket: Option<PathBuf>,
 }
 
 fn validate_renderer_host_hello(
@@ -295,7 +302,39 @@ fn validate_renderer_host_hello(
 
 impl DaemonServices {
     pub fn new(workspace: WorkspaceService, mux_socket: Option<PathBuf>) -> Arc<Self> {
-        Arc::new(Self { workspace, mux_socket, mux_upload_budget: MuxUploadBudget::new() })
+        Self::with_local_sockets(workspace, mux_socket, Vec::new())
+    }
+
+    /// [`DaemonServices::new`], and [`Service::LocalSocket`] may reach
+    /// exactly `local_sockets` (absolute paths; anything else is dropped).
+    /// The client's `path` must equal one entry byte for byte: nothing is
+    /// resolved, so `..` or a symlink spelling never matches.
+    pub fn with_local_sockets(
+        workspace: WorkspaceService,
+        mux_socket: Option<PathBuf>,
+        local_sockets: Vec<PathBuf>,
+    ) -> Arc<Self> {
+        Self::with_carrier_sockets(workspace, mux_socket, local_sockets, None)
+    }
+
+    /// [`DaemonServices::with_local_sockets`], and [`Service::Acpmux`]
+    /// bridges to acpmux's carrier socket `acpmux_socket` (see
+    /// [`crate::acpmux_bridge`]); without one it refuses every open.
+    pub fn with_carrier_sockets(
+        workspace: WorkspaceService,
+        mux_socket: Option<PathBuf>,
+        local_sockets: Vec<PathBuf>,
+        acpmux_socket: Option<PathBuf>,
+    ) -> Arc<Self> {
+        let local_sockets =
+            local_sockets.into_iter().filter(|path| path.is_absolute()).collect::<Vec<_>>();
+        Arc::new(Self {
+            workspace,
+            mux_socket,
+            mux_upload_budget: MuxUploadBudget::new(),
+            local_sockets: local_sockets.into(),
+            acpmux_socket,
+        })
     }
 
     pub async fn run(self: Arc<Self>, clients: mpsc::Receiver<Arc<ServerConnection>>) {
@@ -382,9 +421,10 @@ impl DaemonServices {
                     let services = self.clone();
                     let scope = scope.clone();
                     let request_slots = request_slots.clone();
+                    let grant = service_authority.grant().cloned();
                     handlers.spawn_local(async move {
                         let _permit = permit;
-                        services.serve_stream(scope, request_slots, incoming).await
+                        services.serve_stream(scope, request_slots, grant, incoming).await
                     });
                 }
                 completed = handlers.join_next(), if !handlers.is_empty() => {
@@ -431,14 +471,17 @@ impl DaemonServices {
         if authority.allows(incoming.service) {
             return Ok(Some(incoming));
         }
-        let service = serde_json::to_string(&incoming.service)?;
-        incoming
-            .stream
-            .reject(
-                "permission-denied".into(),
-                format!("the client grant does not allow {}", service.trim_matches('"')),
-            )
-            .await?;
+        let message = if incoming.service == Service::Acpmux {
+            // The bridge's own reason: no grant, or a grant without acpmux.
+            acpmux_bridge::header(authority.grant().map(Arc::as_ref))
+                .err()
+                .unwrap_or("acpmux.not_granted")
+                .to_owned()
+        } else {
+            let service = serde_json::to_string(&incoming.service)?;
+            format!("the client grant does not allow {}", service.trim_matches('"'))
+        };
+        incoming.stream.reject("permission-denied".into(), message).await?;
         Ok(None)
     }
 
@@ -446,6 +489,7 @@ impl DaemonServices {
         self: Arc<Self>,
         scope: ClientScope,
         request_slots: Arc<RequestAdmission>,
+        grant: Option<Arc<CarrierGrant>>,
         incoming: IncomingStream,
     ) -> Result<(), ServicesError> {
         let workspace = self.workspace.clone();
@@ -471,6 +515,14 @@ impl DaemonServices {
             }
             Service::TcpTunnel => {
                 Self::serve_tcp_tunnel(workspace, incoming.stream, incoming.metadata).await
+            }
+            Service::LocalSocket => {
+                Self::serve_local_socket(&self.local_sockets, incoming.stream, incoming.metadata)
+                    .await
+            }
+            Service::Acpmux => {
+                Self::serve_acpmux(self.acpmux_socket.as_deref(), grant.as_deref(), incoming.stream)
+                    .await
             }
             Service::MuxControl => {
                 Self::serve_mux_control_with_budget(mux_socket, incoming.stream, mux_upload_budget)
@@ -670,6 +722,116 @@ impl DaemonServices {
         pump_stream(stream, reader, writer).await
     }
 
+    /// A byte stream to one allowlisted Unix socket. The session already
+    /// holds [`Service::LocalSocket`] (only an owner's grant carries it);
+    /// the path must also be on this daemon's allowlist.
+    async fn serve_local_socket(
+        allowlist: &[PathBuf],
+        stream: ServiceStream,
+        metadata: BTreeMap<String, String>,
+    ) -> Result<(), ServicesError> {
+        if allowlist.is_empty() {
+            stream
+                .reject("unavailable".into(), "this daemon serves no local sockets".into())
+                .await?;
+            return Ok(());
+        }
+        let Some(path) = metadata.get("path") else {
+            stream.reject("invalid-argument".into(), "missing metadata path".into()).await?;
+            return Ok(());
+        };
+        let Some(target) = allowlist.iter().find(|allowed| allowed.as_os_str() == path.as_str())
+        else {
+            stream
+                .reject(
+                    "permission-denied".into(),
+                    "the path is not on this daemon's local socket allowlist".into(),
+                )
+                .await?;
+            return Ok(());
+        };
+        #[cfg(unix)]
+        {
+            let socket = match tokio::net::UnixStream::connect(target).await {
+                Ok(socket) => socket,
+                Err(error) => {
+                    stream
+                        .reject(
+                            "unavailable".into(),
+                            format!("the local socket did not answer: {}", error.kind()),
+                        )
+                        .await?;
+                    return Ok(());
+                }
+            };
+            let stream = Arc::new(stream);
+            send_opened(&stream, Lane::Tunnel).await?;
+            let (reader, writer) = socket.into_split();
+            pump_stream(stream, reader, writer).await
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = target;
+            stream.reject("unsupported".into(), "local sockets need a Unix host".into()).await?;
+            Ok(())
+        }
+    }
+
+    /// One acpmux connection for the person the session's carrier grant
+    /// names (`crate::acpmux_bridge`). A grant the bridge refuses is
+    /// refused before the socket is dialed.
+    async fn serve_acpmux(
+        socket: Option<&Path>,
+        grant: Option<&CarrierGrant>,
+        stream: ServiceStream,
+    ) -> Result<(), ServicesError> {
+        let header = match acpmux_bridge::header(grant) {
+            Ok(header) => header,
+            Err(reason) => {
+                stream.reject("permission-denied".into(), reason.into()).await?;
+                return Ok(());
+            }
+        };
+        let Some(socket) = socket else {
+            stream.reject("unavailable".into(), "this daemon bridges to no acpmux".into()).await?;
+            return Ok(());
+        };
+        #[cfg(unix)]
+        {
+            let ws = match acpmux_bridge::connect(socket, &header).await {
+                Ok(ws) => ws,
+                Err(error) => {
+                    stream
+                        .reject(
+                            "unavailable".into(),
+                            format!("acpmux's carrier socket did not answer: {}", error.kind()),
+                        )
+                        .await?;
+                    return Ok(());
+                }
+            };
+            let stream = Arc::new(stream);
+            send_opened(&stream, Lane::Tunnel).await?;
+            // The stream's bytes cross a pipe so the relay reads lines from
+            // it as from any reader; each side's end reaches the other.
+            let (near, far) = tokio::io::duplex(2 * COPY_CHUNK);
+            let (far_reader, far_writer) = tokio::io::split(far);
+            let (near_reader, near_writer) = tokio::io::split(near);
+            let (pumped, relayed) = tokio::join!(
+                pump_stream(stream, far_reader, far_writer),
+                acpmux_bridge::relay(ws, near_reader, near_writer),
+            );
+            relayed?;
+            pumped
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (socket, header);
+            stream.reject("unsupported".into(), "acpmux needs a Unix host".into()).await?;
+            Ok(())
+        }
+    }
+
     #[cfg(unix)]
     async fn serve_terminal_bytes(
         mux_socket: Option<PathBuf>,
@@ -717,7 +879,7 @@ impl DaemonServices {
 
     #[cfg(unix)]
     async fn negotiate_terminal_bytes(
-        mux_path: &std::path::Path,
+        mux_path: &Path,
         terminal_request: TerminalBytesRequest,
     ) -> Result<tokio::net::UnixStream, ServicesError> {
         // The control socket only brokers a one-use renderer grant. The
@@ -1130,7 +1292,7 @@ impl MessageStream {
             }
             Service::ProcessStream => Lane::Bulk,
             Service::WorkspaceRpc => Lane::Control,
-            Service::TcpTunnel => Lane::Tunnel,
+            Service::TcpTunnel | Service::LocalSocket | Service::Acpmux => Lane::Tunnel,
         };
         Self::with_lane(stream, lane)
     }
@@ -1552,7 +1714,7 @@ fn workspace_rpc_metadata(
 /// user, so refuse any other listener before a request or token is written.
 #[cfg(unix)]
 async fn connect_owned_unix_socket(
-    path: impl AsRef<std::path::Path>,
+    path: impl AsRef<Path>,
 ) -> Result<tokio::net::UnixStream, ServicesError> {
     let stream = tokio::net::UnixStream::connect(path).await?;
     crate::admin::verify_unix_peer_owner(&stream)
@@ -1637,6 +1799,10 @@ impl From<crate::mux_input::MuxInputError> for ServicesError {
     }
 }
 
+#[cfg(all(test, unix))]
+#[path = "acpmux_service_tests.rs"]
+mod acpmux_service_tests;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1659,7 +1825,7 @@ mod tests {
     use crate::service::{ServiceMultiplexer, SessionEndpoint};
     use crate::session::ReceivedFrame;
 
-    struct TestEndpoint {
+    pub(super) struct TestEndpoint {
         outgoing: mpsc::Sender<ReceivedFrame>,
         incoming: Mutex<mpsc::Receiver<ReceivedFrame>>,
         sequence: AtomicU64,
@@ -1697,7 +1863,7 @@ mod tests {
         }
     }
 
-    fn endpoint_pair() -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
+    pub(super) fn endpoint_pair() -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
         let (left_tx, left_rx) = mpsc::channel(64);
         let (right_tx, right_rx) = mpsc::channel(64);
         let (left_generation, _) = watch::channel(0);
@@ -1733,6 +1899,12 @@ mod tests {
         ] {
             assert!(!denied.allows(service), "default authority allowed {service:?}");
             assert!(legacy.allows(service), "legacy authority denied {service:?}");
+        }
+        // Only an owner's carrier grant reaches a local socket, and only a
+        // grant naming acpmux reaches acpmux.
+        for service in [Service::LocalSocket, Service::Acpmux] {
+            assert!(!denied.allows(service));
+            assert!(!legacy.allows(service));
         }
     }
 
@@ -2320,7 +2492,9 @@ mod tests {
                             let scope = scope.clone();
                             let request_slots = request_slots.clone();
                             tokio::task::spawn_local(async move {
-                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                                let _ = services
+                                    .serve_stream(scope, request_slots, None, incoming)
+                                    .await;
                             });
                         }
                     }
@@ -2466,7 +2640,9 @@ mod tests {
                             let scope = scope.clone();
                             let request_slots = request_slots.clone();
                             tokio::task::spawn_local(async move {
-                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                                let _ = services
+                                    .serve_stream(scope, request_slots, None, incoming)
+                                    .await;
                             });
                         }
                     }
@@ -2596,7 +2772,9 @@ mod tests {
                             let scope = scope.clone();
                             let request_slots = request_slots.clone();
                             tokio::task::spawn_local(async move {
-                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                                let _ = services
+                                    .serve_stream(scope, request_slots, None, incoming)
+                                    .await;
                             });
                         }
                     }
@@ -2706,7 +2884,9 @@ mod tests {
                             let scope = scope.clone();
                             let request_slots = request_slots.clone();
                             tokio::task::spawn_local(async move {
-                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                                let _ = services
+                                    .serve_stream(scope, request_slots, None, incoming)
+                                    .await;
                             });
                         }
                     }

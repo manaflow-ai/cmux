@@ -472,12 +472,16 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         await caughtUp(page, "the cwd fix.");
         calls.length = 0;
         await openChip(page, CHIPS.model);
+        // Whatever draws at the action's centre must belong to the open picker: a row, the search
+        // field, or the menu's own gaps (a separator, its padding), never the queued row. Asked of the
+        // DOM, not matched on the hit's markup, so a separator over the action counts as the picker's.
         for (const action of ['[data-action="steer"]', '[data-action="delete"]', '[data-menu="queued-more"]']) {
-          const { covered } = await hitAt(page, `${ROW} ${action}`);
-          expect({ action, inPicker: covered !== null && /acpmux-quick|role="menu/.test(covered) }).toEqual({
-            action,
-            inPicker: true,
-          });
+          const { x, y } = await hitAt(page, `${ROW} ${action}`);
+          const inPicker = await page.evaluate(
+            ([px, py]) => document.elementFromPoint(px, py)?.closest(".acpmux-quick-menu, [role=menu]") != null,
+            [x, y] as const,
+          );
+          expect({ action, inPicker }).toEqual({ action, inPicker: true });
         }
         const { x, y } = await hitAt(page, `${ROW} [data-menu="queued-more"]`);
         await page.mouse.move(x, y, { steps: 4 });

@@ -16,7 +16,7 @@ import Testing
 /// title or activity change runs) must still show the change; after it the change is gone and the refusal HUD
 /// says why. Group Delete only patched the model: the next recompute drew the group again until the daemon's
 /// delete came back, and a failed save went back without a word.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore)
+@MainActor @Suite(.serialized)
 struct SidebarOptimisticSaveTests {
     final class Notices {
         var shown: [String] = []
@@ -156,8 +156,9 @@ struct SidebarOptimisticSaveTests {
         await launched.stop()
     }
 
-    /// Group rename on the personal path already held as a pending edit; its failed save now also says so.
-    @Test func groupRenameRollsBackWithAnError() async throws {
+    /// Group rename on the personal path, with no daemon to answer: an unanswered save is not a refusal, so the new
+    /// name stays and no error shows while it is sent again (Leo, 2026-11-03: "THEN WE UNDO IT!!! WHICH IS BAD!!!").
+    @Test func groupRenameWithNoAnswerKeepsTheNameAndShowsNoError() async throws {
         let window = try Self.window()
         let bridge = window.bridge
         let group = try #require(bridge.model.sections.flatMap(\.nodes).compactMap { node -> GroupID? in
@@ -166,9 +167,10 @@ struct SidebarOptimisticSaveTests {
         bridge.handle(.renameGroup(group, "Renamed"))
         bridge.resync()
         #expect(Self.groups(bridge) == ["Renamed"], "Rename did not hold through a recompute")
-        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !window.notices.shown.isEmpty }
-        #expect(Self.groups(bridge) == ["Work"], "the name stayed after its save failed")
-        #expect(window.notices.shown.count == 1, "the failed rename showed no error: \(window.notices.shown)")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(3)) { !window.notices.shown.isEmpty }
+        bridge.resync()
+        #expect(Self.groups(bridge) == ["Renamed"], "an unanswered save undid the rename")
+        #expect(window.notices.shown.isEmpty, "an unanswered save showed an error: \(window.notices.shown)")
         withExtendedLifetime(window.state) {}
     }
 }
@@ -232,7 +234,7 @@ struct SidebarDocOptimisticGroupTests {
 
     @Test func newGroupShowsBeforeTheEcho() async throws {
         let store = try await Self.store()
-        Self.send(.createGroup(GroupID("g_new"), name: "Fresh", color: .green, workspaces: [WorkspaceID("scratch")]), to: store)
+        Self.send(.createGroup(GroupID("g_new"), name: "Fresh", color: .palette(.green), workspaces: [WorkspaceID("scratch")]), to: store)
         #expect(Self.groups(store)["g_new"]?.name == "Fresh", "New Group waited for the daemon's echo: \(Self.groups(store).keys.sorted())")
     }
 
@@ -260,7 +262,7 @@ struct SidebarDocOptimisticGroupTests {
             try #require(store.handle(.setPinned([first], true), model: SidebarModel(), drag: drag, pinTitle: "Pin", unpinTitle: "Unpin"))
             try #require(refusals.shown.isEmpty, "the setup pin must apply before testing a drop into its group")
         }
-        let created = store.handle(.createGroup(GroupID("g_new"), name: "Fresh", color: .green, workspaces: [first]), model: SidebarModel(),
+        let created = store.handle(.createGroup(GroupID("g_new"), name: "Fresh", color: .palette(.green), workspaces: [first]), model: SidebarModel(),
                                    drag: drag, pinTitle: "Pin", unpinTitle: "Unpin")
         try #require(created)
         let request = SidebarViewRequest(live: Self.live + [SidebarDocWorkspaceRef(sessionID: "s1", workspaceID: "unplaced")])

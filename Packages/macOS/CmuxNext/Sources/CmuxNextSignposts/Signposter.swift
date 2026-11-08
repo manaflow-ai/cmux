@@ -129,6 +129,12 @@ public nonisolated struct Signposter: Sendable {
         if let id = interval.metricKitID { mirror.end(name, id: id) }
     }
 
+    /// Ends an interval with a public end message (`rows=<n>`).
+    public func end(_ name: SignpostName, _ interval: SignpostInterval, message: String) {
+        signposter.endInterval(name.staticName, interval.state, "\(message, privacy: .public)")
+        if let id = interval.metricKitID { mirror.end(name, id: id) }
+    }
+
     /// Ends an interval that ``CommitBoundary`` closed: a ``CommitBoundary/Outcome/missed`` end
     /// carries the message `commit=missed`, so readers drop it instead of counting idle time. The
     /// MetricKit mirror ends only a committed interval: a missed one's begin stays unmatched, so

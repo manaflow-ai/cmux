@@ -9,6 +9,8 @@ import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
 import type { StringKey } from "./i18n";
 import type { VideoInfo } from "./composer/videoAttachments";
+import { videoFrameBlocks } from "./composer/videoPrompt";
+import type { VideoTranscript } from "./composer/videoTranscript";
 
 export type ComposerAttachment = {
   id: string;
@@ -36,6 +38,8 @@ export type ComposerAttachment = {
   originalName?: string;
   /** A video link's poster, length and key frames, as the host read them (composer/videoAttachments.ts). */
   video?: VideoInfo;
+  /** The speech in that video, as the host heard it (composer/videoTranscript.ts); the prompt's hidden context. */
+  transcript?: VideoTranscript;
   /** The app it came from, as the host said (composer/attachmentSources.ts); none when unknown. */
   source?: AttachmentSource;
 };
@@ -550,7 +554,11 @@ export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] 
   else if (attachment.kind === "audio" && attachment.data)
     blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   else if (attachment.kind === "link" && attachment.path)
-    blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
+    // A video's frames note and frames follow its link (composer/videoPrompt.ts).
+    blocks.push(
+      { type: "resource_link", uri: fileUri(attachment.path), name: attachment.name },
+      ...videoFrameBlocks(attachment),
+    );
   if (attachment.kind === "image" && attachment.originalPath)
     blocks.push({
       type: "resource_link",

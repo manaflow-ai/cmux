@@ -15,9 +15,11 @@ the gate, and the post-publish smoke (nightly-next-launch-smoke.yml) acts after 
 
   - pass does nothing; cannot-run (no Mac, an infrastructure or harness error before launch, or a
     check cut short) does nothing and never rolls back;
-  - a crash on both attempts rolls the feed back through nightly-next-rollback.yml (dispatched, no
-    second copy of its logic), only while the build is still the feed's newest, so a second report
-    of the same build does nothing and a rollback never goes past the kept good build;
+  - a crash with concrete app evidence on both attempts rolls the feed back through
+    nightly-next-rollback.yml (dispatched, no second copy of its logic), only while the build is
+    still the feed's newest, so a second report of the same build does nothing and a rollback never
+    goes past the kept good build; a live app that never renders Home is a failed smoke and cannot
+    trigger rollback;
   - nothing waits on the post-publish workflow: no nightly.yml job needs it or reads its result.
 """
 from __future__ import annotations
@@ -53,7 +55,7 @@ def load(name: str, path: Path):
 
 smoke = load("nightly_next_launch_smoke", ROOT / "scripts" / "ci" / "nightly_next_launch_smoke.py")
 rollback = load("nightly_next_feed_rollback", ROOT / "scripts" / "ci" / "nightly_next_feed_rollback.py")
-BASE = "https://files-next.cmux.com/nightly-next/next"
+BASE = "https://files-next.cmux.com/nightly-next"
 
 
 def feed(*builds: int, channel: dict | None = None) -> str:
@@ -67,9 +69,12 @@ def feed(*builds: int, channel: dict | None = None) -> str:
             f"<channel>{items}</channel></rss>")
 
 
-RAN = {"verdict": "fail", "pid": 4242, "failures": ["the app exited (signal 11) 2.8s after launch"]}
+RAN = {"verdict": "fail", "pid": 4242, "exit": -11,
+       "failures": ["the app exited (signal 11) 2.8s after launch"]}
 PASSED = {"verdict": "pass", "pid": 4242}
 NO_LAUNCH = {"verdict": "cannot-run", "failures": ["this process is in a Background session, not Aqua (no GUI)"]}
+NO_HOME = {"verdict": "fail", "pid": 4242, "exit": None,
+           "failures": ["Home did not render within 90s"]}
 
 
 class VerdictTests(unittest.TestCase):
@@ -86,6 +91,26 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(smoke.verdict([(2, {})]), smoke.CANNOT_RUN)  # a harness usage error
         self.assertEqual(smoke.verdict([(1, RAN), (3, NO_LAUNCH)]), smoke.CANNOT_RUN)
         self.assertEqual(smoke.verdict([(1, RAN)]), smoke.CANNOT_RUN)  # cut short after one crash
+
+    def test_a_live_app_that_never_renders_home_is_not_a_launch_crash(self) -> None:
+        self.assertEqual(smoke.attempt_result(1, NO_HOME), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, NO_HOME), (1, NO_HOME)]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, RAN), (1, NO_HOME)]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.decide(feed(200, 150), 200,
+                                      smoke.verdict([(1, NO_HOME), (1, NO_HOME)]))["action"], "none")
+
+    def test_a_nonzero_exit_or_crash_artifact_is_concrete_crash_evidence(self) -> None:
+        self.assertEqual(smoke.attempt_result(1, RAN), smoke.CRASH)
+        report = {"verdict": "fail", "pid": 4242, "exit": None, "crash_reports": ["cmux.ips"]}
+        self.assertEqual(smoke.attempt_result(1, report), smoke.CRASH)
+        report = {"verdict": "fail", "pid": 4242, "exit": None, "run_exceptions": ["run.exception"]}
+        self.assertEqual(smoke.attempt_result(1, report), smoke.CRASH)
+
+    def test_a_clean_exit_or_missing_app_evidence_is_not_a_launch_crash(self) -> None:
+        report = {"verdict": "fail", "pid": 4242, "exit": 0, "failures": ["Home did not render"]}
+        self.assertEqual(smoke.attempt_result(1, report), smoke.CANNOT_RUN)
+        report = {"verdict": "fail", "pid": 4242, "failures": ["the harness failed"]}
+        self.assertEqual(smoke.attempt_result(1, report), smoke.CANNOT_RUN)
 
     def test_exit_1_without_the_harness_evidence_of_a_launch_is_not_a_crash(self) -> None:
         # The console-session hop failing, or an uncaught setup error: exit 1, no report or no pid.
@@ -157,6 +182,18 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(decision["action"], "rollback")
         self.assertEqual(decision["serving"], 180)
 
+    def test_a_crash_rolls_back_on_the_one_feeds_shape(self) -> None:
+        # The cmux NIGHTLY feed (nightly-next/): every item tagged cmux-next, the new build and the
+        # one before it (publish-next-feed-keep-nightly.sh with the ring off).
+        live = feed(4191131679101, 4190094575701,
+                    channel={4191131679101: "cmux-next", 4190094575701: "cmux-next"})
+        decision = smoke.decide(live, 4191131679101, smoke.CRASH)
+        self.assertEqual(decision["action"], "rollback")
+        self.assertEqual(decision["serving"], 4190094575701)
+        # One item (the bare feed before the earlier build was kept) has nothing to serve instead.
+        alone = feed(4191131679101, channel={4191131679101: "cmux-next"})
+        self.assertEqual(smoke.decide(alone, 4191131679101, smoke.CRASH)["action"], "none")
+
     def test_the_nightly_channels_match_what_nightly_apps_accept(self) -> None:
         live_check = load("nightly_next_live_feed_check", ROOT / "scripts" / "ci" / "nightly_next_live_feed_check.py")
         self.assertEqual(set(smoke.NIGHTLY_CHANNELS) - {None}, set(live_check.NIGHTLY_ACCEPTED))
@@ -217,6 +254,10 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         needs = publish.get("needs") or []
         needs = [needs] if isinstance(needs, str) else needs
         for need in needs:
+            # launch-smoke-nightly is the pre-publish gate's parallel half (tests/test_nightly_signer_jobs.py
+            # ParallelLaunchSmoke), not this post-publish smoke.
+            if need == "launch-smoke-nightly":
+                continue
             self.assertNotRegex(need, r"smoke", f"publish-nightly needs {need}")
         self.assertNotIn("nightly-next-launch-smoke", self.nightly_text)
         self.assertNotIn("fresh_home_launch_smoke", self.nightly_text)
@@ -234,7 +275,7 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
     def test_the_smoke_runs_after_publication_from_the_feed(self) -> None:
         triggers = self.workflow.get("on") or self.workflow.get(True)
         self.assertEqual(set(triggers), {"schedule", "workflow_dispatch", "pull_request"})
-        self.assertIn("files-next.cmux.com/nightly-next/next/appcast-arm64.xml", self.text)
+        self.assertIn("files-next.cmux.com/nightly-next/appcast-arm64.xml", self.text)
 
     def test_a_crash_rolls_back_through_nightly_next_rollback(self) -> None:
         crashed = self.jobs["crashed"]
@@ -306,8 +347,7 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         self.assertEqual([step.get("id") for step in mints], ["route-token"])
         self.assertIn("github.event_name != 'pull_request'", mints[0]["if"])
         self.assertEqual({key: value for key, value in mints[0]["with"].items() if key.startswith("permission-")},
-                         {"permission-administration": "read", "permission-organization-self-hosted-runners": "read",
-                          "permission-actions": "read"})
+                         {"permission-administration": "read", "permission-organization-self-hosted-runners": "read"})
         for name, job in self.jobs.items():
             if name != "pick":
                 self.assertNotIn("secrets.", json.dumps(job), name)
@@ -321,6 +361,10 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
             for scope, level in (job.get("permissions") or {}).items():
                 self.assertEqual(allowed.get(scope), level, f"{name}: {scope}: {level}")
         self.assertEqual(self.jobs["smoke"]["permissions"], {"contents": "read"})
+        self.assertEqual(self.jobs["pick"]["permissions"], {"actions": "read"})
+        pick_steps = {step.get("id"): step for step in self.jobs["pick"]["steps"]}
+        self.assertEqual(pick_steps["in-flight"]["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(pick_steps["place"]["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")
 
     def test_it_never_cancels_and_its_mac_job_routes_owned_first(self) -> None:
         self.assertNotRegex(self.text, r"cancel-in-progress:\s*true")
@@ -331,8 +375,8 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
                          "nightly-next-launch-smoke-${{ github.event_name == 'pull_request' && "
                          "format('pr-{0}', github.event.pull_request.number) || github.run_id }}")
         runs_on = self.jobs["smoke"]["runs-on"]
-        self.assertTrue(runs_on.rstrip(" }").endswith("'blacksmith-6vcpu-macos-26'"))
-        self.assertLess(runs_on.index("CI_SIDE_LANE_RUNNER"), runs_on.rindex("blacksmith-6vcpu-macos-26"))
+        self.assertTrue(runs_on.rstrip(" }").endswith("fromJSON(vars.RUNNER_POOLS).macos_26"))
+        self.assertLess(runs_on.index("CI_SIDE_LANE_RUNNER"), runs_on.rindex("fromJSON(vars.RUNNER_POOLS).macos_26"))
         for label in re.findall(r"'(macos-[^']+)'", runs_on):
             self.assertIn(f"github.repository_owner != 'manaflow-ai' && '{label}'", runs_on)
 
@@ -485,7 +529,7 @@ class GateScriptTests(unittest.TestCase):
                 "    signal.signal(signal.SIGTERM, stop)\n    time.sleep(30)\n"
                 "if kind == 'stubborn':\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    time.sleep(30)\n"
                 "report = {'pass': {'verdict': 'pass', 'pid': 1}, 'crash': {'verdict': 'fail', 'pid': 1,"
-                " 'failures': ['the app exited (signal 11)']}, 'cannot-run': {'verdict': 'cannot-run'}}[kind]\n"
+                " 'exit': -11, 'failures': ['the app exited (signal 11)']}, 'cannot-run': {'verdict': 'cannot-run'}}[kind]\n"
                 "open(os.path.join(out, 'report.json'), 'w').write(json.dumps(report))\n"
                 "open(os.path.join(out, 'app.log'), 'w').write('log\\n')\n"
                 "sys.exit({'pass': 0, 'crash': 1, 'cannot-run': 3}[kind])\n")

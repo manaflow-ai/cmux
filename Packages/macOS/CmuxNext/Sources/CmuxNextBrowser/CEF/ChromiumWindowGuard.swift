@@ -24,8 +24,10 @@ final class ChromiumWindowGuard {
     private let logger: Logger
     /// True when `window` is a DevTools window cmux placed on purpose.
     private let isPlacedDevTools: (NSWindow) -> Bool
-    private lazy var widgetClass: AnyClass? = NSClassFromString("NativeWidgetMacNSWindow")
-    private lazy var browserWindowClass: AnyClass? = NSClassFromString("BrowserNativeWidgetWindow")
+    // CEF loads its window classes lazily, after CefInitialize. Resolve them for each check so a
+    // guard started before the first page still sees the class when Chromium creates it.
+    private var widgetClass: AnyClass? { NSClassFromString("NativeWidgetMacNSWindow") }
+    private var browserWindowClass: AnyClass? { NSClassFromString("BrowserNativeWidgetWindow") }
 
     init(logger: Logger, isPlacedDevTools: @escaping (NSWindow) -> Bool) {
         self.logger = logger
@@ -71,6 +73,12 @@ final class ChromiumWindowGuard {
     }
 
     private func check(_ window: NSWindow) {
+        // Chromium never restores its page windows; cmux persists its own windows through the
+        // daemon. Apply this per window because the CEF shim runs before lazy CEF window classes
+        // necessarily exist, and newer forks may bypass its private restoration selector.
+        if let widgetClass, window.isKind(of: widgetClass), window.isRestorable {
+            window.isRestorable = false
+        }
         let verdict = ChromiumWindowRule.verdict(facts(for: window))
         guard verdict != .allow else { return }
         let blocked = Blocked(className: NSStringFromClass(type(of: window)), title: window.title, verdict: verdict)

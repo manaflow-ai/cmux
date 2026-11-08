@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
+public import CmuxNextCompat
 import CmuxNextWakeups
 public import Foundation
 
@@ -63,7 +64,7 @@ public final class ChromiumWarmup {
     private let idleTimer: DemandTimer
     private let giveUpTimer: DemandTimer
     private var waiting = false
-    private var menuObserver: (any NSObjectProtocol)?
+    private var menuObserver: MenuTracking?
     private var inputMonitor: Any?
     private var lastInput: TimeInterval = 0
     public private(set) var reason: Reason?
@@ -78,14 +79,24 @@ public final class ChromiumWarmup {
     /// settle (`pagesSettled`), not at a later idle check.
     private var spareWaitsForPages = false
     private var stopped = false
+    private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
 
+    /// - Parameter memoryPressure: the app's memory pressure events (`AppServices.memoryPressure`): a
+    ///   warning or critical level closes the spare Chromium page and makes none until normal again
+    ///   (`CEFEngine.holdSparePages`). Nil (tests): no such hold.
     public init(
         engine: CEFEngine,
         policy: Policy = Policy(),
         clock: any Clock<Duration> = ContinuousClock(),
         now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-        isTrackingMenu: @escaping @MainActor () -> Bool = { RunLoop.main.currentMode == .eventTracking }
+        isTrackingMenu: @escaping @MainActor () -> Bool = { RunLoop.main.currentMode == .eventTracking },
+        memoryPressure: MemoryPressureEvents? = nil
     ) {
+        pressureObservation = memoryPressure?.observe { [weak engine] level in
+            engine?.holdSparePages(level != .normal)
+        }
+        // The kernel never reports the level the app is already under; read it once now.
+        memoryPressure?.refresh()
         self.engine = engine
         self.policy = policy
         launchTimer = DemandTimer(owner: "ChromiumWarmup.preload", clock: clock)
@@ -203,14 +214,14 @@ public final class ChromiumWarmup {
         guard waiting else { return }
         if isTrackingMenu() {
             guard menuObserver == nil else { return }
-            menuObserver = NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil,
-                                                                  queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    guard let self else { return }
-                    self.removeMenuObserver()
-                    self.armIdle(after: self.policy.idleInput)
-                }
+            // The tracking menu's end (MenuTracking, in AppKit's own post) arms the idle wait again.
+            let menus = MenuTracking()
+            menus.subscribe { [weak self] change in
+                guard case .ended = change, let self else { return }
+                self.removeMenuObserver()
+                self.armIdle(after: self.policy.idleInput)
             }
+            menuObserver = menus
             return
         }
         let quiet = now() - lastInput
@@ -253,7 +264,6 @@ public final class ChromiumWarmup {
     }
 
     private func removeMenuObserver() {
-        if let menuObserver { NotificationCenter.default.removeObserver(menuObserver) }
         menuObserver = nil
     }
 }

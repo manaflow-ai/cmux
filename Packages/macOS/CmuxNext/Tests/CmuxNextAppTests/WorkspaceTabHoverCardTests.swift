@@ -58,7 +58,8 @@ struct WorkspaceTabHoverCardTests {
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(workspace)])],
                                  activeWorkspaceID: WorkspaceID("foreground"))
         var selected: (WorkspaceID, TabID)?
-        model.onIntent = { if case let .selectTab(workspace, tab) = $0 { selected = (workspace, tab) } }
+        var selections = 0
+        model.onIntent = { if case let .selectTab(workspace, tab) = $0 { selected = (workspace, tab); selections += 1 } }
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 360, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -80,11 +81,12 @@ struct WorkspaceTabHoverCardTests {
                                                   windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
         let up = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: 1,
                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
+        // Mouse-down focuses the tab (u2819), as a pane tab and a workspace row do; the release adds nothing.
         row.mouseDown(with: down)
-        #expect(selected == nil)
-        row.mouseUp(with: up)
         #expect(selected?.0 == target)
         #expect(selected?.1 == TabID("review"))
+        row.mouseUp(with: up)
+        #expect(selections == 1, "one click selects the tab once")
     }
 
     /// "Show Workspace Resource Usage" pins the card to show resource usage, which lives in its
@@ -130,6 +132,30 @@ struct WorkspaceTabHoverCardTests {
         #expect(card.lines.contains("Keep this detail"))
     }
 
+    /// A sweep must not build hidden history rows before the visible card can paint.
+    /// Expanding reads the latest retarget, including changes received while collapsed.
+    @Test func collapsedHistoryWaitsUntilTheDetailsOpen() {
+        let card = WorkspaceHoverCardView()
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        func content(_ text: String) -> WorkspaceHoverCardContent {
+            var content = WorkspaceHoverCardContent(title: text, icon: .terminal, facts: [])
+            content.timeline = [SidebarTimelineEntry(kind: .prompt, date: now, text: text, agent: "Claude Code")]
+            return content
+        }
+        card.configure(content("First workspace"), now: now)
+        #expect(card.timeline.lines.isEmpty, "collapsed history constructed and measured its rows")
+        card.configure(content("Second workspace"), now: now)
+        #expect(card.timeline.lines.isEmpty)
+        card.detailsToggle.performClick(nil)
+        #expect(card.timeline.lines.contains { $0.contains("Second workspace") })
+        #expect(!card.timeline.lines.contains { $0.contains("First workspace") })
+        card.detailsToggle.performClick(nil)
+        card.configure(content("New prompt"), now: now)
+        #expect(!card.timeline.lines.contains { $0.contains("New prompt") }, "a collapsed update laid out hidden rows")
+        card.detailsToggle.performClick(nil)
+        #expect(card.timeline.lines.contains { $0.contains("New prompt") })
+    }
+
     @Test func aCardWithoutDetailsHasNoDisclosure() {
         let card = WorkspaceHoverCardView()
         card.configure(WorkspaceHoverCardContent(title: "Scratch", icon: .terminal, facts: []))
@@ -159,37 +185,53 @@ struct WorkspaceTabHoverCardTests {
         #expect(!list.hoverCard.resources.isScheduled)
     }
 
-    @Test func overflowExpandsWithoutRemovingDetailsAndResetsForAnotherWorkspace() throws {
-        let card = WorkspaceHoverCardView()
-        card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
-                       facts: [.init(icon: .folder, text: "Keep this detail", kind: "folder")]))
-        let tabs = (1...7).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") }
-        card.tabList.configure(title: "project", tabs: tabs)
-        #expect(card.tabList.reportedLines.count == 5)
-        let more = try #require(card.tabList.subviews.first?.subviews.compactMap { $0 as? NSButton }.first)
-        more.performClick(nil)
-        #expect(card.tabList.reportedLines.count == 7)
+    /// Leo 2026-11-01: "the show 1 more is reallly bad when it's this small like you need to be
+    /// able to scroll through them". Every tab is listed, with no Show N more: one past the row
+    /// limit fits without scrolling, a longer list scrolls in place.
+    @Test func everyTabIsListedAndALongListScrolls() throws {
+        func layout(_ count: Int) throws -> (WorkspaceHoverCardView, NSScrollView) {
+            let card = WorkspaceHoverCardView()
+            card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
+                           facts: [.init(icon: .folder, text: "Keep this detail", kind: "folder")]))
+            card.tabList.configure(title: "project", tabs: (1...count).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") })
+            card.frame = NSRect(x: 0, y: 0, width: 280, height: 600)
+            card.layoutSubtreeIfNeeded()
+            card.tabList.layoutSubtreeIfNeeded()
+            let shownButtons = Self.descendants(of: card.tabList).compactMap { $0 as? NSButton }.filter { !$0.isHidden }
+            #expect(shownButtons.isEmpty, "a Show more control")
+            #expect(card.tabList.reportedLines.count == count)
+            return (card, try #require(Self.descendants(of: card.tabList).compactMap { $0 as? NSScrollView }.first))
+        }
+        let (_, five) = try layout(5)
+        let fiveDocument = try #require(five.documentView)
+        #expect(fiveDocument.frame.height <= five.contentSize.height + 0.5, "five tabs scroll: \(fiveDocument.frame) in \(five.contentSize)")
+        let (card, seven) = try layout(7)
+        let sevenDocument = try #require(seven.documentView)
+        #expect(sevenDocument.frame.height > seven.contentSize.height, "seven tabs do not scroll")
+        let rows = Self.descendants(of: card.tabList).compactMap { $0 as? WorkspaceTabHoverCardRow }.filter { !$0.isHidden }
+        #expect(rows.count == 7)
         card.detailsToggle.performClick(nil)
         #expect(card.lines.contains("Keep this detail"))
-        card.tabList.configure(title: "other-workspace", tabs: tabs)
-        #expect(card.tabList.reportedLines.count == 5)
     }
 
-    @Test func overflowMoreControlIsAnInteractiveHoverCardTarget() throws {
-        let view = WorkspaceTabHoverCardView(rowLimit: 1)
-        view.configure(title: "project", tabs: (1...3).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") })
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 280, height: 160), styleMask: [.borderless], backing: .buffered, defer: false)
+    /// The whole list (its rows, the gaps between them and the scroller) takes the pointer, so a
+    /// click or a wheel between two rows never falls through and ends the card.
+    @Test func theGapBetweenRowsIsPartOfTheInteractiveList() throws {
+        let view = WorkspaceTabHoverCardView(style: WorkspaceTabHoverCardStyle(rowLimit: 1))
+        view.configure(title: "project", tabs: (1...6).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") })
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 280, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.contentView = nil; window.close() }
         window.contentView = view
         view.frame = window.contentView?.bounds ?? .zero
         view.layoutSubtreeIfNeeded()
-        let more = try #require(view.subviews.first?.subviews.compactMap { $0 as? NSButton }.first)
-        let screenPoint = window.convertPoint(toScreen: more.convert(NSPoint(x: more.bounds.midX, y: more.bounds.midY), to: nil))
-        #expect(view.acceptsHoverCardMouse(at: screenPoint, in: window))
+        let rows = Self.descendants(of: view).compactMap { $0 as? WorkspaceTabHoverCardRow }.filter { !$0.isHidden }
+        let first = try #require(rows.first)
+        let gap = first.convert(NSPoint(x: first.bounds.midX, y: first.bounds.maxY + Metrics.space1 / 2), to: nil)
+        #expect(view.acceptsHoverCardMouse(at: window.convertPoint(toScreen: gap), in: window))
     }
 
-    @Test func hostedCardAcceptsRowsAndOverflowAtTheirRealOrigins() throws {
+    @Test func hostedCardAcceptsRowsAtTheirRealOrigins() throws {
         let card = WorkspaceHoverCardView()
         card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal, facts: []))
         card.tabList.configure(title: "project", tabs: (1...6).map {
@@ -207,16 +249,38 @@ struct WorkspaceTabHoverCardTests {
 
         let rows = Self.descendants(of: card.tabList).compactMap { $0 as? WorkspaceTabHoverCardRow }
             .filter { !$0.isHidden }
-        #expect(rows.count == 4)
-        for row in [rows.first, rows.last].compactMap({ $0 }) {
+        #expect(rows.count == 6)
+        for row in [rows.first].compactMap({ $0 }) {
             let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
             let screenPoint = window.convertPoint(toScreen: point)
             #expect(card.acceptsHoverCardMouse(at: screenPoint, in: window))
         }
-        let more = try #require(Self.descendants(of: card.tabList).compactMap { $0 as? NSButton }
-            .first { !$0.isHidden && $0.title.localizedCaseInsensitiveContains("more") })
-        let point = more.convert(NSPoint(x: more.bounds.midX, y: more.bounds.midY), to: nil)
-        #expect(card.acceptsHoverCardMouse(at: window.convertPoint(toScreen: point), in: window))
+    }
+
+    /// Leo 2026-11-01 on Show details: "make the thing a little bit less completely unstyled". It
+    /// spans the list's width, its words start on the tab titles' column, and its chevron says
+    /// which way it goes.
+    @Test func showDetailsIsStyledLikeTheTabRows() throws {
+        let card = WorkspaceHoverCardView()
+        card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
+                       facts: [.init(icon: .folder, text: "docs", kind: "folder")]))
+        card.tabList.configure(title: "project", tabs: [SidebarTab(id: TabID("only"), title: "shell")])
+        card.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
+        card.layoutSubtreeIfNeeded()
+        let toggle = card.detailsToggle
+        #expect(!toggle.isHidden)
+        #expect(abs(toggle.frame.width - card.tabList.frame.width) < 0.5, "toggle \(toggle.frame) list \(card.tabList.frame)")
+        #expect(abs(toggle.frame.minX - card.tabList.frame.minX) < 0.5)
+        let label = try #require(toggle.subviews.compactMap { $0 as? ChromeLabel }.first)
+        let row = try #require(Self.descendants(of: card.tabList).compactMap { $0 as? WorkspaceTabHoverCardRow }.first)
+        row.layoutSubtreeIfNeeded()
+        let title = try #require(Self.descendants(of: row).compactMap { $0 as? ChromeLabel }.first)
+        let labelX = label.convert(NSPoint.zero, to: card).x
+        let titleX = title.convert(NSPoint.zero, to: card).x
+        #expect(abs(labelX - titleX) < 0.5, "Show details at \(labelX), tab titles at \(titleX)")
+        #expect(!toggle.isExpanded)
+        toggle.performClick(nil)
+        #expect(toggle.isExpanded && card.isDetailsExpanded)
     }
 
     /// `NSView.hitTest(_:)` takes a point in the receiver's superview space, so the tab list (below
@@ -260,7 +324,7 @@ struct WorkspaceTabHoverCardTests {
             SidebarTab(id: TabID("claude"), title: "Claude Code", kind: .agentChat, folder: "~/Projects/cmux", state: .working),
         ])
 
-        #expect(view.reportedLines == ["app · ~ · Done", "Claude Code · ~/Projects/cmux · Working"])
+        #expect(view.reportedLines == ["app · ~ · Done", "Claude Code · ~/Projects/cmux"])
         let down = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1,
                                                  windowNumber: 0, context: nil, characters: "\u{F701}",
                                                  charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
@@ -279,7 +343,8 @@ struct WorkspaceTabHoverCardTests {
         view.configure(title: "scratch", tabs: [
             SidebarTab(id: TabID("shell"), title: "shell", folder: "~", state: .idle),
         ])
-        #expect(view.reportedLines == ["shell · ~ · Done"])
+        // An idle shell says where it is, not "Done" (Lawrence msg 19245: each tab says what it is doing).
+        #expect(view.reportedLines == ["shell · ~"])
     }
 
     @Test func modifiedArrowKeysPassThroughTheCard() throws {
@@ -293,10 +358,10 @@ struct WorkspaceTabHoverCardTests {
         }
     }
 
-    @Test func aPressedRowCannotSelectAReusedRowAfterItsTabChanges() throws {
+    @Test func aReleaseAfterTheRowsTabChangesSelectsNothingMore() throws {
         let view = WorkspaceTabHoverCardView()
-        var selected: TabID?
-        view.onSelect = { selected = $0 }
+        var selected: [TabID] = []
+        view.onSelect = { selected.append($0) }
         view.configure(title: "app", tabs: [
             SidebarTab(id: TabID("first"), title: "first"),
             SidebarTab(id: TabID("second"), title: "second"),
@@ -319,7 +384,7 @@ struct WorkspaceTabHoverCardTests {
         row.mouseDown(with: down)
         view.configure(title: "app", tabs: [SidebarTab(id: TabID("second"), title: "second")])
         row.mouseUp(with: up)
-        #expect(selected == nil, "a release from a stale press selected the replacement tab")
+        #expect(selected == [TabID("first")], "the press selects the pressed tab and the release selects no replacement")
     }
 
     @Test func aPressedRowSurvivesARefreshForTheSameTab() throws {
@@ -349,10 +414,13 @@ struct WorkspaceTabHoverCardTests {
         #expect(selected == TabID("first"))
     }
 
-    @Test func tabRowActivatesOnRelease() throws {
+    /// Lawrence (u2819): "why is mouse-down tab focus unimplemented?" A hover card tab row focuses its
+    /// tab on the press, as the pane tab strip and the sidebar's rows do; the release adds nothing.
+    @Test func tabRowActivatesOnPress() throws {
         let view = WorkspaceTabHoverCardView()
         var selected: TabID?
-        view.onSelect = { selected = $0 }
+        var selections = 0
+        view.onSelect = { selected = $0; selections += 1 }
         view.configure(title: "app", tabs: [SidebarTab(id: TabID("shell"), title: "shell")])
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 320, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -372,9 +440,9 @@ struct WorkspaceTabHoverCardTests {
                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 2,
                                                  clickCount: 1, pressure: 0))
         row.mouseDown(with: down)
-        #expect(selected == nil, "tab activated on mouse-down")
+        #expect(selected == TabID("shell"), "tab did not activate on mouse-down")
         row.mouseUp(with: up)
-        #expect(selected == TabID("shell"), "tab did not activate on mouse-up")
+        #expect(selections == 1, "one click activates the tab once")
     }
 
     /// Needs a real window number for the key event's window; a fleet worker at the login window has none.
@@ -409,6 +477,36 @@ struct WorkspaceTabHoverCardTests {
         #expect(body.keys.isEmpty)
         #expect(coordinator.machine.shownTarget == nil, "the row key did not dismiss the card")
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
+    }
+
+    /// Leo 2026-11-02: "YOU SHOULD BE ABLE TO CLOSE THESE TABS FROM THE HOVER PREVIEW". A hovered row shows a ✕
+    /// that closes its tab; the card stays open, and a card that cannot close tabs shows none.
+    @Test func aHoveredRowsCloseButtonClosesItsTabAndKeepsTheCard() throws {
+        _ = NSApplication.shared
+        let target = WorkspaceID("ws")
+        var workspace = SidebarWorkspace(id: target, title: "Workspace", directory: "~/project")
+        workspace.tabs = [SidebarTab(id: TabID("shell"), title: "Shell"), SidebarTab(id: TabID("review"), title: "Review")]
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(workspace)])])
+        var closed: (WorkspaceID, TabID)?
+        model.onIntent = { if case let .closeTab(workspace, tab) = $0 { closed = (workspace, tab) } }
+        let list = SidebarListView(model: model)
+        list.reload(animated: false)
+        let id = WorkspaceHoverCardController.targetID(target)
+        let card = try #require(list.hoverCard.hoverCardBody(for: id)?.view as? WorkspaceHoverCardView)
+        let row = try #require(card.tabList.rowViews.last)
+        #expect(row.closeButton.isHidden, "the ✕ showed on a row the pointer is not on")
+        row.isHovered = true
+        #expect(!row.closeButton.isHidden, "a hovered row has no ✕")
+        row.closeButton.onPress?()
+        #expect(closed?.0 == target)
+        #expect(closed?.1 == TabID("review"))
+
+        let bare = WorkspaceTabHoverCardView()
+        bare.configure(title: "w", tabs: [SidebarTab(id: TabID("t"), title: "Tab")])
+        let bareRow = try #require(bare.rowViews.first)
+        bareRow.isHovered = true
+        #expect(bareRow.closeButton.isHidden, "a card that cannot close tabs showed a ✕")
     }
 
     private static func descendants(of view: NSView) -> [NSView] {

@@ -1,4 +1,4 @@
-// Leo 2026-10-21, as in Claude: a huge paste (more than 20 lines or 2,000 characters) into the
+// Leo 2026-10-21, as in Claude: a huge paste (more than 750 words or 10,000 characters) into the
 // composer is a "Pasted text" chip (its first words and line count), not pages of text in the
 // prompt. A click puts it back in the prompt to edit, × removes it, and it goes to the agent as
 // its own text block after the prompt's. Paste as Plain Text (⌘⇧V, or the prompt's menu) keeps
@@ -18,7 +18,7 @@ import {
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import {
   PASTE_CHIP_CHARS,
-  PASTE_CHIP_LINES,
+  PASTE_CHIP_WORDS,
   isLargePaste,
   pastedTextAttachment,
   resentAttachments,
@@ -198,8 +198,8 @@ async function typeDraft(text: string) {
   });
 }
 
-/// 25 lines of a log: over the 20-line limit, under 2,000 characters.
-const LOG = Array.from({ length: 25 }, (_, index) => `line ${index + 1} of the build log`).join("\n");
+/// 130 lines of a log: 780 words, over the 750-word limit, under 10,000 characters.
+const LOG = Array.from({ length: 130 }, (_, index) => `line ${index + 1} of the build log`).join("\n");
 /// The log with a blank line in it, which a paste keeps.
 const SPACED = LOG.replace("line 13 of the build log\n", "line 13 of the build log\n\n");
 
@@ -216,7 +216,7 @@ const plainPasteKey = (init: KeyboardEventInit) =>
     );
   });
 
-test("a paste over 20 lines is a Pasted text chip; the prompt keeps what was typed", async () => {
+test("a paste over 750 words is a Pasted text chip; the prompt keeps what was typed", async () => {
   const composer = await openComposer();
   await typeDraft("why does this fail?");
   await paste(LOG);
@@ -229,18 +229,48 @@ test("a paste over 20 lines is a Pasted text chip; the prompt keeps what was typ
   const chip = field().querySelector("[data-inline-attachment] .acpmux-md-inline-chip")!;
   expect(chip).not.toBeNull();
   expect(chip.textContent).toContain("line 1 of the build log");
+  // Leo, 2026-11-01: "bro this is a TERRIBLE text preview ...". The inline chip is a small page of
+  // the paste's first lines over its label (TextAttachmentCard.tsx), never its name alone.
+  expect(chip.getAttribute("data-preview")).toBe("text");
+  expect(chip.querySelector(".acpmux-text-card__lines")!.textContent!.split("\n")[0]).toContain(
+    "line 1 of the build log",
+  );
+  expect(chip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 130 lines · 3.3K characters");
   // The strip view draws the same chip in the strip, its first words and its line count.
   await showAttachments("strip");
   const strip = host.querySelector(".acpmux-attachment-pasted")!;
   expect(strip).not.toBeNull();
   expect(strip.textContent).toContain("line 1 of the build log");
-  expect(strip.textContent).toContain("25 lines");
+  expect(strip.textContent).toContain("130 lines");
+  expect(strip.querySelector(".acpmux-text-card__label")!.textContent).toBe(
+    "Pasted text · 130 lines · 3.3K characters",
+  );
   expect(words()).toBe("why does this fail?");
 });
 
-test("a paste over 2,000 characters on one line is a chip too", async () => {
+// Leo, 2026-11-05: "it says pasted text one line, but there's a lot more than this ... you're
+// previewing one, two, three, four, five words out of a multi-hundred-word pasted text bit". One long
+// paragraph (a dictated message) has one line: its label says its size in characters, never
+// "1 line", and its card wraps the paragraph so the preview holds far more than five words.
+test("a one-paragraph paste says its size, not 1 line, and its card wraps the paragraph", async () => {
   const composer = await openComposer();
-  const long = "word ".repeat(450);
+  const paragraph = Array.from({ length: 800 }, (_, index) => `word${index}`).join(" ");
+  await paste(paragraph);
+  expect(chips(composer).map((chip) => chip.kind)).toEqual(["pasted"]);
+  const chip = field().querySelector("[data-inline-attachment] .acpmux-md-inline-chip")!;
+  expect(chip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 6.3K characters");
+  const lines = chip.querySelector<HTMLElement>(".acpmux-text-card__lines")!;
+  expect(lines.hasAttribute("data-wrap")).toBe(true);
+  expect(lines.textContent!.split(" ").length).toBeGreaterThan(40);
+  await showAttachments("strip");
+  const strip = host.querySelector(".acpmux-attachment-pasted")!;
+  expect(strip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 6.3K characters");
+  expect(strip.querySelector(".acpmux-text-card__lines")!.hasAttribute("data-wrap")).toBe(true);
+});
+
+test("a paste over 10,000 characters with few words is a chip too", async () => {
+  const composer = await openComposer();
+  const long = "abcdefghij".repeat(1001);
   await paste(long);
   expect(chips(composer).map((chip) => chip.kind)).toEqual(["pasted"]);
   expect(words()).toBe("");
@@ -321,9 +351,153 @@ test.each(["inline", "strip"] as const)(
     await act(async () => {
       composer.current!.send();
     });
-    expect(sent.map((prompt) => prompt.text)).toEqual([SPACED]);
+    // It was pasted, so it goes as pasted (composer/pasteMarks.ts, ask-fa4c523fa8): the same text,
+    // its blank line too, in one block of its own, never as the person's typed words.
+    expect(sent).toHaveLength(1);
+    expect(promptBlocks(sent[0]!.text, sent[0]!.attachments)).toEqual([
+      { type: "text", text: SPACED, _meta: { cmux: { pasted: true } } },
+    ]);
   },
 );
+
+// Leo, 2026-11-07 (ask-48544d7525): "you can either just paste it and it just becomes this, like,
+// .txt, kind of like an attachment, um, or you can just make it raw". An oversized paste's chip offers
+// both: a click on its card puts the text in the prompt (above), Keep as .txt sends it as a file.
+const keepButton = (view: AttachmentView) =>
+  (view === "inline" ? field() : host).querySelector<HTMLButtonElement>(".acpmux-attachment-keep-file");
+
+test.each(["inline", "strip"] as const)(
+  "an oversized paste offers both choices; Keep as .txt makes it a Pasted text.txt file (%s view)",
+  async (view) => {
+    const composer = await openComposer();
+    await showAttachments(view);
+    await paste(LOG);
+    expect(chipButtons(view).open()).not.toBeNull();
+    const keep = keepButton(view)!;
+    expect(keep?.textContent).toBe("Keep as .txt");
+    await act(async () => keep.click());
+    await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
+    expect(chips(composer).map((chip) => [chip.kind === "pasted", chip.name])).toEqual([[false, "Pasted text.txt"]]);
+    expect(host.querySelector(".acpmux-attachment-pasted:not([data-text-kind])")).toBeNull();
+    expect(words().trim()).toBe("");
+  },
+);
+
+// Review of #37516 (F2): Keep as .txt puts the file where the chip was, wherever the caret went.
+test("Keep as .txt places the file where its chip was, not at the caret", async () => {
+  const composer = await openComposer();
+  await typeDraft("before ");
+  await paste(LOG);
+  await typeDraft(" after");
+  await act(async () => markdownField().setCaret(0));
+  await act(async () => keepButton("inline")!.click());
+  await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
+  const file = chips(composer).find((chip) => chip.name === "Pasted text.txt")!;
+  await until(() => placed().includes(file.id), "its place");
+  const text = markdownField().value();
+  const at = text.indexOf(file.id);
+  expect(text.slice(0, at)).toContain("before");
+  expect(text.slice(at)).toContain("after");
+});
+
+// Review of #37516 (F1, F2), in both views: Keep as .txt with the whole draft selected deletes no
+// text, and undo brings the chip back with its text.
+test.each(["inline", "strip"] as const)(
+  "Keep as .txt with text selected keeps the text; undo brings the chip back whole (%s view)",
+  async (view) => {
+    const composer = await openComposer();
+    await showAttachments(view);
+    await typeDraft("before ");
+    await paste(LOG);
+    await typeDraft(" after");
+    await act(async () => markdownField().selectAll());
+    await act(async () => keepButton(view)!.click());
+    await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
+    expect(words()).toContain("before");
+    expect(words()).toContain("after");
+    for (let undo = 0; undo < 4 && !chips(composer).some((chip) => chip.kind === "pasted"); undo += 1) {
+      await act(async () => markdownField().undo());
+      await settle();
+    }
+    expect(
+      chips(composer)
+        .filter((chip) => chip.kind === "pasted")
+        .map((chip) => chip.text),
+    ).toEqual([LOG]);
+  },
+);
+
+// Review of #37516 (P1 at 8b9b479d): an oversized paste made in a code block has no place in the
+// text, so its chip waits in the strip. Keep as .txt puts the file where the chip was, the strip,
+// never at a caret outside the block: an undo there would take the file out with no chip to bring
+// back, and the paste would be gone from the draft.
+test("Keep as .txt on a chip with no place keeps its file through an undo", async () => {
+  const composer = await openComposer();
+  await showAttachments("inline");
+  await act(async () => composer.current!.restore("```\nlet x = 1\n```\n\nhello world", []));
+  await until(() => field().textContent?.includes("hello world") === true, "the prompt");
+  await act(async () => {
+    markdownField().focus();
+    markdownField().setCaret(2);
+  });
+  await paste(LOG);
+  const pasted = chips(composer).find((chip) => chip.kind === "pasted")!;
+  expect(placed()).not.toContain(pasted.id);
+  // The caret leaves the block before the click.
+  await act(async () => markdownField().selectAll());
+  await act(async () => keepButton("strip")!.click());
+  await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
+  const file = chips(composer).find((chip) => chip.name === "Pasted text.txt")!;
+  await settle();
+  expect(placed()).not.toContain(file.id);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).some((chip) => chip.name === "Pasted text.txt" || chip.text === LOG)).toBe(true);
+});
+
+// ask-42dfdea96c: an ordinary paste (Leo's own dictated paragraph, 515 characters) is the person's
+// text: no chip, no pasted block, sent as typed text is.
+const DICTATED =
+  "Also, like, okay, this is not good. Like, it says pasted text, but this is just the normal text that I had. " +
+  "And it's also got, like, you know, these two... what? Two card? Like, this is not good. You don't want to " +
+  "show it as pasted text when it wasn't pasted text in the first place. This is a misattribution. And it's " +
+  "also, like, fundamentally, this is not that long to, like, necessitate the sort of folding.";
+
+test("an ordinary real paste stays inline and goes as the person's text", async () => {
+  const sent: Sent[] = [];
+  const composer = await openComposer(sent);
+  await paste(DICTATED);
+  expect(chips(composer)).toEqual([]);
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments)).toEqual([{ type: "text", text: DICTATED }]);
+});
+
+// ask-792a64a12f: Leo's 707-character message, dictated with no paste event, goes as his own text.
+test("a 707-character dictated message with no paste event goes as typed text", async () => {
+  const sent: Sent[] = [];
+  const composer = await openComposer(sent);
+  const text = `${DICTATED} ${DICTATED}`.slice(0, 707);
+  await act(async () => markdownField().writeText(text, 0, 0));
+  await settle();
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments)).toEqual([{ type: "text", text: text.trim() }]);
+});
+
+test("a dictated insert is never a paste", async () => {
+  const sent: Sent[] = [];
+  const composer = await openComposer(sent);
+  // Dictation splices its words in as an edit of the text (dictation.ts), never a paste event.
+  await act(async () => markdownField().writeText(`From Codex:\n${DICTATED}\nTrace-ID: x`, 0, 0));
+  await settle();
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).every((block) => !("_meta" in block))).toBe(true);
+});
 
 // Review (Codex): a chip between words opened its text at the caret, so a caret after the words put
 // the text after them and changed the prompt's order. It goes where the chip was.
@@ -430,16 +604,18 @@ test("the pasted text goes to the agent as its own text block after the prompt's
   ]);
 });
 
-test("the limit: more than 20 lines or 2,000 characters; the label is the first words on one line", () => {
-  expect(PASTE_CHIP_LINES).toBe(20);
-  expect(PASTE_CHIP_CHARS).toBe(2000);
-  const lines = (count: number) => Array.from({ length: count }, (_, index) => `l${index}`).join("\n");
-  expect(isLargePaste(lines(20))).toBe(false);
-  // A newline at the end starts no line.
-  expect(isLargePaste(`${lines(20)}\n`)).toBe(false);
-  expect(isLargePaste(lines(21))).toBe(true);
-  expect(isLargePaste("x".repeat(2000))).toBe(false);
-  expect(isLargePaste("x".repeat(2001))).toBe(true);
+test("the limit: more than 750 words or 10,000 characters; the label is the first words on one line", () => {
+  expect(PASTE_CHIP_WORDS).toBe(750);
+  expect(PASTE_CHIP_CHARS).toBe(10_000);
+  const words = (count: number) => Array.from({ length: count }, (_, index) => `w${index}`).join(" ");
+  expect(isLargePaste(words(750))).toBe(false);
+  // Space and line breaks around the words are no words.
+  expect(isLargePaste(`\n  ${words(750).replaceAll(" ", "\n\n")}  \n`)).toBe(false);
+  expect(isLargePaste(words(751))).toBe(true);
+  // Lines alone no longer make a chip: 200 short lines are 200 words.
+  expect(isLargePaste(Array.from({ length: 200 }, (_, index) => `l${index}`).join("\n"))).toBe(false);
+  expect(isLargePaste("x".repeat(10_000))).toBe(false);
+  expect(isLargePaste("x".repeat(10_001))).toBe(true);
   // Its name is the transcript chip's (promptCollapse.ts pasteName): the first words, one line.
   expect(pastedTextAttachment("\n  first   line\nsecond line  ").name).toBe("first line");
 });

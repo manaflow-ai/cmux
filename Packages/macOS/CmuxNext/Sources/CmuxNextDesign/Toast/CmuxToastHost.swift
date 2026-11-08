@@ -1,82 +1,40 @@
 public import AppKit
 
-/// Places toast views at the bottom of a window, slot 0 lowest.
-@MainActor
-public protocol CmuxToastHosting: AnyObject {
-    /// `windowGone` runs if the window closes while the toast shows.
-    /// `appearing` false shows it in place at once (it takes a shown toast's slot).
-    func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void)
-    func move(_ toast: CmuxToastView, to slot: Int)
-    /// `animated` false removes it at once (a newer toast took its place).
-    func hide(_ toast: CmuxToastView, animated: Bool)
+/// One toast as its window's host draws it: the toast and the state the person changed on it.
+public nonisolated struct CmuxToastShown: Equatable, Sendable {
+    /// The toast's serial, unique for the app's run: a toast shown again under the same id has a new one.
+    public var serial: Int
+    public var toast: CmuxToast
+    /// Details is on (``CmuxToast/Action/revealsDetails``): the whole message and its detail show in the toast.
+    public var showsDetails: Bool
+    /// Cmd-Z runs this toast's Undo (the window's newest undo toast): its button says so.
+    public var showsUndoKey: Bool
+
+    public init(serial: Int, toast: CmuxToast, showsDetails: Bool = false, showsUndoKey: Bool = false) {
+        self.serial = serial
+        self.toast = toast
+        self.showsDetails = showsDetails
+        self.showsUndoKey = showsUndoKey
+    }
 }
 
-/// Toasts on the R84 `WindowOverlayHost` (`.toast` kind): above every page,
-/// taking clicks only on the toast itself.
+/// Draws a window's toasts (the app's web toast stack, `CmuxToastWebHost`; a recording host in tests).
+///
+/// The center owns which toasts show, their order, timers and state; the host only draws them, at the
+/// bottom center of the window, newest at the bottom, and reports the person's clicks and pointer back
+/// to the center (``CmuxToastCenter/personRanAction(serial:)``, ``CmuxToastCenter/personClosed(serial:)``,
+/// ``CmuxToastCenter/pointer(onToast:_:)``), and a closed window (``CmuxToastCenter/windowClosed(_:)``).
 @MainActor
-public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring {
-    private var handles: [ObjectIdentifier: (handle: OverlayHandle, window: NSWindow, view: CmuxToastView, slot: Int)] = [:]
+public protocol CmuxToastHosting: AnyObject {
+    /// `window`'s toasts are now `toasts`, oldest first (empty: none shows). Called once per change
+    /// (a show, an end, Details on or off, the undo key moving); the host moves its drawing from what
+    /// it shows to this, with no jump.
+    func show(_ toasts: [CmuxToastShown], in window: NSWindow, center: CmuxToastCenter)
+}
 
+/// Draws nothing: the center's host until the app injects its own (tests, a headless run).
+@MainActor
+public final class CmuxToastNoHost: CmuxToastHosting {
     public init() {}
-
-    /// The overlay places a toast 24 pt above the anchor's bottom, centered.
-    static let overlayLift: CGFloat = 24
-
-    /// The anchor of `slot` in window coordinates, its toast's bottom at
-    /// `floor` or higher (clear of the views toasts avoid).
-    static func anchor(slot: Int, height: CGFloat, in bounds: NSRect, floor: CGFloat? = nil) -> NSRect {
-        let base = max(bounds.minY, (floor ?? bounds.minY) - overlayLift)
-        return NSRect(x: bounds.minX, y: base + CGFloat(slot) * (height + 8), width: bounds.width, height: height)
-    }
-
-    private func anchor(for toast: CmuxToastView, slot: Int, in window: NSWindow) -> NSRect {
-        let bounds = window.contentView?.bounds ?? .zero
-        return Self.anchor(slot: slot, height: toast.frame.height, in: bounds,
-                           floor: Self.floor(width: toast.frame.width, in: bounds, window: window))
-    }
-
-    /// Moves every toast in `window` clear of the avoided views, sliding from where it is drawn
-    /// as a restack does (``CmuxToastAvoidance/avoidanceChanged(in:)`` calls it for its window).
-    func reanchor(in window: NSWindow) {
-        for entry in handles.values where entry.window === window {
-            CmuxToastMotion.move(entry.view) {
-                entry.handle.update(anchor: anchor(for: entry.view, slot: entry.slot, in: entry.window))
-            }
-        }
-    }
-
-    public func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {
-        toast.layoutSubtreeIfNeeded()
-        let size = toast.fittingSize
-        toast.translatesAutoresizingMaskIntoConstraints = true
-        toast.frame = NSRect(origin: .zero, size: size)
-        let options = OverlayOptions(kind: .toast, anchor: anchor(for: toast, slot: slot, in: window),
-                                     passesThroughClicks: false)
-        let handle = WindowOverlayHost.host(for: window).present(toast, options: options)
-        handle.onDismiss = windowGone
-        handles[ObjectIdentifier(toast)] = (handle, window, toast, slot)
-        // This window's avoided views now move this host's toasts there (and no other window's).
-        CmuxToastAvoidance.register(self, in: window)
-        if appearing { CmuxToastMotion.appear(toast) }
-    }
-
-    public func move(_ toast: CmuxToastView, to slot: Int) {
-        guard var entry = handles[ObjectIdentifier(toast)] else { return }
-        entry.slot = slot
-        handles[ObjectIdentifier(toast)] = entry
-        CmuxToastMotion.move(toast) { entry.handle.update(anchor: anchor(for: toast, slot: slot, in: entry.window)) }
-    }
-
-    public func hide(_ toast: CmuxToastView, animated: Bool) {
-        guard let (handle, window, _, _) = handles.removeValue(forKey: ObjectIdentifier(toast)) else { return }
-        handle.onDismiss = nil
-        // Its last toast in the window gone, this host stops moving toasts there (a closed window
-        // ends its toasts through here too, via `windowGone`).
-        if !handles.values.contains(where: { $0.window === window }) {
-            CmuxToastAvoidance.unregister(self, from: window)
-        }
-        // While it fades, the page under it gets the next click.
-        handle.stopTakingMouse()
-        CmuxToastMotion.disappear(toast, animated: animated) { handle.dismiss() }
-    }
+    public func show(_ toasts: [CmuxToastShown], in window: NSWindow, center: CmuxToastCenter) {}
 }

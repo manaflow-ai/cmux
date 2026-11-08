@@ -46,7 +46,7 @@ jobs:
     # shadow that gates nothing takes no owned Mac from the promotion path.
     # One running and one waiting per ref (concurrency above) bounds its use.
     # No dispatch runner override: it could name the promote pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 60
     env:
       CARGO_NET_RETRY: "10"

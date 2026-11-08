@@ -1,6 +1,6 @@
 //! The handshake's own failures: a watch list too large to send, and any step the peer
-//! refuses. huge-blue's link to big-red (2026-10-30) sat 90 s on every try, `handshaking`
-//! with no error, because big-red's `_acpmux/watch` reply (17 MB with tools, 5241 rows) was
+//! refuses. one lane VM's link to another (2026-10-30) sat 90 s on every try, `handshaking`
+//! with no error, because the other VM's `_acpmux/watch` reply (17 MB with tools, 5241 rows) was
 //! over the 15 MiB message limit and came back as `message.too_large`.
 
 use super::*;
@@ -50,10 +50,12 @@ fn fake_peer_with(
     })
 }
 
-/// A watch list too large to send with tools is asked for again without them: the link
-/// connects, with the rows of that list, instead of timing out.
+/// A link's watch list is asked for without tools from the start: an inventory is read per
+/// session (`_acpmux/info`, an attachment's notices), and with them one host's list was 23 MB,
+/// past the message limit (2026-10-31). The link connects on one watch, with every row, from a
+/// peer that would refuse the list with tools as too large.
 #[tokio::test]
-async fn a_watch_list_too_large_with_tools_is_read_without_them() {
+async fn a_watch_list_is_asked_for_without_tools_from_the_start() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("big", "ws://127.0.0.1:9", None, None, tx);
     let (ours, theirs) = tokio::io::duplex(1 << 16);
@@ -95,8 +97,8 @@ async fn a_watch_list_too_large_with_tools_is_read_without_them() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["sessionId"], "m1");
     assert!(peer.link().is_ready());
-    assert_eq!(asked.recv().await, Some(true));
     assert_eq!(asked.recv().await, Some(false));
+    assert!(asked.try_recv().is_err(), "one watch, never one with tools");
     serving.abort();
     fake.abort();
 }
@@ -457,6 +459,16 @@ impl OldPacer {
     }
 }
 
+/// These stand-in peers build each list in their read loop, so they read no ping meanwhile;
+/// a real peer's connection reader answers pings while its handlers work. They get the long
+/// keepalive, so these tests time the handshake, not the silence budget.
+fn deaf_to_pings(mut peer: Arc<Peer>) -> Arc<Peer> {
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    timings.ping_every = Duration::from_secs(20);
+    timings.ping_misses = 4;
+    peer
+}
+
 /// A pre-#28182 peer (as [`old_peer`]) that paces its lists like c230bb58a's
 /// `hub/list_guard.rs` while its sessions change. Per connection: two lists back to back, then
 /// each waits its share of a `window` (a page its rows' share, at least a sixteenth). And every
@@ -586,7 +598,7 @@ async fn link_to_paced_old_peer(
 #[tokio::test(start_paused = true)]
 async fn an_old_peer_that_paces_its_lists_links_inside_the_handshake_deadline() {
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx);
+    let peer = deaf_to_pings(Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx));
     let asked = Arc::new(Asked::default());
     let (took, rows) = link_to_paced_old_peer(&peer, &mut notices, asked.clone())
         .await
@@ -604,14 +616,14 @@ async fn an_old_peer_that_paces_its_lists_links_inside_the_handshake_deadline() 
 }
 
 /// A peer whose list the last handshake read in pages of rows is read so at once the next time
-/// (the same build): no whole list is asked for, so neither is built and refused.
+/// (the same build): no whole list is asked for, so none is built and refused.
 #[tokio::test(start_paused = true)]
 async fn a_peer_whose_list_needed_pages_of_rows_is_read_in_them_at_once_next_time() {
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx);
+    let peer = deaf_to_pings(Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx));
     let first = Arc::new(Asked::default());
     link_to_paced_old_peer(&peer, &mut notices, first.clone()).await.expect("the first link");
-    assert_eq!(first.whole.load(Ordering::SeqCst), 2, "with tools, then without");
+    assert_eq!(first.whole.load(Ordering::SeqCst), 1, "one whole list, without tools");
     let again = Arc::new(Asked::default());
     let (took, rows) =
         link_to_paced_old_peer(&peer, &mut notices, again.clone()).await.expect("the next link");
@@ -656,7 +668,7 @@ fn slow_pages_peer(
 #[tokio::test(start_paused = true)]
 async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
+    let peer = deaf_to_pings(Peer::new("web", "ws://10.0.0.9:9", None, None, tx));
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
@@ -687,7 +699,7 @@ async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
 #[tokio::test(start_paused = true)]
 async fn a_paged_watch_list_is_cut_at_the_handshake_cap() {
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
+    let peer = deaf_to_pings(Peer::new("web", "ws://10.0.0.9:9", None, None, tx));
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;

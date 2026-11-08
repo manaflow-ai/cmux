@@ -112,8 +112,10 @@ await requireBrowserLane("composer-draft-wrap.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
+  // With Reduce Motion: the field's height lands in the frame its draft changes (composer/fieldGrowth.ts),
+  // so each read is of the layout at rest; test/composer-smooth-grow.test.ts checks the growth motion.
   const stageURL = (entry: string, variant: string, width: number) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width, theme: "Catppuccin Mocha" })}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width, theme: "Catppuccin Mocha", reducedMotion: "true" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -138,7 +140,7 @@ await requireBrowserLane("composer-draft-wrap.test.ts", async () => {
       name: "the New Tab field",
       entry: "agent-pane.new-tab",
       variant: "empty",
-      field: ".nt-field",
+      field: ".nt-field .acpmux-md",
       scroller: ".nt-field",
     },
     {

@@ -19,6 +19,7 @@ pub(crate) fn run_scope(head: &str, args: Vec<OsString>) -> i32 {
 
 /// `<display_name> <args>`: `cmux acp …`, or `cmux` for the `cmux chats …` and
 /// `cmux harness …` aliases, so usage and errors name the command the user typed.
+#[allow(clippy::indexing_slicing, reason = "the branch above guarantees the first argument exists")]
 pub(crate) fn run_as(args: Vec<OsString>, display_name: &str) -> i32 {
     if let [chats, open, rest @ ..] = args.as_slice()
         && chats == "chats"
@@ -227,7 +228,7 @@ const TERMINAL_IDENTITY_ENV: [&str; 5] =
 /// The acpmux home `cmux acp` uses: `ACPMUX_HOME`, else its build's home
 /// ([`build_home`]), else `~/.acpmux`.
 #[cfg(unix)]
-fn daemon_acpmux_home() -> Option<PathBuf> {
+pub(crate) fn daemon_acpmux_home() -> Option<PathBuf> {
     // Another app's terminal names that app's acpmux (per-build isolation S4).
     if let Some(home) = env_value("ACPMUX_HOME")
         && !crate::app_identity::this_process_in_other_apps_terminal()

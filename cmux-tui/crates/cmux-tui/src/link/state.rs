@@ -14,9 +14,9 @@ use zeroize::Zeroizing;
 /// outer WireGuard port of cmux endpoints).
 pub(super) const DEFAULT_PORT: u16 = 4101;
 
-/// The link mesh's inner MTU: 1200, the smaller of the two paths a session
-/// may use (1380 direct, 1200 through the Freestyle tunnel; transport.md
-/// 3.1), so a peer can move to the tunnel route without a size change.
+/// The link mesh's inner MTU. 1200 fit the nested tunnel route, which is
+/// gone; it stays until a change measures a larger one (1380 direct,
+/// transport.md 3.1).
 pub(super) const LINK_MTU: u16 = 1200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -319,6 +319,35 @@ pub(super) fn check_socket_dir(dir: &Path) -> io::Result<()> {
         ));
     }
     Ok(())
+}
+
+/// Makes the link socket's folder (0700), or tightens one this user already owns that
+/// another process made readable by others (a capture Mac had `/tmp/cmux-tui-<uid>` at 755),
+/// then checks it. Only a real folder of this user that no one else could write is changed, so
+/// nothing another user put inside can be in it; a symlink, another user's folder or a group- or
+/// other-writable one is still refused. In sticky `/tmp` no other user can swap the folder.
+pub(super) fn ensure_socket_dir(dir: &Path) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    // One handle for the check and the change (fstat, fchmod), so they always see the same
+    // folder; O_NOFOLLOW leaves a symlink to check_socket_dir's refusal.
+    if let Ok(folder) = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+    {
+        let meta = folder.metadata()?;
+        // SAFETY: geteuid has no preconditions.
+        let uid = unsafe { libc::geteuid() };
+        if meta.is_dir()
+            && meta.uid() == uid
+            && meta.mode() & 0o022 == 0
+            && meta.mode() & 0o077 != 0
+        {
+            folder.set_permissions(std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    check_socket_dir(dir)
 }
 
 fn create_private_dir(dir: &Path) -> io::Result<()> {

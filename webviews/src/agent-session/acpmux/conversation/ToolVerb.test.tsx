@@ -11,11 +11,11 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { McpCallDetails } from "./McpCallRows";
 import { paintFindHighlights } from "./chatFind";
-import { splitToolLabel } from "./ToolVerb";
+import { splitToolLabel } from "./toolVerbModel";
 import { ToolRows } from "./TurnRows";
 import { ToolRow } from "./ToolRow";
 import { ToolVerbColumn } from "./ToolVerb";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -102,16 +102,17 @@ test("a turn's tool rows put their verbs in one column as wide as the widest", a
     />,
   );
   const verbs = [...container.querySelectorAll(".cv-tool__verb")].map((verb) => verb.textContent);
-  expect(verbs).toEqual(["Ran", "Read", "Searched"]);
+  // A known command reads as what it did (commandActions.ts): its verb joins the column too.
+  expect(verbs).toEqual(["Checked", "Read", "Searched"]);
   // Each subject follows its verb on the row: the words read as they did.
   const rows = [...container.querySelectorAll(".cv-tool, .cv-command")].map((row) =>
     row.querySelector(".cv-tool__text, .cv-command__text")!.textContent!.trim(),
   );
-  expect(rows).toEqual(["Ran git status", "Read App.tsx", "Searched for cv-tool"]);
+  expect(rows).toEqual(["Checked git status", "Read App.tsx", "Searched for cv-tool"]);
   // The turn's element carries every verb, so each verb's box is as wide as the widest.
   const column = container.querySelector<HTMLElement>(".cv-tools")!;
   expect(column.getAttribute("data-tool-verbs")).toBe("3");
-  expect(column.style.getPropertyValue("--cv-tool-verbs")).toBe('"Ran\\A Read\\A Searched"');
+  expect(column.style.getPropertyValue("--cv-tool-verbs")).toBe('"Checked\\A Read\\A Searched"');
 });
 
 test("the transcript's tool rows have no verb column: each subject follows its verb after one space", async () => {
@@ -129,7 +130,7 @@ test("the transcript's tool rows have no verb column: each subject follows its v
   const rows = [...container.querySelectorAll(".cv-tool, .cv-command")].map((row) =>
     row.querySelector(".cv-tool__text, .cv-command__text")!.textContent!.trim(),
   );
-  expect(rows).toEqual(["Ran git status", "Read App.tsx"]);
+  expect(rows).toEqual(["Checked git status", "Read App.tsx"]);
 });
 
 test("a row that leaves takes its verb out of the column", async () => {
@@ -153,15 +154,29 @@ test("Find skips a command row's verb and the space after it, and counts the com
   const container = await render(
     <ColumnRows
       row={turn([
-        call("git status", "execute", { command: "git status" }),
-        call("git diff", "execute", { command: "git diff" }),
+        call("make lint", "execute", { command: "make lint" }),
+        call("make test", "execute", { command: "make test" }),
       ])}
     />,
   );
   const lines = [...container.querySelectorAll(".cv-command__text")];
-  expect(lines.map((line) => line.textContent)).toEqual(["Ran git status", "Ran git diff"]);
-  expect(lines.map(findText)).toEqual(["git status", "git diff"]);
+  expect(lines.map((line) => line.textContent)).toEqual(["Ran make lint", "Ran make test"]);
+  expect(lines.map(findText)).toEqual(["make lint", "make test"]);
   expect(container.querySelectorAll(".cv-command .cv-tool__verb")).toHaveLength(2);
+});
+
+// A lone call draws as a ToolRow. A named action is no command line, even one whose words hold the
+// command ("Checked git status"): Find skips it as it does on a command row, and counts the line a
+// command the table does not know draws.
+test("Find skips a lone command's named action, whatever its words hold, and counts an unnamed line", async () => {
+  const named = await render(<ColumnRows row={turn([call("git status", "execute", { command: "git status" })])} />);
+  const label = named.querySelector(".cv-tool__text")!;
+  expect(label.textContent).toBe("Checked git status");
+  expect(findText(label)).toBe("");
+  await act(async () => root!.unmount());
+  root = undefined;
+  const line = await render(<ColumnRows row={turn([call("make lint", "execute", { command: "make lint" })])} />);
+  expect(findText(line.querySelector(".cv-tool__text")!)).toContain("make lint");
 });
 
 test("a group's line reads as words: its count is never pushed out to the verb column", async () => {
@@ -183,12 +198,12 @@ test("a group's line reads as words: its count is never pushed out to the verb c
   expect(container.querySelectorAll(".cv-command .cv-tool__verb")).toHaveLength(2);
 });
 
-test("an MCP call's verb joins the column; its plain name on a lone row stays whole", async () => {
+test("an MCP call's verb joins the column, on a group's line and on a lone row alike", async () => {
   const mcp = () => call("mcp__hub__frobnicate", "other", { inputSummary: JSON.stringify({}) });
   const container = await render(<ColumnRows row={turn([mcp(), thought("Then."), call("Read App.tsx", "read")])} />);
   const verbs = [...container.querySelectorAll(".cv-tool__verb")].map((verb) => verb.textContent);
-  expect(verbs).toEqual(["Called", "Read"]);
-  // A row that draws the call's plain name ("Hub · frobnicate") leads with its server: no verb.
+  expect(verbs).toEqual(["Used", "Read"]);
+  // A lone row reads as Claude Code words it, "Used hub: frobnicate", its verb in the column.
   await act(async () =>
     root!.render(
       <ToolVerbColumn className="cv-tools">
@@ -197,8 +212,8 @@ test("an MCP call's verb joins the column; its plain name on a lone row stays wh
     ),
   );
   const lone = container;
-  expect(lone.querySelector(".cv-tool__text")!.textContent).toContain(" · ");
-  expect(lone.querySelector(".cv-tool__verb")).toBeNull();
+  expect(lone.querySelector(".cv-tool__text")!.textContent).toBe("Used hub: frobnicate");
+  expect(lone.querySelector(".cv-tool__verb")?.textContent).toBe("Used");
 });
 
 test("a call that finishes moves its row from Running to Ran in the column", async () => {

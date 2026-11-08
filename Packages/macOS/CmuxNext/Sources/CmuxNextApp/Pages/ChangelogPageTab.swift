@@ -50,30 +50,18 @@ final class ChangelogPageTab: InternalPageProvider {
 
     /// Opens (or selects) the changelog tab in the active window. With `to` (an update's new
     /// version, and `from` its previous one) the page highlights the releases after `from` up to
-    /// `to`, and says "Updated to <to>" when that span has no notes (`#/?from=<v>&to=<v>`).
+    /// `to`, and says "Updated to <to>" when that span has no notes; with `target` it scrolls to
+    /// that change (``WhatsNewDesign/changelogRoute(from:to:focus:)``).
     @discardableResult
-    static func open(_ services: AppServices, focus: Bool = true, from: String? = nil, to: String? = nil) -> Bool {
+    static func open(_ services: AppServices, focus: Bool = true, from: String? = nil, to: String? = nil, at target: ChangelogFocus? = nil) -> Bool {
         let provider = register(services)
-        let route = Self.route(from: from, to: to, design: WhatsNewTunables.design.value)
+        let route = WhatsNewTunables.design.value.changelogRoute(from: from, to: to, focus: target)
         provider.pendingRoute = route
         let view = services.pages.show(.changelog, in: services.windows.active, focus: focus)
         provider.pendingRoute = nil
-        // An open tab moves to the new span (a design change alone applies the next time the page opens).
-        if let route, to?.isEmpty == false, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
+        // An open tab moves to the new span or change (a design change alone applies the next time the page opens).
+        if let route, to?.isEmpty == false || target != nil, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
         return view != nil
-    }
-
-    /// `#/?design=<d>&from=<from>&to=<to>`: `design` only off the default ledger, the span only
-    /// with `to`; nil when neither applies.
-    static func route(from: String?, to: String?, design: WhatsNewDesign = .ledger) -> String? {
-        let span = to.flatMap { $0.isEmpty ? nil : $0 }
-        guard span != nil || design != .ledger else { return nil }
-        var query = URLComponents()
-        query.queryItems = [design == .ledger ? nil : URLQueryItem(name: "design", value: design.rawValue),
-                            span.flatMap { _ in from.flatMap { $0.isEmpty ? nil : URLQueryItem(name: "from", value: $0) } },
-                            span.map { URLQueryItem(name: "to", value: $0) }].compactMap { $0 }
-        // URLSearchParams reads `+` as a space; a version may carry build metadata (`1.2.3+abc`).
-        return "#/?" + (query.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B")
     }
 }
 
@@ -82,12 +70,12 @@ nonisolated enum ChangelogPageStrings {
 }
 
 extension PageFactory {
-    /// The changelog page: `cmux.changelog.` to verified notes, `cmux.app.` to the native ops
-    /// (Try it runs only the descriptor's allow-listed actions).
+    /// The changelog page: Install first (routes match in order), `cmux.changelog.` to verified notes,
+    /// `cmux.app.` to the native ops (Try it runs only the descriptor's allow-listed actions).
     func changelogPage(route: String? = nil) -> PageWebView? {
         let provider = changelogNotes(media: services.updater.releaseMedia)
         let native = AppPageNativeProvider(services: services, page: .changelog)
-        let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [ChangelogInstallProvider.route(services.updater), PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         let page = PageWebView(descriptor: .changelog, routes: routes, route: route)
         native.anchor = { [weak page] in page }
         provider.anchor = { [weak page] in page }

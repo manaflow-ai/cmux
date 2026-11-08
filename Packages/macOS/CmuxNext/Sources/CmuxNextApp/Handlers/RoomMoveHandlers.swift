@@ -20,7 +20,7 @@ enum RoomMoveHandlers {
             guard let qualified = WindowProfiles.qualified(workspace.id, machines: machines) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
             }
-            if let membership = WindowProfiles.membership(machines), membership.pins[qualified] == room.id {
+            if let membership = WindowProfiles.membership(machines), membership.pinned(qualified) == room.id {
                 throw ActionFailure.invalidTarget(RoomStrings.alreadyInRoom)
             }
             // A move is a pin in the home session: the workspace's own
@@ -40,8 +40,15 @@ enum RoomMoveHandlers {
                 throw ActionFailure.invalidTarget(RoomStrings.roomArgumentRequired)
             }
             let group = try context.personalGroup(invocation)
-            let id = group.id, target = room.id
-            context.services.machines.local.send("update-personal-group") { try await $0.updatePersonalGroup(id, room: target) }
+            let id = group.id, target = room.id, home = context.services.machines.local
+            // The personal update moves the workspace pins only while the stored space differs, and syncs it into the
+            // document: the document's own write goes after it, or it could win and leave the workspaces behind.
+            let document = context.services.sidebarDoc.store, from = document?.groupRoom(id.rawValue)
+            context.services.registry.track(Task { @MainActor in
+                if let failed = await home.failure("update-personal-group", { try await $0.updatePersonalGroup(id, room: target) }) { return failed }
+                document?.moveGroup(id.rawValue, toSpace: target.rawValue, from: from)
+                return nil
+            })
         }
     }
 

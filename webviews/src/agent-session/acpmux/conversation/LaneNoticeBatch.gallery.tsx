@@ -6,10 +6,11 @@ import type { AcpmuxRow } from "../model";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import { LaneNoticeBatch } from "./LaneNoticeBatch";
-import { report, notice } from "./laneNotice.gallery-fixtures";
-import { batchLaneNotices } from "./laneNoticeBatches";
+import { inboxMany, report } from "./laneNotice.gallery-fixtures";
+import { batchLaneNotices, flattenInboxRows } from "./laneNoticeBatches";
 import { setMessageOpened } from "./incomingOpened";
-import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = { kind: "reports" | "inbox" | "single"; expanded: boolean };
 
@@ -17,12 +18,13 @@ function Stage({ kind, expanded }: Props) {
   const session = `gallery-lane-notice-${kind}-${expanded}`;
   const [rows] = useState(() => {
     resetTranscriptDisclosure(session);
-    const members =
+    const source =
       kind === "inbox"
-        ? [0, 1, 2].map((index) => notice(index, session))
+        ? [inboxMany(session)]
         : kind === "single"
           ? [report(4, session)]
           : [0, 1, 2, 3, 4].map((index) => report(index, session));
+    const members = kind === "inbox" ? flattenInboxRows(source) : source;
     const grouped = batchLaneNotices(members);
     for (const row of [...members, ...grouped]) setMessageOpened(session, row.id, false);
     return grouped;
@@ -47,7 +49,9 @@ function Stage({ kind, expanded }: Props) {
 }
 
 const open: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle, .cv-disclosure__toggle"));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector(".cv-lane-batch__toggle, .cv-agentmsg__toggle, .cv-disclosure__toggle"),
+  );
   const batch = ctx.document.querySelector<HTMLButtonElement>(".cv-lane-batch__toggle");
   if (batch) {
     batch.click();
@@ -56,7 +60,7 @@ const open: Play = async (ctx) => {
   const lines = [...ctx.document.querySelectorAll<HTMLElement>(".cv-received")];
   for (const line of lines) {
     if (lines.length === 1 || line.textContent?.includes("BLOCK") || !line.classList.contains("cv-lane-notice"))
-      line.querySelector<HTMLButtonElement>(".cv-disclosure__toggle")?.click();
+      line.querySelector<HTMLButtonElement>(":is(.cv-agentmsg__toggle, .cv-disclosure__toggle)")?.click();
   }
   await ctx.waitFor(
     () => batch?.getAttribute("aria-expanded") === "true" || ctx.document.querySelector(".cv-received__text"),
@@ -68,7 +72,9 @@ const open: Play = async (ctx) => {
   );
 };
 const closed: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle, .cv-disclosure__toggle"));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector(".cv-lane-batch__toggle, .cv-agentmsg__toggle, .cv-disclosure__toggle"),
+  );
 };
 const variant = (kind: Props["kind"], expanded: boolean, note: string) => ({
   props: { kind, expanded },
@@ -98,8 +104,8 @@ export default componentEntry<Props>({
       true,
       "The five reports keep their names and disclosures; the BLOCK shows both full findings.",
     ),
-    "inbox-collapsed": variant("inbox", false, "Three inbox notices share one row naming their senders."),
-    "inbox-expanded": variant("inbox", true, "Each inbox notice remains independently expandable."),
+    "inbox-collapsed": variant("inbox", false, "Thirteen inbox deliveries render as one flat run of sender rows."),
+    "inbox-expanded": variant("inbox", true, "Each inbox delivery expands as its own received message row."),
     "single-collapsed": variant(
       "single",
       false,

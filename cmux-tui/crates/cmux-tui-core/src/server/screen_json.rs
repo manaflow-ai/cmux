@@ -9,7 +9,7 @@ pub(super) fn screen_json(
     screen: &Screen,
     active: bool,
     group: Option<&str>,
-    short_ids: &HashMap<u64, String>,
+    short_ids: &ShortIds<'_>,
     notifications: &TreeDecorations,
 ) -> Value {
     let mut pane_ids = Vec::new();
@@ -18,7 +18,7 @@ pub(super) fn screen_json(
     let mut value = json!({
         "id": screen.id,
         "resource_id": screen.public_id,
-        "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
+        "short_id": short_ids.get(screen.id),
         "name": screen.name,
         "color": presentation.and_then(|presentation| presentation.color.as_deref()),
         "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),

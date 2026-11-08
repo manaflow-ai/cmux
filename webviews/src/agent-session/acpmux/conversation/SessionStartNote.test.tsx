@@ -11,7 +11,7 @@ import { translate } from "../i18n";
 import type { AcpmuxSessionStart } from "../model";
 import { SessionStartNote } from "./SessionStartNote";
 import { routeOf } from "./sessionStart";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

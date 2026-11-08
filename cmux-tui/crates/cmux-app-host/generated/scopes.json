@@ -9,6 +9,10 @@
       "scope": "actions:run",
       "class": "mutation"
     },
+    "agent_chat.list": {
+      "scope": "agent_chat:read",
+      "class": "read"
+    },
     "agent_cli.list": {
       "scope": "agent_cli:read",
       "class": "read"
@@ -49,6 +53,10 @@
       "scope": "storage:local",
       "class": "mutation"
     },
+    "automation.audit.list": {
+      "scope": "automation:read",
+      "class": "read"
+    },
     "automation.create": {
       "scope": "automation:write",
       "class": "mutation"
@@ -60,6 +68,10 @@
     "automation.get": {
       "scope": "automation:read",
       "class": "read"
+    },
+    "automation.import": {
+      "scope": "automation:write",
+      "class": "mutation"
     },
     "automation.list": {
       "scope": "automation:read",
@@ -76,6 +88,18 @@
     "automation.settings.get": {
       "scope": "automation:read",
       "class": "read"
+    },
+    "automation.teleport.abort": {
+      "scope": "automation:write",
+      "class": "mutation"
+    },
+    "automation.teleport.begin": {
+      "scope": "automation:write",
+      "class": "mutation"
+    },
+    "automation.teleport.complete": {
+      "scope": "automation:write",
+      "class": "mutation"
     },
     "automation.update": {
       "scope": "automation:write",
@@ -209,6 +233,14 @@
       "scope": "calendar:read",
       "class": "read"
     },
+    "channel.create": {
+      "scope": "channel:write",
+      "class": "mutation"
+    },
+    "chief.continue": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.create": {
       "scope": "chief:write",
       "class": "mutation"
@@ -262,6 +294,10 @@
       "class": "mutation"
     },
     "chief.profile.update": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.retry": {
       "scope": "chief:write",
       "class": "mutation"
     },
@@ -417,7 +453,19 @@
       "scope": "cloud:read",
       "class": "read"
     },
+    "cloud.vm.attention.emit": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
     "cloud.vm.event.emit": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.vm.network_policy": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.vm.receiver.lifecycle": {
       "scope": "cloud:execute",
       "class": "mutation"
     },
@@ -543,6 +591,18 @@
     },
     "conversation.typing": {
       "scope": "conversation:write",
+      "class": "mutation"
+    },
+    "diff.comments.delete": {
+      "scope": "diff:write",
+      "class": "mutation"
+    },
+    "diff.comments.list": {
+      "scope": "diff:read",
+      "class": "read"
+    },
+    "diff.comments.save": {
+      "scope": "diff:write",
       "class": "mutation"
     },
     "diffs.cycle_variant": {
@@ -716,6 +776,10 @@
     "git.worktree.remove": {
       "scope": "git:execute",
       "class": "mutation"
+    },
+    "git.worktree.setup": {
+      "scope": "git:read",
+      "class": "read"
     },
     "github.issue.comment": {
       "scope": "github:external",
@@ -1781,6 +1845,10 @@
       "scope": "title:write",
       "class": "mutation"
     },
+    "toast.show": {
+      "scope": "none",
+      "class": "mutation"
+    },
     "usage_app.cycle_variant": {
       "scope": "usage_app:write",
       "class": "mutation"
@@ -1963,12 +2031,48 @@
     "cloud.fs.remove",
     "cloud.machine.create",
     "cloud.machine.delete",
+    "cloud.machine.io",
     "cloud.machine.link_token",
     "cloud.machine.resize",
+    "cloud.owner.acpmux_keyed_start",
+    "cloud.owner.acpmux_person_holds",
+    "cloud.owner.fork_run",
+    "cloud.owner.github_app",
+    "cloud.owner.handoff_begin_turn",
+    "cloud.owner.handoff_open",
+    "cloud.owner.handoff_wait",
+    "cloud.owner.handoffs",
+    "cloud.owner.harness_login_copy",
     "cloud.port.close",
+    "cloud.previews.create_link",
+    "cloud.previews.refresh",
+    "cloud.previews.revoke_link",
+    "cloud.runs.cancel",
+    "cloud.runs.create",
+    "cloud.runs.sandbox",
+    "cloud.runs.start",
+    "cloud.runs.wait",
     "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
+    "cloud.vm.domains",
+    "cloud.vm.firewall_create",
+    "cloud.vm.firewall_delete",
+    "cloud.vm.firewall_get",
+    "cloud.vm.firewall_list",
+    "cloud.vm.networks",
+    "cloud.vm.provision_api",
+    "cloud.vm.publication_api_keys",
+    "cloud.vm.publications",
+    "cloud.vm.revoke_publication_api_key",
+    "cloud.vm.scp_endpoint",
+    "cloud.vm.tunnel_attach",
+    "cloud.vm.tunnel_detach",
+    "cloud.vm.tunnel_enroll",
+    "cloud.vm.tunnel_revoke",
+    "cloud.vm.tunnel_rotate_key",
+    "conductor_import.plan",
+    "conductor_import.record",
     "conversation.events",
     "credential.mint",
     "credential.rotate",
@@ -2000,6 +2104,8 @@
     "home.settings.set",
     "host.enroll",
     "host.network.bind",
+    "host.network.policy",
+    "host.network.target",
     "host.remove",
     "host.replica.purge",
     "install.list",
@@ -2023,12 +2129,14 @@
     "ownership.transfer",
     "pairing_request.list",
     "pairing_request.resolve",
+    "palette.rank",
     "pane.close",
     "participants.remove",
     "request.cancel",
     "request.dismiss",
     "screen.close",
     "server.pair.approve",
+    "server.pair.invite",
     "server.pair.preview",
     "server.revoke",
     "session.creation.resolve",

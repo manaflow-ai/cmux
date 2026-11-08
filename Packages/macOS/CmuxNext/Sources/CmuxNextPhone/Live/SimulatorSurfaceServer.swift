@@ -31,6 +31,13 @@ public final class SimulatorSurfaceServer {
         }
     }
 
+    /// hostd holds one connection to a source; a few spare cover a reconnect. Connections past this are refused.
+    static let maximumSessions = 4
+    /// A connection that has not said hello by then is dropped (its fd, session and tasks are held until it does).
+    static let helloDeadline: Duration = .seconds(5)
+
+    static func admits(sessions: Int) -> Bool { sessions < maximumSessions }
+
     private let service: PhoneService
     private let device: PhoneDeviceID
     public let secret = UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
@@ -90,7 +97,7 @@ public final class SimulatorSurfaceServer {
     }
 
     private func accept(_ connection: LoopbackConnection) {
-        guard let live = service.live else { return connection.cancel() }
+        guard let live = service.live, Self.admits(sessions: sessions.count) else { return connection.cancel() }
         let id = ObjectIdentifier(connection)
         let session = Session(connection: connection, secret: secret, udid: device.raw, device: device, live: live, service: service,
                               stillShown: { [weak self] in self?.stillShown?() ?? true },
@@ -126,6 +133,8 @@ extension SimulatorSurfaceServer {
         static let inputBacklog = 256
         private var wire = SurfaceSourceWire()
         private var authorized = false
+        /// Ends the session when no hello arrives in time; cancelled by the hello and by ``end()``.
+        private var helloTimer: Task<Void, Never>?
         private var watch: SimulatorKitHID.ScreenWatch?
         private var encoder: SurfaceFrameEncoder?
         private var latest: IOSurface?
@@ -150,10 +159,19 @@ extension SimulatorSurfaceServer {
             self.live = live
             self.service = service
             self.ended = ended
+            wire.maximumFrame = SurfaceSourceWire.maximumBeforeHello
         }
 
         func start() {
             connection.start(ended: { [weak self] in self?.end() })
+            // task-owner: one deadline per session; the hello or end() cancels it
+            helloTimer = Task { [weak self] in
+                // wakeup-allow: one-shot hello deadline, cancelled by the hello or the end of the session
+                try? await Task.sleep(for: SimulatorSurfaceServer.helloDeadline)
+                guard !Task.isCancelled, let self, !self.authorized else { return }
+                logger.error("surface source \(self.udid, privacy: .public): no hello in time")
+                self.end()
+            }
             let inputs = inputs
             // task-owner: the session's one input applier; ends with the stream in end()
             applying = Task { [weak self] in
@@ -168,6 +186,7 @@ extension SimulatorSurfaceServer {
         func end() {
             guard !closed else { return }
             closed = true
+            helloTimer?.cancel()
             if let watch { live.stopScreen(watch) }
             watch = nil
             encoder = nil
@@ -214,6 +233,8 @@ extension SimulatorSurfaceServer {
                     return fail("unauthorized")
                 }
                 authorized = true
+                helloTimer?.cancel()
+                wire.maximumFrame = SurfaceSourceWire.maximumIncoming
                 return startFrames()
             }
             switch type {
