@@ -295,6 +295,28 @@ requestAnimationFrame(() => {
     await context.close();
   });
 
+  test("once the live page took over, the first press reaches it", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot);
+    expect(await page.evaluate(() => !!document.querySelector("cmux-chat-snapshot"))).toBe(false);
+    await page.evaluate(() => {
+      const w = window as any;
+      w.presses = [];
+      const button = document.createElement("button");
+      button.style.cssText = "position:fixed;left:100px;top:300px;width:200px;height:60px;";
+      for (const name of ["pointerdown", "pointerup", "click"])
+        button.addEventListener(name, () => w.presses.push(name));
+      window.addEventListener("keydown", (event) => w.presses.push(`key ${event.key}`));
+      document.getElementById("root")!.append(button);
+    });
+    await page.mouse.click(200, 330);
+    await page.keyboard.press("a");
+    expect(await page.evaluate(() => (window as any).presses)).toEqual(["pointerdown", "pointerup", "click", "key a"]);
+    await context.close();
+  });
+
   test("a key on the copy ends it and reaches nothing under it", async () => {
     const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
     const before = await written(await context.newPage());

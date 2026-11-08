@@ -63,6 +63,9 @@ export function chatSnapshotReport(): Record<string, unknown> {
 /// The live page shows and the copy goes, in the same task, so the frame after shows the live page
 /// and no frame shows both or neither. `doc` is the page's document.
 export function removeChatSnapshot(doc: Document = document): boolean {
+  // The copy's input watch (``reportChatSnapshot``) ends with the copy, however it goes.
+  stopCopyInput?.();
+  stopCopyInput = undefined;
   const host = doc.querySelector(SNAPSHOT_HOST_TAG);
   const root = doc.getElementById("root");
   if (root) root.style.removeProperty("opacity");
@@ -87,6 +90,9 @@ export function swapChatSnapshot(): void {
 /// bound for its first paint (App.tsx CHAT_DRAW_HOLD_MS), so a page that never draws one never
 /// keeps an old frame up.
 const SNAPSHOT_HOLD_MS = 10_000;
+
+/// Ends the drawn copy's input watch (``reportChatSnapshot``) while one runs.
+let stopCopyInput: (() => void) | undefined;
 
 /// How long the rest of a consumed press (its pointerup and click) is swallowed at most.
 const SWALLOW_GESTURE_MS = 1_000;
@@ -124,7 +130,8 @@ export function reportChatSnapshot(
     // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup
     // and click). A wheel ends the copy and scrolls. Stops with the copy.
     const end = (event?: Event) => {
-      if (event && event.type !== "wheel") {
+      // Only a press on the copy is consumed: once it is gone, input reaches the page as usual.
+      if (event && event.type !== "wheel" && showsChatSnapshot()) {
         event.preventDefault();
         event.stopImmediatePropagation();
         if (event.type === "pointerdown") swallowGesture();
@@ -139,6 +146,7 @@ export function reportChatSnapshot(
       for (const name of events) window.removeEventListener(name, end, true);
     };
     for (const name of events) window.addEventListener(name, end, { capture: true, passive: name === "wheel" });
+    stopCopyInput = stop;
   };
   if (showsChatSnapshot()) shows();
   else liveSide().painted = shows;
