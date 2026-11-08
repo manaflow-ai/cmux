@@ -819,7 +819,7 @@ mod model {
     use serde_json::{Value, json};
 
     use super::super::MAX_REFRESHES;
-    use super::super::state::{Asked, Core, Done, Job, Task, View, Warm};
+    use super::super::state::{Asked, Core, Done, Hands, Job, Task, Warm};
 
     const SEEDS: u64 = 3000;
     const STEPS: usize = 250;
@@ -845,17 +845,6 @@ mod model {
         task: Task,
     }
 
-    /// The fetch thread's clients, as `carrier_server.rs`'s `Fetcher` keeps
-    /// them: each client is the binding it was made for.
-    #[derive(Default)]
-    struct Hands {
-        client: Option<u64>,
-        spare: Option<u64>,
-        resume_waits: bool,
-        prefetch: bool,
-        refreshes: u32,
-    }
-
     /// A reply between its ask and its hand-out.
     struct Pending {
         reply: Value,
@@ -867,7 +856,9 @@ mod model {
     struct Model {
         core: Core<(u64, bool), u64>,
         now_ms: u64,
-        hands: Hands,
+        /// The fetch thread's clients, the same `Hands` as `Fetcher`'s: each
+        /// client is the binding it was made for.
+        hands: Hands<u64>,
         /// Binds made so far: the latest is the machine's binding.
         binds: u64,
         in_flight: Vec<Request>,
@@ -881,6 +872,8 @@ mod model {
         refused_stale: u64,
         /// Requests that came back after their generation ended.
         stale_replies: u64,
+        /// Resumes that found no client and acted once one came back.
+        waited_resumes: u64,
         trace: Vec<String>,
     }
 
@@ -900,6 +893,7 @@ mod model {
                 handed: 0,
                 refused_stale: 0,
                 stale_replies: 0,
+                waited_resumes: 0,
                 trace: Vec::new(),
             }
         }
@@ -974,10 +968,11 @@ mod model {
         }
 
         /// `Fetcher::start`: a request on the free client, leaving a spare
-        /// behind when the transport makes one.
+        /// behind when the transport makes one (only sometimes here).
         fn start(&mut self, seed: u64, rng: &mut Rng, task: Task, generation: u64) {
-            let Some(binding) = self.hands.client.take() else { return };
-            self.hands.spare = (rng.below(2) == 0).then_some(binding);
+            let Some(binding) = self.hands.take(|b| (rng.below(2) == 0).then_some(*b)) else {
+                return;
+            };
             self.core.starting(generation);
             if generation == self.core.generation
                 && self.in_flight.iter().any(|r| r.generation == self.core.generation)
@@ -989,47 +984,39 @@ mod model {
 
         /// `Fetcher::resume`.
         fn resume(&mut self, seed: u64, rng: &mut Rng, generation: u64) {
-            if self.hands.client.is_none() {
-                self.hands.client = self.hands.spare.take();
+            if self.hands.for_resume().is_none() {
+                return self.core.defer_resume(generation);
             }
-            if self.hands.client.is_none() {
-                self.hands.resume_waits = true;
-                return;
-            }
-            self.hands.resume_waits = false;
             if self.hands.prefetch {
                 self.start(seed, rng, Task::ticket("prefetched after resume", false), generation);
             }
         }
 
         /// `Fetcher::done`.
-        fn done(&mut self, seed: u64, rng: &mut Rng, client: u64, current: bool, generation: u64) {
-            let hands = &mut self.hands;
-            if hands.client.is_none() && (current || hands.spare.is_none() || hands.resume_waits) {
-                hands.client = Some(client);
-                if current {
-                    hands.spare = None;
-                }
-            }
+        fn done(
+            &mut self,
+            seed: u64,
+            rng: &mut Rng,
+            client: u64,
+            current: bool,
+            generation: u64,
+            resume: bool,
+        ) {
+            self.hands.returned(client, current, resume);
             if !current {
                 self.stale_replies += 1;
-                if self.hands.resume_waits {
-                    self.resume(seed, rng, generation);
-                }
+            }
+            if resume {
+                self.waited_resumes += 1;
+                self.resume(seed, rng, generation);
             }
         }
 
         fn fetch_step(&mut self, seed: u64, rng: &mut Rng) {
-            let view = View {
-                has_client: self.hands.client.is_some(),
-                can_resume: self.hands.client.is_some() || self.hands.spare.is_some(),
-                prefetch: self.hands.prefetch,
-                may_refresh: self.hands.refreshes < MAX_REFRESHES,
-            };
-            match self.core.next_job(view, self.now_ms) {
+            match self.core.next_job(self.hands.view(), self.now_ms) {
                 Job::Bind(bind, generation) => {
                     let (binding, prefetch) = *bind;
-                    self.hands = Hands { client: Some(binding), prefetch, ..Hands::default() };
+                    self.hands.bound(binding, prefetch);
                     let ticket = prefetch.then_some(("prefetched", false));
                     self.start(seed, rng, Task { mint: true, ticket }, generation);
                 }
@@ -1054,8 +1041,8 @@ mod model {
                         self.start(seed, rng, Task::ticket("refreshed", false), generation);
                     }
                 }
-                Job::Done(done, current, generation) => {
-                    self.done(seed, rng, done.client, current, generation);
+                Job::Done(done, current, generation, resume) => {
+                    self.done(seed, rng, done.client, current, generation, resume);
                 }
                 Job::Wait(_) | Job::Stop => {}
             }
@@ -1087,7 +1074,7 @@ mod model {
 
     #[test]
     fn random_interleavings_keep_one_request_per_want_and_no_older_ticket() {
-        let (mut handed, mut refused, mut wanted, mut stale) = (0, 0, 0, 0);
+        let (mut handed, mut refused, mut wanted, mut stale, mut waited) = (0, 0, 0, 0, 0);
         for seed in 0..SEEDS {
             let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
             let mut model = Model::new();
@@ -1128,6 +1115,7 @@ mod model {
             refused += model.refused_stale;
             wanted += model.wanted;
             stale += model.stale_replies;
+            waited += model.waited_resumes;
         }
         // Every path the invariants guard was driven, many times over.
         let reached = [
@@ -1135,6 +1123,7 @@ mod model {
             ("replies refused at the hand-out as stale", refused),
             ("ticket requests for asks", wanted),
             ("requests answered after their generation ended", stale),
+            ("resumes that waited for a client", waited),
         ];
         for (what, count) in reached {
             assert!(count >= SEEDS / 10, "the model reached {what} only {count} times");
