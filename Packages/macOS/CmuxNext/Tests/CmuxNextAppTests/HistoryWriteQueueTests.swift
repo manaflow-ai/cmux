@@ -107,6 +107,47 @@ import Testing
         #expect(daemon.stored == ["new"])
     }
 
+    /// cmux#38186 review: with only clears and removes waiting, a new visit is refused for room; none of
+    /// them is dropped, and a new clear still goes in past the capacity.
+    @Test func pastCapacityWithOnlyClearsWaitingTheNewVisitIsRefused() async {
+        let daemon = Daemon()
+        let queue = HistoryWriteQueue<Daemon>(capacity: 2, retryable: DaemonHistoryClient.isLinkDrop) { await daemon.connected() }
+        queue.enqueue { client in try await client.send { $0.append("clear-a") } }
+        queue.enqueue { client in try await client.send { $0.append("clear-b") } }
+        queue.enqueue(visit: true) { client in try await client.send { $0.append("visit") } }
+        #expect(queue.count == 2, "a visit took the place of a clear")
+        queue.enqueue { client in try await client.send { $0.append("clear-c") } }
+        #expect(queue.count == 3, "a clear was dropped for room")
+        daemon.reconnect()
+        await Self.sent(queue) { client in try await client.send { $0.append("last") } }
+        #expect(daemon.stored == ["clear-a", "clear-b", "clear-c", "last"])
+    }
+
+    /// cmux#38186 review: a profile's legacy import (queued `ahead`) reaches the daemon before a clear made
+    /// while it was away, so the clear removes the imported visits instead of the import restoring them.
+    @Test func anImportQueuedAheadGoesBeforeAnOfflineClear() async {
+        let daemon = Daemon()
+        let queue = Self.queue(daemon)
+        queue.enqueue { client in try await client.send { $0.removeAll() } }
+        queue.enqueue(ahead: true) { client in try await client.send { $0.append("legacy") } }
+        daemon.reconnect()
+        await Self.sent(queue, visit: true) { client in try await client.send { $0.append("after") } }
+        #expect(daemon.stored == ["after"], "the legacy import came after the clear and restored its visits")
+    }
+
+    /// cmux#38186 review: a queued clear carries the absolute start taken at the click (range `today`
+    /// from `local_day_start_ms`), so its delivery an hour later still clears from the click's hour.
+    @Test func aClearCarriesTheClickTimeStart() {
+        let since = Date(timeIntervalSince1970: 1_700_000_000)
+        let params = DaemonHistoryClient.clearParams(kinds: [.page], since: since, profile: "default")
+        #expect(params["range"] == .string("today"))
+        #expect(params["local_day_start_ms"] == .string("1700000000000"))
+        #expect(params["profile"] == .string("default"))
+        let all = DaemonHistoryClient.clearParams(kinds: [], since: nil, profile: nil)
+        #expect(all["range"] == .string("all"))
+        #expect(all["local_day_start_ms"] == nil)
+    }
+
     /// The app's own wiring: an omnibox visit and a Clear History wait in the same queue while the local
     /// daemon is away (no daemon in this test).
     @Test func visitsAndClearsShareTheAppsQueue() throws {

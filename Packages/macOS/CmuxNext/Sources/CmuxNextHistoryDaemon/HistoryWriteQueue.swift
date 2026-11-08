@@ -8,8 +8,9 @@ public import CmuxNextWakeups
 /// A write waits for a live client (`client`, which returns once the daemon serves history). One that
 /// fails because the link dropped under it (`retryable`) stays first and goes again, after a backoff
 /// that lets the next connect land; one the daemon answered and refused is done. At most `capacity`
-/// writes wait; past it the oldest waiting visit goes (a clear or remove is kept, so nothing removed
-/// comes back), else the oldest waiting write.
+/// writes wait; past it the oldest waiting visit goes. A clear or remove is never dropped (else what it
+/// removed would come back): with no visit waiting, a new visit is refused instead, and a new clear or
+/// remove still goes in, past `capacity` (each one is a person's click, so they stay few).
 @MainActor
 public final class HistoryWriteQueue<Client: Sendable> {
     public typealias Write = @Sendable (Client) async throws -> Void
@@ -23,7 +24,7 @@ public final class HistoryWriteQueue<Client: Sendable> {
     public let capacity: Int
     private var items: [Item] = []
     private var nextID: UInt64 = 0
-    /// The write being sent: never dropped for room.
+    /// The write being sent (its client is up): never dropped for room, never passed by an `ahead` write.
     private var sending: UInt64?
     private var draining: Task<Void, Never>?
     private let backoff: Backoff
@@ -44,14 +45,23 @@ public final class HistoryWriteQueue<Client: Sendable> {
     /// Writes not yet sent (the one being sent included).
     public var count: Int { items.count }
 
-    /// Queues `write` behind every earlier one; `done` runs once it was sent (or refused).
-    public func enqueue(visit: Bool = false, _ write: @escaping Write, done: (@MainActor () -> Void)? = nil) {
+    /// Queues `write` behind every earlier one (`ahead`: before every waiting one, behind only the one
+    /// being sent); `done` runs once it was sent (or refused). A visit refused for room never runs `done`.
+    public func enqueue(visit: Bool = false, ahead: Bool = false, _ write: @escaping Write, done: (@MainActor () -> Void)? = nil) {
         if items.count >= capacity {
-            let waiting = items.indices.filter { items[$0].id != sending }
-            if let index = waiting.first(where: { items[$0].isVisit }) ?? waiting.first { items.remove(at: index) }
+            if let index = items.indices.first(where: { items[$0].isVisit && items[$0].id != sending }) {
+                items.remove(at: index)
+            } else if visit {
+                return
+            }
         }
         nextID += 1
-        items.append(Item(id: nextID, isVisit: visit, write: write, done: done))
+        let item = Item(id: nextID, isVisit: visit, write: write, done: done)
+        if ahead {
+            items.insert(item, at: items.firstIndex { $0.id != sending } ?? items.endIndex)
+        } else {
+            items.append(item)
+        }
         guard draining == nil else { return }
         // task-owner: the queue's drain; ends when the queue is empty or the client wait is cancelled
         draining = Task { [weak self] in await self?.drain() }
@@ -60,12 +70,11 @@ public final class HistoryWriteQueue<Client: Sendable> {
     private func drain() async {
         defer { draining = nil }
         var backoff = self.backoff
-        while let item = items.first {
+        while !items.isEmpty {
+            // The first write is picked only once the client is up: one queued `ahead` meanwhile goes first.
+            guard let client = await client() else { return }
+            guard let item = items.first else { return }
             sending = item.id
-            guard let client = await client() else {
-                sending = nil
-                return
-            }
             do {
                 try await item.write(client)
             } catch where retryable(error) {

@@ -57,14 +57,24 @@ public struct DaemonHistoryClient: Sendable {
         _ = try await relay.send(operation: "history.site.remove", params: params, idempotencyKey: Self.key())
     }
 
-    /// Clears `kinds` (empty: all) in `range`; a profile narrows the clear to its page visits.
-    public func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange, profile: String? = nil) async throws {
+    /// Clears `kinds` (empty: all) from `since` (nil: all time) on; a profile narrows the clear to its page visits.
+    /// `since` is the absolute start taken when the person clicked, so a clear the queue delivers later
+    /// still starts there, never at a range counted back from the delivery.
+    public func clear(kinds: Set<HistoryEntry.Kind>, since: Date?, profile: String? = nil) async throws {
+        _ = try await relay.send(operation: "history.clear", params: Self.clearParams(kinds: kinds, since: since, profile: profile),
+                                 idempotencyKey: Self.key())
+    }
+
+    /// `history.clear`'s params for an absolute start: range `today` starts at the given
+    /// `local_day_start_ms`, the daemon's one absolute range start; nil is range `all`.
+    public static func clearParams(kinds: Set<HistoryEntry.Kind>, since: Date?, profile: String?) -> [String: JSONValue] {
         var params: [String: JSONValue] = [
-            "kinds": .array(kinds.map(\.rawValue).sorted().map(JSONValue.string)), "range": .string(range.rawValue),
-            "local_day_start_ms": Self.decimal(Calendar.current.startOfDay(for: Date())),
+            "kinds": .array(kinds.map(\.rawValue).sorted().map(JSONValue.string)),
+            "range": .string((since == nil ? HistoryRange.all : .today).rawValue),
         ]
+        if let since { params["local_day_start_ms"] = decimal(max(since, Date(timeIntervalSince1970: 0))) }
         if let profile { params["profile"] = .string(profile) }
-        _ = try await relay.send(operation: "history.clear", params: params, idempotencyKey: Self.key())
+        return params
     }
 
     public func recordVisit(profile: String, url: String, title: String?, tab: String?, at date: Date) async throws {
