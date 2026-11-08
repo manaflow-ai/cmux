@@ -10462,15 +10462,10 @@ enum BrowserDataImporter {
             )
         case .webkit:
             if browser.descriptor.id == "safari" {
-                return CookieImportResult(
-                    importedCount: 0,
-                    skippedCount: 0,
-                    warnings: [
-                        String(
-                            localized: "browser.import.warning.safariCookiesUnsupported",
-                            defaultValue: "Safari cookies are stored in Cookies.binarycookies and are not yet supported by this importer."
-                        )
-                    ]
+                return await importSafariCookies(
+                    sourceProfiles: sourceProfiles,
+                    destinationProfileID: destinationProfileID,
+                    domainFilters: domainFilters
                 )
             }
             return CookieImportResult(
@@ -10583,6 +10578,159 @@ enum BrowserDataImporter {
         let dedupedCookies = dedupeCookies(cookies)
         let importedCount = await setCookiesInStore(dedupedCookies, destinationProfileID: destinationProfileID)
         return CookieImportResult(importedCount: importedCount, skippedCount: max(0, dedupedCookies.count - importedCount), warnings: warnings)
+    }
+
+    /// Imports cookies from Safari's `Cookies.binarycookies` stores.
+    ///
+    /// The default profile's cookies live in Safari's sandbox container (older
+    /// systems used `~/Library/Cookies`); a named Safari profile keeps its own
+    /// store inside its profile directory. Reading those paths needs Full Disk
+    /// Access, so a permission failure becomes a warning that says what to grant.
+    private static func importSafariCookies(
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
+        domainFilters: [String]
+    ) async -> CookieImportResult {
+        let fileManager = FileManager.default
+        let parser = SafariBinaryCookiesParser()
+        var cookies: [HTTPCookie] = []
+        var warnings: [String] = []
+
+        for profile in sourceProfiles {
+            guard let storeURL = safariCookieStoreURL(for: profile, fileManager: fileManager) else {
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.safariCookiesNotFound",
+                            defaultValue: "No Safari cookie store was found for the %@ profile."
+                        ),
+                        profile.displayName
+                    )
+                )
+                continue
+            }
+
+            let data: Data
+            do {
+                data = try Data(contentsOf: storeURL)
+            } catch {
+                warnings.append(safariCookiesReadWarning(for: error, storeURL: storeURL))
+                continue
+            }
+
+            let records: [SafariBinaryCookie]
+            do {
+                records = try parser.parse(data)
+            } catch {
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.safariCookiesCorrupt",
+                            defaultValue: "The Safari cookie store at %@ is damaged or in a format cmux doesn't recognize."
+                        ),
+                        storeURL.path
+                    )
+                )
+                continue
+            }
+
+            for record in records {
+                guard !record.name.isEmpty else { continue }
+                guard domainMatches(host: record.domain, filters: domainFilters) else { continue }
+                if let cookie = safariHTTPCookie(from: record) {
+                    cookies.append(cookie)
+                }
+            }
+        }
+
+        let dedupedCookies = dedupeCookies(cookies)
+        let importedCount = await setCookiesInStore(dedupedCookies, destinationProfileID: destinationProfileID)
+        return CookieImportResult(
+            importedCount: importedCount,
+            skippedCount: max(0, dedupedCookies.count - importedCount),
+            warnings: warnings
+        )
+    }
+
+    /// The cookie store a Safari source profile reads from, or `nil` when no
+    /// candidate file exists. The default profile prefers the sandbox container
+    /// and falls back to the pre-sandbox location.
+    private static func safariCookieStoreURL(for profile: InstalledBrowserProfile, fileManager: FileManager) -> URL? {
+        let candidates: [URL]
+        if profile.isDefault {
+            let home = fileManager.homeDirectoryForCurrentUser
+            candidates = [
+                home.appendingPathComponent(
+                    "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies",
+                    isDirectory: false
+                ),
+                home.appendingPathComponent("Library/Cookies/Cookies.binarycookies", isDirectory: false),
+            ]
+        } else {
+            candidates = [profile.rootURL.appendingPathComponent("Cookies.binarycookies", isDirectory: false)]
+        }
+        return candidates.first { fileManager.fileExists(atPath: $0.path) }
+    }
+
+    /// A permission failure names the setting to change; any other read error
+    /// carries the system's description.
+    private static func safariCookiesReadWarning(for error: Error, storeURL: URL) -> String {
+        if isPermissionDenied(error) {
+            return String(
+                format: String(
+                    localized: "browser.import.warning.safariCookiesAccessDenied",
+                    defaultValue: "cmux can't read Safari's cookies at %@. Allow cmux under System Settings > Privacy & Security > Full Disk Access, then run the import again."
+                ),
+                storeURL.path
+            )
+        }
+        return String(
+            format: String(
+                localized: "browser.import.warning.safariCookiesReadFailed",
+                defaultValue: "Failed reading Safari cookies at %@: %@"
+            ),
+            storeURL.lastPathComponent,
+            error.localizedDescription
+        )
+    }
+
+    /// Whether a file read failed because macOS refused access (TCC or POSIX
+    /// permissions), as opposed to a missing or unreadable file.
+    private static func isPermissionDenied(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain, nsError.code == CocoaError.fileReadNoPermission.rawValue {
+            return true
+        }
+        let posixCodes = [Int(EPERM), Int(EACCES)]
+        if nsError.domain == NSPOSIXErrorDomain, posixCodes.contains(nsError.code) {
+            return true
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSPOSIXErrorDomain, posixCodes.contains(underlying.code) {
+            return true
+        }
+        return false
+    }
+
+    private static func safariHTTPCookie(from record: SafariBinaryCookie) -> HTTPCookie? {
+        var properties: [HTTPCookiePropertyKey: Any] = [
+            .domain: record.domain,
+            .path: record.path.isEmpty ? "/" : record.path,
+            .name: record.name,
+            .value: record.value,
+        ]
+        if record.isSecure {
+            properties[.secure] = "TRUE"
+        }
+        if record.isHTTPOnly {
+            // Foundation reads this key for `isHTTPOnly` but does not publish a
+            // constant for it; a system that ignores it still imports the cookie.
+            properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE"
+        }
+        if let expiresDate = record.expiresDate {
+            properties[.expires] = expiresDate
+        }
+        return HTTPCookie(properties: properties)
     }
 
     private static func importChromiumCookies(
