@@ -65,7 +65,10 @@ extension CloudStartSession {
                 // start-chat's rerun after `login_pending` joins this machine's login still running (one transfer, never two racing on `harnessLogin`); task-owner: the step, to its end.
                 let key = "\(started.agent)|\(account)|\(started.login)", step = machine.relayLogins[key] ?? Task { try await steps.login(machine, started) { try Self.checked(account, now: now(), asked) } }
                 machine.relayLogins[key] = step; let stepped = await step.result; if machine.relayLogins[key] == step { machine.relayLogins[key] = nil }; try stepped.get()
-                let link = machine.appLink, ownership = await link?.callerOwnership ?? .unknown, state = await link?.stateWord ?? "none", decision = machine.harnessLogin
+                // A link that dropped or redialed during the login step answers no owner: dial once more within `loginWithin`; still down is `login_pending` (start-chat asks again), never `login_unverified`.
+                let link = machine.appLink, down = { () async -> Bool in !["ready", "attached"].contains(await link?.stateWord ?? "none") }
+                if link != nil, await down() { guard ContinuousClock.now - linking < steps.loginWithin, await steps.link(machine), await !down() else { return ("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) } }
+                let ownership = await link?.callerOwnership ?? .unknown, state = await link?.stateWord ?? "none", decision = machine.harnessLogin
                 let refusal = relayLoginRefusal(decision, started, machine: machine.machine.title, ownership: ownership)
                 let cached = decision.map { $0.machineProbe == nil && $0.machineLogin == nil ? "unqueried" : $0.cached ? "yes" : "no" } ?? "unqueried" // verdicts only: no id, token, path or provider output
                 cloud.logger.info("cloud relay chat: harness login \(refusal?.code ?? "ready", privacy: .public): link \(state, privacy: .public), owner \(ownership.rawValue, privacy: .public), guest \(decision?.guestKind ?? "-", privacy: .public), cached \(cached, privacy: .public) (\(decision?.summary ?? "no step", privacy: .public))")
@@ -132,12 +135,10 @@ extension CloudStartSession {
         // task-owner: the deadline; cancelled below once an answer is in.
         let deadline = Task {
             // wakeup-allow: one-shot login deadline; cancelled when the step answers first
-            try? await Task.sleep(for: wait)
-            continuation.yield(nil)
+            try? await Task.sleep(for: wait); continuation.yield(nil)
         }
         defer { deadline.cancel(); continuation.finish() }
-        for await answer in answers { return try answer?.get() }
-        return nil
+        for await answer in answers { return try answer?.get() }; return nil
     }
 
     /// A relay chat refused before anything was sent.
@@ -148,8 +149,7 @@ extension CloudStartSession {
         var fields: [String: ActionResultValue] = ["machine_id": .string(machineID), "reply": .string(answer.reply), "queued": .bool(answer.queued), "ended": .bool(answer.ended), "delivered": .bool(answer.delivered)]
         let texts = ["session_id": answer.session, "prompt_id": answer.promptID, "stop_reason": answer.stopReason].merging(answer.errorTexts) { $1 } // and error_code, error_message, the machine's typed error
         for case let (key, text?) in texts { fields[key] = .string(text) }
-        if let retryable = answer.errorRetryable { fields["error_retryable"] = .bool(retryable) }
-        for case let (key, time?) in answer.stageTimes.merging(["link_login_ms": linkLogin]) { $1 } { fields[key] = .int(Int(time / .milliseconds(1))) }
+        if let retryable = answer.errorRetryable { fields["error_retryable"] = .bool(retryable) }; for case let (key, time?) in answer.stageTimes.merging(["link_login_ms": linkLogin]) { $1 } { fields[key] = .int(Int(time / .milliseconds(1))) }
         if let stages = answer.platformStages { fields["platform_stages_ms"] = .object(stages.mapValues { .int($0) }) }
         return fields
     }
