@@ -19,7 +19,7 @@ struct HomeStopAllToastTests {
          "note":"a1 is still starting; it stops as soon as it starts."}
         """#.utf8))
         // Not "all": one refused. The note is not on the row, where it read as a contradiction.
-        #expect(toast.message == [HomeStopAllStrings.stoppedSome(["a1", "a3"]), "1 could not be stopped"].joined(separator: " · "))
+        #expect(toast.message == [HomeStopAllStrings.stopped(["a1", "a3"], all: false), "1 could not be stopped"].joined(separator: " · "))
         #expect(!toast.message.contains("\n"))
         // The tooltip has the refusal, then the note.
         #expect(toast.detail == [refused, starting].joined(separator: "\n"))
@@ -70,6 +70,6 @@ struct HomeStopAllToastTests {
     @Test func theToastCarriesTheRefusalAsItsDetail() {
         let toast = CmuxToast.stopAll(ChiefStopAll(stopped: false, subagents: ["a1"], errors: [refused]))
         #expect(toast.detail == refused)
-        #expect(toast.message == [HomeStopAllStrings.stoppedSome(["a1"]), "1 could not be stopped"].joined(separator: " · "))
+        #expect(toast.message == [HomeStopAllStrings.stopped(["a1"], all: false), "1 could not be stopped"].joined(separator: " · "))
     }
 }

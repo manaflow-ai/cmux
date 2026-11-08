@@ -120,15 +120,13 @@ enum HomeStopAllStrings {
     static func couldNotStop(_ count: Int) -> String {
         String(localized: "home.stopAll.couldNotStop", defaultValue: "\(count) could not be stopped", bundle: .module)
     }
-    /// The toast after Stop all agents, one row (overlay-surfaces.md): the subagents it stopped
-    /// (never "all" while some refused), else whether the Chief's turn stopped, then how many
-    /// could not be stopped. Which ones and why, and the daemon's note about any still starting,
-    /// are the tooltip's (`detail`): a third line saying a stopped one "is still starting" read
-    /// as a contradiction (cmuxterm-hq#6246 item 18).
+    /// The toast after Stop all agents, one row (overlay-surfaces.md): what stopped (never "all"
+    /// while some refused), then how many could not. Which and why, and the note about any still
+    /// starting, are only the tooltip's: as a third line it read as a contradiction (hq#6246).
     static func message(for answer: ChiefStopAll) -> String {
         var parts: [String] = []
         if !answer.subagents.isEmpty {
-            parts.append(answer.errors.isEmpty ? stopped(answer.subagents) : stoppedSome(answer.subagents))
+            parts.append(stopped(answer.subagents, all: answer.errors.isEmpty))
         } else if answer.errors.isEmpty {
             parts.append(answer.stopped ? stoppedChiefOnly : stoppedNone)
         } else if answer.stopped {
@@ -145,13 +143,9 @@ enum HomeStopAllStrings {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
-    /// What stopped when some subagents refused: "Stopped a1 and a3", never "all".
-    static func stoppedSome(_ names: [String]) -> String {
-        String(format: String(localized: "home.stopAll.stoppedSome", defaultValue: "Stopped %@", bundle: .module),
-               ListFormatter.localizedString(byJoining: names))
-    }
-    static func stopped(_ names: [String]) -> String {
-        String(format: String(localized: "home.stopAll.stopped", defaultValue: "Stopped all agents: %@", bundle: .module),
-               ListFormatter.localizedString(byJoining: names))
+    static func stopped(_ names: [String], all: Bool = true) -> String {
+        let format = all ? String(localized: "home.stopAll.stopped", defaultValue: "Stopped all agents: %@", bundle: .module)
+            : String(localized: "home.stopAll.stoppedSome", defaultValue: "Stopped %@", bundle: .module)
+        return String(format: format, ListFormatter.localizedString(byJoining: names))
     }
 }
