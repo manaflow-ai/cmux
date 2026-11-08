@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42439736820",
+  "recorded_at": "2026-11-08T02:51:02Z",
+  "reason": "cmux-tui 9b6dd559c76e changes the image's cmux-tui (pinned 3c2378ec3d2d)",
+  "dry_run": false,
+  "cmux_tui": "9b6dd559c76e7badc0bddbe59712695c7be8ef68",
+  "fixes": [
+    {
+      "sha": "9b6dd559c76e7badc0bddbe59712695c7be8ef68",
+      "mergedAt": "2026-11-07T18:28:02-08:00",
+      "subject": "cmux NEXT: History and Stashed Tabs are React pages only; Swift pages deleted (#37302)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T02:51:02Z",
+    "snapshot_id": "sh-ea3698aeb1ff4c8281e4a310f2c3c068",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42439736820): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0176e6832c4c09bf1310f4392d6222123cd838b7",
+    "image": "cloud-native-auto-9b6dd559-42439736820-1",
+    "revision": "ci-42439736820-1",
+    "at": "2026-11-08T02:51:02Z"
+  },
+  "rolled_back": false
+}
