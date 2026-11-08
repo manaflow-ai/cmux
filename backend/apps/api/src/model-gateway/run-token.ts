@@ -1,7 +1,7 @@
 import { createLocalJWKSet, jwtVerify, SignJWT, type JWK } from "jose"
 import { issuer, publicJwks, signer } from "../auth.ts"
 import type { Env } from "../env.ts"
-import type { LedgerAnswer, LedgerOp } from "./run-ledger.ts"
+import type { LedgerAnswer } from "./run-ledger.ts"
 
 /**
  * A short-lived model gateway token for one Chief run (Lawrence 2026-10-15: agents a Chief starts on a
@@ -80,7 +80,7 @@ export const verifyRunToken = async (env: Env, token: string): Promise<RunGrant 
 export const gatewayBaseUrl = (env: Env): string => `${(env.CLOUD_API_ORIGIN ?? "").replace(/\/$/, "")}/v1/model-gateway`
 
 /** The brain object that holds a run's tokens. */
-const ledgerOf = (env: Env, chief: string, conversation: string) => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${chief}/${conversation}`)) as unknown as { runToken(run: string, jti: string, cap: number, o: LedgerOp): Promise<LedgerAnswer> }
+const ledgerOf = (env: Env, chief: string, conversation: string) => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${chief}/${conversation}`))
 
 /**
  * The hand's session-end hook (1f-H): an agent session on `hand` ended, so every agent token bound to

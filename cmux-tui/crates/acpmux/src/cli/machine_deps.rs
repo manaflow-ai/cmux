@@ -1,4 +1,5 @@
-//! `acpmux machine deps warm|key` (`crate::deps`).
+//! `acpmux machine deps warm|key|wait` (`crate::deps`), and the hidden
+//! `upload` that `warm` starts detached after a cold install.
 //!
 //! `warm --json` prints `{dir, projects: [Report]}`; each report says what
 //! the restore and upload did and how long each step took, never a credential.
@@ -12,6 +13,7 @@ use serde_json::json;
 use crate::cli::command_host::DepsCmd;
 use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
+use crate::deps::archive::Codec;
 use crate::deps::warm::{self, Options};
 
 fn folder(dir: Option<PathBuf>) -> Result<PathBuf> {
@@ -23,7 +25,7 @@ fn folder(dir: Option<PathBuf>) -> Result<PathBuf> {
 
 pub async fn run(cmd: DepsCmd, json_out: bool) -> Result<()> {
     match cmd {
-        DepsCmd::Warm { dir, no_upload, no_install, if_joined, if_missing } => {
+        DepsCmd::Warm { dir, no_upload, no_install, if_joined, if_missing, upload_now } => {
             let dir = folder(dir)?;
             if if_joined && !matches!(crate::deps::remote::Remote::joined(), Ok(Some(_))) {
                 if json_out {
@@ -31,9 +33,11 @@ pub async fn run(cmd: DepsCmd, json_out: bool) -> Result<()> {
                 }
                 return Ok(());
             }
-            let reports =
-                warm::warm(&dir, Options { install: !no_install, upload: !no_upload, if_missing })
-                    .await;
+            let reports = warm::warm(
+                &dir,
+                Options { install: !no_install, upload: !no_upload, if_missing, upload_now },
+            )
+            .await;
             if json_out {
                 print_json(&json!({"dir": dir, "projects": reports}));
             } else if reports.is_empty() {
@@ -69,6 +73,29 @@ pub async fn run(cmd: DepsCmd, json_out: bool) -> Result<()> {
                     "an install failed",
                 )
                 .into());
+            }
+            Ok(())
+        }
+        DepsCmd::Upload { key, root, include, codec, cold_ms } => {
+            let codec = match codec.as_str() {
+                "zstd" => Codec::Zstd,
+                "gzip" => Codec::Gzip,
+                _ => {
+                    return Err(
+                        AppError::new(Code::Usage, "deps.codec", "codec is zstd or gzip").into()
+                    );
+                }
+            };
+            let outcome = warm::upload(&key, &root, &include, codec, cold_ms).await?;
+            if json_out {
+                print_json(&json!({"key": key, "upload": outcome}));
+            }
+            Ok(())
+        }
+        DepsCmd::Wait => {
+            let waited = warm::wait_uploads()?;
+            if json_out {
+                print_json(&json!({"waited": waited}));
             }
             Ok(())
         }

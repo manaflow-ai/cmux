@@ -76,7 +76,7 @@ jobs:
             if [ "$base_tree" = "$head_tree" ]; then
               echo "migrations=false" >> "$GITHUB_OUTPUT"; echo "no migration changes (backend/db/migrations matches the base)"; exit 0
             fi
-            gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"' > changes.tsv
+            gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"' > changes.tsv
           else
             gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '.files[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"' > changes.tsv
           fi
@@ -132,6 +132,16 @@ jobs:
         if: steps.files.outputs.migrations == 'true'
         with:
           bun-version: "1.4.4"
+      # Restore only: this workflow runs with the base's secrets, so it never saves a cache.
+      # backend.yml's test job saves this key from the same base lockfiles.
+      - name: Restore the Bun package cache (backend.yml's test job saves it)
+        if: steps.files.outputs.migrations == 'true'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('trusted/backend/bun.lock', 'trusted/scripts/cmux-next/release/bun.lock') }}
+          restore-keys: |
+            bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - name: Lint head SQL with the base's parser rules
         if: steps.files.outputs.migrations == 'true'
         run: |
@@ -178,6 +188,13 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+      - name: Restore the Bun package cache (backend.yml's test job saves it)
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('trusted/backend/bun.lock', 'trusted/scripts/cmux-next/release/bun.lock') }}
+          restore-keys: |
+            bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - name: Apply to cmux-next/staging
         env:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
@@ -206,6 +223,13 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+      - name: Restore the Bun package cache (backend.yml's test job saves it)
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('trusted/backend/bun.lock', 'trusted/scripts/cmux-next/release/bun.lock') }}
+          restore-keys: |
+            bun-backend-${{ runner.os }}-${{ runner.arch }}-
       # Expand migrations are additive (parsed-SQL lint), so the code deployed from main keeps
       # working; contract migrations only come from PRs into main that contain nothing else.
       - name: Apply to cmux-next/main (production)
@@ -254,6 +278,14 @@ jobs:
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:
           bun-version: "1.4.4"
+      - name: Restore the Bun package cache (backend.yml's test job saves it)
+        if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('trusted/backend/bun.lock', 'trusted/scripts/cmux-next/release/bun.lock') }}
+          restore-keys: |
+            bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - name: The tree's migrations are exactly what staging and production have
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         env:

@@ -12,6 +12,7 @@ import { footerLabel, isEmptyFooter, turnView } from "./turns";
 import {
   MARK_FOOTER_ROW,
   MARK_STEP,
+  MARK_WORKED,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_FOOTER_GAP,
   rowMark,
@@ -115,8 +116,7 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
     },
     { id: "s", version: 1, at: 3, kind: "turnSummary", status: "completed", durationMs: 5_000, toolCount: 1 },
   ] as AcpmuxRow[];
-  // Its Worked for open, so the run is the row above the footer.
-  const drawn = turnView(rows, new Set(["worked-p"]), { agentFamily: "claude", now: 10_000 });
+  const drawn = turnView(rows, new Set(), { agentFamily: "claude", now: 10_000 });
   const at = drawn.findIndex((row) => row.kind === "turnSummary");
   const last = drawn[at]!;
   expect(last.text).toBeUndefined();
@@ -127,7 +127,11 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
   const layout = layoutConversation(drawn, 720);
   expect(layout.heights[at]).toBe(TRANSCRIPT_FOOTER_CONTROL);
   const above = at - 1;
-  expect(layout.tops[at]! - (layout.tops[above]! + layout.heights[above]!)).toBe(TRANSCRIPT_FOOTER_GAP);
+  // The run folds under "Worked for": its own 12 under its rule stands in for the 8, as over a reply
+  // (transcriptGrid.ts MARK_WORKED), so the stack adds no gap; under an open run's last line, the 8.
+  expect(drawn[above]!.kind).toBe("worked");
+  expect(layout.tops[at]! - (layout.tops[above]! + layout.heights[above]!)).toBe(0);
+  expect(transcriptGap(MARK_WORKED, MARK_FOOTER_ROW)).toBe(0);
   expect(transcriptGap(MARK_STEP, MARK_FOOTER_ROW)).toBe(TRANSCRIPT_FOOTER_GAP);
   // Once a prompt follows, that turn is no longer the last: its footer is hover-only again.
   const later = turnView(
@@ -139,6 +143,89 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
     },
   );
   expect(isEmptyFooter(later.find((row) => row.kind === "turnSummary")!)).toBe(true);
+});
+
+test("the retry hint only marks a completed edit with a known non-empty patch", () => {
+  const prompt = { id: "p", version: 1, at: 0, kind: "user", text: "Update the file" } as AcpmuxRow;
+  const summary = { id: "s", version: 1, at: 3, kind: "turnSummary", status: "completed" } as AcpmuxRow;
+  const edit = (
+    status: string,
+    oldText?: string,
+    newText = "after",
+    fragment?: true,
+    canonical?: string,
+    path = "/repo/file.ts",
+  ): AcpmuxRow => ({
+    id: `edit-${status}-${oldText ?? "unknown"}`,
+    version: 1,
+    at: 2,
+    kind: "activity",
+    items: [
+      {
+        kind: "tool",
+        text: "",
+        tool: {
+          id: "tool",
+          title: "Edit file.ts",
+          kind: "edit",
+          status,
+          diffs: [
+            {
+              path,
+              ...(oldText === undefined ? {} : { oldText }),
+              newText,
+              ...(fragment && { fragment }),
+              ...(canonical && { canonical }),
+            },
+          ],
+        },
+      },
+    ],
+  });
+  const changed = turnView([prompt, edit("completed", "before"), summary], new Set(), { now: 10_000 }).find(
+    (row) => row.kind === "turnSummary",
+  );
+  expect(changed?.changedFiles).toBe(true);
+
+  for (const row of [
+    turnView([prompt, edit("completed", "same", "same"), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+    turnView([prompt, edit("failed", "before"), summary], new Set()).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("pending", "before"), summary], new Set()).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("completed", undefined, "new file"), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", "after", "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", undefined, "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", undefined, "after"), edit("completed", "after", "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", "after", "before", true), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [
+        prompt,
+        edit("completed", "before", "after", undefined, undefined, "file.ts"),
+        edit("completed", "after", "before", undefined, "/repo/file.ts", "file.ts"),
+        summary,
+      ],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("completed", undefined, "partial", true), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+  ])
+    expect(row?.changedFiles).toBeUndefined();
 });
 
 test("a work-only last turn that said nothing has nothing to copy and stays empty", () => {

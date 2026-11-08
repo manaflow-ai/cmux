@@ -1,12 +1,14 @@
 import Foundation
 
-/// Who the pet's reply box talks to: the Chief, or the tab of a notice over the pet.
+/// Who the pet's reply box talks to: the Chief, the chat the mini shows (Show in Mini,
+/// ``ChiefPetSubject``) by its title, or the tab of a notice over the pet.
 public enum ChiefPetReplyTarget: Equatable {
     case chief
+    case chat(ChiefPetSubject.Chat, title: String)
     case notice(ChiefPetNotice)
 }
 
-/// What the App does for the pet: open a target (the Chief's Home, a notice's tab or agent chat),
+/// What the App does for the pet: open a target (the Chief's Home, the mini's chat, a notice's tab or agent chat),
 /// send typed text to one (false when it could not), and the right-click menu's two items:
 /// open the pet's settings, and hide the pet (`home.chiefPetEnabled` off), offered only while
 /// `canHide` (not while the setting is managed).
@@ -39,9 +41,10 @@ struct ChiefPetReply: Equatable {
         case nothing
     }
 
-    /// The notices over the pet, newest first, then the Chief: the box starts on the newest.
-    static func targets(_ feed: ChiefPetFeed) -> [ChiefPetReplyTarget] {
-        feed.notices.map(ChiefPetReplyTarget.notice) + [.chief]
+    /// The notices over the pet, newest first, then the chat the mini shows (`home`, the Chief by
+    /// default): the box starts on the newest.
+    static func targets(_ feed: ChiefPetFeed, home: ChiefPetReplyTarget = .chief) -> [ChiefPetReplyTarget] {
+        feed.notices.map(ChiefPetReplyTarget.notice) + [home]
     }
 
     /// Return sends the text to the Chief or into a terminal; for a notice that takes no typed
@@ -53,10 +56,12 @@ struct ChiefPetReply: Equatable {
         return trimmed.isEmpty ? .nothing : .send(target, trimmed)
     }
 
-    /// The same target across a refresh: the Chief, or a notice of the same tab (its id may be newer).
+    /// The same target across a refresh: the Chief, the same chat (its title may change), or a
+    /// notice of the same tab (its id may be newer).
     static func sameTarget(_ a: ChiefPetReplyTarget, _ b: ChiefPetReplyTarget) -> Bool {
         switch (a, b) {
         case (.chief, .chief): true
+        case (.chat(let x, _), .chat(let y, _)): x == y
         case (.notice(let x), .notice(let y)): x.tab == y.tab
         default: false
         }
@@ -66,6 +71,7 @@ struct ChiefPetReply: Equatable {
     static func placeholder(_ target: ChiefPetReplyTarget) -> String {
         switch target {
         case .chief: ChiefPetStrings.messageChief
+        case .chat(_, let title): ChiefPetStrings.message(title)
         case .notice(let notice) where notice.reply == .type: ChiefPetStrings.reply(to: notice.title)
         case .notice(let notice): ChiefPetStrings.returnOpens(notice.title)
         }
@@ -75,6 +81,7 @@ struct ChiefPetReply: Equatable {
     static func title(_ target: ChiefPetReplyTarget) -> String {
         switch target {
         case .chief: ChiefPetStrings.accessibilityLabel
+        case .chat(_, let title): title
         case .notice(let notice): notice.title
         }
     }

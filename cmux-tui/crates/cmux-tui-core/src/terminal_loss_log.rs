@@ -218,6 +218,9 @@ pub(crate) enum Prefilled {
     /// The resume command a person set for the terminal (`resume-command`),
     /// typed without Return.
     Resume,
+    /// The last command a freed shell finished (`park-tabs`), typed without
+    /// Return: the person runs it again with one key.
+    LastCommand,
     None,
 }
 
@@ -226,6 +229,7 @@ impl Prefilled {
         match self {
             Self::Harness => "harness",
             Self::Resume => "resume",
+            Self::LastCommand => "last_command",
             Self::None => "none",
         }
     }

@@ -63,6 +63,19 @@ pub(super) fn identify(
         "lifecycle_ready": mux.server_lifecycle_ready(),
         "launch_snapshot_path": mux.launch_snapshot_path(),
     });
+    // NEXT Cloud daemons are long-lived across app launches.  Include the
+    // backend origin they were started with so a later client can detect a
+    // staging/prod switch before it attaches to the old daemon.  Classic
+    // daemons intentionally omit this field and keep their existing behavior.
+    if revisions
+        && std::env::var("CMUX_NEXT_CLOUD_RUNTIME").as_deref() == Ok("1")
+        && let Some(backend) = std::env::var_os("CMUX_NEXT_CLOUD_BACKEND")
+            .or_else(|| std::env::var_os("CMUX_NEXT_CLOUD_ENV"))
+            .and_then(|value| value.into_string().ok())
+            .filter(|value| !value.trim().is_empty())
+    {
+        identity.insert("cloud_backend", json!(backend));
+    }
     // Opt-in like machine metadata: strict pre-revision SDKs decode the
     // default reply with deny_unknown_fields (machine_identity_reader_tests.rs).
     if revisions {

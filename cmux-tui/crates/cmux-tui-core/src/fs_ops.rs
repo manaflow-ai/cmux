@@ -49,6 +49,12 @@ pub const FS_SYMLINK_CAPABILITY: &str = "fs-symlink-v1";
 /// that stays inside its root.
 pub const FS_SYMLINK_COMMANDS: [&str; 2] = ["fs.readlink", "fs.symlink"];
 
+/// The capability that lets `fs.write` (line and stream) carry
+/// `"no_follow": true`: a symlink as any component of the path, the last
+/// included, is refused with `fs.symlink_in_path` instead of followed. A
+/// copy that lists a folder first can then skip a per-file `fs.stat`.
+pub const FS_WRITE_NOFOLLOW_CAPABILITY: &str = "fs-write-nofollow-v1";
+
 static SERVICE: OnceLock<FsService> = OnceLock::new();
 
 /// Installs the daemon's file owner (once per process; a second call is
@@ -64,12 +70,17 @@ pub fn installed() -> Option<&'static FsService> {
 }
 
 /// The capabilities to advertise in `identify`, when served: `fs-v1`,
-/// `fs-symlink-v1` and `fs-write-deflate-v1` (compressed `fs.write` bytes,
-/// [`encoding`]).
+/// `fs-symlink-v1`, `fs-write-deflate-v1` (compressed `fs.write` bytes,
+/// [`encoding`]) and [`FS_WRITE_NOFOLLOW_CAPABILITY`].
 #[must_use]
 pub fn advertised() -> Vec<&'static str> {
     if installed().is_some() {
-        vec![FS_CAPABILITY, FS_SYMLINK_CAPABILITY, FS_WRITE_DEFLATE_CAPABILITY]
+        vec![
+            FS_CAPABILITY,
+            FS_SYMLINK_CAPABILITY,
+            FS_WRITE_DEFLATE_CAPABILITY,
+            FS_WRITE_NOFOLLOW_CAPABILITY,
+        ]
     } else {
         Vec::new()
     }

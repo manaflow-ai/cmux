@@ -17,7 +17,13 @@ skipped, infrastructure, and non-monotonic evidence stays unresolved. This
 reuses existing runs, while web red files also have an executing probe path
 in web_coalesce.py. NEXT_PUSH_BISECT=0 disables the history search.
 
-The run's code never executes here; it reads the Actions and pulls APIs.
+The run's code never executes here; it reads the Actions API and plain git.
+Ranges and culprits come from the checkout's first-parent history (the workflow
+fetches commits only): a squash merge's subject ends in "(#N)". Only a commit
+git cannot name, or a range git cannot prove, asks the compare and pulls APIs.
+GH_READ_TOKEN, when set, is used for the reads (the workflow mints a cmux-bot
+token on trusted pushes, off the repository token's hourly budget); a refused
+read retries on GH_TOKEN. Comments are always written with GH_TOKEN.
 
 Usage: cmux_next_push_attribution.py --repo OWNER/NAME --run-id ID --sha SHA
        [--workflow cmux-next.yml] [--branch feat-cmux-next] [--dry-run]
@@ -103,8 +109,49 @@ def should_comment(numbers: list[int]) -> bool:
 
 
 def gh_api(path: str) -> object:
+    read = os.environ.get("GH_READ_TOKEN", "")
+    if read:
+        try:
+            output = subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True,
+                                    env={**os.environ, "GH_TOKEN": read}).stdout
+            return json.loads(output)
+        except subprocess.CalledProcessError:
+            pass  # the read token may lack a permission: the workflow token answers
     output = subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True).stdout
     return json.loads(output)
+
+
+# A squash merge's subject ends in "(#N)"; a merge commit's starts "Merge pull request #N from".
+PR_SUBJECT = re.compile(r"\(#([1-9][0-9]*)\)\s*$|^Merge pull request #([1-9][0-9]*) from ")
+MAX_GIT_RANGE = 400
+
+
+def subject_pr(subject: str) -> int | None:
+    match = PR_SUBJECT.search(subject or "")
+    return int(match.group(1) or match.group(2)) if match else None
+
+
+def first_parent_chain(base: str, head: str) -> list[tuple[str, str]] | None:
+    """(sha, subject) of BASE..HEAD along HEAD's first parents, oldest first, from local git.
+
+    None when git cannot prove the range: a missing commit, BASE off HEAD's first-parent
+    chain, or history the shallow fetch does not reach. Callers then ask the API.
+    """
+    if not SHA.fullmatch(base or "") or not SHA.fullmatch(head or "") or base == head:
+        return None
+    try:
+        lines = subprocess.run(["git", "log", "--first-parent", f"--max-count={MAX_GIT_RANGE + 1}",
+                                "--format=%H %s", head, "--"], check=True, capture_output=True,
+                               text=True, timeout=60).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    chain: list[tuple[str, str]] = []
+    for line in lines:
+        sha, _, subject = line.partition(" ")
+        if sha == base:
+            return list(reversed(chain))
+        chain.append((sha, subject))
+    return None
 
 
 def run_jobs(repo: str, run_id: int) -> JobVerdicts:
@@ -206,13 +253,57 @@ def never_passed(failed: list[str], earlier: list[tuple[str, dict[str, str]]]) -
     return [name for name in failed if not any(jobs.get(name) == "success" for _, jobs in earlier)]
 
 
+def merged_pulls(repo: str, sha: str, branch: str) -> list[int]:
+    return [pull["number"] for pull in gh_api(f"repos/{repo}/commits/{sha}/pulls")
+            if pull.get("base", {}).get("ref") == branch and pull.get("merged_at")]
+
+
+def merged_pulls_batch(repo: str, shas: list[str], branch: str) -> dict[str, list[int]]:
+    """merged_pulls for many commits in one GraphQL query (a rebase merge's commits, autofix
+    pushes); a failed query falls back to one REST read per commit."""
+    if len(shas) > 100:
+        return {**merged_pulls_batch(repo, shas[:100], branch), **merged_pulls_batch(repo, shas[100:], branch)}
+    if not shas:
+        return {}
+    owner, _, name = repo.partition("/")
+    fields = " ".join(f'c{i}: object(oid: "{sha}") {{ ... on Commit {{ associatedPullRequests(first: 10) '
+                      f'{{ nodes {{ number mergedAt baseRefName }} }} }} }}' for i, sha in enumerate(shas))
+    query = f'query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ {fields} }} }}'
+    try:
+        data = gh_api_graphql(query, owner=owner, name=name)["data"]["repository"]
+        return {sha: [pull["number"] for pull in ((data.get(f"c{i}") or {}).get("associatedPullRequests") or {})
+                      .get("nodes", []) if pull.get("baseRefName") == branch and pull.get("mergedAt")]
+                for i, sha in enumerate(shas)}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
+        return {sha: merged_pulls(repo, sha, branch) for sha in shas}
+
+
+def gh_api_graphql(query: str, **variables: str) -> dict:
+    args = ["graphql", "-f", f"query={query}", *[f"-f{k}={v}" for k, v in variables.items()]]
+    read = os.environ.get("GH_READ_TOKEN", "")
+    env = {**os.environ, "GH_TOKEN": read} if read else None
+    output = subprocess.run(["gh", "api", *args], check=True, capture_output=True, text=True, env=env).stdout
+    return json.loads(output)
+
+
 def pull_requests(repo: str, base: str, head: str, branch: str) -> list[int]:
-    compare = gh_api(f"repos/{repo}/compare/{base}...{head}")
     numbers: list[int] = []
+    chain = first_parent_chain(base, head)
+    if chain is not None:
+        # Each landing is one first-parent commit and a squash names its pull request; the
+        # rest (a rebase merge's commits, a direct push) share one GraphQL lookup.
+        unnamed = merged_pulls_batch(repo, [sha for sha, subject in chain if not subject_pr(subject)], branch)
+        for sha, subject in chain:
+            number = subject_pr(subject)
+            for found in [number] if number else unnamed.get(sha, []):
+                if found not in numbers:
+                    numbers.append(found)
+        return numbers
+    compare = gh_api(f"repos/{repo}/compare/{base}...{head}")
     for commit in compare.get("commits", []):
-        for pull in gh_api(f"repos/{repo}/commits/{commit['sha']}/pulls"):
-            if pull.get("base", {}).get("ref") == branch and pull.get("merged_at") and pull["number"] not in numbers:
-                numbers.append(pull["number"])
+        for number in merged_pulls(repo, commit["sha"], branch):
+            if number not in numbers:
+                numbers.append(number)
     return numbers
 
 
@@ -226,6 +317,9 @@ def compare_commits(repo: str, base: str, head: str) -> list[str]:
     """
     if not SHA.fullmatch(base or "") or not SHA.fullmatch(head or "") or base == head:
         return []
+    chain = first_parent_chain(base, head)
+    if chain is not None:
+        return [sha for sha, _ in chain] if len(chain) <= MAX_BISECT_COMMITS else []
     compare = gh_api(f"repos/{repo}/compare/{base}...{head}")
     if not isinstance(compare, dict) or compare.get("status") != "ahead":
         return []
@@ -252,6 +346,17 @@ def compare_commits(repo: str, base: str, head: str) -> list[str]:
 
 def pull_requests_for_commit(repo: str, sha: str, branch: str) -> list[int]:
     """Merged PRs whose merge commit or head commit is SHA, on BRANCH."""
+    # The squash subject names it, from local git; only a commit it does not name asks the API.
+    subject = ""
+    if SHA.fullmatch(sha or ""):
+        try:
+            subject = subprocess.run(["git", "log", "-1", "--format=%s", sha, "--"], check=True,
+                                     capture_output=True, text=True, timeout=20).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            subject = ""
+    number = subject_pr(subject)
+    if number:
+        return [number]
     found: list[int] = []
     for pull in gh_api(f"repos/{repo}/commits/{sha}/pulls"):
         if (pull.get("base", {}).get("ref") == branch and pull.get("merged_at")

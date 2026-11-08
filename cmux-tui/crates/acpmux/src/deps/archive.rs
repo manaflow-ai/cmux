@@ -37,9 +37,11 @@ const DENIED: &[&str] = &[
     "hosts.yml",
 ];
 
-/// Folders under a `node_modules` that are tool scratch, not installed
-/// dependencies. Elsewhere `.cache` is kept: Cargo's sparse index lives in one.
-const SKIPPED_DIRS: &[&str] = &[".cache"];
+/// Folders under a `node_modules` that are build tools' scratch (rebuilt on
+/// their next run), not installed dependencies. Elsewhere `.cache` is kept:
+/// Cargo's sparse index lives in one.
+const SKIPPED_DIRS: &[&str] =
+    &[".cache", ".vite", ".vite-temp", ".turbo", ".parcel-cache", ".next", ".nx"];
 
 /// A file of npm's cache index (`_cacache/index-v5/...`).
 fn npm_index(rel: &Path) -> bool {
@@ -214,7 +216,9 @@ impl Sink {
         Ok(match codec {
             Codec::Zstd => Sink::Zstd(
                 Command::new("zstd")
-                    .args(["-q", "-3", "-T0", "-c"])
+                    // Packing runs in the background, after the install: a higher level and
+                    // a long window for a smaller download on every later machine.
+                    .args(["-q", "-12", "--long=27", "-T0", "-c"])
                     .stdin(Stdio::piped())
                     .stdout(file)
                     .stderr(Stdio::null())
@@ -413,7 +417,8 @@ pub fn unpack(
     let mut source = match codec {
         Codec::Zstd => Source::Zstd(
             Command::new("zstd")
-                .args(["-q", "-d", "-c"])
+                // The window an archive packed with --long=27 needs; older (-3) ones decode the same.
+                .args(["-q", "-d", "--long=27", "-c"])
                 .stdin(file)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())

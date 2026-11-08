@@ -5,6 +5,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import CmuxNextSidebar
 import Testing
 

@@ -8,6 +8,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
+import { backgroundHintRoom } from "./backgroundHintRoom.experiment";
 
 const suite = tool("cargo test --workspace", "execute", "in_progress", {
   command: "cargo test --workspace",
@@ -26,42 +27,73 @@ const described = tool("Check for Ultra runners on GitHub and ultra1", "execute"
 /// The same command once Ctrl-B moved it: it still runs, in the background.
 const moved = { ...suite, tool: { ...suite.tool!, background: { state: "running" as const } } };
 
-const running = (harness: string, backgroundsWork = harness === "claude", call = suite, turnTokens?: number) =>
+/// A long command, as in Leo's screenshot (2026-11-06): its words reach the line's end, before the
+/// step's own time, the turn's time and its tokens.
+const long = tool("python3 -c 'import json,sys,re d=json.load(sys.stdin)'", "execute", "in_progress", {
+  command:
+    'gh pr view 37031 --json comments | python3 -c \'import json,sys,re d=json.load(sys.stdin); print([c for c in d["comments"] if re.search("SHIP", c["body"])])\'',
+  inputSummary: JSON.stringify({ command: "python3 -c 'import json,sys,re'" }),
+  startedAt: minutesAgo(0.15),
+});
+
+const running = (harness: string, backgroundsWork = harness === "claude", call = suite, tokens?: number) =>
   chat([user("Run the full test suite", 2), assistant("Running the suite.", 1.5), activity([call], 1)], {
     harness,
     backgroundsWork,
     isWorking: true,
-    ...(turnTokens === undefined ? {} : { turnTokens }),
+    ...(tokens ? { turnTokens: tokens } : {}),
   });
 
-/// On a narrow pane the hovered line's words give way behind their ellipsis, and its time, tokens and
-/// hint each keep their own room: before #35021 the squeezed counts drew over each other and the hint.
-const lineFitsNarrow = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-worked .cv-command__bg"));
-  await ctx.resize(340);
-  await ctx.hover({ selector: ".cv-worked" });
-  const line = ctx.find({ selector: ".cv-worked" }) as HTMLElement;
-  const hint = line.querySelector<HTMLElement>(".cv-command__bg")!;
-  await ctx.waitFor(() => getComputedStyle(hint).position === "static");
+const LINE = ".cv-worked.is-below";
+/// The line's times and tokens, where each draws.
+const counts = (ctx: PlayContext) =>
+  [
+    ...ctx.document.querySelectorAll<HTMLElement>(
+      `${LINE} .cv-worked__time, ${LINE} .cv-worked__own, ${LINE} .cv-worked__count`,
+    ),
+  ].map((node) => node.getBoundingClientRect());
+
+/// Leo, 2026-11-06, hovering the line's right edge: "this flickers". Pointing at the line fades the
+/// hint in and moves nothing: every time and count keeps its box, and no two overlap.
+const hoverHoldsCounts = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(`${LINE} .cv-command__bg`));
+  const before = counts(ctx);
+  await ctx.hover({ selector: LINE });
+  await ctx.waitFor(
+    () => getComputedStyle(ctx.document.querySelector<HTMLElement>(`${LINE} .cv-command__bg`)!).opacity === "1",
+  );
+  const after = counts(ctx);
+  if (after.length !== before.length || after.some((box, index) => Math.abs(box.left - before[index]!.left) > 0.5))
+    throw new Error("pointing at the live line moved its times or tokens");
+  for (let index = 1; index < after.length; index++)
+    if (after[index]!.left < after[index - 1]!.right - 0.5)
+      throw new Error("the live line's times or tokens overlap under the pointer");
+};
+
+/// https://github.com/manaflow-ai/cmux/issues/35021: on a pane too narrow for the label, the
+/// turn's time, its tokens and the hint, the label's group (which holds the time) gives way first
+/// and clips what it holds: its time never draws over the tokens after it, and no two parts overlap.
+const narrowLineHolds = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(`${LINE} .cv-command__bg`));
+  await ctx.resize(280);
+  const line = ctx.find({ selector: LINE });
+  // Where each part paints: a part that clips (overflow other than visible) paints only inside its box.
+  const painted = (node: Element, clip: DOMRect | undefined) => {
+    const box = node.getBoundingClientRect();
+    return clip ? Math.min(box.right, clip.right) : box.right;
+  };
   const parts = [...line.children].filter((part) => part.getBoundingClientRect().width > 0);
-  for (let i = 1; i < parts.length; i++) {
-    const before = parts[i - 1]!.getBoundingClientRect();
-    const after = parts[i]!.getBoundingClientRect();
-    if (before.right > after.left + 0.5)
-      throw new Error(
-        `${parts[i - 1]!.className} ends at ${before.right}, over ${parts[i]!.className} at ${after.left}`,
-      );
+  for (let index = 1; index < parts.length; index++) {
+    const before = parts[index - 1]!;
+    const clip = getComputedStyle(before).overflow === "visible" ? undefined : before.getBoundingClientRect();
+    const ends = Math.max(
+      painted(before, clip),
+      ...[...before.querySelectorAll(".cv-worked__time, .cv-worked__own")].map((time) => painted(time, clip)),
+    );
+    const next = parts[index]!.getBoundingClientRect().left;
+    if (ends > next + 0.5)
+      throw new Error(`${before.className} paints to ${ends}, over ${parts[index]!.className} at ${next}`);
   }
-  const words = line.querySelector<HTMLElement>(".cv-shimmer__row");
-  const time = line.querySelector<HTMLElement>(".cv-worked__time");
-  const next = time && words?.nextElementSibling;
-  if (time && next && time.getBoundingClientRect().right > next.getBoundingClientRect().left + 0.5)
-    throw new Error(`the turn's time "${time.textContent}" runs over ${next.className}`);
-  for (const count of line.querySelectorAll<HTMLElement>(".cv-worked__count"))
-    if (count.scrollWidth > count.clientWidth + 0.5)
-      throw new Error(`"${count.textContent}" is cut while the line's words still have room`);
-  if (line.getBoundingClientRect().right + 0.5 < hint.getBoundingClientRect().right)
-    throw new Error("the hint runs past the line's end");
 };
 
 export default agentPaneEntry({
@@ -70,7 +102,23 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 360,
   covers: ["agent-session/acpmux/conversation/BackgroundHint.tsx"],
+  // Where the hint keeps its room (variant long-hovered): the line's end (shipped), right after the
+  // tokens, or shown there at rest.
+  experiment: {
+    definition: backgroundHintRoom,
+    script: [{ name: "Hover the live line", run: hoverHoldsCounts }],
+  },
   variants: {
+    "long-hovered": {
+      note: 'Leo, 2026-11-06, on "8s · 2m5 1.4K toke" drawn over itself while he hovered the line\'s right edge: "this flickers". A long command with its time, the turn\'s and its tokens; hovered, the hint fades in its kept room and every count holds still.',
+      snapshot: running("claude", true, long, 1_400),
+      play: hoverHoldsCounts,
+    },
+    narrow: {
+      note: "https://github.com/manaflow-ai/cmux/issues/35021: a described Bash running for 16 minutes, with the turn's tokens, on a pane too narrow for all of it. The words give way first behind their ellipsis, and the turn's time never draws over the tokens or the hint.",
+      snapshot: running("claude", true, described, 3_900),
+      play: narrowLineHolds,
+    },
     claude: {
       note: "A Claude Code chat's running command: the row ends with the Ctrl-B hint.",
       snapshot: running("claude"),
@@ -86,17 +134,6 @@ export default agentPaneEntry({
     described: {
       note: 'Leo, 2026-11-03: "this run in background sometimes i can\'t actually do anything to put it in the background". A described Bash running 16 minutes: hover the line and the hint is a button that moves it, wherever the keyboard is.',
       snapshot: running("claude", true, described),
-    },
-    narrow: {
-      note: "#35021: a described Bash running for minutes, with the turn's tokens, hovered on a narrow pane. The words end in an ellipsis; the time, the tokens and the hint each keep their room, never drawn over each other.",
-      snapshot: running("claude", true, described, 3_900),
-      checks: {
-        layoutShiftMax: {
-          value: 0.02,
-          reason: "On hover the hint takes its room at the line's end (Leo, 2026-10-24) and the words give way to it.",
-        },
-      },
-      play: lineFitsNarrow,
     },
     backgrounded: {
       note: "The command already moved to the background: no hint, and Ctrl-B stays the composer's.",

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd. */
+/* cmux-tui mux protocol 12, IR b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -665,6 +665,18 @@ export type Layout = ({ "type": "leaf" } & {
   "type": "stack";
 });
 
+export type LayoutSizePaneWidth = {
+  "pane": Id;
+  "width": number;
+};
+
+export type LayoutSizeSplitRatio = {
+  "ratio": number;
+  "split": Id;
+};
+
+export type LayoutSizeValue = (LayoutSizeSplitRatio) | (LayoutSizePaneWidth);
+
 export type LayoutUndoConfirmationRequired = {
   "closes_panes": Array<Id>;
   "confirmation_required": true;
@@ -844,6 +856,12 @@ export type ReadScrollbackResult = {
 export type ReattachViewResult = {
   "participant": string;
   "state": SizeState;
+};
+
+export type RemoteHostAppResult = {
+  "host_pid": number;
+  "secret": string;
+  "socket": string;
 };
 
 export type RenderCursor = {
@@ -1506,6 +1524,18 @@ export type TerminalKeyInput = {
   "shifted_codepoint"?: (string) | null;
   "unshifted_codepoint"?: (string) | null;
   "utf8": string;
+};
+
+export type TerminalLastCommand = {
+  "command": string;
+  "ended_at_ms": string;
+  "exit_code": (number) | null;
+  "started_at_ms": string;
+};
+
+export type TerminalLastCommandResult = {
+  "last_command": (TerminalLastCommand) | null;
+  "terminal_id": string;
 };
 
 export type TerminalLifecycle = "launching" | "adopting" | "running" | "exited" | "tombstoned";

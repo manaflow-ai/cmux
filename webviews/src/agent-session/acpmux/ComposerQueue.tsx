@@ -26,7 +26,7 @@
 //
 // A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left
-// (Leo, 2026-10-21).
+// (Leo, 2026-10-21). A video is one tile, and one row of tiles at most, the rest a "+N".
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
@@ -45,27 +45,22 @@ import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
+import type { QueuedVideo } from "./queuedImagesModel";
+import { framesNoteVideo } from "./composer/videoPrompt";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
-import { rovingTabStopProps } from "../../ui/listRowKeyboard";
+
 import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
 import { AuthorChip } from "./multiplayer/Faces";
-import {
-  pickedSkillsOf,
-  withSkillDollars,
-  withoutSkillDollars,
-  type SkillCatalog,
-  type SlashCommand,
-} from "./slashCommands";
+import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashCommand } from "./slashCommands";
 import { useSkillWords } from "./conversation/skillWords";
-import { withSkillWords } from "./conversation/SkillWord";
-
-type QueuedEntry = AcpmuxSnapshot["queue"][number];
-
+import { withSkillWords } from "./conversation/withSkillWords";
+import { type QueuedEntry, shownText } from "./composerQueueModel";
+import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 /** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
 const FOLD_AT = 3;
 const FOLD_SHOWS = 2;
@@ -139,14 +134,24 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
-/// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
-/// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
-export function shownText(entry: QueuedEntry, t: Translate, skills?: SkillCatalog): string {
-  const retry = entry.retry;
-  if (!retry) return withoutSkillDollars(entry.prompt, skills);
-  return [`${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim(), retry.error]
-    .filter(Boolean)
-    .join("\n");
+/// A prompt's videos in order, as its parts carry them, for their tiles (QueuedImages.tsx): a file
+/// part's `video`, or after a reload, when the parts keep no `video`, the frames note that came after
+/// it (composer/videoPrompt.ts `framesNote`).
+function promptVideos(entry: QueuedEntry): QueuedVideo[] | undefined {
+  const videos: QueuedVideo[] = [];
+  // The last video a file part described, whose own note comes next and adds nothing.
+  let described: string | undefined;
+  for (const part of entry.inlineParts ?? []) {
+    if (part.kind === "text") {
+      const noted = framesNoteVideo(part.text);
+      if (noted && noted.name !== described) videos.push(noted);
+      if (noted) described = undefined;
+    } else if (part.kind !== "image" && part.video) {
+      videos.push({ name: part.name, durationMs: part.video.durationMs, frames: part.video.frames.length });
+      described = part.name;
+    }
+  }
+  return videos.length ? videos : undefined;
 }
 
 /// The most a held list may grow to: the room the pane leaves the composer's stack, that is the
@@ -607,7 +612,6 @@ export function ComposerQueue({
   };
   // The person's prompts only: another agent's message draws in the transcript.
   const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
-  // A paused queue of agent messages alone still says so, with Resume.
   // Who each row belongs to, as last drawn. A native menu keeps the actions it opened with: one
   // picked after a row turned out to be a teammate's (its authored record came in while the menu
   // was open) does nothing, as the row now offers nothing.
@@ -626,6 +630,10 @@ export function ComposerQueue({
     shown.some((entry) => entry.waking),
     wakeNoteDelayMs,
   );
+  // Other agents' messages and inbox notices a failed turn held go in again by themselves (acpmux
+  // `goes_in_by_itself`), and acpmux reads that hold as not paused, so no note stands over nothing of
+  // the person's (Leo, 2026-11-05: "don't show these kinds of things"). A Stop's hold of them waits
+  // for Resume (`cancel.rs`): `paused`, so the note and its Resume stay (review of #36821, F1).
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
@@ -1027,9 +1035,9 @@ export function ComposerQueue({
       {editing !== entry.id && actions(entry)}
       {/* Under the text, in its column. */}
       <QueuedImages
-        images={
-          editing === entry.id ? (entry.images ?? []).filter((image) => !dropped.has(image.id)) : (entry.images ?? [])
-        }
+        videos={promptVideos(entry)}
+        images={entry.images ?? []}
+        dropped={editing === entry.id ? dropped : undefined}
         t={t}
         read={readImage}
         onRemove={editing === entry.id ? (id) => setDropped((current) => new Set(current).add(id)) : undefined}

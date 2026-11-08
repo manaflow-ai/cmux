@@ -42,9 +42,9 @@ struct CloudStartSession {
         /// The command that asks for this again, every word as the shell reads it back.
         var command: String {
             var words = ["cmux cloud start-session"]
-            if let machineID { words.append("--target machine:" + CloudStartSession.shellQuoted(machineID)) } else { words.append("--name " + CloudStartSession.shellQuoted(name ?? "")) }
+            if let machineID { words.append("--target machine:" + CloudStartCore.shellQuoted(machineID)) } else { words.append("--name " + CloudStartCore.shellQuoted(name ?? "")) }
             words.append("--agent " + agent)
-            if let cwd { words.append("--cwd " + CloudStartSession.shellQuoted(cwd)) }
+            if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
             if let choice = login.requested { words.append("--login " + choice.rawValue) }
             return words.joined(separator: " ")
         }
@@ -69,7 +69,9 @@ struct CloudStartSession {
             CloudHandlers.result("start cloud session", context) {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: Self.forgotten(request, services)) {
                     // A person's gesture only as the outermost run's origin says (a script's nested run is not one).
-                    try await start.run(request, invocation, context, account: key.account, byPerson: CloudHandlers.origin(of: invocation) == .user)
+                    let delegated = CloudAgentStartSetting().delegated(in: services.settings?.snapshot.root ?? .object([:]))
+                    return try await start.run(request, invocation, context, account: key.account,
+                                               byPerson: CloudStartCore().startsAsPerson(byPerson: CloudHandlers.origin(of: invocation) == .user, delegated: delegated), capCard: CloudHandlers.origin(of: invocation) == .user)
                 }
             }
         }
@@ -105,7 +107,7 @@ struct CloudStartSession {
             let key = CloudStartSessionRuns.Key(request, caller: invocation.callerAgentSession, account: services.cloud.account)
             return CloudHandlers.result("start cloud session", context) {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) {
-                    try await start.run(request, asPerson, context, account: key.account, byPerson: true, askedBy: invocation.callerAgentSession, revealing: false)
+                    try await start.run(request, asPerson, context, account: key.account, byPerson: true, capCard: false, askedBy: invocation.callerAgentSession, revealing: false)
                 }
             }
         }
@@ -213,14 +215,17 @@ struct CloudStartSession {
     /// that changes anything and after each wait, so a team switch or sign-out mid-run starts
     /// nothing in the account signed in now.
     /// `byPerson`: the person's own gesture (a palette or menu run, or Start on an agent's card);
-    /// it decides how the machine is created and connected.
-    func run(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, askedBy: String? = nil,
+    /// it decides how the machine is created and connected. `capCard`: a refusal at the cap opens the cap card, else answers the run.
+    func run(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool = true, askedBy: String? = nil,
              revealing: Bool = true) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         try still(request.name ?? request.machineID ?? "")
-        let session = try await machine(request, invocation, account: account, byPerson: byPerson, askedBy: askedBy)
+        let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
+        // From the connect until the agent runs, the app's automatic update leaves this machine's daemon alone.
+        services.cloud.startGate.enter(id)
+        defer { services.cloud.startGate.leave(id) }
         try await connected(session, request, account: account, byPerson: byPerson)
         try still(name)
         try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
@@ -230,8 +235,8 @@ struct CloudStartSession {
         }
         let anchor: (id: String, key: WorkspaceKey, pane: PaneModel)
         do {
-            anchor = try await CloudHandlers.terminalAnchor(on: session, context) { [services] in
-                try Self.check(account, now: services.cloud.account, request.asked(machine: name))
+            anchor = try await CloudWait.relinkedOnce(epoch: { session.daemon.store.connectionEpoch }, held: session.linkHeld, relink: { guard (try? await connected(session, request, account: account, byPerson: byPerson)) != nil else { return false }; return await CloudMachineWorkspace.live(session.daemon.store, within: Self.connectWait) }) {
+                try await CloudHandlers.terminalAnchor(on: session, context) { [services] in try Self.check(account, now: services.cloud.account, request.asked(machine: name)) }
             }
         } catch let changed as AccountChanged {
             throw changed.failure
@@ -255,9 +260,9 @@ struct CloudStartSession {
                 // Each restart and start try is for the account that asked, checked right before it.
                 let command = request.command
                 started = try await Self.starting(name: name, id: id, agent: agent, account: account, now: { services.cloud.account }, asked: request.asked(machine: name)) {
-                    try await remote.startNow(cwd: request.cwd, harness: agent) { @MainActor [services] in
+                    try await CloudWait.retriedOnce({ try await remote.startNow(cwd: request.cwd, harness: agent) { @MainActor [services] in
                         try Self.check(account, now: services.cloud.account, CloudStartSessionStrings.Asked(machine: name, agent: agent, command: command))
-                    }
+                    } }, closed: CloudWait.linkDropped, relink: { await session.linkUp(within: Self.connectWait) && session.linkHeld() })
                 }
             case let refused as AgentTabRefusedHost: throw refused.refusal
             default: throw AgentRemoteStartRefusal.startUnsupported(machine: name)
@@ -336,13 +341,6 @@ struct CloudStartSession {
         return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: Self.reason(reason))
     }
 
-    /// `text` as one shell word: as it is when it is a plain name, else in single quotes.
-    static func shellQuoted(_ text: String) -> String {
-        let plain = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-        guard text.isEmpty || !text.unicodeScalars.allSatisfy(plain.contains) else { return text }
-        return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
     /// A refusal sentence inside the run's parentheses: no closing period.
     static func reason(_ text: String) -> String {
         var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -354,7 +352,7 @@ struct CloudStartSession {
     static let listFresh: Duration = .seconds(15)
 
     /// The machine named by id, else by name, else a new one with that name.
-    private func machine(_ request: Request, _ invocation: ActionInvocation, account: [String?], byPerson: Bool, askedBy: String?) async throws -> CloudMachineSession {
+    private func machine(_ request: Request, _ invocation: ActionInvocation, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?) async throws -> CloudMachineSession {
         let machines = services.machines
         let cloud = services.cloud
         if let id = request.machineID {
@@ -379,7 +377,7 @@ struct CloudStartSession {
                 if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
                 try still()
                 // The answer of a create asked in another account never joins this one's list.
-                return try await cloud.createMachine(name: name, startedByPerson: byPerson, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
+                return try await cloud.createMachine(name: name, startedByPerson: byPerson, capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -388,7 +386,7 @@ struct CloudStartSession {
         } catch {
             let detail = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
             try Self.failed(account, now: cloud.account, request.asked(machine: name),
-                            CloudStartSessionStrings.createFailed(name, quoted: Self.shellQuoted(name), agent: request.agent, reason: Self.reason(detail)))
+                            CloudStartSessionStrings.createFailed(name, quoted: CloudStartCore.shellQuoted(name), agent: request.agent, reason: Self.reason(detail)))
         }
     }
 
@@ -396,24 +394,24 @@ struct CloudStartSession {
     /// here waits on a client snapshot (hq#4381): the machine's own acpmux keeps its sessions.
     private func connected(_ session: CloudMachineSession, _ request: Request, account: [String?], byPerson: Bool) async throws {
         let failure = { ActionFailure(message: CloudStartSessionStrings.notConnected(session.machine.title, id: session.machineID, agent: request.agent)) }
-        try CloudHandlers.requireAttachableState(session)
+        // A machine that is resuming is waited for (within the start's own connect wait), never refused at once.
+        try await CloudHandlers.requireAttachableState(session, waitingOutResume: Self.connectWait)
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
-            try CloudHandlers.requireAttachableState(session)
+            try await CloudHandlers.requireAttachableState(session, waitingOutResume: Self.connectWait)
             // The resume or connect below changes the machine: only for the account that asked.
             try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
             let origin: CloudLinkOrigin = byPerson ? .user : .script
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
-        session.beginLegacyAttempt()
-        let daemon = session.daemon
-        let up = await CloudWait.holds(within: Self.connectWait, until: {
-            session.resumeFailure != nil || session.legacyLinkFailure?.definitive == true
-                || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
-        })
+        // An update of this machine already running when the start came (one that begins later finds the start in ``CloudStartGate``)
+        // restarts the daemon: the agent starts once it ended and the link is back. The one more dial may resume it: the asking account's only.
+        let up = await CloudWait.linkedAgain({ await CloudWait.linked(within: Self.connectWait, { await session.linkUp(within: Self.connectWait) }) {
+            [policy = services.daemonUpdates.policy, id = CloudMachineUpdateTarget.id(session.machineID)] in await policy.turnRunning(id)
+        } }, held: session.linkHeld, redialable: { account == services.cloud.account && session.resumeFailure == nil && session.linkEnded != nil && session.dropRedial.lastEndRedialable }, again: session.retryNow)
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
-        guard up, session.resumeFailure == nil, daemon.connection != nil else { throw failure() }
+        guard up else { throw failure() }
     }
 
     /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).

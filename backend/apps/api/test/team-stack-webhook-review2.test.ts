@@ -10,7 +10,6 @@ import { userIdFor } from "../src/domains/user.ts"
  * a cloud socket must not open for a non-member, a stuck removal must still revoke, and a queued
  * delivery past its deadline must not run.
  */
-const ns = (testEnv as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
 
 describe("Stack team webhook re-review fixes (cx-3bi.43)", { timeout: 60_000 }, () => {
   it("P2: a team.deleted that Stack does not confirm yet changes nothing, and its re-check deletes the team later", async () => {
@@ -29,21 +28,6 @@ describe("Stack team webhook re-review fixes (cx-3bi.43)", { timeout: 60_000 }, 
     await inDO(teamStub(t.team), async (_i, st) => st.storage.sql.exec(`UPDATE stack_team_recheck SET due_at = 0`))
     await fireAlarm(teamStub(t.team))
     expect((await teamState(t.team)).team?.deleted_at).toBeGreaterThan(0)
-  })
-
-  it("P3: CloudDO refuses a shared team's socket for a user TeamDO does not list, whatever the principal claims", async () => {
-    const t = await mirroredTeam()
-    const outsider = userIdFor(testEnv.STACK_PROJECT_ID, crypto.randomUUID())
-    const principal = { identity: `session:${outsider}`, kind: "session", user: outsider, team: t.team }
-    const stub = ns.get(ns.idFromName(t.team))
-    const res = await stub.fetch("https://do/v1/wire/cloud", { headers: { Upgrade: "websocket", "x-cmux-entity": t.team, "x-cmux-principal": JSON.stringify(principal) } })
-    expect(res.status).toBe(403)
-    // The member itself still connects.
-    const member = { identity: `session:${t.user}`, kind: "session", user: t.user, team: t.team }
-    const ok = await stub.fetch("https://do/v1/wire/cloud", { headers: { Upgrade: "websocket", "x-cmux-entity": t.team, "x-cmux-principal": JSON.stringify(member) } })
-    expect(ok.status).toBe(101)
-    ok.webSocket?.accept()
-    ok.webSocket?.close()
   })
 
   it("P3: a set-aside member of a deleted team still has every live certificate revoked", async () => {

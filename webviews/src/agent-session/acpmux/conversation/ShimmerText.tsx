@@ -28,7 +28,7 @@ export function ShimmerText({
   lit,
 }: {
   text: string;
-  /// The words at rest, when they carry their own spans (the live line's verb in full ink).
+  /// The words at rest, when they carry their own spans (the live line's verb in its own span).
   baseText?: ReactNode;
   lit?: ReactNode;
 }) {

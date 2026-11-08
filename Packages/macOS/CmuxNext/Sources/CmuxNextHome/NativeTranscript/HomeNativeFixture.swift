@@ -15,6 +15,10 @@ public import CmuxNextDesign
 @MainActor
 public final class HomeNativeFixture {
     public let container = NSView()
+    /// With `compose`, the Home split's chat column the transcript sits in, under its compose button.
+    private let column: HomeChatColumnView?
+    /// The view the transcript fills: the container, or with `compose` the chat column's content.
+    private var host: NSView { column?.content ?? container }
     /// The fixture tab's title.
     public static var title: String { HomeStrings.conversations }
     /// No latency; the Chief types for 1.5 s before it answers (the typing
@@ -57,10 +61,18 @@ public final class HomeNativeFixture {
     }
     #endif
 
-    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil) {
+    /// With `compose`, the transcript sits in the Home split's chat column (`HomeChatColumnView`) under its
+    /// round compose button, as in the real Home tab (captures of what floats over the chat's top-left).
+    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, compose: Bool = false) {
+        column = compose ? HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: HomeConversationStrings.newMessage)) : nil
         self.attachments = attachments
         self.openPanel = openPanel
         store = HomeStore(source: source)
+        if let column {
+            column.autoresizingMask = [.width, .height]
+            column.showsCompose = true
+            container.addSubview(column)
+        }
         store.start()
         loading = Task { [weak self] in await self?.load() }
     }
@@ -93,9 +105,9 @@ public final class HomeNativeFixture {
         view?.stop()
         view?.removeFromSuperview()
         let view = HomeNativeTranscriptView(store: store, conversation: id, me: me, openPanel: openPanel)
-        view.frame = container.bounds
+        view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
-        container.addSubview(view)
+        host.addSubview(view)
         self.view = view
         shown = (id, chief)
         await view.binding.opened()
@@ -233,10 +245,19 @@ public final class HomeNativeFixture {
     /// With `open`, nothing is posted: the agents row of the last such run (its stopped agents are in it
     /// too) opens or closes, as a click on it does.
     /// With `group`, the run goes to the mock's group with the Chief and two teammates (shown first).
+    /// With `pill`, nothing is posted: agent `pill`'s chat opens in the agent pane, as a click on its pill does;
+    /// with `say` too, the person sends that agent `say` from the pane's composer.
     /// With `step` N, the run brings only its first N messages: step 1 posts the question, the reply and
     /// one message; each next step adds one, as a live run does (0: all at once).
-    public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0) -> Bool {
+    public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0, pill: String? = nil,
+                                   say: String? = nil) -> Bool {
         guard let shown else { return false }
+        if let pill {
+            guard let view else { return false }
+            view.debugOpenAgent(pill)
+            if let say { return view.debugSendToAgent(say) }
+            return true
+        }
         if open {
             guard let last = lastAgentRun else { return false }
             let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: last.turn)

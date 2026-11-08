@@ -18,6 +18,8 @@ struct PaletteArgumentFlow {
     /// An argument a handler asks for although the schema makes it optional (a menu Rename with
     /// no name, ``ActionRegistry/ask(_:_:_:)``): it is collected like a required one.
     var ask: ActionArgumentAsk?
+    /// Makes a target from the typed name when the target list has none matching it.
+    var creators: [ActionTargetKind: PaletteTargetCreator] = [:]
 
     func effect(collected: ActionInvocation) -> PaletteEffect {
         let registry = registry
@@ -75,6 +77,7 @@ struct PaletteArgumentFlow {
                     return await loaded.providers.first?.items() ?? []
                 }]
             }
+            page.noMatchItems = creationRows(for: argument, kind: kind, collected: collected)
             return .push(page)
         }
     }

@@ -127,11 +127,14 @@ impl Mux {
     /// it), or an earlier creation of the id is still in flight and owns it.
     pub(crate) fn begin_creating_input(&self, terminal_id: &str) -> Option<u64> {
         let inputs = &self.creating_inputs;
-        // The live check and the insert are one step under the creating lock. Off the input lane the
-        // check takes the session state under it (lock order: creating, then state), so a commit
-        // cannot make the id live in between. On the lane it reads the published routes, the last
-        // finished change: a commit still in progress has not made the id live, as when the old path
-        // takes the state before that commit, so every answer is one the old path can give.
+        // The live check and the insert are one step under the creating lock. The check reads the
+        // session state (lane off, or a poisoned state; lock order: creating, then state) or, on the
+        // input lane, the published routes of the last finished change: a commit still in progress has
+        // not made the id live, as when the old path takes the state before that commit, so every
+        // answer is one the old path can give. On both arms the read ends before the insert, so a
+        // commit can make the id live in between; the entry is then written to the live terminal in
+        // order, by the creation's finish or by the next input on another path
+        // (`wait_for_creating_input_flush`), or given back, as any queue.
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
         if terminals.contains_key(terminal_id)
             || self.live_surface_for_terminal(terminal_id).is_some()
@@ -289,7 +292,8 @@ impl Mux {
                 };
                 if let Err(error) = written {
                     // The terminal took the earlier bytes; the rest, and all queued since, go
-                    // back to their senders.
+                    // back to their senders. Bytes whose write may still reach the program (its
+                    // wait ended during the write) are not given back: that would type them twice.
                     eprintln!(
                         "cmux-tui: queued input for terminal {terminal_id} not written: {error}"
                     );
@@ -300,7 +304,12 @@ impl Mux {
                         inputs.ended.notify_all();
                         creating.map(|creating| creating.queued).unwrap_or_default()
                     };
-                    let mut rest: Vec<_> = batch.into_iter().skip(index).collect();
+                    let first_given_back = if crate::surface::input_may_be_written(&error) {
+                        index.saturating_add(1)
+                    } else {
+                        index
+                    };
+                    let mut rest: Vec<_> = batch.into_iter().skip(first_given_back).collect();
                     rest.extend(later);
                     return give_back(terminal_id, rest, "write-failed");
                 }
@@ -371,11 +380,22 @@ impl Mux {
     /// holder waits for the session lock under it and a key that takes it never waits behind one. A commit publishes
     /// its routes before it releases the session lock, and a queue is removed only after its terminal is live, so the
     /// creation checks give the answers they gave under the session lock.
+    ///
+    /// On the lane, the creating-input lock is a leaf only while the state is not poisoned: on a poisoned state this
+    /// takes the session lock under it (creating, then state), as the old path always does. So no code may take the
+    /// creating-input lock while it holds the session lock.
     #[track_caller]
     fn live_surface_for_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
-        // A poisoned state takes the old read, as `Mux::surface` does.
-        if self.control_clients.input_lane.on() && !self.state.is_poisoned() {
-            return self.state.routes().live_terminal(terminal_id);
+        // As `Mux::surface`: the routes are loaded before the poison check (poison never clears), so routes used here
+        // come from a change that finished before any panic, and a poisoned state takes the old read. Unlike
+        // `Mux::surface`'s, this old read recovers the poison: the creation checks answer from the state, as the old
+        // path did (a create whose commit panicked has its terminal in the state, and the routes lack it until a later
+        // change that recovers the poison publishes them).
+        if self.control_clients.input_lane.on() {
+            let routes = self.state.routes();
+            if !self.state.is_poisoned() {
+                return routes.live_terminal(terminal_id);
+            }
         }
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         crate::route_table::live_terminal(

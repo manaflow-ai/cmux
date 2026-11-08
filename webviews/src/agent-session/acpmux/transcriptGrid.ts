@@ -56,6 +56,16 @@ export const MARK_FOOTER_SLOT = 7;
 /// the step and status rows beside it, as far from the prose around it as a run is (row-alignment.test.ts: every status row between two replies has
 /// one gap above and one below).
 export const MARK_STATUS = 8;
+/// A finished turn's "Worked for" line (model.ts `WORKED`). Its rule sits midway between its words
+/// and the next row, so the room under the rule is the row's own (conversation.css
+/// `.cv-worked.has-divider.is-toggle`) and no stack gap follows it inside the turn (Lucas,
+/// 2026-11-07, Codex parity). Toward the rows above it, it is a step row.
+export const MARK_WORKED = 9;
+/// An edited-files card (turnChanges/sessionRows.ts `isEditRow`): a bordered card, not a line. It
+/// stands the run gap from the one-line rows and the prose around it, the room it has under a reply,
+/// so under "Subagent finished" or a tool run it is never flush (Lucas, 2026-11-08). Toward a footer
+/// row, a prompt or the live line it is a step row.
+export const MARK_CARD = 10;
 
 type MarkedRow = {
   kind: string;
@@ -90,6 +100,14 @@ export function rowMark(row: MarkedRow): number {
 /// One gap per adjacent pair, the most specific first: the waiting rule, then turn, then block.
 /// (The composer gap is the stack's, tailGap below.) Gaps never add.
 export function transcriptGap(previous: number, next: number): number {
+  if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
+  if (previous === MARK_WORKED) previous = MARK_STEP;
+  if (next === MARK_WORKED) next = MARK_STEP;
+  const near = (mark: number) =>
+    mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_MESSAGE || mark === MARK_CARD;
+  if ((previous === MARK_CARD && near(next)) || (next === MARK_CARD && near(previous))) return TRANSCRIPT_RUN_GAP;
+  if (previous === MARK_CARD) previous = MARK_STEP;
+  if (next === MARK_CARD) next = MARK_STEP;
   // A reply's footer sits 8 under its last line (Claude's placement, ChatGPT's 5); 24 or a prompt's
   // turn gap follows it, by the rules below.
   if ((next === MARK_FOOTER_ROW || next === MARK_FOOTER_SLOT) && previous === MARK_MESSAGE)
@@ -109,14 +127,15 @@ export function transcriptGap(previous: number, next: number): number {
   // Waiting for the first output: the indicator right under its prompt takes the block gap.
   if ((next === MARK_INDICATOR || next === MARK_FOOTER_SLOT) && previous === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;
   if (previous === MARK_PROMPT || next === MARK_PROMPT) return TRANSCRIPT_TURN_GAP;
-  // The live line under a run is one more line of it (#29965): flush too.
-  if (previous === MARK_STEP && (next === MARK_STEP || next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return 0;
   // Any two one-line rows in a row, a status line among them ("Scheduled check", "Compacting the
   // conversation…", a background task's end), sit flush on the 22 pitch: one row height and no gap
   // (design/transcript-spacing.md rule 3; Leo, 2026-11-02, on a Claude chat where they stood a
   // block apart: "these are all so stupid looking").
   const line = (mark: number) => mark === MARK_STEP || mark === MARK_STATUS;
   if (line(previous) && line(next)) return 0;
+  // The live state is separate from completed activity. Leo, 2026-11-04: "the gap between tool
+  // calls and thinking needs to be bigger". Use the same scaled run gap as activity to prose.
+  if (line(previous) && (next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return TRANSCRIPT_RUN_GAP;
   // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
   if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;

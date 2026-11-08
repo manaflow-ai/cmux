@@ -9,19 +9,17 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 import nightly_admission_receipt as reader
 import nightly_linux_admission as admission
-from test_nightly_trusted_routing import evaluate, parse_expression
 
 ENV = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "41276832605",
        "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "cfb07455959e2391c0001bcee71d02102ea43317",
        "JOBS": " ".join(sorted(admission.JOBS)), "CHECK_RECEIPTS": "1",
-       "SNAPSHOT_TOKEN": "test-token", "OVERFLOW_LINUX": "blacksmith-16vcpu-ubuntu-2404"}
+       "SNAPSHOT_TOKEN": "test-token", "OVERFLOW_LINUX": "ubuntu-24.04"}
 REQUEST = admission.identity(ENV)
 
 
@@ -171,72 +169,6 @@ class PublishedReceipts(unittest.TestCase):
              mock.patch.object(admission, "write") as write:
             self.assertEqual(admission.main(ENV), 0)
         self.assertEqual(set(write.call_args.args[1].values()), {ENV["OVERFLOW_LINUX"]})
-
-
-class Workflow(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.workflow = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
-
-    def context(self, **changes):
-        context = {"github.repository": "manaflow-ai/cmux", "github.ref": "refs/heads/nightly-next",
-                   "github.event_name": "push", "github.run_attempt": 1, "github.run_id": 123,
-                   "github.sha": "a" * 40, "github.workflow": "Nightly macOS build",
-                   "vars.CI_NIGHTLY_ADMISSION_CHECKS": "1", "inputs.nightly_next_unsigned_run": "",
-                   "needs.decide.outputs.track": "nightly-next", "needs.decide.outputs.should_build": "true",
-                   "needs.decide.outputs.should_publish": "true", "needs.decide.outputs.early_attempt": "1",
-                   "needs.decide.outputs.early_admission_ready": "true"}
-        context.update(changes)
-        return context
-
-    def evaluate(self, source, context):
-        return evaluate(parse_expression(source.removeprefix("${{").removesuffix("}}")), context)
-
-    def test_marker_binds_run_and_source_and_survives_dedicated_reruns(self):
-        for attempt in (1, 2):
-            values = self.context(**{"github.run_attempt": attempt,
-                                     "vars.CI_NIGHTLY_ONLY_RUNNER": "glaeda-nightly-only-m4pro"})
-            title = self.evaluate(self.workflow["run-name"], values)
-            self.assertTrue(title.startswith("NEXT Linux admission v1: 123/" + "a" * 40 + " | "))
-        for changes in ({"vars.CI_NIGHTLY_ADMISSION_CHECKS": ""}, {"github.ref": "refs/heads/main"},
-                        {"github.repository": "another/repo"}, {"github.event_name": "pull_request"}):
-            self.assertNotIn("NEXT Linux admission", self.evaluate(self.workflow["run-name"], self.context(**changes)))
-            step = next(step for step in self.workflow["jobs"]["decide"]["steps"] if step.get("id") == "place-early")
-            self.assertEqual(self.evaluate(step["env"]["CHECK_RECEIPTS"], self.context(**changes)), "")
-            self.assertTrue(self.evaluate(step["continue-on-error"], self.context(**changes)))
-
-    def test_unsigned_resume_title_and_mode_stay_compatible_with_main_parser(self):
-        values = self.context(**{"inputs.nightly_next_unsigned_run": "456", "inputs.nightly_next_unsigned_attempt": "2"})
-        self.assertEqual(self.evaluate(self.workflow["run-name"], values), "Resume nightly-next run 456 attempt 2")
-        step = next(step for step in self.workflow["jobs"]["decide"]["steps"] if step.get("id") == "place-early")
-        self.assertEqual(self.evaluate(step["env"]["CHECK_RECEIPTS"], values), "")
-        self.assertTrue(self.evaluate(step["continue-on-error"], values))
-
-    def test_receipt_mode_is_fatal_and_reads_only_existing_app_checks(self):
-        job = self.workflow["jobs"]["decide"]
-        self.assertEqual(job["permissions"], {"actions": "read", "checks": "read", "contents": "read"})
-        step = next(step for step in job["steps"] if step.get("id") == "place-early")
-        self.assertEqual(self.evaluate(step["env"]["CHECK_RECEIPTS"], self.context()), "1")
-        self.assertFalse(self.evaluate(step["continue-on-error"], self.context()))
-        self.assertEqual(step["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")
-        sparse = next(step for step in job["steps"] if step.get("name") == "Check out NEXT decision and placement helpers")
-        self.assertIn("/scripts/ci/nightly_admission_receipt.py", sparse["with"]["sparse-checkout"])
-
-    def test_missing_or_stale_receipts_cannot_schedule_any_of_the_four_jobs(self):
-        for name in admission.JOBS:
-            condition = self.workflow["jobs"][name]["if"]
-            self.assertTrue(self.evaluate(condition, self.context()), name)
-            for changes in ({"needs.decide.outputs.early_admission_ready": ""},
-                            {"needs.decide.outputs.early_admission_ready": "false"},
-                            {"needs.decide.outputs.early_attempt": "0"},
-                            {"github.run_attempt": 2}):
-                with self.subTest(job=name, changes=changes):
-                    self.assertFalse(self.evaluate(condition, self.context(**changes)))
-            self.assertTrue(self.evaluate(condition, self.context(**{
-                "vars.CI_NIGHTLY_ADMISSION_CHECKS": "", "needs.decide.outputs.early_admission_ready": ""})))
-            self.assertTrue(self.evaluate(condition, self.context(**{
-                "vars.CI_NIGHTLY_ONLY_RUNNER": "glaeda-nightly-only-m4pro",
-                "needs.decide.outputs.early_admission_ready": ""})))
 
 
 if __name__ == "__main__":

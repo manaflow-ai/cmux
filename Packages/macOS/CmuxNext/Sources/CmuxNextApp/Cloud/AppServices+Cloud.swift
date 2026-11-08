@@ -12,35 +12,27 @@ import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
+import CmuxNextSettings
 import Foundation
 import Observation
 
 extension AppServices {
-    /// The loopback port of a Cloud machine's `cmux-rd` desktop host (`--port`).
-    static let cloudDesktopRdPort: UInt16 = 4103
-
-    /// Open Desktop's `cmux-rd` viewer: Cloud machine `machine`'s desktop host on its private
-    /// address, reached over the app's token-gated Cloud tunnel, with the session token Open
-    /// Desktop fetched (read again for every session, so a Reconnect after Open Desktop fetched a
-    /// new one uses it). `control` is the tab's mode: a tab
-    /// someone confirmed from a Connect card asks for view only. Nil without the machine or token.
-    func cloudDesktopRdTransport(machine: String, control: Bool) -> (@MainActor () -> RemoteRdStreamTransport?)? {
-        let key = machine.lowercased()
-        guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == key })?.machineID,
-              cloud.desktopRdTokens[key] != nil else { return nil }
-        // Over the Cloud tunnel to the host on the machine's private address (it needs nothing from
-        // the machine's daemon, so any machine with the host works), not the daemon link.
-        guard let hub = remoteLocalhost.cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: id),
-              let opener = HubLoopbackOpener(hub: hub, address: address) else { return nil }
-        let cloud = cloud
-        return {
-            guard let token = cloud.desktopRdTokens[key] else { return nil }
-            let hello = RemoteRdHello(user: "cmux", install: "cmux-next-\(ProcessInfo.processInfo.processIdentifier)", token: token)
+    /// Open Desktop's `cmux-rd` viewer: the machine's desktop host over the owner's Native link, a
+    /// new `link.dial` (service `desktop`, a new one-time link token) per session, with no token
+    /// in the hello (``CloudDesktopLinkDial``); each session's transport in the mode it asks for.
+    func cloudDesktopRdTransport(machine: String) -> (@MainActor (_ control: Bool) -> RemoteRdStreamTransport?)? {
+        guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() })?.machineID,
+              let cli = cloud.binary else { return nil }
+        let (cloud, run, hello) = (cloud, CloudAppLinks.runner(local: machines.local), RemoteRdHello.cloudDesktop())
+        return { control in
             let carrier = RemoteRdStreamCarrier {
-                let tunnel = try await opener.openTunnel(host: "localhost", port: Self.cloudDesktopRdPort)
-                let reader = LoopbackTunnelReader(tunnel)
-                return RemoteRdByteStream(read: { try? await reader.read() }, write: { try await tunnel.write($0) },
-                                          close: { tunnel.close() })
+                await cloud.ensureLink()
+                let info = try await run(CloudDesktopLinkDial.connectInfoOp, ["machine": id], UUID().uuidString, .script)
+                guard let dial = CloudDesktopLinkDial(connectInfo: info, linkSocket: await cloud.linkSocket) else {
+                    throw CloudLinkError.helperNotRunning(reason: "no link socket or host for the desktop")
+                }
+                let stream = try await dial.open(cli: cli)
+                return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
             }
             return RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString, control: control)
         }
@@ -96,7 +88,8 @@ extension AppServices {
     /// Starts Cloud and keeps the registry context current.
     func startCloud() -> Task<Void, Never> {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
-        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }) }
+        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }, stopAsking: self?.settings?.stopAskingCloudAgents) }
+        cloud.agentsAskFirst = { [weak self] in self?.settings.map { !$0.cloudAgentsSkipAsking } ?? false }
         // The cap card's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
         cloud.chooseAtCap = { [weak self] in await CloudMachineCapCard.choose($0, in: self?.windows.active?.window, freePlanDetail: CloudStrings.upgradeDetail(.freePlan), openPricing: { [weak self] in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
         cloud.madeRoom = { [weak self] in if let self { CloudMove.toast(self, "cloud-made-room", CloudMachineCapCard.madeRoom($0), duration: .seconds(6)) } }
@@ -117,8 +110,8 @@ extension AppServices {
         iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,
             body: $1, surface: nil, workspace: nil, defaultSound: true, category: IPhonePairNotices.category) },
             withdraw: { [weak self] in self?.notifications.desktop.withdraw([IPhonePairNotices.id]) })
-        // The GitHub App lease goes when a sign-out starts (its install revoke may fail).
-        cloud.willSignOut.append { [weak self] in self?.githubAppLease.signOutStarted() }
+        // A sign-out starts: the GitHub App lease goes (its install revoke may fail), and the person's own sign-out forgets the paired phones.
+        cloud.willSignOut.append { [weak self] in self?.githubAppLease.signOutStarted(); self?.iphone.signOutStarted() }
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: (user: String, team: String)?

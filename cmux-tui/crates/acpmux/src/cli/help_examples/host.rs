@@ -62,6 +62,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("machine load", &[("Print this machine's load now as JSON", "acpmux machine load --json")]),
     (
+        "machine verdict",
+        &[("Judge the host readings given as JSON on stdin", "acpmux machine verdict --json")],
+    ),
+    (
         "machine notice",
         &[(
             "Add a muted line to every live chat here",
@@ -148,6 +152,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             "Ask to turn screen consent off; a shell is refused, the cmux app changes it",
             "acpmux machine consent revoke --screen",
         )],
+    ),
+    (
+        "machine leave",
+        &[
+            ("Revoke this joined machine and remove its join state", "acpmux machine leave"),
+            (
+                "Remove the join state after revoking the machine from your Mac",
+                "acpmux machine leave --local-only --json",
+            ),
+        ],
     ),
     (
         "machine vault",
@@ -302,6 +316,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine key",
+        &[
+            ("Print the line a new machine adds to authorized_keys", "acpmux machine key"),
+            ("Make an ed25519 key when this machine has none", "acpmux machine key --create"),
+        ],
+    ),
+    (
+        "machine agents",
+        &[
+            (
+                "See whether Claude Code and Codex are ready on mini-3",
+                "acpmux machine agents mini-3",
+            ),
+            ("Install Claude Code there", "acpmux machine agents mini-3 --install claude"),
+            (
+                "Sign Codex in there from this terminal",
+                "acpmux machine agents mini-3 --login codex",
+            ),
+        ],
+    ),
+    (
         "machine deps",
         &[
             ("Restore this project's dependencies from the cache", "acpmux machine deps warm"),
@@ -314,9 +349,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Restore, install and upload after a cold install", "acpmux machine deps warm"),
             ("Only restore, without running the install", "acpmux machine deps warm --no-install"),
             (
+                "Upload before returning, not in the background",
+                "acpmux machine deps warm --upload-now",
+            ),
+            (
                 "Skip projects that already have node_modules or .venv",
                 "acpmux machine deps warm ~/src/app --if-missing --json",
             ),
+        ],
+    ),
+    (
+        "machine deps wait",
+        &[
+            ("Wait for the uploads a cold install started", "acpmux machine deps wait"),
+            ("Wait, then say how many it waited for", "acpmux machine deps wait --json"),
         ],
     ),
     (

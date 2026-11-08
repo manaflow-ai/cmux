@@ -4,7 +4,6 @@ import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
 import ImageIO
-import Observation
 import UniformTypeIdentifiers
 
 /// Inspect Element for cmux NEXT's own web content: the HTML/React pages the
@@ -18,6 +17,7 @@ final class UIInspectorController {
     /// The picker's monitor, installed only between `start()` and `stop()`.
     private var monitor: Any?
     private var inspectNotification: NSObjectProtocol?
+    private var watchesToggle = false // armed by the first start(), when the tunables are active
     private weak var activePage: AgentPaneView?
     private var selectionGeneration = 0
     private var pendingAction: SelectionAction = .send
@@ -31,7 +31,6 @@ final class UIInspectorController {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.inspectFromContextMenu() }
         }
-        observeToggle()
     }
 
     // AppKit monitor removal is main-thread-only. The controller can be
@@ -69,18 +68,12 @@ final class UIInspectorController {
         menuPage.evaluateUiPointer(pointerScript("highlight", point: point, page: menuPage))
     }
 
-    private func observeToggle() {
-        withObservationTracking { _ = AgentPaneTunables.pointerInspector.value } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if !AgentPaneTunables.pointerInspector.value { self.stop() }
-                self.observeToggle()
-            }
-        }
-    }
-
     private func start() {
         guard monitor == nil else { return }
+        if !watchesToggle {
+            watchesToggle = true
+            AgentPaneTunables.whenPointerInspectorTurnsOff { [weak self] in self?.stop() }
+        }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
             guard Thread.isMainThread else { return event } // main-proof: AppKit local monitors are delivered on the main thread

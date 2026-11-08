@@ -48,5 +48,33 @@ fn a_busy_path_hop_records_only_for_a_terminal_with_a_traced_key() {
         text.lines().filter(|line| line.contains("daemon.output.host")).collect();
     assert_eq!(output.len(), 1, "only the traced terminal's output hop is recorded: {text}");
     assert!(output[0].contains("\"terminal\":\"bbbb\""), "{}", output[0]);
+
+    // A hop with a flow id and no terminal (`daemon.send.read`, one per key) opens no window: if it took a slot, it
+    // would push a traced terminal out of the 16, and that terminal's output would go unrecorded. In this test, not
+    // its own: the slots are process-wide, and a test running beside it could take one.
+    const TERMINALS: [&str; 16] = [
+        "c000", "c001", "c002", "c003", "c004", "c005", "c006", "c007", "c008", "c009", "c00a",
+        "c00b", "c00c", "c00d", "c00e", "c00f",
+    ];
+    for terminal in TERMINALS {
+        cmux_flow_trace::hop("daemon.send.write", 9, terminal);
+    }
+    for _ in 0..32 {
+        cmux_flow_trace::hop("daemon.send.read", 9, "");
+    }
+    for terminal in TERMINALS {
+        cmux_flow_trace::hop_on_traced("daemon.output.attach", terminal);
+    }
+    assert!(cmux_flow_trace::flush());
+    let text =
+        std::fs::read_to_string(dir.join(format!("flows-{}.jsonl", std::process::id()))).unwrap();
+    let attached: Vec<&str> =
+        text.lines().filter(|line| line.contains("daemon.output.attach")).collect();
+    for terminal in TERMINALS {
+        assert!(
+            attached.iter().any(|line| line.contains(&format!("\"terminal\":\"{terminal}\""))),
+            "terminal {terminal} lost its window to a hop with no terminal: {text}"
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
