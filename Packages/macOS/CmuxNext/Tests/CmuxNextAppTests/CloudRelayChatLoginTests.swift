@@ -227,6 +227,36 @@ struct CloudRelayChatLoginTests {
         #expect(CloudStartSession.loginWithin + .seconds(20) <= CloudHandlers.answerWithin, "the turn keeps 20 s of the result deadline")
     }
 
+    /// `cloud start-chat` asks again after `login_pending` while the first run's login still runs: the second run joins
+    /// that login instead of starting another (one transfer or device login, never two racing on `harnessLogin`), and a
+    /// run after it ended logs in afresh. Red on a base where every run starts its own login step.
+    @Test func aRerunDuringAPendingLoginJoinsIt() async throws {
+        let f = Self.fixture()
+        defer { f.machine.disconnect() }
+        _ = Steps.shared.take()
+        CloudStartSession.bindRelayChat(into: f.services.registry, context: AppActionContext(services: f.services), reason: { nil },
+                                        steps: .init(login: { machine, _, still in
+                                            Steps.shared.append("login")
+                                            try await Task.sleep(for: .seconds(1))
+                                            machine.harnessLogin = Self.decision(outcome: "installed")
+                                            try still()
+                                        }, relay: { Self.relay }, loginWithin: .milliseconds(100), link: { _ in true }))
+        _ = try await #require(f.machine.appLink).connect(origin: .script)
+        let invoke = try #require(f.services.registry.action(for: "cloudRelayChat")?.invoke)
+        let run = { () async throws -> [String: ActionResultValue] in
+            var results: [ActionResultWork] = []
+            _ = f.services.registry.capturingRefusal { results = f.services.registry.capturingRun { invoke(Self.invocation(f.machine)) }.results }
+            return try Self.fields(await results.first?.value)
+        }
+        for _ in 0 ..< 2 { #expect(try await run()["error_code"] == .string("cloud.relay.login_pending")) }
+        try await Task.sleep(for: .seconds(2))
+        #expect(Steps.shared.take() == ["login"], "a rerun started a second login while the first still ran")
+        #expect(f.machine.relayLogins.isEmpty, "the ended login stayed in flight")
+        #expect(try await run()["error_code"] == .string("cloud.relay.login_pending"))
+        #expect(Steps.shared.take() == ["login"], "a run after the login ended did not log in afresh")
+        try await Task.sleep(for: .seconds(2))
+    }
+
     /// A sign-out or team switch while the login step waited: nothing is sent, and the code is a terminal login one.
     @Test func anAccountChangeDuringTheLoginSendsNothing() async throws {
         let run = try await Self.relayChat(Self.decision(outcome: "installed"), accountChanges: true)
