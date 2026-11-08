@@ -92,11 +92,11 @@ impl Stop {
         *self.lock() = true;
     }
 
-    pub(super) fn is_set(&self) -> bool {
+    fn is_set(&self) -> bool {
         *self.lock()
     }
 
-    pub(super) fn lock(&self) -> MutexGuard<'_, bool> {
+    fn lock(&self) -> MutexGuard<'_, bool> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }

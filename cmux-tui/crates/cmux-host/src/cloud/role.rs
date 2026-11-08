@@ -26,8 +26,6 @@ use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContext};
 use serde_json::{Value, json};
 
-use super::agent_socket::listen;
-use super::carrier_server::CarrierServer;
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
@@ -208,17 +206,57 @@ impl Store for FileStore {
 /// [`Http`] over cmux-server's HTTPS poster.
 pub struct PosterHttp(pub JsonPoster);
 
+impl PosterHttp {
+    /// Runs `send` on this poster and `url`. Tests: while [`TEST_ORIGIN`] is
+    /// set, every request goes to its path at that plain-HTTP origin instead,
+    /// on a poster of the calling thread (the before/after harness).
+    fn via<T>(&self, url: &str, send: impl FnOnce(&JsonPoster, &str) -> T) -> T {
+        #[cfg(test)]
+        let send = match test_route(url, send) {
+            Ok(answer) => return answer,
+            Err(send) => send,
+        };
+        send(&self.0, url)
+    }
+}
+
+/// [`PosterHttp::via`] while [`TEST_ORIGIN`] is set; `Err(send)` otherwise.
+#[cfg(test)]
+fn test_route<T, F: FnOnce(&JsonPoster, &str) -> T>(url: &str, send: F) -> Result<T, F> {
+    let Some(origin) =
+        TEST_ORIGIN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    else {
+        return Err(send);
+    };
+    thread_local! {
+        static POSTER: Option<JsonPoster> = JsonPoster::allowing_http().ok();
+    }
+    let path = url
+        .split_once("://")
+        .and_then(|(_, rest)| rest.find('/').map(|at| rest.split_at(at).1))
+        .unwrap_or("/");
+    let routed = format!("{origin}{path}");
+    POSTER.with(|poster| match poster {
+        Some(poster) => Ok(send(poster, &routed)),
+        None => Err(send),
+    })
+}
+
+/// Tests: the origin every Cloud request goes to ([`PosterHttp::via`]).
+#[cfg(test)]
+pub(crate) static TEST_ORIGIN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
 impl Http for PosterHttp {
     fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.0.get(url, bearer)
+        self.via(url, |poster, url| poster.get(url, bearer))
     }
 
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.0.post(url, body, bearer)
+        self.via(url, |poster, url| poster.post(url, body, bearer))
     }
 
     fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.0.post_empty(url, bearer)
+        self.via(url, |poster, url| poster.post_empty(url, bearer))
     }
 
     fn request_with_deadline(
@@ -228,7 +266,7 @@ impl Http for PosterHttp {
         bearer: Option<&str>,
         deadline: &cmux_server::cloud_http::RequestDeadline,
     ) -> Result<(u16, Vec<u8>), String> {
-        self.0.request_with_deadline(url, body, bearer, deadline)
+        self.via(url, |poster, url| poster.request_with_deadline(url, body, bearer, deadline))
     }
 
     fn request_with_headers(
@@ -238,11 +276,15 @@ impl Http for PosterHttp {
         bearer: Option<&str>,
         deadline: &cmux_server::cloud_http::RequestDeadline,
     ) -> Result<cmux_server::cloud_http::Response, String> {
-        self.0.request_with_deadline_headers(url, body, bearer, deadline)
+        self.via(url, |poster, url| {
+            poster.request_with_deadline_headers(url, body, bearer, deadline)
+        })
     }
 
     fn reset(&self) {
         self.0.reset();
+        #[cfg(test)]
+        let _ = test_route("/", |poster, _| poster.reset());
     }
 }
 
@@ -513,8 +555,6 @@ struct Worker {
     live: Option<Live>,
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
     github: Minter<PosterHttp>,
-    /// The session host's relay Register tickets, on their own socket and thread (`carrier_server.rs`).
-    carrier: Option<CarrierServer<PosterHttp>>,
     /// The carrier grant keyset's own fetch (`carrier_keyset.rs`).
     keyset: super::carrier_keyset::Refresher<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
@@ -552,11 +592,6 @@ impl Worker {
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
         forget_harness_login_state(&paths);
         let keyset = super::carrier_keyset::Refresher::spawn(paths.clone(), log)?;
-        // Before the bind: a ticket asked meanwhile waits for it there, not in the poll loop.
-        let carrier = listen(&paths, super::carrier_server::CARRIER_SOCKET)
-            .and_then(|l| CarrierServer::spawn(l, wall_ms, log, Arc::clone(&github_stop)))
-            .map_err(|e| log(&format!("carrier socket: {e}")))
-            .ok();
         Ok(Worker {
             bootstrap: None,
             store: FileStore::new(paths.clone()),
@@ -578,7 +613,6 @@ impl Worker {
             },
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
-            carrier,
             keyset,
             trajectories,
             gateway_token: None,
@@ -598,8 +632,7 @@ impl Worker {
     }
 
     fn run(&mut self) -> io::Result<()> {
-        self.listener =
-            listen(&self.paths, AGENT_SOCKET).map_err(|e| log(&format!("agent socket: {e}"))).ok();
+        self.listener = self.serve_socket().map_err(|e| log(&format!("agent socket: {e}"))).ok();
         if self.store.read(BIND_FILE).is_some() {
             self.bind_now();
         } else if let Some(saved) = self.store.read(BOUND_FILE) {
@@ -728,6 +761,24 @@ impl Worker {
             }
         }
         Ok(false)
+    }
+
+    fn serve_socket(&self) -> io::Result<UnixListener> {
+        let path = self.paths.at(AGENT_SOCKET);
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir)?;
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o755))?;
+        }
+        let _ = fs::remove_file(&path);
+        let listener = UnixListener::bind(&path)?;
+        listener.set_nonblocking(true)?;
+        if self.paths.is_system_root()
+            && let Some(gid) = group_id("cmux")
+        {
+            std::os::unix::fs::chown(&path, Some(0), Some(gid))?;
+        }
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o660))?;
+        Ok(listener)
     }
 
     fn accept(&mut self) {
@@ -990,12 +1041,6 @@ impl Worker {
         match github_client(&bound, &key) {
             Ok(client) => self.github.bound(client),
             Err(e) => log(&format!("github minter: {e}")),
-        }
-        if let Some(carrier) = self.carrier.as_ref() {
-            match github_client(&bound, &key) {
-                Ok(client) => carrier.bound(client),
-                Err(e) => log(&format!("carrier ticket: {e}")),
-            }
         }
         match github_client(&bound, &key) {
             Ok(client) => self.keyset.bound(client),
@@ -1335,6 +1380,17 @@ fn take_lines(buf: &mut Vec<u8>) -> Vec<String> {
     out
 }
 
+fn group_id(name: &str) -> Option<u32> {
+    let cname = std::ffi::CString::new(name).ok()?;
+    // SAFETY: getgrnam returns a pointer to static storage or null.
+    let group = unsafe { libc::getgrnam(cname.as_ptr()) };
+    if group.is_null() {
+        return None;
+    }
+    // SAFETY: non-null result from getgrnam.
+    Some(unsafe { (*group).gr_gid })
+}
+
 /// `cmux host cloud probe-activity`: the daemon advertises vm-activity-v1
 /// and a `subscribe-activity` stream answers with a snapshot.
 pub fn probe_activity(paths: &Paths, timeout: Duration) -> Result<Value, String> {
@@ -1371,3 +1427,7 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
 #[cfg(test)]
 #[path = "role_tests.rs"]
 mod role_tests;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "carrier_register_harness.rs"]
+mod carrier_register_harness;
