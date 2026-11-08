@@ -91,6 +91,12 @@ await requireBrowserLane("tool-fold-bottom-browser.test.ts", async () => {
     await page.addInitScript(() => localStorage.clear());
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
     await page.locator(".acpmux-row").first().waitFor();
+    // The stage runs the variant's play (it opens the finished turn's "Worked for" line) only once
+    // its DOM has held still, and marks itself ready after. Settling before then let that click land
+    // after the wait: its rows slid in under the reader's click, the reply drawn over the edit line.
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+      timeout: 60_000,
+    });
     // The scene's play arms its hooks once the chat is drawn.
     const hook = { streaming: "cmuxGalleryStream", "after-send": "cmuxGallerySend" }[variant];
     if (hook)

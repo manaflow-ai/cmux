@@ -12,14 +12,8 @@
    --acpmux-transcript-min under the header; in a pane shorter still, the dock and the queue give up
    their height, down to one row, and scroll inside it. Elsewhere (a new chat's hero, a handoff
    review, the diff, Session Info) the stack is in the pane's flow under the stage. */
-/* The app's toasts rest over the pane's foot: the host gives their band as --cmux-toast-room
-   (toastRoom.ts), and the shell keeps the stage and this stack above it, so no toast covers the
-   composer, a queued prompt or the transcript (Leo 2026-11-06). The transcript stays at its newest
-   row through the height change (VirtualTranscript keeps the bottom pinned on a resize). */
-.acpmux-shell {
-  box-sizing: border-box;
-  padding-bottom: var(--cmux-toast-room, 0px);
-}
+/* The app's toasts take no room here: the page reports this stack's box and the host lifts the
+   toasts above it (toastAvoidance.ts), so the composer never moves for a toast (Leo 2026-11-07). */
 /* The stage holds the header (44px, styles.css) over the transcript. */
 .acpmux-main > .acpmux-stage {
   min-height: calc(44px + var(--acpmux-transcript-min, 96px));

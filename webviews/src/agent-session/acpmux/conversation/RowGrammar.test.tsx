@@ -4,21 +4,23 @@
 // drawn side by side, a SendMessage call, a shell `acpmux send`, "Ran 2 commands" and "Subagent
 // finished", share one layout: the tool rows' grid (`.cv-tool`), the icon first, the sentence,
 // then the trailing column (status, then duration), then the chevron last. A send reads "Sent to"
-// with its recipient as the one chip, and a shut send's first line shows once.
+// with its recipient as the one chip, and a shut send's first line shows once. A shell `acpmux send`
+// draws as a received message's line instead (SentMessageLine.tsx; ask-64e107ccf0, Leo 2026-11-07:
+// "it's just not good, compared to the normal ones"), so its row is that line's, checked below.
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { SubagentHarnessContext } from "../subagents/SubagentGroup";
+import { SubagentHarnessContext } from "../subagents/subagentGroupModel";
 import { SubagentDoneLine } from "../subagents/SubagentDoneLine";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { agentMessage } from "./agentMessages";
 import { MessageCard } from "./MessageCard";
 import { AcpmuxSendLine } from "./SentMessageLine";
 import { ToolGroupRow } from "./ToolGroupRow";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -113,7 +115,11 @@ async function fourRows(): Promise<{ container: HTMLElement; rows: Record<string
   );
   const rows: Record<string, HTMLElement> = {};
   for (const kind of ["send-message", "acpmux-send", "commands", "subagent"]) {
-    const row = container.querySelector<HTMLElement>(`[data-kind="${kind}"] .cv-tool:not(.cv-tool .cv-tool)`);
+    const row = container.querySelector<HTMLElement>(
+      kind === "acpmux-send"
+        ? `[data-kind="${kind}"] .cv-sent-msg`
+        : `[data-kind="${kind}"] .cv-tool:not(.cv-tool .cv-tool)`,
+    );
     if (!row) throw new Error(`no row for ${kind}`);
     rows[kind] = row;
   }
@@ -141,6 +147,7 @@ const columns = (row: Element): string[] =>
 test("the four row kinds share one row grammar: icon, sentence, trailing column, chevron last", async () => {
   const { rows } = await fourRows();
   for (const [kind, row] of Object.entries(rows)) {
+    if (kind === "acpmux-send") continue;
     const order = columns(row);
     expect({ kind, first: order[0] }).toEqual({ kind, first: "icon" });
     expect({ kind, last: order.at(-1) }).toEqual({ kind, last: "chevron" });
@@ -185,6 +192,7 @@ test("each row draws its trailing status or duration before the chevron, and the
     doc.head.append(style);
   }
   for (const [kind, row] of Object.entries(rows)) {
+    if (kind === "acpmux-send") continue;
     const order = drawn(row);
     // The chevron is drawn last on every row, so it sits on one x at the row's end.
     expect({ kind, last: order.at(-1) }).toEqual({ kind, last: "chevron" });
@@ -193,13 +201,13 @@ test("each row draws its trailing status or duration before the chevron, and the
     if (trail !== -1) expect({ kind, trail }).toEqual({ kind, trail: order.length - 2 });
   }
   // The sends and the subagent line carry a trailing column, so the check above bites on them.
-  for (const kind of ["send-message", "acpmux-send", "subagent"])
+  for (const kind of ["send-message", "subagent"])
     expect({ kind, trail: drawn(rows[kind]!).includes("trail") }).toEqual({ kind, trail: true });
 });
 
 test("a send reads Sent to <recipient>, the recipient one chip, its status in the trailing column", async () => {
   const { rows } = await fourRows();
-  for (const kind of ["send-message", "acpmux-send"]) {
+  for (const kind of ["send-message"]) {
     const row = rows[kind]!;
     const words = row.querySelector(".cv-agentmsg__words")!.textContent;
     expect({ kind, words }).toEqual({ kind, words: "Sent to" });
@@ -212,19 +220,24 @@ test("a send reads Sent to <recipient>, the recipient one chip, its status in th
     const trail = row.querySelector(".cv-tool__trail");
     const status = trail?.textContent?.toLowerCase();
     expect({ kind, status }).toEqual({ kind, status: "queued" });
-    if (kind === "acpmux-send") expect(trail!.querySelector(".cv-row-status")).not.toBeNull();
     expect(row.querySelector(".cv-agentmsg__sentence")!.textContent).not.toContain("queued");
   }
   expect(rows["send-message"]!.querySelector(".cv-recipient")!.textContent).toBe("Organize the sidebar");
-  expect(rows["acpmux-send"]!.querySelector(".cv-recipient")!.textContent).toBe("fanout-infra");
+  // The shell send reads as a received line: "Sent to", the recipient one chip, its status at the
+  // line's end, after the chevron.
+  const shell = rows["acpmux-send"]!;
+  const line = shell.querySelector(":scope > .cv-disclosure__line")!;
+  expect(line.querySelector(".cv-received__sender .cv-sent__words")!.textContent).toBe("Sent to");
+  expect([...line.querySelectorAll(".cv-recipient")].map((chip) => chip.textContent)).toEqual(["fanout-infra"]);
+  expect(line.lastElementChild!.querySelector(".cv-row-status")?.textContent).toBe("queued");
+  expect(line.querySelector(".cv-disclosure__toggle")!.textContent).not.toContain("queued");
 });
 
 test("every message preview is cut by the one rule: one muted span that ellipsizes", async () => {
   const { rows } = await fourRows();
-  for (const kind of ["send-message", "acpmux-send"]) {
-    const previews = rows[kind]!.querySelectorAll(".cv-agentmsg__preview");
-    expect({ kind, previews: previews.length }).toEqual({ kind, previews: 1 });
-  }
+  expect(rows["send-message"]!.querySelectorAll(".cv-agentmsg__preview")).toHaveLength(1);
+  // The shell send's first line is a received line's one preview span.
+  expect(rows["acpmux-send"]!.querySelectorAll(".cv-received__preview")).toHaveLength(1);
   const css = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
   const rule = /\.cv-agentmsg__preview \{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(rule).toContain("text-overflow: ellipsis");
@@ -284,9 +297,12 @@ test("an opened send shows its message once, under the row, not again on the lin
   const { rows } = await fourRows();
   for (const kind of ["send-message", "acpmux-send"]) {
     const row = rows[kind]!;
-    const toggle = row.querySelector<HTMLElement>(".cv-agentmsg__toggle") ?? row;
+    const toggle = row.querySelector<HTMLElement>(".cv-agentmsg__toggle, .cv-disclosure__toggle") ?? row;
     await act(async () => toggle.click());
-    expect({ kind, preview: row.querySelector(".cv-agentmsg__preview")?.textContent ?? "" }).toEqual({
+    expect({
+      kind,
+      preview: row.querySelector(".cv-agentmsg__preview, .cv-received__preview")?.textContent ?? "",
+    }).toEqual({
       kind,
       preview: "",
     });

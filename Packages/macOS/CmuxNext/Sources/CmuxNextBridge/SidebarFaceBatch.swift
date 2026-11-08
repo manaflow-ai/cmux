@@ -215,6 +215,13 @@ public final class SidebarFaceBatch {
 
         private static func index(_ value: UInt32) -> Int? { value == SidebarFaceBatch.none ? nil : Int(value) }
 
+        /// Row `row`'s picked tabs alone (indexes into its tabs), no text decoded: what a caller that names one
+        /// workspace reads (`SidebarMapping.faceTabs`).
+        func picks(_ row: Int) -> (front: Int?, label: Int?, face: Int?, work: Int?, chat: Int?) {
+            let raw = reply.faces[row]
+            return (Self.index(raw.front), Self.index(raw.label), Self.index(raw.face), Self.index(raw.work), Self.index(raw.chat))
+        }
+
         /// Row `row`'s face, with `tabCount` listed tabs.
         func face(_ row: Int, tabCount: Int) -> SidebarFace {
             let raw = reply.faces[row]

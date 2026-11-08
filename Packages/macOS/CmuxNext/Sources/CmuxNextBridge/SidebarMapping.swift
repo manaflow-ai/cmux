@@ -84,7 +84,7 @@ public struct SidebarMapping {
     /// names them per row instead, read by the row's own mapping (so a page
     /// opened in one workspace maps that row only). `pageFace` gives the face
     /// a workspace's front tab (any kind) lends its row, given the work tab a
-    /// browser front tab yields its name to (`workTab`), and the favicon of
+    /// browser front tab yields its name to (`FaceTabs.work`), and the favicon of
     /// each browser tab in the tab list (no work tab). `tabTitle` names each tab in the tab
     /// list as its strip does (the App's `TabTitleResolver`, given the row's workspace); without it a
     /// tab shows its record's title. `iconAsset` draws a stored image or SVG
@@ -283,59 +283,16 @@ public struct SidebarMapping {
         return SidebarChecklistItem(id: item.id, text: item.text, state: state, attachmentCount: item.attachments.count)
     }
 
-    /// The tab the row stands for: the selected tab of the workspace's most
-    /// recently focused pane; nil for a workspace with no tabs.
-    public func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        let panes = workspace.screens.flatMap(\.panes).filter { !$0.tabs.isEmpty }
-        guard let pane = panes.max(by: { $0.focusedAt < $1.focusedAt }) else { return nil }
-        return selected(pane, selectedTab: selectedTab)
-    }
-
-    /// The tab a browser front tab yields its row's name to (a PR opened in
-    /// a split, https://github.com/manaflow-ai/cmux/issues/22249): the
-    /// selected tab of the most recently focused pane that shows a chat or
-    /// terminal, the work the row was named for before the page opened; nil
-    /// while every pane shows a page. A Home, page or app tab gives no name
-    /// (`WorkspaceAutoNameReader.front`), so it is passed over too.
-    public func workTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        // One pass: the newest eligible pane, the first stored one on a tie (as `frontTab`).
-        var work: (tab: TabModel, focusedAt: UInt64)?
-        for screen in workspace.screens {
-            for pane in screen.panes where !pane.tabs.isEmpty {
-                if let work, pane.focusedAt <= work.focusedAt { continue }
-                let tab = selected(pane, selectedTab: selectedTab)
-                let named = tab.agentSession != nil || (tab.kind != .conversation && tab.page == nil && tab.appTab == nil)
-                if tab.kind != .browser, named { work = (tab, pane.focusedAt) }
-            }
-        }
-        return work?.tab
-    }
-
-    /// The one tab a workspace's row and window titlebar both read their name and icon from: the
-    /// label tab (`labelTab`), or for a browser one the work it yields to (`workTab`), so focus
-    /// moving to a page beside a chat leaves both the chat's.
-    public func faceTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?,
-                        newTabPages: Set<String> = []) -> TabModel? {
-        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        let front = labelTab(frontTab(workspace, selectedTab: selectedTab), tabs, newTabPages: newTabPages)
-        guard front?.kind == .browser else { return front }
-        return workTab(workspace, selectedTab: selectedTab) ?? front
-    }
-
-    /// The tab `pane` shows: the window's selection, else the daemon's default tab.
-    private func selected(_ pane: PaneModel, selectedTab: (PaneModel) -> String?) -> TabModel {
-        if let id = selectedTab(pane), let tab = pane.tabs.first(where: { $0.id == id }) { return tab }
-        return pane.tabs[min(max(pane.defaultTabIndex, 0), pane.tabs.count - 1)]
-    }
-
-    /// The row's agent chat, whose last message the row shows: the front tab's, else the first chat tab's.
+    /// The row's agent chat as Copy Agent Identifier reads it: the front tab's, else the first chat tab's. The
+    /// front tab comes from the Rust face (`faceTabs`); this pick stays in Swift only until the face answers it
+    /// too (`front_chat`, cmux-layout-reducer `sidebar_face`), then it goes.
     func chatTab(_ front: TabModel?, _ tabs: [TabModel]) -> TabModel? {
         front?.agentSession != nil ? front : tabs.first { $0.agentSession != nil }
     }
 
     /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id).
     public func rowChat(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        chatTab(frontTab(workspace, selectedTab: selectedTab), workspace.screens.flatMap(\.panes).flatMap(\.tabs))
+        chatTab(faceTabs(workspace, selectedTab: selectedTab).front, workspace.screens.flatMap(\.panes).flatMap(\.tabs))
     }
 
     static func tabKind(_ kind: TabKind) -> SidebarTabKind {

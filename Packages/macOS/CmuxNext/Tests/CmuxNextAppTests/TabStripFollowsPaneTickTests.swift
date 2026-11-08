@@ -6,6 +6,7 @@ import CmuxNextDesignTokens
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
 @testable import CmuxNextTerminal
+import CmuxNextTerminalGeometry
 import CmuxNextTestSupport
 import Testing
 
@@ -295,15 +296,20 @@ struct TabStripFollowsPaneTickTests {
         let atRest = try off("at rest", terminals: true, atRest: true)
         try #require(atRest.isEmpty, "\(atRest)")
         let before = try panes.map { try #require(rig.root.context.hosts[$0]).frame }
+        var startGrids: [PaneID: TerminalGridSize] = [:]
+        for pane in panes { startGrids[pane] = try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid }
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
-        var found: [String] = [], frames = 0, moving = true
+        var found: [String] = [], frames = 0, moving = true, firstChanged: [PaneID: TerminalGridSize] = [:]
         while moving, frames < 240 {
             moving = rig.root.advanceFrame(1.0 / 120)
             frames += 1
             found += try off("frame \(frames) tick", terminals: false)
             rig.root.layoutSubtreeIfNeeded()
             found += try off("frame \(frames) commit", terminals: true)
+            for pane in panes where firstChanged[pane] == nil {
+                if let grid = try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid, grid != startGrids[pane] { firstChanged[pane] = grid }
+            }
         }
         rig.commit()
         found += try off("after the landing", terminals: true, atRest: true)
@@ -313,9 +319,11 @@ struct TabStripFollowsPaneTickTests {
         for pane in panes {
             let grids = try await PaneContentPolicyTests.grids(pane, rig)
             let final = try #require(try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid)
-            // RESIZE P0 7: the grid of the first landed frame goes at once; these frames run in one turn, so no refresh ends a window and the rest go as the final grid.
-            #expect(grids.last == final && grids.count <= 2 && Set(grids).count == grids.count,
-                    "\(pane) asked its PTY for \(grids), not at most its first frame's grid and then its final grid \(final)")
+            // RESIZE P0 7: the grid of the first landed frame goes at once; these frames run in one turn, so no refresh ends a
+            // window and the rest go as the final grid. Exact: any other first grid fails (RESIZE P0 8, review of 28a640183a7).
+            let atOnce = firstChanged[pane].map { [$0, final] }
+            #expect(grids == [final] || grids == atOnce,
+                    "\(pane) asked its PTY for \(grids), not [its first frame's grid \(String(describing: firstChanged[pane])),] then its final grid \(final)")
         }
     }
 

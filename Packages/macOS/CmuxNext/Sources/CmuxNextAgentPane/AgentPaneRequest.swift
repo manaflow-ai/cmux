@@ -243,6 +243,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
     /// natively drawn Session Info steps behind; empty when none shows.
     case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
+    /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
+    /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
+    case toastAvoidance(CGRect?)
     /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
     /// (``AgentPaneHostGlass``); empty when none shows.
     case hostGlass([AgentPaneHostGlassSurface])
@@ -255,7 +258,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
     case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
-    case sideChat(String)
+    /// `splitRight`: `/side`'s side chat, always a new split right of the chat (#38042).
+    case sideChat(String, splitRight: Bool = false)
     /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
     /// a split, a new workspace or a new window (`placement`; none is a tab).
     case chatTab(String, AgentForkDestination)
@@ -304,6 +308,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
+    /// `dictation.handoff`: the mic, when `agentPane.dictationSource` names an app, sends that
+    /// app's shortcut or starts macOS Dictation (``AgentPaneDictationHandoff``).
+    case dictationHandoff
+    /// `dictation.sources`: the dictation apps this Mac has, for the mic's menu.
+    case dictationSources
+    /// `dictation.watchMicrophone {on}`: a composer of the page has the keyboard (or none has any
+    /// more); while one has, the host says when another app holds the microphone (`micActivity`).
+    case watchMicrophone(Bool)
     /// `externalAccess.openSettings {kind}`: open the local Privacy & Security destination after a real click.
     case externalAccessOpenSettings(AgentPaneExternalAccessKind)
     /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
@@ -394,7 +406,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
     /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline`, `strip` or `both`),
-    /// and `pane.setComposerRing {ring}` writes `agentPane.composerRing` (`context` or `planUsage`).
+    /// and `pane.setComposerRing {ring}` writes `agentPane.composerRing` (`context` or `planUsage`),
+    /// and `pane.setDictationSource {source}` writes `agentPane.dictationSource`.
     case displaySetting(path: [String], value: JSONValue?)
     /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
     /// (``AgentPaneFeatureTipRecords``).

@@ -9,11 +9,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
+import { AttachmentStrip } from "../src/agent-session/acpmux/composer/attachmentIntake";
 import {
-  AttachmentStrip,
   useAttachmentIntake,
   type AttachmentIntakeOptions,
-} from "../src/agent-session/acpmux/composer/attachmentIntake";
+} from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { intakeFiles, type IntakeEvents } from "../src/agent-session/acpmux/composer/intakeFiles";
 
 const scope = globalThis as Record<string, unknown>;

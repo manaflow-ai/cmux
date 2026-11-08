@@ -64,6 +64,7 @@ extension SidebarListViewComponents {
                 let target = frame(for: row)
                 view.targetSize = target.size
                 if key == .group(id) { configure(view, row: row, animated: animate) } // the chevron, count and activity
+                view.isSelected = selectedRowKey == key // a row the fold keeps shows the selection as it is now
                 targets.append((view, target))
                 continue
             }

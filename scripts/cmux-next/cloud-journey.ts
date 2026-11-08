@@ -217,6 +217,10 @@ export async function oidcSignIn(apiOrigin: string, env: Record<string, string |
   return { token: r.body.access_token, user: String(r.body.user ?? "?"), expiresAt: String(r.body.session_expires_at ?? "?") };
 }
 
+const OP_ATTEMPTS = 3;
+/** The ops API says a provider call was cut off and the same idempotency key may be sent again. */
+export const opRetryable = (body: any): boolean => body?.ok !== true && body?.error?.code === "mutation.indeterminate" && body?.error?.retryable === true;
+
 class Api {
   bearer = "";
   constructor(readonly origin: string, readonly team?: string) {}
@@ -224,9 +228,13 @@ class Api {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
   async op(op: string, params: unknown, key?: string): Promise<any> {
-    const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000);
-    if (r.status !== 200 || r.body.ok !== true) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
-    return r.body.value;
+    for (let attempt = 1; ; attempt++) {
+      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000);
+      // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
+      if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
+      if (r.status !== 200 || r.body.ok !== true) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
+      return r.body.value;
+    }
   }
   async read(op: string, params: unknown): Promise<any> {
     const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers());
@@ -479,6 +487,41 @@ export function swiftRawString(source: string, name: string): string {
 /** The model stub --model stub runs on the machine. */
 /** The shared model stub (tests/fixtures/model-stub, #35332): Anthropic Messages and OpenAI Responses, scripted. */
 export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url));
+/**
+ * The gateway route's time by hop, from each timed call's Server-Timing (a `hop-s` line after its `hop-t` line; the
+ * warm-up is dropped), as p50 ms: the Worker's `auth` and `worker-do`, the team object's `do-wait` and `do-gateway`,
+ * then per call `object_hop` (worker-do less the object's spans: the hop into the object and back) and `edge`
+ * (curl's TTFB less the Worker's spans: the edge and the network to the Worker), and `untimed`, the counted calls
+ * without all four spans (the p50s cover only `calls`). Null when no call carried them.
+ * Pure, for the tests.
+ */
+export const hopSpans = (out: string): Record<string, number> | null => {
+  const calls: Array<{ ttfb: number; spans: Record<string, number> }> = [];
+  for (const line of out.split("\n")) {
+    if (line.startsWith("hop-t ")) calls.push({ ttfb: Number(line.split(" ")[2]) * 1000, spans: {} });
+    else if (line.startsWith("hop-s ") && calls.length) {
+      for (const entry of line.slice(6).split(",")) {
+        const m = /^\s*([\w-]+)\s*;\s*dur=([\d.]+)/.exec(entry);
+        if (m) calls[calls.length - 1]!.spans[m[1]!] = Number(m[2]);
+      }
+    }
+  }
+  const timed = calls.slice(1).filter((c) => ["auth", "worker-do", "do-wait", "do-gateway"].every((k) => k in c.spans));
+  if (!timed.length) return null;
+  const p50 = (xs: number[]) => Math.round([...xs].sort((x, y) => x - y)[Math.ceil(xs.length / 2) - 1]!);
+  const of = (f: (c: { ttfb: number; spans: Record<string, number> }) => number) => p50(timed.map(f));
+  return {
+    calls: timed.length,
+    untimed: calls.length - 1 - timed.length,
+    auth: of((c) => c.spans.auth!),
+    "worker-do": of((c) => c.spans["worker-do"]!),
+    "do-wait": of((c) => c.spans["do-wait"]!),
+    "do-gateway": of((c) => c.spans["do-gateway"]!),
+    object_hop: of((c) => c.spans["worker-do"]! - c.spans["do-wait"]! - c.spans["do-gateway"]!),
+    edge: of((c) => c.ttfb - c.spans.auth! - c.spans["worker-do"]!),
+  };
+};
+
 /** The model plane every Cloud machine's agents read (web/services/coderouter/vmGuestEnv.ts). */
 const VM_MODEL_PLANE_ENV = "/etc/cmux/model-plane.env";
 /** Calls timed each way by the gateway hop cost. */
@@ -1222,6 +1265,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    if (gatewayStub && provider === "codex" && !only.has("chat")) {
+      // The stub lists no models, and with the image's default model slug Codex sends it no tools (codex-cli 0.164
+      // against the stub: tools=0 with the default, 9 with "stub-model"), so the turn gets the stub's side reply
+      // (gateway-e2e runs 7 and 8). Name the stub's model, as the --model stub path does; the provider stays the
+      // image's `cmux` (edge, placeholder key), so the call still goes through the gateway.
+      await J.step("Codex names the stub's model", async () => {
+        const r = await exec(
+          `bash -lc true >/dev/null 2>&1 </dev/null; f=/home/cmux/.codex/config.toml; ` +
+            `python3 -I - "$f" <<'PY'\nimport pathlib, re, sys\np = pathlib.Path(sys.argv[1])\nlines = p.read_text().splitlines() if p.exists() else []\n` +
+            `head = next((i for i, l in enumerate(lines) if re.match(r"\\s*\\[", l)), len(lines))\n` +
+            `lines = [l for i, l in enumerate(lines) if i >= head or not re.match(r"\\s*model\\s*=", l)]\n` +
+            `p.write_text("\\n".join(['model = "stub-model"'] + lines) + "\\n")\nPY\n` +
+            `grep -q '^model = "stub-model"' "$f" && grep -q '^model_provider = "cmux"' "$f" && echo model-set`,
+        );
+        if (!r.stdout.includes("model-set")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
+        return { value: null, detail: 'model = "stub-model"; model_provider stays "cmux" (the edge, the placeholder key)' };
+      });
+    }
     const stubLog = "/home/cmux/.cmux/journey-model-stub.log";
     if (modelStub && provider && !only.has("chat")) {
       // The stub listens on the machine's loopback only; the harness's own settings point it there, after the login
@@ -1408,18 +1469,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // and from the gateway machine straight to the stub. One warm-up call each is not counted.
           await J.step("gateway: hop cost", async () => {
             const n = HOP_SAMPLES;
+            // Each call's Server-Timing (cmux-platform InferenceGateway: the Worker's and the team object's spans) follows
+            // its timing line as `hop-s <value>`; the stub sends none.
             const loop = (auth: string, url: string) =>
-              `for i in $(seq 0 ${n}); do curl -sS -o /dev/null -m 30 ${auth} -w 'hop-t %{http_code} %{time_starttransfer} %{time_total}' ${url}; echo " $?"; done`;
+              `h=$(mktemp); for i in $(seq 0 ${n}); do curl -sS -o /dev/null -D "$h" -m 30 ${auth} -w 'hop-t %{http_code} %{time_starttransfer} %{time_total}' ${url}; echo " $?"; ` +
+              `tr -d '\\r' < "$h" | awk 'tolower($0) ~ /^server-timing:/ { sub(/^[^:]*:[ \\t]*/, ""); print "hop-s " $0 }'; done; rm -f "$h"`;
             const via = await exec(`. ${VM_MODEL_PLANE_ENV} && ${loop(`-H "Authorization: Bearer $OPENAI_API_KEY"`, `"$OPENAI_BASE_URL/models"`)}`, 300_000);
             const direct = await gwExec!(loop("", shq(`${stubUrl}/v1/models`)), 300_000);
             const a = hopTimes(via.stdout, n);
             const b = hopTimes(direct.stdout, n);
-            const result = { samples: n, gateway_path: a, direct: b, added_ms: { ttfb_p50: a.ttfb_p50 - b.ttfb_p50, total_p50: a.total_p50 - b.total_p50 } };
+            const result = { samples: n, gateway_path: a, direct: b, added_ms: { ttfb_p50: a.ttfb_p50 - b.ttfb_p50, total_p50: a.total_p50 - b.total_p50 }, by_hop_p50: hopSpans(via.stdout) };
             if (outDir) writeFileSync(path.join(outDir, "gateway-hop.json"), `${JSON.stringify(result, null, 2)}\n`);
             return {
               value: null,
               // The whole result, so the run's summary keeps it (the job uploads no artifact).
-              detail: `the route adds ${result.added_ms.ttfb_p50} ms TTFB at p50; ${JSON.stringify(result)}`,
+              detail: `the route adds ${result.added_ms.ttfb_p50} ms TTFB at p50` +
+                (result.by_hop_p50
+                  ? `, the team object's own hop ${result.by_hop_p50.object_hop} ms` +
+                    (result.by_hop_p50.untimed ? ` (over ${result.by_hop_p50.calls} calls; ${result.by_hop_p50.untimed} came back without Server-Timing)` : "")
+                  : " (no Server-Timing came back)") +
+                `; ${JSON.stringify(result)}`,
             };
           });
         }

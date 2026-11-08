@@ -23,7 +23,7 @@ public final class ChiefPetMini {
     /// `install:<id>` of this Mac: a chat of its own acpmux is kept under it.
     private let localHost: @MainActor () -> String?
     private let settings: @MainActor () -> SettingsController?
-    private let pet: @MainActor () -> ChiefPetController?
+    let pet: @MainActor () -> ChiefPetController?
     /// The acpmux this app runs (resolved once at startup), and the sender of the reply box's messages.
     private let acpmux: AcpmuxEnvironment?
     private let replies = AcpmuxReplySender()
@@ -45,6 +45,17 @@ public final class ChiefPetMini {
     public func upload(chief: () -> URL?) -> URL? {
         guard let chat = subject.chat else { return chief() }
         return uploads.uploads[ChiefAvatarUploads.key(agent: chat.session)]?.file
+    }
+
+    /// Starts `pet` on the mini's chat: it follows `home.chiefPetEnabled` and `home.chiefPetMascot`, wears the
+    /// chat's avatar (the Chief's: `chiefUpload`) and draws its turn (the Chief's: `chiefActivity`).
+    public func follow(_ pet: ChiefPetController, settings: @escaping @MainActor @Sendable () -> SettingsController?,
+                       chiefUpload: @escaping @MainActor @Sendable () -> URL?,
+                       chiefActivity: @escaping @MainActor @Sendable () -> StatusIndicatorState) {
+        pet.start(enabled: { settings()?.snapshot.homeChiefPetEnabled ?? false },
+                  mascot: { settings()?.snapshot.homeChiefPetMascot ?? "" },
+                  upload: { self.upload(chief: chiefUpload) },
+                  state: { self.state(chief: chiefActivity) }, home: { self.home() })
     }
 
     /// The mini's chat's turn as acpmux decided its lane (this Mac's chat or a peer's); for the

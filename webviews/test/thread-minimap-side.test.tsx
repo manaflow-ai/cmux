@@ -236,12 +236,12 @@ for (const side of ["left", "right"] as const)
   });
 
 // With the VS Code minimap on (agentPane.display.vscodeMinimap), the right edge holds it: the right
-// rail sits on its inner side, the minimap's strip (120 px in a 1040 px pane's 160 px gutter,
+// rail sits on its inner side, the minimap's strip (120 px in a 1120 px pane's 160 px gutter beside the 800 px column,
 // chatMinimap/paint.ts minimapWidth) plus its 10 px edge further in, never under it.
 // The left rail does not move for it.
 for (const side of ["left", "right"] as const)
   test(`with the VS Code minimap on, a ${side} rail stays clear of it`, async () => {
-    paneWidth = 1040;
+    paneWidth = 1120;
     setChatDisplay({
       "agentPane.display.minimap": "compact",
       "agentPane.display.vscodeMinimap": true,

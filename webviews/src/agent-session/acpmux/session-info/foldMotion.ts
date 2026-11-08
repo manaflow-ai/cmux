@@ -15,6 +15,12 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "re
 import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
 
+/// Whether a fold moves: full motion, and the host's move duration not 0 (Reduce Motion zeroes only
+/// that one, theme.ts `data-agent-move`), as the transcript's fold reads it (conversation/fold.ts).
+function foldMoves(doc: Document | undefined = typeof document === "undefined" ? undefined : document): boolean {
+  return motionMode(doc) === "full" && doc?.documentElement.dataset.agentMove !== "instant";
+}
+
 /// How long a fold moves: the settle's measured length (--cmux-motion-settle, schemas/motion-scale).
 export const FOLD_MS = MOTION_SETTLE_MS;
 /// The settle (--cmux-ease-settle): a strong ease-out that decelerates into the end height and never
@@ -23,6 +29,15 @@ export const FOLD_MS = MOTION_SETTLE_MS;
 /// to change it (and a gallery comparison can swap it), else the generated copy.
 const foldEase = (box: HTMLElement) =>
   box.ownerDocument.defaultView?.getComputedStyle(box).getPropertyValue("--cmux-ease-settle").trim() || MOTION_SETTLE;
+
+/// The settle's length on `box` (--cmux-motion-settle, so a gallery comparison can swap it), else FOLD_MS.
+function foldDuration(box: HTMLElement): number {
+  const value =
+    box.ownerDocument.defaultView?.getComputedStyle(box).getPropertyValue("--cmux-motion-settle").trim() ?? "";
+  const match = /^(\d+(?:\.\d+)?)(ms|s)$/.exec(value);
+  if (!match) return FOLD_MS;
+  return Number(match[1]) * (match[2] === "s" ? 1000 : 1);
+}
 
 export interface FoldMotion<E extends HTMLElement> {
   /// The box that holds the rows: its height moves.
@@ -60,7 +75,7 @@ export function useFoldMotion<E extends HTMLElement>(
   const toggle = (next: boolean, apply: (next: boolean) => void) => {
     const box = ref.current;
     // A box drawn only while open (`drawn && <div ref>`) opens from nothing.
-    if ((box || next) && next !== open && motionMode() === "full") {
+    if ((box || next) && next !== open && foldMoves(box?.ownerDocument)) {
       // Where it is drawn now, a fold still running included.
       from.current = box ? box.offsetHeight : 0;
       setHeld(!next);
@@ -75,10 +90,17 @@ export function useFoldMotion<E extends HTMLElement>(
     const box = ref.current;
     const start = from.current;
     from.current = undefined;
-    if (!box || start === undefined) return;
     const before = run.current;
     run.current = undefined;
     before?.cancel();
+    if (!box) return;
+    if (start === undefined) {
+      // Opened or closed from outside (a reveal that sets the owner's state, not toggle): no motion,
+      // and none left running from before, so a close it interrupted never holds its clip.
+      delete box.dataset.folding;
+      setHeld(false);
+      return;
+    }
     const end = open ? box.offsetHeight : measureClosed.current(box);
     if (Math.abs(end - start) < 1) {
       // Nothing to move (a fold turned back where it began): no clip left from the one it replaced.
@@ -88,7 +110,7 @@ export function useFoldMotion<E extends HTMLElement>(
     }
     box.dataset.folding = "";
     const fold = box.animate([{ height: `${start}px` }, { height: `${end}px` }], {
-      duration: FOLD_MS,
+      duration: foldDuration(box),
       easing: foldEase(box),
       // Closing holds the end height until the rows that go have left (the effect below).
       fill: open ? "none" : "forwards",

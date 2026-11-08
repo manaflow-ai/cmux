@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { nativeProofSkip, oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { carrierDial, hopTimes, machineIds, newMachineIds } from "./cloud-journey";
+import { carrierDial, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
@@ -261,5 +261,31 @@ echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&
     expect(() => hopTimes(lines(["200 0.1 0.1 0", "200 0.1 0.1 0"]), 2)).toThrow("1 of 2 timed calls");
     expect(() => hopTimes(lines(["200 0.1 0.1 0", "502 0.1 0.1 0"]), 1)).toThrow("did not answer 200 whole (502 exit 0)");
     expect(() => hopTimes(lines(["200 0.1 0.1 0", "200 0.1 0.1 18"]), 1)).toThrow("(200 exit 18)");
+  });
+
+  test("the hop split reads each call's Server-Timing after its timing line and derives the object's own hop", () => {
+    const call = (ttfb: number, st: string | null) => [`hop-t 200 ${(ttfb / 1000).toFixed(3)} 0.300 0`, ...(st ? [`hop-s ${st}`] : [])];
+    const st = (auth: number, wd: number, wait: number, gw: number) => `auth;dur=${auth}, worker-do;dur=${wd}, do-wait;dur=${wait}, do-gateway;dur=${gw}`;
+    const out = [
+      ...call(900, st(90, 900, 90, 90)), // warm-up, dropped
+      ...call(230, st(5, 200, 2, 150)),
+      ...call(240, st(7, 210, 4, 160)),
+      ...call(250, st(9, 220, 6, 170)),
+    ].join("\n");
+    expect(hopSpans(out)).toEqual({ calls: 3, untimed: 0, auth: 7, "worker-do": 210, "do-wait": 4, "do-gateway": 160, object_hop: 46, edge: 23 });
+    // A counted call without the spans is reported, not hidden in a smaller sample.
+    expect(hopSpans([out, ...call(260, null), ...call(270, "auth;dur=1")].join("\n"))).toMatchObject({ calls: 3, untimed: 2 });
+    expect(hopSpans([...call(200, null), ...call(200, null)].join("\n"))).toBeNull();
+    expect(hopSpans([...call(200, null), ...call(200, "auth;dur=1, worker-do;dur=2")].join("\n"))).toBeNull();
+  });
+});
+
+describe("opRetryable", () => {
+  test("retries only a cut-off provider call the API marks retryable", () => {
+    expect(opRetryable({ ok: false, error: { code: "mutation.indeterminate", message: "the provider call was cut off; retry with the same key", retryable: true } })).toBe(true);
+    expect(opRetryable({ ok: false, error: { code: "mutation.indeterminate", retryable: false } })).toBe(false);
+    expect(opRetryable({ ok: false, error: { code: "cloud.provider.unavailable", retryable: true } })).toBe(false);
+    expect(opRetryable({ ok: true, value: {} })).toBe(false);
+    expect(opRetryable("vm_unavailable")).toBe(false);
   });
 });

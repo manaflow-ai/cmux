@@ -16,7 +16,7 @@ import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
 import { SubagentStatusList } from "./SubagentStatusList";
 import { SUBSESSION_STATUS, subagentStatus, waitingSubagents } from "./subagentStatusListModel";
-import { sessionStatus } from "../session-info/ChildSessionRows";
+import { sessionStatus } from "../session-info/childSessionRowsModel";
 import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
 import { startedChatsOutsideSubsessions } from "./startedChatsOutsideSubsessions";

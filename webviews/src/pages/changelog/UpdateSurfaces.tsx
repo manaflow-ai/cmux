@@ -27,6 +27,7 @@
 //    show at once what is going to change); with no change list, "See release notes" instead.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -47,6 +48,7 @@ import type { Strings } from "../shared/i18n";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlightMedia, UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { PreviewIntent, previewEntries } from "./updatedPreview";
+import { pressCard, SHIPPED_DRAG_FEEL, type CardDragFeel, type CardDragHost, type CardRow } from "./updatedCardDrag";
 import { PREVIEW_MAX_PX, UpdatedCardPreview } from "./UpdatedCardPreview";
 import { summarizeHighlights, summarizeUpdate, type SummaryRow } from "./updateSummary";
 
@@ -152,9 +154,9 @@ export type WhatsNewPlacement = "title" | "top-right" | "button";
 
 /** How long the card waits for the host to make room for the open preview before it opens anyway. */
 const PREVIEW_ROOM_WAIT_MS = 150;
-/** How long the preview's close runs before the card hands its room back (the motion scale's
-    ceiling, `--cmux-motion-large`); with motion reduced or off, no wait. */
-const PREVIEW_CLOSE_MS = 240;
+/** How long the preview's close runs before the card hands its room back (the card's own curve,
+    `--wn-preview-motion` in updateSurfaces.css); with motion reduced or off, no wait. */
+const PREVIEW_CLOSE_MS = 265;
 
 export function UpdatedCard({
   data,
@@ -169,6 +171,10 @@ export function UpdatedCard({
   previewOpen,
   hostPointer,
   onPreviewSize,
+  onPreviewGlass,
+  anchor = "bottom",
+  drag,
+  dragFeel = SHIPPED_DRAG_FEEL,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the previous version, newest first; absent until they load. */
@@ -195,6 +201,15 @@ export function UpdatedCard({
   /** The height, CSS px, the card needs above its slot's bottom while the preview is open, 0 once
       it has closed: the host grows its view upward by it, over the list, without moving the list. */
   onPreviewSize?: (height: number) => void;
+  /** The height, CSS px, the open preview will have once its motion ends, 0 as it starts to close:
+      said as the motion starts, so the host's glass behind the page runs the same motion with it. */
+  onPreviewGlass?: (height: number) => void;
+  /** Where the card rests: on the bottom slot (its preview opens upward) or at the top of the list
+      (its preview opens downward). */
+  anchor?: CardRow;
+  /** Moves the card while the person drags it (updatedCardDrag.ts); absent: the card does not drag. */
+  drag?: CardDragHost;
+  dragFeel?: CardDragFeel;
 }) {
   const titleId = useId();
   const [copied, setCopied] = useState(false);
@@ -205,11 +220,43 @@ export function UpdatedCard({
   const name = /^[^-]+-nightly\.\d+$/.test(data.version) ? strings.t("updates.card.nightly") : data.version;
   const titleKey = data.delivery === "background" ? "updates.card.updatedBehind" : "updates.card.updatedTo";
   const [before, after] = strings.format(titleKey, "\u0000").split("\u0000");
-  const preview = useHoverPreview({ data, span, strings, previewOpen, hostPointer, onPreviewSize, enabled: !doodle });
+  const preview = useHoverPreview({
+    data,
+    span,
+    strings,
+    previewOpen,
+    hostPointer,
+    onPreviewSize,
+    onPreviewGlass,
+    enabled: !doodle,
+  });
   const openChangelog = () => {
     preview.close();
     actions.openChangelog();
   };
+  const rest = useRef<HTMLElement | null>(null);
+  const dragRef = useCardDrag(rest, drag, dragFeel, preview.closeForDrag);
+  const { cardRef } = preview;
+  const plainRef = useCallback(
+    (element: HTMLElement | null) => {
+      cardRef.current = element;
+      dragRef(element);
+    },
+    [cardRef, dragRef],
+  );
+  // The doodle card has no preview: it is its own rest box, and drags as the plain card does
+  // (review F4 of #37790).
+  const doodleRef = useCallback(
+    (element: HTMLElement | null) => {
+      cardRef.current = element;
+      rest.current = element;
+      dragRef(element);
+    },
+    [cardRef, dragRef],
+  );
+  const restRef = useCallback((element: HTMLElement | null) => {
+    rest.current = element;
+  }, []);
   const whatsNew = (
     <button type="button" className="wn-card-primary" onClick={openChangelog}>
       {strings.t("changelog.page.title")}
@@ -256,8 +303,11 @@ export function UpdatedCard({
           className="wn-card"
           aria-labelledby={titleId}
           data-decoration="doodle"
+          data-anchor={anchor}
+          data-drags={drag ? "" : undefined}
           data-glass={glass ? "" : undefined}
           data-composer-material=""
+          ref={doodleRef}
         >
           <DoodleHeadline version={cardVersion(data.version)} strings={strings} />
           {title}
@@ -273,11 +323,13 @@ export function UpdatedCard({
       className="wn-card wn-updated"
       aria-labelledby={titleId}
       data-placement={placement}
+      data-anchor={anchor}
+      data-drags={drag ? "" : undefined}
       data-preview={preview.shown ? "open" : "closed"}
       data-glass={glass ? "" : undefined}
       data-composer-material=""
       style={{ "--wn-preview-h": `${preview.height}px` } as CSSProperties}
-      ref={preview.cardRef}
+      ref={plainRef}
     >
       {preview.mounted && (
         <UpdatedCardPreview
@@ -288,7 +340,7 @@ export function UpdatedCard({
           onOpen={openChangelog}
         />
       )}
-      <div className="wn-card-rest">
+      <div className="wn-card-rest" ref={restRef}>
         <div className="wn-card-head">
           {title}
           {placement !== "button" && (
@@ -313,6 +365,43 @@ export function UpdatedCard({
   );
 }
 
+/** Presses on the card start its drag (the section listens itself: it is not a control). Returns the
+ *  card's ref: a theme switch between the plain card and the doodle one replaces the card's node, and
+ *  the new node takes the listener (review of #38020). */
+function useCardDrag(
+  rest: { current: HTMLElement | null },
+  drag: CardDragHost | undefined,
+  feel: CardDragFeel,
+  onStart: () => void,
+): (element: HTMLElement | null) => void {
+  const latest = useRef({ drag, feel, onStart });
+  latest.current = { drag, feel, onStart };
+  const attached = useRef<{ element: HTMLElement; press: (event: PointerEvent) => void } | null>(null);
+  useEffect(
+    () => () => {
+      attached.current?.element.removeEventListener("pointerdown", attached.current.press);
+      attached.current = null;
+    },
+    [],
+  );
+  return useCallback(
+    (element: HTMLElement | null) => {
+      if (attached.current?.element === element) return;
+      attached.current?.element.removeEventListener("pointerdown", attached.current.press);
+      attached.current = null;
+      if (!element) return;
+      // A card without a host to drag it ignores the press (`drag` is read at the press).
+      const press = (event: PointerEvent) => {
+        const { drag, feel, onStart } = latest.current;
+        if (drag && rest.current) pressCard(rest.current, event, drag, feel, onStart);
+      };
+      element.addEventListener("pointerdown", press);
+      attached.current = { element, press };
+    },
+    [rest],
+  );
+}
+
 /** The hover preview's state: its rows, whether they are mounted (from the first time the pointer
  * reaches the card, so the list is measured before the dwell ends), whether it shows, its height,
  * and the card's pointer and key handlers. */
@@ -323,6 +412,7 @@ function useHoverPreview({
   previewOpen,
   hostPointer,
   onPreviewSize,
+  onPreviewGlass,
   enabled,
 }: {
   data: UpdateHighlights;
@@ -331,6 +421,7 @@ function useHoverPreview({
   previewOpen?: boolean;
   hostPointer?: boolean;
   onPreviewSize?: (height: number) => void;
+  onPreviewGlass?: (height: number) => void;
   enabled: boolean;
 }) {
   const entries = enabled ? previewEntries(data, span, strings.language) : [];
@@ -419,6 +510,11 @@ function useHoverPreview({
   const open = want && shown;
   const isOpen = useRef(open);
   isOpen.current = open;
+  const glassed = useRef(onPreviewGlass);
+  glassed.current = onPreviewGlass;
+  // Said in the same commit that flips `data-preview`, so the host's glass starts with the page's.
+  const glass = open ? height : 0;
+  useLayoutEffect(() => glassed.current?.(glass), [glass]);
   useEffect(() => {
     const element = card.current;
     if (!element || !enabled) return;
@@ -453,6 +549,15 @@ function useHoverPreview({
     listRef: list,
     cardRef: card,
     close: () => intent.current?.close(),
+    /** Closes it for a drag: the room goes back at once, so the host does not shrink the held card's
+        view mid-drag when the close ends (review F2 of #37790). */
+    closeForDrag: () => {
+      if (asked.current) {
+        asked.current = false;
+        sized.current?.(0);
+      }
+      intent.current?.close();
+    },
   };
 }
 

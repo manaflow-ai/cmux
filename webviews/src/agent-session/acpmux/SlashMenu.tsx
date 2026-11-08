@@ -2,7 +2,7 @@ import React, { useCallback } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
 import { Listbox } from "../../ui/Listbox";
-import { useComposerListBox } from "./backdropLayer";
+import { useComposerListBox } from "./backdropLayerModel";
 import { useT } from "./i18n";
 import { shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
 

@@ -25,16 +25,10 @@ enum NewTabSlot {
 
         var joins: TabModel? { if case .after(let tab, true) = self { tab } else { nil } } // whose group the new tab joins
         /// The tab that names the pane.
-        var anchor: TabModel {
-            switch self { case .after(let tab, _), .start(let tab): tab }
-        }
+        var anchor: TabModel { switch self { case .after(let tab, _), .start(let tab): tab } }
 
         static func == (lhs: Target, rhs: Target) -> Bool {
-            switch (lhs, rhs) {
-            case (.after(let a, let x), .after(let b, let y)): a === b && x == y
-            case (.start(let a), .start(let b)): a === b
-            default: false
-            }
+            switch (lhs, rhs) { case (.after(let a, let x), .after(let b, let y)): return a === b && x == y; case (.start(let a), .start(let b)): return a === b; default: return false }
         }
     }
 
@@ -66,11 +60,11 @@ enum NewTabSlot {
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard let target else { return then }
         let pane = home(of: target.anchor, services)
-        let open = pane.flatMap { begin(target, in: $0, services: services) } // shown in its slot at once
+        let open = pane.flatMap { begin(target, in: $0, services: services) }, turn = reserve(pane, services: services) // shown in its slot at once
         return { [weak pane] surface in
             if let pane { NewTabSuccession.made(surface, in: pane, by: open) }
             then?(surface)
-            place(in: { home(of: target.anchor, services) ?? pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }, joins: target.joins) { slot(for: target, in: $0, pane: pane, open: open, services: services) }
+            place(in: { home(of: target.anchor, services) ?? pane }, turn: turn, services: services, find: { $0.tabs.first { $0.surface == surface } }, gone: { $0.closedLately(surface) }, joins: target.joins) { slot(for: target, in: $0, pane: pane, open: open, services: services) }
         }
     }
 
@@ -79,10 +73,10 @@ enum NewTabSlot {
                         then: (@MainActor (String) -> Void)?) -> (@MainActor (String) -> Void)? {
         guard let target else { return then }
         let pane = home(of: target.anchor, services)
-        let open = pane.flatMap { begin(target, in: $0, services: services) } // shown in its slot at once
+        let open = pane.flatMap { begin(target, in: $0, services: services) }, turn = reserve(pane, services: services) // shown in its slot at once
         return { [weak pane] key in
             then?(key)
-            place(in: { home(of: target.anchor, services) ?? pane }, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }, joins: target.joins) {
+            place(in: { home(of: target.anchor, services) ?? pane }, turn: turn, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }, gone: { $0.closedLately(key) }, joins: target.joins) {
                 slot(for: target, in: $0, pane: pane, open: open, services: services)
             }
         }
@@ -108,10 +102,10 @@ enum NewTabSlot {
             then?(surface)
         }
         guard index + 1 < pane.tabs.count else { return then } // the last tab: the new one appends beside it
-        let before = index > 0 ? pane.tabs[index - 1] : nil
+        let before = index > 0 ? pane.tabs[index - 1] : nil, turn = reserve(pane, services: services)
         return { surface in
             then(surface)
-            place(in: { [weak pane] in pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { [weak pane] others in
+            place(in: { [weak pane] in pane }, turn: turn, services: services, find: { $0.tabs.first { $0.surface == surface } }, gone: { $0.closedLately(surface) }) { [weak pane] others in
                 guard let before else { return others.prefix { $0.pinned }.count }
                 return others.firstIndex { $0 === before }.map { $0 + 1 } ?? pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) }
             }
@@ -121,22 +115,20 @@ enum NewTabSlot {
     /// The pane `tab` is in, on any machine (surface ids are per daemon, so a new tab is looked for in this pane only).
     private static func home(of tab: TabModel, _ services: AppServices) -> PaneModel? { services.locateTab(model: tab)?.1 }
 
+    /// `pane`'s next new tab's move, its turn taken at the press: press order however late the reply (`a b 2 1 c`); a dropped callback releases it (`WorkTurn`).
+    static func reserve(_ pane: PaneModel?, services: AppServices) -> WorkTurn<ActionWorkFailure?>? { pane.flatMap { services.paneController(for: $0) }?.placements.next(limit: listLimit, owner: "NewTabSlot.answer", passing: nil) }
     /// Moves the tab `find` returns from `pane` to the final index `index` gives (from the pane's other tabs) once the pane
-    /// lists it, and once the pane's previous new tab moved: a burst's second Cmd-T goes right after the first new tab, which
-    /// sat at the end until its own move, so a slot read before that kept the second there (`a b 1 c 2`).
-    private static func place(in pane: @escaping @MainActor () -> PaneModel?, services: AppServices,
-                              find: @escaping @MainActor (PaneModel) -> TabModel?, joins: TabModel? = nil, index: @escaping @MainActor ([TabModel]) -> Int?) {
-        let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }
-        let controller = pane().flatMap { services.paneController(for: $0) }, earlier = controller?.lastPlacement
+    /// lists it (or is `gone`: closed first), after the pane's previous new tab's move (`turn`; a Cmd-T burst's second read its slot too early: `a b 1 c 2`).
+    private static func place(in pane: @escaping @MainActor () -> PaneModel?, turn: WorkTurn<ActionWorkFailure?>?, services: AppServices,
+                              find: @escaping @MainActor (PaneModel) -> TabModel?, gone: @escaping @MainActor (DaemonStore) -> Bool, joins: TabModel? = nil, index: @escaping @MainActor ([TabModel]) -> Int?) {
+        let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }, earlier = turn?.earlier
         let placement: ActionWork = Task { @MainActor in
             let listed = Task { @MainActor () -> Bool in
-                for await found in ObservationStream({ locate() != nil }) where found { return true }
+                for await found in ObservationStream({ locate() != nil || pane().map { gone(services.daemon(for: $0).store) } == true }) where found { return true } // a tab whose close settled first never lists
                 return false
             }
             let bound = DemandTimer(owner: "NewTabSlot.listed")
-            bound.schedule(after: listLimit) { @MainActor in
-                listed.cancel()
-            }
+            bound.schedule(after: listLimit) { @MainActor in listed.cancel() }
             let found = await listed.value
             bound.cancel()
             _ = await earlier?.value // its own list wait, then its move's reply
@@ -150,7 +142,7 @@ enum NewTabSlot {
             await withCheckedContinuation { landed in TabMoves.move(tab, to: pane, index: final, services: services) { _ in landed.resume() } }
             return nil
         }
-        controller?.lastPlacement = placement
+        turn?.fill(placement)
         services.registry.track(placement)
     }
 
