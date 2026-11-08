@@ -9,6 +9,8 @@ public enum CmuxMobilePreferences {
         public static let terminalFontSize = "cmuxMobile.settings.terminalFontSize"
         public static let wrapCode = "cmuxMobile.settings.wrapCode"
         public static let keyClicks = "cmuxMobile.settings.keyClicks"
+        /// Settings → Terminal → Predictive echo: typed characters show before the remote echoes them.
+        public static let predictiveEcho = "cmuxMobile.settings.predictiveEcho"
         public static let dismissKeyboardAfterSend = "cmuxMobile.settings.dismissKeyboardAfterSend"
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
@@ -23,6 +25,7 @@ public enum CmuxMobilePreferences {
     public static let terminalFontSizes = 9...24
     public static let defaultWrapCode = false
     public static let defaultKeyClicks = true
+    public static let defaultPredictiveEcho = true
     public static let defaultDismissKeyboardAfterSend = true
     /// `FollowUpBehavior.steer.rawValue`: a message sent while the agent works
     /// interrupts it instead of waiting for the turn to end.
@@ -39,6 +42,10 @@ public enum CmuxMobilePreferences {
 
     public static func keyClicks(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.keyClicks) as? Bool ?? defaultKeyClicks
+    }
+
+    public static func predictiveEcho(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.predictiveEcho) as? Bool ?? defaultPredictiveEcho
     }
 
     public static func dismissKeyboardAfterSend(_ defaults: UserDefaults = .standard) -> Bool {

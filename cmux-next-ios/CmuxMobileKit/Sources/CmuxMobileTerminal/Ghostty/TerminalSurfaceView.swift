@@ -47,8 +47,12 @@ final class TerminalSurfaceView: UIView {
     /// The last row given to `scroll(toRow:)`.
     private var pinnedRow: Int?
     /// The font size the surface was built with or last set to (Settings → Terminal).
-    private var fontSize = CmuxMobilePreferences.terminalFontSize()
+    private(set) var fontSize = CmuxMobilePreferences.terminalFontSize()
     private var defaultsObserver: (any NSObjectProtocol)?
+    /// Predictive local echo (`TerminalPredictionOverlay`): sees every write and
+    /// output batch from the start, joins the view once Ghostty's layer is in.
+    let predictionOverlay = TerminalPredictionOverlay(enabled: CmuxMobilePreferences.predictiveEcho())
+    var predicts = CmuxMobilePreferences.predictiveEcho()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -91,7 +95,10 @@ final class TerminalSurfaceView: UIView {
         guard let app = try? CmuxMobileGhosttyApp.shared() else { return }
         self.app = app
         let box = InputBox()
-        box.deliver = { [weak self] data in self?.onInput?(data) }
+        box.deliver = { [weak self] data in
+            self?.predictionSent(data)
+            self?.onInput?(data)
+        }
         box.view = self
         inputBox = box
         var config = ghostty_surface_config_new()
@@ -175,7 +182,10 @@ final class TerminalSurfaceView: UIView {
     private func observeFontSize() {
         guard defaultsObserver == nil else { return }
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyFontSize() }
+            MainActor.assumeIsolated {
+                self?.applyFontSize()
+                self?.applyPredictiveEcho()
+            }
         }
     }
 
@@ -427,8 +437,12 @@ final class TerminalSurfaceView: UIView {
         }
         let ref = SurfaceRef(surface)
         let done = completion.map(MainCallback.init)
+        let predictor = predicts ? predictionOverlay.prediction : nil
         outputQueue.async {
             let bytes = transform?(data) ?? data
+            // Just before Ghostty parses it, so the cursor it reports after
+            // already includes every echo the engine confirmed.
+            let predictionChanged = predictor?.output(bytes: bytes, nowUs: TerminalPredictionOverlay.now()) ?? false
             bytes.withUnsafeBytes { raw in
                 guard let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(ref.surface, base, UInt(raw.count))
@@ -437,6 +451,7 @@ final class TerminalSurfaceView: UIView {
                 // Ghostty also renders on its own after parsing, but later:
                 // without this request a keystroke echo waited ~3x longer.
                 self?.setNeedsTerminalDraw()
+                if predictionChanged { self?.updatePrediction() }
                 done?.run()
             } }
         }
@@ -650,6 +665,7 @@ final class TerminalSurfaceView: UIView {
             MainActor.assumeIsolated {
                 guard let self, self.presentPending else { return }
                 self.presentPending = false
+                self.predictionPresented()
                 self.onPresent?()
             }
         }
