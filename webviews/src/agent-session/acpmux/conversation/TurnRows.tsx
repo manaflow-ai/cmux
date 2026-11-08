@@ -40,7 +40,7 @@ import {
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
-import { hasTokens, tokensText } from "./turnTokensModel";
+import { replyTimeDetail } from "./turnTokensModel";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
@@ -345,14 +345,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const teamMachine = route?.hostKind === "cloud" && route.teamMachine === true;
   const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
   const label = footerLabel(t, row);
-  // The turn's time and tokens, for the time's tooltip: "Worked for 13s · ↓ 359 out ↑ 328.8K in".
-  // A Stop acpmux had to force (the agent never answered it) says so here only, never in the
-  // transcript's text (Leo, 2026-11-03: "idk if it should be showing things like that").
+  // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
+  // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
+  // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
+  // things like that").
   const forced = row.stopForced ? t("stop.forced") : undefined;
-  const detail =
-    [label, hasTokens(row.tokens) ? tokensText(t, language, row.tokens) : undefined, forced]
-      .filter(Boolean)
-      .join(" · ") || undefined;
+  const detail = replyTimeDetail(t, language, [label, forced], row.tokens);
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
@@ -447,18 +445,19 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     : offersRetry(row) && !isEmptyFooter(row)
       ? { promptId: row.retryRowId, footerId: row.id }
       : NO_RETRY_TARGET;
+  // An attachment-only prompt's `prompt` is empty (turns.ts offersRetry): its attachments go again.
   const lastRetry =
     !failed &&
     retryPlacement(footerTarget, { canRetry: Boolean(retry), readOnly, messages }) === "footer" &&
     retry &&
-    prompt &&
+    prompt !== undefined &&
     row.retryRowId
       ? () => retry(row.retryRowId!, prompt)
       : undefined;
   const footerRetry = failedRetry ?? lastRetry;
   const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
   const retryModels =
-    (failed || lastRetry) && retry && prompt && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
+    ((failed && prompt) || lastRetry) && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
@@ -528,7 +527,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                     <Retry size={ROW_ICON} />
                   </button>
                 )}
-                {retryModels && prompt && (
+                {retryModels && prompt !== undefined && (
                   <RetryModelMenu
                     retryWith={retryModels}
                     onPick={(model) => retryModels.retry(row.retryRowId ?? "", prompt, model)}

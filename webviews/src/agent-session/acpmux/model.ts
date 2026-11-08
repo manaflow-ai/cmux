@@ -34,6 +34,7 @@ import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
 import { webSources } from "./conversation/webSourceList";
+import { sentVideosOf } from "./conversation/sentVideos";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -376,9 +377,18 @@ export type PromptContentPart =
 export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 
 /// A turn's tokens as Anthropic counts them: what the model wrote (`output`) apart from what it read,
-/// which is the fresh input, the prompt cache's reads and its writes. The running line adds up each
-/// model call's (direct.ts `turnTokenSplit`); a finished turn's comes from its `turn_result`.
-export type TurnTokenSplit = { output: number; input: number; cacheRead: number; cacheWrite: number };
+/// which is the fresh input, the prompt cache's reads and its writes, each its calls added up. The
+/// running line adds up each model call's (direct.ts `turnTokenSplit`); a finished turn's comes from
+/// its `turn_result`. `context` is what the chat's context held after the turn's last call, and
+/// `calls` how many calls the counts add up, when acpmux names them (tokenSplit.ts).
+export type TurnTokenSplit = {
+  output: number;
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+  context?: number;
+  calls?: number;
+};
 
 /// One retry of a turn's failed model request, as acpmux logs it (`turn_retrying`): Claude Code's
 /// `system/api_retry` (attempt of maxRetries, error, errorStatus) or Codex's stream error.
@@ -2083,6 +2093,40 @@ function fallbackRowHeight(
   // An agent a shell call started (subagents/AgentRunCard.tsx): one collapsed disclosure line; its
   // reply and Raw are measured once the reader opens it.
   if (isRunGroup(row)) return finish(cardHeight("working"));
+  // Image/file-only user prompts still draw their attachment strip before the action footer.
+  // Reserve the fixed thumbnail height so virtualization never places the next row over it.
+  if (
+    row.kind === "user" &&
+    !row.text?.trim() &&
+    (row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"))
+  ) {
+    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (320px, plus its 6px
+    // gap; userBubbleModel.ts SENT_IMAGE_MAX_WIDTH) when estimating columns so a wide image never
+    // lets a second attachment row overlap the next row.
+    const inlineParts = row.inlineParts ?? [];
+    // A video sent with its frames draws as a 120px tile in the thumbnail row (UserBubble.tsx
+    // SentVideoTiles), not as a file chip.
+    const videoCount = sentVideosOf(row).length;
+    const imageCount =
+      Math.max(
+        row.images?.length ?? 0,
+        inlineParts.filter((part) => part.kind === "image").length,
+        row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
+      ) + videoCount;
+    const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 326));
+    const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
+    const otherAttachments = Math.max(
+      0,
+      Math.max(
+        row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
+        inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
+      ) - videoCount,
+    );
+    const attachmentHeight = imageRows * 128 + otherAttachments * 36;
+    // Its sending clock sits beside the last attachment band (UserBubble.tsx), taking no line of
+    // its own, so the row keeps its height when the send lands.
+    return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
+  }
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
