@@ -33,8 +33,8 @@ struct SidebarPinFlight {
     /// A glyph the leaving view drew and the arriving one does not (an unpinned item's pin): a copy rides the arriving
     /// view from the leaving one's place and fades out on the move; the move's end removes it (`landFlights`).
     var leavingGlyph: NSView?
-    /// The view's own ground before the flight gave it an opaque one (`raiseForFlight`), put back when it lands.
-    var ground: SidebarFlightGround?
+    /// A flying item's flight serial (`raiseForFlight`): its end lands the item only while no newer flight raised it.
+    var serial: Int?
     /// The parts of a block that opens with this pin other than the flying item (its section header): the block itself
     /// shows at once so the item never fades, and these fade in on the move instead.
     var revealed: [NSView] = []
@@ -267,9 +267,9 @@ extension SidebarListViewComponents {
             }
             block.clipsToBounds = false
             raiseForFlight(block)
-            let ground = raiseForFlight(item)
+            let serial = raiseForFlight(item)
             flights.append(SidebarPinFlight(view: item, start: start, title: titleOffset(of: item, from: source), glyph: item.pinGlyph,
-                                            ground: ground, revealed: revealOpeningBlock(block, keeping: item)))
+                                            serial: serial, revealed: revealOpeningBlock(block, keeping: item)))
         }
         for region in blockRegions { region.flyingWorkspaces = [] }
         return flights
@@ -296,12 +296,12 @@ extension SidebarListViewComponents {
             view.clipsToBounds = false
             view.layoutSubtreeIfNeeded()
         }
-        let ground = raiseForFlight(view)
+        raiseForFlight(view)
         let start: @MainActor (CFTimeInterval) -> NSRect = { [weak self] time in
             self?.convert(source.frame(at: time), to: view.superview) ?? source.frame(at: time)
         }
         return SidebarPinFlight(view: view, start: start, title: titleOffset(of: view, from: source),
-                                leavingGlyph: leavingGlyph(on: view, from: source), ground: ground)
+                                leavingGlyph: leavingGlyph(on: view, from: source))
     }
 
     /// The item's pin on the arriving row (both flipped, the row starting on the item's frame): where the item drew it.
@@ -337,39 +337,42 @@ extension SidebarListViewComponents {
     /// Draws `view` above the rows it crosses while it flies (z position, not a re-add: re-adding a view delays its
     /// first frames, cx-ai79). A flying row or item is opaque, on the sidebar's own ground: a title it passes never
     /// shows through it (p1 films 31fec6d8: the titles printed over each other). The move's end puts it back
-    /// (`landFlights`).
+    /// (`landFlights`). An item keeps its own ground on itself (`flightGround`), saved once: an item still raised by
+    /// an earlier flight (a re-pin before that one ended) shows the opaque one now, which is not its own. Returns an
+    /// item's flight serial.
     @discardableResult
-    private func raiseForFlight(_ view: NSView) -> SidebarFlightGround? {
+    private func raiseForFlight(_ view: NSView) -> Int? {
         view.layer?.zPosition = 1
         // A list row paints its own fill on its layer at every display pass: it keeps the ground under that fill.
         if let row = view as? WorkspaceRowView {
             row.flightGround = Palette.sidebarBackground
             return nil
         }
-        guard view is SidebarItemRowView, let layer = view.layer else { return nil }
-        let before = SidebarFlightGround(color: layer.backgroundColor, cornerRadius: layer.cornerRadius)
+        guard let item = view as? SidebarItemRowView, let layer = view.layer else { return nil }
+        item.flightSerial &+= 1
+        if item.flightGround == nil { item.flightGround = SidebarFlightGround(color: layer.backgroundColor, cornerRadius: layer.cornerRadius) }
         var ground: CGColor?
         view.effectiveAppearance.performAsCurrentDrawingAppearance { ground = Palette.sidebarBackground.withAlphaComponent(1).cgColor }
         Motion.withoutAnimation {
             layer.backgroundColor = ground
             layer.cornerRadius = SidebarStyle.rowCornerRadius
         }
-        return before
+        return item.flightSerial
     }
 
-    /// The flights' views draw at their places in the stack again once the move ended, on no ground of their own.
+    /// The flights' views draw at their places in the stack again once the move ended, on no ground of their own. An
+    /// item a newer flight raised since (unpinned and pinned again before this move ended) stays up for that flight.
     static func landFlights(_ flights: [SidebarPinFlight]) {
         for flight in flights {
             flight.leavingGlyph?.removeFromSuperview()
-            flight.view.layer?.zPosition = 0
-            (flight.view as? SidebarRowView)?.flightGround = nil
-            if let block = flight.view.enclosingRow { block.layer?.zPosition = 0 }
-            if let ground = flight.ground {
-                Motion.withoutAnimation {
-                    flight.view.layer?.backgroundColor = ground.color
-                    flight.view.layer?.cornerRadius = ground.cornerRadius
-                }
+            if let item = flight.view as? SidebarItemRowView {
+                guard item.flightSerial == flight.serial else { continue }
+                item.landFlight()
+            } else {
+                flight.view.layer?.zPosition = 0
+                (flight.view as? SidebarRowView)?.flightGround = nil
             }
+            if let block = flight.view.enclosingRow { block.layer?.zPosition = 0 }
         }
     }
 }

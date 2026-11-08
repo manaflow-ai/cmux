@@ -37,13 +37,13 @@ struct SidebarParkedItems {
 }
 
 extension SidebarRegionView {
-    /// An item view this region stops drawing. A workspace's item at rest parks hidden in place for that workspace's
-    /// next pin (`SidebarParkedItems`): no move left on it, no press, not the first responder. Any other item, or one a
-    /// flight still raises (its landing puts back the ground it saved), leaves the window as before.
+    /// An item view this region stops drawing. A workspace's item parks hidden in place for that workspace's next pin
+    /// (`SidebarParkedItems`): no move left on it, no press, not the first responder. One a pin's flight still raises
+    /// (an unpin before the pin's move ended) lands first, its own ground back, so the next pin raises it from rest; that
+    /// flight's end then finds it landed. Any other item leaves the window as before.
     func park(_ view: SidebarItemRowView) {
-        guard let workspace = view.info.workspace, (view.layer?.zPosition ?? 0) == 0, view.superview === self else {
-            return view.removeFromSuperview()
-        }
+        guard let workspace = view.info.workspace, view.superview === self else { return view.removeFromSuperview() }
+        view.landFlight()
         if let window, window.firstResponder === view { window.makeFirstResponder(nil) }
         view.endPress()
         view.isHidden = true
@@ -64,5 +64,19 @@ extension SidebarRegionView {
             view.alphaValue = 1
         }
         return view
+    }
+}
+
+extension SidebarItemRowView {
+    /// Back at its place in the stack on its own ground: a pin's flight ended (`SidebarListView.landFlights`) or the
+    /// item parks (`SidebarRegionView.park`). Nothing to do at rest.
+    func landFlight() {
+        layer?.zPosition = 0
+        guard let ground = flightGround else { return }
+        flightGround = nil
+        Motion.withoutAnimation {
+            layer?.backgroundColor = ground.color
+            layer?.cornerRadius = ground.cornerRadius
+        }
     }
 }
