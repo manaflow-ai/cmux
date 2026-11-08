@@ -218,8 +218,11 @@ import Testing
     @Test func cmuxsOwnCapturesLeaveTheAskOut() async throws {
         let ask = try await ask()
         let panel = ask.panel!
+        #expect(panel.isVisible)
+        #expect(panel.sharingType == .none, "the sharing state CaptureExcludedWindows reads")
+        // With no window server connection (a test step over SSH) the panel has no number and no capture runs.
+        guard panel.windowNumber > 0 else { return }
         let id = CGWindowID(panel.windowNumber)
-        #expect(panel.isVisible && id > 0)
         // The window server takes the new window in its own time.
         for _ in 0..<40 where !CaptureExcludedWindows.windowIDs().contains(id) { try await Task.sleep(for: .milliseconds(50)) }
         #expect(CaptureExcludedWindows.windowIDs().contains(id), "left out of cmux's captures")
