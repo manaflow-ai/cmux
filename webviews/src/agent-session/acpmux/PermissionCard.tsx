@@ -154,7 +154,11 @@ export function PlanBuildSplit({
         >
           <ChevronDown size={14} />
         </MenuButton>
-        <MenuPopup label={t("permission.plan.buildMenu")} align="end" className="acpmux-plan-build-menu">
+        <MenuPopup
+          label={t("permission.plan.buildMenu")}
+          align="end"
+          className="acpmux-quick-menu acpmux-plan-build-menu"
+        >
           <MenuItem data-value="here" shortcut={cardKey ? cardKey.keys.join("") : undefined} onSelect={onHere}>
             {t("permission.plan.buildHere")}
           </MenuItem>
