@@ -531,6 +531,11 @@ struct Exited {
     pane: Option<String>,
     name: Option<String>,
     cwd: Option<String>,
+    /// The harness session id the daemon kept on the terminal (`extra.agent_session_id`):
+    /// the roster drops an agent's record once its session ended.
+    session_id: Option<String>,
+    /// The harness the daemon kept with it (`extra.agent`).
+    harness: Option<String>,
 }
 
 fn exited_target(snapshot: &Value, target: &ResumeTarget) -> Result<Exited, Failure> {
@@ -591,6 +596,8 @@ fn exited_target(snapshot: &Value, target: &ResumeTarget) -> Result<Exited, Fail
             }
         },
         cwd: text(&terminal["cwd"]),
+        session_id: terminal.pointer("/extra/agent_session_id").and_then(text),
+        harness: terminal.pointer("/extra/agent").and_then(text),
     })
 }
 
@@ -646,7 +653,10 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
     let exited = exited_target(&snapshot, target)?;
     let records =
         daemon.request(None, plan(&["agent", "list", "--terminal", &exited.terminal])?)?;
-    let (record, session_id) = session_record(&records).ok_or_else(|| {
+    // An agent that quit has no record left; the terminal keeps its last session id.
+    let none = Value::Null;
+    let kept = exited.session_id.clone().map(|id| (&none, id));
+    let (record, session_id) = session_record(&records).or(kept).ok_or_else(|| {
         Failure::local(
             "agent.no_session",
             format!(
@@ -679,6 +689,7 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
         .harness
         .clone()
         .or_else(|| record.pointer("/extra/agent").and_then(Value::as_str).map(harness_name))
+        .or_else(|| exited.harness.as_deref().map(harness_name))
         .or_else(|| recorded.as_ref().and_then(|launch| launch::harness_of(&launch.launcher)))
         .or_else(|| options.cmd.as_deref().and_then(launch::harness_of))
         .ok_or_else(|| {

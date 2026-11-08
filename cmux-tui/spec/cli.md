@@ -1307,9 +1307,12 @@ placement, workspace_id, screen_id, pane_id, tab_id, terminal_id, waited_ms}`.
 
 `agent resume NAME` and `terminal <sel> resume` bring back an agent whose
 terminal exited (a running one is `agent.running`). They read the harness
-session id from `agent list --terminal` (`extra.agent_session_id`; none is
-`agent.no_session`) and the launcher from `terminal <t> process show`, drop a
-resume tail an earlier resume added, and append the harness's own resume
+session id from `agent list --terminal` (`extra.agent_session_id`), else from
+the terminal itself: an agent that quit leaves the roster, and the daemon keeps
+its last harness session id and harness on the terminal's snapshot value
+(`extra.agent_session_id`, `extra.agent`; memory only, a daemon restart forgets
+it). With neither, the error is `agent.no_session`. They take the launcher
+from `terminal <t> process show`, drop a resume tail an earlier resume added, and append the harness's own resume
 arguments as separate argv words: `claude --resume <id>`, `codex resume <id>`,
 `gemini --resume <id>`, `opencode --session <id>`, `amp threads continue
 <id>`. `--cmd` replaces the recorded launcher; `--harness` names the harness

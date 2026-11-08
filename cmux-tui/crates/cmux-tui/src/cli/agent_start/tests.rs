@@ -372,6 +372,42 @@ fn w3h_resume_reruns_the_recorded_launcher_with_the_harness_session_and_takes_th
     assert_eq!(closed[0]["tab"], "tab_a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0");
 }
 
+/// An agent that quit (its hooks reported the session's end) has no agent
+/// record left; resume reads the session id the daemon kept on the terminal.
+#[test]
+fn w3h_resume_reads_the_session_id_kept_on_the_terminal_after_the_session_ended() {
+    let mut snapshot = snapshot();
+    if let Some(old) = snapshot.pointer_mut("/terminals/1") {
+        old["extra"] = json!({"agent": "claude-code", "agent_session_id": SESSION});
+    }
+    let daemon = Fake::new(|operation, _params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "agent.list" => json!([]),
+        "terminal.process.get" => json!({"argv": snapshot["terminals"][1]["argv_for_test"]}),
+        "pane.run" => created(
+            "pane_22222222222222222222222222222222",
+            "tab_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0",
+            NEW,
+        ),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        _ => json!({}),
+    });
+    let target = ResumeTarget::Agent("alpha".into());
+    let (report, exit) =
+        run_with_clock(|clock| resume(&daemon, &env(), clock, &target, &Options::default()))
+            .expect("resume");
+    assert_eq!(exit, 0, "{report}");
+    assert_eq!(report["resumed"]["agent_session_id"], SESSION);
+    assert_eq!(report["harness"], "claude");
+    let runs = daemon.sent("pane.run");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(
+        runs[0]["argv"],
+        json!(["/bin/zsh", "-lc", "sr2 claude \"$@\"", "cmux-agent", "--resume", SESSION])
+    );
+}
+
 #[test]
 fn w3h_start_splits_the_callers_pane_runs_a_named_tab_and_reports_the_trust_dialog() {
     let snapshot = snapshot();
