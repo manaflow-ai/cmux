@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextTerminal
 import GhosttyNextKit
 import Testing
@@ -37,6 +38,24 @@ import Testing
         let sent = hint.following(rightOption)
         #expect(sent.rawValue & UInt(NX_DEVICERALTKEYMASK) == 0)
         #expect(GhosttyInput.mods(sent).rawValue == GhosttyInput.mods(.shift).rawValue)
+    }
+
+    /// The hint shows only in a terminal wide enough for the whole chip; a narrower one keeps it for a
+    /// later drag instead of clipping it or spilling into the next pane.
+    @Test func theHintWaitsForATerminalWideEnoughForIt() {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 60, height: 200))
+        let hint = TerminalSelectionHint(view: view)
+        hint.pressed([], captured: true)
+        hint.dragged()
+        #expect(hint.shownText == nil)
+        hint.released()
+        view.setFrameSize(NSSize(width: 800, height: 200))
+        hint.pressed([], captured: true)
+        hint.dragged()
+        #expect(hint.shownText == TerminalSelectionHint.text)
+        let chip = view.subviews.compactMap { $0 as? ShortcutHintChipView }.first
+        #expect(chip.map { $0.frame.minX >= 0 && $0.frame.maxX <= view.bounds.width } == true)
+        hint.hide()
     }
 
     @Test(arguments: [NSEvent.ModifierFlags([]), .command, .shift, .option, .control, .function,

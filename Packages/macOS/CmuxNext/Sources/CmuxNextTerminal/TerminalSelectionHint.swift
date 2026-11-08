@@ -17,13 +17,13 @@ final class TerminalSelectionHint {
         ModuleResourceBundle.terminal.text("terminal.selectionHint", defaultValue: "Option or Shift + drag selects text")
     }
 
-    weak var view: TerminalSurfaceView?
+    weak var view: NSView?
     private var state = CmuxTerminalSelection()
     private var chip: ShortcutHintChipView?
     private let hideTimer: DemandTimer
 
     /// - Parameter clock: The hide deadline's clock; tests pass a manual clock.
-    init(view: TerminalSurfaceView?, clock: any Clock<Duration> = ContinuousClock()) {
+    init(view: NSView?, clock: any Clock<Duration> = ContinuousClock()) {
         self.view = view
         hideTimer = DemandTimer(owner: "TerminalSelectionHint.hide", clock: clock)
     }
