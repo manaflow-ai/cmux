@@ -192,7 +192,9 @@ pub(crate) fn probe_account(email: &str) -> bool {
     let canary = ["prod", "staging"].iter().any(|stage| {
         ["smoke", "stress", "bench"].iter().any(|kind| head == format!("cmux-{stage}-{kind}"))
     });
-    canary && !tag.is_empty() && !tag.contains(['@', '+']) && !tag.chars().any(char::is_whitespace)
+    // web's SYNTHETIC_ACCOUNT_EMAIL, `^cmux-(?:prod|staging)-(?:smoke|stress|bench)\+[^@\s]*@manaflow\.dev$`
+    // (case-insensitive, on the trimmed address): any tag without `@` or whitespace, empty included.
+    canary && !tag.contains('@') && !tag.chars().any(char::is_whitespace)
 }
 
 /// Whether `env`, [`PROBE_ENV`]'s value, switches the probe's faults on.

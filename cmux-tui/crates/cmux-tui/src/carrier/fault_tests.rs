@@ -195,7 +195,6 @@ fn only_probe_accounts_pass_the_gate() {
         "cmux-cloud-capture-prod@evil.manaflow.dev",
         "x-cmux-cloud-capture-prod@manaflow.dev",
         "cmux-prod-smoke@manaflow.dev",
-        "cmux-prod-smoke+@manaflow.dev",
         "cmux-prod-other+a@manaflow.dev",
         "cmux-cloud-capture-prod+a@manaflow.dev",
         "cmux-cloud-capture-staging@manaflow.dev",
@@ -342,4 +341,35 @@ fn the_probe_accounts_are_the_provisioners_accounts() {
     assert!(provisioned.len() >= 5, "the provisioner lost its targets: {provisioned:?}");
     assert_eq!(accepted, provisioned);
     assert!(provisioned.iter().all(|email| probe_account(email)));
+}
+
+/// The canary rule is web's `isSyntheticAccountEmail` (web/services/analytics/syntheticAccounts.ts,
+/// `^cmux-(?:prod|staging)-(?:smoke|stress|bench)\+[^@\s]*@manaflow\.dev$`, case-insensitive, on the
+/// trimmed address). It has no TS test of its own, so these examples pin that regex's answers, including
+/// the shapes web/scripts/cloud-vm mints (`cmux-${stage}-stress+${suffix}`, `-bench+`).
+#[test]
+fn canary_accounts_follow_webs_synthetic_account_rule() {
+    for synthetic in [
+        "cmux-prod-smoke+1730000000000@manaflow.dev",
+        "cmux-staging-stress+abc-123@manaflow.dev",
+        "cmux-prod-bench+run.7@manaflow.dev",
+        "cmux-prod-smoke+@manaflow.dev",
+        "cmux-prod-smoke+a+b@manaflow.dev",
+        "CMUX-PROD-SMOKE+X@MANAFLOW.DEV",
+        "  cmux-staging-smoke+x@manaflow.dev\n",
+    ] {
+        assert!(probe_account(synthetic), "{synthetic:?}");
+    }
+    for person in [
+        "cmux-prod-smoke@manaflow.dev",
+        "cmux-dev-smoke+x@manaflow.dev",
+        "cmux-prod-load+x@manaflow.dev",
+        "cmux-prod-smoke+a b@manaflow.dev",
+        "cmux-prod-smoke+a@b@manaflow.dev",
+        "cmux-prod-smoke+x@manaflow.dev.evil",
+        "cmux-prod-smoke+x@evil.manaflow.dev",
+        "xcmux-prod-smoke+x@manaflow.dev",
+    ] {
+        assert!(!probe_account(person), "{person:?}");
+    }
 }
