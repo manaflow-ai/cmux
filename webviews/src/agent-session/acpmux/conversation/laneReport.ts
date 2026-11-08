@@ -25,6 +25,8 @@ export type LaneNoticeDelivery = {
   readonly harness?: string;
   /// Its sender's session, from its sender record (the thread's may name another sender's).
   readonly session?: string;
+  /// When acpmux recorded it (ms).
+  readonly at?: number;
 };
 export type LaneNoticeThread = {
   readonly id: string;
