@@ -145,6 +145,8 @@ public final class AgentPaneSeedSource {
         sandboxResult = seed.sandboxResult
     }
 
+    /// Where the page opens scrolled to (``AgentPaneSeed/revealTurn``), when the seed is already known.
+    public var revealTurn: String? { read == nil ? value?.revealTurn : nil }
     /// The seed's folder when it is already known (no read from another tab still to come).
     public var knownCwd: String? { read == nil ? value?.cwd : nil }
     /// A read from another tab is still to come: the seed's folder is not known yet.

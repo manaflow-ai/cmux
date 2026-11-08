@@ -114,8 +114,8 @@ final class ChatsOpenCoordinator {
         let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
         // The index names Claude Code `claude-code`; tabs and terminals name it `claude`.
         guard let harness = WindowRules().agentHarness(parts.first), let session = parts.count == 2 ? parts[1] : nil else { return false }
-        let shown = services.revealedAgentSessionTab(harness: harness, session: session)
-        return shown.map { if let reveal, $0.adopted { services.agentTabs.revealTurn(reveal, in: $0.tab) } } != nil
+        return services.revealedAgentSessionTab(harness: harness, session: session).map { (shown) -> Void in
+            if let reveal, shown.adopted { services.agentTabs.revealTurn(reveal, in: shown.tab) } } != nil
     }
 
     private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false,

@@ -203,10 +203,18 @@ struct Inner {
     saved_at: Option<Instant>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct Saved {
+/// The saved copy as it is written: the held docs, borrowed.
+#[derive(Serialize)]
+struct Saved<'a> {
     schema: u32,
-    docs: Vec<(String, Arc<Doc>)>,
+    docs: Vec<(&'a str, &'a Doc)>,
+}
+
+/// The saved copy as it is read back.
+#[derive(Deserialize)]
+struct Loaded {
+    schema: u32,
+    docs: Vec<(String, Doc)>,
 }
 
 fn lock(mutex: &Mutex<Inner>) -> MutexGuard<'_, Inner> {
@@ -223,13 +231,13 @@ impl ChatText {
     pub fn load(&self) {
         let Some(saved) = std::fs::read(&self.path)
             .ok()
-            .and_then(|bytes| serde_json::from_slice::<Saved>(&bytes).ok())
+            .and_then(|bytes| serde_json::from_slice::<Loaded>(&bytes).ok())
             .filter(|saved| saved.schema == SCHEMA)
         else {
             return;
         };
         let mut inner = lock(&self.inner);
-        inner.docs = saved.docs.into_iter().collect();
+        inner.docs = saved.docs.into_iter().map(|(key, doc)| (key, Arc::new(doc))).collect();
         inner.saved_at = Some(Instant::now());
         self.publish(&mut inner);
         inner.dirty = false;
@@ -300,12 +308,12 @@ impl ChatText {
         }
         inner.dirty = false;
         inner.saved_at = Some(Instant::now());
-        let saved = Saved {
-            schema: SCHEMA,
-            docs: inner.docs.iter().map(|(key, doc)| (key.clone(), doc.clone())).collect(),
-        };
+        // The docs are shared, not copied: the lock is let go before the write.
+        let held: Vec<(String, Arc<Doc>)> =
+            inner.docs.iter().map(|(key, doc)| (key.clone(), doc.clone())).collect();
         drop(inner);
-        if let Err(error) = save(&self.path, &saved) {
+        let docs = held.iter().map(|(key, doc)| (key.as_str(), &**doc)).collect();
+        if let Err(error) = save(&self.path, &Saved { schema: SCHEMA, docs }) {
             tracing::warn!(%error, "chat text: not saved");
         }
     }
