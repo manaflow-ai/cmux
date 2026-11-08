@@ -602,6 +602,7 @@ impl Hub {
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,
             unread_turns: m.unread_turns,
+            seen_seq: m.seen_seq,
             last_turn: m.last_turn.clone(),
             // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
             retry,

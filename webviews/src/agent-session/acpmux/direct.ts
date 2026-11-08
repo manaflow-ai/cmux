@@ -42,7 +42,7 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
-import { QUEUED_MESSAGE, TURN_RETRY, type AcpmuxTurnRetry } from "./model";
+import { QUEUED_MESSAGE, SINCE_DIVIDER, TURN_RETRY, type AcpmuxSince, type AcpmuxTurnRetry } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -1819,6 +1819,24 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.transcriptSummaryVersion = {};
     this.ordered = undefined;
     this.snapshot = undefined;
+  }
+
+  /// Sets `row` to sort right after the event at `seq`, before the next event's rows: "New since you
+  /// looked" (`SINCE_DIVIDER`), which no event of its own makes.
+  setAfter(seq: number, row: AcpmuxRow): void {
+    if (this.order.get(row.id) !== seq + 0.5) {
+      this.order.set(row.id, seq + 0.5);
+      this.local.delete(row.id);
+      this.ordered = undefined;
+      this.transcriptSummaryVersion = {};
+    }
+    const current = this.current;
+    this.current = undefined;
+    // Known now, so `set` keeps the order just given.
+    super.set(row.id, row);
+    this.current = current;
+    this.snapshot = undefined;
+    this.changedSlot = MANY_SLOTS;
   }
 
   /// The place `id` sorts at: its event's sequence number, or just after the events seen before it.
@@ -4534,11 +4552,43 @@ export class AcpmuxDirectClient {
     });
   }
 
-  /// Selecting a session is seeing it, including an unread flag acpmux sent.
+  /// Selecting a session is seeing it, including an unread flag acpmux sent. Turns that ended since
+  /// the person last left it put "New since you looked" after what they had seen; it stays until
+  /// another chat is selected, so it never appears or goes while the reader is on it.
   private markSeen(sessionId: string): void {
+    const listed = this.sessions.find((session) => session.sessionId === sessionId);
+    const turns = listed?.unreadTurns;
+    const seq = listed?.seenSeq;
+    if (typeof turns === "number" && turns > 0 && typeof seq === "number") {
+      this.since = { sessionId, seq, turns };
+      this.placeSince();
+    } else if (this.since?.sessionId !== sessionId) this.since = undefined;
     this.sessions = this.sessions.map((session) =>
-      session.sessionId === sessionId && session.unread === true ? { ...session, unread: false } : session,
+      session.sessionId === sessionId && (session.unread === true || session.unreadTurns)
+        ? { ...session, unread: false, unreadTurns: 0 }
+        : session,
     );
+  }
+
+  /// "New since you looked" for the chat on screen (`markSeen`): its row, after the record at
+  /// `since.seq`. Placed again after a reset clears the rows; O(1) when it is there already.
+  private since?: AcpmuxSince & { sessionId: string };
+  private placeSince(): void {
+    const since = this.since;
+    if (!since || since.sessionId !== this.selectedSessionId) {
+      if (this.rows.has(SINCE_DIVIDER)) this.rows.delete(SINCE_DIVIDER);
+      return;
+    }
+    const drawn = this.rows.get(SINCE_DIVIDER);
+    if (drawn?.since?.seq === since.seq && drawn.since.turns === since.turns && drawn.since.recap === since.recap)
+      return;
+    this.rows.setAfter(since.seq, {
+      id: SINCE_DIVIDER,
+      version: (drawn?.version ?? 0) + 1,
+      at: drawn?.at ?? Date.now(),
+      kind: SINCE_DIVIDER,
+      since: { seq: since.seq, turns: since.turns, ...(since.recap && { recap: since.recap }) },
+    });
   }
 
   /// A refused peer start has no session id yet. Keep its destination until a session is
@@ -7063,7 +7113,19 @@ export class AcpmuxDirectClient {
         // device, is skipped; never a turn of its own. Its key names the chat too: seqs repeat
         // across chats.
         const key = `${this.selectedSessionId ?? ""}:${event.seq}`;
-        if (typeof msg.text === "string" && msg.text.trim() && !recapDismissed(key)) {
+        const since = this.since;
+        if (
+          typeof msg.text === "string" &&
+          msg.text.trim() &&
+          !recapDismissed(key) &&
+          since &&
+          msg.since === since.seq
+        ) {
+          // Made for this return: it draws on "New since you looked", not as a second summary.
+          const recap = { key, text: msg.text.trim(), awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined };
+          this.since = { ...since, recap };
+          this.placeSince();
+        } else if (typeof msg.text === "string" && msg.text.trim() && !recapDismissed(key)) {
           const id = `recap-${event.seq}`;
           this.rows.set(id, {
             id,
@@ -8265,6 +8327,7 @@ export class AcpmuxDirectClient {
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
+    this.placeSince();
     const publishedRows = this.rows.sorted();
     this.noteReplace(publishedRows);
     const progressPlan = this.progressRow ? this.rows.get(this.progressRow)?.plan : undefined;
@@ -8342,6 +8405,7 @@ export class AcpmuxDirectClient {
       // Two or more steers the agent has not read: the transcript draws other sessions' as one card.
       ...(this.waitingSteers.length > 1 ? { waitingSteers: this.steerRowIds() } : {}),
       ...(this.waitingSteers.length > 1 && this.newestOwnSteer() ? { newestOwnSteer: this.newestOwnSteer() } : {}),
+      ...(this.rows.get(SINCE_DIVIDER)?.since && { sinceSeq: this.rows.get(SINCE_DIVIDER)!.since!.seq }),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
         ? { permissionsWaiting: this.waitingPermissions.size, permissionsQueued: this.queuedPermissions() }
@@ -10771,6 +10835,12 @@ export class AcpmuxDirectClient {
   /// (a press on the chat a switch still shows).
   dismissRecap(rowId: string, key: string): void {
     rememberRecapDismissed(key);
+    if (rowId === SINCE_DIVIDER && this.since?.recap?.key === key) {
+      this.since = { sessionId: this.since.sessionId, seq: this.since.seq, turns: this.since.turns };
+      this.placeSince();
+      this.emit();
+      return;
+    }
     if (this.rows.get(rowId)?.recap?.key !== key) return;
     this.rows.delete(rowId);
     this.emit();

@@ -1,4 +1,4 @@
-import { QUEUED_MESSAGE, PENDING_MESSAGES, LANE_NOTICE_BATCH, MESSAGE_RUN } from "../model";
+import { QUEUED_MESSAGE, PENDING_MESSAGES, LANE_NOTICE_BATCH, MESSAGE_RUN, SINCE_DIVIDER } from "../model";
 import { QUESTION_RECORD } from "../question/record";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { TASK_LINE } from "../conversation/taskLineKind";
@@ -32,7 +32,7 @@ import { PlanRow } from "./PlanRow";
 import { BackgroundTaskRow } from "./BackgroundTaskRow";
 import { CompactionRow } from "./CompactionRow";
 import { FailoverRow } from "./FailoverRow";
-import { ReadOnlyRecapRow, RecapRow } from "./RecapRow";
+import { ReadOnlyRecapRow, ReadOnlySinceRow, RecapRow, SinceRow } from "./RecapRow";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { AgentPairRow } from "./AgentPairRow";
 import { SessionStartRow } from "./SessionStartRow";
@@ -81,6 +81,7 @@ export const defaultRegistry: NativeRegistry = {
   compaction: CompactionRow,
   failover: FailoverRow,
   recap: RecapRow,
+  [SINCE_DIVIDER]: SinceRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
@@ -117,6 +118,7 @@ export const readOnlyRegistry: NativeRegistry = {
   [QUEUED_MESSAGE]: ReadOnlyQueuedMessageRow,
   agentPair: ReadOnlyAgentPairRow,
   recap: ReadOnlyRecapRow,
+  [SINCE_DIVIDER]: ReadOnlySinceRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,

@@ -10,6 +10,7 @@
 import {
   isLineRow,
   pathKey,
+  SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxActivity,
   type AcpmuxFileDiff,
@@ -1798,6 +1799,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === "failover" ||
   // A recap is about the whole chat, not the turn above it.
   row.kind === "recap" ||
+  // So is where the person left off (SinceDivider.tsx): folded, nobody would find it.
+  row.kind === SINCE_DIVIDER ||
   // A policy the harness cannot keep: the agent runs without the asks the person chose.
   row.kind === "policyUnenforced" ||
   // A paused agent pair waits for the person's Resume.

@@ -30,6 +30,7 @@ import {
   type AcpmuxSnapshot,
   type QueueEdit,
   linkUp,
+  SINCE_DIVIDER,
   type AcpmuxPlanEntry,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
@@ -5137,6 +5138,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
     return target.rowId;
   };
+  // Jump to new (conversation/SinceDivider.tsx): "New since you looked" is a row like any other, so
+  // the transcript brings it in by its place in the chat even when it is far above the view.
+  const sinceSeq = snapshot.sinceSeq;
+  const jumpToSince = useCallback(() => {
+    const key = Date.now();
+    setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "" });
+    setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
+  }, []);
   // A link waiting on replay retries against committed rows, without a polling timer.
   useLayoutEffect(() => notifyRevealRowsChanged(), [sourceRows, transcriptRows]);
   // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
@@ -9729,6 +9738,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                             expanded={folds}
                                                             showMinimap={minimapVisible}
                                                             reveal={childRows ? undefined : revealRow}
+                                                            sinceSeq={childRows ? undefined : sinceSeq}
+                                                            onJumpToSince={jumpToSince}
                                                             coldOpen={
                                                               !childRows && opened.cold ? opened.open : undefined
                                                             }

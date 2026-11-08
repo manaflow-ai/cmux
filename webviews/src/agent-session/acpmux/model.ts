@@ -150,6 +150,12 @@ export type AcpmuxFailover = { from: string; to: string };
 /// `key`: the chat and the record's seq, which the dismissal remembers (conversation/recapDismissed.ts).
 export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
 
+/// "New since you looked" (conversation/SinceDivider.tsx): where the person left the chat, drawn
+/// after the record they had seen (acpmux `seenSeq`, `hub/seen.rs`) when turns ended since. The
+/// recap made for the same return (`since` on its record) draws on it instead of on its own row.
+export const SINCE_DIVIDER = "sinceDivider";
+export type AcpmuxSince = { seq: number; turns: number; recap?: AcpmuxRecap };
+
 /// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
 /// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick
 /// (`scheduled`), or a hook (`system`). `running` until its ended record; then `quiet` is acpmux's
@@ -425,6 +431,8 @@ export type AcpmuxRow = {
   failover?: AcpmuxFailover;
   /// A recap row's recap.
   recap?: AcpmuxRecap;
+  /// The "New since you looked" row's mark.
+  since?: AcpmuxSince;
   /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
@@ -1270,6 +1278,8 @@ export type AcpmuxSnapshot = {
   /// While two or more steers wait: the row of the person's newest one, the only one that offers
   /// Send now (direct.ts `newestOwnSteer`, conversation/PendingSteer.tsx).
   newestOwnSteer?: string;
+  /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`): Jump to new follows it.
+  sinceSeq?: number;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
@@ -2143,6 +2153,17 @@ function fallbackRowHeight(
       24 +
         Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
           metrics().lineHeight,
+    );
+  // "New since you looked" (conversation/SinceDivider.tsx): its 28px line, and under it the recap's
+  // card as a recap row is estimated.
+  if (row.kind === SINCE_DIVIDER)
+    return finish(
+      28 +
+        (row.since?.recap
+          ? 24 +
+            Math.max(1, Math.ceil(row.since.recap.text.length / Math.max(24, Math.floor(width / 8) - 6))) *
+              metrics().lineHeight
+          : 0),
     );
   // A session start draws nothing (rows/SessionStartRow.tsx): no height, no gap.
   if (row.kind === "sessionStart") return finish(0);
