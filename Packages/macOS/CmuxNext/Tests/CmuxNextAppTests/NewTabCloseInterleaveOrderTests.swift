@@ -211,4 +211,28 @@ struct NewTabCloseInterleaveOrderTests {
             #expect(pane.pane.tabs.filter { !known.contains($0.id) }.count == 1, "one new tab stays: \(pane.pane.tabs.map(\.id))")
         }
     }
+
+    /// Review of #38105: a close that hides the new tab before its reply, then is undone (the daemon rejects it, or a
+    /// running program's confirmation keeps the tab), still lets the tab take its slot right after b once it shows again.
+    @Test func aNewTabWhoseCloseIsUndoneStillTakesItsSlot() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-close-undone-interleave")
+            let (pane, _, recorder) = try await Self.threeTabs(services, connection)
+            let known = Set(pane.pane.tabs.map(\.id)), store = services.daemon.store
+            #expect(services.registry.perform("newTab.default", invocation: ActionInvocation(origin: .user)))
+            try await Self.untilTheDaemonTabIsListed(pane, known: known, recorder)
+            let tab = try #require(pane.pane.tabs.first { !known.contains($0.id) && !ProvisionalTab.isProvisional($0.id) })
+            // Hidden by a close that is never sent, past the reply, then rejected.
+            let close = try #require(store.intendClose([tab.surface]))
+            let hidden = ContinuousClock.now + .milliseconds(600)
+            while ContinuousClock.now < hidden {
+                recorder.sample(pane)
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            store.rejectIntent(close)
+            try await Self.settle(pane, recorder)
+            let seen = recorder.frames.map { $0.joined() }
+            #expect(recorder.frames.last == ["a", "b", "N", "c"], "settled at \(recorder.frames.last?.joined() ?? "-"); \(seen)")
+        }
+    }
 }
