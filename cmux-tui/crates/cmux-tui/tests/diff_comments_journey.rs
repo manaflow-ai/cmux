@@ -207,7 +207,11 @@ mod diff_comments_journey {
         let again = client.ok("diff.comments.send", send, SEND_KEY);
         assert_eq!(again["replayed"], true, "{again}");
         assert_eq!(again["value"], sent["value"], "{again}");
-        std::thread::sleep(Duration::from_secs(1));
+        // acpmux itself runs a prompt id once: a send whose answer was lost before the ledger
+        // kept it is retried under the same key, and acpmux gets the same prompt id again.
+        let mut resend = prompt(&session, &text, SEND_KEY);
+        resend["_meta"]["acpmux"]["resend"] = json!(true);
+        acpmux.call("session/prompt", resend);
         let events = acpmux.events(&session);
         assert_eq!(count(&events, "user_message", USER_TEXT, &text), 1, "{events:?}");
         let turns = events

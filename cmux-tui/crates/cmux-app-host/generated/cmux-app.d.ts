@@ -930,8 +930,6 @@ interface CmuxGlobal {
       list: CmuxOp<{ machine?: string; session?: string; root: string }, Cmux.DiffCommentsListResult>
       /** `diff.comments.save` (mutation, scope `diff:write`) */
       save: CmuxOp<{ machine?: string; session?: string; root: string; comment: Cmux.DiffComment }, Cmux.MutationResult<Cmux.DiffCommentsSaveResult>>
-      /** `diff.comments.send` (mutation, scope `diff:write`) */
-      send: CmuxOp<{ machine?: string; session?: string; root: string; acp_session: string; text: string; ids: Array<string>; versions?: Record<string, string> }, Cmux.MutationResult<Cmux.DiffCommentsSendResult>>
     }
   }
   diffs: {
