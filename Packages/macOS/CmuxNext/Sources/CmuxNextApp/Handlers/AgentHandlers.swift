@@ -86,6 +86,10 @@ enum AgentHandlers {
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
         AgentHarnessHandlers.bind(into: registry, context: context)
+        GitRepositoryActions(place: { gitPlace(context, $0) }, announce: { message in
+            guard let window = context.services.windows.active?.window ?? NSApp.mainWindow else { return }
+            CmuxToastCenter.shared.show(CmuxToast(id: "git-repository-action", message: message), in: window)
+        }).bind(into: registry)
         // The front window's Home, else the Chief directly (HomeChiefActions).
         HomeChiefActions.bind(into: registry, context: context)
         // Start Agent: its key, the palette, the menu and the CLI toggle one floating panel, and so
@@ -269,6 +273,12 @@ enum AgentHandlers {
                                              phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off },
                                              confirmRunning: { helper.confirmRunning() }),
             focus: AppComputerUseFocus(services: services))
+    }
+
+    /// The invocation's tab folder and its machine's git link (GitRepositoryActions).
+    private static func gitPlace(_ context: AppActionContext, _ invocation: ActionInvocation) -> GitRepositoryActions.Place? {
+        guard let tab = context.scope(invocation).tab, let cwd = tab.pane.tab(tab.id)?.cwd else { return nil }
+        return GitRepositoryActions.Place(link: context.services.agentGit.link(for: tab.pane.daemon), cwd: cwd)
     }
 
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath

@@ -1,9 +1,16 @@
-import CmuxNextSettings
+public import CmuxNextSettings
 import Foundation
 
 /// The rows Settings draws from `_acpmux/harnesses`: one per harness, by id, with where it came
-/// from. Never the command line or env.
-nonisolated enum AgentHarnessRows {
+/// from. Never the command line or env. Set Agent Icon…'s pick reads them too (``AgentHarnessIconAction``).
+public nonisolated struct AgentHarnessRows {
+    public let rows: [JSONValue]
+
+    /// - Parameter list: The `_acpmux/harnesses` answer; nil before the first read.
+    public init(_ list: JSONValue?) {
+        rows = Self.rows(list)
+    }
+
     static func rows(_ list: JSONValue?) -> [JSONValue] {
         guard case .object(let harnesses)? = list?["harnesses"] else { return [] }
         let defaultID = list?["defaultHarness"]?.stringValue
