@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The "cmux Updated!" card's slot view: the updated surface, sized to the page's
 /// height, and the card's x. Hidden without a card or a surface.
@@ -88,29 +90,49 @@ final class SidebarUpdatedCardHost: NSView {
     /// The keys are the composer-height card's own (`.v2`): the two-line card before it remembered 64 and
     /// 77 pt, which held a tall view around the 48 pt card after the upgrade (review F1 of #37615). The old
     /// keys are read by nothing and removed at the first write (``legacyHeightKeys``).
-    static let rememberedHeightKey = "cmux.sidebar.updatedCard.height.v2"
+    ///
+    /// The heights are the page's CSS pixels, free of the interface scale: points divided by `app.uiScale`
+    /// when written, times the scale now when read (``rememberedHeight(width:)``), so a 60 pt card
+    /// remembered at 125% is held at 48 the next launch at 100% (review F1 of #38150). The `.v2` keys held
+    /// points at a scale they never wrote down, so they are dropped, not read as 100%: a guess too large
+    /// would hold a too-tall card for the whole showing, while no remembered height costs one launch's
+    /// first-frame room.
+    static let rememberedHeightKey = "cmux.sidebar.updatedCard.height.v3"
     /// The heights the card's page last reported at each card width, newest first (`[width, height]`
     /// pairs, at most ``rememberedWidthsLimit``). Windows with sidebars of different widths wrap the
     /// card's words on different lines (the relaunch bench at 7ed8d1ffedd: 77 pt at 196 pt wide, 64 pt
     /// at 300), so one height for every window moved the other window's card after its first frame.
-    static let rememberedHeightsKey = "cmux.sidebar.updatedCard.heights.v2"
-    /// The keys the card before the composer-height one wrote its heights under.
-    static let legacyHeightKeys = ["cmux.sidebar.updatedCard.height", "cmux.sidebar.updatedCard.heights"]
+    static let rememberedHeightsKey = "cmux.sidebar.updatedCard.heights.v3"
+    /// The keys the card wrote its heights under before: the two-line card's, then the composer-height
+    /// card's points at an unrecorded scale (`.v2`).
+    static let legacyHeightKeys = ["cmux.sidebar.updatedCard.height", "cmux.sidebar.updatedCard.heights",
+                                   "cmux.sidebar.updatedCard.height.v2", "cmux.sidebar.updatedCard.heights.v2"]
     static let rememberedWidthsLimit = 8
 
     /// The height the page last reported at `width` (whole points), else the last one at any width
-    /// (``rememberedHeightKey``, which builds before the per-width heights wrote too); 0 when it never drew.
+    /// (``rememberedHeightKey``, which builds before the per-width heights wrote too), in points at the
+    /// interface scale now; 0 when it never drew.
     static func rememberedHeight(width: CGFloat) -> CGFloat {
         let key = Double(width.rounded())
-        if let pair = rememberedHeights.first(where: { $0[0] == key }) { return max(0, CGFloat(pair[1])) }
-        return max(0, CGFloat(UserDefaults.standard.double(forKey: rememberedHeightKey)))
+        let css = rememberedHeights.first(where: { $0[0] == key })?[1] ?? UserDefaults.standard.double(forKey: rememberedHeightKey)
+        return max(0, points(css: css))
+    }
+
+    /// The interface scale heights are remembered against (never 0).
+    private static var scale: Double { max(Double(DesignSettings.shared.uiScale), 0.01) }
+
+    /// `css` pixels in points at the scale now, to a thousandth (no float noise from the round trip).
+    private static func points(css: Double) -> CGFloat {
+        CGFloat((css * scale * 1000).rounded() / 1000)
     }
 
     private static var rememberedHeights: [[Double]] {
         (UserDefaults.standard.array(forKey: rememberedHeightsKey) as? [[Double]])?.filter { $0.count == 2 } ?? []
     }
 
-    private static func remember(height: CGFloat, width: CGFloat) {
+    /// Keeps `height` (points at the scale now) as CSS pixels at `width`.
+    private static func remember(height points: CGFloat, width: CGFloat) {
+        let height = (Double(points) / scale * 1000).rounded() / 1000
         let defaults = UserDefaults.standard
         for key in legacyHeightKeys where defaults.object(forKey: key) != nil { defaults.removeObject(forKey: key) }
         if Double(height) != defaults.double(forKey: rememberedHeightKey) { defaults.set(Double(height), forKey: rememberedHeightKey) }
@@ -145,6 +167,8 @@ final class SidebarUpdatedCardHost: NSView {
     /// A height the page reported before the card's width was known: remembered at that width once the
     /// slot gives it (``holdFirstFrame()``), after the hold has read the height remembered before it.
     private var pendingRememberedHeight: CGFloat?
+    /// The one armed observation of `app.uiScale` (``observeScale()``).
+    private let scaleTracking = SingleArmedTracking()
 
     /// Holds the first frame's height: the slot calls it once it has set ``slotWidth``, before it reads
     /// ``height``. Armed at the card's first layout whether or not the page has reported yet: a report
@@ -152,6 +176,7 @@ final class SidebarUpdatedCardHost: NSView {
     /// is still the one this layout draws.
     func holdFirstFrame() {
         guard card != nil, island != nil, slotWidth > 0 else { return }
+        observeScale()
         if !holdArmed {
             holdArmed = true
             (heldHeight, heldScale) = (Self.rememberedHeight(width: slotWidth), DesignSettings.shared.uiScale)
@@ -159,6 +184,23 @@ final class SidebarUpdatedCardHost: NSView {
         if let pending = pendingRememberedHeight {
             pendingRememberedHeight = nil
             Self.remember(height: pending, width: slotWidth)
+        }
+    }
+
+    /// Lays the card out again when `app.uiScale` changes: its hold and remembered height are read at the
+    /// scale now, and before the page's first report nothing else tells the sidebar (review F2 of #38150).
+    /// One registration at a time, re-armed by the layout the change asks for; it stops when the host goes
+    /// (weak) or the card does (``holdFirstFrame()`` runs only while a card shows).
+    private func observeScale() {
+        _ = scaleTracking.track(shape: []) {
+            DesignSettings.shared.uiScale
+        } onChange: { [weak self] in
+            // Inside the setting's write: the layout this asks for reads the new scale.
+            MainDelivery().run {
+                guard let self, self.card != nil else { return }
+                self.needsLayout = true
+                self.onHeightChange?()
+            }
         }
     }
 
