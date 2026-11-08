@@ -27720,6 +27720,138 @@
           }
         }
       }
+    },
+    "environment.routeDropped": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تحتفظ خدمة السحابة هذه بوجهة إرسال السر، لذا حُفظ كمتغير عادي على الجهاز. أزله أدناه أو حاول لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova Cloud usluga nije zadržala kamo se tajna šalje, pa je sačuvana kao obična varijabla na mašini. Uklonite je ispod ili pokušajte kasnije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-tjeneste beholdt ikke, hvor hemmeligheden sendes hen, så den blev gemt som en almindelig variabel på maskinen. Fjern den nedenfor, eller prøv igen senere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Cloud-Dienst hat nicht behalten, wohin das Geheimnis gesendet wird, daher wurde es als normale Variable auf der Maschine gespeichert. Entferne es unten oder versuche es später erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud service didn't keep where the secret is sent, so it was saved as a plain variable on the machine. Remove it below, or try again later."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este servicio de Cloud no guardó adónde se envía el secreto, así que se guardó como una variable normal en la máquina. Elimínalo abajo o inténtalo más tarde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce service Cloud n’a pas conservé la destination du secret : il a été enregistré comme variable ordinaire sur la machine. Supprimez-le ci-dessous ou réessayez plus tard."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo servizio Cloud non ha mantenuto la destinazione del segreto, quindi è stato salvato come variabile normale sulla macchina. Rimuovilo qui sotto o riprova più tardi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud サービスはシークレットの送信先を保持しなかったため、マシン上の通常の変数として保存されました。下で削除するか、後でもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវា Cloud នេះមិនបានរក្សាទុកកន្លែងដែលសម្ងាត់ត្រូវផ្ញើទេ ដូច្នេះវាត្រូវបានរក្សាទុកជាអថេរធម្មតានៅលើម៉ាស៊ីន។ លុបវាខាងក្រោម ឬព្យាយាមម្ដងទៀតពេលក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 서비스가 시크릿의 전송 대상을 보관하지 않아 머신의 일반 변수로 저장되었습니다. 아래에서 삭제하거나 나중에 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-tjenesten beholdt ikke hvor hemmeligheten sendes, så den ble lagret som en vanlig variabel på maskinen. Fjern den nedenfor, eller prøv igjen senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta usługa Cloud nie zachowała, dokąd jest wysyłany sekret, więc zapisano go jako zwykłą zmienną na maszynie. Usuń go poniżej lub spróbuj później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este serviço de Cloud não guardou para onde o segredo é enviado, então ele foi salvo como uma variável comum na máquina. Remova-o abaixo ou tente mais tarde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот сервис Cloud не сохранил, куда отправляется секрет, поэтому он сохранён как обычная переменная на машине. Удалите его ниже или повторите попытку позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการ Cloud นี้ไม่ได้เก็บปลายทางของความลับไว้ จึงบันทึกเป็นตัวแปรธรรมดาบนเครื่อง ลบได้ด้านล่าง หรือลองใหม่ภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud hizmeti gizli bilginin nereye gönderildiğini saklamadı, bu yüzden makinede düz bir değişken olarak kaydedildi. Aşağıdan kaldırın veya daha sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей сервіс Cloud не зберіг, куди надсилається секрет, тому його збережено як звичайну змінну на машині. Видаліть його нижче або спробуйте пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ Cloud này không giữ nơi gửi bí mật, nên nó đã được lưu thành một biến thường trên máy. Hãy xóa nó bên dưới hoặc thử lại sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Cloud 服务没有保留密钥的发送位置，因此它被保存为机器上的普通变量。请在下方删除，或稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Cloud 服務沒有保留密鑰的傳送位置，因此它被儲存為機器上的一般變數。請在下方移除，或稍後再試。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

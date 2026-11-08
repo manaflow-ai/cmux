@@ -17,11 +17,37 @@ pages: Network access, Network secrets, Setup script, Environment variables. The
 returns to the overview with the same draft. Save sends only what changed; Cancel and Escape write
 nothing and drop every typed secret value.
 
+The heading and the Cancel/Save row are fixed; only the fields between them scroll, so a long page
+(many secrets, each unfolding its delivery) never pushes the actions out of the sheet. The sheet
+grows with its content up to its height cap, then the fields scroll; the heading and actions never
+move (gallery `secret-many-expanded`; `webviews/test/cloud-environment-sheet-geometry.test.ts`).
+
 ## Secret row
 
 Secrets are write-only. The sheet shows a secret's name and where it is sent, never its value: GET
 answers names, times and delivery targets, and anything else a reply carries is dropped on arrival
 (`storedEnvironment`, and the daemon keeps only `name`, `updated_at`, `hosts`, `header`).
+
+### Only where the service keeps it
+
+A Cloud service without cmux-platform#1008 drops `hosts` and `header` and saves the value as a plain
+variable on the machine, so a secret meant only for some hosts would reach the machine. Development,
+staging and production deploy in turn, so the editor checks the service it talks to:
+
+- **Before:** the Sent to and Header controls (and their note) show only on proof that the service
+  keeps them: the environment reply declares `secret_routes: true`, or a stored secret already has
+  `hosts`. An empty or absent field proves nothing. Without proof the secrets page is the plain list
+  it was. (`secret_routes` is proposed to the platform; until it answers it, a stored secret with
+  hosts is the only proof.)
+- **After:** the PATCH reply must keep every route a save sent: each secret sent with `hosts` comes
+  back with the same hosts (any order) and header (the default as absent). If one does not, the
+  value was saved as a plain variable: the sheet stays open on what is now stored, Save does not
+  report success, and the foot reads "This Cloud service didn't keep where the secret is sent, so it
+  was saved as a plain variable on the machine. Remove it below, or try again later." The editor
+  does not remove it by itself: a second write to a service that just misread the first is no safer,
+  and the person decides.
+
+### Delivery
 
 A secret goes one of two ways (the vault's edge grants):
 
@@ -106,7 +132,9 @@ the editor's checks already stop never reaches it.
 The gallery (`cloud.environment-sheet`) shows the picked design in its states: `secrets` (no hosts),
 `secret-hosts` (default and custom header), `secret-header-open`, `secret-invalid-host` and
 `secret-delivery-edit` (a host added to a secret that has hosts, value left empty) and
-`secret-first-hosts` (a stored plain secret given its first host, asking for its value). Gallery variants are states of the real component, never copies of it
+`secret-first-hosts` (a stored plain secret given its first host, asking for its value) and
+`secret-many-expanded` (nine secrets, every header open, the fields scrolling between the fixed
+heading and actions). Gallery variants are states of the real component, never copies of it
 (`webviews/src/gallery/ENTRIES.md`), so B and C live only in this section.
 
 ## Never
@@ -115,3 +143,6 @@ The gallery (`cloud.environment-sheet`) shows the picked design in its states: `
 - A `set_secrets` entry that leaves out hosts or header to mean "unchanged".
 - A header line that appears or a message that appears without its fold.
 - A plain secret moved to hosts without its value.
+- Delivery controls on a service that has not shown it keeps them, or a save reported done when the
+  reply dropped a route.
+- Actions pushed out of the sheet by its content.

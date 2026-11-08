@@ -56,14 +56,14 @@ const sample: CloudEnvironment = {
   updated_at: "2026-11-01T00:00:00Z",
   updated_by: "user_example",
 };
-async function mount(section: EnvironmentSection = "overview") {
+async function mount(section: EnvironmentSection = "overview", environment: CloudEnvironment = sample) {
   const writes: EnvironmentPatch[] = [];
   const store = new EnvironmentStore({
-    list: async () => [sample],
-    get: async () => sample,
+    list: async () => [environment],
+    get: async () => environment,
     update: async (_id, patch) => {
       writes.push(patch);
-      return sample;
+      return environment;
     },
     derive: async () => ({ setup: { script: "#!/bin/bash\nnpm ci\n" } }),
   });
@@ -143,8 +143,19 @@ test("the checklist entry displays the derived Bash script and backs into the co
   }
 });
 
-test("a secret's Sent to hosts unfold its header, and an invalid host shows inline and blocks Save", async () => {
+test("without the service's support for secret routes, a secret row has no delivery controls", async () => {
   const mounted = await mount("secrets");
+  try {
+    expect(document.querySelector('input[aria-label="Secret name"]')).not.toBeNull();
+    expect(document.querySelector('input[aria-label="Sent to"]')).toBeNull();
+    expect(document.querySelector(".env-secret")).toBeNull();
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+test("a secret's Sent to hosts unfold its header, and an invalid host shows inline and blocks Save", async () => {
+  const mounted = await mount("secrets", { ...sample, secret_routes: true });
   try {
     const hosts = document.querySelector<HTMLInputElement>('input[aria-label="Sent to"]');
     expect(hosts?.value).toBe("");

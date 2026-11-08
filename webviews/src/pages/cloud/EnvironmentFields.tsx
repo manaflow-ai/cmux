@@ -6,6 +6,7 @@ import {
   headerIssue,
   headerText,
   secretNeedsValue,
+  secretRoutesSupported,
   hostsValid,
   secretHosts,
   type EnvironmentDraft,
@@ -87,11 +88,14 @@ export function EnvironmentValues({
   const set = (next: SecretDraft[]) => store.edit(secrets ? { secrets: next } : { variables: next });
   const edit = (index: number, patch: Partial<SecretDraft>) =>
     set(rows.map((row, at) => (at === index ? { ...row, ...patch } : row)));
-  const existing = store.getSnapshot().original?.secrets ?? [];
+  const original = store.getSnapshot().original;
+  const existing = original?.secrets ?? [];
+  // Delivery only where the service keeps it; otherwise a host-only secret would be saved as a plain variable.
+  const routes = secrets && original !== undefined && secretRoutesSupported(original);
   return (
     <div className="env-fields">
       {secrets && <p className="env-note">{t(L.envSecretNote)}</p>}
-      {secrets && <p className="env-note">{t(L.envSecretHostsNote)}</p>}
+      {routes && <p className="env-note">{t(L.envSecretHostsNote)}</p>}
       {rows.map((row, index) => {
         const stored = secrets ? existing.find((item) => item.name === row.name) : undefined;
         const value = (
@@ -128,7 +132,7 @@ export function EnvironmentValues({
             </button>
           </div>
         );
-        if (!secrets) return value;
+        if (!routes) return value;
         return (
           <div className="env-secret" key={index}>
             {value}

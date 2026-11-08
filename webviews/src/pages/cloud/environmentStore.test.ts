@@ -6,6 +6,7 @@ import {
   headerIssue,
   hostsValid,
   secretHosts,
+  secretRoutesSupported,
   validateEnvironment,
   SETUP_SCRIPT_BYTES,
   type CloudEnvironment,
@@ -29,6 +30,25 @@ function environment(overrides: Partial<CloudEnvironment> = {}): CloudEnvironmen
     ...overrides,
   };
 }
+/** The environment a routes-keeping service answers after `patch`. */
+function applied(base: CloudEnvironment, patch: EnvironmentPatch): CloudEnvironment {
+  const { set_secrets: set = [], remove_secrets: remove = [], ...fields } = patch;
+  return {
+    ...base,
+    ...fields,
+    secrets: [
+      ...base.secrets.filter(
+        (secret) => !remove.includes(secret.name) && !set.some((entry) => entry.name === secret.name),
+      ),
+      ...set.map(({ name, hosts, header }) => ({
+        name,
+        updated_at: "2026-11-02T00:00:00Z",
+        ...(hosts ? { hosts } : {}),
+        ...(header ? { header } : {}),
+      })),
+    ],
+  };
+}
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: Error) => void;
@@ -45,7 +65,7 @@ function fake(overrides: Partial<EnvironmentClient> = {}) {
     get: async (id) => environment({ id }),
     update: async (id, patch) => {
       writes.push({ id, patch });
-      return environment({ id, ...patch });
+      return applied(environment({ id }), patch);
     },
     derive: async () => ({ setup: { script: "#!/bin/bash\nnpm ci\n" } }),
     ...overrides,
@@ -641,5 +661,62 @@ describe("secret delivery hosts and header", () => {
         },
       ],
     });
+  });
+});
+
+describe("only a service that keeps where secrets go gets delivery", () => {
+  test("support needs proof: the declared flag or a stored secret with hosts, never an empty field", () => {
+    expect(secretRoutesSupported(environment())).toBe(false);
+    expect(secretRoutesSupported(environment({ secrets: [] }))).toBe(false);
+    expect(secretRoutesSupported(environment({ secret_routes: true }))).toBe(true);
+    expect(
+      secretRoutesSupported(
+        environment({
+          secrets: [{ name: "GITHUB_TOKEN", updated_at: "2026-11-01T00:00:00Z", hosts: ["api.github.com"] }],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("a reply that drops a sent route keeps the sheet open on what is stored, with the dropped error", async () => {
+    const { store, writes } = fake({
+      list: async () => [environment({ secret_routes: true })],
+      // A service without cmux-platform#1008: hosts and header are dropped, the value saved as a plain variable.
+      update: async (id, patch) => {
+        writes.push({ id, patch });
+        const reply = applied(environment({ id, secret_routes: true }), patch);
+        return { ...reply, secrets: reply.secrets.map(({ name, updated_at }) => ({ name, updated_at })) };
+      },
+    });
+    await store.open();
+    store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "npm-token", hosts: "registry.example.com" }] });
+    await store.save();
+    expect(writes).toHaveLength(1);
+    expect(store.getSnapshot()).toMatchObject({ open: true, saving: false, error: "dropped" });
+    expect(store.getSnapshot().draft?.secrets).toEqual([{ name: "PACKAGE_TOKEN", value: "" }]);
+    expect(JSON.stringify(store.getSnapshot())).not.toContain("npm-token");
+  });
+
+  test("a reply that keeps the route (in any host order, default header absent) closes the sheet", async () => {
+    const { store, writes } = fake({
+      list: async () => [environment({ secret_routes: true })],
+      update: async (id, patch) => {
+        writes.push({ id, patch });
+        const reply = applied(environment({ id, secret_routes: true }), patch);
+        return {
+          ...reply,
+          secrets: reply.secrets.map((secret) =>
+            secret.hosts ? { ...secret, hosts: [...secret.hosts].reverse() } : secret,
+          ),
+        };
+      },
+    });
+    await store.open();
+    store.edit({
+      secrets: [{ name: "PACKAGE_TOKEN", value: "npm-token", hosts: "registry.example.com, npm.example.com" }],
+    });
+    await store.save();
+    expect(writes).toHaveLength(1);
+    expect(store.getSnapshot()).toMatchObject({ open: false, saving: false });
   });
 });

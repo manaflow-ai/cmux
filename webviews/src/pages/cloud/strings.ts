@@ -59,6 +59,7 @@ export const L = {
   envReservedHeader: "environment.reservedHeader",
   envInvalidValue: "environment.invalidValue",
   envSecretRetype: "environment.secretRetype",
+  envRouteDropped: "environment.routeDropped",
 
   title: "page.title",
   disconnected: "page.disconnected",

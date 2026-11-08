@@ -4,7 +4,7 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { CloudEnvironment, EnvironmentSection } from "./environmentModel";
 
-type Props = { section: EnvironmentSection; failure?: boolean; full?: boolean; delivery?: boolean };
+type Props = { section: EnvironmentSection; failure?: boolean; full?: boolean; delivery?: boolean; many?: boolean };
 const ready: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cloud-environment-sheet .env-fields"));
 };
@@ -35,6 +35,14 @@ const firstHosts: Play = async (ctx) => {
   await ctx.click({ selector: ".env-heading h2" });
   await ctx.waitFor(() => ctx.document.querySelector(".env-secret .env-error"));
 };
+const manyExpanded: Play = async (ctx) => {
+  await ready(ctx);
+  // Only the header lines of secrets with hosts; the folded-away one of a plain secret is inert.
+  const selector = '.env-fold[data-open] > .env-fold-body > .env-disclosure[aria-expanded="false"]';
+  const closed = () => ctx.document.querySelector(selector);
+  while (closed()) await ctx.click({ selector });
+  await ctx.waitFor(() => !closed());
+};
 const saveFailure: Play = async (ctx) => {
   await ready(ctx);
   await ctx.type("\necho ready", { selector: ".env-code textarea" });
@@ -56,7 +64,7 @@ export default componentEntry<Props>({
       import("../shared/i18n"),
       import("./generated/strings.json"),
     ]);
-    return function EnvironmentGallery({ section, failure, full, delivery }: Props) {
+    return function EnvironmentGallery({ section, failure, full, delivery, many }: Props) {
       const [strings] = useState(() => createStrings(table));
       const [store] = useState(() => {
         let environment: CloudEnvironment = {
@@ -83,7 +91,18 @@ export default componentEntry<Props>({
                   },
                 ]
               : []),
+            ...(many
+              ? ["STRIPE_KEY", "SENTRY_TOKEN", "OPENAI_KEY", "LINEAR_TOKEN", "SLACK_TOKEN", "VERCEL_TOKEN"].map(
+                  (name, index) => ({
+                    name,
+                    updated_at: "2026-11-01T00:00:00Z",
+                    hosts: [`api${index}.example.com`, `uploads${index}.example.com`],
+                  }),
+                )
+              : []),
           ],
+          // This service keeps where each secret goes (cmux-platform#1008), so the delivery controls show.
+          secret_routes: true,
           network: {
             mode: full ? "full" : "limited",
             package_managers: true,
@@ -181,6 +200,11 @@ export default componentEntry<Props>({
       note: "A stored plain secret given its first host: the row asks for its value again.",
       props: { section: "secrets", delivery: true },
       play: firstHosts,
+    },
+    "secret-many-expanded": {
+      note: "Nine secrets, every header open: the fields scroll between the fixed heading and actions.",
+      props: { section: "secrets", delivery: true, many: true },
+      play: manyExpanded,
     },
     variables: {
       note: "Environment variable names and editable values.",

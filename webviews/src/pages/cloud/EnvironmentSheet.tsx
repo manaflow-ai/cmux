@@ -23,6 +23,7 @@ const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   route: L.envReservedHeader,
   value: L.envInvalidValue,
   retype: L.envSecretRetype,
+  dropped: L.envRouteDropped,
 };
 const sections = {
   overview: L.envTitle,

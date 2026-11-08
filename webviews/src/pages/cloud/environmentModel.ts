@@ -12,6 +12,10 @@ export type CloudEnvironment = {
   created_at: string;
   updated_at: string;
   updated_by: string;
+  /** The service stores each secret's `hosts` and `header` (cmux-platform#1008). Proposed: the platform does
+   *  not answer it yet, so until it does a secret that already has hosts is the only proof (see
+   *  `secretRoutesSupported`). */
+  secret_routes?: boolean;
 };
 /** The header a secret with `hosts` goes in; `format` holds `{value}`, which the edge replaces with the value. */
 export type SecretHeader = { name: string; format: string };
@@ -117,6 +121,25 @@ export function storedEnvironment(environment: CloudEnvironment): CloudEnvironme
       ...(header ? { header: { name: header.name, format: header.format } } : {}),
     })),
   };
+}
+
+/** Whether this Cloud service keeps where a secret is sent. A service without it drops `hosts` and `header` and
+ *  saves the value as a plain variable, so the editor offers delivery only on proof: the reply declares
+ *  `secret_routes`, or a stored secret already has hosts. An empty field proves nothing. */
+export function secretRoutesSupported(environment: CloudEnvironment): boolean {
+  return environment.secret_routes === true || environment.secrets.some((secret) => (secret.hosts?.length ?? 0) > 0);
+}
+const routeKey = (route: Pick<SecretWrite, "hosts" | "header">) =>
+  JSON.stringify(secretDelivery({ hosts: [...(route.hosts ?? [])].sort().join(", "), header: route.header }));
+/** The secrets a save sent to hosts that the reply did not keep there: each one is now a plain variable. */
+export function droppedRoutes(patch: EnvironmentPatch, reply: CloudEnvironment): string[] {
+  return (patch.set_secrets ?? [])
+    .filter((entry) => entry.hosts?.length)
+    .filter((entry) => {
+      const kept = reply.secrets.find((secret) => secret.name === entry.name);
+      return !kept || routeKey(kept) !== routeKey(entry);
+    })
+    .map((entry) => entry.name);
 }
 
 export function environmentDraft(environment: CloudEnvironment): EnvironmentDraft {

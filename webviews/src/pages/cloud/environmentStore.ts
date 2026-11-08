@@ -1,5 +1,6 @@
 import {
   environmentDraft,
+  droppedRoutes,
   environmentPatch,
   scriptFits,
   secretNeedsValue,
@@ -37,7 +38,8 @@ export type EnvironmentState = {
     | "hosts"
     | "value"
     | "header"
-    | "route";
+    | "route"
+    | "dropped";
 };
 
 /** The platform's secret refusals (cmux-platform#1008), shown as the same sentence the editor's own check shows.
@@ -157,7 +159,13 @@ export class EnvironmentStore {
     if (!Object.keys(patch).length) return this.close();
     this.set({ saving: true, error: undefined });
     try {
-      await this.client.update(original.id, patch);
+      const reply = await this.client.update(original.id, patch);
+      if (droppedRoutes(patch, reply).length) {
+        // The service saved the value but not where it goes: it is a plain variable on the machine now. Keep
+        // the sheet open on what is stored, so the person sees it and can remove it; never report success.
+        // No automatic removal: a second write to a service that just misread the first is no safer.
+        return this.set({ saving: false, original: reply, draft: environmentDraft(reply), error: "dropped" });
+      }
       this.set({ saving: false });
       this.close();
     } catch (error) {
