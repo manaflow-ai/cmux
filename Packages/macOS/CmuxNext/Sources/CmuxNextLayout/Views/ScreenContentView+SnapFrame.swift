@@ -34,7 +34,7 @@ extension ScreenContentView {
             // commit, straight to each terminal in the host. Through `drawAhead` alone (build 91816749) the grid still went
             // at the next tick (key + 35-46 ms): the presenter's `applyAhead` did not send it (counters: `close_variant`).
             if DesignSettings.shared.filmClose.snapSendsGrid {
-                FilmCloseVariant.counters["snap_hosts", default: 0] += 1
+                FilmCloseVariant.count("snap_hosts")
                 host.content.filmSendSnapGrids(sizeChange: change)
             }
             #endif

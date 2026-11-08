@@ -129,8 +129,9 @@ public struct FilmCloseVariant: Sendable, Equatable {
         }
     }
 
-    /// Film diagnostics (``select(_:)`` answers them): how often each film grid path ran since the last read.
-    @MainActor public static var counters: [String: Int] = [:]
+    /// Film diagnostics (``select(_:)`` answers them): how often each film grid path ran since the last read. Kept on the
+    /// app's design settings (``DesignSettings/filmCounters``), not in a static.
+    @MainActor public static func count(_ key: String) { DesignSettings.shared.filmCounters[key, default: 0] += 1 }
 
     public init(kind: Kind = .v0, milliseconds: Double = 150, curve: Curve = .bezier) {
         self.kind = kind
@@ -191,8 +192,8 @@ public struct FilmCloseVariant: Sendable, Equatable {
             else if let ms = Double(word), ms >= 0 { film.milliseconds = ms } else { return ["error": "close_variant: unknown word \(word)"] }
         }
         DesignSettings.shared.filmClose = film
-        let counters = Self.counters
-        Self.counters = [:]
+        let counters = DesignSettings.shared.filmCounters
+        DesignSettings.shared.filmCounters = [:]
         return ["variant": film.kind.rawValue, "ms": film.milliseconds, "curve": film.curve.rawValue, "named": film.named ?? "",
                 "plays": film.active?.kind.rawValue ?? "V0", "frame_curve": film.frameCurve != nil, "counters": counters]
     }
@@ -209,7 +210,7 @@ public struct FilmCloseVariant: Sendable, Equatable {
         }
         CATransaction.begin()
         defer { CATransaction.commit() }
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        FilmCloseCompletion(completion: completion).install()
         Motion.setModel(layer, keyPath, value)
         let animation: CABasicAnimation
         switch shape {
@@ -231,6 +232,16 @@ public struct FilmCloseVariant: Sendable, Equatable {
         animation.fromValue = from
         animation.toValue = value
         Motion.add(animation, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).film-close")
+    }
+}
+
+/// The film close's CA completion on the main actor (a seam adapter: Core Animation calls the block on the main thread).
+struct FilmCloseCompletion {
+    let completion: @MainActor () -> Void
+
+    func install() {
+        let completion = self.completion
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
     }
 }
 
