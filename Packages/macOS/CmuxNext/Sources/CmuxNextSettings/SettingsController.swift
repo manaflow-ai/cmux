@@ -217,6 +217,12 @@ public final class SettingsController {
         await reloadAfterWrite()
     }
 
+    /// Whether a layer below cmux-next.json (MDM recommended, the team's default) fills `key` when
+    /// the file leaves it unset, so only a value in the file keeps the person's choice of the default.
+    func layerBelowFileSets(_ key: String) -> Bool {
+        lastSource?.managed.recommended[key] != nil || teamPolicy.defaults[key] != nil
+    }
+
     /// Writes a shortcut override for `id`; nil unbinds it.
     public func setShortcut(_ shortcut: Shortcut?, for id: ActionID) async throws {
         let value: JSONValue = shortcut.map { .string(ShortcutBindingFormat.configString(SettingsApplier.stroke(for: $0))) } ?? .null
