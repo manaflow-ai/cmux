@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42514713794",
+  "recorded_at": "2026-11-08T19:34:36Z",
+  "reason": "cmux-tui 90cf69fc2ec9 changes the image's cmux-tui (pinned 82237298a2c8)",
+  "dry_run": false,
+  "cmux_tui": "90cf69fc2ec93b085a19bc85015c1e2c6021b0e9",
+  "fixes": [
+    {
+      "sha": "90cf69fc2ec93b085a19bc85015c1e2c6021b0e9",
+      "mergedAt": "2026-11-08T11:06:22-08:00",
+      "subject": "fix(cmux-tui): report a failed machine-agent migration before the old peer is told (port of #38719) (#38743)"
+    },
+    {
+      "sha": "1a4963ef03c7723d0bd23b8172d2598ae07bd250",
+      "mergedAt": "2026-11-08T11:05:51-08:00",
+      "subject": "acpmux: log the silence budget a quick reopen doubled (#38757)"
+    },
+    {
+      "sha": "f2cc44d0c55d833af1f7393ac798d783d30ca2e6",
+      "mergedAt": "2026-11-08T19:04:06Z",
+      "subject": "chore(next): base autofix at 82237298a2c8"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T19:34:36Z",
+    "snapshot_id": "sh-b2cbb0894dc646ac9858076381def1b1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42514713794): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "20d0f73bd85e9e0b1113ae6b2be2c239fe6afe90",
+    "image": "cloud-native-auto-90cf69fc-42514713794-1",
+    "revision": "ci-42514713794-1",
+    "at": "2026-11-08T19:34:36Z"
+  },
+  "rolled_back": false
+}
