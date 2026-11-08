@@ -2035,6 +2035,10 @@ async fn dispatch_request_with_identity(
                 Some(host) => format!("{}@{host}", conn.label()),
                 None => conn.label(),
             };
+            // A correction from the person, at the app or their own terminal (`prompt_coach.rs`).
+            if !agent_message && (person_asks(conn) || owner_terminal(conn, &params)) {
+                hub.coach_prompt(&s, &sent_text);
+            }
             // The person's answer to the suggestion the chat showed, if any (`suggestion_gate.rs`).
             if !agent_message && person_asks(conn) {
                 crate::suggestion_gate::note_prompt(
@@ -2043,7 +2047,6 @@ async fn dispatch_request_with_identity(
                     crate::suggestion_gate::marked_taken(&params),
                 );
                 crate::memory_inbox::note_prompt(&s.id, &sent_text);
-                hub.coach_prompt(&s, &sent_text);
             } else {
                 // Another agent's message answers nothing the person was shown.
                 crate::suggestion_gate::withdraw(&s.id);
@@ -3313,7 +3316,7 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
 /// releases a protected hold (`PromptOptions::unproven_owner`), never counts as an authenticated
 /// person (`human_authenticated` needs the proven person) and is never forwarded to a peer as
 /// the person's (`attest_person` reads `person_admitted` only).
-fn owner_terminal(conn: &Conn, params: &Value) -> bool {
+pub(super) fn owner_terminal(conn: &Conn, params: &Value) -> bool {
     let claims = params.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|mux| {
         [
             "fromAgent",

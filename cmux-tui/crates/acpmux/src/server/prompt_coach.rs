@@ -1,7 +1,8 @@
 //! `_acpmux/prompt_coach {sessionId, coachId}`: the chat page that shows a chat's prompt coach
 //! offer asks for its rewrite (`hub/prompt_coach.rs`), answering `{made}` once the `coach` record
-//! is logged or there is nothing to make. Only a person's view asks: a chat's own agent, another
-//! agent and a peer are refused, so no agent spends a model call through it.
+//! is logged or there is nothing to make. Only a person's view asks, here or through a peer link
+//! that proved the person: a chat's own agent and another agent are refused, so no agent spends
+//! a model call through it.
 
 use super::{Conn, str_param};
 use crate::hub::Hub;
@@ -19,7 +20,9 @@ pub(super) async fn dispatch(
     if m != method::MUX_PROMPT_COACH {
         return None;
     }
-    if !super::requests::person_asks(conn) {
+    // The person at the app, a paired phone, or a peer link forwarding a request its own daemon
+    // proved the person's (`remote_guard::PERSON_PROVEN`).
+    if !super::requests::person_asks(conn) && !super::requests::person_admitted(conn, params) {
         return Some(Err(RpcError::invalid_params("only a person's view asks for the rewrite")));
     }
     Some(handle(hub, params).await)

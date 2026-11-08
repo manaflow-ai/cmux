@@ -78,6 +78,18 @@ async fn a_chat_kept_after_three_corrections_is_offered_one_rewrite() {
     assert!(asked[0].contains("keep ThemeContext"), "the corrections are read");
     assert!(!asked[0].contains("great, now add a test"), "the kept turn's prompt is not");
 
+    // A chat client's transcript page carries both records (`paging.rs` `TRANSCRIPT_MUX_KINDS`).
+    let page = c
+        .request(
+            method::MUX_EVENTS,
+            json!({"sessionId": id, "afterSeq": 0, "limit": 5000, "kinds": ["transcript"]}),
+        )
+        .await
+        .unwrap();
+    let kinds: Vec<&str> =
+        page["events"].as_array().unwrap().iter().filter_map(|e| e["kind"].as_str()).collect();
+    assert!(kinds.contains(&"coach_offer") && kinds.contains(&"coach"), "{kinds:?}");
+
     // More corrections later never make a second offer.
     for text in ["no, the other file", "still wrong", "actually revert it", "fine, thanks"] {
         say(&mut c, &id, text).await;
