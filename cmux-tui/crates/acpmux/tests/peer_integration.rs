@@ -3455,7 +3455,7 @@ async fn legacy_models_peer(a_port: u16) -> u16 {
                             let ask = Message::request(1, "_acpmux/models", json!({})).to_line();
                             back.send(Ws::Text(ask.trim_end().to_owned().into())).await.unwrap();
                             let mut rows = vec![json!({"harness": "old-agent", "models": []})];
-                            // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                            // Skip non-text frames: this loop reads A's responses.
                             while let Some(Ok(frame)) = back.next().await {
                                 let Ws::Text(t) = frame else { continue };
                                 if let Ok(Message::Response { result: Some(r), .. }) =
