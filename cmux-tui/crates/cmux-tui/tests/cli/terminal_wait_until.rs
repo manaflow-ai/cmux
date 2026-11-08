@@ -96,6 +96,7 @@ fn assert_timed_out(output: &Output) {
     assert_eq!(output.status.code(), Some(124), "{}", String::from_utf8_lossy(&output.stderr));
     let error = json_error(output);
     assert_eq!(error["code"], "wait.timeout", "{error}");
+    assert_eq!(error["details"]["timed_out"], true, "{error}");
 }
 
 /// `--until idle` returns at once on a terminal with nothing running, waits
