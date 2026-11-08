@@ -174,9 +174,10 @@ export function readiness(
     blockers.push({ kind: "github", state: details.mergeState });
   }
   if (pr.baseRef === "main") blockers.push({ kind: "main" });
-  // Review of #38115, F3: a BLOCK at the head may be in the comments the read left out.
-  if (details.conversationTotal > details.conversation.length) {
-    blockers.push({ kind: "history", shown: details.conversation.length, total: details.conversationTotal });
+  // Review of #38115, F3: a BLOCK at the head may be in the comments the read left out. Counted as
+  // the host counts the total, before empty review wrappers are dropped (review of #38263, F1).
+  if (details.conversationTotal > details.conversationRead) {
+    blockers.push({ kind: "history", shown: details.conversationRead, total: details.conversationTotal });
   }
   return { state: blockers.length ? "blocked" : "ready", ship, blockers };
 }

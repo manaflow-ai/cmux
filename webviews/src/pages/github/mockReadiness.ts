@@ -20,6 +20,7 @@ const receipt = (verdict: string, sha: string, findings: string[]) =>
 const counted = (details: PullRequestDetails): PullRequestDetails => ({
   ...details,
   conversationTotal: details.conversation.length,
+  conversationRead: details.conversation.length,
 });
 
 export const mockBlockedDetails: PullRequestDetails = counted({
@@ -83,6 +84,7 @@ export const mockBlockedDetails: PullRequestDetails = counted({
     },
   ],
   conversationTotal: 0,
+  conversationRead: 0,
 });
 
 export const mockBlocked: PullRequestReply = {
@@ -109,6 +111,7 @@ export const mockReadyDetails: PullRequestDetails = counted({
     },
   ],
   conversationTotal: 0,
+  conversationRead: 0,
 });
 
 export const mockReady: PullRequestReply = {

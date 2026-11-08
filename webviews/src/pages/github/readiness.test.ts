@@ -27,6 +27,7 @@ const withEntries = (details: PullRequestDetails, ...bodies: string[]): PullRequ
   ...details,
   conversation: bodies.map(comment),
   conversationTotal: bodies.length,
+  conversationRead: bodies.length,
 });
 const kinds = (details: PullRequestDetails, pr = mockReady.pullRequest!, checks = mockReadyChecks) =>
   readiness(pr, details, checks).blockers.map((blocker) => blocker.kind);
@@ -130,12 +131,20 @@ test("GitHub's blocked or behind merge state keeps it from ready", () => {
 // Review of #38115, F3: the read keeps only the newest comments and reviews, so a BLOCK at the
 // head may sit in the part it did not read. Ready is never claimed from part of the history.
 test("a conversation read only in part is never ready: an older BLOCK may be in what was not read", () => {
-  const partial = { ...mockReadyDetails, conversationTotal: mockReadyDetails.conversation.length + 40 };
+  const partial = { ...mockReadyDetails, conversationTotal: mockReadyDetails.conversationRead + 40 };
   const state = readiness(mockReady.pullRequest!, partial, mockReadyChecks);
   expect(state.state).toBe("blocked");
   expect(state.blockers).toEqual([
-    { kind: "history", shown: mockReadyDetails.conversation.length, total: partial.conversationTotal },
+    { kind: "history", shown: mockReadyDetails.conversationRead, total: partial.conversationTotal },
   ]);
   // A read that has it all claims nothing.
-  expect(kinds({ ...mockReadyDetails, conversationTotal: mockReadyDetails.conversation.length })).toEqual([]);
+  expect(kinds({ ...mockReadyDetails, conversationTotal: mockReadyDetails.conversationRead })).toEqual([]);
+});
+
+// Review of #38263, F1: the host counts the total over every comment and review but leaves empty
+// review wrappers out of the conversation, so the conversation's length is no measure of the read.
+// A complete read with two empty wrappers left out is not partial.
+test("a complete read whose conversation left out empty review wrappers is not partial", () => {
+  const read = mockReadyDetails.conversation.length + 2;
+  expect(kinds({ ...mockReadyDetails, conversationTotal: read, conversationRead: read })).toEqual([]);
 });

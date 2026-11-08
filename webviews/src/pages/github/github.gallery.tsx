@@ -159,7 +159,7 @@ export default componentEntry<Props>({
       note: "Review of #38115, F3: the read kept only the newest comments, so an older BLOCK cannot be ruled out; never Ready.",
       props: {
         answer: mockReady,
-        details: { ...mockReadyDetails, conversationTotal: mockReadyDetails.conversation.length + 61 },
+        details: { ...mockReadyDetails, conversationTotal: mockReadyDetails.conversationRead + 61 },
         checks: mockReadyChecks,
       },
     },
@@ -240,7 +240,15 @@ export default componentEntry<Props>({
     "no-description": {
       note: "No body and no comments yet.",
       props: {
-        details: { ...mockDetails, body: "", conversation: [], conversationTotal: 0, reviewers: [], linked: [] },
+        details: {
+          ...mockDetails,
+          body: "",
+          conversation: [],
+          conversationTotal: 0,
+          conversationRead: 0,
+          reviewers: [],
+          linked: [],
+        },
       },
     },
     reading: { note: "The first read, before gh answered.", props: { answer: { pullRequest: null, reading: true } } },
