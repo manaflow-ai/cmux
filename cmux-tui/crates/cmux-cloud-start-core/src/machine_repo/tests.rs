@@ -294,10 +294,12 @@ fn git_reads_the_reset_before_the_chosen_helper() {
     assert!(reset < chosen && chosen < clone, "{argv:?}");
 }
 
+#[cfg(unix)]
 /// A scratch folder with a source repository of two commits, and shims for the machine's
 /// `cmux` (`repo hold` runs its command in the foreground), `systemd-run`, `sudo` and `runuser`.
 struct Machine(std::path::PathBuf);
 
+#[cfg(unix)]
 impl Machine {
     fn new(with_hold: bool) -> Option<Self> {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -365,12 +367,14 @@ impl Machine {
     }
 }
 
+#[cfg(unix)]
 impl Drop for Machine {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
+#[cfg(unix)]
 /// The default branch is cloned head first and filled under `cmux repo hold`: the step ends with
 /// the whole tree there and the barrier's command run (cmuxterm-hq goals/cloud-no-network-wait.md).
 #[test]
@@ -395,6 +399,7 @@ fn a_default_branch_is_cloned_head_first_and_filled_under_the_hold() {
     assert_eq!(String::from_utf8_lossy(&sparse.stdout).trim(), "false");
 }
 
+#[cfg(unix)]
 /// A machine whose cmux has no `repo hold` clones the whole repository, as before.
 #[test]
 fn without_a_hold_the_whole_repository_is_cloned() {
