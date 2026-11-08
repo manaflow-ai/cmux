@@ -286,3 +286,52 @@ test("a notice whose title is longer than a line allows still reads as a notice,
   expect(read.message.notice?.title.endsWith("(exit 0)")).toBe(true);
   expect(read.message.text).not.toContain("[notice from");
 });
+
+// Review follow-ups on #38226 (F1-F3).
+test("each notice of a digest keeps its own links, a fire's after many others' too", () => {
+  const PR_LINK = (n: number) => ({ url: `https://github.com/manaflow-ai/cmux/pull/${n}` });
+  const info = (i: number) => ({
+    text: `[notice from lander] Landed #${i}\nok`,
+    provenance: {
+      kind: "notice",
+      from: "fromAgent",
+      fromName: "lander",
+      notice: { sender: "lander", severity: "info", title: `Landed #${i}`, links: [PR_LINK(i)] },
+    },
+  });
+  const ends = Array.from({ length: 17 }, (_, i) => info(i + 1));
+  ends.push({
+    text: "[notice from watch · FIRE] fast tier red\nlook",
+    provenance: {
+      kind: "notice",
+      from: "fromAgent",
+      fromName: "watch",
+      notice: { sender: "watch", severity: "fire", title: "fast tier red", links: [PR_LINK(99999)] },
+    },
+  });
+  const read = digest(...ends);
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice?.severity).toBe("fire");
+  expect(read.message.text).toContain("pull/99999");
+  expect(read.message.text).toContain("pull/1)");
+});
+
+test("a rendered notice sent at a shell keeps its severity inside a digest", () => {
+  const text =
+    "1 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.\n\n[agent message 1 of 1] from base-red-watch\n[notice from base-red-watch on ci-mini-3 · FIRE] fast tier failed\nboom";
+  const messages = [{ promptId: "p", from: "base-red-watch" }];
+  const read = incomingPrompt(text, { _meta: { provenance: { kind: "agent_digest", messages } } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice).toMatchObject({ severity: "fire", title: "fast tier failed", host: "ci-mini-3" });
+  expect(read.message.text).toBe("boom");
+});
+
+test("Find matches across a notice title's command and its exit", async () => {
+  const end = bgEnd("bg-11", "make", 0, "ok");
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  const container = await render(<IncomingMessageLine id="n-11" message={read.message} onOpen={() => undefined} />);
+  const title = container.querySelector(".cv-notice__title")!;
+  expect(title.hasAttribute("data-find-join")).toBe(true);
+  expect(title.textContent).toBe("Background command finished: make (exit 0)");
+});
