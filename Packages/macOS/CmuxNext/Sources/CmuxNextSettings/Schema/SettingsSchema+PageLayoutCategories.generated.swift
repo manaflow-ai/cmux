@@ -98,7 +98,7 @@ extension SettingsPageLayout {
     private static let terminalCategory = CategorySpec(
         id: "terminal", title: section(.terminal), symbol: "terminal",
         groups: [
-            GroupSpec(keys: ["newTerminal.opensWorkspace", "app.warnBeforeClosingTab"], title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
+            GroupSpec(keys: ["newTerminal.opensWorkspace", "app.warnBeforeClosingTab", "terminal.predictiveLocalEcho"], title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
             // The TERM new terminals start with (terminal.term).
             GroupSpec(group: "settings.group.terminalCompatibility"),
         ],

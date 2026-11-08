@@ -49,6 +49,15 @@ final class TerminalEchoPredictor {
         refresh()
     }
 
+    /// Turns prediction on or off (``TerminalSession/predictsLocalEcho``): a fresh engine either way. Off draws
+    /// nothing and takes away what was drawn now; on starts listening again, knowing whether a full-screen program
+    /// owns the screen.
+    func setEnabled(_ enabled: Bool) {
+        engine.set(enabled: enabled, remote: true)
+        if enabled, let surfaceView { engine.seedAlternateScreen(surfaceView.isAlternateScreen) }
+        refresh()
+    }
+
     /// The grid changed under the glyphs (a new PTY grid): start over.
     func gridChanged() {
         engine.missedOutput(alternateScreen: surfaceView?.isAlternateScreen)
