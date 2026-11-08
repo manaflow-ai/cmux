@@ -398,7 +398,9 @@ impl crate::store::Store for RefusingStore {
         self.inner.save(meta)
     }
     fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
-        let kept = record.msg.get("detail") == Some(&json!("kept"));
+        // And a queue's edit or removal (`edits_the_disk_refuses`).
+        let kept = record.msg.get("detail") == Some(&json!("kept"))
+            || matches!(record.kind.as_str(), "queue_updated" | "queue_removed");
         anyhow::ensure!(!(kept && self.fail.load(Ordering::SeqCst)), "test: the disk refuses it");
         self.inner.append(id, record)
     }
@@ -629,4 +631,100 @@ async fn a_queue_change_between_the_drain_and_the_rebuild_stands() {
     assert_ne!(old, vec![("p1".to_owned(), "p1 new words".to_owned())], "07f76930 kept them");
     let now = changes_right_after_the_drain(0).await;
     assert_eq!(now, vec![("p1".to_owned(), "p1 new words".to_owned())]);
+}
+
+/// Two prompts waiting on a machine whose disk refuses queue edits for a while; a restore that
+/// stops short; meanwhile the first is edited and the second removed, and the disk refuses both
+/// records; then the owner's next tries: whether the first of them succeeded, and each waiting
+/// prompt's id and preview once one did.
+async fn edits_the_disk_refuses(rules: u8) -> (bool, Vec<(String, String)>) {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let inner = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hub = Hub::new(cfg, Box::new(RefusingStore { inner, fail: fail.clone() }));
+    hub.replay_rules(rules);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    for p in ["p1", "p2"] {
+        let text = format!("{p} old words");
+        hub.append(
+            &session,
+            "mux",
+            "queued",
+            json!({"promptId": p, "turnId": format!("t-{p}"), "text": text, "prompt": words(&text),
+                   "held": true}),
+        );
+    }
+    hub.restore_queue(&session);
+    let last = session.seq.load(Ordering::SeqCst);
+    let records = json!([chunk(last + 1, 1), chunk(last + 2, 2), chunk(last + 3, 3)]);
+    let params = restore_params(&session, records);
+    super::journal_restore::fail_once_after_first_record(&session.id);
+    assert!(hub.journal_restore(&params).await.is_err());
+    fail.store(true, Ordering::SeqCst);
+    let edit = json!({"sessionId": session.id, "promptId": "p1", "op": "update",
+                      "text": "p1 new words"});
+    let edited = hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
+    assert_eq!(edited["ok"], json!(true), "{edited}");
+    assert!(hub.remove_queued(&session, "p2"));
+    let second = hub.journal_restore(&params).await;
+    fail.store(false, Ordering::SeqCst);
+    if second.is_err() {
+        let reason = second.as_ref().unwrap_err().data.as_ref().and_then(|d| d.get("reason"));
+        assert_eq!(reason, Some(&json!("append_failed")));
+        hub.journal_restore(&params).await.unwrap();
+    }
+    let queue = session.queue.lock().unwrap();
+    (second.is_ok(), queue.iter().map(|q| (q.prompt_id.clone(), q.preview.clone())).collect())
+}
+
+/// Review of #37284 at a088585e, F1: a queue edit and a removal made while a restore holds the
+/// chat, whose records the disk refuses as the restore settles, are not lost: that try fails
+/// (`append_failed`) and the chat stays held, and a rebuild reads the records not stored yet
+/// after the journal. Under a088585e's rules the try went on as if they were in, and the rebuilt
+/// queue had the old words and the removed prompt again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_queue_edit_the_disk_refuses_during_a_restore_is_not_lost() {
+    let (went_on, old) = edits_the_disk_refuses(super::journal_restore::AT_A088).await;
+    assert!(went_on, "a088585e went on");
+    assert_ne!(old, vec![("p1".to_owned(), "p1 new words".to_owned())], "a088585e kept them");
+    let (went_on, now) = edits_the_disk_refuses(0).await;
+    assert!(!went_on, "the try that could not store them went on");
+    assert_eq!(now, vec![("p1".to_owned(), "p1 new words".to_owned())]);
+}
+
+/// Review of #37284 at a088585e, F2: a restore that brings a prompt's records naming its images
+/// writes the images back where the machine keeps them, checked against their ids, and the
+/// machine then says it holds them (`attachments_held`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restore_writes_its_prompts_images_back() {
+    use base64::Engine as _;
+    let (hub, session) = hub_at(0).await;
+    let bytes = b"\x89PNG\r\n\x1a\n a restored image".to_vec();
+    let id = crate::attach::sha256(&bytes);
+    let path = super::prompt_images::image_path(&id).unwrap();
+    let _ = std::fs::remove_file(&path);
+    let held = json!({"sessionId": session.id, "files": [], "images": [id]});
+    assert_eq!(hub.attachments_held(&held).await.unwrap()["held"], json!(false));
+    let last = session.seq.load(Ordering::SeqCst);
+    let message = json!({"seq": last + 1, "at": 1, "dir": "mux", "kind": "user_message",
+                         "msg": {"promptId": "pi", "turnId": "ti", "text": "look",
+                                 "images": [{"id": id, "mimeType": "image/png"}]}});
+    let mut params = restore_params(&session, json!([message]));
+    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    // Bytes that are not the image the id names are refused.
+    params["files"] =
+        json!([{"image": id, "data": base64::engine::general_purpose::STANDARD.encode(b"other")}]);
+    assert!(hub.journal_restore(&params).await.is_err());
+    params["files"] = json!([{"image": id, "data": data}]);
+    hub.journal_restore(&params).await.unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    assert_eq!(hub.attachments_held(&held).await.unwrap()["held"], json!(true));
+    let _ = std::fs::remove_file(&path);
 }

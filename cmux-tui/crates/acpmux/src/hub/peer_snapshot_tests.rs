@@ -1374,7 +1374,10 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
     let hook: Written = {
         let told = told.clone();
-        Arc::new(move |_, _, _, records| told.lock().unwrap().push(records))
+        Arc::new(move |_, _, _, records| {
+            told.lock().unwrap().push(records);
+            true
+        })
     };
     let mut store =
         Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
@@ -1472,8 +1475,14 @@ fn steps_of_an_accepted_attachment_prompt(
     let accepted_only = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
     od::take_written(&outbox, (PEER, "m1", 7), &[life("m1", 5, "turn_started", "p1")], (1, 1));
     let started = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
+    // A started turn's continuation never carries the hidden context: proven at its end.
+    if rules == 0 {
+        assert_eq!(started, od::Step::Again, "a started turn without its hidden context");
+        od::take_written(&outbox, (PEER, "m1", 7), &[life("m1", 6, "turn_result", "p1")], (1, 1));
+    }
+    let ended = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
-    (accepted_only, started)
+    (accepted_only, ended)
 }
 
 /// Review of #37284 at 07f76930, F2: a machine that holds only an attachment prompt's
@@ -1489,18 +1498,76 @@ fn an_accepted_attachment_prompt_whose_turn_never_started_is_delivered_again() {
     assert_eq!(old.0, od::Step::Check, "07f76930 went on to release it");
     let now = steps_of_an_accepted_attachment_prompt(0);
     assert_eq!(now, (od::Step::Again, od::Step::Check));
-    // A text prompt's `user_message` rebuilds it; an image's, a digest's or an attachment's not.
+    // A text prompt's `user_message` rebuilds it, and an image's with the image's bytes; a
+    // digest's, an attachment's, a document's, or an image's without its bytes not.
+    let none = std::collections::HashSet::new();
+    let i1 = std::collections::HashSet::from(["i1".to_owned()]);
     let text = json!([{"kind": "user_message", "msg": {"promptId": "p", "text": "hi"}}]);
-    assert!(od::rerunnable(text.as_array().unwrap()));
+    assert!(od::rerunnable(text.as_array().unwrap(), &none));
+    let image = json!({"promptId": "p", "text": "hi", "images": [{"id": "i1"}],
+                       "inlineParts": [{"kind": "image", "id": "i1"}]});
+    assert!(od::rerunnable(&[json!({"kind": "user_message", "msg": image})], &i1));
     for msg in [
         json!({"promptId": "p", "text": "hi", "hiddenContext": "x"}),
-        json!({"promptId": "p", "text": "hi", "images": [{"id": "i1"}]}),
-        json!({"promptId": "p", "inlineParts": [{"kind": "image", "id": "i1"}]}),
+        image,
+        json!({"promptId": "p", "inlineParts": [{"kind": "document", "name": "a.pdf"}]}),
         json!({"promptId": "p", "text": "hi", "_meta": {"provenance": {"kind": "agent_digest"}}}),
     ] {
         let records = [json!({"kind": "user_message", "msg": msg})];
-        assert!(!od::rerunnable(&records), "{msg}");
+        assert!(!od::rerunnable(&records, &none), "{msg}");
     }
+}
+
+/// A delivery of an image prompt whose turn started at once (no `queued` record: its
+/// `user_message` names the image by id), proven by those records, under `rules`: its step on a
+/// later link, and the images a restore of its session brings back.
+fn an_image_prompt_started_at_once(rules: u8) -> (crate::hub::open_delivery::Step, Vec<Value>) {
+    use crate::hub::open_delivery as od;
+    use base64::Engine as _;
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules));
+    let outbox = crate::hub::outbox::Outbox::default();
+    let now = crate::store::now_ms();
+    let bytes = b"\x89PNG\r\n\x1a\n the screenshot".to_vec();
+    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let id = crate::attach::sha256(&bytes);
+    let d: crate::hub::outbox::Delivery = serde_json::from_value(json!({
+        "id": "d1", "target": format!("{PEER}/m1"),
+        "request": {"sessionId": format!("{PEER}/m1"), "_meta": {"acpmux": {"promptId": "p1"}},
+                    "prompt": [{"type": "text", "text": "what is this"},
+                               {"type": "image", "mimeType": "image/png", "data": data}]},
+        "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+        "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+    }))
+    .unwrap();
+    outbox.add(d);
+    let mut accepted = life("m1", 4, "user_message", "p1");
+    accepted["msg"]["text"] = json!("what is this");
+    accepted["msg"]["images"] = json!([{"id": id, "mimeType": "image/png"}]);
+    let started = life("m1", 5, "turn_started", "p1");
+    od::take_written(&outbox, (PEER, "m1", 7), &[accepted, started], (1, 1));
+    let ends = HashMap::from([("m1".to_owned(), (7, 9))]);
+    let step = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
+    let back = restore::restore_files(&outbox, (PEER, "m1", 7));
+    let images = back.into_iter().filter(|f| f.get("image") == Some(&json!(id))).collect();
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
+    (step, images)
+}
+
+/// Review of #37284 at a088585e, F2: an image prompt whose turn started at once, before its
+/// machine went back to an older disk, is given back with its image's bytes, which the machine
+/// writes where it keeps a prompt's images (`journal_restore.rs`), and its delivery goes only
+/// once a later link shows them held (`proof_held`), so the cut turn's continuation carries
+/// the image. Under a088585e's rules the restore brought no image and the continuation went
+/// without it.
+#[test]
+fn an_image_prompt_started_at_once_goes_back_with_its_image() {
+    use crate::hub::open_delivery as od;
+    let (step, images) = an_image_prompt_started_at_once(crate::hub::journal_restore::AT_A088);
+    assert_eq!(step, od::Step::Check);
+    assert!(images.is_empty(), "a088585e brought its image back");
+    let (step, images) = an_image_prompt_started_at_once(0);
+    assert_eq!(step, od::Step::Check);
+    assert_eq!(images.len(), 1, "its image goes back with it");
 }
 
 /// What goes back to a machine on a disk that ends at 3 from a proof of p1's `queued` (seq 4),
@@ -1514,7 +1581,10 @@ fn back_after_a_cut_removal(rules_of_91b: bool) -> Vec<u64> {
     let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
     let hook: Written = {
         let told = told.clone();
-        Arc::new(move |_, _, _, records| told.lock().unwrap().push(records))
+        Arc::new(move |_, _, _, records| {
+            told.lock().unwrap().push(records);
+            true
+        })
     };
     let mut store =
         Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
@@ -1655,7 +1725,10 @@ fn stop_then_bound(rules: u8) -> (Vec<u64>, u64) {
     let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
     let hook: Written = {
         let told = told.clone();
-        Arc::new(move |_, _, _, records| told.lock().unwrap().push(records))
+        Arc::new(move |_, _, _, records| {
+            told.lock().unwrap().push(records);
+            true
+        })
     };
     let mut store =
         Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
@@ -1717,4 +1790,71 @@ fn a_proof_from_an_earlier_start_is_checked_on_the_next_link() {
     od::INCARNATION.with(|i| *i.borrow_mut() = None);
     assert_eq!(before, od::Step::Wait, "4dcbe192 checked it");
     assert_eq!(after, od::Step::Check);
+}
+
+/// A delivery's proof of p1's `queued` (seq 4) on disk; then the outbox's save of its removal
+/// (seq 5) fails; then a turn writes past the copy's bound, which cuts the removal; then the
+/// owner starts again on that disk, and the machine is back on a disk that ends at 3: whether a
+/// restore would give p1's `queued` back (it would run again, though it was removed).
+fn a_proof_whose_save_failed(rules: u8) -> bool {
+    use crate::hub::open_delivery as od;
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules));
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let outbox = Arc::new(crate::hub::outbox::Outbox::default());
+    let saves = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let hook: Written = {
+        let (outbox, saves) = (outbox.clone(), saves.clone());
+        Arc::new(move |_, _, link, records| {
+            od::take_written(&outbox, (PEER, "m1", 7), &records, link);
+            saves.load(std::sync::atomic::Ordering::SeqCst)
+                || crate::hub::journal_restore::rules_of_a088()
+        })
+    };
+    let now = crate::store::now_ms();
+    let d: crate::hub::outbox::Delivery = serde_json::from_value(json!({
+        "id": "d1", "target": format!("{PEER}/m1"),
+        "request": {"sessionId": format!("{PEER}/m1"), "_meta": {"acpmux": {"promptId": "p1"}}},
+        "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+        "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+    }))
+    .unwrap();
+    // The proof as the outbox's file holds it: only what a save that worked wrote.
+    let on_disk = crate::hub::outbox::Outbox::default();
+    on_disk.add(d.clone());
+    outbox.add(d);
+    {
+        let hook = Arc::new(StdMutex::new(Some(hook)));
+        let mut store = Store::new(disk::root(dir.path()), Arc::default(), hook);
+        store.scan();
+        keep(&mut store, "m1", 1..=3);
+        store.add(&key("m1"), vec![life("m1", 4, "queued", "p1")]);
+        store.write_due(None, When::Last);
+        od::take_written(&on_disk, (PEER, "m1", 7), &[life("m1", 4, "queued", "p1")], (1, 1));
+        saves.store(false, std::sync::atomic::Ordering::SeqCst);
+        store.add(&key("m1"), vec![life("m1", 5, "queue_removed", "p1")]);
+        store.write_due(None, When::Last);
+        saves.store(true, std::sync::atomic::Ordering::SeqCst);
+        keep(&mut store, "m1", 6..=(6 + SESSION_EVENTS as u64));
+        store.write_due(None, When::Last);
+    }
+    // The owner starts again: its copies from disk, its outbox from its file.
+    let mut store = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
+    store.scan();
+    let rows = vec![("m1".to_owned(), 7, 3)];
+    let (_, since) = store.ahead(PEER, rows.clone());
+    let back = od::proofs_past(&on_disk, PEER, &rows, &since);
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
+    !back.is_empty()
+}
+
+/// Review of #37284 at a088585e, F3: a copy counts its records as told to their proofs only once
+/// the outbox is on disk. When its save fails, the copy writes that it vouches for its records
+/// only past them (`since`), in the same write, so a proof that missed a later record of its
+/// prompt is never whole, after the owner starts again too, and nothing of it goes back. Under
+/// a088585e's rules the copy took them as told, its bound cut the removal unnoticed, and the
+/// removed prompt went back to run again.
+#[test]
+fn a_proof_whose_save_failed_never_gives_back_a_removed_prompt() {
+    assert!(a_proof_whose_save_failed(crate::hub::journal_restore::AT_A088), "a088585e kept it");
+    assert!(!a_proof_whose_save_failed(0), "the removed prompt went back");
 }

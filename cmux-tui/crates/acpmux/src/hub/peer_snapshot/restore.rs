@@ -498,15 +498,19 @@ pub(crate) fn restore_files(
 ) -> Vec<Value> {
     use base64::Engine as _;
     let mut files: BTreeMap<std::path::PathBuf, Vec<u8>> = BTreeMap::new();
+    // And their images, by id, which the machine keeps where it keeps a prompt's images
+    // (review of #37284 at a088585e, F2).
+    let mut images: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     for d in outbox.pinned_to(pinned) {
         files.extend(od::proof_files(&d));
+        if !crate::hub::journal_restore::rules_of_a088() {
+            images.extend(od::proof_images(&d));
+        }
     }
-    files
-        .into_iter()
-        .map(|(path, bytes)| {
-            json!({"path": path, "data": base64::engine::general_purpose::STANDARD.encode(bytes)})
-        })
-        .collect()
+    let data = |bytes: Vec<u8>| base64::engine::general_purpose::STANDARD.encode(bytes);
+    let files = files.into_iter().map(|(path, bytes)| json!({"path": path, "data": data(bytes)}));
+    let images = images.into_iter().map(|(id, bytes)| json!({"image": id, "data": data(bytes)}));
+    files.chain(images).collect()
 }
 
 /// Where the peer's journal's own recovery begins, when it refused a restore past it.

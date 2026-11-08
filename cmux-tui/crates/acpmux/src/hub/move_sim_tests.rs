@@ -733,6 +733,7 @@ struct World {
 fn sim_store(dir: &std::path::Path) -> Store {
     let hook: Written = Arc::new(|key, generation, link, records| {
         WRITTEN.with(|w| w.borrow_mut().push((key.clone(), generation, link, records)));
+        true
     });
     let mut store =
         Store::new(disk::root(dir), Arc::default(), Arc::new(StdMutex::new(Some(hook))));

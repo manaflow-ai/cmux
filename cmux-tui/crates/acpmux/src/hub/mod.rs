@@ -1173,9 +1173,9 @@ impl Hub {
             let weak = Arc::downgrade(&hub);
             let written: peer_snapshot::Written =
                 Arc::new(move |key, generation, link, records| {
-                    if let Some(hub) = weak.upgrade() {
-                        hub.proof_written(&key.0, &key.1, (generation, link), &records);
-                    }
+                    weak.upgrade().is_none_or(|hub| {
+                        hub.proof_written(&key.0, &key.1, (generation, link), &records)
+                    })
                 });
             *hub.peer_snapshots.written.lock().unwrap_or_else(|e| e.into_inner()) = Some(written);
             let h = hub.clone();

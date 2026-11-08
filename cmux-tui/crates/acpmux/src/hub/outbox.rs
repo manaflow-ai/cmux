@@ -448,15 +448,44 @@ impl Outbox {
     }
 
     /// Changes delivery `id` with `f` and saves.
+    /// A change whose failed save leaves the file a state a restart goes on from safely (an
+    /// attempt's count, an answer the next attempt reads again); [`Self::update_saved`] for
+    /// one a caller lets something go after.
     pub fn update(&self, id: &str, f: impl FnOnce(&mut Delivery)) {
+        self.update_saved(id, f);
+    }
+
+    /// [`Self::update`], answering whether the change is on disk: a caller that lets something
+    /// go once it is (attachment bytes, an attempt that may reach a peer) waits for that (review
+    /// of #37284 at a088585e: a failed save was logged and the bytes went anyway). False for a
+    /// failed save; true when no such delivery is here.
+    pub fn update_saved(&self, id: &str, f: impl FnOnce(&mut Delivery)) -> bool {
         let mut book = self.book();
-        let Some(d) = book.deliveries.get_mut(id) else { return };
+        let Some(d) = book.deliveries.get_mut(id) else { return true };
         f(d);
         d.updated_at = crate::store::now_ms();
         let change = book.changed();
         drop(book);
-        self.save(change);
+        let saved = self.save_checked(change);
+        if let Err(e) = &saved {
+            tracing::warn!("outbox: could not save: {e:#}");
+        }
         self.changed.notify_waiters();
+        saved.is_ok()
+    }
+
+    /// Whether every change so far is on disk: one whose write failed is written again now
+    /// (review of #37284 at a088585e, F3: a proof whose save failed was taken as kept, and the
+    /// copy that told it stopped counting its records). A failed write answers false.
+    pub(crate) fn saved_now(&self) -> bool {
+        let change = self.book().changes;
+        match self.save_checked(change) {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!("outbox: could not save: {e:#}");
+                false
+            }
+        }
     }
 
     /// Returns once a file that holds change `change` is on disk, or after logging a failed

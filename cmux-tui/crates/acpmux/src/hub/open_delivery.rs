@@ -173,15 +173,49 @@ pub(crate) fn restarts(records: &[Value]) -> bool {
     !ended && (left || has(&["queued"]))
 }
 
-/// Whether a machine that holds `records` of a prompt's life, and nothing else of it, runs it
-/// again or knows how it ended: it ended; its `queued` record holds its blocks (`restore_queue`
-/// puts it back); its turn started (a cut turn is continued); or its `user_message` alone
-/// rebuilds what the agent got (`unstarted_prompt.rs` puts it back). A `user_message` with a
-/// hidden context (an attachment's), an inbox digest's, or with an image or another part the
-/// machine kept apart from its journal does not: a machine on another disk could not run it, and
-/// its prompt would be lost if the delivery closed (review of #37284 at 07f76930, F2). Only a
-/// delivery again (`resend`), which carries the whole prompt, runs that one.
-pub(crate) fn rerunnable(records: &[Value]) -> bool {
+/// Whether a machine that holds `records` of a prompt's life, and nothing else of it but the
+/// bytes of `images` (the images the delivery can give back, by id), runs it again whole or knows
+/// how it ended. It ended; or every image its records name is among `images` (a restore writes
+/// them back, [`proof_images`]) and: its `queued` record holds its blocks (`restore_queue` puts
+/// it back, its files too: [`proof_files`]); or its `user_message` holds the rest of what the
+/// agent got (no hidden context, no inbox digest, no part kept apart but an image) and its turn
+/// started (a cut turn is continued with its text and images, `restart_resume.rs`) or not
+/// (`unstarted_prompt.rs` puts it back). A started turn's continuation never carries a hidden
+/// context (an attachment's text, never logged), so that one waits for its end. Anything less
+/// and a machine on another disk would run less than was sent, or nothing (review of #37284 at
+/// 07f76930, F2, and at a088585e, F2: an image prompt started at once came back without its
+/// images). Only a delivery again (`resend`), which carries the whole prompt, runs that one.
+pub(crate) fn rerunnable(records: &[Value], images: &HashSet<String>) -> bool {
+    let has = |kinds: &[&str]| records.iter().any(|r| kinds.contains(&kind(r)));
+    if has(&["turn_result", "queue_removed", "queue_declined", "prompt_retracted"]) {
+        return true;
+    }
+    if !named_images(records).iter().all(|id| images.contains(*id)) {
+        return false;
+    }
+    if has(&["queued"]) {
+        return true;
+    }
+    let mut messages = records.iter().filter(|r| kind(r) == "user_message").peekable();
+    messages.peek().is_some()
+        && messages.all(|r| {
+            let Some(msg) = r.get("msg") else { return false };
+            let provenance = msg.pointer("/_meta/provenance/kind").and_then(Value::as_str);
+            let apart = msg.get("inlineParts").and_then(Value::as_array).is_some_and(|parts| {
+                parts.iter().any(|p| {
+                    p.get("text").is_none()
+                        && p.get("kind").and_then(Value::as_str) != Some("image")
+                })
+            });
+            msg.get("hiddenContext").is_none()
+                && provenance != Some(crate::hub::digest::DIGEST_KIND)
+                && !apart
+        })
+}
+
+/// a088585e's [`rerunnable`]: a started turn, or a `user_message` without a hidden context, a
+/// digest's provenance or an image, was enough.
+fn rerunnable_at_a088(records: &[Value]) -> bool {
     let has = |kinds: &[&str]| records.iter().any(|r| kinds.contains(&kind(r)));
     if has(&["turn_result", "queue_removed", "queue_declined", "prompt_retracted"])
         || has(&["queued", "turn_started"])
@@ -190,17 +224,39 @@ pub(crate) fn rerunnable(records: &[Value]) -> bool {
     }
     records.iter().filter(|r| kind(r) == "user_message").any(|r| {
         let Some(msg) = r.get("msg") else { return false };
-        let provenance = msg.pointer("/_meta/provenance/kind").and_then(Value::as_str);
         let images = msg.get("images").and_then(Value::as_array).is_some_and(|i| !i.is_empty());
-        let apart = msg
-            .get("inlineParts")
-            .and_then(Value::as_array)
-            .is_some_and(|parts| parts.iter().any(|p| p.get("text").is_none()));
-        msg.get("hiddenContext").is_none()
-            && provenance != Some(crate::hub::digest::DIGEST_KIND)
-            && !images
-            && !apart
+        msg.get("hiddenContext").is_none() && !images
     })
+}
+
+/// The ids of the images the records of a prompt's life name (`user_message`, `queued`,
+/// `queue_updated`: `prompt_images.rs`).
+fn named_images(records: &[Value]) -> std::collections::BTreeSet<&str> {
+    records
+        .iter()
+        .filter(|r| matches!(kind(r), "user_message" | "queued" | "queue_updated"))
+        .filter_map(|r| r.get("msg"))
+        .flat_map(crate::hub::prompt_images::named_ids)
+        .collect()
+}
+
+/// The images `d`'s proof names whose bytes its request holds, by id (review of #37284 at
+/// a088585e, F2): a restore writes them back where the machine keeps a prompt's images, so a
+/// prompt it continues or runs again has them, and the delivery goes only once a later link
+/// shows them held ([`Hub::proof_held`]).
+pub(crate) fn proof_images(d: &Delivery) -> Vec<(String, Vec<u8>)> {
+    let Some(proof) = &d.proof else { return Vec::new() };
+    let Some(blocks) = d.request.get("prompt").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let named = named_images(&proof.records);
+    let mut held: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    for (id, bytes) in crate::hub::prompt_images::image_bytes(blocks) {
+        if named.contains(id.as_str()) {
+            held.insert(id, bytes);
+        }
+    }
+    held.into_iter().collect()
 }
 
 /// The seq from which the owner's copy of each session saw every record, with its generation
@@ -324,9 +380,15 @@ pub(crate) fn step(
         return Step::Lapse;
     }
     let (Some(pin), Some(proof)) = (&d.pin, &d.proof) else { return Step::Again };
-    // A proof that holds nothing a machine runs again from proves nothing yet (review of
-    // #37284 at 07f76930, F2): delivered again, as one not proven is.
-    if !rerunnable(&proof.records) && !crate::hub::journal_restore::rules_of_07f7() {
+    // A proof that holds nothing a machine runs again from, whole, proves nothing yet (review of
+    // #37284 at 07f76930, F2, and at a088585e, F2): delivered again, as one not proven is.
+    let images: HashSet<String> = proof_images(d).into_iter().map(|(id, _)| id).collect();
+    let rerun = if crate::hub::journal_restore::rules_of_a088() {
+        rerunnable_at_a088(&proof.records)
+    } else {
+        rerunnable(&proof.records, &images)
+    };
+    if !rerun && !crate::hub::journal_restore::rules_of_07f7() {
         return Step::Again;
     }
     let through = proof.records.iter().filter_map(seq).max();
@@ -417,12 +479,18 @@ impl Hub {
         // And the files its prompt was saved as, by their hashes (F4): until then it waits, its
         // bytes kept, and lapses visibly.
         let files = proof_files(d);
-        if !files.is_empty() && !self.at_4dcb() {
+        // And its images (review of #37284 at a088585e, F2).
+        let images: Vec<String> = if self.at_a088() {
+            Vec::new()
+        } else {
+            proof_images(d).into_iter().map(|(id, _)| id).collect()
+        };
+        if !(files.is_empty() && images.is_empty()) && !self.at_4dcb() {
             let files: Vec<Value> = files
                 .iter()
                 .map(|(path, bytes)| json!({"path": path, "sha256": crate::attach::sha256(bytes)}))
                 .collect();
-            let params = json!({"sessionId": pin.session, "files": files});
+            let params = json!({"sessionId": pin.session, "files": files, "images": images});
             let held = peer.request_on(ATTACHMENTS_HELD, params, Some(link.1)).await.ok()?;
             if held.get("held") != Some(&Value::Bool(true)) {
                 return None;
@@ -436,6 +504,7 @@ impl Hub {
         self.peer(peer).is_some_and(|p| (p.generation, p.link_epoch()) == link)
     }
 
+    /// Answers whether the proofs they made are on disk.
     /// The owner's copy of peer `peer`'s session `session`, generation `generation`, wrote
     /// `records` to disk, which came on link `link` (review of #37284 at 98b4575a, F4: the
     /// write's own link, never the one the peer is on when the write runs): the deliveries
@@ -447,10 +516,14 @@ impl Hub {
         session: &str,
         (generation, link): (u64, (u64, u64)),
         records: &[Value],
-    ) {
+    ) -> bool {
         for path in take_written(&self.outbox, (peer, session, generation), records, link) {
+            // 4dcbe192's rules only: the bytes went at the proof.
             let _ = std::fs::remove_file(path);
         }
+        // Kept only once the outbox is on disk: the copy counts the records as not told until
+        // then (`peer_snapshot.rs` `write_one`).
+        self.at_a088() || self.outbox.saved_now()
     }
 }
 

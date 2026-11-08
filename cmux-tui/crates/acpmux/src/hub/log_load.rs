@@ -227,8 +227,11 @@ impl Hub {
         from_copy: Option<&std::collections::HashSet<String>>,
     ) {
         // What was written while a restore owns the chat is in the journal first (its own
-        // records, never marked as recovery): the recovery reads it, and rebuilds the queue.
+        // records, never marked as recovery): the recovery reads it, and rebuilds the queue. One
+        // the store refuses is read after the journal (`kept_unstored`).
         self.write_parked(session);
+        #[cfg(test)]
+        super::journal_restore::test_after_drain(&session.id);
         let _marked = super::restore_writer::Recovering::start();
         let (hosted, waiting) = {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
@@ -291,8 +294,11 @@ impl Hub {
         session: &Arc<Session>,
         from_copy: &std::collections::HashSet<String>,
     ) {
-        // What was written meanwhile is in the journal first: the queue is rebuilt from it.
+        // What was written meanwhile is in the journal first: the queue is rebuilt from it, and
+        // from what the store refused (`kept_unstored`).
         self.write_parked(session);
+        #[cfg(test)]
+        super::journal_restore::test_after_drain(&session.id);
         if let Err(error) = self.restore_ownership_epoch(session) {
             session.invalidate_ownership_epoch();
             tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");

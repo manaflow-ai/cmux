@@ -58,21 +58,23 @@ pub const MAX_RECORDS: usize = 4096;
 
 /// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
 /// history, for the tests and the move simulation to replay (0: the rules of now). Each later
-/// head's fixes are missing from an earlier one too. 07f76930's: the fourteenth review's F1 and
-/// F2.
-pub(crate) const AT_07F7: u8 = 1;
+/// head's fixes are missing from an earlier one too. a088585e's: the sixteenth review's F1 to
+/// F3.
+pub(crate) const AT_A088: u8 = 1;
+/// 07f76930's (the fourteenth review's F1 and F2 are missing too).
+pub(crate) const AT_07F7: u8 = 2;
 /// ff3da306's (the twelfth review's F1 and F2 are missing too).
-pub(crate) const AT_FF3D: u8 = 2;
+pub(crate) const AT_FF3D: u8 = 3;
 /// c4a6f4e7's (the eleventh review's F1 to F3 are missing too).
-pub(crate) const AT_C4A6: u8 = 3;
+pub(crate) const AT_C4A6: u8 = 4;
 /// 4dcbe192's (the tenth review's F1 to F6 are missing too).
-pub(crate) const AT_4DCB: u8 = 4;
+pub(crate) const AT_4DCB: u8 = 5;
 /// 91b1343d's (the ninth review's F1 to F5 are missing too).
-pub(crate) const AT_91B: u8 = 5;
+pub(crate) const AT_91B: u8 = 6;
 
 #[cfg(test)]
 thread_local! {
-    /// Tests only: the rules this thread replays ([`AT_07F7`] and earlier; 0: now).
+    /// Tests only: the rules this thread replays ([`AT_A088`] and earlier; 0: now).
     pub(crate) static OLD_RULES: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
 }
 
@@ -103,6 +105,11 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn replay_rules(&self, rules: u8) {
         self.old_rules.store(rules, Ordering::SeqCst);
+    }
+
+    /// Whether this hub replays the rules of a088585e (tests only; never in a build).
+    pub(crate) fn at_a088(&self) -> bool {
+        self.old_rules() >= AT_A088
     }
 
     /// Whether this hub replays the rules of 07f76930 (tests only; never in a build).
@@ -142,6 +149,11 @@ fn thread_rules() -> u8 {
 /// copies' store and the restore's merge, which tests drive on their own thread.
 pub(crate) fn rules_of_91b() -> bool {
     thread_rules() >= AT_91B
+}
+
+/// Whether this thread replays the rules of a088585e (tests only; never in a build).
+pub(crate) fn rules_of_a088() -> bool {
+    thread_rules() >= AT_A088
 }
 
 /// Whether this thread replays the rules of 07f76930 (tests only; never in a build).
@@ -415,7 +427,19 @@ impl Hub {
             session.seq.store(last, Ordering::SeqCst);
             (at, failed, flushed.err())
         };
-        self.save_meta(session);
+        // Its counts and end are on disk before it answers, or it stops short (review of #37284
+        // at a088585e: a failed save was logged, and the restore answered done).
+        if !self.at_a088()
+            && let Err(e) = self.save_meta_answered(session)
+        {
+            return Err(stopped(
+                session,
+                &anyhow::anyhow!("its counts were not saved: {}", e.message),
+            ));
+        }
+        if self.at_a088() {
+            self.save_meta(session);
+        }
         let last = session.seq.load(Ordering::SeqCst);
         let through = records.last().map_or(after, |r| r.seq);
         // Only every record in and flushed to stable storage is a restore: until then nothing
@@ -439,6 +463,14 @@ impl Hub {
             .filter_map(|r| r.msg.get("promptId").and_then(Value::as_str))
             .map(str::to_owned)
             .collect();
+        // What parked while it held the chat goes in before anything is rebuilt from the
+        // journal; one the store refuses fails the try (`append_failed`), and the chat stays held
+        // for the next (review of #37284 at a088585e, F1: a088585e rebuilt without it, and the
+        // queue edit it held was lost).
+        if !self.at_a088() && !self.write_parked(session) {
+            let e = anyhow::anyhow!("records kept while it held the chat were not stored");
+            return Err(stopped(session, &e));
+        }
         // A log read for this restore recovers now, on the restored log, as a load does.
         if !self.recover_pending(session, Some(&from_copy)) && restored {
             self.settle_restored(session, &from_copy);
@@ -510,7 +542,9 @@ impl Hub {
 }
 
 /// The files a restore brings (`files`: each one's `path` and base64 `data`), checked to be in
-/// the chat's own uploads folder before anything is written.
+/// the chat's own uploads folder before anything is written; and its prompts' images (`image`,
+/// the id a record names it by, and `data`, whose SHA-256 that id is: review of #37284 at
+/// a088585e, F2), kept where this machine keeps a prompt's images.
 fn files_of(params: &Value) -> Result<Vec<(std::path::PathBuf, Vec<u8>)>, RpcError> {
     use base64::Engine as _;
     let Some(files) = params.get("files").and_then(Value::as_array) else { return Ok(Vec::new()) };
@@ -518,9 +552,20 @@ fn files_of(params: &Value) -> Result<Vec<(std::path::PathBuf, Vec<u8>)>, RpcErr
     files
         .iter()
         .map(|f| {
-            let path = f.get("path").and_then(Value::as_str).and_then(|p| upload_path(id, p));
             let data = f.get("data").and_then(Value::as_str);
             let bytes = data.and_then(|d| base64::engine::general_purpose::STANDARD.decode(d).ok());
+            if let Some(image) = f.get("image").and_then(Value::as_str) {
+                let path = super::prompt_images::image_path(image);
+                return match (path, bytes) {
+                    (Some(path), Some(bytes)) if crate::attach::sha256(&bytes) == image => {
+                        Ok((path, bytes))
+                    }
+                    _ => Err(RpcError::invalid_params(
+                        "a restore's image is the SHA-256 of its base64 data",
+                    )),
+                };
+            }
+            let path = f.get("path").and_then(Value::as_str).and_then(|p| upload_path(id, p));
             match (path, bytes) {
                 (Some(path), Some(bytes)) => Ok((path, bytes)),
                 _ => Err(RpcError::invalid_params(
@@ -542,16 +587,22 @@ fn upload_path(id: &str, path: &str) -> Option<std::path::PathBuf> {
     (plain && path.is_absolute() && path.starts_with(&root) && path != root).then_some(path)
 }
 
-/// The files the `queued` records among `records` name as saved on this machine.
+/// The files the `queued` records among `records` name as saved on this machine, and the kept
+/// images their prompts' records name (`user_message`, `queued`, `queue_updated`).
 fn files_named<'a>(
-    records: impl Iterator<Item = &'a EventRecord>,
+    records: impl Iterator<Item = &'a EventRecord> + Clone,
 ) -> std::collections::HashSet<std::path::PathBuf> {
-    records
+    let files = records
+        .clone()
         .filter(|r| r.kind == "queued")
         .filter_map(|r| r.msg.get("prompt").and_then(Value::as_array))
         .flat_map(|blocks| crate::attach::saved_links(blocks))
-        .map(|(path, _)| path)
-        .collect()
+        .map(|(path, _)| path);
+    let images = records
+        .filter(|r| matches!(r.kind.as_str(), "user_message" | "queued" | "queue_updated"))
+        .flat_map(|r| super::prompt_images::named_ids(&r.msg))
+        .filter_map(super::prompt_images::image_path);
+    files.chain(images).collect()
 }
 
 /// Writes each of `files` that the chat lacks; a failed write stops the restore
@@ -571,11 +622,18 @@ fn restore_files(
             tracing::info!(session = %session.id, path = %path.display(), "a restored prompt's file is here already, changed: it stays");
             continue;
         }
+        // A prompt's image goes where the machine keeps them, named by its hash.
+        let image = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| super::prompt_images::image_path(n).filter(|p| p == path));
         let written = path
             .parent()
             .ok_or_else(|| anyhow::anyhow!("{} has no folder", path.display()))
             .and_then(|dir| {
-                if let Some(uploads) = dir.parent() {
+                if image.is_none()
+                    && let Some(uploads) = dir.parent()
+                {
                     crate::config::private_state_dir(uploads)?;
                 }
                 crate::config::private_state_dir(dir)
@@ -612,6 +670,15 @@ impl Hub {
                 ));
             };
             wanted.push((path, hash.to_owned()));
+        }
+        // And the images its prompt's records name, by id (review of #37284 at a088585e, F2).
+        let images = params.get("images").and_then(Value::as_array).into_iter().flatten();
+        for image in images {
+            let image = image.as_str().unwrap_or_default();
+            let Some(path) = super::prompt_images::image_path(image) else {
+                return Err(RpcError::invalid_params("each image is the SHA-256 of its bytes"));
+            };
+            wanted.push((path, image.to_owned()));
         }
         let held = tokio::task::spawn_blocking(move || {
             wanted.iter().all(|(path, hash)| {

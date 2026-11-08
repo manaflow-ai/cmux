@@ -560,7 +560,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         }
         // Past its day (a restart resumes old ones too): failed, never sent this late.
         if expired(&delivery, crate::store::now_ms()) {
-            hub.outbox.update(id, |d| {
+            let saved = hub.outbox.update_saved(id, |d| {
                 if !d.settled() {
                     d.state = State::Failed;
                     let last =
@@ -569,13 +569,17 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     crate::attach::strip(&mut d.request);
                 }
             });
-            if let Some(path) = hub.outbox.attachments_path(&delivery) {
+            // Its bytes go once the file says it failed: a restart reads it open otherwise.
+            if saved && let Some(path) = hub.outbox.attachments_path(&delivery) {
                 forget_attachments(path).await;
             }
             return;
         }
         let attempt = delivery.attempts + 1;
-        hub.outbox.update(id, |d| {
+        // Saved as maybe sent, and with its pin, before the attempt may reach the peer
+        // (below): an attempt whose state is not on disk does not go (review of #37284 at
+        // a088585e: a failed save was logged, and the attempt went).
+        let mut saved = hub.outbox.update_saved(id, |d| {
             if !d.settled() {
                 start_attempt(d, attempt);
             }
@@ -605,9 +609,12 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             delivery.pin.clone().or_else(|| crate::hub::open_delivery::pin(hub, &delivery.target))
         };
         if fresh_pin && pin.is_some() {
-            hub.outbox.update(id, |d| d.pin.clone_from(&pin));
+            saved &= hub.outbox.update_saved(id, |d| d.pin.clone_from(&pin));
         }
-        let outcome = if request.pointer("/_meta/acpmux/forwardProjection").is_some() {
+        let outcome = if !saved {
+            // Nothing went on the link.
+            Err(("the outbox could not be saved; tried again".to_owned(), Next::Retry))
+        } else if request.pointer("/_meta/acpmux/forwardProjection").is_some() {
             // A projection reconciles with the receiver's log; it never uses the link to send.
             link_unsent = false;
             tokio::time::timeout(ATTEMPT_WAIT, reconcile_forward(hub, &delivery))
@@ -645,7 +652,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // A peer's session may lose it with the machine's disk until the owner's copy of
                 // that session holds it (`hub/open_delivery.rs`): open until then.
                 let open = pin.is_some();
-                hub.outbox.update(id, |d| {
+                let saved = hub.outbox.update_saved(id, |d| {
                     crate::hub::open_delivery::accepted(d, pin, accepted);
                     // Settled: its record keeps no attachment bytes (`attach.rs`). One open on
                     // its peer keeps them until it closes: a delivery again sends them too.
@@ -653,7 +660,10 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         crate::attach::strip(&mut d.request);
                     }
                 });
-                if !open && let Some(path) = hub.outbox.attachments_path(&delivery) {
+                if saved
+                    && !open
+                    && let Some(path) = hub.outbox.attachments_path(&delivery)
+                {
                     forget_attachments(path).await;
                 }
                 return;
@@ -876,11 +886,14 @@ async fn redeliver_one(
 /// Closes open delivery `d` with `f`: settled now, its record keeps no attachment bytes, and
 /// the ones kept beside the outbox go.
 async fn close_open(hub: &Arc<Hub>, d: &Delivery, f: impl FnOnce(&mut Delivery)) {
-    hub.outbox.update(&d.id, |d| {
+    let saved = hub.outbox.update_saved(&d.id, |d| {
         f(d);
         crate::attach::strip(&mut d.request);
     });
-    if let Some(path) = hub.outbox.attachments_path(d) {
+    // The bytes go only once the file says it closed (review of #37284 at a088585e): a restart
+    // that reads it open sends it again, or checks its proof again, with them. A file left
+    // without its delivery's bytes' owner is swept at the next open (`Outbox::open`).
+    if saved && let Some(path) = hub.outbox.attachments_path(d) {
         forget_attachments(path).await;
     }
 }

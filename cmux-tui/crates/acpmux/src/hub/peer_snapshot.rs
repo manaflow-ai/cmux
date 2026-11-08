@@ -222,8 +222,11 @@ enum Op {
 /// Told, after a copy's write, the records of prompts' lives that came since its last write and
 /// the write put on disk (never one a bound cut before it): the copy's key, its generation, the
 /// newest link those records came on (never the link the peer is on when the write runs) and
-/// the records (`open_delivery.rs`: their deliveries keep them as proof).
-pub(crate) type Written = Arc<dyn Fn(&(String, String), u64, Link, Vec<Value>) + Send + Sync>;
+/// the records (`open_delivery.rs`: their deliveries keep them as proof). It answers whether
+/// the proofs are on disk: until then the copy counts them as not told (review of #37284 at
+/// a088585e, F3).
+pub(crate) type Written =
+    Arc<dyn Fn(&(String, String), u64, Link, Vec<Value>) -> bool + Send + Sync>;
 
 /// The peers whose ops did not fit the queue (with whether a removal of the peer was among
 /// them), and the flushes sent: each is sent once until the thread takes it, so they are bounded
@@ -1500,6 +1503,13 @@ impl Store {
             self.remove(key);
             return Ok(());
         }
+        if self.copies.get(key).is_none_or(|c| c.records.is_none()) {
+            return Ok(());
+        }
+        // The proofs go first (review of #37284 at a088585e, F3): a copy whose proofs are not
+        // on disk writes that it does not vouch for its records through those (`since`), so a
+        // proof that missed a later record of its prompt is never whole, after a restart too.
+        let unsaved = !crate::hub::journal_restore::rules_of_a088() && !self.tell_written(key);
         let Some(c) = self.copies.get(key) else { return Ok(()) };
         let Some(records) = &c.records else { return Ok(()) };
         let bytes = disk::encode(&c.head, records);
@@ -1518,30 +1528,50 @@ impl Store {
             // The write took the place of a file whose removal was refused.
             self.dead.remove(&path);
         }
-        let mut told = None;
         if let Some(c) = self.copies.get_mut(key) {
             c.disk = written;
             (c.due, c.retry, c.failures) = (None, None, 0);
-            // Only what this write held: a record a bound cut before it is on no disk here.
-            let fresh = std::mem::take(&mut c.fresh);
-            let link = c.fresh_link.take().unwrap_or_default();
-            let records: Vec<Value> = c
-                .records
-                .as_ref()
-                .map(|held| fresh.iter().filter_map(|s| held.get(s)).cloned().collect())
-                .unwrap_or_default();
-            if let Some(generation) = c.head.generation.filter(|_| !records.is_empty()) {
-                told = Some((generation, link, records));
-            }
         }
-        if let Some((generation, link, records)) = told {
-            let hook = self.written.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            if let Some(hook) = hook {
-                hook(key, generation, link, records);
-            }
+        if crate::hub::journal_restore::rules_of_a088() {
+            // a088585e: told after the write, kept as told whatever the outbox's save did.
+            self.tell_written(key);
+        }
+        if unsaved {
+            // Told again until their proofs are on disk.
+            self.failed(key, &anyhow::anyhow!("its records' proofs are not on disk yet"));
         }
         self.trim_memory(None);
         Ok(())
+    }
+
+    /// Tells the hook ([`Written`]) the records of prompts' lives `key`'s copy took since it last
+    /// told them; they are told only once the hook answers their proofs on disk. When it does
+    /// not, the copy vouches for its records only past them (`since`), as for a record its
+    /// bound cuts before a write tells it, and they are told again at its next write. Answers
+    /// whether none is left untold. Only records the copy holds: one a bound cut is gone.
+    fn tell_written(&mut self, key: &Key) -> bool {
+        let Some(c) = self.copies.get_mut(key) else { return true };
+        let records: Vec<Value> = c
+            .records
+            .as_ref()
+            .map(|held| c.fresh.iter().filter_map(|s| held.get(s)).cloned().collect())
+            .unwrap_or_default();
+        let link = c.fresh_link.unwrap_or_default();
+        let Some(generation) = c.head.generation.filter(|_| !records.is_empty()) else {
+            c.fresh.clear();
+            c.fresh_link = None;
+            return true;
+        };
+        let hook = self.written.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let saved = hook.is_none_or(|hook| hook(key, generation, link, records));
+        let Some(c) = self.copies.get_mut(key) else { return saved };
+        if saved || crate::hub::journal_restore::rules_of_a088() {
+            c.fresh.clear();
+            c.fresh_link = None;
+        } else if let Some(last) = c.fresh.last() {
+            c.head.since = c.head.since.max(last.saturating_add(1));
+        }
+        saved
     }
 
     fn failed(&mut self, key: &Key, e: &anyhow::Error) {

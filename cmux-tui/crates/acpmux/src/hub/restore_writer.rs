@@ -167,28 +167,74 @@ impl Hub {
     /// must read its record (review of #37284 at ff3da306, F1: the rebuild left it out, and the
     /// answered edit was lost). What parks after it still waits for the restore's end. A thread
     /// that holds no token of the restore writes nothing here.
-    pub(super) fn write_parked(&self, session: &Session) {
+    ///
+    /// Answers whether every record kept so far is in the journal: one the store refuses stays
+    /// kept ([`Session::unparked`]), and its caller decides (review of #37284 at a088585e, F1:
+    /// a088585e went on as if it were in). A rebuild reads the ones kept after the journal
+    /// ([`Self::kept_unstored`]).
+    pub(super) fn write_parked(&self, session: &Session) -> bool {
         if self.at_ff3d() || !holds_token(session) {
-            return;
+            return true;
         }
-        self.write_parked_now(session);
-        #[cfg(test)]
-        super::journal_restore::test_after_drain(&session.id);
-    }
-
-    fn write_parked_now(&self, session: &Session) {
         let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         let parked = {
             let mut parked = session.parked.lock().unwrap_or_else(|e| e.into_inner());
             parked.as_mut().map(std::mem::take).unwrap_or_default()
         };
-        if parked.is_empty() {
-            return;
+        if !parked.is_empty() {
+            tracing::info!(session = %session.id, records = parked.len(), "records kept while a restore owns this chat go in before it is rebuilt");
+            self.catch_up_locked(session);
+            session.unparked.lock().unwrap_or_else(|e| e.into_inner()).extend(parked);
         }
-        tracing::info!(session = %session.id, records = parked.len(), "records kept while a restore owns this chat go in before it is rebuilt");
-        self.catch_up_locked(session);
-        session.unparked.lock().unwrap_or_else(|e| e.into_inner()).extend(parked);
-        self.store_unparked(session);
+        self.store_unparked(session) || self.at_a088()
+    }
+
+    /// `session`'s journal records of `kinds`, in order, each given to `f` until it answers
+    /// false, then those [`Self::kept_unstored`] holds (when the journal read whole).
+    pub(super) fn scan_kinds_and_kept(
+        &self,
+        session: &Session,
+        kinds: &[&str],
+        f: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        let mut going = true;
+        self.store.scan_kinds(&session.id, kinds, &mut |e| {
+            going = f(e);
+            going
+        })?;
+        for e in self.kept_unstored(session, kinds) {
+            if !going {
+                break;
+            }
+            going = f(e);
+        }
+        Ok(())
+    }
+
+    /// The records of `kinds` kept for `session` that are not in its journal yet: those the
+    /// store refused ([`Session::unparked`]), then those parked while a restore owns it, in
+    /// order, numbered past the journal's end as they go in. A rebuild of the queue reads them
+    /// after the journal, so a change answered meanwhile is in it whether or not its record is
+    /// stored yet (review of #37284 at a088585e, F1).
+    pub(super) fn kept_unstored(&self, session: &Session, kinds: &[&str]) -> Vec<EventRecord> {
+        if self.at_a088() {
+            return Vec::new();
+        }
+        let unparked = session.unparked.lock().unwrap_or_else(|e| e.into_inner());
+        let parked = session.parked.lock().unwrap_or_else(|e| e.into_inner());
+        let kept = unparked.iter().chain(parked.iter().flatten());
+        let next = session.seq.load(Ordering::SeqCst);
+        kept.filter(|p| kinds.contains(&p.kind.as_str()))
+            .zip(1..)
+            .map(|(p, n)| EventRecord {
+                seq: next + n,
+                at: p.at,
+                dir: p.dir.clone(),
+                kind: p.kind.clone(),
+                msg: p.msg.clone(),
+                host_seq: p.host_seq,
+            })
+            .collect()
     }
 
     /// Whether a change of `session`'s queue parked since the last [`Self::write_parked`]: its
