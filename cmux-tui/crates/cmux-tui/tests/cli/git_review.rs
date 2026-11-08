@@ -205,7 +205,8 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
 
     // The diff page lists the draft and the pull request it goes to; a
     // comment the person left on a line GitHub does not show goes too.
-    let mut ids = vec![comment["id"].clone(), json_output(&renamed)["value"]["comment"]["id"].clone()];
+    let mut ids =
+        vec![comment["id"].clone(), json_output(&renamed)["value"]["comment"]["id"].clone()];
     let mine = v2(
         &server,
         "diff.comments.save",
@@ -262,7 +263,10 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
         serde_json::json!({"root": review_root, "ids": [id]}),
         Some("post-lost"),
     );
-    assert_eq!(retried["result"]["value"]["url"], "https://github.com/o/r/pull/7#pullrequestreview-2");
+    assert_eq!(
+        retried["result"]["value"]["url"],
+        "https://github.com/o/r/pull/7#pullrequestreview-2"
+    );
     assert_eq!(fs::read_to_string(&posts).unwrap().lines().count(), 1, "the retry posted again");
 
     // A comment outside a review worktree is refused.
