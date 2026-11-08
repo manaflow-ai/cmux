@@ -3,7 +3,8 @@
 # app at launch and under a small load (one chat, one browser tab and terminals), for several
 # Chromium switch sets on one build. Each variant is its own launch on a scratch HOME
 # (scripts/cmux-next/bench_memory.py, CMUX_NEXT_CEF_EXTRA_SWITCHES: Debug builds only), run in turn
-# on the same idle worker, so the deltas between variants come from the switches alone.
+# on the same idle worker, so the deltas between variants come from the switches alone. A fleet step
+# has no LaunchServices session, so the app starts as a child (CMUX_BENCH_LAUNCH=direct).
 # Run alone on a worker (it launches an app):
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/baseline-ram.sh --ref SHA [--arg=counts=1,4] [--arg=measure=20] \
@@ -63,7 +64,7 @@ for ((round = 1; round <= rounds; round++)); do
     switches="${variant#*=}"
     out="$work/$name-$round.json"
     echo "BASELINE-RAM-RUN variant=$name round=$round switches=${switches:-none} load=\"$(uptime | sed 's/.*load averages*: //')\""
-    python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" \
+    CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" \
       --mix terminal+chat,terminal+browser,terminal --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
       --cef-switches "$switches" --settle 20 --measure "$measure" --top 12 --out "$out" \
       > "$work/$name-$round.log" 2>&1 || { status=$?; tail -n 40 "$work/$name-$round.log"; continue; }
