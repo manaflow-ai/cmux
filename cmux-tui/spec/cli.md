@@ -658,7 +658,9 @@ client <selector> sizing set|release
 client <selector> cell pixels set
 
 workspace list|create
+workspace create --worktree <name> [--repo <path>] [--base <revision>] [workspace create options]
 workspace <selector> show|rename|move|focus|close|run
+workspace <selector> close --remove-worktree [--discard]
 workspace <selector> layout apply
 workspace [<selector>] open-url --url <url>
 workspace <selector> screen ...
@@ -685,7 +687,12 @@ terminal list
 terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
 terminal <term_id> keep on|off
 terminal <selector> focus <in|out>
-terminal <selector> screen read|wait
+terminal <selector> screen read [--unwrap] [--lines <n>]
+terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]
+terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap]
+terminal <selector> send --text <message|-> [--wait idle|prompt|none] [--pattern <regex>]
+  [--timeout <d>] [--settle <d>] [--force] [--exit-with-status]
+terminal <selector> run [--pattern <regex>] [--timeout <d>] [--force] -- <command...>
 terminal <selector> state read
 terminal <selector> history read|clear
 terminal <selector> output read [--after <offset>] [--max-bytes <n>]
@@ -799,6 +806,58 @@ before the durable exit snapshot's coverage answer with the snapshot's screen
 projection (`start_offset` 0), so the read never needs unbounded record
 retention. Escape sequences never appear in `text`, though a window that
 starts mid-stream may carry escape-state artifacts at its leading edge.
+
+Terminal text reads break lines where the terminal wrapped them unless asked
+not to (`terminal-read-unwrap-v1`). `screen read --unwrap` (`unwrap`) joins
+rows the terminal soft-wrapped (the program printed past the right edge) into
+the lines the program printed; rows it ended with a newline stay separate.
+`--lines <n>` (`lines`, 1 to 10000) reads the last n lines of scrollback and
+screen together, oldest first, without the blank rows below the last printed
+line: logical lines with `--unwrap`, rows without it; the cursor fields still
+describe the screen. `copy --unwrap` joins soft wraps for `screen` and
+`scrollback`. `screen wait --new` (`new`, `terminal-wait-new-v1`) matches only
+text printed below the line the cursor is on when the wait starts, soft wraps
+joined, and `text` is then that new text: the echo of a command typed on that
+line and older output never match. Output printed before the wait starts is
+not new, so start the wait before the command, or use `terminal send
+--pattern`.
+
+`terminal <t> send` reads with soft wraps joined when the daemon can, and an
+older daemon gets row reads. With OSC 133 shell integration the terminal
+record carries `extra.last_command` (`terminal-exit-status-v1`): the last
+command the shell finished, with `exit_code` from `D;<code>` (absent when the
+shell sent none), `finished_at_ms` and `started_at_ms`. Without integration
+the field is absent, so its absence never means success. `send --wait prompt`
+ends as soon as a command finished after the message and the prompt is back,
+and its receipt has that command's `exit_status`; a command record from
+before the send is never reported. `--pattern <regex>` also ends the wait
+when output after the message's echo matches (receipt `matched`; the echo
+never matches) and when the command finishes first (`matched: false`, exit 1).
+`--exit-with-status` exits with `exit_status` (0..255), or 125 when the shell
+reported none; a timeout still exits 124. `terminal <t> run [OPTIONS] --
+<command...>` (or `--text <command>`) is `send --wait prompt
+--exit-with-status`: it types the command into the terminal's shell, waits
+for it to finish, prints its output and exits with its status. `terminal <t>
+status` adds a `LAST COMMAND` line for a person; `--json` keeps the record
+list.
+
+`workspace create --worktree <name>` runs `git worktree create --name <name>`
+in the repository `--repo` names (default: the current directory), with
+`--base`, then `workspace create` with the remaining options, `--cwd` set to
+the worktree and `--name <name>` unless given (`--cwd` and `--empty` are
+refused), then `workspace.agent_folder.set` to the worktree's canonical
+folder (only an app connection may set it; an agent's CLI is refused, and the
+command goes on). The result is the `workspace create` result plus
+`worktree`, the `git worktree create` result (`root` is the folder) and
+`workspace_folder` (whether the agent folder was set). `workspace <ws> close
+--remove-worktree [--discard]` runs `git worktree remove` of the workspace's
+agent folder when it has one, else of the worktree its current terminal works
+in (`--workspace <ws>`; the main checkout is never removed), then closes the
+workspace; a refused remove closes nothing. The result is the close result
+plus `worktree`, the removal. Each step has its own key derived from `--idempotency-key` (made
+when absent), so retrying the whole command replays the steps that ran; a
+failed step's error names `step`, the command's `idempotency_key` and what
+the steps before it `made`.
 
 Workspace creation starts with one terminal unless `--empty` is present.
 `terminal <selector> project` requires destination `--workspace`, `--screen`,
