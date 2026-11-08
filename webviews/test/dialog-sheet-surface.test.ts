@@ -69,6 +69,23 @@ test("every decision and form dialog draws on the sheet glass that floats over t
   }
 });
 
+/** Each host that draws one of SHEETS, by the entry that loads its stylesheets. The agent pane ships
+ * dev.tsx's sheets ahead of its own (scripts/cmux-next/build-agent-pane-web.sh). */
+const HOST_ENTRIES = [
+  "agent-session/acpmux/dev.tsx",
+  "agent-activity/main.tsx",
+  "pages/machines/main.tsx",
+  "pages/cloud/main.tsx",
+  "pages/home-channels/main.tsx",
+];
+
+test("every host of a sheet loads the sheet rule (ui/popupSurface.css, directly or through ui.css)", () => {
+  const missing = HOST_ENTRIES.filter(
+    (entry) => !/import\s+"[./]*\/?(?:ui\/)?(?:popupSurface|ui)\.css";/.test(read(entry)),
+  );
+  expect(missing).toEqual([]);
+});
+
 test("no dialog paints its own fill, border colour or corner radius over the role's", () => {
   const offenders: string[] = [];
   for (const path of cssFiles(SRC)) {
