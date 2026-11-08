@@ -1,7 +1,8 @@
-/* An expanded card's corner copy (CardCopy.tsx). It floats at the panel's top-right, pulled into the
-   panel's padding, so the first line wraps around it. Faint at rest; full when its card (the panel
-   it sits in) is hovered or the button has focus; the button's own small box takes the hover and
-   press highlight, never the card or the row. */
+/* An expanded card's corner copy (CardCopy.tsx). It floats at the panel's top-right (a DisclosureRow
+   panel, or a message row's card, AgentMessageRow.tsx), pulled into the panel's padding, so the first
+   line wraps around it. Faint at rest; full when its card (the panel it sits in) is hovered or the
+   button has focus; the button's own small box takes the hover and press highlight, never the card
+   or the row. */
 .cv-card-copy {
   float: right;
   position: relative;
@@ -16,6 +17,8 @@
   opacity: 0.3;
 }
 .cv-disclosure__panel:hover > .cv-card-copy,
+.cv-agentmsg__card:hover > .cv-card-copy,
+.cv-agentmsg__card:has([data-popup-open]) > .cv-card-copy,
 .cv-card-copy:focus-within,
 .cv-card-copy:has([data-copied]) {
   opacity: 1;
@@ -56,6 +59,7 @@
   color: var(--cv-text);
 }
 /* The panel holds its floated corner even when the card's text is shorter than the button. */
-.cv-disclosure__panel:has(> .cv-card-copy) {
+.cv-disclosure__panel:has(> .cv-card-copy),
+.cv-agentmsg__card:has(> .cv-card-copy) {
   display: flow-root;
 }

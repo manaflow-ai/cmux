@@ -11,6 +11,8 @@
 //! `motion` is cmux-motion's C ABI (the spring step and motion tokens);
 //! `hover` is its hover rules' C ABI (the hover card machine, tooltip hover
 //! intent, the safe triangle and the row card's placement).
+//! `terminal_selection` is its terminal selection rule's C ABI (Option-drag
+//! selects text while a program has the mouse, and the first-use hint).
 //! `agent_pane_policy` is the agent pane's relay policy (one check per page
 //! frame, include/cmux_agent_pane_policy.h).
 //! `action_catalog` is cmux NEXT's action catalog as JSON in the app's language
@@ -26,6 +28,7 @@
 
 pub mod hover;
 pub mod motion;
+pub mod terminal_selection;
 
 pub use cmux_action_catalog::ffi as action_catalog;
 pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
