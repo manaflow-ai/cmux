@@ -344,6 +344,9 @@ impl Machine {
         let step = Repo::new("o", "r").step().replace("https://github.com/o/r.git", &url);
         let file = self.0.join("boot/repo");
         std::fs::write(&file, step).unwrap();
+        // As the bootstrap writes it (0o700): the fill runs the step again by its path.
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o700)).unwrap();
         let inherited = std::env::var("PATH").unwrap_or_default();
         let path = format!("{}:{inherited}", self.0.join("bin").display());
         let status = std::process::Command::new("sh")
