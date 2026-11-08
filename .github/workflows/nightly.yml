@@ -6862,7 +6862,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client, resolve-nightly-ghostty-cli-helper, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon]
     if: "!cancelled() && needs.decide.outputs.pipeline == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.build-nightly-app.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-remote-daemon.result == 'success'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: 10
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 130 || 10 }}
     permissions:
       actions: write
     env:
