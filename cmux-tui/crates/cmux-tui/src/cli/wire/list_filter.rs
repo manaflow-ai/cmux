@@ -37,7 +37,8 @@ pub(super) fn apply(
     let in_folder = match (&filter.cwd, scope) {
         (None, _) | (Some(_), Scope::Terminal) => None,
         (Some(cwd), scope) => {
-            let route = plan.params.as_object().map(super::super::resolve::route).unwrap_or_default();
+            let route =
+                plan.params.as_object().map(super::super::resolve::route).unwrap_or_default();
             let snapshot =
                 super::super::resolve::read(reader, ResourceOperation::SessionSnapshot, route)
                     .map_err(snapshot_error)?;
@@ -56,7 +57,12 @@ enum Scope {
     Terminal,
 }
 
-fn keeps(filter: &ListFilter, scope: Scope, in_folder: Option<&HashSet<String>>, row: &Value) -> bool {
+fn keeps(
+    filter: &ListFilter,
+    scope: Scope,
+    in_folder: Option<&HashSet<String>>,
+    row: &Value,
+) -> bool {
     let text = |field: &str| row.get(field).and_then(Value::as_str);
     if !filter.name_matches(text("name")) {
         return false;
@@ -76,7 +82,8 @@ fn ids_in_folder(
     scope: Scope,
     in_folder: impl Fn(&str) -> bool,
 ) -> HashSet<String> {
-    let rows = |key: &str| snapshot.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let rows =
+        |key: &str| snapshot.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
     let text = |row: &Value, field: &str| row.get(field).and_then(Value::as_str).map(str::to_owned);
     let terminals: HashSet<String> = rows("terminals")
         .iter()
@@ -100,10 +107,7 @@ fn ids_in_folder(
         .iter()
         .filter_map(|screen| Some((text(screen, "id")?, text(screen, "workspace_id")?)))
         .collect();
-    panes
-        .iter()
-        .filter_map(|pane| workspace_of.get(screen_of.get(pane)?).cloned())
-        .collect()
+    panes.iter().filter_map(|pane| workspace_of.get(screen_of.get(pane)?).cloned()).collect()
 }
 
 /// The error a `--cwd` list prints when its snapshot read failed.

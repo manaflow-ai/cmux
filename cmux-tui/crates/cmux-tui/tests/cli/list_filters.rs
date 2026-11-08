@@ -29,7 +29,18 @@ fn sorted(mut ids: Vec<String>) -> Vec<String> {
 fn workspace(server: &HeadlessServer, name: &str, folder: &str) -> String {
     let created = json_cli(
         server,
-        &["workspace", "create", "--name", name, "--cwd", folder, "--", "/bin/sh", "-c", "sleep 600"],
+        &[
+            "workspace",
+            "create",
+            "--name",
+            name,
+            "--cwd",
+            folder,
+            "--",
+            "/bin/sh",
+            "-c",
+            "sleep 600",
+        ],
     );
     assert_success(&created);
     json_output(&created)["value"]["workspace_id"]
@@ -68,7 +79,10 @@ fn list_filters_find_workspaces_panes_and_terminals_by_name_and_folder() {
     // A folder matches itself and what is inside it, never a sibling that
     // shares its prefix (`app-old`).
     assert_eq!(list(&["--cwd", &app]), sorted(vec![dup_app.clone(), solo_src.clone()]));
-    assert_eq!(list(&["--cwd", &format!("{app}/")]), sorted(vec![dup_app.clone(), solo_src.clone()]));
+    assert_eq!(
+        list(&["--cwd", &format!("{app}/")]),
+        sorted(vec![dup_app.clone(), solo_src.clone()])
+    );
     assert_eq!(list(&["--cwd", &old]), vec![dup_old.clone()]);
     assert_eq!(
         list(&["--cwd", root.to_str().unwrap()]),
