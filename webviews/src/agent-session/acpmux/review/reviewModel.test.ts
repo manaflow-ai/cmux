@@ -94,7 +94,9 @@ test("a verdict hides the row until the folder's changes differ", () => {
   expect(rows(verdictTag("accepted", stat), readReviewStat(diff(["x.ts", "y.ts"]), "branch")!)).toHaveLength(1);
   const candidates = tagged();
   const local = new Set([`/wt/a:${stat.signature}`]);
-  expect(reviewRows(candidates, new Map([[readKey(candidates[0]!), { state: "read", stat }]]), local).rows).toHaveLength(0);
+  expect(
+    reviewRows(candidates, new Map([[readKey(candidates[0]!), { state: "read", stat }]]), local).rows,
+  ).toHaveLength(0);
 });
 
 test("reads stay within a window past what is reached, however many chats there are", () => {
@@ -104,7 +106,9 @@ test("reads stay within a window past what is reached, however many chats there 
     ),
   );
   expect(nextReads(candidates, new Map(), 0)).toHaveLength(12);
-  const reads = new Map<string, ReviewRead>(candidates.slice(0, 12).map((candidate) => [readKey(candidate), { state: "read" }]));
+  const reads = new Map<string, ReviewRead>(
+    candidates.slice(0, 12).map((candidate) => [readKey(candidate), { state: "read" }]),
+  );
   const { reached } = reviewRows(candidates, reads);
   expect(reached).toBe(12);
   expect(nextReads(candidates, reads, reached).map((candidate) => candidate.key)).toEqual(

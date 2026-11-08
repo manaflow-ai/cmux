@@ -54,10 +54,7 @@ export type ReviewStat = {
   signature: string;
 };
 
-export type ReviewRead =
-  | { state: "reading" }
-  | { state: "failed" }
-  | { state: "read"; stat?: ReviewStat };
+export type ReviewRead = { state: "reading" } | { state: "failed" } | { state: "read"; stat?: ReviewStat };
 
 export type ReviewRow = ReviewCandidate & { stat: ReviewStat };
 
@@ -123,7 +120,10 @@ export function readReviewStat(value: unknown, scope: ReviewStat["scope"]): Revi
 /// and counts. A verdict holds while this stays the same; any further edit makes the row come back.
 export function reviewSignature(scope: string, head: string | undefined, files: readonly ChangedFile[]): string {
   const lines = files
-    .map((file) => `${file.path}\u0000${file.previousPath ?? ""}\u0000${file.status}\u0000${file.additions}\u0000${file.deletions}`)
+    .map(
+      (file) =>
+        `${file.path}\u0000${file.previousPath ?? ""}\u0000${file.status}\u0000${file.additions}\u0000${file.deletions}`,
+    )
     .sort();
   return fnv1a([scope, head ?? "", ...lines].join("\n"));
 }
@@ -160,13 +160,15 @@ export function reviewRows(
     const read = reads.get(readKey(candidate));
     if (!read || read.state === "reading") return { rows, pending: true, reached };
     reached += 1;
-    if (read.state === "read" && read.stat && !decided(candidate, read.stat, local)) rows.push({ ...candidate, stat: read.stat });
+    if (read.state === "read" && read.stat && !decided(candidate, read.stat, local))
+      rows.push({ ...candidate, stat: read.stat });
   }
   return { rows, pending: false, reached };
 }
 
 /// A read stays good while the owner has done nothing since: a finished turn reads the folder again.
-export const readKey = (candidate: ReviewCandidate) => `${candidate.key}\u0000${candidate.owner.sessionId}\u0000${candidate.at}`;
+export const readKey = (candidate: ReviewCandidate) =>
+  `${candidate.key}\u0000${candidate.owner.sessionId}\u0000${candidate.at}`;
 
 /// The candidates to read next: unread ones within `READ_WINDOW` of the end of what is reached.
 export function nextReads(

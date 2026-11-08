@@ -5,6 +5,7 @@
 // chat as a prompt. A row leaves the queue in the frame the person decides; the host's answer
 // confirms it, and a refusal brings it back with the reason under it.
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Listbox } from "../../../ui/Listbox";
 import { Counts } from "../changes/Counts";
 import { age } from "../homeListsModel";
 import { useT } from "../i18n";
@@ -47,7 +48,16 @@ const newPromptId = () =>
     ? crypto.randomUUID()
     : `review-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-export function ReviewScreen({ sessions, readDiff, openDiff, accept, send, look = "detail", now, initialComment }: Props) {
+export function ReviewScreen({
+  sessions,
+  readDiff,
+  openDiff,
+  accept,
+  send,
+  look = "detail",
+  now,
+  initialComment,
+}: Props) {
   const t = useT();
   // A New Tab page too: what it shows appears at once (noEntryMotion.ts).
   useNoEntryMotion();
@@ -73,12 +83,6 @@ export function ReviewScreen({ sessions, readDiff, openDiff, accept, send, look 
   useEffect(() => {
     if (index >= rows.length - NEAR_END) extend();
   }, [index, rows.length, extend]);
-  useEffect(() => {
-    list.current?.focus({ preventScroll: true });
-  }, []);
-  useEffect(() => {
-    if (current) document.getElementById(rowId(current.key))?.scrollIntoView({ block: "nearest" });
-  }, [current]);
 
   const decide = useCallback(
     (row: ReviewRow, verdict: ReviewVerdict, run: (tag: string) => Promise<unknown>, failed: string) => {
@@ -118,21 +122,19 @@ export function ReviewScreen({ sessions, readDiff, openDiff, accept, send, look 
     if (next) setSelected(next.key);
   };
 
+  const open = (row: ReviewRow) => void openDiff(row.key).catch(() => undefined);
+
+  // The list's own keys; the Listbox moves on the arrows and opens on Return.
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.target !== event.currentTarget || !plain(event) || event.nativeEvent.isComposing) return;
     const handled = (() => {
       switch (event.key) {
         case "j":
-        case "ArrowDown":
           move(1);
           return true;
         case "k":
-        case "ArrowUp":
           move(-1);
           return true;
-        case "Enter":
-          if (current) void openDiff(current.key).catch(() => undefined);
-          return Boolean(current);
         case "a":
           if (current) acceptRow(current);
           return Boolean(current);
@@ -149,26 +151,26 @@ export function ReviewScreen({ sessions, readDiff, openDiff, accept, send, look 
   return (
     <div className="rv" data-look={look}>
       <h1 className="rv-title">{t("review.title")}</h1>
-      <div
-        ref={list}
+      <Listbox
+        items={rows}
+        getKey={(row) => row.key}
+        getItemId={(row) => rowId(row.key)}
+        textValue={rowTitle}
+        label={t("review.list")}
         className="rv-list"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rows hold a comment field and buttons, which a <select> cannot
-        role="listbox"
-        aria-label={t("review.list")}
-        aria-activedescendant={current ? rowId(current.key) : undefined}
-        tabIndex={0}
+        rowClassName="rv-row"
+        listRef={list}
+        activeIndex={Math.max(0, index)}
+        onActiveIndexChange={(next) => setSelected(rows[next]?.key)}
+        focusable
         onKeyDown={onKeyDown}
-      >
-        {rows.map((row) => (
+        onOpen={open}
+        renderItem={(row) => (
           <Row
-            key={row.key}
             row={row}
             look={look}
             now={now}
-            selected={row === current}
             failure={failures.get(row.key)}
-            onSelect={() => setSelected(row.key)}
-            onOpen={() => void openDiff(row.key).catch(() => undefined)}
             comment={comment?.key === row.key ? comment.text : undefined}
             onComment={(text) => setComment({ key: row.key, text })}
             onSend={(text) => sendComment(row, text)}
@@ -177,12 +179,14 @@ export function ReviewScreen({ sessions, readDiff, openDiff, accept, send, look 
               list.current?.focus({ preventScroll: true });
             }}
           />
-        ))}
-        {/* One status line, always the same height, so the list never moves when reads finish. */}
-        <div className="rv-status" aria-live="polite">
-          {pending ? t("review.reading") : rows.length === 0 ? t("review.empty") : ""}
-        </div>
-      </div>
+        )}
+        footer={
+          // One status line, always the same height, so the list never moves when reads finish.
+          <div className="rv-status" aria-live="polite">
+            {pending ? t("review.reading") : rows.length === 0 ? t("review.empty") : ""}
+          </div>
+        }
+      />
       <div className="rv-keys">
         <span>
           <Keycap>j</Keycap>
@@ -215,14 +219,15 @@ function without<V>(map: ReadonlyMap<string, V>, key: string): ReadonlyMap<strin
   return next;
 }
 
+const rowTitle = ({ owner, key }: ReviewRow) =>
+  owner.displayTitle ?? owner.title ?? owner.name ?? key.split("/").pop() ?? key;
+
+/// A row's content; the Listbox's option holds it (a click opens the folder's diff).
 function Row({
   row,
   look,
   now,
-  selected,
   failure,
-  onSelect,
-  onOpen,
   comment,
   onComment,
   onSend,
@@ -231,10 +236,7 @@ function Row({
   row: ReviewRow;
   look: ReviewLook;
   now?: number;
-  selected: boolean;
   failure?: string;
-  onSelect(): void;
-  onOpen(): void;
   comment?: string;
   onComment(text: string): void;
   onSend(text: string): void;
@@ -242,22 +244,11 @@ function Row({
 }) {
   const t = useT();
   const { owner, stat } = row;
-  const title = owner.displayTitle ?? owner.title ?? owner.name ?? row.key.split("/").pop() ?? row.key;
+  const title = rowTitle(row);
   const checks = owner.pullRequest?.checks;
   const when = age(row.at, now, t);
   return (
-    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the listbox owns the keys (j/k, Return)
-    <div
-      id={rowId(row.key)}
-      className="rv-row"
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an option holding a comment field and buttons
-      role="option"
-      tabIndex={-1}
-      aria-selected={selected}
-      data-selected={selected || undefined}
-      onClick={onSelect}
-      onDoubleClick={onOpen}
-    >
+    <>
       <div className="rv-line">
         <span className="rv-name">{title}</span>
         {owner.branch && <span className="rv-branch">{owner.branch}</span>}
@@ -292,10 +283,8 @@ function Row({
         </ul>
       )}
       {failure && <div className="rv-failure">{failure}</div>}
-      {comment !== undefined && (
-        <CommentBox text={comment} onChange={onComment} onSend={onSend} onCancel={onCancel} />
-      )}
-    </div>
+      {comment !== undefined && <CommentBox text={comment} onChange={onComment} onSend={onSend} onCancel={onCancel} />}
+    </>
   );
 }
 
@@ -316,7 +305,9 @@ function CommentBox({
     field.current?.focus();
   }, []);
   return (
-    <div className="rv-comment">
+    // A press in the comment stays in it: the option around it would open the diff.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- stops the press, acts on nothing
+    <div className="rv-comment" onMouseDown={(event) => event.stopPropagation()}>
       <textarea
         ref={field}
         className="rv-comment-field"
@@ -341,13 +332,7 @@ function CommentBox({
         <button type="button" className="rv-button" onClick={onCancel}>
           {t("review.comment.cancel")}
         </button>
-        <button
-          type="button"
-          className="rv-button"
-          data-primary
-          disabled={!text.trim()}
-          onClick={() => onSend(text)}
-        >
+        <button type="button" className="rv-button" data-primary disabled={!text.trim()} onClick={() => onSend(text)}>
           {t("review.comment.send")}
         </button>
       </div>
