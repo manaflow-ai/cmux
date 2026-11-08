@@ -1,3 +1,4 @@
+import CmuxNextCloud
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
@@ -110,5 +111,96 @@ struct CloudCredentialRelayRefusalTests {
         #expect(calls.count == 1)
         #expect(calls.first?.path == "v1/read")
         #expect(calls.first?.op == "cloud.machine.connect_info")
+    }
+
+    /// The daemon's provider line for a `credential.carrier_socket` (the Cloud server's `relay.carrier`).
+    static func carrierLine(id: UInt64, params: [String: JSONValue]) throws -> Data {
+        let payload: JSONValue = .object([
+            "event": .string(AppsProviderCall.eventName),
+            "request_id": .number(Double(id)),
+            "app": .string(CloudCredentialRelay.app),
+            "op": .string(CloudCredentialRelay.carrierSocketOp),
+            "params": .object(params),
+        ])
+        return try JSONEncoder().encode(payload)
+    }
+
+    /// A relay whose carrier answers `answer` and records the machines asked for; signed in or not.
+    static func carrierRelay(_ sent: Sent, signedIn: Bool = true, asked: Asked,
+                             answer: @escaping @Sendable (String) -> Result<String, CloudCredentialRelay.CarrierRefusal>) -> CloudCredentialRelay {
+        CloudCredentialRelay(
+            post: { path, body, _ in
+                await sent.add(path, body)
+                return (200, Data("{}".utf8))
+            },
+            token: { "install-token-for-test" },
+            invalidate: {},
+            session: { CloudCredentialRelay.Session(signedIn: signedIn, team: "team_test") },
+            allowedOps: { [] },
+            carrierSocket: { machine in
+                await asked.add(machine)
+                return answer(machine)
+            })
+    }
+
+    actor Asked {
+        var machines: [String] = []
+        func add(_ machine: String) { machines.append(machine) }
+    }
+
+    /// The Cloud server's carrier ask answers only the path of the session's `carrier serve` socket; it
+    /// never reaches the Worker and never carries a token.
+    @Test func aCarrierAskAnswersTheSocketPathOnly() async throws {
+        let (sent, asked) = (Sent(), Asked())
+        let socket = "/tmp/cmux-501/cmux-link-0123456789ab.sock"
+        let relay = Self.carrierRelay(sent, asked: asked) { _ in .success(socket) }
+        let result = try await Self.answer(try Self.carrierLine(id: 11, params: ["machine": .string("vm_0123456789abcdefghij")]), relay: relay)
+        #expect(result.requestID == 11)
+        #expect(result.ok == true)
+        #expect(result.body == .object(["value": .object(["socket": .string(socket)])]))
+        #expect(await asked.machines == ["vm_0123456789abcdefghij"])
+        #expect(await sent.calls.isEmpty)
+    }
+
+    /// A refusal keeps its carrier step code; a signed-out app and a line without a machine never ask.
+    @Test func aCarrierRefusalKeepsItsCodeAndASignedOutAppNeverAsks() async throws {
+        let (sent, asked) = (Sent(), Asked())
+        let refused = Self.carrierRelay(sent, asked: asked) { _ in
+            .failure(.init(code: "parked_timeout", message: "the machine's daemon never registered", retryable: true))
+        }
+        let result = try await Self.answer(try Self.carrierLine(id: 12, params: ["machine": .string("vm_1")]), relay: refused)
+        #expect(result.ok == false)
+        #expect(result.body["code"]?.stringValue == "parked_timeout")
+        #expect(result.body["retryable"]?.boolValue == true)
+
+        let signedOut = Self.carrierRelay(sent, signedIn: false, asked: asked) { _ in .success("/tmp/x.sock") }
+        let out = try await Self.answer(try Self.carrierLine(id: 13, params: ["machine": .string("vm_1")]), relay: signedOut)
+        #expect(out.body["code"]?.stringValue == "not_signed_in")
+        let missing = try await Self.answer(try Self.carrierLine(id: 14, params: [:]), relay: refused)
+        #expect(missing.body["code"]?.stringValue == "validation.invalid")
+        #expect(await asked.machines == ["vm_1"], "only the first line asked")
+        #expect(await sent.calls.isEmpty)
+    }
+
+    /// Cloud turned off by policy: neither a carrier ask nor a relayed op reaches the carrier or the
+    /// Worker, so a Cloud app server cannot restart a stopped `carrier serve`; turned on, both run again.
+    @Test func cloudTurnedOffByPolicyRefusesCarrierAndRelay() async throws {
+        let (sent, asked) = (Sent(), Asked())
+        let carrier = Self.carrierRelay(sent, asked: asked) { _ in .success("/tmp/x.sock") }
+        let provider = CloudCredentialProvider(relay: carrier)
+        provider.setTurnedOff(true)
+        let off = try await Self.answer(try Self.carrierLine(id: 15, params: ["machine": .string("vm_1")]), relay: carrier)
+        #expect(off.ok == false)
+        #expect(off.body["code"]?.stringValue == "cmux.policy.turned_off")
+        let relay = Self.relay(sent)
+        relay.policy.set(turnedOff: true)
+        let relayed = try await Self.answer(try Self.line(id: 16, op: "cloud.machine.connect_info"), relay: relay)
+        #expect(relayed.body["code"]?.stringValue == "cmux.policy.turned_off")
+        #expect(await asked.machines.isEmpty)
+        #expect(await sent.calls.isEmpty)
+        provider.setTurnedOff(false)
+        let on = try await Self.answer(try Self.carrierLine(id: 17, params: ["machine": .string("vm_1")]), relay: carrier)
+        #expect(on.ok == true)
+        #expect(await asked.machines == ["vm_1"])
     }
 }

@@ -230,7 +230,10 @@ def run_tool(name, argv, cwd):
         rc = "timeout"
     except OSError as error:
         rc = f"oserror:{error.errno}"
-    log({"kind": "tool", "event": name, "ms": round((time.monotonic() - start) * 1000, 2), "rc": rc})
+    # `argv`: which command ran, so a tool that hangs can be traced (2026-10-30: 157 git calls hit the 120 s
+    # time-out in the #28147 A/B's first run on cmux17, and the log did not say which).
+    log({"kind": "tool", "event": name, "argv": " ".join(argv) if argv else None,
+         "ms": round((time.monotonic() - start) * 1000, 2), "rc": rc})
 
 
 def run_cli(cli):

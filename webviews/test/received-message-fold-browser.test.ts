@@ -186,7 +186,9 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
       scroller.scrollTop += line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - down;
     }, y);
 
-  test("the message opened at the latest row stays on its pixel and grows down in a fold", async () => {
+  test("the message opened at the latest row stays on its pixel and grows down", async () => {
+    // At the very bottom, what opens grows down under the composer, as anywhere else, and the view
+    // stops following (Lucas, 2026-11-06, Codex parity; it replaces the bottom pin on open).
     const page = await open("no-preference");
     await show(page, [...done, received]);
     await settle(page);
@@ -197,21 +199,20 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
 
     const opened = await clickAndWatch(page);
     expect(await expanded(page)).toBe("true");
-    expect(opened.folded).toBe(true);
-    expect(steps(opened.heights)).toBeGreaterThan(2);
     expect(opened.moved).toBeLessThanOrEqual(1);
     await settle(page);
     expect(Math.abs((await probedTop(page)) - opened.top)).toBeLessThanOrEqual(1);
-    // The card opened below the line, past the view's end: the view stopped following.
     expect(await atLatest(page)).toBe(false);
     await page.close();
   });
 
   test("the message and its Details open and close in place, away from the end", async () => {
     const page = await open("no-preference");
-    await show(page, [...done, received, after]);
+    // Two more turns under the reply, so the line 40px down the view is well away from the end.
+    await show(page, [...done, received, after, ...turn(8), ...turn(9)]);
     await settle(page);
     await lineAt(page, 40);
+    expect(await atLatest(page)).toBe(false);
     await settle(page);
     await probe(page, LINE);
 

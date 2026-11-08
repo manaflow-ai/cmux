@@ -140,12 +140,15 @@ pub fn allowlist_check(text: &str, is_first: bool) -> Result<Map<String, Value>,
 }
 
 /// The first frame with the LocalApp token in `params._meta.acpmux` (the
-/// host's own key; the page never sees it).
+/// host's own key; the page never sees it). A `personKey` the page put there
+/// is removed: the key never crosses the socket, the host proves it after
+/// this frame (AcpmuxPaneMethods.swift `withLocalAppToken`, cx-fcaq).
 pub fn with_local_app_token(mut object: Map<String, Value>, token: &str) -> Map<String, Value> {
     let mut params = object.remove("params").and_then(into_object).unwrap_or_default();
     let mut meta = params.remove("_meta").and_then(into_object).unwrap_or_default();
     let mut acpmux = meta.remove("acpmux").and_then(into_object).unwrap_or_default();
     acpmux.insert("localAppToken".into(), Value::String(token.into()));
+    acpmux.remove("personKey");
     meta.insert("acpmux".into(), Value::Object(acpmux));
     params.insert("_meta".into(), Value::Object(meta));
     object.insert("params".into(), Value::Object(params));

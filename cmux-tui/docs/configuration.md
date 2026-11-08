@@ -156,6 +156,14 @@ or `CMUX_MUX_CONFIG` in a separate shell does not change the running process env
 `sidebar plugin use` does not send this reload; run `cmux daemon reload-config`
 separately for a running local session whose socket is reachable.
 
+When a daemon starts, cmux checks installed sidebar and agent plugins for a
+newer `HEAD` at most once per day. The check runs in the background and only
+updates clean installs whose origin is HTTPS or SSH. Local paths, `file://`
+origins, symlinked development checkouts, and installs with uncommitted files
+are left alone. A successful update is picked up the next time the plugin
+process starts; use `cmux daemon reload-config` to restart a plugin that is
+already running.
+
 Return to the built-in sidebar with:
 
 ```bash
@@ -211,7 +219,8 @@ not report the bundled detector; the daemon's agent roster shows its rows.
 
 The reference screen detector keeps 21 herdr-derived manifests in its own
 package. `cmux-agent-screen-detection update` checks an HTTPS catalog only when
-the user invokes it. Startup never performs network access. See
+the user invokes it. The daemon's once-daily check applies only to
+user-installed plugins and never updates the bundled detector. See
 [`spec/plugins.md`](../spec/plugins.md) for the journal envelope, lifecycle,
 source precedence, process fallback, and attribution rules.
 
@@ -400,6 +409,17 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 
 WebSocket clients pair through a six-digit browser/TUI comparison by default. Approve a pairing with `y` or the Approve button; Enter does not approve. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`, and every handshake keeps the Host and Origin checks: list the names clients use with `--ws-allow-host` and extra browser origins with `--ws-allow-origin`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
+## Notifications
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `notifications.desktop` | `"off"`, `"auto"`, or `"always"` | `"auto"` | Passes a notification on to the terminal that hosts the TUI, so it shows as a desktop notification |
+| `notifications.bell` | boolean | `false` | Also rings the host terminal's bell (BEL) with each notification passed on. A terminal bell (BEL) in a tab you cannot see rings the host bell only, with no desktop notification, once until that tab's mark is read |
+
+A tab needs you when an agent marked it (`cmux attention request`), when its agent or program waits on you (`blocked`), or when it has an unread notification. The tab chip shows `!` for a mark, the pane border and the workspace row take the warning color, and the workspace row shows the agent's reason. `Ctrl-b a` (`next-attention`) goes to the next such tab: marked and blocked tabs first, then unread error and warning notifications, then other unread ones, each oldest first. Pressing it again cycles. `Ctrl-b A` (`attention-list`) opens a searchable list of the same tabs. `cmux attention next [--focus]` and `cmux attention list` answer the same order as JSON for scripts; `next` moves focus only with `--focus`.
+
+The TUI passes a notification (OSC 9, 777, or 99 from a program, `cmux notify`, an agent hook, a bell) on to its host terminal only when you cannot see the tab: the tab is not drawn, or the host terminal window does not have focus. `auto` writes only to a host it knows by its environment: OSC 777 to Ghostty, WezTerm, and cmux, OSC 9 to iTerm2, and OSC 99 to kitty. `auto` writes nothing inside tmux or screen, or to an unknown terminal. `always` writes OSC 9 to an unknown terminal too. Nothing is written after the TUI detaches or in `cmux terminal attach` mode. At most one notification goes out each second, and at most one each 5 seconds for the same tab. When the host is a cmux terminal of the same session (a TUI that shows its own session), nothing is written, because that session's own clients already show it.
+
 ## Commands
 
 `commands` is an ordered list of user commands, the cmux-tui equivalent of tmux `bind-key ... command`. Each command names an argv program and optionally binds key chords to it. Pressing a bound chord runs the argv as a new PTY tab in the active pane, exactly like `cmux run`. The child inherits `CMUX_TUI_SOCKET`, so a command script can immediately drive the public CLI against its own session: create workspaces, apply splits, rename tabs, then close its own tab. The working directory defaults to the active pane's current directory; `cwd` values pass through without shell expansion, so use absolute paths or a shell argv for `~`.
@@ -479,6 +499,8 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
 | `keys.browser-edit-url` | chord string or array or `"none"` | `"u"` | Browser URL prompt |
 | `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
+| `keys.next-attention` | chord string or array or `"none"` | `"a"` | Go to the next tab that needs you ([Notifications](#notifications)) |
+| `keys.attention-list` | chord string or array or `"none"` | `"A"` | List the tabs that need you; Enter goes to the selected one |
 | `keys.provider-menu` | chord string or array or `"none"` | `"m"` | Open the machine provider menu when the machine rail is focused |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 | `keys.dock-workspace-left` | chord string or array or `"none"` | unbound | Dock the active workspace on the left edge |
@@ -602,7 +624,12 @@ The dock actions have no default keys. Bind them under `keys` (for example `"doc
     "swap-pane-prev": "{",
     "swap-pane-next": "}",
     "show-shortcuts": "?",
+    "next-attention": "a",
     "detach": "d"
+  },
+  "notifications": {
+    "desktop": "auto",
+    "bell": false
   }
 }
 ```

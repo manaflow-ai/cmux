@@ -210,56 +210,142 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     return page;
   };
 
-  test("a tool call opened at the end pins the bottom and moves the transcript as one stack", async () => {
+  test("a tool call opened at the end holds its line and grows down; a close at the end pins the bottom", async () => {
     const page = await open("no-preference");
     await show(page, [...done, ...live(1)]);
     await settle(page);
     expect(await atLatest(page)).toBe(true);
+    const aboveBefore = await page.locator('[data-row-id="live-user"]').evaluate((node) => {
+      (node as HTMLElement).dataset.aboveProbe = "true";
+      return (node as HTMLElement).getBoundingClientRect().top;
+    });
+    const earlierBefore = await page.locator('[data-row-id="t7-answer"]').evaluate((node) => {
+      (node as HTMLElement).dataset.earlierProbe = "true";
+      return (node as HTMLElement).getBoundingClientRect().top;
+    });
     await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
 
     const opened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(opened.folded).toBe(false);
-    expect(opened.animatedHeights).toBe(1);
-    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
-    expect(opened.threadAnimations).toBe(1);
-    expect(opened.threadDuration).toBeGreaterThanOrEqual(150);
-    expect(opened.threadDuration).toBeLessThanOrEqual(200);
-    expect(await atLatest(page)).toBe(true);
+    // Codex parity: an open at the end never pins the bottom. The line and the rows over it stay
+    // where the reader clicked, the body plays its own height down under the composer (no thread
+    // transform), and the view stops following.
+    expect(opened.folded).toBe(true);
+    expect(opened.threadAnimations).toBe(0);
+    expect(opened.moved).toBeLessThanOrEqual(1);
+    await settle(page);
+    const aboveAfter = await page
+      .locator("[data-above-probe]")
+      .evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
+    const earlierAfter = await page
+      .locator("[data-earlier-probe]")
+      .evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
+    expect(Math.abs(aboveAfter - aboveBefore)).toBeLessThanOrEqual(1);
+    expect(Math.abs(earlierAfter - earlierBefore)).toBeLessThanOrEqual(1);
+    expect(await atLatest(page)).toBe(false);
 
     const expandedEnd = await scrollHeight(page);
-    // Closing keeps the expanded end and the clicked line, with no downward stack motion.
+    // Back at the latest row, a close pins the bottom (below).
+    await page.mouse.wheel(0, 10_000);
+    await settle(page);
+    expect(await atLatest(page)).toBe(true);
+    // Closing at the bottom keeps the bottom pinned too: the text above comes down by what closed,
+    // and no blank room is left under the rows (Leo, 2026-11-03: "it's weird to collapse and get
+    // all that empty space at the bottom"). This replaces #29703's kept room.
     const closed = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("false");
     expect(closed.bottomDrift).toBeLessThanOrEqual(2);
-    expect(closed.moved).toBeLessThanOrEqual(1);
-    expect(closed.threadAnimations).toBe(0);
-    expect(await scrollHeight(page)).toBe(expandedEnd);
+    expect(closed.threadAnimations).toBeLessThanOrEqual(1);
+    await settle(page);
+    const closedEnd = await scrollHeight(page);
+    expect(closedEnd).toBeLessThan(expandedEnd - 20);
     expect(await atLatest(page)).toBe(true);
 
-    // The room created by the expanded body remains after collapse. Scrolling up and back to the
-    // latest row must not trim it or reintroduce a jump.
-    const retainedEnd = await scrollHeight(page);
+    // Nothing is left to trim: scrolling up and back to the latest row changes no height.
     await page.mouse.wheel(0, -260);
     await settle(page);
     expect(await atLatest(page)).toBe(false);
-    expect(await scrollHeight(page)).toBe(retainedEnd);
+    expect(await scrollHeight(page)).toBe(closedEnd);
     await page.mouse.wheel(0, 10_000);
     await settle(page);
-    expect(await scrollHeight(page)).toBe(retainedEnd);
+    expect(await scrollHeight(page)).toBe(closedEnd);
     expect(await atLatest(page)).toBe(true);
+
+    // Reopening at the bottom holds the line again and grows down, to the same end.
+    await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
+    const reopened = await clickAndWatch(page);
+    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
+    expect(reopened.moved).toBeLessThanOrEqual(1);
+    expect(reopened.threadAnimations).toBe(0);
+    expect(reopened.folded).toBe(true);
+    await settle(page);
+    expect(await scrollHeight(page)).toBe(expandedEnd);
+    expect(await atLatest(page)).toBe(false);
     await page.close();
   });
 
-  test("bottom room survives upward scrolling before a collapse is measured", async () => {
+  test("away from the bottom a tool call expands downward without moving the earlier stack", async () => {
+    const page = await open("no-preference");
+    await show(page, [...done, ...live(8)]);
+    await settle(page);
+    // Keep enough content after the tool to place its actual hit target well inside the view
+    // while remaining away from the end. A blind wheel can leave it under the bottom mask.
+    await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const toggle = document.querySelector<HTMLElement>('[data-row-id="live-run"] button.cv-tool.is-toggle')!;
+      scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true }));
+      scroller.scrollTop += toggle.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    await settle(page);
+    expect(await atLatest(page)).toBe(false);
+    const before = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const above = document.querySelector<HTMLElement>('[data-row-id="t7-answer"]')!;
+      above.dataset.aboveProbe = "true";
+      return {
+        scrollTop: scroller.scrollTop,
+        scrollHeight: scroller.scrollHeight,
+        aboveTop: above.getBoundingClientRect().top,
+      };
+    });
+    await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
+    expect(
+      await page.locator("[data-probe]").evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return node.contains(document.elementFromPoint(box.left + 24, box.top + box.height / 2));
+      }),
+    ).toBe(true);
+    const opened = await clickAndWatch(page);
+    await settle(page);
+    const after = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const above = document.querySelector<HTMLElement>("[data-above-probe]")!;
+      return {
+        scrollTop: scroller.scrollTop,
+        scrollHeight: scroller.scrollHeight,
+        aboveTop: above.getBoundingClientRect().top,
+      };
+    });
+    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
+    expect(opened.threadAnimations).toBe(0);
+    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(after.scrollTop).toBeCloseTo(before.scrollTop, 0);
+    expect(after.scrollHeight).toBeGreaterThan(before.scrollHeight);
+    expect(after.aboveTop).toBeCloseTo(before.aboveTop, 0);
+    await page.close();
+  });
+
+  test("a collapse at the bottom with a scroll before it is measured leaves no room", async () => {
     const page = await open("no-preference");
     await show(page, [...done, ...live(1)]);
     await settle(page);
     await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
     await clickAndWatch(page);
+    await settle(page);
     const expandedEnd = await scrollHeight(page);
     // Deliver reader intent and a scroll synchronously with the close, before ResizeObserver
-    // can report the shrinking body. This releases the line hold but must not release its room.
+    // can report the shrinking body. The close still keeps no room under the rows.
     await page.evaluate(() => {
       const toggle = document.querySelector<HTMLElement>("[data-probe]")!;
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -270,16 +356,15 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     });
     await settle(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("false");
-    expect(await atLatest(page)).toBe(false);
-    expect(await scrollHeight(page)).toBe(expandedEnd);
+    expect(await scrollHeight(page)).toBeLessThan(expandedEnd - 20);
     await page.mouse.wheel(0, 10_000);
     await settle(page);
     expect(await atLatest(page)).toBe(true);
-    expect(await scrollHeight(page)).toBe(expandedEnd);
+    expect(await scrollHeight(page)).toBeLessThan(expandedEnd - 20);
     await page.close();
   });
 
-  test("a tool toggle just above the end reacquires bottom follow, and user scroll cancels its motion", async () => {
+  test("a tool toggle just above the end holds its line, and user scroll cancels its close", async () => {
     const page = await open("no-preference");
     await show(page, [...done, ...live(1)]);
     await settle(page);
@@ -291,25 +376,28 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await settle(page);
     await probe(page, '[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]');
     const opened = await clickAndWatch(page);
-    expect(opened.bottomDrift).toBeLessThanOrEqual(3);
-    expect(opened.threadAnimations).toBe(1);
-    expect(await atLatest(page)).toBe(true);
+    // Codex parity: it opens down from its line, and the view does not follow the end.
+    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(opened.folded).toBe(true);
+    expect(await atLatest(page)).toBe(false);
     // Dispatch the reversal and scroll in one task so the cancellation cannot miss a short animation.
     await page.evaluate(async () => {
       document.querySelector<HTMLElement>("[data-probe]")!.click();
       await window.cmuxPaintFrame();
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      // A short scroll up: the body lands shut at once and the end it had stays as room, so what
+      // was left of its shrink never clamps the reader back to the end.
       node.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
       node.scrollTop -= 100;
     });
     await settle(page);
     expect(await atLatest(page)).toBe(false);
-    expect(await page.locator("[data-bottom-fold]").count()).toBe(0);
+    expect(await page.locator("[data-bottom-fold], [data-bottom-stack-fold]").count()).toBe(0);
     expect(await page.locator(".acpmux-thread").evaluate((node) => node.getAnimations().length)).toBe(0);
     await page.close();
   });
 
-  test("a finished turn's Worked for opened at the latest row pins the bottom", async () => {
+  test("a finished turn's Worked for opened at the latest row holds its line and grows down", async () => {
     const page = await open("no-preference");
     await show(page, done);
     await settle(page);
@@ -317,9 +405,47 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await probe(page, `[data-row-id="worked-t7-user"] button.cv-worked`);
     const opened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
-    expect(await atLatest(page)).toBe(true);
+    // Codex parity: the line stays where it was clicked; what it opens grows down past the end.
+    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(await atLatest(page)).toBe(false);
     expect(await page.locator('[data-row-id="t7-run"]').count()).toBe(1);
+    await page.close();
+  });
+
+  test("empty and zero-width replies add no vertical gap between tool groups", async () => {
+    const page = await open("reduce");
+    const rows = (withInvisible: boolean) => [
+      row("spacing-user", "user", "Run both checks."),
+      row("spacing-first", "activity", undefined, { items: [read("spacing-first-tool")] }),
+      ...(withInvisible
+        ? [row("spacing-empty", "assistant", ""), row("spacing-zero", "assistant", "\u200B\u200C\u200D\uFEFF\u2060")]
+        : []),
+      row("spacing-second", "activity", undefined, { items: [read("spacing-second-tool")] }),
+      row("spacing-answer", "assistant", "Both checks passed."),
+      row("spacing-summary", "turnSummary", undefined, { status: "completed", durationMs: 9_000 }),
+    ];
+    const gapAfterOpenFold = async (withInvisible: boolean) => {
+      await show(page, rows(withInvisible));
+      await settle(page);
+      const fold = page.locator('[data-row-id="worked-spacing-user"] .cv-worked');
+      if ((await fold.getAttribute("aria-expanded")) !== "true") await fold.click();
+      await settle(page);
+      return page.evaluate(() => {
+        const first = document.querySelector<HTMLElement>('[data-row-id="spacing-first"]');
+        const second = document.querySelector<HTMLElement>('[data-row-id="spacing-second"]');
+        if (!first || !second) throw new Error("tool groups were not mounted");
+        const a = first.getBoundingClientRect();
+        const b = second.getBoundingClientRect();
+        return {
+          gap: b.top - a.bottom,
+          emptyRows: document.querySelectorAll('[data-row-id="spacing-empty"], [data-row-id="spacing-zero"]').length,
+        };
+      });
+    };
+    const normal = await gapAfterOpenFold(false);
+    const withInvisible = await gapAfterOpenFold(true);
+    expect(withInvisible.emptyRows).toBe(0);
+    expect(Math.abs(withInvisible.gap - normal.gap)).toBeLessThanOrEqual(0.5);
     await page.close();
   });
 
@@ -402,8 +528,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(await line.getAttribute("aria-expanded")).toBe("false");
     await probe(page, '[data-row-id="worked-completed-user"] .cv-worked');
     const opened = await clickAndWatch(page);
-    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
-    expect(await atLatest(page)).toBe(true);
+    // Opened at the end, the line holds and the reports grow down (Codex parity).
+    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(await atLatest(page)).toBe(false);
     expect(await line.getAttribute("aria-expanded")).toBe("true");
     const position = await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -637,7 +764,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
-  test("under Reduce Motion a tool call opens at once and still pins the bottom", async () => {
+  test("under Reduce Motion a tool call opens at once and still holds its line", async () => {
     const page = await open("reduce");
     await show(page, [...done, ...live(1)]);
     await settle(page);
@@ -645,8 +772,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const opened = await clickAndWatch(page, 250);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(opened.folded).toBe(false);
-    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
-    expect(await atLatest(page)).toBe(true);
+    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(await atLatest(page)).toBe(false);
     await page.close();
   });
 });

@@ -1,6 +1,661 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "handlers.attention.needsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يُفتح «الانتقال إلى ما يحتاجني» إلا عند طلب التركيز؛ اقرأ علامات التبويب المعلّمة باستخدام tab.list"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Idi na ono što me treba otvara se samo kada se zatraži fokus; označene kartice pročitaj pomoću tab.list"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til det, der kræver mig, åbner kun, når der anmodes om fokus; læs de markerede faner med tab.list"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Zu dem, was mich braucht“ öffnet sich nur, wenn Fokus angefordert wird; lies die markierten Tabs mit tab.list"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to What Needs Me opens only when focus is requested; read the marked tabs with tab.list"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir a lo que me necesita solo se abre cuando se solicita el foco; lee las pestañas marcadas con tab.list"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aller à ce qui m’attend ne s’ouvre que si le focus est demandé ; lisez les onglets marqués avec tab.list"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vai a ciò che richiede me si apre solo quando viene richiesto il focus; leggi le schede contrassegnate con tab.list"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「自分の対応が必要な場所へ移動」はフォーカスが要求された場合にのみ開きます。マークされたタブは tab.list で読み取ってください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទៅកាន់អ្វីដែលត្រូវការខ្ញុំ បើកតែនៅពេលស្នើសុំការផ្ដោតប៉ុណ្ណោះ; អានផ្ទាំងដែលបានសម្គាល់ដោយ tab.list"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내가 필요한 곳으로 이동은 포커스를 요청할 때만 열립니다. 표시된 탭은 tab.list로 읽으세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til det som trenger meg åpnes bare når fokus er bedt om; les de merkede fanene med tab.list"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przejdź do tego, co mnie potrzebuje otwiera się tylko na żądanie fokusu; odczytaj oznaczone karty przez tab.list"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir para o que precisa de mim só abre quando o foco é solicitado; leia as abas marcadas com tab.list"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Перейти к тому, что ждёт меня» открывается только при запросе фокуса; читайте отмеченные вкладки через tab.list"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไปยังสิ่งที่ต้องการฉัน จะเปิดเมื่อมีการขอโฟกัสเท่านั้น อ่านแท็บที่ทำเครื่องหมายด้วย tab.list"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bana ihtiyaç duyulan yere git yalnızca odak istendiğinde açılır; işaretli sekmeleri tab.list ile oku"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Перейти до того, що чекає на мене» відкривається лише на запит фокуса; читайте позначені вкладки через tab.list"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đi tới việc cần tôi chỉ mở khi có yêu cầu tiêu điểm; hãy đọc các thẻ được đánh dấu bằng tab.list"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“前往需要我处理的地方”仅在请求焦点时打开；请用 tab.list 读取已标记的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「前往需要我處理的地方」僅在要求焦點時開啟；請用 tab.list 讀取已標記的分頁"
+          }
+        }
+      }
+    },
+    "handlers.attention.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ما يحتاجك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šta te treba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det, der kræver dig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Was dich braucht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What Needs You"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo que te necesita"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce qui vous attend"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ciò che richiede te"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "対応が必要なもの"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្វីដែលត្រូវការអ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내가 필요한 항목"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det som trenger deg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Co Cię potrzebuje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que precisa de você"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Что ждёт вас"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิ่งที่ต้องการคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sana ihtiyaç duyulanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Що чекає на вас"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Việc cần bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "需要你处理的事项"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "需要你處理的事項"
+          }
+        }
+      }
+    },
+    "handlers.attention.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ابحث فيما يحتاجك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraži šta te treba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg i det, der kræver dig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durchsuchen, was dich braucht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search what needs you"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar lo que te necesita"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechercher ce qui vous attend"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerca ciò che richiede te"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "対応が必要なものを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកអ្វីដែលត្រូវការអ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내가 필요한 항목 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk i det som trenger deg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szukaj tego, co Cię potrzebuje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar o que precisa de você"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Искать то, что ждёт вас"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาสิ่งที่ต้องการคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sana ihtiyaç duyulanlarda ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шукати те, що чекає на вас"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm việc cần bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索需要你处理的事项"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋需要你處理的事項"
+          }
+        }
+      }
+    },
+    "handlers.attention.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الانتقال إلى علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Idi na karticu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zum Tab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir a la pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aller à l’onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vai alla scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブへ移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទៅកាន់ផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭으로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til fanen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przejdź do karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir para a aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейти на вкладку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไปที่แท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekmeye git"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейти на вкладку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đi tới thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "前往标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "前往分頁"
+          }
+        }
+      }
+    },
+    "handlers.attention.nothing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتاجك أي وكيل في علامة تبويب الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trenutno te nijedan agent ne treba u kartici."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen agent har brug for dig i en fane lige nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gerade braucht dich kein Agent in einem Tab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent needs you in a tab right now."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ningún agente te necesita en una pestaña ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun agent n’a besoin de vous dans un onglet pour le moment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al momento nessun agente ha bisogno di te in una scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "今タブで対応が必要なエージェントはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឥឡូវនេះគ្មានភ្នាក់ងារណាត្រូវការអ្នកក្នុងផ្ទាំងទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "지금 탭에서 나를 필요로 하는 에이전트가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen agent trenger deg i en fane akkurat nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żaden agent nie potrzebuje Cię teraz w karcie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum agente precisa de você em uma aba agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сейчас ни одному агенту вы не нужны во вкладке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตอนนี้ไม่มีเอเจนต์ใดต้องการคุณในแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şu anda hiçbir ajanın bir sekmede sana ihtiyacı yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зараз жоден агент не чекає на вас у вкладці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện không có tác tử nào cần bạn trong một thẻ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目前没有代理需要你在标签页中处理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目前沒有代理需要你在分頁中處理。"
+          }
+        }
+      }
+    },
     "handlers.browserPage.captureFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -793,127 +1448,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The cmux-tui daemon is not connected."
+            "value": "cmux's background service isn't connected."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui デーモンに接続されていません。"
+            "value": "cmux のバックグラウンドサービスに接続されていません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "خدمة cmux-tui غير متصلة."
+            "value": "خدمة cmux في الخلفية غير متصلة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui daemon nije povezan."
+            "value": "Pozadinski servis cmuxa nije povezan."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui-dæmonen er ikke forbundet."
+            "value": "cmux’ baggrundstjeneste er ikke forbundet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der cmux-tui-Daemon ist nicht verbunden."
+            "value": "Der Hintergrunddienst von cmux ist nicht verbunden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El daemon de cmux-tui no está conectado."
+            "value": "El servicio en segundo plano de cmux no está conectado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le daemon cmux-tui n’est pas connecté."
+            "value": "Le service d’arrière-plan de cmux n’est pas connecté."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il daemon cmux-tui non è connesso."
+            "value": "Il servizio in background di cmux non è connesso."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "daemon cmux-tui មិនបានភ្ជាប់ទេ។"
+            "value": "សេវាផ្ទៃខាងក្រោយរបស់ cmux មិនបានភ្ជាប់ទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui 데몬이 연결되어 있지 않습니다."
+            "value": "cmux 백그라운드 서비스가 연결되어 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui-daemonen er ikke tilkoblet."
+            "value": "Bakgrunnstjenesten til cmux er ikke tilkoblet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Demon cmux-tui nie jest połączony."
+            "value": "Usługa w tle cmux nie jest połączona."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O daemon cmux-tui não está conectado."
+            "value": "O serviço em segundo plano do cmux não está conectado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Демон cmux-tui не подключен."
+            "value": "Фоновая служба cmux не подключена."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "daemon ของ cmux-tui ไม่ได้เชื่อมต่อ"
+            "value": "บริการเบื้องหลังของ cmux ไม่ได้เชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui arka plan hizmeti bağlı değil."
+            "value": "cmux arka plan hizmeti bağlı değil."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Демон cmux-tui не підключено."
+            "value": "Фонова служба cmux не підключена."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Daemon cmux-tui chưa được kết nối."
+            "value": "Dịch vụ nền của cmux chưa kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui 守护进程未连接。"
+            "value": "cmux 的后台服务未连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui 背景程式未連線。"
+            "value": "cmux 的背景服務未連線。"
           }
         }
       }
@@ -6211,530 +6866,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "「切換模型…」會開啟選單，因此需要焦點。"
-          }
-        }
-      }
-    },
-    "handlers.agentChats.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "محادثات الوكيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Razgovori agenta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentchats"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent-Chats"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent Chats"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chats del agente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Discussions d’agent"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat dell’agente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントチャット"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែករបស់ភ្នាក់ងារ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트 채팅"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentchatter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Czaty agenta"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chats do agente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чаты агента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชทของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajan sohbetleri"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чати агента"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuộc trò chuyện của tác tử"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "智能体聊天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "代理聊天"
-          }
-        }
-      }
-    },
-    "handlers.agentChats.placeholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ابحث في المحادثات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pretraži razgovore"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søg i chats"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chats durchsuchen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search chats"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar chats"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rechercher des discussions"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerca chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットを検索"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្វែងរកការជជែក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "채팅 검색"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søk i chatter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Szukaj czatów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar chats"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поиск чатов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ค้นหาแชท"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sohbetlerde ara"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пошук чатів"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tìm cuộc trò chuyện"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜索聊天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜尋聊天"
-          }
-        }
-      }
-    },
-    "handlers.agentChats.open": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح المحادثة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otvori razgovor"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn chat"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat öffnen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Chat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir chat"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrir la discussion"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットを開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បើកការជជែក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "채팅 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne chat"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otwórz czat"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir chat"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Открыть чат"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดแชท"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sohbeti aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкрити чат"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mở cuộc trò chuyện"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "打开聊天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "開啟聊天"
-          }
-        }
-      }
-    },
-    "handlers.agentChats.untitled": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "محادثة جديدة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novi razgovor"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ny chat"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Neuer Chat"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New chat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat nuevo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nouvelle discussion"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nuova chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいチャット"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែកថ្មី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "새 채팅"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ny chat"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nowy czat"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novo chat"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Новый чат"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชทใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni sohbet"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Новий чат"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuộc trò chuyện mới"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新聊天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新聊天"
           }
         }
       }
@@ -19146,268 +19277,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "視窗持續在動畫或調整大小，因此無法遮蔽其瀏覽器頁面和聊天。請在視窗靜止時重試"
-          }
-        }
-      }
-    },
-    "handlers.misc.failed.noPeerSession": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ has no running chat named %2$@."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا توجد على %1$@ محادثة قيد التشغيل باسم %2$@."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ nema pokrenut chat pod imenom %2$@."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ har ingen kørende chat med navnet %2$@."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ hat keinen laufenden Chat namens %2$@."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ no tiene ningún chat en curso llamado %2$@."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ n’a aucune discussion en cours nommée %2$@."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ non ha una chat in esecuzione chiamata %2$@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ に実行中のチャット %2$@ はありません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ មិនមានការជជែកកំពុងដំណើរការដែលមានឈ្មោះ %2$@ ទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@에 실행 중인 %2$@ 채팅이 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ har ingen kjørende chat med navnet %2$@."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ nie ma uruchomionego czatu o nazwie %2$@."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ não tem nenhum chat em execução chamado %2$@."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "На %1$@ нет запущенного чата с именем %2$@."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ ไม่มีแชตที่กำลังทำงานชื่อ %2$@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ üzerinde %2$@ adlı çalışan sohbet yok."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "На %1$@ немає запущеного чату з назвою %2$@."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ không có cuộc trò chuyện đang chạy nào tên %2$@."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 没有名为 %2$@ 的运行中聊天。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 沒有名為 %2$@ 的執行中聊天。"
-          }
-        }
-      }
-    },
-    "handlers.misc.failed.ambiguousPeerSession": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ has more than one chat named %2$@. Name it by its session id."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يوجد على %1$@ أكثر من محادثة باسم %2$@. حدّدها بمعرّف جلستها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ ima više od jednog chata pod imenom %2$@. Navedite ga po ID-u sesije."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ har mere end én chat med navnet %2$@. Angiv den med dens sessions-id."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ hat mehr als einen Chat namens %2$@. Gib seine Sitzungs-ID an."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ tiene más de un chat llamado %2$@. Indícalo por su ID de sesión."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ a plusieurs discussions nommées %2$@. Indiquez son identifiant de session."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ ha più di una chat chiamata %2$@. Indicala con il suo ID di sessione."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ には %2$@ という名前のチャットが複数あります。セッション ID で指定してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ មានការជជែកច្រើនជាងមួយដែលមានឈ្មោះ %2$@។ សូមបញ្ជាក់ដោយលេខសម្គាល់សម័យ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@에 %2$@ 이름의 채팅이 여러 개 있습니다. 세션 ID로 지정하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ har mer enn én chat med navnet %2$@. Oppgi den med økt-ID-en."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ ma więcej niż jeden czat o nazwie %2$@. Wskaż go identyfikatorem sesji."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ tem mais de um chat chamado %2$@. Indique-o pelo ID da sessão."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "На %1$@ несколько чатов с именем %2$@. Укажите его по идентификатору сеанса."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ มีแชตชื่อ %2$@ มากกว่าหนึ่งรายการ ระบุด้วยรหัสเซสชัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ üzerinde %2$@ adlı birden fazla sohbet var. Oturum kimliğiyle belirtin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "На %1$@ кілька чатів з назвою %2$@. Укажіть його за ідентифікатором сеансу."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ có nhiều cuộc trò chuyện tên %2$@. Hãy chỉ định bằng ID phiên."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 有多个名为 %2$@ 的聊天。请用会话 ID 指定。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 有多個名為 %2$@ 的聊天。請用工作階段 ID 指定。"
           }
         }
       }

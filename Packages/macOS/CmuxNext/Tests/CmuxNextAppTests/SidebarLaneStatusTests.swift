@@ -54,7 +54,7 @@ import Testing
         }
 
         func sections(_ rows: SidebarMapping.RowSource? = nil,
-                      workspaceFilter: (WorkspaceModel) -> Bool = { _ in true }) -> [SidebarRowSection] {
+                      workspaceFilter: @escaping (WorkspaceModel) -> Bool = { _ in true }) -> [SidebarRowSection] {
             SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
                                            rowSource: SidebarLaneStatus.applying(rows, lanes: lanes, turns: turns),
                                            workspaceFilter: workspaceFilter)
@@ -79,7 +79,7 @@ import Testing
         let fixture = try Fixture()
         try Self.withLaneStatus(true) {
             let model = SidebarModel(sections: [])
-            SidebarRows(model: model).show(fixture.sections())
+            SidebarRows(model: model, document: { nil }).show(fixture.sections())
             let shown = Self.activity(model.sections)
             #expect(shown["working"] == .working)
             #expect(shown["waiting"] == .waiting)
@@ -104,7 +104,7 @@ import Testing
             let pending = Pending()
             let feed = SidebarRowFeed(schedule: { pending.work.append($0) })
             let model = SidebarModel(sections: [])
-            let rows = SidebarRows(model: model)
+            let rows = SidebarRows(model: model, document: { nil })
             feed.onChange = { rows.patch($0) }
             feed.beginPass(inputs: 0)
             rows.show(feed.fill(fixture.sections(feed.rowSource)))
@@ -128,6 +128,32 @@ import Testing
         let shown = Self.activity(fixture.sections(workspaceFilter: filter))
         #expect(shown["idle"] == nil, "a purged acpmux session does not linger as a row")
         #expect(shown.count == 3)
+    }
+
+    /// Leo 2026-11-05 (ask-71821f1cda): "randomly there's these workspaces that appear and disappear". A chat whose acpmux
+    /// session is gone leaves its workspace in the daemon tree, hidden while the watch is live. When the watch dropped (an
+    /// acpmux restart, sleep, a socket blip) the filter kept every row until the next page, so every such workspace showed
+    /// for the gap and vanished again. Through a gap the rows the watch last showed stay, and the gone ones stay hidden.
+    @Test func aGoneSessionStaysHiddenWhileTheWatchReconnects() throws {
+        let fixture = try Fixture()
+        fixture.lanes.live = true
+        let filter: (WorkspaceModel) -> Bool = { fixture.lanes.keepsWorkspace($0, turns: fixture.turns) }
+        fixture.lanes.lanes["s-idle"] = nil
+        #expect(Self.activity(fixture.sections(workspaceFilter: filter)).count == 3)
+
+        // The watch closes (`AgentTurnStateFeed.lost`): not live, no lanes until it reconnects.
+        fixture.lanes.live = false
+        fixture.lanes.lanes = [:]
+        let gap = Self.activity(fixture.sections(workspaceFilter: filter))
+        #expect(gap["idle"] == nil, "the gone session's workspace showed again while the watch was down")
+        #expect(Set(gap.keys) == ["working", "waiting", "failed"], "the live work stays through the gap")
+
+        // The next complete page: the same rows.
+        for (session, state) in [("s-working", "working"), ("s-waiting", "input"), ("s-failed", "failed")] {
+            fixture.lanes.lanes[session] = try Self.lane(session, state)
+        }
+        fixture.lanes.live = true
+        #expect(Set(Self.activity(fixture.sections(workspaceFilter: filter)).keys) == ["working", "waiting", "failed"])
     }
 
     @Test func aStaleAgentTabDoesNotDropAWorkspaceWithOtherContent() throws {

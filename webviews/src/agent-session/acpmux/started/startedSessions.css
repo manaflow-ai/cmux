@@ -12,18 +12,18 @@
   max-width: 78%;
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
 }
 .acpmux-started-row {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ds-space-2);
   width: 100%;
   min-width: 0;
   min-height: 34px;
-  padding: 7px 12px 7px 14px;
+  padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-2) var(--ds-space-2);
   border: 0;
   background: none;
   color: var(--agent-text);
@@ -43,10 +43,13 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
 }
-/* A row's harness mark, else its toned chat icon (StartedSessionCard.tsx), before the title. */
+/* A row's harness mark, else its toned chat icon (StartedSessionCard.tsx), before the title, centred
+   in a 16 box on the row's lead (design/grid.md section 3: lead = highlight + 8, text = lead + 24). */
 .acpmux-started-icon {
   display: inline-flex;
   flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
   align-items: center;
   justify-content: center;
 }
@@ -69,11 +72,13 @@
 }
 
 /* A session's status line (SessionStatusLine), on a started chat's row and its hover card: the
-   status first, its glyph and word in its colour, then `· repo #N` in the dim colour. */
+   status first, its glyph and word in its colour, then `· repo #N` in the dim colour, and every
+   other pull request the chat opened on its own (`· repo #M`), wrapping onto more lines rather
+   than folding into a "+N" count. Its items start at the top so the status stays on the first line. */
 .acpmux-session-status-line {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-start;
+  gap: var(--ds-space-1);
   min-width: 0;
   overflow: hidden;
   color: var(--acpmux-composer-dim);
@@ -86,17 +91,22 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 .acpmux-session-status-pr {
   display: inline-flex;
+  flex-wrap: wrap;
   min-width: 0;
-  gap: 4px;
+  gap: 0 var(--ds-space-1);
   font-variant-numeric: tabular-nums;
+}
+.acpmux-session-status-pr-other::before {
+  content: "·";
+  margin-inline-end: var(--ds-space-1);
 }
 .acpmux-session-status + .acpmux-session-status-pr::before {
   content: "·";
-  margin-inline-end: 2px;
+  margin-inline-end: var(--ds-space-1);
 }
 .acpmux-session-status[data-status="running"] {
   color: var(--agent-accent);
@@ -132,15 +142,16 @@
   background: none;
 }
 
-/* A started chat's name in a reply: a tinted chip that opens it. */
+/* A started chat's name in a reply: a chip that opens it, in the theme's text on a wash of it,
+   never the link blue (AgentTag.css; Leo, 2026-11-01: "dont do blue by default, theme it"). */
 .acpmux-started-chip {
   display: inline;
   margin: 0;
   padding: 1px 5px;
   border: 0;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--cv-link, var(--agent-accent)) 14%, transparent);
-  color: var(--cv-link, var(--agent-accent));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
+  color: var(--cv-text, var(--agent-text));
   font: inherit;
   text-align: inherit;
   cursor: default;
@@ -148,10 +159,10 @@
   box-decoration-break: clone;
 }
 .acpmux-started-chip:hover {
-  background: color-mix(in srgb, var(--cv-link, var(--agent-accent)) 22%, transparent);
+  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 16%, transparent);
 }
 .acpmux-started-chip:focus-visible {
-  outline: 1px solid var(--cv-link, var(--agent-accent));
+  outline: 1px solid color-mix(in srgb, var(--cv-text, var(--agent-text)) 50%, transparent);
   outline-offset: 1px;
 }
 @media (prefers-reduced-motion: no-preference) {

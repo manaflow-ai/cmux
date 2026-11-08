@@ -1,6 +1,6 @@
 /* acpmux's inbox notice (InboxNoticeCard.tsx): each thread a received line (conversation.css
    `.cv-received`), with the thread's label before the preview and "+N more" after it, muted, never cut; the group's head
-   is the waiting messages' (PendingMessagesCard.css). Colours, glass and type are the transcript's. */
+   is a tool row (below). Colours, glass and type are the transcript's. */
 .cv-inbox__label {
   flex: none;
   color: var(--cv-text-muted);
@@ -35,4 +35,13 @@
   padding-inline: var(--ds-space-1);
   border: 1px solid var(--cv-card-ring);
   border-radius: var(--ds-radius-card, 12px);
+}
+/* Two or more threads, folded (InboxNoticeCard.tsx, the `group` look): a tool-row head
+   (MessageGroupHead.css), and opened, the threads' lines start at the tool rows' words. */
+.cv-inbox--group {
+  margin: 0;
+  container-type: inline-size;
+}
+.cv-inbox__body {
+  margin-inline-start: var(--cv-tool-text-inset);
 }

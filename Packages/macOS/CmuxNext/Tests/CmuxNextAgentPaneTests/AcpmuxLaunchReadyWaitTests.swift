@@ -20,7 +20,7 @@ struct AcpmuxLaunchReadyWaitTests {
                                  daemonArguments: [], childEnvironment: [:])
     }
 
-    static let readyLine = #"{"ready":true,"pid":1,"webUrl":"http://127.0.0.1:4567/?token=t"}"#
+    static let readyLine = #"{"ready":true,"pid":1,"webUrl":"http://127.0.0.1:4567/#token=t"}"#
 
     @Test func aDaemonThatKeepsStartingPastTheStallTimeIsWaitedFor() async throws {
         // Logs a line every 0.2 s for 2.4 s, then says ready: longer than the 1 s stall time,

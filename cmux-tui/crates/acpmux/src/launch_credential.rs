@@ -19,7 +19,7 @@ pub const SESSION_SOCKET_ENV: &str = "CMUX_TUI_SOCKET";
 
 /// How long a launch waits for the daemon's credential.
 #[cfg(unix)]
-const MINT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const MINT_TIMEOUT: std::time::Duration = crate::rpc::ANSWER_WAIT;
 /// The longest reply line read from the daemon.
 #[cfg(unix)]
 const MAX_REPLY_BYTES: u64 = 64 * 1024;

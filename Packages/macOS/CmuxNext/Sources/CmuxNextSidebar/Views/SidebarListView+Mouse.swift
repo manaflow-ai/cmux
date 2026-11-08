@@ -62,7 +62,7 @@ extension SidebarListViewComponents {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
-            } else if SidebarTunables.multiView.value {
+            } else if SidebarTunables.multiViewOn {
                 // The multi-view prototype (#23437): a press selects nothing; the release on this row navigates.
                 press.clickOnRelease = id
             } else {
@@ -90,7 +90,7 @@ extension SidebarListViewComponents {
             // Keyboard focus moves to the clicked disclosure (no ring), so a ring left on another one cannot take
             // the next Space or Return; the release toggles it.
             SidebarGroupKeys(list: self).focusFold(row.key, ring: false)
-        case .section, .emptySection, .emptyGroup, .folder, .block, .sessionHost, .status:
+        case .section, .emptySection, .emptyGroup, .folder, .block, .sessionHost, .status, .listHeader:
             break
         }
         self.press = press
@@ -172,7 +172,7 @@ extension SidebarListViewComponents {
             // The group's empty row makes a workspace in it, as the header's + does; the new row lays the list out.
             onGroupEditorItem?(group, "workspaceGroup.newWorkspace")
             return syncRowStates()
-        case .emptySection, .folder, .block:
+        case .emptySection, .folder, .block, .listHeader:
             break
         }
         reload(animated: true)
@@ -207,7 +207,9 @@ extension SidebarListViewComponents {
             if flags == [.command, .option] {
                 model.moveSelection(up ? .up : .down)
             } else if flags.isEmpty || flags == .shift {
-                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: selectionOrder)
+                let order = selectionOrder
+                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: order)
+                if flags.isEmpty { forwardStepAhead(up ? -1 : 1, in: order) }
             } else {
                 return super.keyDown(with: event)
             }

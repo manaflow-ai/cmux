@@ -288,7 +288,7 @@ test("a data: URI written as text stays as written: in code, a source map, a CSS
 });
 
 test("re-dropping the same local link replaces the chip instead of duplicating it", async () => {
-  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   const link = (name: string, path: string): ComposerAttachment => ({
     id: `link:${path}`,
     kind: "link",
@@ -304,7 +304,7 @@ test("re-dropping the same local link replaces the chip instead of duplicating i
 });
 
 test("re-attaching design selection chips replaces both stable ids", async () => {
-  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
   const selection = {
     id: "card-1",
@@ -318,7 +318,7 @@ test("re-attaching design selection chips replaces both stable ids", async () =>
 
 test("attachment intake wires local link deduplication through its hook state", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   let held: ComposerAttachment[] = [];
   function Field() {
     const result = useAttachmentIntake({
@@ -378,7 +378,10 @@ test("a file chosen in + > Attach files asks the host where it came from, and it
       asked.push(params);
       return { sources: [shot] };
     },
+    "attachment.sourceIcon": () => ({ src: "data:image/png;base64,iVBORw0KGgo=" }),
   };
+  const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/sourceBadgeModel");
+  resetSourceIcons();
   try {
     const composer = await openComposer();
     const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
@@ -397,8 +400,14 @@ test("a file chosen in + > Attach files asks the host where it came from, and it
       { kind: "choose", names: ["Screenshot 2026-10-29 at 10.14.02.png"], gestureAt: expect.any(Number) },
     ]);
     expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
+    // Its tile wears the source app's icon at its top-right corner, named for screen readers.
+    await until(() => host.querySelector(".acpmux-attachment .acpmux-source-badge img") !== null, "the chip's badge");
+    expect(host.querySelector(".acpmux-attachment .acpmux-source-badge img")?.getAttribute("alt")).toBe(
+      "From Screenshot",
+    );
   } finally {
     delete actions.cmuxAcpmuxActions;
+    resetSourceIcons();
   }
 });
 
@@ -444,7 +453,7 @@ test("a slow source answer never holds a ready chip; the source is added when it
 // read's chip alone: only the read that owns the id settles it.
 test("an undone cancel's chip is settled by its new read, never by the cancelled one", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   const answers: ((result: { paths: string[] } | { error: string }) => void)[] = [];
   let intake!: ReturnType<typeof useAttachmentIntake>;
   function Field() {
@@ -489,7 +498,7 @@ test("an undone cancel's chip is settled by its new read, never by the cancelled
 // are, rather than leaving the text with nothing.
 test("an undone cancel of a file still being made reads it once its bytes are made", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   let intake!: ReturnType<typeof useAttachmentIntake>;
   function Field() {
     intake = useAttachmentIntake({
@@ -522,7 +531,7 @@ test("an undone cancel of a file still being made reads it once its bytes are ma
 
 test("an image copied as HTML into a plain text field comes in as a chip and the text still goes in", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   let held: ComposerAttachment[] = [];
   function Field() {
     const { attachments } = useAttachmentIntake({
@@ -564,7 +573,7 @@ test("a prompt copied from a bubble with `![…](data:…)` text pastes as an at
 
 test("the same text pasted into a plain text field leaves its text there without the image", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   let held: ComposerAttachment[] = [];
   function Field() {
     const { attachments } = useAttachmentIntake({
@@ -765,10 +774,13 @@ test("sending, undoing the clear, and resending never sends a sent attachment's 
 // prompt there.
 test("a retried attachment keeps its id and its place in the text, wherever the caret is", async () => {
   let uploads = 0;
-  // The host refuses the first upload and takes the retry.
+  // The host refuses the first upload outright (so its tile shows Retry at once, with no try again
+  // on its own) and takes the Retry.
   const upload = async (files: File[]) => {
     uploads += 1;
-    return uploads === 1 ? { error: "The upload failed." } : { paths: files.map((file) => `/tmp/${file.name}`) };
+    return uploads === 1
+      ? { error: "The disk is full.", final: true }
+      : { paths: files.map((file) => `/tmp/${file.name}`) };
   };
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
   const composer = await openComposer(sent, { upload });
@@ -882,11 +894,11 @@ test.each([
   }
 });
 
-// Review of #26545 at 81dbee21: a failed upload placed in the text is not sent; the send clears the
-// text from outside (no edit), so its node goes, and it must stay reachable: its failed chip with
-// Retry and × in the strip, never hidden as "placed" with no node to draw it.
-test("a failed attachment left out of a send stays reachable with Retry and its x", async () => {
-  const upload = async () => ({ error: "The upload failed." });
+// Review of #26545 at 81dbee21: a failed upload stays reachable with Retry and ×. Since #30572 a send
+// never goes without a file the person added (Leo, 2026-11-01: "i had to retry to get it to load???"):
+// it waits while the failed tile shows, and goes once the × takes it away.
+test("a send with a failed attachment waits until its x takes it away", async () => {
+  const upload = async () => ({ error: "The disk is full.", final: true });
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
   const composer = await openComposer(sent, { upload });
   await act(async () => composer.current!.restore("look", []));
@@ -903,15 +915,21 @@ test("a failed attachment left out of a send stays reachable with Retry and its 
   await act(async () => {
     field().dispatchEvent(event);
   });
-  await until(() => Boolean(field().querySelector('[data-state="failed"]')), "the failed tile in the text");
+  const failed = () => field().querySelector('[data-state="failed"]');
+  await until(() => Boolean(failed()), "the failed tile in the text");
   await act(async () => composer.current!.send());
-  expect(sent).toHaveLength(1);
+  await settleTurns();
+  expect(sent).toHaveLength(0);
+  // Still reachable: its Retry and its ×.
+  expect(failed()!.querySelector(".acpmux-md-inline-retry")).not.toBeNull();
+  const remove = field().querySelector<HTMLElement>("[data-inline-attachment] .acpmux-md-inline-remove");
+  expect(remove).not.toBeNull();
+  await act(async () => {
+    remove!.click();
+  });
+  await until(() => sent.length === 1, "the held send");
+  expect(sent[0]!.text).toContain("look");
   expect(sent[0]!.attachments).toEqual([]);
-  await until(() => !field().querySelector("[data-inline-attachment]"), "the cleared prompt");
-  const strip = () => document.querySelector(".acpmux-attachments");
-  await until(() => Boolean(strip()?.querySelector(".acpmux-attachment-retry")), "the failed chip in the strip");
-  expect(strip()!.querySelector(".acpmux-attachment-retry")).not.toBeNull();
-  expect(strip()!.querySelector(".acpmux-attachment-remove")).not.toBeNull();
 });
 
 // Review of #26667 (Astra), finding 1: the composer read the draft's tokens from its markdown, where
@@ -1019,31 +1037,19 @@ async function withUploadingFile(onSend?: ComposerProps["onSend"]) {
   return { composer, sent, id, finish: (paths: string[]) => act(async () => finish!(paths)) };
 }
 
-test("a file still uploading when the prompt is sent stays, and goes with the next prompt", async () => {
-  // The host takes the prompt a moment later; the person types on meanwhile.
-  let take: (() => void) | undefined;
+// Before #30572 a prompt sent while its file uploaded went without it (Leo, 2026-11-01: the agent
+// answered "Nothing came through"); the send now waits for the upload and goes once, with the file.
+test("a prompt sent while its file still uploads waits for it, then goes once with it", async () => {
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
-  const upload = await withUploadingFile((text, attachments) => {
+  const upload = await withUploadingFile(async (text, attachments) => {
     sent.push({ text, attachments: attachments ?? [] });
-    return new Promise<void>((resolve) => {
-      take = resolve;
-    });
   });
   await act(async () => upload.composer.current!.send());
-  expect(sent).toHaveLength(1);
-  expect(sent[0]!.attachments).toEqual([]);
-  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
-  await act(async () => markdownField().insertTyped(" next"));
-  await act(async () => take!());
   await settleTurns();
+  expect(sent).toHaveLength(0);
   await upload.finish(["/tmp/notes.bin"]);
-  await until(
-    () => (upload.composer.current!.wakeState().attachments ?? []).some((each) => each.id === upload.id),
-    "the uploaded file, kept for the next prompt",
-  );
-  await act(async () => upload.composer.current!.send());
-  expect(sent).toHaveLength(2);
-  expect(sent[1]!.attachments.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
+  await until(() => sent.length === 1, "the held send");
+  expect(sent[0]!.attachments.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
 });
 
 test("a file still uploading whose node the person deletes is cancelled", async () => {
@@ -1055,4 +1061,18 @@ test("a file still uploading whose node the person deletes is cancelled", async 
   expect(upload.composer.current!.wakeState().attachments ?? []).toEqual([]);
   expect(field().querySelector("[data-inline-attachment]")).toBeNull();
   expect(host.querySelector('[aria-busy="true"]')).toBeNull();
+});
+
+test("an unplaced chip's text or file goes in after a selection, never over it", async () => {
+  // Keep as .txt (and a click on a chip) takes the chip's place in the prompt first
+  // (composer/pastedChips.ts). An oversized paste inside a code fence leaves its chip in the strip
+  // with no place: what comes next goes in after the selected draft, never replacing it (Codex
+  // review of #37516).
+  const composer = await openComposer([]);
+  await act(async () => composer.current!.restore("keep this draft", []));
+  await act(async () => markdownField().selectAll());
+  await act(async () => markdownField().removeInline("unplaced-chip", true));
+  await act(async () => markdownField().pasteText(" and this"));
+  await settleTurns();
+  expect(markdownField().value()).toBe("keep this draft and this");
 });

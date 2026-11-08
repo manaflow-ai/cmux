@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The omnibar text field. It uses its own field editor
 /// (`OmnibarFieldEditor`) and is the only `OmnibarFieldSurface`: the effect
@@ -45,6 +46,12 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     // (a read-only sign-in bar): Cmd-L would do nothing there. The bar still
     // takes it, to select and copy the address.
     override var acceptsFirstResponder: Bool { super.acceptsFirstResponder || (isEnabled && isSelectable) }
+
+    override func textDidChange(_ notification: Notification) {
+        super.textDidChange(notification)
+        // The cell draws the placeholder under the editor: show or hide it with the text.
+        needsDisplay = true
+    }
 
     override func becomeFirstResponder() -> Bool {
         probe?("field.becomeFirstResponder")
@@ -95,6 +102,11 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// The I-beam over the text at rest and while editing (`OmnibarPointer`);
     /// while editing the field editor adds its own I-beam over its text.
     override func resetCursorRects() {
+        // In a layout screen the toolbar row's rule gives the I-beam from the screen's one area (`ArrowCursorView`).
+        if isServedByPanePointerArea {
+            installedCursor = OmnibarPointer.cursor(.text)
+            return
+        }
         if isFieldEditorActive {
             super.resetCursorRects()
         } else {
@@ -161,6 +173,8 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: OmnibarStyle.textPrimary]
             editor.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: attributes))
             editor.typingAttributes = attributes
+            // The cell draws the placeholder under an empty editor (`EditorAlignedTextFieldCell`).
+            needsDisplay = true
             return
         }
         lastStyle = style

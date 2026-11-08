@@ -3,7 +3,9 @@
 // talking JSON-RPC over a WebSocket to a stand-in acpmux daemon that serves one finished recorded
 // chat (replay/replayFixture.ts: a thought, a read, test runs and an edit).
 //
-// - Normal is today's transcript: the finished turn folds its work under "Worked for".
+// - Normal is today's transcript: the finished turn folds its work under "Worked for". Its reply
+//   between the calls stays in sight, the work around it on closed run lines (turns.ts
+//   `aroundReplies`; Leo, 2026-11-06: "your intermediate message got lost. that can never happen").
 // - Thinking, picked from the menu, opens that fold: the thought shows, each call's output stays folded.
 // - Verbose also opens each call to its output.
 // - Closing the turn's fold by hand in Verbose keeps it closed there; Normal keeps its own folds.
@@ -127,7 +129,7 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
   }
 
   describe("transcript view", () => {
-    test("letters typed into the chat menu's typeahead neither rename, fork, archive nor change the view", async () => {
+    test("letters typed into the chat menu are its typeahead: they never rename, fork, archive nor change the view", async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
       await page.goto(pageUrl());
       await page.getByText(ANSWER).waitFor();
@@ -135,8 +137,9 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       const before = await stored();
       await page.getByRole("button", { name: "Chat actions" }).click();
       await page.getByRole("menu").first().waitFor();
-      // "tr" (Transcript view), "ma" (Mark as Unread), "fo" (Fork…): each second key is typeahead.
-      for (const word of ["tr", "ma", "fo"]) {
+      // The ··· menu has no row letters (only the title menu has, #25661): a bare "r", "a" or "f" and
+      // "tr" (Transcript view), "ma" (Mark as Unread), "fo" (Fork…), "ar", "re" only move the focus.
+      for (const word of ["r", "a", "f", "tr", "ma", "fo", "ar", "re"]) {
         await page.keyboard.type(word, { delay: 40 });
         // fixed-wait: each word must start its own typeahead sequence (menuLetters.ts TYPEAHEAD_MS, 600 ms).
         await page.waitForTimeout(700);
@@ -199,18 +202,31 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       const shells = page.locator(".cv-shell");
       await shells.nth(1).waitFor();
       await page.mouse.move(1, 1);
-      // The Wrap lines buttons a reader sees at rest: drawn, and not see-through.
+      // The Wrap lines buttons a reader sees: drawn, and not see-through.
       const countShown = () =>
         [...document.querySelectorAll<HTMLElement>('.cv-shell button[aria-label="Wrap lines"]')].filter((button) => {
           const box = button.getBoundingClientRect();
           return box.width > 0 && Number(getComputedStyle(button).opacity) > 0.01;
         }).length;
       const shownWraps = () => page.evaluate(countShown);
+      // The buttons fade on the shared hover tokens (conversation.css, --cv-actions-in/out and the
+      // in-delay), so each read waits for its fade to settle rather than taking the first frame.
+      const settle = (want: number) =>
+        page
+          .waitForFunction(
+            (shown) =>
+              [...document.querySelectorAll<HTMLElement>('.cv-shell button[aria-label="Wrap lines"]')].filter(
+                (button) => button.getBoundingClientRect().width > 0 && Number(getComputedStyle(button).opacity) > 0.01,
+              ).length === shown,
+            want,
+            { timeout: 2_000 },
+          )
+          .catch(() => undefined);
+      await settle(0);
       const atRest = { shells: (await shells.count()) >= 2, wraps: await shownWraps() };
-      // Hovering a block shows its own, once the shared hover fade's delay has passed
-      // (conversation.css, --cv-actions-in-delay): wait for it rather than read the first frame.
+      // Hovering a block shows its own.
       await shells.first().hover();
-      await page.waitForFunction(countShown, undefined, { timeout: 2_000 }).catch(() => undefined);
+      await settle(1);
       const hovered = await shownWraps();
       await page.mouse.move(1, 1);
       expect({ atRest, hovered }).toEqual({ atRest: { shells: true, wraps: 0 }, hovered: 1 });
@@ -269,10 +285,14 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       // Each call's own row: a command (CommandRow) or another tool (ToolRow), each opening its output.
       const commands = page.locator(".cv-tools .cv-tool.is-toggle:not(.cv-thought)");
       const openCommands = page.locator('.cv-tools .cv-tool.is-toggle:not(.cv-thought)[aria-expanded="true"]');
+      // A call's own row, not a closed run line beside a reply in sight.
+      const calls = page.locator(".cv-tools .cv-tool.is-toggle:not(.cv-thought):not(.is-run)");
+      const reply = page.getByText("The loop allows one attempt too many");
       const normal = {
         worked: await worked.getAttribute("aria-expanded"),
         thoughts: await thought.count(),
-        commands: await commands.count(),
+        commands: await calls.count(),
+        reply: await reply.isVisible(),
       };
 
       await pick(page, "Thinking");
@@ -325,15 +345,18 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       const backToNormal = {
         worked: await worked.getAttribute("aria-expanded"),
         thoughts: await thought.count(),
-        commands: await commands.count(),
+        commands: await calls.count(),
+        reply: await reply.isVisible(),
       };
 
+      // Closed, the second test run is the one call in sight: its step also made the edit, which the
+      // turn's edits card draws, and the run keeps its own row after the reply (turns.ts lineWork).
       expect({ normal, thinking, verbose, closedByHand, backToNormal }).toEqual({
-        normal: { worked: "false", thoughts: 0, commands: 0 },
+        normal: { worked: "false", thoughts: 0, commands: 1, reply: true },
         thinking: { worked: "true", thoughts: true, commands: true, someClosed: true },
         verbose: { open: true },
         closedByHand: { worked: "false", fewer: true },
-        backToNormal: { worked: "false", thoughts: 0, commands: 0 },
+        backToNormal: { worked: "false", thoughts: 0, commands: 1, reply: true },
       });
       await page.close();
     });

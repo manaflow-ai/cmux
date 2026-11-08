@@ -193,3 +193,30 @@ import Testing
         #expect(find.currentBlock == "m-b|0")
     }
 }
+
+#if os(iOS)
+import UIKit
+
+/// The row holding Find in Chat's current match reads as selected to VoiceOver (the SwiftUI
+/// transcript's find marks did): its text elements get `.selected`, and lose it when the
+/// match moves; its buttons are left alone.
+@MainActor
+@Suite struct FindMarkAccessibilityTests {
+    @Test func theMarkedRowsTextReadsAsSelected() {
+        let cell = UICollectionViewCell()
+        let text = UIAccessibilityElement(accessibilityContainer: cell)
+        text.accessibilityTraits = .staticText
+        let more = UIAccessibilityElement(accessibilityContainer: cell)
+        more.accessibilityTraits = .button
+        cell.accessibilityElements = [text, more]
+
+        cell.setFindMarked(true)
+        #expect(text.accessibilityTraits.contains(.selected))
+        #expect(!more.accessibilityTraits.contains(.selected))
+
+        cell.setFindMarked(false)
+        #expect(!text.accessibilityTraits.contains(.selected))
+        #expect(text.accessibilityTraits.contains(.staticText))
+    }
+}
+#endif

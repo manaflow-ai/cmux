@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextCompat
 @testable import CmuxNextControl
 @testable import CmuxNextDaemon
 import CmuxNextSettings
@@ -82,7 +83,27 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
                                                         screens: [ControlScreenInfo(id: "screen-1", handle: "1", panes: [pane])])]
             snapshot.topology = topology
             router.snapshots.publish { $0 = snapshot }
-            try await until("the page loads") { try await self.read("document.readyState === 'complete' && document.title") == "native" }
+            // A failed setup still closes the window and releases the page it made (no leak into the next test).
+            do {
+                try await loaded()
+            } catch {
+                close()
+                throw error
+            }
+        }
+
+        /// Waits for the page's load to end (WebKit's navigation callback, observed), not for a deadline: a
+        /// loaded host can take longer than any fixed wait to start a web content process. The suite's time
+        /// limit bounds a load that never ends.
+        func loaded() async throws {
+            let page = page
+            var failure: BrowserLoadError?
+            for await phase in ObservationStream({ page.state.phase }) {
+                if phase == .finished { break }
+                if case .failed(let error) = phase { failure = error; break }
+            }
+            try #require(failure == nil, "the page failed to load: \(failure.map { "\($0)" } ?? "")")
+            try #require(try await read("document.readyState === 'complete' && document.title") == "native", "the page did not load")
         }
 
         func call(_ verb: String, _ params: [String: NativeInputJSON]) async throws -> NativeInputJSON {
@@ -233,16 +254,18 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
         #expect(try await fixture.events("wheel").count == 1)
     }
 
-    /// A page with no engine view (its web view is in no window) still takes the input, as page
-    /// events: the click lands, untrusted, and the answer says so.
-    @Test func aPageInNoWindowFallsBackToPageEvents() async throws {
+    /// A page in no window (a background tab an agent drives, user 2026-11-05) moves into its
+    /// off-screen render window first, so the click is native and trusted there too, and the
+    /// person's windows do not change.
+    @Test func aPageInNoWindowTakesTrustedInputOffScreen() async throws {
         let fixture = try await Fixture()
         defer { fixture.close() }
         fixture.window.contentView = nil
         let at = try await fixture.center("btn")
         let result = try await fixture.call("mouse", ["kind": "click", "x": at.x, "y": at.y])
-        #expect(result["native"] == false)
-        #expect(try await fixture.read("window.clicks") == 1)
-        #expect(try await fixture.events("click").first?["trusted"] == false)
+        #expect(result["native"] == true)
+        try await fixture.until("the button was clicked") { try await fixture.read("window.clicks") == 1 }
+        #expect(try await fixture.events("click").first?["trusted"] == true)
+        #expect(fixture.window.contentView == nil)
     }
 }

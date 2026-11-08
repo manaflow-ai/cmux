@@ -647,7 +647,7 @@ pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Re
     require_local(mux, client)?;
     let TypingParams { conversation, actor, on } = params;
     let actor = resolve_actor(mux, client, actor)?;
-    publish_typing(mux, &conversation, &actor, on)?;
+    publish_typing(mux, client, &conversation, &actor, on)?;
     Ok(json!({}))
 }
 
@@ -683,9 +683,11 @@ pub(super) fn draft(mux: &Mux, client: u64, params: DraftParams) -> anyhow::Resu
     Ok(json!({"published": published}))
 }
 
-/// Validate and publish a typing indicator of `actor`. Never stored.
+/// Validate and publish a typing indicator of `actor`, sent on connection
+/// `client` (its typing ends when that connection closes). Never stored.
 pub(super) fn publish_typing(
     mux: &Mux,
+    client: u64,
     conversation: &str,
     actor: &str,
     on: bool,
@@ -693,7 +695,7 @@ pub(super) fn publish_typing(
     mux.conversation_write(
         |store| store.check_typing(conversation, actor),
         |_| {
-            mux.set_conversation_typing(conversation, actor, on);
+            mux.set_conversation_typing(conversation, actor, client, on);
             Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Typing {
                 conversation: conversation.to_string(),
                 participant: actor.to_string(),

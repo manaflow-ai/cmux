@@ -10,6 +10,8 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import { defaultSelection, screenRows } from "../src/agent-session/acpmux/newtab/screenModel";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const ask = { harness: "claude", agent: "Claude Code" };
 const omnibar = { ...EMPTY_OMNIBAR, workspaces: [{ id: "ws", name: "ff-scratch" }] };
@@ -43,6 +45,10 @@ const keys = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "getSelection",
+  "KeyboardEvent",
+  "InputEvent",
+  "FocusEvent",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
@@ -64,11 +70,14 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
-    Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    KeyboardEvent: window.KeyboardEvent,
+    InputEvent: window.InputEvent,
+    FocusEvent: window.FocusEvent,
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
 });
@@ -104,15 +113,22 @@ async function render(calls: unknown[][]) {
       />,
     ),
   );
-  return host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  // The field is the composer's Markdown field: its editor is made a moment after it mounts.
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  return field;
 }
 
-async function type(field: HTMLTextAreaElement, text: string) {
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+/// Types `text` into the field and returns its editable element, where keys go.
+async function type(field: MarkdownFieldElement, text: string) {
+  const handle = field.acpmuxMarkdownField!;
   await act(async () => {
-    setValue.call(field, text);
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    handle.focus();
+    handle.type(text);
   });
+  expect(handle.plainText()).toBe(text);
+  return field.querySelector<HTMLElement>("[contenteditable]")!;
 }
 
 const key = (field: HTMLElement, name: string, shiftKey = false) =>
@@ -128,59 +144,62 @@ test("there is no Search | Ask switch and no Tab hint", async () => {
   const field = await render([]);
   expect(host.querySelector(".nt-mode")).toBeNull();
   expect(host.textContent).not.toContain("Tab to switch");
+  // The Markdown field draws its placeholder in its own span (no keycap after it) and labels its
+  // editable element with it; nothing describes the field.
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+  expect(editor.getAttribute("aria-describedby")).toBeNull();
   expect(field.getAttribute("aria-describedby")).toBeNull();
-  expect(field.getAttribute("placeholder")).toBe("Ask anything or type a URL");
+  expect(editor.getAttribute("aria-label")).toBe("Ask anything or type a URL");
+  const placeholder = field.querySelector<HTMLElement>(".acpmux-md-placeholder")!;
+  expect(placeholder.textContent).toBe("Ask anything or type a URL");
+  expect(placeholder.hidden).toBe(false);
+  expect(placeholder.querySelector(".acpmux-md-placeholder-key")).toBeNull();
 });
 
 test("Return on keywords asks the composer's agent", async () => {
   const calls: unknown[][] = [];
-  const field = await render(calls);
-  await type(field, "ff");
+  const editor = await type(await render(calls), "ff");
   expect(selected()).toBe("Ask Claude Code");
-  await key(field, "Enter");
+  await key(editor, "Enter");
   expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "ff"]);
 });
 
 test("Return on a question asks the composer's agent", async () => {
   const calls: unknown[][] = [];
-  const field = await render(calls);
-  await type(field, "why is ff slow?");
+  const editor = await type(await render(calls), "why is ff slow?");
   expect(selected()).toBe("Ask Claude Code");
-  await key(field, "Enter");
+  await key(editor, "Enter");
   expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "why is ff slow?"]);
 });
 
 test("Down reaches the web search for a miss, and Return takes it", async () => {
   const calls: unknown[][] = [];
-  const field = await render(calls);
-  await type(field, "ff");
-  await key(field, "ArrowDown");
-  await key(field, "ArrowDown");
+  const editor = await type(await render(calls), "ff");
+  await key(editor, "ArrowDown");
+  await key(editor, "ArrowDown");
   expect(selected()).toBe("Search the web for ff");
-  await key(field, "Enter");
+  await key(editor, "Enter");
   expect(calls).toEqual([["search", "ff"]]);
 });
 
 test("Tab steps the suggestions, and Shift-Tab is not consumed", async () => {
-  const field = await render([]);
-  await type(field, "ff");
-  await key(field, "Tab");
+  const editor = await type(await render([]), "ff");
+  await key(editor, "Tab");
   expect(selected()).toBe("ff-scratch");
-  expect(window.document.activeElement).toBe(field);
+  expect(window.document.activeElement).toBe(editor);
   const event = new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
-  await act(async () => void field.dispatchEvent(event));
+  await act(async () => void editor.dispatchEvent(event));
   expect(event.defaultPrevented).toBe(false);
 });
 
 // Review (PR 22816): Tab never wraps the rows, so it can always leave the field: from the last row
 // it is the browser's again.
 test("Tab on the last row moves focus on instead of wrapping", async () => {
-  const field = await render([]);
-  await type(field, "ff");
+  const editor = await type(await render([]), "ff");
   // Up from the top row goes back to the text; from there Up takes the last row.
-  await key(field, "ArrowUp");
-  await key(field, "ArrowUp");
+  await key(editor, "ArrowUp");
+  await key(editor, "ArrowUp");
   const event = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
-  await act(async () => void field.dispatchEvent(event));
+  await act(async () => void editor.dispatchEvent(event));
   expect(event.defaultPrevented).toBe(false);
 });

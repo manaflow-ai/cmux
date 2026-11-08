@@ -1,4 +1,5 @@
 @testable import CmuxNextAgentPane
+import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -32,16 +33,33 @@ struct AgentPaneGitMergeTests {
         }
     }
 
-    /// A repository with one commit and a fake `gh`: `pr view` prints view.json, `repo view` the
-    /// user's default method, and `pr merge` succeeds.
-    private static func rig() throws -> Rig {
-        let base = FileManager.default.temporaryDirectory.appending(path: "git-pr-merge-\(UUID().uuidString)").path
-        let folder = base + "/repo", gh = base + "/gh"
+    /// The repository every rig copies: one commit, made once per test process with real git. Each rig
+    /// changes only files beside its own copy, and the merge reads its copy (`rev-parse HEAD`), so the
+    /// copies share nothing. Removed when the test process exits.
+    private static let template = Result { () throws -> (folder: String, head: String) in
+        let folder = FileManager.default.temporaryDirectory.appending(path: "git-pr-merge-template-\(UUID().uuidString)").path
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         try "one\n".write(toFile: folder + "/a.txt", atomically: true, encoding: .utf8)
-        try git(folder, "init", "-q")
-        try git(folder, "add", ".")
-        try git(folder, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "one")
+        try AgentPaneGitMergeTests.git(folder, "init", "-q")
+        try AgentPaneGitMergeTests.git(folder, "add", ".")
+        try AgentPaneGitMergeTests.git(folder, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "one")
+        let head = try AgentPaneGitMergeTests.git(folder, "rev-parse", "HEAD")
+        AgentPaneGitMergeTests.templatePath.withLock { $0 = folder }
+        atexit { AgentPaneGitMergeTests.templatePath.withLock { path in if let path { try? FileManager.default.removeItem(atPath: path) } } }
+        return (folder, head)
+    }
+
+    /// The template's folder, for the exit handler (a C function pointer captures nothing).
+    private nonisolated static let templatePath = Mutex<String?>(nil)
+
+    /// A copy of the one-commit repository (a file copy, no git process) and a fake `gh`: `pr view`
+    /// prints view.json, `repo view` the user's default method, and `pr merge` succeeds.
+    private static func rig() throws -> Rig {
+        let template = try Self.template.get()
+        let base = FileManager.default.temporaryDirectory.appending(path: "git-pr-merge-\(UUID().uuidString)").path
+        let folder = base + "/repo", gh = base + "/gh"
+        try FileManager.default.createDirectory(atPath: base, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: template.folder, toPath: folder)
         let script = """
             #!/bin/sh
             echo "$*" >> "$0.calls"
@@ -56,7 +74,7 @@ struct AgentPaneGitMergeTests {
             """
         try script.write(toFile: gh, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gh)
-        let rig = Rig(folder: folder, gh: gh, head: try git(folder, "rev-parse", "HEAD"))
+        let rig = Rig(folder: folder, gh: gh, head: template.head)
         try rig.view()
         return rig
     }

@@ -1,4 +1,5 @@
 import type { DiffItem } from "../diff-stream";
+import { foldFind } from "./fold";
 
 export type FindMatchSide = "additions" | "deletions";
 
@@ -49,7 +50,7 @@ function pushLineMatches(
   lineNumber: number,
   lineText: string,
 ): void {
-  const haystack = lineText.toLowerCase();
+  const haystack = foldFind(lineText);
   let from = 0;
   let occurrence = 0;
   for (;;) {
@@ -74,7 +75,7 @@ function pushLineMatches(
  * additions, matching the unified rendering order.
  */
 export function collectFindMatches(items: DiffItem[], rawQuery: string): FindMatch[] {
-  const query = rawQuery.toLowerCase();
+  const query = foldFind(rawQuery);
   const matches: FindMatch[] = [];
   if (query === "") {
     return matches;

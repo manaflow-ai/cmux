@@ -103,6 +103,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
     try expectExplicitNullRejected(protocol.ConversationInboxChangedEvent, "pin_position");
+    try expectExplicitNullRejected(protocol.DaemonShutdownEvent, "restart");
     try expectExplicitNullRejected(protocol.DetachedEvent, "by");
     try expectExplicitNullRejected(protocol.DetachedEvent, "reason");
     try expectExplicitNullRejected(protocol.DetachedEvent, "scope");
@@ -139,6 +140,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SizeStateEvent, "self_participant");
     try expectExplicitNullRejected(protocol.TitleChangedEvent, "title");
     try expectExplicitNullRejected(protocol.VtStateEvent, "colors");
+    try expectExplicitNullRejected(protocol.VtStateEvent, "history_rows_omitted");
     try expectExplicitNullRejected(protocol.VtStateEvent, "kitty_graphics_state");
     try expectExplicitNullRejected(protocol.VtStateEvent, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.WorkspaceAddedEvent, "mutation_id");
@@ -244,6 +246,9 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ServerStatsResult, "locks");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "resource_projection");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "write_path");
+    try expectExplicitNullRejected(protocol.ServerStatsWritePath, "registry_wal_frame_bytes");
+    try expectExplicitNullRejected(protocol.ServerStatsWritePath, "wal_commits");
+    try expectExplicitNullRejected(protocol.ServerStatsWritePath, "wal_synced_commits");
     try expectExplicitNullRejected(protocol.SetSizeCountsResult, "changed");
     try expectExplicitNullRejected(protocol.SetSizeCountsResult, "participant");
     try expectExplicitNullRejected(protocol.SetSizePolicyResult, "state");

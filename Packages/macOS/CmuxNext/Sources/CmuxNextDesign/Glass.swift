@@ -65,20 +65,37 @@ public struct Glass {
         return surface
     }
 
+    /// The glass surface of one overlay role (``SurfaceRole``: popover, menu, card, toast, sheet,
+    /// tooltip): `makeOverlayPanel` in the role's tone, never a solid card. Under Reduce Transparency
+    /// it is the role's one opaque fallback. `cornerRadius` defaults to the panel radius, as
+    /// `makeOverlayPanel`'s does.
+    public static func makeSurface(
+        _ role: SurfaceRole,
+        content: NSView? = nil,
+        cornerRadius: CGFloat = Metrics.panelCornerRadius,
+        interactive: Bool = true,
+        activeLook: ActiveLookScope? = nil
+    ) -> OverlaySurfaceView {
+        makeOverlayPanel(content: content, cornerRadius: cornerRadius, interactive: interactive, tone: role.tone,
+                         activeLook: activeLook)
+    }
+
     /// A raw glass panel that hosts `content` edge to edge (Liquid Glass,
-    /// or the same shape in `NSVisualEffectView` before macOS 26). It has
-    /// no Reduce Transparency fallback: floating overlays use
+    /// or the same shape in `NSVisualEffectView` before macOS 26), tinted at
+    /// `level` (``GlassLevel``; chrome by default, the theme's glass tint as is).
+    /// It has no Reduce Transparency fallback: floating overlays use
     /// `makeOverlayPanel` instead.
     public static func makePanel(
         content: NSView? = nil,
         style: Style = .regular,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
         interactive: Bool = false,
+        level: GlassLevel = .chrome,
         activeLook: ActiveLookScope? = nil
     ) -> GlassPanelView {
         let glass = GlassPanelView(style: style, cornerRadius: cornerRadius, interactive: interactive, activeLook: activeLook)
         glass.translatesAutoresizingMaskIntoConstraints = false
-        glass.tintColor = Palette.glassTint
+        glass.tintColor = level.tint(Palette.glassTint)
         glass.contentView = content
         return glass
     }

@@ -26,6 +26,14 @@ SCRIPT_SCHEMES = {"javascript", "data", "vbscript"}
 WEB_UNREACHABLE = SCRIPT_SCHEMES | {"file"} | AGENT_REFUSED_SCHEMES
 
 STALL_MS = 100.0
+# The longest text the fuzz types into the omnibar. debug.omnibar_type types one character at a time
+# (AddressBarView.debugType: one insertText per character, on the main actor), so a 200,015-character URL was 200,015
+# keystrokes in one call (job 4509405d8be4, seed 368488420: no answer in 30 s). A person pastes a long URL as one insert;
+# huge URLs still reach the app through navigate and open, which take the whole string at once. 400 is above every
+# other typed entry (the longest is 345), so only huge URLs are cut, and low enough that one main-actor call typing it
+# stays under STALL_MS on a bench build (review of #29925: at 2048 the typing alone could pass it; a Debug run showed
+# 167 ms while typing about 330 characters).
+OMNIBAR_TYPE_MAX = 400
 
 
 def scheme_of(url: str) -> str:
@@ -181,6 +189,9 @@ def generate(seed: int, count: int, origin: str = "{origin}", run: str = "fz") -
         if name == "omnibar" and rng.random() < 0.15:
             # A person types a Chromium crash page (user origin: allowed; it must show a crashed page).
             op["url"], op["category"] = "chrome://crash", "crash"
+        if name == "omnibar" and len(op["url"]) > OMNIBAR_TYPE_MAX:
+            # No random call here: every seed's stream of ops stays the one it was.
+            op["url"] = op["url"][:OMNIBAR_TYPE_MAX]
         ops.append(op)
     return ops
 
@@ -260,6 +271,16 @@ def committed_url_violation(url: str, title: str, *, agent_op: bool, via_web: bo
     if via_web and scheme in WEB_UNREACHABLE:
         return f"a web page took the tab to {url[:200]!r}"
     return None
+
+
+def download_row(rows: list[dict], token: str) -> dict | None:
+    """The newest downloads row of one download op: its file name or destination contains the op's token and a dash.
+    The dash keeps op fz5-12 off the row of fz5-123456 (review of #29769); a substring, not a basename prefix, keeps
+    the rows of uncleaned names such as 'fz5-12-../../fuzz-escape.bin', which the download_path oracle exists for
+    (review of #29818)."""
+    mark = token + "-"
+    mine = [r for r in rows or [] if mark in (r.get("filename") or "") or mark in (r.get("destination") or "")]
+    return mine[-1] if mine else None
 
 
 def download_violation(row: dict, downloads_dir: str) -> str | None:

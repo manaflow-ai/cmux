@@ -4,7 +4,7 @@ import { parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme }
 import { useEffect, useRef } from "react";
 import { resolveDiffViewerAppearance, type ResolvedDiffViewerAppearance } from "../appearance";
 import { resolveDiffPreloadLanguages } from "../diff-language";
-import { fileName, type DiffItem, streamPatch } from "../diff-stream";
+import { fileName, type DiffItem, streamPatch, type StreamPatchOptions } from "../diff-stream";
 import { DEFERRED_PATCH_KEY, hydrateDeferredFileDiff } from "../deferred-parse";
 import { isGeneratedDiffPath } from "../deferred-diffs";
 import { shikiThemeFromGhostty } from "../pierre-options";
@@ -25,8 +25,11 @@ import {
 import { type AppAction, type AppState } from "./state";
 import { getInitialFileTreeRowCount } from "./FilesSidebar";
 import { withoutImportOnlyHunks } from "./importHunks";
+import { markDiffAdopted, markDiffOpen } from "./openTiming";
 
 const registeredCustomThemeNames = new Set<string>();
+/** Errors of a repository on another machine (a Cloud workspace's): `message` is the host's reason. */
+export const MACHINE_ERROR_PREFIX = "cmux.diff.machine_";
 
 /**
  * Registers the terminal theme's Shiki themes under their names. The surface calls it before the
@@ -46,6 +49,19 @@ export function useDiffLanguageChanges(dispatch: React.Dispatch<AppAction>): voi
   useEffect(() => diffLanguages.subscribe(() => dispatch({ type: "relanguage-items" })), [dispatch]);
 }
 
+/**
+ * What the viewer does around a render besides the items: `prepared` gets the fingerprint of a diff
+ * the host precomputed (`SessionOpened.prepared === "warm"`), the freshness check's baseline; and
+ * `beforeReplace` runs right before a reconciling render swaps its files in (the viewer takes the
+ * reader's place then, to put it back after). `retained` holds the session on screen while a reconcile
+ * streams: it stays the active one until the replacement commits, and stays shown if that fails.
+ */
+export type RenderDiffHooks = {
+  retained?: React.MutableRefObject<ActiveDiffSession | null>;
+  prepared?: (fingerprint: string | undefined) => void;
+  beforeReplace?: () => void;
+};
+
 export function useRenderDiff(
   config: DiffViewerConfig,
   transport: DiffTransport | null,
@@ -63,6 +79,7 @@ export function useRenderDiff(
   hideWhitespace: boolean,
   /** Hide imports as chosen (importHunks.ts); as `hideWhitespace`, it changes with a refresh. */
   hideImports: boolean,
+  hooks?: React.MutableRefObject<RenderDiffHooks>,
 ) {
   useEffect(() => {
     if (isStatusOnlyPayload(config.payload, transport, sessionSource)) {
@@ -71,12 +88,48 @@ export function useRenderDiff(
     // A soft refresh bumps the generation: the cleanup below closes the
     // superseded session and this effect re-streams in place.
     document.body.dataset.diffRenderGeneration = String(renderGeneration);
+    // A reconciling render keeps the files on screen and swaps the new ones in when all have arrived.
+    const reconciling = latestState.current.reconciling;
+    const retained = hooks?.current.retained;
+    // A render that is not a reconcile (a Refresh after one) ends whatever the reconcile kept.
+    if (!reconciling && retained?.current) {
+      const kept = retained.current;
+      retained.current = null;
+      if (activeSessionRef.current === kept) void closeActiveSession();
+      else if (transport) void closeDiffSession(transport, kept);
+    }
+    // The replacement's session and patch, made active only when its diff commits, with what its open
+    // said about the files (the diff on screen keeps its own until then).
+    let replacement: {
+      session: ActiveDiffSession;
+      patchURL: string;
+      generatedPaths: string[];
+      whitespaceHidden: boolean;
+    } | null = null;
+    const commitReplacement = () => {
+      const kept = retained?.current;
+      if (retained) retained.current = null;
+      if (kept && transport && kept !== replacement?.session) void closeDiffSession(transport, kept);
+      activeSessionRef.current = replacement?.session ?? null;
+      if (replacement) {
+        dispatch({ type: "set-generated-paths", paths: replacement.generatedPaths });
+        dispatch({ type: "set-whitespace-hidden", hidden: replacement.whitespaceHidden });
+        onPatchURL(replacement.patchURL);
+      }
+      replacement = null;
+    };
+    const closeReplacement = () => {
+      if (replacement && transport) void closeDiffSession(transport, replacement.session);
+      replacement = null;
+    };
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
     registerDiffViewerThemes(appearance);
     let cancelled = false;
     const streamAbortController = new AbortController();
     const handlePageHide = () => {
+      closeReplacement();
+      streamAbortController.abort();
       void closeActiveSession();
     };
     window.addEventListener("pagehide", handlePageHide);
@@ -87,6 +140,8 @@ export function useRenderDiff(
     // closed the active session) that would be the next run's open (CancellationError, "Could not
     // render this diff" on Hide imports and Hide white space).
     let opening = false;
+    // A reconcile's own generated list, which its stream classifies with before it commits.
+    let reconcileGenerated: string[] | null = null;
     const emptyMessage = () =>
       hidingWhitespace
         ? label("noChangesWithWhitespaceHidden")
@@ -109,6 +164,7 @@ export function useRenderDiff(
             opened = adopted.session;
           } else {
             opening = true;
+            markDiffOpen("sessionOpen");
             const result = await transport!
               .request({ method: "sessionOpen", params: session! })
               .finally(() => (opening = false));
@@ -117,6 +173,7 @@ export function useRenderDiff(
             }
             opened = result.value;
           }
+          markDiffOpen("sessionOpened");
           const result = { value: opened };
           const openedSession = {
             sessionId: opened.sessionId,
@@ -126,27 +183,47 @@ export function useRenderDiff(
             await closeDiffSession(transport!, openedSession);
             return;
           }
-          activeSessionRef.current = openedSession;
           onResolvedSessionSource(result.value.source);
           // Older sidecars omit the field; the lockfile heuristic still applies.
           const generatedPaths = Array.isArray(result.value.generatedPaths)
             ? result.value.generatedPaths.filter((path): path is string => typeof path === "string")
             : [];
-          dispatch({ type: "set-generated-paths", paths: generatedPaths });
           // Older sidecars omit the field: white space is shown.
           hidingWhitespace = result.value.ignoreWhitespace === true;
-          dispatch({ type: "set-whitespace-hidden", hidden: hidingWhitespace });
+          if (reconciling) {
+            replacement = {
+              session: openedSession,
+              patchURL: opened.patch.id,
+              generatedPaths,
+              whitespaceHidden: hidingWhitespace,
+            };
+            reconcileGenerated = generatedPaths;
+          } else {
+            activeSessionRef.current = openedSession;
+            dispatch({ type: "set-generated-paths", paths: generatedPaths });
+            dispatch({ type: "set-whitespace-hidden", hidden: hidingWhitespace });
+          }
+          // The host opened it before the page asked: while the page booted ("preopen"), or before
+          // anyone clicked, when an agent's turn ended ("warm", with the fingerprint it had then).
+          const extra = result.value as { prepared?: unknown; fingerprint?: unknown };
+          markDiffAdopted(extra.prepared === "warm" || extra.prepared === "preopen");
+          // A reconcile keeps the precomputed fingerprint: until its diff commits, that one is on screen.
+          if (!reconciling) {
+            hooks?.current.prepared?.(
+              extra.prepared === "warm" && typeof extra.fingerprint === "string" ? extra.fingerprint : undefined,
+            );
+          }
           patchURL = result.value.patch.id;
         }
         if (cancelled || !patchURL) {
           return;
         }
-        onPatchURL(patchURL);
+        if (!reconciling) onPatchURL(patchURL);
         // The sidecar's generated list as a set, rebuilt only when the list itself changes.
         let declaredPaths: readonly string[] = [];
         let declaredSet: ReadonlySet<string> = new Set<string>();
         const declaredGenerated = (): ReadonlySet<string> => {
-          const paths = latestState.current.generatedPaths;
+          const paths = reconcileGenerated ?? latestState.current.generatedPaths;
           if (paths !== declaredPaths) {
             declaredPaths = paths;
             declaredSet = new Set(paths);
@@ -154,7 +231,12 @@ export function useRenderDiff(
           return declaredSet;
         };
         const streamedItems: DiffItem[] = [];
-        dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
+        // A reconcile's renames, applied to the reader's file and the draft when its items commit.
+        const renames: { oldId: string; newId: string }[] = [];
+        let heldTree: Parameters<StreamPatchOptions["onTreeSource"]>[0] | null = null;
+        if (!reconciling) {
+          dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
+        }
         await streamPatch({
           getCollapsed: () => latestState.current.options.collapsed,
           initialFileTreeRowCount: getInitialFileTreeRowCount(),
@@ -162,11 +244,18 @@ export function useRenderDiff(
           signal: streamAbortController.signal,
           onBatch: (items) => {
             if (cancelled) return;
+            if (items.length > 0) markDiffOpen("firstBatch");
             streamedItems.push(...items);
-            dispatch({ type: "append-items", items });
+            if (!reconciling) dispatch({ type: "append-items", items });
           },
           onComplete: (metrics) => {
             if (cancelled) return;
+            if (reconciling) {
+              commitReplacement();
+              hooks?.current.beforeReplace?.();
+              dispatch({ type: "replace-items", items: streamedItems, renames });
+              if (heldTree) dispatch({ type: "set-tree-source", source: heldTree });
+            }
             dispatch({ type: "set-metrics", metrics });
             // Every file has arrived, so "Group by kind" can reorder without moving text the
             // reader is already on.
@@ -193,13 +282,22 @@ export function useRenderDiff(
             );
           },
           onMetrics: (metrics) => {
-            if (!cancelled) dispatch({ type: "set-metrics", metrics });
+            if (!cancelled && !reconciling) dispatch({ type: "set-metrics", metrics });
           },
           onRename: (rename) => {
-            if (!cancelled) dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId });
+            if (cancelled) return;
+            if (!reconciling) {
+              dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId });
+              return;
+            }
+            renames.push({ oldId: rename.oldId, newId: rename.newId });
+            const index = streamedItems.findIndex((item) => item.id === rename.oldId);
+            if (index >= 0) streamedItems[index] = { ...streamedItems[index], id: rename.newId };
           },
           onTreeSource: (source) => {
-            if (!cancelled) dispatch({ type: "set-tree-source", source });
+            if (cancelled) return;
+            if (reconciling) heldTree = source;
+            else dispatch({ type: "set-tree-source", source });
           },
           isGeneratedPath: (path) => isGeneratedDiffPath(path, declaredGenerated()),
           ...(hideImports ? { filterFileText: withoutImportOnlyHunks } : {}),
@@ -212,6 +310,17 @@ export function useRenderDiff(
           return;
         }
         const empty = error instanceof DiffTransportError && error.code === "emptyDiff";
+        if (reconciling && empty) {
+          commitReplacement();
+          dispatch({ type: "replace-items", items: [] });
+        } else if (reconciling) {
+          // The diff on screen stays with its own session; the freshness check marks it stale.
+          console.warn("cmux diff viewer reconcile failed", String((error as any)?.message ?? error));
+          closeReplacement();
+          if (retained) retained.current = null;
+          dispatch({ type: "end-reconcile" });
+          return;
+        }
         if (!empty) {
           // Error objects JSON.stringify to {} in the native console mirror,
           // so serialize the message and stack explicitly.
@@ -220,9 +329,15 @@ export function useRenderDiff(
             String((error as any)?.stack ?? (error as any)?.message ?? error),
           );
         }
+        // A repository on another machine that cannot answer (offline, too old): the host's
+        // localized reason, not a generic failure.
+        const machine =
+          error instanceof DiffTransportError && error.code.startsWith(MACHINE_ERROR_PREFIX)
+            ? error.message
+            : undefined;
         dispatch({
           type: "set-status",
-          status: createDiffViewerStatus(empty ? emptyMessage() : label("renderFailed"), {
+          status: createDiffViewerStatus(empty ? emptyMessage() : (machine ?? label("renderFailed")), {
             error: !empty,
             loading: false,
             statusOnly: true,
@@ -234,7 +349,10 @@ export function useRenderDiff(
       cancelled = true;
       streamAbortController.abort();
       window.removeEventListener("pagehide", handlePageHide);
-      if (opening || activeSessionRef.current) void closeActiveSession();
+      // The session a reconcile keeps on screen stays open for it; a replacement not yet committed closes.
+      closeReplacement();
+      const kept = retained?.current != null && activeSessionRef.current === retained.current;
+      if (opening || (activeSessionRef.current && !kept)) void closeActiveSession();
     };
   }, [
     activeSessionRef,
@@ -251,6 +369,7 @@ export function useRenderDiff(
     adoptedSessionRef,
     hideWhitespace,
     hideImports,
+    hooks,
   ]);
 }
 

@@ -175,10 +175,13 @@ public final class ControlRouter: Sendable {
     /// `action.catalog.changed` on `events.stream`, so a client that mirrors
     /// the actions (`cmux mcp serve`) re-reads `action.list` instead of
     /// polling it. Context-bit changes (`updateContextMask`) are not changes.
-    public func updateCatalog(_ catalog: ControlCatalog) {
+    ///
+    /// - Parameter actionsChanged: Whether the actions differ from the published ones, when the caller
+    ///   knows (the registry bridge after it patched a reason); nil compares every action.
+    public func updateCatalog(_ catalog: ControlCatalog, actionsChanged: Bool? = nil) {
         var changed = false
         snapshots.publish { snapshot in
-            changed = snapshot.catalog.actions != catalog.actions
+            changed = actionsChanged ?? (snapshot.catalog.actions != catalog.actions)
             snapshot.catalog = catalog
         }
         guard changed else { return }
@@ -263,14 +266,17 @@ public final class ControlRouter: Sendable {
         var snapshot = await snapshots.fresh()
         let startsTerminal = method.startsTerminal(request, snapshot)
         let limit = method.limitOverride?(request, snapshot) ?? method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
-        let (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
+        var (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
         let progress = ControlCallProgress()
         do {
             // Read barrier (state-ownership.md 4.3): answer from a snapshot
             // that covers the caller's earlier writes.
             // `debug.hangs` reads its own `after` (a hang log cursor).
             if request.method != "debug.hangs", let after = request.params["after"], !after.isNull {
-                snapshot = try await readBarrier(after, method: request.method, deadline: deadline)
+                snapshot = try await readBarrier(after, method: request.method, limit: limit)
+                // The request's own time starts once the barrier answered: a loaded daemon's
+                // late answer is not the method's time (#32724).
+                (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
             }
             var call = ControlCall(request: request, snapshot: snapshot, connection: connection,
                                    deadline: deadline, startsTerminal: startsTerminal, progress: progress, engineStartMark: engineStartMark)
@@ -313,7 +319,8 @@ public final class ControlRouter: Sendable {
         case .mainActor(let body):
             let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
             let reply = try await queue.run(connection: call.connection, method: call.method, owner: method.owner, workClass: method.workClass,
-                                            deadline: call.deadline, countingFrom: call.engineStartMark) {
+                                            marksSnapshotStale: method.marksSnapshotStale, deadline: call.deadline,
+                                            countingFrom: call.engineStartMark) {
                 // The request may have answered `not_run` already.
                 guard call.progress.begin() else { throw expired }
                 return try body(call)

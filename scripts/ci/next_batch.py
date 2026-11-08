@@ -131,7 +131,6 @@ WEB_GENERATED = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/*",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/*",
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/*",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
     "Resources/markdown-viewer/webviews-app/*",
     # fnmatch's * crosses "/": every strings table gen-strings.mjs writes
     # (build output since #21946; an older branch still tracks them).
@@ -139,6 +138,9 @@ WEB_GENERATED = (
     "webviews/src/pages/home-channels/generated/pane-strings.json",
     "webviews/src/pages/diff/generated/locales/*",
     "webviews/src/pages/diff/generated/localeLoaders.ts",
+    # export-next-docs.ts, which regenerate-web-bundles.sh runs (and
+    # regenerate-swift-exports.sh, after the exports it reads).
+    "web/data/next-docs/*.generated.json",
 )
 def settings_exports() -> tuple[str, ...]:
     """scripts/cmux-next/settings-exports.txt, the one list of what the settings export writes, so
@@ -1331,8 +1333,8 @@ class Controller:
         return sorted(failed)
 
     def job_log(self, job_id: int | str) -> str | None:
-        # The job's log, readable while the rest of its run still goes.
-        # A gh too old for the escape flag is asked once more without it; any other failure stays None.
+        # The job's log, readable while the rest of its run still goes. The classifier
+        # strips ANSI in Python; use its compatible flag-first request here too.
         route = f"repos/{self.args.repo}/actions/jobs/{job_id}/logs"
         got = self.gh.gh("api", base_red_excuse.ESCAPE_FLAG, route, check=False)
         if got.returncode != 0 and base_red_excuse.escape_flag_unknown(got.stderr):
@@ -1345,6 +1347,10 @@ class Controller:
             return {f"{name}: {check}" for check in red_subchecks(log)} or {name}
         if job is None:
             return {name}
+        if why := base_red_excuse.test_reds.lost_runner(job):
+            # A lost runner is infra, not a verdict (test_reds.lost_runner): keyed by this job's id, never a base red,
+            # and named so, since a re-run decides it.
+            return {f"{name}: infra, not a verdict (job {job_id}: {why}; re-run it)"}
         log = self.job_log(job_id)
         if log is None or not log.strip():
             # A test job's unreadable or empty log: nothing can show it is the base's, so it is this job's
@@ -1360,9 +1366,9 @@ class Controller:
         # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
         # this job's id, no base failure can match it, whatever the base shows.
         own = base_red_excuse.test_reds.read(log)
-        if base_red_excuse.test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
+        if own.crashes or own.truncated:
             return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
-        crashes = base_red_excuse.crash_signals(log)  # a non-test job's (a test job's crash returned above)
+        crashes = base_red_excuse.crash_signals(log)  # test_reds covers cut-short evidence; this adds step signals.
         if not tests and not errors and not crashes:
             # Only failed steps (a timeout, unparsed output): nothing to compare, as
             # base_red_excuse.judge refuses. The bare name matches only a base job just as opaque.
@@ -1766,10 +1772,23 @@ class Controller:
         def finished(items: list[dict]) -> list[dict]:
             return [item for item in items if item.get("head_branch") == BASE and item.get("status") == "completed"]
 
-        base = finished(self.gh.runs(WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
+        def coalesced(item: dict) -> bool:
+            """A push run cmux-next-web.yml's coalescing left without web checks (web_coalesce.py): replaced while
+            pending (cancelled), or yielded to a newer push after its wait (success, its checks skipped), and no job
+            but `coalesce` gave a verdict. Its jobs are read first: a run cancelled by hand after a job passed or
+            failed is still the base's verdict."""
+            if item.get("event") != "push" or item.get("conclusion") not in ("cancelled", "success"):
+                return False
+            jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{item['id']}/jobs?per_page=100&filter=latest")["jobs"]
+            return all(job.get("name") == "coalesce" or (job.get("conclusion") or "") in ("cancelled", "skipped")
+                       for job in jobs)
+
+        # A coalesced run is no verdict for its commit: the newest run on an ancestor stands in.
+        base = next(([item] for item in finished(self.gh.runs(WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
+                     if not coalesced(item)), [])
         if not base:
-            base = [item for item in finished(self.gh.runs(WEB_WORKFLOW, f"branch={BASE}&per_page=20"))
-                    if self.is_ancestor(item["head_sha"], base_sha)][:1]
+            base = next(([item] for item in finished(self.gh.runs(WEB_WORKFLOW, f"branch={BASE}&per_page=100"))
+                         if self.is_ancestor(item["head_sha"], base_sha) and not coalesced(item)), [])
         inherited = set(self.failed_jobs(base[0]["id"], detail=True)) if base else set()
         new = sorted(failed - inherited)
         return "passed" if not new else "failed: " + ", ".join(new)

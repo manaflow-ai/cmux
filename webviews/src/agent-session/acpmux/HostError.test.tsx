@@ -5,7 +5,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HostError, HostUnavailableLine, HostWaitingLine, waitedText } from "./HostError";
+import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { waitedText } from "./hostErrorModel";
+import { hostLineText } from "./hostLine";
+import { hostErrorShows } from "./hostRetry";
+import { translate } from "./i18n";
+import { Notice, NoticeSlot } from "./NoticeSlot";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -55,7 +60,7 @@ test("a refusal another binary's acpmux caused is one line whose one action is R
       />,
     );
   });
-  expect(buttons(container)).toEqual(["Restart acpmux"]);
+  expect(buttons(container)).toEqual(["Restart agent service"]);
   expect(container.querySelectorAll("p")).toHaveLength(1);
   expect(container.textContent).not.toContain("starts the one in this app");
   await act(async () => container.querySelector("button")!.click());
@@ -70,7 +75,7 @@ test("a restart in flight holds its button", async () => {
       <HostUnavailableLine message="refused" onRetry={() => undefined} onRestart={() => undefined} restarting />,
     );
   });
-  expect(buttons(container)).toEqual(["Restarting acpmux…"]);
+  expect(buttons(container)).toEqual(["Restarting agent service…"]);
   expect([...container.querySelectorAll("button")].every((b) => b.disabled)).toBe(true);
 });
 
@@ -89,7 +94,7 @@ test("a queued Retry holds Restart acpmux until the handshake settles", async ()
     );
   });
   const [restart] = [...container.querySelectorAll<HTMLButtonElement>("button")];
-  expect(restart?.textContent).toBe("Restart acpmux");
+  expect(restart?.textContent).toBe("Restart agent service");
   expect(restart?.disabled).toBe(true);
   await act(async () => restart?.click());
   expect(pressed).toEqual([]);
@@ -122,6 +127,7 @@ test("a Retry waiting on the attempt in flight says so and holds", async () => {
 
 test("a folder harness keeps its card with its own hint and action", async () => {
   const container = installDom();
+  let enabled = 0;
   await act(async () => {
     root = createRoot(container);
     root.render(
@@ -129,13 +135,70 @@ test("a folder harness keeps its card with its own hint and action", async () =>
         message="Claude Code is not enabled."
         hint={null}
         action="Enable Claude Code"
-        onRetry={() => undefined}
+        onRetry={() => (enabled += 1)}
       />,
     );
   });
-  expect(container.querySelector(".acpmux-host-error-card")).not.toBeNull();
+  const card = container.querySelector(".acpmux-host-error .ui-notice");
+  expect(card?.getAttribute("data-kind")).toBe("warning");
   expect(buttons(container)).toEqual(["Enable Claude Code"]);
-  expect(container.querySelectorAll("p")).toHaveLength(1);
+  const messages = container.querySelectorAll(".ui-notice-message");
+  expect(messages).toHaveLength(1);
+  expect(messages[0]!.textContent).toBe("Claude Code is not enabled.");
+  expect(container.querySelector(".ui-notice-title")).toBeNull();
+  await act(async () => container.querySelector<HTMLButtonElement>("[data-notice-action=action]")!.click());
+  expect(enabled).toBe(1);
+});
+
+// Leo, 2026-10-30, on a red card while a chat's machine was only reconnecting: "it was literally
+// just loading ... that's not the fucking right time to be showing that kind of fucking message."
+// Rendered as App.tsx renders the host line: its Notice shows only when hostErrorShows says so,
+// worded by hostLineText.
+const LEOS =
+  "peer_unreachable: <host> (reconnecting, last seen 10s ago: WebSocket protocol error: Handshake not finished); the request was not sent; run `acpmux machine ls` and retry after the peer reconnects";
+
+function PaneHostLine({ error, failingForMs }: { error: unknown; failingForMs: number }) {
+  const message = error instanceof Error ? error.message : String(error);
+  const hostLine = hostLineText(error, message, translate);
+  return (
+    <NoticeSlot>
+      <Notice id="host-error" tier="error" when={hostErrorShows(error, failingForMs)}>
+        <HostUnavailableLine message={hostLine.line} detail={hostLine.detail} onRetry={() => undefined} />
+      </Notice>
+    </NoticeSlot>
+  );
+}
+
+test("a reconnecting or slow peer renders no card, no line and no Retry", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  for (const failingForMs of [0, 10_000, 60_000]) {
+    for (const error of [new Error(LEOS), new Error("peer disconnected")]) {
+      await act(async () => root!.render(<PaneHostLine error={error} failingForMs={failingForMs} />));
+      expect(container.textContent).toBe("");
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(container.querySelector("button")).toBeNull();
+    }
+  }
+});
+
+test("a machine gone for minutes is one plain line with Retry, and acpmux's words only behind Details", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<PaneHostLine error={new Error(LEOS)} failingForMs={5 * 60_000} />);
+  });
+  const line = container.querySelector(".acpmux-host-line-message")!;
+  expect(line.textContent).toBe("Can't reach <host>.");
+  expect(buttons(container)).toEqual(["Retry", "Details"]);
+  expect(container.textContent).not.toContain("peer_unreachable");
+  expect(container.textContent).not.toContain("acpmux machine ls");
+  expect(container.querySelector(".acpmux-host-line-detail")).toBeNull();
+  const details = [...container.querySelectorAll("button")].find((b) => b.textContent === "Details")!;
+  expect(details.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => details.click());
+  expect(details.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector(".acpmux-host-line-detail")!.textContent).toBe(LEOS);
 });
 
 // The app never restarts a slow acpmux on its own (#28083, rule R5): a pane that waits long shows

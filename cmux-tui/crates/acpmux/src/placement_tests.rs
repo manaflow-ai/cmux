@@ -29,7 +29,7 @@ fn health(ram_gb: f64, cores: u64, load: f64, disk_gb: f64, live: u64) -> Value 
 }
 
 fn c(name: &str, health: Value) -> Candidate {
-    Candidate { name: name.into(), local: false, health }
+    Candidate { name: name.into(), local: false, health, health_at: None }
 }
 
 fn host<'a>(v: &'a Value, name: &str) -> &'a Value {
@@ -319,6 +319,25 @@ fn personal_and_last_resort_machines_come_from_the_registry() {
         assert!(!last_resort(Some(&reg), name), "{name}");
     }
     assert!(!personal(None, "cosmic") && !last_resort(None, "spare"));
+}
+
+/// A machine the registry marks `retired` takes no new work, never even as the overflow pick.
+#[test]
+fn a_retired_host_is_never_a_placement_candidate() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
+    for (retired, why) in [(json!(true), "retired"), (json!("2026-10-31"), "retired: 2026-10-31")] {
+        let mut reg = registry();
+        reg["machines"]["big"]["retired"] = retired;
+        let v = place(&both, Some(&reg), Work::Agent);
+        assert_eq!(v["pick"], "small", "{v}");
+        assert_eq!(host(&v, "big")["refused"], why, "{v}");
+        assert_eq!(held(Some(&reg), "big").as_deref(), Some(why));
+    }
+    let mut reg = registry();
+    reg["machines"]["big"]["retired"] = json!(false);
+    assert!(held(Some(&reg), "big").is_none());
+    assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big");
 }
 
 /// A host a `reservations` entry names takes no new work while the entry is active (from `from`

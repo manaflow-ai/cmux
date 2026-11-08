@@ -96,7 +96,8 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
       }
       // A press beside the text focuses the field (wherever the I-beam shows, a click focuses).
       await page.mouse.click(row.x + 4, row.y + row.height / 2);
-      expect(await page.evaluate(() => document.activeElement?.classList.contains("nt-field"))).toBe(true);
+      // The field is MarkdownField: its editable element, inside `.nt-field`, takes the focus.
+      expect(await page.evaluate(() => document.activeElement?.closest(".nt-field") != null)).toBe(true);
     }
     const button = page.locator(".nt-box button").first();
     const box = (await button.boundingBox())!;
@@ -117,7 +118,7 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     await page.waitForFunction(() => document.querySelector(".nt-box")?.matches(":hover"));
     await eased(page);
     expect(await fill(page), "no hover lift (Leo 2026-10-18)").toBe(rest);
-    await page.locator(".nt-field").focus();
+    await page.locator(".nt-field .ProseMirror").focus();
     expect(await fill(page)).toBe(rest);
     await page.close();
   });

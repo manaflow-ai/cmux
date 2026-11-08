@@ -28,7 +28,9 @@
 //!   `ask` is not narrowing: chats start in full access by design
 //!   (Lawrence 2026-10-14);
 //! - a switch into a mode that does not ask is refused (`policy_mode`) while
-//!   the harness has one that does (`refuse_wider_mode`);
+//!   the harness has one that does (`refuse_wider_mode`), except the person's
+//!   own pick, which first widens the chat's policy to approve-all
+//!   (`person_widens_policy_for`; not under deny-all);
 //! - the start mode preview (`_acpmux/start_mode`) answers the policy's mode.
 //!
 //! Claude Code asks in `default`. A harness with no mode that asks (opencode,
@@ -145,7 +147,7 @@ pub(crate) fn bridge_settle_modes(
 
 /// `meta`'s config options with the `mode` option set to `mode`, or `None` when it has none.
 fn with_mode_option(meta: &SessionMeta, mode: &str) -> Option<Value> {
-    let mut options = meta.config_options.clone()?;
+    let mut options = meta.config_options.as_deref()?.clone();
     let option = options
         .as_array_mut()?
         .iter_mut()
@@ -422,6 +424,30 @@ impl Hub {
                 self.note_unenforced_policy(session, default);
             }
         }
+    }
+
+    /// The person picked a mode that does not ask (`session/set_mode`, or the `mode` config
+    /// option) on `session`, whose own policy is narrower than approve-all and keeps it in an
+    /// asking mode (`refuse_wider_mode` would refuse it): the pick means "stop asking", so the
+    /// chat's policy becomes approve-all first and the switch then takes (user 20336: "it was in
+    /// edits, then i changed to bypass, and it was still asking me"). Not under deny-all (a
+    /// lockdown), and not while `sessions.allowFullAccess` is off. Callers pass only a person's
+    /// connection; an agent or script still gets the refusal.
+    pub(crate) async fn person_widens_policy_for(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        m: &str,
+        params: &Value,
+    ) {
+        if self.refuse_wider_mode(session, m, params).await.is_ok() {
+            return;
+        }
+        let default = self.config.read().await.permission_policy;
+        let narrow = narrow_policy(&session.meta(), default);
+        if narrow.is_none_or(|p| p == PermissionPolicy::DenyAll) || !self.full_access_allowed() {
+            return;
+        }
+        self.set_policy(session, PermissionPolicy::ApproveAll).await;
     }
 
     /// A switch of `session` into a mode that does not ask (`session/set_mode`, or the `mode`

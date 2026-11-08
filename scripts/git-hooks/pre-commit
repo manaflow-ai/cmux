@@ -24,14 +24,33 @@ PBXPROJ="cmux.xcodeproj/project.pbxproj"
 
 cd "$REPO_ROOT"
 
+# A merge commit (git merge, or a resolved conflict) stages the other parent's
+# files against HEAD: its added tests and workflow lines are that branch's, not
+# this commit's. The registry step below skips them, and so do the formatters.
+MERGE_HEAD_PATH="$(git rev-parse --git-path MERGE_HEAD)"
+IN_MERGE=0
+[[ -f "$MERGE_HEAD_PATH" ]] && IN_MERGE=1
+
 # Register new Python tests that a workflow already runs, so adding a test and
 # its ci-guards.yml step is all a commit needs. Best effort: CI still validates.
 # Only this commit's tests: the ones it adds, and the ones its workflow changes
 # name. Registering every unregistered test the base carries wrote the same
-# entries into every pull request, which then conflicted (#21946).
-REGISTRY="tests/test-execution.toml"
-if git diff --cached --name-only --diff-filter=ACMRT | grep -Eq '^(tests/test_[^/]+\.py|\.github/workflows/.+)$' \
-    && git diff --quiet -- "$REGISTRY"; then
+# entries into every pull request, which then conflicted (#21946). A merge
+# adds no test of its own: registering what the base added since the branch
+# point put the base's tests into pull requests (#30071, #30351).
+# The registry is tests/test-execution.d/<area>.toml; tests/test-execution.toml was the
+# single file before the split, and an old checkout may still have it.
+REGISTRY=()
+for registry_path in tests/test-execution.d tests/test-execution.toml; do
+    [[ -e "$registry_path" ]] && REGISTRY+=("$registry_path")
+done
+# No unstaged edit and no new fragment: what the step below finds changed is its own.
+registry_unchanged() {
+    (( ${#REGISTRY[@]} > 0 )) && git diff --quiet -- "${REGISTRY[@]}" \
+        && [[ -z "$(git ls-files --others --exclude-standard -- "${REGISTRY[@]}")" ]]
+}
+if (( ! IN_MERGE )) && git diff --cached --name-only --diff-filter=ACMRT | grep -Eq '^(tests/test_[^/]+\.py|\.github/workflows/.+)$' \
+    && registry_unchanged; then
     OWN_TESTS=()
     while IFS= read -r test_path; do
         [[ -n "$test_path" ]] && OWN_TESTS+=(--only "$test_path")
@@ -44,18 +63,17 @@ if git diff --cached --name-only --diff-filter=ACMRT | grep -Eq '^(tests/test_[^
     if (( ${#OWN_TESTS[@]} > 0 )); then
         "$PYTHON3_BIN" -I "$REGISTRY_VALIDATOR" --repo-root "$REPO_ROOT" --write "${OWN_TESTS[@]}" >/dev/null 2>&1 || true
     fi
-    if ! git diff --quiet -- "$REGISTRY"; then
-        git add "$REGISTRY"
-        echo "pre-commit: registered new tests in $REGISTRY"
+    if ! registry_unchanged; then
+        git add -A -- "${REGISTRY[@]}"
+        echo "pre-commit: registered new tests in ${REGISTRY[*]}"
     fi
 fi
 
 # A merge commit combines base-owned files with the staged result. Do not
 # reformat that result while Git is resolving the merge; formatters run on the
 # authored files in the follow-up commit instead.
-MERGE_HEAD_PATH="$(git rev-parse --git-path MERGE_HEAD)"
-if [[ -f "$MERGE_HEAD_PATH" ]]; then
-    echo "pre-commit: merge in progress; skipping formatters"
+if (( IN_MERGE )); then
+    echo "pre-commit: merge in progress; skipping test registration and formatters"
     exit 0
 fi
 

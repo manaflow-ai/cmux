@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { COMPACT_MODEL_MENU } from "./support/compactModelMenu";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -91,9 +92,19 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
       test(`${where} at ${width} px: the model button opens its menu, whose effort levels are live`, async () => {
         const page = await open(entry, variant, width);
         await pressCentre(page, ".acpmux-chips .acpmux-model .acpmux-picker-button");
-        await page.locator(".acpmux-quick-menu").first().waitFor();
+        await page.locator(COMPACT_MODEL_MENU).first().waitFor();
         // The compact menu, not the full picker: that one is More models.
         expect(await page.locator(".acpmux-mp").count()).toBe(0);
+        // A menu with a harness rail opens the columns: the running model's levels are its Effort
+        // column, the current one checked.
+        if (await page.locator(".acpmux-cols").count()) {
+          const levels = page.locator('.acpmux-cols-tune [role="radio"]');
+          expect(await levels.count()).toBeGreaterThan(1);
+          expect(await page.locator('.acpmux-cols-tune [role="radio"][aria-checked="true"]').count()).toBe(1);
+          await page.keyboard.press("Escape");
+          await page.close();
+          return;
+        }
         // The running model's effort: its row's side dropdown (#27948), else the menu's Effort row.
         // Exactly one of the two is offered.
         const side = page.locator(".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger");

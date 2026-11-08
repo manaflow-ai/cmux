@@ -24,11 +24,22 @@ extension Motion {
     /// their parent is already on screen. A view outside a window, or no view,
     /// animates as before. A change already running when the display goes
     /// to sleep ends at once only if it opted in (`settleAtSleep`).
+    ///
+    /// A window out of the person's sight (``FrameScheduler/windowIsOutOfSight(_:)``:
+    /// shown once, now ordered out, minimized or fully covered), or a child of
+    /// one, never animates either: its change applies at once and its
+    /// completion runs now, as Chrome gives a hidden tab no animation frames.
     public static func canAnimate(in view: NSView?) -> Bool {
         guard let firstWindow = view?.window else { return true }
-        var window = firstWindow
-        // AppKit windows have a short, finite child-parent chain. Keep this traversal bounded so
+        // AppKit windows have a short, finite child-parent chain. Keep these traversals bounded so
         // malformed test doubles cannot turn a hot-path motion decision into an unbounded loop.
+        var shown: NSWindow? = firstWindow
+        for _ in 0..<8 {
+            guard let current = shown else { break }
+            if FrameScheduler.windowIsOutOfSight(current) { return false }
+            shown = current.parent
+        }
+        var window = firstWindow
         for _ in 0..<8 {
             if let screen = window.screen {
                 return !DisplaySleep.shared.isAsleep(screen)
@@ -197,6 +208,24 @@ extension MotionGate {
         let duration = self.duration(token)
         runTimed(duration, changes, completion: duration > 0 ? traced("exit.\(token.rawValue)", completion) : completion,
                  curve: CAMediaTimingFunction(controlPoints: 0.7, 0, 0.3, 1))
+    }
+
+    /// The sidebar's Updated card curve: a fast start that settles long, 265 ms at 1x (Leo
+    /// 2026-11-08: "the animation also seems like it's a little bit slow"). The card's page runs the
+    /// same one on its hover preview (webviews `updateSurfaces.css`, `--wn-preview-ease`), so the native
+    /// glass behind the page and the page's preview move as one.
+    public static var cardCurve: CAMediaTimingFunction { CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1) }
+    public static let cardDuration: TimeInterval = 0.265
+
+    /// Animates `animator()` frame changes on the card curve (``cardCurve``) for ``cardDuration``, or
+    /// applies them at once when movement does not animate. The duration does not follow the animation
+    /// speed: the page's CSS twin runs a fixed 265 ms, so a scaled native side would part from it. Call it
+    /// on `Motion.web`, the gate the page's `data-cmux-motion` follows (WebTheme.motionValue).
+    public func animateCard(in view: NSView? = nil, _ changes: () -> Void,
+                            completion: (@MainActor @Sendable () -> Void)? = nil) {
+        guard canAnimate(in: view) else { return snap(changes, completion: completion) }
+        guard animatesMovement else { return withoutAnimation(changes, completion: completion) }
+        runTimed(Self.cardDuration, changes, completion: traced("card", completion), curve: Self.cardCurve)
     }
 
     /// Timed animation with a fade token (NSWindow alpha).

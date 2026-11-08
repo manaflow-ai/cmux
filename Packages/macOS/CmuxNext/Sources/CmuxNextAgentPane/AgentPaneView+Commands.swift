@@ -60,7 +60,7 @@ extension AgentPaneView {
                        "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
         // The person's shortcut is the gesture its answer uses; a posted key or script grants nothing.
-        AgentPanePersonInput.record(model.transport.gestures, if: byPerson, answer: true)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources, if: byPerson, answer: true)
         send(command)
     }
 }

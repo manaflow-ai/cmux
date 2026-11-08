@@ -3,6 +3,8 @@ import { Icon } from "./icons/Icon";
 import { type StringKey, useT } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { SenderIdentityLabel } from "./SenderIdentityLabel";
+import { resolveSenderIdentity } from "./senderIdentity";
 import {
   activityTime,
   listed,
@@ -14,28 +16,42 @@ import {
 } from "./sessionList";
 
 export type ChiefMascot =
-  | "orb"
-  | "orb-spark"
-  | "orb-hood"
+  | "fox"
   | "machine"
   | "machine-cyan"
   | "machine-blue"
   | "moon"
   | "moon-blue"
-  | "fox"
-  | "mochi";
+  | "mochi"
+  | "captain"
+  | "sprout"
+  | "bolt"
+  | "fox-arctic"
+  | "machine-violet"
+  | "machine-gold"
+  | "moon-rose"
+  | "orb"
+  | "orb-spark"
+  | "orb-hood";
 
 const CHIEF_MASCOTS: Record<ChiefMascot, string> = {
-  orb: new URL("./mascots/ChiefMascotOrb.png", import.meta.url).href,
-  "orb-spark": new URL("./mascots/ChiefMascotOrbSpark.png", import.meta.url).href,
-  "orb-hood": new URL("./mascots/ChiefMascotOrbHood.png", import.meta.url).href,
+  fox: new URL("./mascots/ChiefMascotFox.png", import.meta.url).href,
   machine: new URL("./mascots/ChiefMascotMachine.png", import.meta.url).href,
   "machine-cyan": new URL("./mascots/ChiefMascotMachineCyan.png", import.meta.url).href,
   "machine-blue": new URL("./mascots/ChiefMascotMachineBlue.png", import.meta.url).href,
   moon: new URL("./mascots/ChiefMascotMoon.png", import.meta.url).href,
   "moon-blue": new URL("./mascots/ChiefMascotMoonBlue.png", import.meta.url).href,
-  fox: new URL("./mascots/ChiefMascotFox.png", import.meta.url).href,
   mochi: new URL("./mascots/ChiefMascotMochi.png", import.meta.url).href,
+  captain: new URL("./mascots/ChiefMascotCaptain.png", import.meta.url).href,
+  sprout: new URL("./mascots/ChiefMascotSprout.png", import.meta.url).href,
+  bolt: new URL("./mascots/ChiefMascotBolt.png", import.meta.url).href,
+  "fox-arctic": new URL("./mascots/ChiefMascotFoxArctic.png", import.meta.url).href,
+  "machine-violet": new URL("./mascots/ChiefMascotMachineViolet.png", import.meta.url).href,
+  "machine-gold": new URL("./mascots/ChiefMascotMachineGold.png", import.meta.url).href,
+  "moon-rose": new URL("./mascots/ChiefMascotMoonRose.png", import.meta.url).href,
+  orb: new URL("./mascots/ChiefMascotOrb.png", import.meta.url).href,
+  "orb-spark": new URL("./mascots/ChiefMascotOrbSpark.png", import.meta.url).href,
+  "orb-hood": new URL("./mascots/ChiefMascotOrbHood.png", import.meta.url).href,
 };
 
 export type ChiefDockProps = {
@@ -212,7 +228,12 @@ export function ChiefDock({
                               )}
                             </span>
                           )}
-                          <span className="acpmux-chief-card-title">{title}</span>
+                          <span className="acpmux-chief-card-title">
+                            <SenderIdentityLabel
+                              identity={{ ...resolveSenderIdentity({ name: title }, session, currentId), name: title }}
+                              describe={false}
+                            />
+                          </span>
                         </strong>
                         <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
                       </span>

@@ -9,6 +9,11 @@ public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
         case done
         /// Archived workspaces: the "Archived (N)" row, after the Done row (Lawrence 18470, gallery pick V2).
         case archived
+        /// The sidebar's one Archive section (``SidebarDoneFoldID/archive``): every archived workspace and wholly
+        /// archived group, under one "Archive (N)" row at the bottom (Lawrence 19197).
+        case archive
+        /// The Projects list's own "Show N more" row past its first groups (`SidebarLayout+Recents`).
+        case projects
     }
 
     public var section: SectionID
@@ -23,11 +28,17 @@ public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
         self.kind = kind
     }
 
+    /// The bottom "Archive (N)" row (`SidebarLayout+ArchiveSection`); its open state is kept with the folds'.
+    public static let archive = SidebarDoneFoldID(section: .pinned, group: nil, kind: .archive)
+
+    /// The Projects list's "Show N more" row (`SidebarLayout+Recents`); its open state is kept with the other lists'.
+    public static let projects = SidebarDoneFoldID(section: .pinned, group: nil, kind: .projects)
+
     /// The same list's fold of `kind`.
     func of(_ kind: Kind) -> SidebarDoneFoldID { SidebarDoneFoldID(section: section, group: group, kind: kind) }
 }
 
-// The "Done (N)" fold (`sidebar.doneFold`, Leo's sidebar organization): workspaces the person marked Done
+// The "Done (N)" fold (Leo's sidebar organization): workspaces the person marked Done
 // (`SidebarTaskStatus.done`) leave their place and list behind one row at the end of their group or list, in their
 // manual order; the row opens them below it. Archived workspaces (`isArchived`, `foldsArchived`) do the same behind an
 // "Archived (N)" row after it (Lawrence 18470: "better ui for archived stuff instead of just greying them out"; it
@@ -93,9 +104,10 @@ nonisolated extension SidebarLayout {
     /// make or drop a "Done (N)" row the drag's base rows lack, so the drag draws as it did before it kept the folds.
     /// A drag of rows that never fold keeps them: it moves no fold row and changes no fold's count.
     static func dragUnfolds(_ dragged: [SidebarWorkspace], options o: SidebarLayoutOptions) -> Bool {
-        guard o.foldsDone || o.foldsArchived, o.filterMatches == nil, o.sessionTree == nil else { return false }
+        guard o.foldsDone || o.foldsArchived || o.archiveSection, o.filterMatches == nil, o.sessionTree == nil else { return false }
         return dragged.contains {
-            $0.id != o.activeWorkspaceID && ((o.foldsDone && $0.taskStatus == .done) || (o.foldsArchived && $0.isArchived))
+            $0.id != o.activeWorkspaceID
+                && ((o.foldsDone && $0.taskStatus == .done) || ((o.foldsArchived || o.archiveSection) && $0.isArchived))
         }
     }
 

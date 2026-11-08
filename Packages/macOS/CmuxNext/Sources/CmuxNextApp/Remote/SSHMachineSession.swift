@@ -43,6 +43,8 @@ final class SSHMachineSession {
     /// cx-3r9mt: an older cmux-tui on a machine that is not idle: the sidebar says "Update
     /// available" and the person's Update installs it; the app never does it by itself.
     var updateOffered = false
+    /// A newer build waits as `~/.cmux/bin/cmux.staged` (``RemoteStaticInstallStager``); the header says so.
+    var staticInstallStaged = false
     /// Why the machine's cmux-tui did not start: the daemon's error and the
     /// link's output (the remote error, for example a session db the daemon
     /// cannot open). Set when the first connection gives up after the SSH
@@ -59,6 +61,8 @@ final class SSHMachineSession {
     /// Offer to install when the next probe finds cmux-tui missing or too
     /// old (set by a user-initiated connect, cleared when offered).
     @ObservationIgnored var offersInstall = false
+    /// The window whose action connected it, where its "Connecting to…" row lists (#31490).
+    @ObservationIgnored var connectingWindow: String?
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
     /// In use by another cmux daemon: only a person's Reconnect takes it over (G5). Retries spent: Offline (G4).
@@ -77,7 +81,7 @@ final class SSHMachineSession {
          machineID: String? = nil, mainWork: MainWorkScheduler) {
         self.host = host
         self.machineID = machineID ?? host.machineID
-        daemon = DaemonService(machineID: self.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(machineID: self.machineID, echoesPlacementShift: true, mainWork: mainWork)
         // The actor reports each status change; only the latest matters.
         let (statuses, continuation) = AsyncStream.makeStream(of: SSHConnectionMachine.Status.self, bufferingPolicy: .bufferingNewest(8))
         link = SSHMachineLink(host: host, binary: binary, paths: paths, environment: environment) { continuation.yield($0) }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 
 /// `debug.pane_chrome`: per pane of each window, the frames that must line
@@ -31,9 +32,8 @@ enum DebugPaneChrome {
                     firstCell = CGPoint(x: hostRect.minX + origin.x, y: hostRect.minY + origin.y)
                 }
                 var fields: [String: JSONValue] = [
-                    "pane": .string(ring.pane),
-                    "cell": rect(cell),
-                    "strip": rect(strip),
+                    "pane": .string(ring.pane), "cell": rect(cell),
+                    "strip": rect(strip), "strip_under_page": .array(view.stripView.chromiumPageCover.map { rect(topLeft($0)) }),
                     "border": rect(border), "pill": pill.map(rect) ?? .null,
                     "first_cell": firstCell.map { .array([.number(Double($0.x)), .number(Double($0.y))]) } ?? .null,
                     // The tab bar (cx-soza): hidden now, the pane's own choice, the palette row's title.
@@ -42,6 +42,8 @@ enum DebugPaneChrome {
                         ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .script))
                         ?? services.registry.title(for: PaneTabBarHandlers.toggle) ?? ""),
                     "tab_bar_choice": services.paneTabBars.choice(for: pane.paneKey).map(JSONValue.bool) ?? .null,
+                    // Vertical tabs (WorkspaceVerticalTabs): the list's frame, else null.
+                    "vertical_tabs": view.verticalTabs != nil ? (view.verticalList.map { rect(topLeft($0.convert($0.bounds, to: nil))) } ?? .null) : .null,
                     "tab_slots": .array(view.stripView.tabSlots.map { .array($0.map(JSONValue.number)) }), "tab_available": .number(view.stripView.tabAvailableWidth),
                 ]
                 if let pill {

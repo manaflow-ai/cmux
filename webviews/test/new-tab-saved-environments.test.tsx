@@ -10,6 +10,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -29,6 +31,10 @@ const keys = [
   "CustomEvent",
   "MutationObserver",
   "ResizeObserver",
+  "getSelection",
+  "addEventListener",
+  "removeEventListener",
+  "dispatchEvent",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -53,13 +59,11 @@ beforeAll(() => {
     HTMLInputElement: dom.window.HTMLInputElement,
     HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
     Element: dom.window.Element,
-    Node: dom.window.Node,
     MouseEvent: dom.window.MouseEvent,
     KeyboardEvent: dom.window.KeyboardEvent,
     PointerEvent: dom.window.MouseEvent,
     Event: dom.window.Event,
     CustomEvent: dom.window.CustomEvent,
-    MutationObserver: dom.window.MutationObserver,
     ResizeObserver: class {
       observe() {}
       unobserve() {}
@@ -69,6 +73,12 @@ beforeAll(() => {
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
     localStorage: dom.window.localStorage,
+    ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
+    // Milkdown (the field's editor) times its setup with global CustomEvents on the global
+    // target: they are jsdom's here, so the target is jsdom's window too.
+    addEventListener: dom.window.addEventListener.bind(dom.window),
+    removeEventListener: dom.window.removeEventListener.bind(dom.window),
+    dispatchEvent: dom.window.dispatchEvent.bind(dom.window),
   });
   host = dom.window.document.getElementById("root")!;
 });
@@ -107,7 +117,11 @@ async function mount({
   tabCwd = "/Users/you",
   peerStart = "ok",
   peerResources,
+  startCwd,
+  folderless = false,
 }: {
+  startCwd?: string;
+  folderless?: boolean;
   previews?: boolean;
   worktree?: "ok" | "refused";
   tabCwd?: string;
@@ -116,8 +130,9 @@ async function mount({
 } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
-  const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolder");
+  const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolderModel");
   const calls: Call[] = [];
   const callNative = async (method: string, params?: Record<string, unknown>) => {
     calls.push({ method, ...(params ? { params } : {}) });
@@ -128,7 +143,11 @@ async function mount({
         if (params?.peer && peerStart === "none") return undefined;
         return "session-1";
       case "environment.list":
-        return { environments: SAVED };
+        return {
+          environments: folderless
+            ? [...SAVED, { id: "empty", name: "Default folder", kind: "local", updatedAt: 1 }]
+            : SAVED,
+        };
       case "environment.save": {
         const environment = params!.environment as Record<string, unknown>;
         return { environment: { ...environment, id: "new-1", updatedAt: 9 } };
@@ -146,6 +165,7 @@ async function mount({
   const actions = newTabScreenActions({
     callNative,
     cwd: tabCwd,
+    chatCwd: startCwd,
     leave: noop,
     selectSession: noop,
     showAllChats: noop,
@@ -155,28 +175,41 @@ async function mount({
   root = createRoot(host);
   await act(async () =>
     root!.render(
-      <NewTabScreen
-        snapshot={noChat([], {
-          peers: ["devbox", "cloud-1"],
-          peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
-          ...(peerResources ? { peerResources } : {}),
-        })}
-        lastAgent="claude"
-        cwd={tabCwd}
-        projects={[
-          { cwd: APP, label: "app" },
-          { cwd: API, label: "api" },
-        ]}
-        environments={previews}
-        onConnect={noop}
-        onNewWorktree={(cwd) => {
-          let folder: string | undefined;
-          return newWorktree(callNative, cwd, (used) => {
-            folder = used;
-          }).then(() => folder);
+      <SignInContext.Provider
+        value={{
+          signedOut: {},
+          logIn: noop,
+          readSessionAuth: async (query) => {
+            calls.push({ method: "session.auth", params: query });
+            return { state: "unknown", source: "authCheck" };
+          },
         }}
-        {...actions}
-      />,
+      >
+        <NewTabScreen
+          template="default"
+          snapshot={noChat([], {
+            peers: ["devbox", "cloud-1"],
+            peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
+            ...(peerResources ? { peerResources } : {}),
+          })}
+          lastAgent="claude"
+          cwd={tabCwd}
+          startCwd={startCwd}
+          projects={[
+            { cwd: APP, label: "app" },
+            { cwd: API, label: "api" },
+          ]}
+          environments={previews}
+          onConnect={noop}
+          onNewWorktree={(cwd) => {
+            let folder: string | undefined;
+            return newWorktree(callNative, cwd, (used) => {
+              folder = used;
+            }).then(() => folder);
+          }}
+          {...actions}
+        />
+      </SignInContext.Provider>,
     ),
   );
   await settle();
@@ -212,11 +245,45 @@ const folderButton = () =>
   host.querySelector<HTMLButtonElement>(`.acpmux-composer-context button[aria-label="${t("composer.folder")}"]`);
 const rows = () => $$(".acpmux-env-popover .acpmux-menu-item");
 const row = (text: string) => rows().find((item) => item.querySelector(".acpmux-menu-label")?.textContent === text);
-const ask = async (text: string) => {
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field");
-  await type(field, text);
+/// The environment control's right-click menu (Create and Edit environment, the setup actions).
+const moreMenu = async () => {
+  await act(async () =>
+    environmentButton()!.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  return $$('[role="menu"] [role="menuitem"]');
+};
+const moreItem = async (text: string) => (await moreMenu()).find((item) => item.textContent === text);
+/// Every machine and saved environment: Machines… on the control's right-click menu (the main list
+/// is This Mac and Cloud).
+const openMachines = async () => {
+  const item = (await moreMenu()).find((candidate) => candidate.textContent === t("composer.machinesList"));
+  expect(item, "no Machines… item").toBeTruthy();
+  await act(async () => item!.click());
+  await settle();
+};
+/// The New Tab prompt (the composer's Markdown field), once its editor is made.
+const prompt = async () => {
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field");
+  expect(field).toBeTruthy();
+  for (let turn = 0; turn < 200 && !(field!.acpmuxMarkdownField && field!.querySelector("[contenteditable]")); turn++)
+    await settle();
+  return field!;
+};
+const typePrompt = async (text: string) => {
+  const field = await prompt();
   await act(async () => {
-    field!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type(text);
+  });
+  await settle();
+  return field.querySelector<HTMLElement>("[contenteditable]")!;
+};
+const ask = async (text: string) => {
+  const editor = await typePrompt(text);
+  await act(async () => {
+    editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   });
   await settle();
 };
@@ -229,32 +296,43 @@ test("previews off: no saved environments and the host is not asked", async () =
   expect(environmentButton()).toBeUndefined();
 });
 
-test("the picker lists the saved environments in a Saved section over the machines", async () => {
+test("the saved environments are in Machines…, under This Mac; the main list is This Mac and Cloud", async () => {
   const calls = await mount();
   expect(calls.filter((call) => call.method === "environment.list")).toEqual([
     { method: "environment.list", params: {} },
   ]);
+  // Leo, 2026-10-31: "it's just a cloud button". The main list names no saved environment.
   await click(environmentButton());
+  expect(rows().filter((item) => item.querySelector(".acpmux-env-saved"))).toHaveLength(0);
+  await click(environmentButton());
+  await openMachines();
   const saved = rows().filter((item) => item.querySelector(".acpmux-env-saved"));
+  // "Web" is only a folder on this Mac: it is in the folder menu, not among the machines.
   expect(saved.map((item) => item.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
     "Devbox API",
     "API worktree",
-    "Web",
   ]);
-  expect(saved[0]!.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.envSaved"));
-  // The machines follow, still numbered from ⌥⌘1, and Create environment heads New environment.
-  expect(rows()[3]!.querySelector(".acpmux-env-key")?.textContent).toBe("⌥⌘1");
-  const created = row(t("environment.create"));
-  expect(created?.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.newEnvironment"));
+  // No header over them; This Mac is first and keeps ⌥⌘1.
+  expect(doc().querySelectorAll(".acpmux-env-popover [data-section]")).toHaveLength(0);
+  expect(rows()[0]!.querySelector(".acpmux-env-key")?.textContent).toBe("⌥⌘1");
+  // Create environment is the control's right-click menu's, not a row of the list.
+  expect(row(t("environment.create"))).toBeUndefined();
+  const more = (await moreMenu()).map((item) => item.textContent);
+  expect(more).toContain(t("environment.create"));
   // No Edit environment until one is picked.
-  expect(row(t("environment.edit"))).toBeUndefined();
+  expect(more).not.toContain(t("environment.edit"));
 });
 
 test("a saved SSH environment names the strip and asks on its machine, in its folder there", async () => {
   const calls = await mount();
-  await click(environmentButton());
+  await openMachines();
   await click(row("Devbox API"));
-  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Devbox API`);
+  expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
+    target: { harness: "claude", host: "devbox", cwd: "/srv/api" },
+  });
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.anotherMachine")} · Devbox API`,
+  );
   // The environment names where the chat starts: no folder control beside it.
   expect(folderButton()).toBeNull();
   await ask("tail the logs");
@@ -275,8 +353,11 @@ test("a saved SSH environment names the strip and asks on its machine, in its fo
 
 test("a saved local environment with Use worktree asks in a new worktree of its folder", async () => {
   const calls = await mount();
-  await click(environmentButton());
+  await openMachines();
   await click(row("API worktree"));
+  expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
+    target: { harness: "claude" },
+  });
   await ask("fix the build");
   expect(started(calls).map((call) => call.method)).toEqual([
     "git.worktree.create",
@@ -293,34 +374,39 @@ test("a saved local environment with Use worktree asks in a new worktree of its 
 
 test("a refused worktree shows the host's reason, starts nothing and keeps the prompt", async () => {
   const calls = await mount({ worktree: "refused" });
-  await click(environmentButton());
+  await openMachines();
   await click(row("API worktree"));
   await ask("fix the build");
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
   expect(calls.some((call) => call.method === "chat.new")).toBe(false);
-  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")?.value).toBe("fix the build");
+  expect(host.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField?.value()).toBe("fix the build");
 });
 
 test("picking a machine instead clears the saved environment", async () => {
   await mount();
-  await click(environmentButton());
-  await click(row("Web"));
+  await openMachines();
+  await click(row("API worktree"));
   expect(folderButton()).toBeNull();
-  await click(environmentButton());
+  await openMachines();
   // The machine rows: this computer is the only one a New Tab chat lists.
   const machine = rows().find((item) => item.querySelector(".acpmux-env-key"));
   await click(machine);
-  expect(environmentButton()?.getAttribute("aria-label")).not.toContain("Web");
+  expect(environmentButton()?.getAttribute("aria-label")).not.toContain("API worktree");
   expect(folderButton()).not.toBeNull();
 });
 
 test("picking another machine acpmux lists starts the chat there", async () => {
   const calls = await mount();
-  await click(environmentButton());
+  await openMachines();
   await click(row("devbox"));
-  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox`);
+  expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
+    target: { harness: "claude", host: "devbox" },
+  });
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.anotherMachine")} · devbox`,
+  );
   // The prompt takes the keyboard back, as after a folder pick.
-  expect(doc().activeElement).toBe(host.querySelector(".nt-field"));
+  expect(doc().activeElement).toBe(host.querySelector(".nt-field [contenteditable]"));
   await ask("tail the logs");
   const asked = calls.find((call) => call.method === "chat.new")!.params!;
   expect(asked).toMatchObject({ harness: "claude", peer: "devbox" });
@@ -368,9 +454,9 @@ test("a chat started on another machine with no folder there does not take this 
 
 test("a machine picked after a saved environment is where the chat starts", async () => {
   const calls = await mount();
-  await click(environmentButton());
-  await click(row("Web"));
-  await click(environmentButton());
+  await openMachines();
+  await click(row("API worktree"));
+  await openMachines();
   await click(row("devbox"));
   await ask("tail the logs");
   expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ peer: "devbox" });
@@ -378,9 +464,9 @@ test("a machine picked after a saved environment is where the chat starts", asyn
 
 test("picking this Mac again after another machine starts the chat here", async () => {
   const calls = await mount();
-  await click(environmentButton());
+  await openMachines();
   await click(row("devbox"));
-  await click(environmentButton());
+  await openMachines();
   await click(rows().find((item) => item.querySelector('.acpmux-env-row[data-kind="local"]')));
   await ask("fix the build");
   expect(calls.find((call) => call.method === "chat.new")?.params?.peer).toBeUndefined();
@@ -388,8 +474,7 @@ test("picking this Mac again after another machine starts the chat here", async 
 
 test("Create environment saves where the page would start and picks it", async () => {
   const calls = await mount();
-  await click(environmentButton());
-  await click(row(t("environment.create")));
+  await click(await moreItem(t("environment.create")));
   expect($(".acpmux-env-panel")).not.toBeNull();
   await type($<HTMLInputElement>(".acpmux-env-panel input"), "  Sandbox  ");
   // Use worktree is offered for a folder on this computer.
@@ -402,10 +487,11 @@ test("Create environment saves where the page would start and picks it", async (
     environment: { name: "Sandbox", kind: "local", folder: API, worktree: true },
   });
   expect($(".acpmux-env-panel")).toBeNull();
-  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Sandbox`);
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.thisMac")} · Sandbox`,
+  );
   // Picked: Edit environment opens it again, with Remove.
-  await click(environmentButton());
-  await click(row(t("environment.edit")));
+  await click(await moreItem(t("environment.edit")));
   expect($<HTMLInputElement>(".acpmux-env-panel input")?.value).toBe("Sandbox");
   await click($$(".acpmux-env-panel button").find((button) => button.textContent === t("environment.remove")));
   expect(calls.find((call) => call.method === "environment.remove")?.params).toEqual({
@@ -435,10 +521,38 @@ test("a draft keeps only its kind's fields", async () => {
   expect(savedEnvironmentReady({ name: "Mac", kind: "local", folder: "~/src/app" })).toBe(true);
 });
 
+/// A folder in the composer's folder menu.
+const pickFolderRow = async (cwd: string) => {
+  await click(folderButton());
+  const item = $(`.acpmux-location-row[title="${cwd}"]`);
+  expect(item, `no folder row for ${cwd}`).toBeTruthy();
+  await click(item!.closest<HTMLElement>('[role="option"]') ?? item);
+};
+
+test("a saved local environment that is only a folder is in the folder menu, not among the machines", async () => {
+  // Leo, 2026-11-03: "imo claude has kinda s***ty ways to deal with remote stuff. chatgpt's is
+  // better." Claude listed a saved Local environment that was only a folder as an environment of
+  // its own. Here it is that folder: This Mac stays the machine, and the folder menu picks it.
+  const calls = await mount();
+  await openMachines();
+  expect(row("Web")).toBeUndefined();
+  await click(environmentButton());
+  await pickFolderRow(APP);
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.thisMac")}`,
+  );
+  expect(folderButton()).not.toBeNull();
+  // It is still the saved environment: Edit environment opens it.
+  await click(await moreItem(t("environment.edit")));
+  expect($<HTMLInputElement>(".acpmux-env-panel input")?.value).toBe("Web");
+  await click($$(".acpmux-env-panel button").find((button) => button.textContent === t("edited.cancel")));
+  await ask("run the tests");
+  expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ cwd: APP });
+});
+
 test("a saved local environment starts in its folder even when the tab already sits there", async () => {
   const calls = await mount({ tabCwd: APP });
-  await click(environmentButton());
-  await click(row("Web"));
+  await pickFolderRow(APP);
   await ask("run the tests");
   expect(calls.find((call) => call.method === "workspace.useFolder")?.params).toEqual({ cwd: APP });
   expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ cwd: APP });
@@ -446,7 +560,7 @@ test("a saved local environment starts in its folder even when the tab already s
 
 test("a start the SSH machine refused sends the prompt nowhere", async () => {
   const calls = await mount({ peerStart: "refused" });
-  await click(environmentButton());
+  await openMachines();
   await click(row("Devbox API"));
   await ask("tail the logs");
   expect(calls.some((call) => call.method === "chat.new")).toBe(true);
@@ -455,9 +569,9 @@ test("a start the SSH machine refused sends the prompt nowhere", async () => {
 
 test("New chat after a refused worktree leaves the page's create buttons working", async () => {
   const calls = await mount({ worktree: "refused" });
-  await click(environmentButton());
+  await openMachines();
   await click(row("API worktree"));
-  await type(host.querySelector<HTMLTextAreaElement>(".nt-field"), "fix the build");
+  await typePrompt("fix the build");
   await click(host.querySelector('[data-create="chat"]'));
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
   await click(host.querySelector('[data-create="terminal"]'));
@@ -466,7 +580,7 @@ test("New chat after a refused worktree leaves the page's create buttons working
 
 test("a start the SSH machine held without a chat sends the prompt nowhere", async () => {
   const calls = await mount({ peerStart: "none" });
-  await click(environmentButton());
+  await openMachines();
   await click(row("Devbox API"));
   await ask("tail the logs");
   expect(calls.some((call) => call.method === "chat.new")).toBe(true);
@@ -570,4 +684,15 @@ test("a direct start keeps its draft until the first prompt is accepted, includi
   finish();
   await retry;
   expect(left).toBe(1);
+});
+
+test("a folderless local environment preflights the host start folder, not the inherited tab folder", async () => {
+  const calls = await mount({ folderless: true, tabCwd: API, startCwd: APP });
+  await openMachines();
+  await click(row("Default folder"));
+  expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
+    target: { harness: "claude", cwd: APP },
+  });
+  await ask("fix the build");
+  expect(calls.find((call) => call.method === "chat.new")?.params?.cwd).toBe(APP);
 });

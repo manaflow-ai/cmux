@@ -26,15 +26,10 @@ enum Strings {
     static var pinned: String { String(localized: "sidebar.section.pinned", defaultValue: "Pinned", bundle: .module) }
     static var moveToGroup: String { String(localized: "sidebar.group.moveTo", defaultValue: "Move to Group", bundle: .module) }
     static var projects: String { String(localized: "sidebar.section.projects", defaultValue: "Projects", bundle: .module) }
+    /// Projects and Recents' header over workspaces in no group (`ListHeaderRowView`).
+    static var recents: String { String(localized: "sidebar.section.recents", defaultValue: "Recents", bundle: .module) }
     static var noFolder: String { String(localized: "sidebar.folder.none", defaultValue: "No Folder", bundle: .module) }
     static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .module) }
-    static var sectionEmpty: String { String(localized: "sidebar.section.empty", defaultValue: "No workspaces", bundle: .module) }
-    static func sectionEmptyHint(shortcut: String?) -> String {
-        guard let shortcut else {
-            return String(localized: "sidebar.section.empty.hint.unbound", defaultValue: "New workspace: +", bundle: .module)
-        }
-        return String(format: String(localized: "sidebar.section.empty.hint", defaultValue: "New workspace: + or %@", bundle: .module), shortcut)
-    }
     /// An open empty group's row (`EmptyGroupRowView`).
     static var groupEmpty: String { String(localized: "sidebar.group.empty", defaultValue: "No workspaces · drag one here", bundle: .module) }
     static var statusConnected: String { String(localized: "sidebar.machine.connected", defaultValue: "Connected", bundle: .module) }
@@ -96,6 +91,8 @@ enum Strings {
     }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .module) }
     static func progressPercent(_ value: Int) -> String { String(localized: "sidebar.a11y.progress", defaultValue: "\(value)% done", bundle: .module) }
+    /// The hover card's line for a workspace whose idle terminals were freed (`workspaces.freeing.*`).
+    static func freedTerminals(_ value: Int) -> String { String(localized: "sidebar.hoverCard.freedTerminals", defaultValue: "Freed terminals: \(value). They start again when you open this workspace.", bundle: .module) }
     static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .module) }
     /// The hover card's machine line on a workspace the Chief started for a subagent.
     /// Status entries a row folds past its limit.
@@ -183,6 +180,15 @@ enum Strings {
             return agent.map { String(format: String(localized: "sidebar.timeline.failedBy", defaultValue: "%@ stopped with an error", bundle: .module), $0) }
                 ?? String(localized: "sidebar.timeline.failed", defaultValue: "Stopped with an error", bundle: .module)
         }
+    }
+
+    /// The usage row's parts: the tokens each call carries ("312K context") and the last 24
+    /// hours' cost ("$1,421 in 24h").
+    static func usageContext(_ tokens: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.usageContext", defaultValue: "%@ context", bundle: .module), tokens)
+    }
+    static func usageCost(_ cost: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.usageCost", defaultValue: "%@ in 24h", bundle: .module), cost)
     }
 
     /// The card's stats line: how many prompts, and how long the agents worked.

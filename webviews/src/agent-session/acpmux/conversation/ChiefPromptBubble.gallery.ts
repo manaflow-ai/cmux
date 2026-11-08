@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
-// A prompt the Chief sent a subagent (ChiefPromptBubble.tsx): "From the Chief" above it, and a long
+// A prompt the Chief sent a subagent (ChiefPromptBubble.tsx): the Chief's avatar and "Sent from <Chief>" above it, and a long
 // task on its first lines with Show all (Lawrence 2026-10-19).
 import { agentPaneEntry } from "../../../gallery/format";
+import { UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 
 const longTask = [
@@ -49,6 +50,18 @@ export default agentPaneEntry({
         assistant("On it.", 8),
         summary(8, { seq: 3, status: "completed" }),
       ]),
+    },
+    "sent-from": {
+      note: 'Leo 2026-11-02, beside ChatGPT\'s "Sent from dot": a prompt the Chief sent on the person\'s behalf draws the Chief\'s existing avatar and a muted "Sent from <Chief>" line right-aligned above its bubble.',
+      snapshot: chat([
+        user("Rebase and push when the tests pass.", 6, { seq: 1, from: "chief" }),
+        assistant("Rebased; pushing once the tests finish.", 5.5),
+        summary(5.5, { seq: 3, status: "completed" }),
+      ]),
+      native: { "chief.face": { name: "Scout", src: UPLOADED_AVATAR } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__from img.cv-agent-avatar"));
+      },
     },
     "follow-up": {
       note: "A short follow-up the Chief told it, under a prompt typed in the pane.",

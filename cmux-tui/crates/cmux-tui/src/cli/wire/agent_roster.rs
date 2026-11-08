@@ -4,7 +4,7 @@
 
 use std::borrow::Cow;
 use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::BufReader;
 
 use cmux_tui_core::platform::transport;
@@ -32,20 +32,174 @@ pub(super) fn with_terminals(
 ) -> Value {
     let ResponseView::AgentRoster(view) = plan.view else { return result };
     let route = plan.params.as_object().map(super::super::resolve::route).unwrap_or_default();
-    let terminals = super::super::resolve::read(reader, ResourceOperation::TerminalList, route)
-        .ok()
-        .and_then(|terminals| terminals.as_array().cloned())
-        .unwrap_or_default();
+    let terminals =
+        super::super::resolve::read(reader, ResourceOperation::TerminalList, route.clone())
+            .ok()
+            .and_then(|terminals| terminals.as_array().cloned())
+            .unwrap_or_default();
+    // A bare list is this session's roster: its terminal agents and the
+    // acpmux chats that run in its workspaces (`--all-sessions` lists every
+    // chat). A terminal selector intentionally keeps the daemon's existing
+    // agent.list response and never starts or contacts acpmux.
+    let result = if plan.params.get("terminal_id").is_none() {
+        // A refused or failed workspace read lists no chat: the roster never
+        // widens to other sessions' chats by accident.
+        let workspaces =
+            super::super::resolve::read(reader, ResourceOperation::WorkspaceList, route)
+                .ok()
+                .and_then(|workspaces| workspaces.as_array().cloned())
+                .unwrap_or_default();
+        let keys = workspace_keys(&workspaces);
+        let mut queued_params =
+            plan.params.as_object().map(super::super::resolve::route).unwrap_or_default();
+        queued_params.insert("state".into(), json!("queued"));
+        queued_params.insert("limit".into(), json!(1000));
+        let queued =
+            super::super::resolve::read(reader, ResourceOperation::AgentMessageList, queued_params)
+                .ok()
+                .and_then(|messages| messages.as_array().cloned())
+                .unwrap_or_default();
+        let sessions = super::super::agent_message::acp::sessions().unwrap_or_default();
+        merge_sources(
+            result,
+            &sessions,
+            &queued,
+            plan.params.get("state").and_then(Value::as_str),
+            Some(&keys),
+        )
+    } else {
+        result
+    };
     shape(result, &terminals, view, unix_ms())
 }
 
-/// [`with_terminals`] for `--all-sessions`: `agents` is the joined rows,
-/// `terminals` every session's terminals.
-pub(in crate::cli) fn across(view: ResponseView, agents: Value, terminals: &[Value]) -> Value {
-    match view {
-        ResponseView::AgentRoster(view) => shape(agents, terminals, view, unix_ms()),
-        _ => agents,
+/// The keys of `workspaces` (`extra.key`) in one comparable form: lowercase,
+/// without dashes, as the daemon's `agent_message_policy::workspace_key`.
+fn workspace_keys(workspaces: &[Value]) -> HashSet<String> {
+    workspaces
+        .iter()
+        .filter_map(|workspace| workspace.pointer("/extra/key")?.as_str())
+        .map(workspace_key)
+        .collect()
+}
+
+fn workspace_key(value: &str) -> String {
+    value.chars().filter(|ch| *ch != '-').flat_map(char::to_lowercase).collect()
+}
+
+/// Whether the acpmux chat `session` runs in one of `workspaces`: the
+/// workspace it was created from (`createdBy.workspace`; the app names its
+/// pane's workspace, an agent's chat its creator's). `None` takes every chat.
+fn chat_in_scope(session: &Value, workspaces: Option<&HashSet<String>>) -> bool {
+    workspaces.is_none_or(|keys| {
+        session
+            .pointer("/createdBy/workspace")
+            .and_then(Value::as_str)
+            .is_some_and(|workspace| keys.contains(&workspace_key(workspace)))
+    })
+}
+
+/// Add the address and delivery metadata shared by terminal and acpmux rows.
+/// Terminal rows are already filtered by the daemon; the state filter must be
+/// applied to acpmux summaries here because they come from a second source.
+/// `workspaces` limits the chats to those of this session ([`chat_in_scope`]).
+fn merge_sources(
+    rows: Value,
+    sessions: &[Value],
+    queued: &[Value],
+    state: Option<&str>,
+    workspaces: Option<&HashSet<String>>,
+) -> Value {
+    let mut rows = match rows {
+        Value::Array(rows) => rows,
+        other => return other,
+    };
+    let queued = queued_counts(queued);
+    for row in &mut rows {
+        let Some(address) = row.get("terminal_id").and_then(Value::as_str).map(str::to_owned)
+        else {
+            continue;
+        };
+        if let Some(object) = row.as_object_mut() {
+            object.insert("address".into(), Value::String(address.clone()));
+            object.insert("kind".into(), json!("terminal"));
+            object.insert(
+                "queued_messages".into(),
+                json!(queued.get(&address).copied().unwrap_or(0)),
+            );
+        }
     }
+    for session in sessions {
+        let Some(id) = session.get("sessionId").and_then(Value::as_str) else { continue };
+        if !chat_in_scope(session, workspaces) {
+            continue;
+        }
+        let acp_state =
+            acp_state(session.get("status").and_then(Value::as_str).unwrap_or_default());
+        if state.is_some_and(|wanted| wanted != acp_state) {
+            continue;
+        }
+        let address = format!("acp:{id}");
+        rows.push(json!({
+            "address": address,
+            "kind": "acp",
+            "name": session.get("name").cloned().unwrap_or(Value::String(id.to_owned())),
+            "agent": session.get("harness").cloned().unwrap_or(Value::Null),
+            "state": acp_state,
+            "status": session.get("status").cloned().unwrap_or(Value::Null),
+            "cwd": session.get("cwd").cloned().unwrap_or(Value::Null),
+            "model": session.get("model").cloned().unwrap_or(Value::Null),
+            "agent_session_id": session.get("agentSessionId").cloned().unwrap_or(Value::Null),
+            "updated_at_ms": session.get("updatedAt").cloned().unwrap_or(json!(0)),
+            "queued_messages": queued.get(&address).copied().unwrap_or(0),
+        }));
+    }
+    Value::Array(rows)
+}
+
+fn queued_counts(messages: &[Value]) -> HashMap<String, u64> {
+    let mut counts = HashMap::new();
+    for message in messages {
+        for delivery in message.get("deliveries").and_then(Value::as_array).into_iter().flatten() {
+            if delivery.get("state").and_then(Value::as_str) == Some("queued")
+                && let Some(recipient) = delivery.get("recipient").and_then(Value::as_str)
+            {
+                *counts.entry(recipient.to_owned()).or_insert(0) += 1;
+            }
+        }
+    }
+    counts
+}
+
+fn acp_state(status: &str) -> &'static str {
+    match status {
+        "running" => "working",
+        "waiting" => "blocked",
+        "idle" | "ready" => "idle",
+        "closed" => "done",
+        _ => "unknown",
+    }
+}
+
+/// [`with_terminals`] for `--all-sessions`: `agents` is the joined rows,
+/// `terminals` every session's terminals. Without a terminal selector every
+/// acpmux chat on this machine joins them, whatever its workspace, filtered
+/// by `params.state` as the daemons filtered their rows.
+pub(in crate::cli) fn across(
+    view: ResponseView,
+    agents: Value,
+    terminals: &[Value],
+    params: &Value,
+) -> Value {
+    let ResponseView::AgentRoster(view) = view else { return agents };
+    let agents = if params.get("terminal_id").is_none() {
+        let sessions = super::super::agent_message::acp::sessions().unwrap_or_default();
+        let state = params.get("state").and_then(Value::as_str);
+        merge_sources(agents, &sessions, &[], state, None)
+    } else {
+        agents
+    };
+    shape(agents, terminals, view, unix_ms())
 }
 
 /// What a machine-readable mode prints. `--json` stays the bare ranked
@@ -169,10 +323,16 @@ pub(super) fn human(result: &Value, home: Option<&str>) -> String {
             }
             row.push(cell(agent.get("state")));
             row.push(agent["age_ms"].as_u64().map_or_else(|| "-".to_owned(), age_text));
-            row.push(cell(agent.pointer("/extra/agent")));
-            row.push(truncate(cell(agent.get("title")), MAX_TITLE));
+            row.push(agent_name(agent));
+            row.push(truncate(
+                agent
+                    .get("title")
+                    .or_else(|| agent.get("name"))
+                    .map_or_else(|| "-".to_owned(), human_cell),
+                MAX_TITLE,
+            ));
             row.push(agent["cwd"].as_str().map_or_else(|| "-".to_owned(), |cwd| folder(cwd, home)));
-            row.push(cell(agent.get("terminal_id")));
+            row.push(cell(agent.get("terminal_id").or_else(|| agent.get("address"))));
             row
         })
         .collect::<Vec<_>>();
@@ -226,7 +386,19 @@ fn state_of(agent: &Value) -> &str {
 }
 
 fn id_of(agent: &Value) -> &str {
-    agent.get("id").and_then(Value::as_str).unwrap_or_default()
+    agent
+        .get("id")
+        .and_then(Value::as_str)
+        .or_else(|| agent.get("address").and_then(Value::as_str))
+        .unwrap_or_default()
+}
+
+fn agent_name(agent: &Value) -> String {
+    agent
+        .pointer("/extra/agent")
+        .and_then(Value::as_str)
+        .or_else(|| agent.get("agent").and_then(Value::as_str))
+        .map_or_else(|| "-".to_owned(), str::to_owned)
 }
 
 /// `updated_at_ms` is a decimal string on the wire.

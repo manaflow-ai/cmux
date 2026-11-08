@@ -20,12 +20,11 @@ extension ChatsFeed {
             return nil
         }
         // An acpmux peer that connects later in the launch gets the app's build too.
-        let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath,
+        let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath, lanes: services.agentLanes,
                                                                    peerSessionChanged: { [updates = services.daemonUpdates] in updates.peerSessionChanged($0, stale: $1) })
         AgentTurnStateFeed.shared = turns
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
-        // A deleted chat's uploads go with it; any past their age at launch (``AgentChatUploads``).
-        AgentTurnStateFeed.purged = { AgentChatUploads.removeInBackground(session: $0) }
+        // Chat uploads the app wrote go once past their age, at launch (``AgentChatUploads``).
         AgentChatUploads.sweepInBackground()
         let localHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
         turns.start(localHost: localHost)
@@ -34,7 +33,7 @@ extension ChatsFeed {
         let feed = ChatsFeed(socketPath: environment.socketPath, drained: { DebugTimings.chatsFeedApplied(lines: $0, $1) })
         // The session tree's chat history: two windows acpmux keeps (never the whole index); rows
         // open through the shared Open Chat path.
-        SidebarChatHistoryFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost,
+        SidebarChatHistoryFeed.shared.start(liveTabs: { services.machines.daemons.flatMap { $0.store.liveTabs } }, localHost: localHost,
                                             open: { [weak services] key in services?.chatsOpener.open(key) }, windows: feed.windows)
         return feed
     }

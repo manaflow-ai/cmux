@@ -4,11 +4,8 @@
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Thinking } from "../../src/agent-session/acpmux/conversation/Thinking";
-import {
-  WorkingCountsContext,
-  WorkingFor,
-  type WorkingCounts,
-} from "../../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingFor } from "../../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext, type WorkingCounts } from "../../src/agent-session/acpmux/conversation/workingForModel";
 import type { AcpmuxRow, TurnTokenSplit } from "../../src/agent-session/acpmux/model";
 
 const START = Date.UTC(2026, 9, 21, 9, 0, 0);

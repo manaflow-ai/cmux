@@ -184,10 +184,10 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
     }
 
-    /// `cloud enroll-machine --ssh-key FILE`: this Mac's ssh public key (default `~/.ssh/id_ed25519.pub`).
-    static var sshKeyString: ActionArgument {
-        ActionArgument(name: "sshKey", title: String(localized: "argument.sshKey", defaultValue: "SSH Public Key", bundle: .module),
-                       kind: .string, isRequired: false)
+    /// `cloud resize-machine --disk GIB`: the disk's new size in whole GiB (4 GiB steps up to 256, grow-only).
+    static var diskGiBInt: ActionArgument {
+        ActionArgument(name: "disk", title: String(localized: "argument.diskGiB", defaultValue: "Disk (GiB)", bundle: .module),
+                       kind: .int(4...256), isRequired: false)
     }
 
     /// `cloud new-machine --size small|medium|large|xlarge`: plain text, not a choice, so New Cloud
@@ -216,6 +216,12 @@ nonisolated enum CatalogArgument {
     }
 
     /// `cloud new-machine --repo OWNER/NAME[@REF]`: the GitHub repository the machine clones.
+    /// `cloud new-machine --environment ID|NAME`: the Cloud environment the new machine boots in.
+    static var environmentString: ActionArgument {
+        ActionArgument(name: "environment", title: String(localized: "argument.environment", defaultValue: "Cloud Environment", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var repoString: ActionArgument {
         ActionArgument(name: "repo", title: String(localized: "argument.repo", defaultValue: "Repository", bundle: .module),
                        kind: .string, isRequired: false)
@@ -279,18 +285,6 @@ nonisolated enum CatalogArgument {
                        isRequired: false)
     }
 
-    /// `cloud share-machine --teammate USER_ID`: the teammate whose chats on the machine change.
-    static var teammateString: ActionArgument {
-        ActionArgument(name: "teammate", title: String(localized: "argument.teammate", defaultValue: "Teammate", bundle: .module),
-                       kind: .string, isRequired: false)
-    }
-
-    /// `cloud share-machine --teammate USER_ID --revoke`: take the teammate's share back.
-    static var revokeBool: ActionArgument {
-        ActionArgument(name: "revoke", title: String(localized: "argument.revoke", defaultValue: "Revoke", bundle: .module),
-                       kind: .bool, isRequired: false)
-    }
-
     static var onBool: ActionArgument {
         ActionArgument(name: "on", title: String(localized: "argument.on", defaultValue: "On", bundle: .module), kind: .bool)
     }
@@ -306,7 +300,7 @@ nonisolated enum CatalogArgument {
     }
 
     static var channelChoice: ActionArgument {
-        ActionArgument(name: "channel", title: String(localized: "argument.channel", defaultValue: "Channel", bundle: .module), kind: .enumeration([choice("stable"), choice("nightly")]))
+        ActionArgument(name: "channel", title: String(localized: "argument.channel", defaultValue: "Channel", bundle: .module), kind: .enumeration([choice("stable"), choice("nightly"), choice("dev")]))
     }
 
     static var topicString: ActionArgument {
@@ -393,6 +387,7 @@ nonisolated enum CatalogArgument {
         case "xlarge": String(localized: "argument.value.xlarge", defaultValue: "Extra Large", bundle: .module)
         case "stable": String(localized: "argument.value.stable", defaultValue: "Stable", bundle: .module)
         case "nightly": String(localized: "argument.value.nightly", defaultValue: "Nightly", bundle: .module)
+        case "dev": String(localized: "argument.value.dev", defaultValue: "DEV", bundle: .module)
         case "right": String(localized: "argument.value.right", defaultValue: "Right", bundle: .module)
         case "down": String(localized: "argument.value.down", defaultValue: "Down", bundle: .module)
         case "left": String(localized: "argument.value.left", defaultValue: "Left", bundle: .module)
@@ -413,17 +408,10 @@ nonisolated enum CatalogArgument {
                               suggestions: ActionSuggestions(source: "browserFit", pinned: pinned))
     }
 
-    /// How Open Desktop shows a Cloud machine's screen (`cloudOpenDesktop`): `web`, its noVNC
-    /// page in a Chromium tab (the default); `native`, the remote view pane straight to the
-    /// machine's VNC server over the app's Cloud tunnel; or `rd`, the pane showing the machine's
-    /// `cmux-rd` host (H.264) over its daemon link.
+    /// How Open Desktop shows a Cloud machine's screen (`cloudOpenDesktop`): `rd`, the remote view
+    /// pane on the machine's `cmux-rd` host over the carrier, its only viewer.
     static var desktopViewerChoice: ActionArgument {
-        var cases = [ActionEnumCase(value: "web", title: String(localized: "argument.value.viewerWeb", defaultValue: "Browser", bundle: .module))]
-        #if DEBUG
-        // The remote view pane is development-only (RemoteViewAvailability).
-        cases.append(ActionEnumCase(value: "native", title: String(localized: "argument.value.viewerNative", defaultValue: "Native", bundle: .module)))
-        cases.append(ActionEnumCase(value: "rd", title: String(localized: "argument.value.viewerRd", defaultValue: "Video Stream", bundle: .module)))
-        #endif
+        let cases = [ActionEnumCase(value: "rd", title: String(localized: "argument.value.viewerRd", defaultValue: "Video Stream", bundle: .module))]
         return ActionArgument(name: "viewer", title: String(localized: "argument.viewer", defaultValue: "Viewer", bundle: .module),
                               kind: .enumeration(cases), isRequired: false)
     }

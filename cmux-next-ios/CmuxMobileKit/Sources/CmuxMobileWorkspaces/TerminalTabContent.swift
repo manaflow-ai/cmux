@@ -35,7 +35,12 @@ public struct TerminalTabContext {
 @MainActor
 public protocol TerminalTabContent: AnyObject {
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView
+    /// The tab's grid card. Read in a card's body: no host, session or
+    /// request is made here once `prepareCard` ran for the tab.
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView
+    /// Makes what the tab's card shows (its host, its first screen read),
+    /// outside any view update: when the tab is listed and when the grid opens.
+    func prepareCard(for tab: WorkspaceTab, in workspace: Workspace)
     func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView?
     /// The terminal's own actions, shown first in the tab's page menu
     /// (TabsKit owns the toolbar, so this is where the keyboard toggle,
@@ -58,6 +63,9 @@ public protocol TerminalTabContent: AnyObject {
     func overviewScrollingChanged(_ scrolling: Bool)
     /// A new terminal tab or workspace: put the keyboard up on its composer.
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace)
+    /// New Tab from Text's `!command`: the command waits in the terminal's composer, typed and
+    /// not run (the Mac's `newTab.submit` types it into the new terminal), with the keyboard up.
+    func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace)
     /// Replaces the title pill's subtitle (the working directory) while the
     /// tab's state matters more, e.g. "Reattaching…" after a slow reattach
     /// (design/terminal P5). Nil keeps the directory. Read during view
@@ -68,12 +76,14 @@ public protocol TerminalTabContent: AnyObject {
 extension TerminalTabContent {
     public func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView? { nil }
     public func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] { [] }
+    public func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func overviewWillAppear(active tab: WorkspaceTab) {}
     public func overviewWillAppear(inactive tabs: [WorkspaceTab]) {}
     public func showsStaticCard(for tab: WorkspaceTab) -> Bool { false }
     public func overviewVisibilityChanged(_ visible: Bool, tabs: @escaping @MainActor () -> [WorkspaceTab]) {}
     public func overviewScrollingChanged(_ scrolling: Bool) {}
     public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
+    public func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) {}
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
 }
 

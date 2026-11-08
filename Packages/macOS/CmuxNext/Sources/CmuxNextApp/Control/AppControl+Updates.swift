@@ -30,23 +30,6 @@ extension AppControl {
                       let value = try? JSONValue.parse(data) else { return .value(.null) }
                 return .value(value)
             },
-            // `{build?, check?}`: rolls back to a kept build, or with check
-            // only reports whether it would. Both daemons' stores count: the
-            // app's and the Chief conversation owner's.
-            .mainActor("updates.rollback") { call in
-                let build = call.params["build"]?.stringValue
-                let check = call.params["check"]?.boolValue == true
-                let stateDirectories = appServices.environment.daemonStateDirectories
-                return .followUp {
-                    do {
-                        let kept = try await UpdateDropBack(updater).run(to: build, checkOnly: check, stateDirectories: stateDirectories)
-                        return check ? .object(["allowed": true, "build": .string(kept.build)]) : .object(["rolled_back_to": .string(kept.build)])
-                    } catch let refusal as RollbackRefusal {
-                        if check { return .object(["allowed": false, "reason": .string(refusal.message)]) }
-                        throw ControlError(code: "rollback_refused", message: refusal.message)
-                    }
-                }
-            },
             .mainActor("updates.check") { call in
                 let probe = updater.probe()
                 // Answer inside the 2 s control deadline. A slower feed leaves
@@ -68,7 +51,8 @@ extension AppControl {
                     }
                 }
             },
-        ] + WebUpdates.shared.controlMethods)
+        ] + WebUpdates.shared.controlMethods
+            + UpdateBuildControl(updater: updater, stateDirectories: { appServices.environment.daemonStateDirectories }).methods)
         // DEV and NIGHTLY (classic or NEXT) only: a test appcast for every check
         // (signatures still required). `{url: null}` returns to the real feed.
         if updater.identity.track.allowsTestFeed {

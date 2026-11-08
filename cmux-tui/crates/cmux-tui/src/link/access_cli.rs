@@ -56,7 +56,8 @@ const USAGE: &str = "usage: cmux link access grant --socket PATH --machine ID --
        cmux link access revoke --machine ID --session ID [--socket PATH] (--all | FOLDER)
        cmux link access grants [--machine ID] [--session ID]
        cmux link access request [--socket PATH] [--session ID] [--reason TEXT] [--timeout SECONDS] (PATH | --secret NAME)
-       cmux link access upload --socket PATH --remote-root DIR FILE...
+       cmux link access upload --socket PATH --remote-root DIR [--upload-id ID] FILE...
+       cmux link access upload-cancel --socket PATH --remote-root DIR --upload-id ID
        cmux link access triage --socket PATH --machine ID --session ID [--session ID]...
        cmux link access answer --socket PATH --machine ID --session ID --request ID [--remote-root DIR] (--allow PATH --target PATH | --always PATH --target PATH --folder DIR | --share-secret NAME | --deny [--reason TEXT])
          (--share-secret reads the value from stdin, byte for byte: no newline is removed)";
@@ -155,6 +156,7 @@ struct Args {
     machine: Option<String>,
     session: Option<String>,
     remote_root: Option<String>,
+    upload_id: Option<String>,
     mode: Option<String>,
     all: bool,
     positional: Vec<String>,
@@ -199,6 +201,7 @@ fn parse(args: &[String]) -> Option<Args> {
             "--secret" => parsed.secret = Some(rest.next()?.clone()),
             "--share-secret" => parsed.share_secret = true,
             "--remote-root" => parsed.remote_root = Some(rest.next()?.clone()),
+            "--upload-id" => parsed.upload_id = Some(rest.next()?.clone()),
             "--mode" => parsed.mode = Some(rest.next()?.clone()),
             "--all" => parsed.all = true,
             flag if flag.starts_with('-') => return None,
@@ -247,6 +250,10 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     // A secret flag means nothing to any other action: refuse it.
     if (args.secret.is_some() && action != "request") || (args.share_secret && action != "answer") {
+        eprintln!("{USAGE}");
+        return 64;
+    }
+    if args.upload_id.is_some() && !matches!(action.as_str(), "upload" | "upload-cancel") {
         eprintln!("{USAGE}");
         return 64;
     }
@@ -314,7 +321,23 @@ pub(super) fn run(args: &[String]) -> i32 {
                 eprintln!("{USAGE}");
                 return 64;
             };
-            uploads::upload(socket, &root, positional)
+            uploads::upload_with_id(socket, &root, positional, args.upload_id.as_deref())
+        }
+        (
+            "upload-cancel",
+            Args {
+                socket: Some(socket),
+                remote_root: Some(root),
+                upload_id: Some(id),
+                positional,
+                ..
+            },
+        ) if positional.is_empty() => {
+            let Some(root) = grants::remote_root(root) else {
+                eprintln!("{USAGE}");
+                return 64;
+            };
+            uploads::cancel(socket, &root, id)
         }
         (
             "triage",
@@ -400,7 +423,7 @@ fn outdated_line(action: &str, socket: Option<&Path>) -> Option<Value> {
         "triage" | "answer" => {
             cmux_tui_core::server::agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY
         }
-        "grant" | "sync" | "upload" => cmux_tui_core::fs_ops::FS_CAPABILITY,
+        "grant" | "sync" | "upload" | "upload-cancel" => cmux_tui_core::fs_ops::FS_CAPABILITY,
         _ => return None,
     };
     super::machine_gate::outdated(socket?, &[needed]).map(|outdated| outdated.line())

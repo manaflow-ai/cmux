@@ -45,7 +45,10 @@ pub(in crate::cli) fn run(global: &GlobalArgs, words: &[String]) -> Option<i32> 
             })
         }
         [target, verb, flags @ ..] if verb == "send" => Some(match parse_send(target, flags) {
-            Ok(request) => send_command(global, &request),
+            Ok(mut request) => {
+                request.idempotency_key = global.idempotency_key.clone();
+                send_command(global, &request)
+            }
             Err(error) => usage(global, &error),
         }),
         _ => None,
@@ -173,7 +176,7 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
                     humantime(request.timeout)
                 );
             } else if receipt["state"] == "waiting-for-input" {
-                eprintln!("cmux: the agent now waits on a dialog (agents_dialog_list shows it)");
+                eprintln!("cmux: the agent now waits on a dialog (terminal screen read shows it)");
             }
         }
         OutputMode::Quiet => {}

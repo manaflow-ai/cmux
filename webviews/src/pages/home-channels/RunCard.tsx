@@ -4,19 +4,23 @@
 // sheet. Tool calls and thoughts draw with the agent pane's own rows (ToolRows), so a run reads the
 // same here as in the agent pane.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { RunTranscript } from "./RunTranscript";
+import { usePageNow } from "../../ui/pageClock";
+import { runBlocks } from "./runBlocks";
+export { runBlocks } from "./runBlocks";
+import type { Presentation } from "./presentation";
 import { RunMessage } from "./RunMessage";
-import { RunMessageCache, stepActivity } from "./runMessages";
+import { RunMessageCache } from "./runMessages";
 export { stepActivity } from "./runMessages";
 import { AgentNamesContext } from "../../agent-session/acpmux/conversation/agentNames";
 import { ChevronRight } from "../../agent-session/acpmux/conversation/icons";
-import { ToolRows } from "../../agent-session/acpmux/conversation/TurnRows";
+import { HomeToolGroup } from "./HomeToolGroup";
 import { formatDuration } from "../../agent-session/acpmux/conversation/turns";
-import type { AcpmuxActivity, AcpmuxRow } from "../../agent-session/acpmux/model";
 import type { Strings } from "../shared/i18n";
 import { liveReply, tail, useLiveRun, type LiveBook } from "./live";
 import { isStale, runTokens, useLiveRuns, useRunEntry, type RunBook, type RunEntry } from "./runs";
 import { Avatar } from "./Avatar";
-import type { HomeMessage, HomeParticipant, HomeRun, HomeRunStep } from "./types";
+import type { HomeMessage, HomeParticipant, HomeRun } from "./types";
 
 /** How many of a run's newest steps the card shows. */
 const CARD_STEPS = 3;
@@ -28,58 +32,10 @@ export function participantNames(people?: ReadonlyMap<string, HomeParticipant>):
   return new Map([...people].map(([id, participant]) => [id, participant.name]));
 }
 
-/** Consecutive tool steps as one agent-pane activity row; text and thought steps between them. */
-export type RunBlock =
-  | { kind: "tools"; key: string; row: AcpmuxRow }
-  | { kind: "talk"; key: string; step: HomeRunStep }
-  | { kind: "thought"; key: string; step: HomeRunStep }
-  | { kind: "note"; key: string; step: HomeRunStep };
-
-export function runBlocks(run: HomeRun, steps: readonly HomeRunStep[]): RunBlock[] {
-  const blocks: RunBlock[] = [];
-  let items: AcpmuxActivity[] = [];
-  let first: HomeRunStep | undefined;
-  const flush = () => {
-    if (!first || items.length === 0) return;
-    blocks.push({
-      kind: "tools",
-      key: `tools-${first.id}`,
-      row: {
-        id: `${run.id}:${first.id}`,
-        version: run.rev,
-        at: first.at,
-        kind: "activity",
-        items,
-        // Every call on its own row: a run is read step by step, never folded into one line.
-        settled: false,
-      },
-    });
-    items = [];
-    first = undefined;
-  };
-  for (const step of steps) {
-    if (step.kind === "tool") {
-      first ??= step;
-      items.push(stepActivity(step));
-    } else {
-      flush();
-      blocks.push({ kind: step.kind, key: step.id, step });
-    }
-  }
-  flush();
-  return blocks;
-}
-
-/** Ticks once a second while `running` (the "Working for" clock); a finished run holds still. */
+/** Ticks once a second while `running` (the "Working for" clock); a finished run holds still.
+ * Every card shares the page's one second clock, which stops while the page is hidden. */
 export function useNow(running: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!running) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  return now;
+  return usePageNow(running);
 }
 
 /** "Working for 42s" / "Worked for 1m 12s" / "Failed after 8s" / "Stopped after 3s", or
@@ -143,6 +99,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
     [messageCache, steps, run.conversation, run.author, run.id],
   );
   const shown = useMemo(() => (open ? runBlocks(run, work.slice(-CARD_STEPS)) : []), [open, run, work]);
+  const stepsById = useMemo(() => new Map(steps.map((step) => [step.id, step])), [steps]);
   const count = run.stepCount;
   // Tokens, not dollars: most runs go through a subscription or a router, where the harness's dollar
   // figure (pay-per-token API prices) is not what anyone pays. The run sheet keeps it, labelled.
@@ -165,7 +122,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
               {tokens && <span className="lg-run-meta">{strings.format("run.tokens", tokens)}</span>}
             </span>
           )}
-          <ChevronRight size={14} strokeWidth={1.2} className={`lg-run-chevron cv-rotor${open ? " is-open" : ""}`} />
+          <ChevronRight size={14} className={`lg-run-chevron cv-rotor${open ? " is-open" : ""}`} />
         </button>
         <button type="button" className="lg-link-button lg-run-open" onClick={() => onOpen(run)}>
           {strings.t("run.open")}
@@ -197,9 +154,16 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
           {count > shown.length && <p className="lg-run-more">{strings.t("run.earlier")}</p>}
           {shown.map((block) =>
             block.kind === "tools" ? (
-              <AgentNamesContext.Provider key={block.key} value={agentNames ?? EMPTY_AGENT_NAMES}>
-                <ToolRows row={block.row} />
-              </AgentNamesContext.Provider>
+              <HomeToolGroup
+                key={block.key}
+                row={block.row}
+                steps={(block.row.items ?? []).flatMap((item) => {
+                  const step = item.tool ? stepsById.get(item.tool.id) : undefined;
+                  return step ? [step] : [];
+                })}
+                agentNames={agentNames ?? EMPTY_AGENT_NAMES}
+                collapsed
+              />
             ) : null,
           )}
         </div>
@@ -215,6 +179,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
 
 /** What a message row needs to show runs: the page's run book and the sheet's actions. */
 export interface RunsContextValue {
+  presentation?: Presentation;
   book: RunBook;
   strings: Strings;
   /** The participants by id: a card shows its author's picture. */
@@ -231,29 +196,46 @@ export const RunsContext = createContext<RunsContextValue | undefined>(undefined
 
 /** The runs of one message row: the run its reply ended (an agent's message), then the runs
  * still working on it (or that ended with no reply). */
-export function MessageRuns({ message }: { message: HomeMessage }) {
+export function MessageRuns({
+  message,
+  placement = "after",
+}: {
+  message: HomeMessage;
+  placement?: "before" | "after";
+}) {
   const context = useContext(RunsContext);
   const reply = useRunEntry(context?.book, (book) => book.forReply(message));
-  const live = useLiveRuns(context?.book, message);
+  const live = useLiveRuns(context?.book, message, context?.presentation === "transcript");
   const names = useMemo(() => participantNames(context?.people), [context?.people]);
   if (!context || (!reply && live.length === 0)) return null;
-  const card = (entry: RunEntry) => (
-    <RunCard
-      key={`${entry.run.author}:${entry.run.id}`}
-      entry={entry}
-      author={context.people?.get(entry.run.author)}
-      strings={context.strings}
-      onOpen={context.onOpen}
-      onLoad={context.onLoad}
-      live={context.live}
-      draftTurn={context.draftTurn}
-      agentNames={names}
-    />
-  );
+  const transcript = context.presentation === "transcript";
+  if (placement === "before" && !transcript) return null;
+  const card = (entry: RunEntry) =>
+    transcript ? (
+      <RunTranscript
+        key={`${entry.run.author}:${entry.run.id}`}
+        entry={entry}
+        strings={context.strings}
+        onLoad={context.onLoad}
+        agentNames={names}
+      />
+    ) : (
+      <RunCard
+        key={`${entry.run.author}:${entry.run.id}`}
+        entry={entry}
+        author={context.people?.get(entry.run.author)}
+        strings={context.strings}
+        onOpen={context.onOpen}
+        onLoad={context.onLoad}
+        live={context.live}
+        draftTurn={context.draftTurn}
+        agentNames={names}
+      />
+    );
   return (
     <>
-      {reply && card(reply)}
-      {live.filter((entry) => entry !== reply).map(card)}
+      {reply && (transcript ? placement === "before" : placement === "after") && card(reply)}
+      {placement === "after" && live.filter((entry) => entry !== reply).map(card)}
     </>
   );
 }

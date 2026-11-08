@@ -16,7 +16,7 @@ struct AgentPaneSandboxRunTests {
 
     private static func pane(_ runs: Runs, sessionId: String? = nil) -> AgentPaneModel {
         let model = AgentPaneModel(host: NoHost(), sessionId: sessionId)
-        model.onSandboxRun = { task, _, _ in
+        model.onSandboxRun = { task, _, _, _ in
             runs.tasks.append(task)
             return AgentPaneReply.success(["receipt": ["status": "succeeded"], "runId": "run-1"])
         }
@@ -175,7 +175,7 @@ struct AgentPaneSandboxRunTests {
         // Through the pane: no start while the App's runner runs, and the gate opens once it answers.
         let model = AgentPaneModel(host: NoHost(), sessionId: nil)
         let seen = Seen()
-        model.onSandboxRun = { [replacements = model.transport.replacements] _, _, _ in
+        model.onSandboxRun = { [replacements = model.transport.replacements] _, _, _, _ in
             seen.startAllowed = replacements.sending(method: "session/new", connection: 9)
             return AgentPaneReply.success(["receipt": ["status": "succeeded"]])
         }
@@ -221,6 +221,39 @@ struct AgentPaneSandboxRunTests {
         #expect(!replacements.refuses(method: nil))
         replacements.endSandbox()
         #expect(!replacements.refuses(method: "session/new"))
+    }
+
+    @MainActor private final class Window { var closed = false; var incognito = false; var seen: [Bool] = [] }
+
+    @Test func theRunKeepsTheIncognitoStateItsSendWasIssuedWith() async {
+        // #31109: the tab closes while the send line drains. The App's read answers "incognito" for a
+        // page no tab holds, so a read after the drain would take a normal tab's Run as incognito.
+        for incognito in [false, true] {
+            let window = Window()
+            window.incognito = incognito
+            let model = AgentPaneModel(host: NoHost(), sessionId: nil)
+            model.sendIsIncognito = {
+                defer { window.closed = true } // the tab closes right after the send is issued
+                return window.closed || window.incognito
+            }
+            model.onSandboxRun = { _, _, _, incognito in
+                window.seen.append(incognito)
+                return AgentPaneReply.success(["receipt": ["status": "succeeded"]])
+            }
+            model.transport.gestures.record()
+            _ = await model.respond(to: Self.run("go"))
+            #expect(window.seen == [incognito])
+        }
+        // A pane the App never told is taken as incognito.
+        let untold = AgentPaneModel(host: NoHost(), sessionId: nil)
+        let window = Window()
+        untold.onSandboxRun = { _, _, _, incognito in
+            window.seen.append(incognito)
+            return AgentPaneReply.success(["receipt": ["status": "succeeded"]])
+        }
+        untold.transport.gestures.record()
+        _ = await untold.respond(to: Self.run("go"))
+        #expect(window.seen == [true])
     }
 
     @Test func aSandboxRunWaitsForTheSendLineToDrain() async {

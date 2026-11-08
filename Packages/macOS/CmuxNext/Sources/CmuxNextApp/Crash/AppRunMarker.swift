@@ -218,10 +218,23 @@ final class AppRunMarker {
     /// Encodes the marker (about 120 bytes, up to about 2 KB with a `CrashContext`) and hands it to the background
     /// writer.
     private func writeMarker() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        do { lastTicket = file.submit(try encoder.encode(marker)) } catch {
-            logger.error("run marker encode failed: \(String(describing: error), privacy: .public)")
+        let ticket = file.submit(encoding: Self.encoding(marker))
+        if ticket != 0 { lastTicket = ticket }
+    }
+
+    /// The marker's bytes, made when the file asks for them: the context's footprint (a `task_info` that waits for
+    /// the kernel's VM map) is read then, so the snapshot taken on the main actor never reads it.
+    nonisolated static func encoding(_ marker: PreviousRun, footprint: @escaping @Sendable () -> Int = { CrashContext.footprintMegabytes() },
+                                     logger: Logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")) -> RunMarkerFile.Encode {
+        {
+            var marker = marker
+            marker.context?.footprintMegabytes = footprint()
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .secondsSince1970
+            do { return try encoder.encode(marker) } catch {
+                logger.error("run marker encode failed: \(String(describing: error), privacy: .public)")
+                return nil
+            }
         }
     }
 

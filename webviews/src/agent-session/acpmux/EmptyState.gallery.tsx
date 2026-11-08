@@ -30,7 +30,9 @@ const open: Play = async (ctx) => {
 const search: Play = async (ctx) => {
   await open(ctx);
   await ctx.type("api");
-  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === 1);
+  // The pinned actions (No folder, + Add folder…) stay above the results while
+  // searching (#26536); the search filters only the scrolling list under them.
+  await ctx.waitFor(() => ctx.document.querySelectorAll('.ui-combobox-scroll [role="option"]').length === 1);
 };
 
 export default componentEntry<Props>({
@@ -54,17 +56,17 @@ export default componentEntry<Props>({
       props: { project: "cmux", picker: picker("/Users/you/src/cmux") },
     },
     open: {
-      note: "Search, this Mac's projects (the current one checked), other machines' folders with a globe and the machine's name, Do not work in a project, and + New project.",
+      note: "Search, this Mac's projects (the current one checked), other machines' folders with a globe and the machine's name, No folder, and + Add folder….",
       props: { project: "cmux", picker: picker("/Users/you/src/cmux") },
       play: open,
     },
     "no-project": {
-      note: "No project: the question has no folder and a quiet Choose project sits under it; Do not work in a project is checked.",
+      note: "No project: the question has no folder and a quiet Choose folder sits under it; No folder is checked.",
       props: { picker: picker() },
       play: open,
     },
     search: {
-      note: "Typing filters projects and machines; Do not work in a project leaves the list while searching.",
+      note: "Typing filters projects and machines; the pinned No folder and + Add folder… stay above the results while searching.",
       props: { project: "cmux", picker: picker("/Users/you/src/cmux") },
       play: search,
     },

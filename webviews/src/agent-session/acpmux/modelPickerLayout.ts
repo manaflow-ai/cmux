@@ -1,7 +1,8 @@
 // The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
 import type { AcpmuxSnapshot } from "./model";
-import type { Choice, Combo } from "./ComposerPickers";
+import type { Choice, Combo } from "./composerPickerModel";
 import type { QuickMenuExtras } from "./QuickModelMenu";
+import type { UsedLook } from "./quickModelMenuModel";
 import type { PickerProfile } from "./pickerProfiles";
 import type { SessionAuth } from "./sessionAuth";
 
@@ -9,9 +10,13 @@ import type { SessionAuth } from "./sessionAuth";
 /// once the agent reports that model) and `onEffort`.
 export type ModelPickerProps = {
   /// `top`: the harness's own model-menu order, when reported; other models fold under More models.
-  catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[] })[];
+  /// `notInstalled`: a catalog harness this machine does not have; it lists, its models cannot start.
+  catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[]; notInstalled?: true })[];
   harness?: string;
   model?: string;
+  /** The model the chip names before the session reports one (the harness default, or the last
+   *  pick): the model menu checks it and its level as the running model. */
+  predictedModel?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
   /// The current chat or New Tab target's auth, never host-wide cached health.
@@ -73,10 +78,22 @@ export type ModelPickerProps = {
   /// yet leaves it unset and keeps the whole rail.
   harnessFixed?: boolean;
   /// With `harnessFixed`, the started chat can fork to another harness (Leo 2026-10-22: "need to be
-  /// able to switch to different harnesses, can expose as fork"): the compact menu keeps the whole
-  /// rail, and another harness's tab, or another account of the chat's own, offers Fork to it.
-  /// `to` gets the acpmux profile id; `ready` false (a turn running, a queued prompt) disables it.
-  fork?: { to(harness: string): void; ready: boolean };
+  /// able to switch to different harnesses, can expose as fork"). The menus then list the models of
+  /// the chat's own harness and of each profile in `targets` (continueTargets), browsable and
+  /// pickable as a New Tab's (Leo 2026-11-06: "it should only need to necessarily fork when you
+  /// enter a message on that new model"): a pick of another harness's model goes through
+  /// `onCombo`, which holds it for the next message (forkHold.ts), and a launch route (another
+  /// account of any harness) through `hold`, with the acpmux profile id. `held`: the held pick,
+  /// which the chip draws with a fork mark and the menus check, `harness` its acpmux id, `name` its
+  /// harness's name. `used`: how the menus mark what the chat ran (QuickModelMenu UsedMark); the
+  /// gallery compares versions, the composer draws `glyph`.
+  fork?: {
+    targets: ReadonlySet<string>;
+    /// `name`: the launch route's label in the menu, for a profile with no catalog entry of its own.
+    hold(harness: string, name?: string): void;
+    held?: { harness: string; model?: string; effort?: string; fast?: boolean; name: string };
+    used?: UsedLook;
+  };
   /// The installed acpmux profiles each catalog entry stands for, by its id (pickerProfiles.ts): the
   /// launch configurations shown as named harness entries. An entry with none listed is its own profile.
   profiles?: Readonly<Record<string, readonly PickerProfile[]>>;

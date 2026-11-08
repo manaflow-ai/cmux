@@ -11,6 +11,11 @@ public import AppKit
 /// 2026-10-29), and the omnibar's address moved 1 pt on every focus. This cell lays both out
 /// with the editor's TextKit path, in the editor's text container geometry.
 ///
+/// The line starts where the editor's does: while the field edits, at the editor's own text
+/// container origin; at rest, at the origin of the title rect of the control's bounds, where AppKit
+/// puts that editor in a borderless field, at the top of a field taller than its line. A fixed 3 pt shift left of the title rect put the palette's placeholder 3 pt
+/// left of the caret, which then cut into its "S" (Lawrence 2026-11-02).
+///
 /// The placeholder is ``drawnPlaceholder``, which the cell keeps from the field editor (the
 /// editor would draw its own copy at the string-drawing baseline). ``EditorAlignedTextField``
 /// routes `placeholderString` and `placeholderAttributedString` to it, and redraws the cell as the
@@ -22,10 +27,6 @@ public import AppKit
 /// field.placeholderString = "Search"
 /// ```
 open class EditorAlignedTextFieldCell: NSTextFieldCell {
-    /// How far left of the title rect AppKit puts the field editor's text origin, before the
-    /// editor's text container adds its line fragment padding.
-    public static let editorLeadingOutset: CGFloat = 3
-
     /// The placeholder this cell draws while the field is empty, editing or not. Nil draws none
     /// of its own (an AppKit placeholder set on the cell, if any, then draws as AppKit does).
     public var drawnPlaceholder: NSAttributedString? {
@@ -62,7 +63,8 @@ open class EditorAlignedTextFieldCell: NSTextFieldCell {
             // The editor draws typed text; the cell draws the placeholder under an empty editor.
             super.drawInterior(withFrame: cellFrame, in: controlView)
             if editor.string.isEmpty, let drawnPlaceholder, drawnPlaceholder.length > 0 {
-                drawLine(drawnPlaceholder, in: cellFrame, padding: editor.textContainer?.lineFragmentPadding)
+                drawLine(drawnPlaceholder, at: editor.convert(editor.textContainerOrigin, to: controlView), in: cellFrame,
+                         padding: editor.textContainer?.lineFragmentPadding)
             }
             return
         }
@@ -73,15 +75,15 @@ open class EditorAlignedTextFieldCell: NSTextFieldCell {
         }
         let editorPadding = (fieldEditor(for: controlView) ?? controlView.window?.fieldEditor(false, for: controlView) as? NSTextView)?
             .textContainer?.lineFragmentPadding
-        drawLine(text, in: cellFrame, padding: editorPadding)
+        // The control's own bounds, not `cellFrame`: in a field taller than its line AppKit passes a
+        // vertically centered frame, but puts the editor at the top.
+        drawLine(text, at: titleRect(forBounds: controlView.bounds).origin, in: cellFrame, padding: editorPadding)
     }
 
-    /// Lays `text` out as the field editor would and draws it.
-    private func drawLine(_ text: NSAttributedString, in cellFrame: NSRect, padding: CGFloat?) {
-        var origin = titleRect(forBounds: cellFrame).origin
-        origin.x -= Self.editorLeadingOutset
-        // AppKit's shared field editor pads its line by 5 points.
-        restContainer.lineFragmentPadding = padding ?? 5
+    /// Lays `text` out as the field editor would, its text container at `origin`, and draws it.
+    private func drawLine(_ text: NSAttributedString, at origin: NSPoint, in cellFrame: NSRect, padding: CGFloat?) {
+        // AppKit's field editor pads its line by 2 points a side.
+        restContainer.lineFragmentPadding = padding ?? 2
         restContainer.size = NSSize(width: max(0, cellFrame.maxX - origin.x), height: .greatestFiniteMagnitude)
         restStorage.setAttributedString(text)
         let glyphs = restLayout.glyphRange(for: restContainer)

@@ -155,14 +155,7 @@ fn the_link_token_is_its_own_op_that_the_app_does_not_consume() {
     assert!(!info.contains("link_token"), "connect_info carries no token");
 }
 
-/// KNOWN ISSUE (review P1 of step 3b; owner: the apps Rust lane, generator fix in a cmux-tui
-/// window): `gen-cmux-global` gives `cloud.machine.link_token` the app scope `cloud:execute`
-/// (`scopeFor` reads only the risk), so an app with a shell grant could mint dial tokens. Only
-/// `cmux link` may call it (decision LINK-TOKEN-OP). No route sends app `cloud.*` calls to the
-/// backend yet; the generator fix must land before the first one does. Remove the `ignore` when
-/// the generated `never` list holds the op; `cargo test -- --ignored` shows it red until then.
 #[test]
-#[ignore = "known issue: link_token not yet in the app global never list (apps Rust lane generator fix)"]
 fn link_token_is_never_reachable_from_an_app() {
     let generated = app_dir().join("../../cmux-tui/crates/cmux-app-host/generated/scopes.json");
     let scopes = json(&generated);
@@ -236,4 +229,20 @@ fn error_codes(manifest: &Value) -> Vec<&'static str> {
         .filter(|i| i.severity == Severity::Error)
         .map(|i| i.code)
         .collect()
+}
+
+/// Every Cloud machine link's carrier and `cmux link dial` child live in this
+/// server process. With no `idleStopSeconds` the supervisor's onDemand default
+/// stops the server 60 s after its last op result, which ended every open
+/// machine link about once a minute (VM streams ended 59.2-60.0 s after
+/// accept, cmuxterm-hq run 42421794206). The server never idle-stops; it
+/// ends with the app.
+#[test]
+fn the_cloud_server_never_idle_stops_while_it_carries_machine_links() {
+    let manifest = json(&app_dir().join("cmux-app.v2.json"));
+    assert_eq!(
+        manifest["server"]["lifecycle"]["idleStopSeconds"],
+        serde_json::json!(0),
+        "an idle stop kills every carrier and drops every Cloud machine link"
+    );
 }

@@ -45,6 +45,8 @@ final class SettingsWindowService: InternalPageProvider {
     private var pendingRoute: String?
     /// A show that waits for a main window with a workspace.
     private var waiting: (section: SettingsSection?, setting: String?, focus: Bool, route: String?)?
+    /// Cached projection for the wallpaper grid in the host-lists payload.
+    var backdropRowsCache = BackdropCatalogPageRowsCache()
     var isWaiting: Bool { waiting != nil }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
@@ -117,7 +119,7 @@ final class SettingsWindowService: InternalPageProvider {
                 || content.workspace.screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == page.rawValue } } }
         }
         if let shown = window.content, holds(shown) { return }
-        let homeHidden = SidebarBridge.hidesHome(services.sidebarLayout.document)
+        let homeHidden = services.sidebarLayout.document.hidesHome
         let mounted = window.mountedContents.filter(holds).map(\.workspace)
         let members = services.windows.registry.members(of: window.state.id).compactMap { services.machines.workspace(id: $0)?.0 }
             .filter { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == page.rawValue } } } }

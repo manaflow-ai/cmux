@@ -43,7 +43,7 @@ on:
         default: false
         type: boolean
       target_set:
-        description: "Binary targets to build: all, macos (both macOS targets), macos-arm64, macos-x86_64, or windows (no Unix target: only the include_windows jobs)"
+        description: "Binary targets to build: all, linux (both Linux musl targets), macos (both macOS targets), macos-arm64, macos-x86_64, or windows (no Unix target: only the include_windows jobs)"
         required: false
         default: all
         type: string
@@ -136,11 +136,13 @@ env:
   # tests in cmux-tui-artifacts.yml (cmuxterm-hq#1279 item 1).
   CARGO_NET_RETRY: "10"
   CARGO_HTTP_TIMEOUT: "120"
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   plan-build:
     name: select binary targets
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -157,13 +159,15 @@ jobs:
           DARWIN_BUILDER: ${{ inputs.darwin_builder }}
           DARWIN_MAC_RUNNER: ${{ inputs.darwin_mac_runner }}
           # The binary legs on Linux run their cargo groups at once
-          # (scripts/ci/cargo-groups.sh), so they take 32 vCPU: on 4 (musl) and
-          # 8 (macOS cross) vCPU a leg took 20-46 min (runs 39336743829, 39337840188).
-          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-          LINUX_BUILD_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') }}
-          MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
-          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
-          LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm') }}
+          # (scripts/ci/cargo-groups.sh), so they take 16 vCPU: on 4 (musl) and
+          # 8 (macOS cross) vCPU a leg took 20-46 min (runs 39336743829, 39337840188),
+          # on 32 4.6-6.0 min (2026-10-30/31). 32 vCPU held the room of two 16 vCPU legs
+          # under Blacksmith's vCPU cap (.github/runners.json linux_sizes).
+          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
+          LINUX_BUILD_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16)) }}
+          MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
+          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16)) }}
+          LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || fromJSON(vars.RUNNER_POOLS).linux_arm64)) }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
         shell: bash
         run: |
@@ -234,6 +238,10 @@ jobs:
           target_set = os.environ["TARGET_SET"]
           if target_set == "all":
               selected = targets
+          elif target_set == "linux":
+              # cmux-tui-artifacts.yml builds Linux in its own call so the Cloud
+              # machine channel moves without waiting for the macOS legs.
+              selected = [target for target in targets if target["target"].endswith("-unknown-linux-musl")]
           elif target_set == "macos":
               selected = [target for target in targets if target["target"].endswith("-apple-darwin")]
           elif target_set == "macos-arm64":
@@ -341,6 +349,16 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # The Go libtailscale's go.mod asks for (go >= 1.27.1), as cmux-tui.yml's macOS job pins it.
+      # Not daemon/remote/go.mod: that is cmuxd-remote's exact Go (1.26.x), and setup-go
+      # sets GOTOOLCHAIN=local, so cmux-tailnet's build.rs then refused it.
+      - name: Install Go for the embedded tailnet archive
+        if: runner.os == 'macOS' || matrix.darwin_on_linux
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cmux-tui/crates/cmux-tailnet/go-version
+          cache: false
+
       - name: Install Rust target
         shell: bash
         run: rustup target add ${{ matrix.target }}
@@ -389,7 +407,23 @@ jobs:
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
+          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
+            $(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})
+
+      # Warm start for the Linux musl legs (.github/warm-sources.json: actions-cache):
+      # dependency builds keyed by the toolchain and Cargo.lock, so a new commit
+      # recompiles only the workspace crates (cmux-tui's group took 346 s cold,
+      # run 42381345286). Only feat-cmux-next pushes write it, and only when the
+      # key changes; a miss or a failed restore is a cold build, never a failure.
+      - name: Restore the Linux cargo cache
+        if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux
+        continue-on-error: true
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-linux-${{ matrix.target }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Build cmux-tui (Linux cross)
         if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux
@@ -457,7 +491,8 @@ jobs:
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
+          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
+            $(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})
 
       - name: Build cmux-cloud app server
         # The first-party Cloud app server (cmux/cloud) is its own Cargo
@@ -544,6 +579,7 @@ jobs:
           sha="$(git rev-parse HEAD)"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
           ./scripts/ci/macos-cross.sh toolchain "$XC_SDK_VERSION"
+          bash tests/test_tailnet_cross_link.sh
           # hosts and bins in one command: every cargo invocation at once.
           ./scripts/ci/macos-cross.sh all "$sha" "$ghostty" "$CMUX_TUI_DISTRIBUTION_VERSION"
 
@@ -743,7 +779,7 @@ jobs:
     # cmux-tui-artifacts.yml: a Windows failure must not block the macOS and
     # Linux tree; its publish jobs go on without the Windows daemon.
     continue-on-error: ${{ inputs.windows_optional }}
-    runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
+    runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-windows-2025' || fromJSON(vars.RUNNER_POOLS).windows) }}
     timeout-minutes: 60
     outputs:
       built: ${{ steps.built.outputs.built }}
@@ -934,7 +970,7 @@ jobs:
     name: build acpmux x86_64-pc-windows-gnu
     if: inputs.include_windows && inputs.windows_acpmux
     continue-on-error: true
-    runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
+    runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-windows-2025' || fromJSON(vars.RUNNER_POOLS).windows) }}
     timeout-minutes: 60
     env:
       CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
@@ -1001,7 +1037,7 @@ jobs:
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
     timeout-minutes: 30
     permissions:
       contents: read

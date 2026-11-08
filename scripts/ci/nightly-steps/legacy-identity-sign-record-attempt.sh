@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # nightly.yml sign-nightly-identity-legacy: "Record the attempt". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# What publish-nightly-identity-legacy needs to resolve the attempt:
+# Apple's answer (a notary log or a stapled ticket), a requirement
+# refusal, and whether every step here passed.
 set -euo pipefail
 apple=unknown
 if grep -Eq '"status" *: *"(Invalid|Rejected)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null; then

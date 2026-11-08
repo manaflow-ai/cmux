@@ -275,7 +275,7 @@ test("an unavailable side command keeps its draft and shows a side-specific refu
   await dispatch(field, key({ key: "Enter", keyCode: 13 }));
   expect(sent).toEqual([]);
   expect(field.textContent).toContain("/side");
-  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Use /side without arguments");
+  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Use /side in a chat on this Mac");
 });
 
 test("a synchronous import exception is visible in the existing chat composer", async () => {
@@ -383,7 +383,7 @@ test("an attachment-only Return waits for a pending image and sends it when read
 });
 
 test("a terminal-only spelling waits for its pending image and sends as an attachment prompt", async () => {
-  const page = await composer(chat(), "/login");
+  const page = await composer(chat(), "/logout");
   const file = new File([PNG], "pending.png", { type: "image/png" });
   const bytes = await file.arrayBuffer();
   let resolve!: (bytes: ArrayBuffer) => void;
@@ -403,7 +403,7 @@ test("a terminal-only spelling waits for its pending image and sends as an attac
   expect(page.sent).toEqual([]);
   expect(host.querySelector(".acpmux-attachment-note")).toBeNull();
   await act(async () => resolve(bytes));
-  expect(page.sent).toEqual([{ text: "/login", steer: false }]);
+  expect(page.sent).toEqual([{ text: "/logout", steer: false }]);
   expect(page.sentAttachments).toEqual([["pending.png"]]);
 });
 

@@ -100,14 +100,15 @@ enum RemoteStrings {
 
     // MARK: Status details (sidebar header tooltip, remote.machines)
 
+    static var staticInstallStaged: String { String(localized: "remote.status.staticInstallStaged", defaultValue: "A newer cmux build is staged for ~/.cmux/bin/cmux on this machine. It is installed the next time its session server starts; nothing running there was stopped.", table: "Remote", bundle: .module) }
     /// Why the machine is in its state, or nil when nothing needs saying.
     static func detail(_ session: SSHMachineSession) -> String? {
         switch session.linkStatus {
         case .offline:
             return String(localized: "remote.status.offline", defaultValue: "Disconnected. Choose Reconnect Machine to connect.", table: "Remote", bundle: .module)
         case .connecting, .connected:
-            if let failure = session.daemonFailure { return daemonFailed(failure.error) }
-            return session.lastError
+            if let failure = session.daemonFailure { return plainFailure(failure.error, machine: session.host.label) }
+            return session.lastError ?? (session.staticInstallStaged ? staticInstallStaged : nil)
         case .reconnecting:
             return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
         case .authFailed(let message):
@@ -121,7 +122,15 @@ enum RemoteStrings {
         case .installing:
             return String(localized: "remote.status.installing", defaultValue: "Installing cmux-tui…", table: "Remote", bundle: .module)
         case .installFailed(let message), .failed(let message):
-            return message
+            return plainFailure(message, machine: session.host.label)
+        }
+    }
+
+    static func plainFailure(_ raw: String, machine: String) -> String {
+        switch RemoteFailureCause(raw) {
+        case .sessionInUse: String(format: String(localized: "remote.failure.sessionInUse", defaultValue: "Another cmux on %1$@ holds this session. Update cmux on %1$@, then choose Retry.", table: "Remote", bundle: .module), machine)
+        case let .cause(cause): String(format: String(localized: "remote.failure.cause", defaultValue: "cmux on %1$@ stopped: %2$@. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine, cause)
+        case .unknown: String(format: String(localized: "remote.failure.unknown", defaultValue: "cmux on %@ stopped. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine)
         }
     }
 
@@ -137,14 +146,6 @@ enum RemoteStrings {
         }
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         return text
-    }
-
-    /// The header detail of a machine whose cmux-tui did not start; `error`
-    /// is the daemon's error and the link's output.
-    static func daemonFailed(_ error: String) -> String {
-        String(format: String(localized: "remote.status.daemonFailed",
-                              defaultValue: "cmux-tui on the machine did not start: %@ Choose Copy SSH Error for the full text.",
-                              table: "Remote", bundle: .module), error)
     }
 
     /// The one-time notice of a browser tab opened in another machine's
@@ -201,7 +202,7 @@ enum RemoteStrings {
         case .unrunnable(let detail):
             return String(format: String(localized: "remote.need.unrunnable", defaultValue: "The cmux-tui there does not run (%@). Install cmux-tui to replace it.", table: "Remote", bundle: .module), detail)
         case .protocolMismatch(let remote, let local):
-            return String(format: String(localized: "remote.need.protocol", defaultValue: "The cmux-tui there speaks link protocol %1$d; this app needs %2$d. Install cmux-tui to update it.", table: "Remote", bundle: .module), remote, local)
+            return String(format: String(localized: "remote.need.protocol", defaultValue: "The cmux-tui there is a different version than this app uses (%1$d, not %2$d). Install cmux-tui to update it.", table: "Remote", bundle: .module), remote, local)
         case .wrongApp(let app):
             return String(format: String(localized: "remote.need.wrongApp", defaultValue: "%@ is at the cmux-tui path there. Install cmux-tui to replace it.", table: "Remote", bundle: .module), app)
         case .unsupportedPlatform:

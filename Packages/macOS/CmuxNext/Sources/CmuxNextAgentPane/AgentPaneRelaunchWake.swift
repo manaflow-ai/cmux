@@ -29,7 +29,10 @@ public final class AgentPaneRelaunchWake {
     nonisolated static let maximumBytes = 8 * 1024 * 1024
     let file: URL?
     /// Asks a live page what it holds, within the limit (``AgentPaneView/wakeState(limit:)``).
-    public var read: @MainActor (AgentPaneView, Duration) async -> AgentPaneWakeState? = { await $0.wakeState(limit: $1) }
+    /// As the app quits: prompts the page holds for a folder trust answer go into their drafts.
+    public var read: @MainActor (AgentPaneView, Duration) async -> AgentPaneWakeState? = {
+        await AgentPaneWakeState.quitting($0, limit: $1)
+    }
 
     /// Reads the saved states.
     private let reader: LaunchFileReader
@@ -63,6 +66,8 @@ public final class AgentPaneRelaunchWake {
         var files: [String: String]?
         /// The file in the attachments directory holding each attachment's text, by attachment id.
         var texts: [String: String]?
+        /// The file in the attachments directory holding each subagent draft's text, by draft key.
+        var subagentDraftTexts: [String: String]?
     }
 
     /// Starts the launch read of the last quit's states (what ``take(on:)`` reads) on `work`'s files lane at
@@ -135,6 +140,9 @@ public final class AgentPaneRelaunchWake {
                 }
                 state.attachments = attachments
             }
+            if let folder, let drafts = state.subagentDrafts, let files = saved.subagentDraftTexts {
+                state.subagentDrafts = Self.readBack(drafts, files: files, in: folder)
+            }
             return state.isEmpty ? nil : state
         }
     }
@@ -194,10 +202,13 @@ public final class AgentPaneRelaunchWake {
         // their names and kinds, so no chip's size counts against a tab's JSON.
         for (key, state) in states.sorted(by: { $0.key < $1.key }) {
             guard let bytes = AgentPaneAttachmentFiles.moveOut(state.attachments ?? [], to: folder),
-                  let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder) else { continue }
+                  let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder),
+                  let drafts = Self.moveOut(state.subagentDrafts ?? [:], to: folder) else { continue }
             var held = state
             if state.attachments != nil { held.attachments = texts.attachments }
-            let saved = Saved(state: held, files: bytes.files.isEmpty ? nil : bytes.files, texts: texts.files.isEmpty ? nil : texts.files)
+            if state.subagentDrafts != nil { held.subagentDrafts = drafts.drafts }
+            let saved = Saved(state: held, files: bytes.files.isEmpty ? nil : bytes.files, texts: texts.files.isEmpty ? nil : texts.files,
+                              subagentDraftTexts: drafts.files.isEmpty ? nil : drafts.files)
             guard let size = (try? encoder.encode(saved))?.count, size <= maximumTabBytes, total + size <= maximumBytes else { continue }
             kept[key] = saved
             total += size
@@ -208,11 +219,40 @@ public final class AgentPaneRelaunchWake {
             return
         }
         try? data.write(to: file, options: .atomic)
-        let referenced = Set(kept.values.flatMap { Array(($0.files ?? [:]).values) + Array(($0.texts ?? [:]).values) })
+        let referenced = Set(kept.values.flatMap {
+            Array(($0.files ?? [:]).values) + Array(($0.texts ?? [:]).values) + Array(($0.subagentDraftTexts ?? [:]).values)
+        })
         if referenced.isEmpty { try? manager.removeItem(at: folder) }
         // A tab that did not fit wrote files nothing names: they go.
         for name in (try? manager.contentsOfDirectory(atPath: folder.path)) ?? [] where !referenced.contains(name) {
             try? manager.removeItem(at: folder.appending(path: name))
+        }
+    }
+
+    /// `drafts` with each one's text in a file of its own in `folder` (as a pasted chip's text is), and
+    /// the files by draft key, so no draft's size counts against its tab's JSON; nil when a file can't
+    /// be written.
+    private nonisolated static func moveOut(_ drafts: [String: AgentPaneWakeState.SubagentDraft], to folder: URL)
+        -> (drafts: [String: AgentPaneWakeState.SubagentDraft], files: [String: String])? {
+        guard !drafts.isEmpty else { return (drafts, [:]) }
+        guard let moved = AgentPaneAttachmentFiles.moveOut(draftChips(drafts), .text, to: folder) else { return nil }
+        return (drafts.mapValues { AgentPaneWakeState.SubagentDraft(text: nil, at: $0.at) }, moved.files)
+    }
+
+    /// `drafts` with each one's text read back from the file `files` names for it; a draft whose file
+    /// is gone is left out.
+    private nonisolated static func readBack(_ drafts: [String: AgentPaneWakeState.SubagentDraft], files: [String: String],
+                                             in folder: URL) -> [String: AgentPaneWakeState.SubagentDraft] {
+        let chips = AgentPaneAttachmentFiles.readBack(draftChips(drafts), .text, files: files, in: folder)
+        return Dictionary(chips.compactMap { chip in
+            drafts[chip.id].map { (chip.id, AgentPaneWakeState.SubagentDraft(text: chip.text ?? $0.text, at: $0.at)) }
+        }, uniquingKeysWith: { _, last in last })
+    }
+
+    /// Each draft as a pasted chip named by its draft key, the shape the chips' files take.
+    private nonisolated static func draftChips(_ drafts: [String: AgentPaneWakeState.SubagentDraft]) -> [AgentPaneWakeState.Attachment] {
+        drafts.sorted { $0.key < $1.key }.map { key, draft in
+            AgentPaneWakeState.Attachment(id: key, kind: "pasted", name: "", mimeType: "text/plain", size: 0, text: draft.text)
         }
     }
 }

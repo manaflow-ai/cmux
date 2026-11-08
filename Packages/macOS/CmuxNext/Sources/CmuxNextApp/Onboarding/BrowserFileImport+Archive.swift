@@ -24,7 +24,7 @@ extension BrowserFileImport {
         var failures: [String] = []
         let bookmarks = BookmarkFiles(services: services)
         for html in archive.bookmarksHTML {
-            if let failure = bookmarks.importHTML(html, profile: profile) { failures.append(failure.message) }
+            if let failure = await bookmarks.importHTML(html, profile: profile) { failures.append(failure.message) }
         }
         for json in archive.historyJSON {
             failures += await importHistory(json, from: url, profile: profile)

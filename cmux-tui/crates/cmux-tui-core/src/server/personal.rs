@@ -149,6 +149,10 @@ pub(super) fn put_session(
     follow_with: Option<&str>,
 ) -> anyhow::Result<Value> {
     let ((record, created), _) = mux.personal_mutation(|registry| {
+        // put_session's bool means "created", not "changed": an update
+        // emits a change, but an identical registration must not refetch
+        // every subscriber's personal snapshot or wake journal maintenance.
+        let before = registry.personal_revision()?;
         let result = registry.put_session(
             session,
             machine_name,
@@ -157,7 +161,7 @@ pub(super) fn put_session(
             capabilities,
             follow_with,
         )?;
-        Ok((result, true))
+        Ok((result, registry.personal_revision()? != before))
     })?;
     Ok(json!({"session": record, "created": created}))
 }

@@ -5,6 +5,11 @@
 
 <!-- The concrete problem, and what a user or API caller can do after this change. Explain as much of the mechanism as a reviewer needs to assess it; link deeper design or implementation detail. If this closes an issue, say `Fixes #1234` here. -->
 
+## Leaned on
+
+<!-- Optional. Delete this section when nothing applies; it is never a gate. When a sourced perspective decided a choice in this change (a design lens, a doc, a talk, a post), write one line per choice: the lens or source, its URL, and the decision it shaped.
+Example: - Kenton Varda: https://blog.cloudflare.com/introducing-workers-durable-objects/ — one Durable Object per machine, not per team -->
+
 ## Testing
 
 <!--
@@ -36,9 +41,9 @@ Native app UI: paste what `cmux-ci capture <head sha> --state <scene:NAME|tour:N
 Viewed after image: yes
 Visual verdict: <one sentence: would Leo accept this next to ChatGPT/Claude?>
 
-The pr-capture-check job fails a native UI change without the required evidence or review proof. -->
+The pr-capture-check job warns on a native UI change without the required evidence or review proof. -->
 
-<!-- Performance change (the perf label, or a perf word in the title or description)? Record the deltas so we can look back on them: add a section like the one below, with before and after from the same harness (or, under that heading, `No perf numbers: <why>`). The pr-perf-section-check job fails a perf PR without one; docs-only PRs are exempt.
+<!-- Performance change (the perf label, or a perf word in the title or description)? Record the deltas so we can look back on them: add a section like the one below, with before and after from the same harness (or, under that heading, `No perf numbers: <why>`). The pr-perf-section-check job warns on a perf PR without one; docs-only PRs are exempt.
 
 ## Performance
 

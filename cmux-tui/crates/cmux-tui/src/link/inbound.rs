@@ -209,10 +209,17 @@ where
     // A revocation can cancel this future while verification is running.
     // Give the blocking task its own descriptor so it cannot inspect a reused fd.
     let fd = entry.as_fd().try_clone_to_owned().map_err(|_| InboundRefused::NotAnEntry)?;
+    // That copy keeps the socket open until the check returns (the macOS
+    // signature check can take seconds): a cancel shuts the socket down,
+    // so the entry sees the end at once.
+    let mut verifying = ShutdownOnCancel(Some(
+        entry.as_fd().try_clone_to_owned().map_err(|_| InboundRefused::NotAnEntry)?,
+    ));
     tokio::task::spawn_blocking(move || cmux_link::caller::verify_fd(fd.as_raw_fd()))
         .await
         .map_err(|_| InboundRefused::NotAnEntry)?
         .map_err(|_| InboundRefused::NotAnEntry)?;
+    verifying.finished();
     let banner =
         read_line(&mut entry, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::NotAnEntry)?;
     if banner != cmux_link::entry_path::ENTRY_BANNER {
@@ -221,6 +228,25 @@ where
     write_stamp(&mut entry, &stamp).await.map_err(|_| InboundRefused::EntryUnavailable)?;
     let _ = tokio::io::copy_bidirectional(&mut stream, &mut entry).await;
     Ok(())
+}
+
+/// Shuts a socket down for reading and writing when dropped before
+/// [`Self::finished`] (a cancel or a refused check): every copy of the
+/// descriptor then reads its end.
+struct ShutdownOnCancel(Option<std::os::fd::OwnedFd>);
+
+impl ShutdownOnCancel {
+    fn finished(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for ShutdownOnCancel {
+    fn drop(&mut self) {
+        if let Some(fd) = self.0.take() {
+            let _ = std::os::unix::net::UnixStream::from(fd).shutdown(std::net::Shutdown::Both);
+        }
+    }
 }
 
 async fn write_stamp(entry: &mut tokio::net::UnixStream, stamp: &str) -> io::Result<()> {

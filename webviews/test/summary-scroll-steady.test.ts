@@ -1,4 +1,4 @@
-// The right-hand card (the Summary card, and Session Info when Debug Settings `agent.inspector` is on)
+// The right-hand card (the Summary card, and Session Info when Debug Settings `agent.sessionInfo` is on)
 // stays still while the chat scrolls (Leo, 2026-10-25: "session summary on top right flickers when im
 // scrolling thru the chat"). Over 100 painted frames of wheel scrolling through a long chat, nothing in
 // the card changes: no node is added, removed or re-rendered with new text, no attribute flips, and
@@ -131,7 +131,7 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
     page.evaluate(
       async ([selector, step]) => {
         const card = document.querySelector<HTMLElement>(selector)!;
-        const toggle = document.querySelector<HTMLElement>(".acpmux-summary-button, .acpmux-chat-inspector-toggle");
+        const toggle = document.querySelector<HTMLElement>(".acpmux-summary-button, .acpmux-session-info-toggle");
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const describe = (node: Node) => {
           const element = node instanceof Element ? node : node.parentElement;
@@ -142,7 +142,7 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         // not the card changing under the scroll.
         const clock = (node: Node) =>
           !!(node instanceof Element ? node : node.parentElement)?.closest(
-            ".acpmux-summary-meta, .acpmux-chat-inspector-task__time, .acpmux-chat-inspector-server__time",
+            ".acpmux-summary-meta, .acpmux-session-info-task__time, .acpmux-session-info-server__time",
           );
         const observer = new MutationObserver((records) => {
           for (const record of records) {
@@ -266,9 +266,9 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
         });
-        const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+        const toggle = page.locator("button.acpmux-session-info-toggle");
         await toggle.waitFor({ timeout: 10_000 });
-        const selector = "aside.acpmux-chat-inspector";
+        const selector = "aside.acpmux-session-info";
         if ((await page.locator(selector).count()) === 0) await toggle.click({ force: true });
         await page.locator(`${selector}[data-presence=shown]`).waitFor({ timeout: 10_000 });
         await settle(page);
@@ -380,9 +380,9 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
         });
-        const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+        const toggle = page.locator("button.acpmux-session-info-toggle");
         await toggle.waitFor({ timeout: 10_000 });
-        const selector = "aside.acpmux-chat-inspector";
+        const selector = "aside.acpmux-session-info";
         if ((await page.locator(selector).count()) === 0) await toggle.click({ force: true });
         await page.locator(`${selector}[data-presence=shown]`).waitFor({ timeout: 10_000 });
         await settle(page);
