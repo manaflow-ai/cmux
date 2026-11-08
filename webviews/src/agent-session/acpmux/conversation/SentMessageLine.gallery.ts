@@ -226,7 +226,7 @@ export default agentPaneEntry({
       },
     },
     "large-receipt": {
-      note: "A 1,025-recipient MCP receipt keeps each message row and pages through every recipient, with 32 rows mounted at once.",
+      note: "A 1,025-recipient MCP receipt is one closed group counting every recipient; open, it pages through every message row, 32 mounted at once.",
       snapshot: chat([
         user("Send the report to the documentation agents.", 2),
         activity(
@@ -245,6 +245,8 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         await openTurn(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-group__head"));
+        await ctx.click({ selector: ".cv-sent-group__head" });
         await ctx.waitFor(() => ctx.document.querySelector('[data-send-page="next"]'));
         await ctx.click({ selector: '[data-send-page="next"]' });
         await ctx.waitFor(() =>
