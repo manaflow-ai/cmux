@@ -290,6 +290,10 @@ class Matcher(unittest.TestCase):
         source = ('const A: &str = "/api/vm";\n#[cfg(test)]\nmod tests {\n    const B: &str = "/api/vm/{x}";\n'
                   '    fn f() { let _ = "}"; }\n}\nconst C: &str = "/api/runs";\n')
         self.assertEqual(matches(source, "cmux-tui/crates/x/src/lib.rs"), {"route:/api/vm": [1], "route:/api/runs": [7]})
+        # A raw string ends at its own `"#`: a backslash in it escapes nothing (r#"{"k":"a\"x"}"#).
+        raw = ('#[cfg(test)]\nmod tests {\n    const R: &str = r#"{"k":"a\\"x","n":1}"#;\n'
+               '    const T: &str = "/api/vm";\n}\nconst C: &str = "/api/runs";\n')
+        self.assertEqual(matches(raw, "cmux-tui/crates/x/src/lib.rs"), {"route:/api/runs": [6]})
 
     def test_test_and_mock_files_are_out_of_scope(self):
         paths = {"include": ["Packages/macOS/CmuxNext/", "webviews/src/"]}
