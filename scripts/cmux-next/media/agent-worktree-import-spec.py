@@ -50,7 +50,7 @@ def terminal(source, mode, title, wait=0, clip=False):
         "title": title,
         "daemon": True,
         "timeout": 150,
-        "cmux": ["terminal", "current", "run", "--timeout", "120s", "--text", command],
+        "cmux": ["terminal", "${saved:fixture_terminal}", "run", "--timeout", "120s", "--text", command],
     }
     if wait:
         step["wait"] = wait
@@ -77,13 +77,16 @@ def spec(source):
     card = '[data-import-card="agents.conductor"]'
     return {
         "caption": "Review the worktree import plan in Settings, then open the workspaces in their existing folders.",
-        "frameInterval": 0.25,
+        "frameInterval": 1.0,
         "steps": [
             {"title": "Open the fixture terminal", "cmux": ["workspace", "new", "--name", "Import fixture"]},
             {"title": "Focus the fixture terminal", "cmux": ["workspace", "name:Import fixture", "focus"]},
+            {"title": "Resolve the fixture terminal", "daemon": True,
+             "cmux": ["--json", "terminal", "list", "--workspace", "name:Import fixture"],
+             "save": {"fixture_terminal": "0.id"}},
             terminal(source, "setup", "Create isolated linked worktree and agent rollout"),
             {"title": "Refresh project metadata", "reopen": "quit", "recordLaunch": 6, "wait": 2},
-            {"title": "Open Import settings", "settings_section": "import/importSuggestions"},
+            {"title": "Open Import settings", "cmux": ["import", "open"]},
             page("wait", selector=card + ' [data-action="start"]', timeout_ms=30000),
             page("state"),
             {**page("click", selector=card + ' [data-action="start"]'), "wait": 1},
@@ -96,7 +99,7 @@ def spec(source):
             page("state"),
             terminal(source, "verify", "Assert open workspace and completed idempotent ledger"),
             rpc("snapshot.get", title="Read back imported app workspace"),
-            {"title": "Completed Import settings", "settings_section": "import/importSuggestions"},
+            {"title": "Completed Import settings", "cmux": ["import", "open"]},
             page("state"),
         ],
         "crop": [0.2, 0.08, 0.75, 0.75],

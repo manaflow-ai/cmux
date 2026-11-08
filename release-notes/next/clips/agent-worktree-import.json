@@ -1,6 +1,6 @@
 {
   "caption": "Review the worktree import plan in Settings, then open the workspaces in their existing folders.",
-  "frameInterval": 0.25,
+  "frameInterval": 1.0,
   "steps": [
     {
       "title": "Open the fixture terminal",
@@ -20,12 +20,26 @@
       ]
     },
     {
+      "title": "Resolve the fixture terminal",
+      "daemon": true,
+      "cmux": [
+        "--json",
+        "terminal",
+        "list",
+        "--workspace",
+        "name:Import fixture"
+      ],
+      "save": {
+        "fixture_terminal": "0.id"
+      }
+    },
+    {
       "title": "Create isolated linked worktree and agent rollout",
       "daemon": true,
       "timeout": 150,
       "cmux": [
         "terminal",
-        "current",
+        "${saved:fixture_terminal}",
         "run",
         "--timeout",
         "120s",
@@ -41,7 +55,10 @@
     },
     {
       "title": "Open Import settings",
-      "settings_section": "import/importSuggestions"
+      "cmux": [
+        "import",
+        "open"
+      ]
     },
     {
       "title": "Settings import wait",
@@ -94,7 +111,7 @@
       "timeout": 150,
       "cmux": [
         "terminal",
-        "current",
+        "${saved:fixture_terminal}",
         "run",
         "--timeout",
         "120s",
@@ -117,7 +134,7 @@
       "timeout": 150,
       "cmux": [
         "terminal",
-        "current",
+        "${saved:fixture_terminal}",
         "run",
         "--timeout",
         "120s",
@@ -159,7 +176,7 @@
       "timeout": 150,
       "cmux": [
         "terminal",
-        "current",
+        "${saved:fixture_terminal}",
         "run",
         "--timeout",
         "120s",
@@ -177,7 +194,10 @@
     },
     {
       "title": "Completed Import settings",
-      "settings_section": "import/importSuggestions"
+      "cmux": [
+        "import",
+        "open"
+      ]
     },
     {
       "title": "Settings import state",
