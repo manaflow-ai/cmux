@@ -6907,6 +6907,8 @@ export class AcpmuxDirectClient {
       const editing =
         update.kind === "edit" ||
         update.kind === "fileChange" ||
+        update.kind === "delete" ||
+        update.kind === "move" ||
         (Array.isArray(update.content) && update.content.some((item: any) => item?.type === "diff")) ||
         /(?:edit|write|patch|replace|notebook)/.test(tool);
       if (editing) rememberPlanEdit(sessionId, editPaths(update));

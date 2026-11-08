@@ -55,6 +55,11 @@ describe("plan scope drift", () => {
     expect(editPaths({ kind: "fileChange", locations: [{ path: "auth/session.rs" }] })).toEqual(["auth/session.rs"]);
   });
 
+  test("reads delete and move locations", () => {
+    expect(editPaths({ kind: "delete", locations: [{ path: "auth/old.rs" }] })).toEqual(["auth/old.rs"]);
+    expect(editPaths({ kind: "move", locations: [{ path: "auth/new.rs" }] })).toEqual(["auth/new.rs"]);
+  });
+
   test("keeps absolute edit areas distinct", () => {
     approvePlan(session, "Edit ui/settings/*");
     expect(observePlanEdit(session, ["/Users/leo/project/auth/session.rs"])?.area).toBe("/Users/leo/project/auth/");
