@@ -37,7 +37,7 @@
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
-import { bareSender, provenanceAuthenticated, senderRecord, senderUnverified } from "./senderIdentity";
+import { bareSender, provenanceAuthenticated, relayAddress, senderRecord, senderUnverified } from "./senderIdentity";
 import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabelOfMessage } from "./relayEnvelope";
 import {
   legacyNotice,
@@ -413,12 +413,19 @@ function withSender(
     !(record === undefined && provenanceAuthenticated(provenance)) &&
     senderUnverified(record, sender.declared || declared || provenance?.from === NAMED_SENDER);
   const harness = prompt.message.harness ?? record?.harness;
-  if (!unverified && !sender.declared && harness === prompt.message.harness) return prompt;
+  // A relayed sender's chat is asked for by its whole relay address: the name acpmux gave it is cut
+  // to `fromAgent`'s length, which two sessions can share (cmux#38642 review). Only a relay record
+  // acpmux proved names one.
+  const proven = provenanceAuthenticated(provenance) ? senderRecord({ relay: provenance?.fromRelay }) : undefined;
+  const address = relayAddress(record?.relay) ?? relayAddress(proven?.relay);
+  const lookup = !prompt.message.lookup && address && address !== sender.name ? address : undefined;
+  if (!unverified && !sender.declared && harness === prompt.message.harness && !lookup) return prompt;
   return {
     kind: "message",
     message: {
       ...prompt.message,
       name: sender.name,
+      ...(lookup && { lookup }),
       ...(harness && { harness }),
       ...(unverified && { unverified: true as const }),
     },
