@@ -7,7 +7,7 @@
 # Two link emulators:
 # - the bench's in-process UDP link (--rtt-ms, --loss-pct: fixed delay,
 #   uniform random loss each way), for the full RTT x loss x mode matrix;
-# - Linux netem on loopback (delay with jitter, loss) when `sudo -n tc` works,
+# - Linux netem on loopback (delay with jitter, loss) when `sudo -n tc ... netem` works,
 #   for a jitter row and for kernel TCP, which the in-process link cannot shape.
 #
 # Env: RTTS, LOSSES, MODES, SECONDS_PER_RUN, BULK_BYTES override the matrix;
@@ -28,7 +28,10 @@ secs="${SECONDS_PER_RUN:-8}"
 bulk="${BULK_BYTES:-4000000}"
 
 cargo build --release -p cmux-wg --example remote_stream_bench >&2
-bench="$(pwd)/target/release/examples/remote_stream_bench"
+# CARGO_TARGET_DIR (set on the fleet) moves the binary; ask cargo where it is.
+target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+bench="$target_dir/release/examples/remote_stream_bench"
+[ -x "$bench" ] || { echo "no bench binary at $bench" >&2; exit 1; }
 
 run() { # mode, label, args...
   local mode="$1" label="$2"
@@ -56,7 +59,7 @@ done
 
 if [ "${NETEM:-1}" != 1 ]; then
   :
-elif sudo -n tc qdisc show dev lo >/dev/null 2>&1; then
+elif sudo -n tc qdisc replace dev lo root netem delay 0ms >/dev/null 2>&1; then
   netem() { sudo -n tc qdisc replace dev lo root netem "$@"; }
   trap 'sudo -n tc qdisc del dev lo root 2>/dev/null || true' EXIT
   # Loopback netem shapes both directions: 50 ms each way is a 100 ms RTT.
@@ -69,5 +72,5 @@ elif sudo -n tc qdisc show dev lo >/dev/null 2>&1; then
   done
   sudo -n tc qdisc del dev lo root || true
 else
-  echo '{"note":"no sudo tc: netem rows skipped"}' | tee -a "$out"
+  echo '{"note":"no sudo tc netem (module or sudo missing): netem rows skipped"}' | tee -a "$out"
 fi
