@@ -39,8 +39,10 @@ if [[ "${1:-}" == --one ]]; then
     *.tar.zst) zstd -dcq "$part.raw" | gzip -n > "$part" ;;
     *) exit 1 ;;
   esac
-  # A whole tar, not only whole gzip: a host can answer 200 with a gzipped error page.
-  tar -tzf "$part" >/dev/null 2>&1 || { echo "seed: $url is not a whole tar archive" >&2; exit 1; }
+  # A whole tar with entries, not only whole gzip: a host can answer 200 with a
+  # gzipped error page (GNU tar lists a short non-tar as an empty archive, exit 0).
+  entries="$(tar -tzf "$part" 2>/dev/null)" && [[ -n "$entries" ]] \
+    || { echo "seed: $url is not a whole tar archive" >&2; exit 1; }
   mv -f "$part" "$final"
   exit 0
 fi
