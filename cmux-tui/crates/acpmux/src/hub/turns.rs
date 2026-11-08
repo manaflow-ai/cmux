@@ -172,8 +172,13 @@ impl Hub {
         }
         self.pair_logs(opts.provenance.as_ref()).await;
         // A person's own prompt is the person asking for the chat: what a daemon start held in
-        // its protected folder goes on, ahead of this prompt (`protected_hold.rs`).
-        if opts.agent.is_none() && opts.provenance.is_none() && opts.after_turn.is_none() {
+        // its protected folder goes on, ahead of this prompt (`protected_hold.rs`). Not the
+        // owner's terminal send, which no connection proved (`PromptOptions::unproven_owner`).
+        if opts.agent.is_none()
+            && opts.provenance.is_none()
+            && opts.after_turn.is_none()
+            && !opts.unproven_owner
+        {
             self.release_protected_hold(session);
         }
         let Some(prompt_id) = opts.prompt_id.clone() else {
@@ -1354,10 +1359,10 @@ impl Hub {
         }
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
-        // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
+        // A cut turn goes on by itself (`auto_resume.rs`), unless carried on or cache_compact's.
+        let goes_on = !trigger && !super::idle::cache_compact::is_own(run.provenance.as_ref());
         let cut = match (&result, detached) {
-            // A turn its agent runs on with carried steers was not cut.
-            (Err(e), false) if carried.is_none() && !trigger => Some(super::auto_resume::CutTurn {
+            (Err(e), false) if carried.is_none() && goes_on => Some(super::auto_resume::CutTurn {
                 // A family message's continuation speaks for its sender (`is_family`).
                 from: run
                     .provenance

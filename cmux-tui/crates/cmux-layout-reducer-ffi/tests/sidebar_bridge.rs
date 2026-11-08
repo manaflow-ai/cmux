@@ -83,6 +83,10 @@ fn each_rule_answers_over_the_c_abi() {
         json!("down")
     );
     assert_eq!(
+        ask(json!({"rule": "row_link", "connected": false, "server_state": "paused"})),
+        json!("paused")
+    );
+    assert_eq!(
         ask(json!({"rule": "notice_action", "card": "tip:t", "action": "try"})),
         json!({"kind": "tip", "tip": "t"})
     );

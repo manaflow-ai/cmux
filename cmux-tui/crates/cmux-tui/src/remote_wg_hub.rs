@@ -183,7 +183,7 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
 
 /// `cmux wg dial --hub PATH HOST PORT`: one TCP stream to HOST:PORT through a running hub,
 /// on stdin and stdout, for an ssh `ProxyCommand` (`ssh -o ProxyCommand='cmux wg dial --hub
-/// PATH %h %p' cmux@10.0.0.7`; `cmux cloud enroll-machine` writes such a Host block). HOST is
+/// PATH %h %p' cmux@10.0.0.7`). HOST is
 /// an address inside the hub's AllowedIPs, as the hub dials nothing else. Exits when either
 /// side ends.
 fn run_wg_dial(args: &[String]) -> anyhow::Result<()> {

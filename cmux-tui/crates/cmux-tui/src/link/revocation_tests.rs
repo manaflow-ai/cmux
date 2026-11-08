@@ -300,20 +300,6 @@ impl super::dial::Overlay for StagedOverlay {
         }
         Ok(())
     }
-    async fn set_cloud_peer(
-        &self,
-        _host: &str,
-        _key: [u8; 32],
-        _info: &cmux_link::connect_info::ConnectInfo,
-    ) -> std::io::Result<()> {
-        Ok(())
-    }
-    async fn forget_cloud_peer(&self, _host: &str) -> std::io::Result<()> {
-        Ok(())
-    }
-    async fn path_state(&self, _key: &[u8; 32]) -> cmux_link::dial::PathState {
-        cmux_link::dial::PathState::Direct
-    }
 }
 
 #[tokio::test]

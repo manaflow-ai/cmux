@@ -19,6 +19,7 @@ import type { SessionSummary, SummaryBackgroundTask, SummaryWakeup } from "../..
 import { useScheduledClock } from "../scheduled";
 import { visibleChanges, type SessionInfoPullRequestStatus } from "../changesSectionModel";
 import type { OutputArtifact, OutputLink } from "../outputsSectionModel";
+import type { ProducedLink } from "../producedLinks";
 import { sessionInfoLists, type SessionInfoProcess } from "../processes";
 import { useSectionOrder } from "../sectionOrder";
 import {
@@ -100,6 +101,8 @@ export type NativeSessionInfoProps = {
   repository?: string;
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links: readonly OutputLink[];
+  /// The pull requests, issues and commits the chat produced (producedLinks.ts).
+  produced?: readonly ProducedLink[];
   artifacts: number;
   documents: readonly OutputArtifact[];
   rows: readonly AcpmuxRow[];
@@ -429,6 +432,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
         {
           files: (props.made?.outputs ?? []) as readonly TurnFile[],
           links: props.links,
+          produced: props.produced,
+          repository: props.repository,
           artifacts: props.artifacts,
           documents: props.documents,
           onOpenFile: props.onOpenOutput,
