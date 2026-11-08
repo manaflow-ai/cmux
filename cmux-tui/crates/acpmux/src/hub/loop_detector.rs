@@ -138,13 +138,10 @@ impl LoopDetector {
         ) {
             return None;
         }
-        let Some(id) = update
+        let id = update
             .get("toolCallId")
             .and_then(Value::as_str)
-            .filter(|id| !id.is_empty() && id.len() <= MAX_ID)
-        else {
-            return None;
-        };
+            .filter(|id| !id.is_empty() && id.len() <= MAX_ID)?;
         let terminal =
             matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed"));
         // Output and title deltas can arrive per chunk. Only the initial call, raw input,
