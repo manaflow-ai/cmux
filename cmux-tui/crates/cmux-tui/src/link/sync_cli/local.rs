@@ -41,7 +41,7 @@ use anyhow::{Context as _, bail};
 use super::place;
 use super::skips::{self, Skips, Why};
 
-pub(super) use super::listed::{entry_in, open_listed};
+pub(super) use super::listed::{add_entry, entry_in, open_listed, walk_in};
 
 /// Where one file to push comes from.
 #[derive(Clone, Debug)]
@@ -171,6 +171,7 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
         return Ok(set);
     };
     set.git = true;
+    let top = place::Dir::open(folder)?;
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
         // An untracked credential file never goes either (tracked ones were committed on purpose).
         if untracked
@@ -180,27 +181,39 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
             set.skipped += 1;
             continue;
         }
-        add(&mut set, path.clone(), &folder.join(&path))?;
+        // Through the folders on its way, each opened by descriptor without following a symlink.
+        match place::parent_of(&top, &path) {
+            Ok(Some((dir, name))) => {
+                let entry = dir.entry(&name)?;
+                add_entry(&mut set, path.clone(), &folder.join(&path), &dir, &name, entry)?;
+            }
+            Ok(None) => {}
+            Err(error) if swapped(&error) => {}
+            Err(error) => return Err(error).with_context(|| format!("cannot read {path}")),
+        }
     }
     let linked = git.own != git.common;
-    walk(&git.common, &git.common, &mut |relative, path| {
+    let common = place::Dir::open(&git.common)?;
+    walk_in(&common, "", &mut |relative, dir, name, entry| {
         if linked && is_per_worktree(relative) {
             return Ok(());
         }
-        add_git(&mut set, relative, path)
+        add_git(&mut set, relative, &git.common.join(relative), dir, name, entry)
     })?;
     if linked {
-        walk(&git.own, &git.own, &mut |relative, path| {
+        let own = place::Dir::open(&git.own)?;
+        walk_in(&own, "", &mut |relative, dir, name, entry| {
             if relative == "commondir" || relative == "gitdir" {
                 return Ok(());
             }
-            add_git(&mut set, relative, path)
+            add_git(&mut set, relative, &git.own.join(relative), dir, name, entry)
         })?;
     }
     // Borrowed objects go after the repository's own, which win a name both
     // hold (a loose object or pack of the same hash is the same data).
     for borrowed in borrowed_objects(&git.common.join("objects"))? {
-        walk(&borrowed, &borrowed, &mut |relative, path| {
+        let handle = place::Dir::open(&borrowed)?;
+        walk_in(&handle, "", &mut |relative, dir, name, entry| {
             if borrowed_skipped(relative) {
                 return Ok(());
             }
@@ -214,7 +227,7 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
             if set.files.contains_key(&target) {
                 return Ok(());
             }
-            add(&mut set, target, path)
+            add_entry(&mut set, target, &borrowed.join(relative), dir, name, entry)
         })?;
     }
     Ok(set)
@@ -417,7 +430,14 @@ fn is_per_worktree(relative: &str) -> bool {
 
 /// Adds the file at `relative` of a git folder as `.git/<relative>`, by the
 /// rules in the module doc.
-fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()> {
+fn add_git(
+    set: &mut LocalSet,
+    relative: &str,
+    path: &Path,
+    dir: &place::Dir,
+    name: &str,
+    entry: place::Entry,
+) -> anyhow::Result<()> {
     let parts: Vec<&str> = relative.split('/').collect();
     if !GIT_TOP.contains(&parts[0]) || relative.ends_with(".lock") {
         return Ok(());
@@ -435,15 +455,28 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
         return Ok(());
     }
     let target = format!(".git/{relative}");
-    let name = parts.last().copied().unwrap_or_default();
+    // Read through `dir`, never through `path`: a regular file only.
+    let read = || -> Vec<u8> {
+        use std::io::Read as _;
+        let mut bytes = Vec::new();
+        if matches!(entry, place::Entry::File { .. })
+            && let Ok(mut file) = dir.open_file(name)
+            && file.metadata().is_ok_and(|meta| meta.is_file())
+        {
+            if file.read_to_end(&mut bytes).is_err() {
+                bytes.clear();
+            }
+        }
+        bytes
+    };
     if data_at.is_none() && matches!(name, "config" | "config.worktree") {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let text = String::from_utf8_lossy(&read()).into_owned();
         let source = Source::Bytes(clean_config(&text).into_bytes());
         set.files.insert(target, LocalFile { source, permissions: 0o644, id: None });
         return Ok(());
     }
     if data_at.is_some_and(|index| parts[index] == "logs") {
-        let text = String::from_utf8_lossy(&std::fs::read(path).unwrap_or_default()).into_owned();
+        let text = String::from_utf8_lossy(&read()).into_owned();
         let cleaned: String = text.split_inclusive('\n').map(without_user_info).collect();
         set.files.insert(
             target,
@@ -451,32 +484,7 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
         );
         return Ok(());
     }
-    add(set, target, path)
-}
-
-/// Adds the regular file at `path` as `relative`; anything else is named
-/// as skipped (a symlink, a socket, a name the machine cannot hold). A file
-/// deleted from the working tree is left out.
-fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> {
-    match std::fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_file() && holdable(&relative) => {
-            set.files.insert(relative, LocalFile::listed(path, &meta));
-        }
-        Ok(meta) if meta.file_type().is_symlink() && holdable(&relative) => {
-            match super::links::local(set.skips.top(), &relative, path)
-                .with_context(|| format!("cannot read {}", path.display()))?
-            {
-                super::links::Local::Keep(kept) => {
-                    set.links.insert(relative, kept);
-                }
-                super::links::Local::Skip(why) => set.skips.note(&relative, why),
-            }
-        }
-        Ok(meta) => set.skips.note_entry(&relative, path, &meta),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
-    }
-    Ok(())
+    add_entry(set, target, path, dir, name, entry)
 }
 
 /// Whether the machine's file owner can hold a file at `relative`: no name
@@ -579,34 +587,6 @@ fn walk_plain_in(
                 }
             }
             other => entry_in(set, rules, relative, &path, handle, name, other)?,
-        }
-    }
-    Ok(())
-}
-
-/// Calls `visit(relative, path)` for every non-folder entry below `dir`
-/// (`relative` to `top`). Folders are entered without following symlinks.
-fn walk(
-    top: &Path,
-    dir: &Path,
-    visit: &mut dyn FnMut(&str, &Path) -> anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    let entries =
-        std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        let Some(relative) = path.strip_prefix(top).ok().and_then(Path::to_str).map(str::to_string)
-        else {
-            continue;
-        };
-        if relative == ".DS_Store" {
-            continue;
-        }
-        if entry.file_type()?.is_dir() {
-            walk(top, &path, visit)?;
-        } else {
-            visit(&relative, &path)?;
         }
     }
     Ok(())

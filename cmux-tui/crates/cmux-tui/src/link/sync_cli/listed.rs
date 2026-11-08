@@ -61,15 +61,60 @@ pub(super) fn entry_in(
         set.skips.note(relative, why);
         return Ok(());
     }
+    add_entry(set, relative.to_string(), path, handle, name, entry)
+}
+
+/// The entry `name` of the folder `dir` holds open, as `entry` found it, as
+/// `relative` (at `path` here), read only through `dir`: a regular file goes
+/// as the file opened there, a symlink as its text, anything else is named
+/// skipped.
+pub(super) fn add_entry(
+    set: &mut LocalSet,
+    relative: String,
+    path: &Path,
+    dir: &place::Dir,
+    name: &str,
+    entry: place::Entry,
+) -> anyhow::Result<()> {
     match entry {
-        place::Entry::File { .. } => add_in(set, relative.to_string(), path, handle, name),
-        place::Entry::Link => link_in(set, relative, path, handle, name),
+        place::Entry::File { .. } => add_in(set, relative, path, dir, name),
+        place::Entry::Link => link_in(set, &relative, path, dir, name),
         place::Entry::Other => {
-            set.skips.note(relative, Why::Special);
+            set.skips.note(&relative, Why::Special);
             Ok(())
         }
         place::Entry::Missing | place::Entry::Dir => Ok(()),
     }
+}
+
+/// Calls `visit(relative, folder, name, entry)` for every entry but a folder
+/// below the folder `dir` holds open (`relative` under `prefix`). Each folder
+/// is entered by descriptor without following a symlink, so a folder swapped
+/// for one since it was listed lists nothing outside `dir`.
+pub(super) fn walk_in(
+    dir: &place::Dir,
+    prefix: &str,
+    visit: &mut dyn FnMut(&str, &place::Dir, &str, place::Entry) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    for name in dir.names()? {
+        let Some(name) = name.to_str() else { continue };
+        let relative =
+            if prefix.is_empty() { name.to_string() } else { format!("{prefix}/{name}") };
+        if relative == ".DS_Store" {
+            continue;
+        }
+        match dir.entry(name)? {
+            place::Entry::Dir => match dir.child(name) {
+                Ok(Some(child)) => walk_in(&child, &relative, visit)?,
+                Ok(None) => {}
+                Err(error) if swapped(&error) => {}
+                Err(error) => return Err(error.into()),
+            },
+            place::Entry::Missing => {}
+            entry => visit(&relative, dir, name, entry)?,
+        }
+    }
+    Ok(())
 }
 
 /// The symlink `name` of the folder `handle` holds open, its text read
