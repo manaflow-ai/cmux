@@ -550,6 +550,10 @@ jobs:
       - name: Install Rust 1.88 MSRV toolchain
         run: rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
 
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
+
       # Keep cargo's registry and the four target dirs (the cmux-tui workspace that
       # holds the SDK crates, and the three example workspaces) between runs. The
       # job's own key, with the toolchain in it, so 1.88 artifacts never mix with

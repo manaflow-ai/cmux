@@ -117,6 +117,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_verify_cmux_tui_hosted.py
 
+      - name: Validate every self-hosted rust-cache step cleans only its runner's CARGO_HOME
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_cache_runner_cargo_home.py
+
       # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
       # new kill by process name or pattern, nothing depends on the personal
       # Linux workstation (tests/fleet-rule-allowlist.json).
