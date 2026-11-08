@@ -7,6 +7,12 @@ earlier push had left an unshipped migration behind; and a re-run of an older pu
 deploy passed and shipped the older source to production. These cases pin the fixes:
 (a) an unknown serving commit requires approval, (b) an older source is refused in plan and guard,
 (c) the rollback dispatch may still go back.
+
+A second review found two more: a deploy job re-run whose /version fetch failed admitted any source
+(an unknown served commit skipped the ancestry check), and a rollback to a commit whose relay predates
+GET /version deployed, failed its /version check and restored the version being left. The guard now
+refuses an unknown served commit unless the run passed the relay-migrations approval, and plan refuses
+such a commit rollback, pointing at the version-id rollback.
 """
 
 from __future__ import annotations
@@ -37,6 +43,7 @@ class RelayDeployPlanTest(unittest.TestCase):
         self.git("init", "-q")
         self.git("config", "user.email", "t@example.com")
         self.git("config", "user.name", "t")
+        self.pre_endpoint = self.commit(V1, "src v0", version_route=False)
         self.v1 = self.commit(V1, "src v1")
         self.v2 = self.commit(V1, "src v2")
         self.migrated = self.commit(V2, "src v2")  # adds a destructive migration
@@ -48,11 +55,13 @@ class RelayDeployPlanTest(unittest.TestCase):
     def git(self, *args: str) -> str:
         return subprocess.run(["git", "-C", self.repo, *args], check=True, capture_output=True, text=True).stdout.strip()
 
-    def commit(self, wrangler: str, source: str) -> str:
+    def commit(self, wrangler: str, source: str, version_route: bool = True) -> str:
         path = Path(self.repo, WRANGLER)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(wrangler)
-        Path(path.parent, "lib.rs").write_text(source)
+        Path(path.parent, "src").mkdir(exist_ok=True)
+        route = '    if path == "/version" {\n' if version_route else ""
+        Path(path.parent, "src", "routing.rs").write_text(f"// {source}\n{route}")
         self.git("add", "-A")
         self.git("commit", "-q", "-m", source)
         return self.git("rev-parse", "HEAD")
@@ -99,6 +108,22 @@ class RelayDeployPlanTest(unittest.TestCase):
             self.assertEqual(relay_deploy_plan.main([*base, "--source", self.tip, "--served", self.v1]), 0)
             self.assertEqual(relay_deploy_plan.main([*base, "--source", self.tip, "--served", self.tip]), 0)
 
+    def guard(self, served: str, *extra: str) -> int:
+        with contextlib.redirect_stdout(io.StringIO()):
+            return relay_deploy_plan.main(["guard", "--repo", self.repo, "--worker", "cmux-remote-relay-production",
+                                           "--mode", "deploy", "--source", self.v1, "--served", served, *extra])
+
+    def test_guard_refuses_an_unknown_served_commit_without_approval(self) -> None:
+        # A re-run of an old deploy job whose /version fetch failed: refused, as with the newer commit itself.
+        self.assertEqual(self.guard(self.tip), 1)
+        self.assertEqual(self.guard(""), 1)
+        self.assertEqual(self.guard("f" * 40), 1)
+
+    def test_guard_admits_an_unknown_served_commit_with_the_bootstrap_approval(self) -> None:
+        self.assertEqual(self.guard("", "--bootstrap-approved"), 0)
+        # The approval never admits an older source over a known newer one.
+        self.assertEqual(self.guard(self.tip, "--bootstrap-approved"), 1)
+
     # (c) rollback dispatch -> allowed
     def test_rollback_dispatch_may_go_back(self) -> None:
         code, out, _ = self.plan("--event", "workflow_dispatch", "--action", "rollback", "--rollback-to", self.v1,
@@ -109,6 +134,13 @@ class RelayDeployPlanTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(relay_deploy_plan.main(["guard", "--repo", self.repo, "--worker", "w", "--mode", "sha",
                                                      "--source", self.v1, "--served", self.tip]), 0)
+
+    def test_rollback_to_a_relay_without_version_is_refused(self) -> None:
+        code, _, text = self.plan("--event", "workflow_dispatch", "--action", "rollback",
+                                  "--rollback-to", self.pre_endpoint, served=(self.tip, self.tip))
+        self.assertEqual(code, 1)
+        self.assertIn("predates GET /version", text)
+        self.assertIn("rollback_to=<version id>", text)
 
     def test_version_rollback_names_one_worker(self) -> None:
         version = "0123abcd-0000-4000-8000-0123456789ab"

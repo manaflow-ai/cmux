@@ -41,7 +41,9 @@ name: Cloudflare relay
 #                                    target staging or production, not both.
 #   rollback_to=<40-hex commit>      builds and deploys the relay at that feat-cmux-next
 #                                    commit to target (both: staging, then production).
-#   Rollbacks skip the tests and the journeys; the health and /version checks still run.
+#   Rollbacks skip the tests and the journeys; the health and /version checks still run, and a red
+#   one fails without restoring anything. A commit whose relay predates GET /version is refused:
+#   roll back to its Worker version id instead.
 #
 # Setup a person does once (the deploy jobs fail before deploying while it is missing):
 #   environments relay-staging, relay-production   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
@@ -308,12 +310,15 @@ jobs:
       # Again here, not only in plan: a re-run of this job alone must not ship an older source.
       - name: Refuse a source older than the one serving
         working-directory: .
+        env:
+          # The relay-migrations approval this run passed, which plan requires for a relay with an unknown commit.
+          BOOTSTRAP_APPROVED: ${{ needs.migration-approval.result == 'success' && '--bootstrap-approved' || '' }}
         run: |
           set -euo pipefail
           served="$(curl -fsS --max-time 10 --retry 2 "https://$WORKER.$RELAY_HOST_SUFFIX/version" 2>/dev/null \
             | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_revision",""))' 2>/dev/null || true)"
           python3 .relay-tools/scripts/ci/relay_deploy_plan.py guard --repo .relay-tools --worker "$WORKER" \
-            --mode "$MODE" --source "$SHA" --served "$served"
+            --mode "$MODE" --source "$SHA" --served "$served" $BOOTSTRAP_APPROVED
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -345,8 +350,12 @@ jobs:
                              "bodyIncludes": f'"source_revision":"{os.environ["SHA"]}"'})
           json.dump({"routes": routes}, open(sys.argv[1], "w"))
           PY
+          # Only a deploy restores the recorded version on red. An explicit rollback never does: the
+          # recorded version is the one the operator is leaving, so a red rollback fails for a person.
+          restore=()
+          if [ "$MODE" = deploy ]; then restore=(--previous-file "$RUNNER_TEMP/previous-version"); fi
           bun "$TOOLS/worker-release.ts" verify --worker "$WORKER" --url "https://$WORKER.$RELAY_HOST_SUFFIX" \
-            --routes "$RUNNER_TEMP/relay-routes.json" --previous-file "$RUNNER_TEMP/previous-version" \
+            --routes "$RUNNER_TEMP/relay-routes.json" "${restore[@]}" \
             --wrangler node_modules/.bin/wrangler --attempts 12
 
   # The Linux cmux-tui the journeys dial the carrier with (`--cmux`), built once for all three.
@@ -595,12 +604,15 @@ jobs:
       # Again here, not only in plan: a re-run of this job alone must not ship an older source.
       - name: Refuse a source older than the one serving
         working-directory: .
+        env:
+          # The relay-migrations approval this run passed, which plan requires for a relay with an unknown commit.
+          BOOTSTRAP_APPROVED: ${{ needs.migration-approval.result == 'success' && '--bootstrap-approved' || '' }}
         run: |
           set -euo pipefail
           served="$(curl -fsS --max-time 10 --retry 2 "https://$WORKER.$RELAY_HOST_SUFFIX/version" 2>/dev/null \
             | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_revision",""))' 2>/dev/null || true)"
           python3 .relay-tools/scripts/ci/relay_deploy_plan.py guard --repo .relay-tools --worker "$WORKER" \
-            --mode "$MODE" --source "$SHA" --served "$served"
+            --mode "$MODE" --source "$SHA" --served "$served" $BOOTSTRAP_APPROVED
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -631,8 +643,12 @@ jobs:
                              "bodyIncludes": f'"source_revision":"{os.environ["SHA"]}"'})
           json.dump({"routes": routes}, open(sys.argv[1], "w"))
           PY
+          # Only a deploy restores the recorded version on red. An explicit rollback never does: the
+          # recorded version is the one the operator is leaving, so a red rollback fails for a person.
+          restore=()
+          if [ "$MODE" = deploy ]; then restore=(--previous-file "$RUNNER_TEMP/previous-version"); fi
           bun "$TOOLS/worker-release.ts" verify --worker "$WORKER" --url "https://$WORKER.$RELAY_HOST_SUFFIX" \
-            --routes "$RUNNER_TEMP/relay-routes.json" --previous-file "$RUNNER_TEMP/previous-version" \
+            --routes "$RUNNER_TEMP/relay-routes.json" "${restore[@]}" \
             --wrangler node_modules/.bin/wrangler --attempts 12
 
   # The production guard: the production journey again, now on the new relay. A step green
