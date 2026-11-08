@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42491673169",
+  "recorded_at": "2026-11-08T14:59:45Z",
+  "reason": "cmux-tui ab90795bea93 changes the image's cmux-tui (pinned 35d0b769eb04)",
+  "dry_run": false,
+  "cmux_tui": "ab90795bea93fe15579bc449e3de13ba8eb9d1d7",
+  "fixes": [
+    {
+      "sha": "ab90795bea93fe15579bc449e3de13ba8eb9d1d7",
+      "mergedAt": "2026-11-08T06:34:18-08:00",
+      "subject": "acpmux session move: carry uncommitted changes (--carry-changes), and a moved chat runs on its new machine (#38383)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T14:59:45Z",
+    "snapshot_id": "sh-3b55cfa6528b4382987f8b7592f9c754",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42491673169): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f89b8cb463184a3980780152c1b6446cb12c4e66",
+    "image": "cloud-native-auto-ab90795b-42491673169-1",
+    "revision": "ci-42491673169-1",
+    "at": "2026-11-08T14:59:45Z"
+  },
+  "rolled_back": false
+}
