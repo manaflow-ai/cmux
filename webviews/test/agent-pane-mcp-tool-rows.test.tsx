@@ -184,13 +184,37 @@ test("Find reaches an off-page recipient and opens only its full Raw call", asyn
     needle: "recipient-1023",
     repaint: () => {},
   });
-  expect(host.querySelectorAll(".cv-sent-msg")).toHaveLength(32);
-  expect([...host.querySelectorAll(".cv-sent-msg .cv-recipient")].map((node) => node.textContent)).toContain(
+  // Find mounts the row that holds its match, wherever its page is.
+  expect([...host.querySelectorAll(".cv-sent-msg .cv-recipient")].map((node) => node.textContent)).toEqual([
     "Recİpient-1023",
-  );
+  ]);
   // Only the match's row opens its Raw: the whole call, where the off-page recipient is.
   expect(host.querySelectorAll(".cv-sent__raw-body")).toHaveLength(1);
   expect(host.querySelector(".cv-sent__raw-body")?.textContent).toContain("Recİpient-1023");
+});
+
+test("Find reaches every matching call of a paged group, not only the first", async () => {
+  const calls = Array.from({ length: 40 }, (_, index): AcpmuxActivity => ({
+    kind: "tool",
+    text: "mcp__cmux__acpmux_send",
+    tool: {
+      id: `send-${index}`,
+      title: "mcp__cmux__acpmux_send",
+      kind: "other",
+      status: "completed",
+      inputSummary: JSON.stringify({ messages: [{ to: `lane-${index}`, text: `needle ${index}` }] }),
+      output: JSON.stringify({ results: [{ index: 0, to: `lane-${index}`, ok: true }] }),
+    },
+  }));
+  await render(calls);
+  await click(host.querySelector<HTMLButtonElement>(".cv-sent-group__head")!);
+  expect(host.querySelectorAll(".cv-sent-msg")).toHaveLength(32);
+  await render(calls, { rowId: "activity", card: false, needle: "needle", repaint: () => {} });
+  // All 40 calls hold the match: each draws, past the first page, so Next reaches each one.
+  expect([...host.querySelectorAll(".cv-sent-msg .cv-recipient")].map((node) => node.textContent)).toEqual(
+    calls.map((_, index) => `lane-${index}`),
+  );
+  expect(host.querySelector('[data-send-page="next"]')).toBeNull();
 });
 
 for (const [harness, call] of [

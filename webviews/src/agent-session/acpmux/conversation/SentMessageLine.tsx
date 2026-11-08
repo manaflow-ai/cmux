@@ -23,7 +23,6 @@ import {
   useContext,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -520,36 +519,52 @@ export function SentMessageGroup({
 export const SEND_PAGE_SIZE = 32;
 
 /// An open group of more than SEND_PAGE_SIZE messages: one page of their rows and a pager on the
-/// rows' grid. Find turns to the page holding its match and passes the match to that row alone, so
-/// one Raw opens, not one per message of the same call.
+/// rows' grid. While Find has matches here, the group mounts exactly the rows that hold them, each
+/// given the match, so Find's Next walks every one as it does in an unpaged group; a match only in a
+/// call's receipt goes to that call's first message alone, so one Raw opens, not one per message.
 function SentPages({ entries, children }: { entries: readonly SentEntry[]; children: ReactNode }) {
   const t = useT();
   const rows = Children.toArray(children);
   const [page, setPage] = useState(0);
   const reveal = useContext(FindReveal);
-  const found = useMemo(() => {
-    if (!reveal) return -1;
-    if (reveal.toolId !== undefined) return entries.findIndex(({ item }) => item.tool?.id === reveal.toolId);
-    const index = entries.findIndex(
-      (entry) =>
-        entry.type === "send" &&
-        [entry.send.target, entry.send.text, entry.send.file].some(
-          (value) => value !== undefined && foldFind(value).includes(reveal.needle),
-        ),
-    );
-    if (index >= 0) return index;
-    // A match in the call's other text (its receipt) still opens its complete call behind one Raw.
+  const matches = useMemo((): number[] => {
+    if (!reveal) return [];
+    const firsts = new Map<AcpmuxActivity, number>();
+    for (const [at, { item }] of entries.entries()) if (!firsts.has(item)) firsts.set(item, at);
+    if (reveal.toolId !== undefined)
+      return [...firsts].filter(([item]) => item.tool?.id === reveal.toolId).map(([, at]) => at);
+    const own = (entry: SentEntry) =>
+      entry.type === "send" &&
+      [entry.send.target, entry.send.text, entry.send.file].some(
+        (value) => value !== undefined && foldFind(value).includes(reveal.needle),
+      );
     // Every message of a batch shares its call: each call's text is folded once, not per message.
-    const hits = new Map<AcpmuxActivity, boolean>();
-    return entries.findIndex(({ item }) => {
-      let hit = hits.get(item);
-      if (hit === undefined) hits.set(item, (hit = foldFind(activityText(item)).includes(reveal.needle)));
+    const calls = new Map<AcpmuxActivity, boolean>();
+    const inCall = (item: AcpmuxActivity) => {
+      let hit = calls.get(item);
+      if (hit === undefined) calls.set(item, (hit = foldFind(activityText(item)).includes(reveal.needle)));
       return hit;
-    });
+    };
+    const out = new Set<number>();
+    const reached = new Set<AcpmuxActivity>();
+    for (const [at, entry] of entries.entries())
+      if (own(entry) || (entry.type !== "send" && inCall(entry.item))) {
+        out.add(at);
+        reached.add(entry.item);
+      }
+    for (const [item, at] of firsts) if (!reached.has(item) && inCall(item)) out.add(at);
+    return [...out].sort((x, y) => x - y);
   }, [reveal, entries]);
-  useLayoutEffect(() => {
-    if (found >= 0) setPage(Math.floor(found / SEND_PAGE_SIZE));
-  }, [found, reveal]);
+  if (matches.length)
+    return (
+      <>
+        {matches.map((at) => (
+          <FindReveal.Provider key={at} value={reveal}>
+            {rows[at]}
+          </FindReveal.Provider>
+        ))}
+      </>
+    );
   const lastPage = Math.max(0, Math.ceil(rows.length / SEND_PAGE_SIZE) - 1);
   const current = Math.min(page, lastPage);
   const start = current * SEND_PAGE_SIZE;
@@ -557,7 +572,7 @@ function SentPages({ entries, children }: { entries: readonly SentEntry[]; child
   return (
     <>
       {rows.slice(start, end).map((row, at) => (
-        <FindReveal.Provider key={start + at} value={start + at === found ? reveal : undefined}>
+        <FindReveal.Provider key={start + at} value={undefined}>
           {row}
         </FindReveal.Provider>
       ))}
