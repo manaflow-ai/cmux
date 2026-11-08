@@ -448,7 +448,7 @@ fn attached_carrier_sessions_are_connected_or_reconnecting() {
     ]);
     assert_eq!(
         carrier::attached_sessions_in(&list.to_string()),
-        Some(vec!["d1/a".to_owned(), "d1/b".to_owned()])
+        Some(vec!["d1/a#1".to_owned(), "d1/b#2".to_owned()])
     );
     assert_eq!(carrier::attached_sessions_in("[]"), Some(Vec::new()));
     assert_eq!(carrier::attached_sessions_in("{\"error\": \"no daemon\"}"), None);
@@ -609,4 +609,58 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
     let mut slept = Duration::ZERO;
     role::guard_rollback_waits(&mut idle, |d| slept += d);
     assert_eq!(slept, Duration::ZERO, "no session, no wait");
+}
+
+/// Review F1 of #38326 (P2): a reconnect inside the resume lease keeps its
+/// device and session ids and bumps only the generation. It is a new connect:
+/// past the carrier hold's bound it still starts the connect hold.
+#[test]
+fn a_reconnect_in_the_resume_lease_is_a_new_session_past_the_bound() {
+    use std::time::Duration;
+
+    use carrier::{CARRIER_MAX_HOLD, CarrierHold};
+
+    let row = |generation: u64| {
+        json!([{"device_id": "mac", "session_id": "s1", "generation": generation,
+                "state": "connected", "resume_lease_remaining_ms": null,
+                "lane_bindings": [], "physical_link_count": 1}])
+        .to_string()
+    };
+    let t0 = std::time::Instant::now();
+    let mut hold = CarrierHold::default();
+    let first = carrier::attached_sessions_in(&row(1)).unwrap();
+    assert!(hold.look(t0, Ok(first.clone())).new_session);
+    let past = hold.look(t0 + CARRIER_MAX_HOLD, Ok(first));
+    assert_eq!(past.busy, None, "past the bound");
+    assert!(!past.new_session);
+
+    let reconnected = carrier::attached_sessions_in(&row(2)).unwrap();
+    let look = hold.look(t0 + CARRIER_MAX_HOLD + Duration::from_secs(60), Ok(reconnected));
+    assert!(look.new_session, "a reconnect that bumped the generation is a new connect");
+}
+
+/// Review F2 of #38326 (P2): when every read failed (here past the bound),
+/// the first list that reads holds the update as a new connect: its
+/// sessions were never seen, so they start the connect hold.
+#[test]
+fn the_first_read_after_failed_reads_counts_its_sessions_as_new() {
+    use std::time::Duration;
+
+    use carrier::{CARRIER_MAX_HOLD, CarrierHold};
+
+    let t0 = std::time::Instant::now();
+    let mut hold = CarrierHold::default();
+    let unknown = || Err("its admin channel answered exit status: 1".to_owned());
+    assert!(hold.look(t0, unknown()).busy.is_some(), "an unreadable list holds");
+    let past = hold.look(t0 + CARRIER_MAX_HOLD, unknown());
+    assert_eq!(past.busy, None, "the unreadable list's hold is bounded");
+    assert!(!past.new_session);
+
+    let read =
+        hold.look(t0 + CARRIER_MAX_HOLD + Duration::from_secs(60), Ok(vec!["mac/s1#1".to_owned()]));
+    assert!(read.new_session, "sessions never seen before are new");
+    // The first look with nothing to compare counts its sessions too.
+    let mut fresh = CarrierHold::default();
+    assert!(fresh.look(t0, Ok(vec!["mac/s1#1".to_owned()])).new_session);
+    assert!(!CarrierHold::default().look(t0, Ok(Vec::new())).new_session);
 }
