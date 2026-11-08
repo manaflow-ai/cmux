@@ -56,6 +56,14 @@ describe("cloud journey", () => {
     expect(md).toContain("a\\|b");
   });
 
+  test("a carrier dial's detail keeps its phases in the summary, up to 1000 characters", () => {
+    const phases = Array.from({ length: 5 }, (_, i) => `reconnect relay: ticket 300, relay ${15_000 + i}, parked 0, handshake 0, mux 0 ms, lanes 0, ${15_300 + i} ms`);
+    const detail = dialDetail({ connectMs: 640, replyMs: 900, retries: 5, failed: [], phases, reply: "{}" });
+    expect(detail.length).toBeGreaterThan(600);
+    const md = summaryMarkdown(resolveBackend("staging"), [{ step: "connect (carrier dial)", status: "pass", ms: 900, detail }]);
+    expect(md).toContain(phases[4]);
+  });
+
   test("newReds: only steps the deploy turned red", () => {
     const st = (step: string, status: "pass" | "fail" | "skip") => ({ step, status, ms: 1, detail: "" });
     const before = [st("health", "pass"), st("create machine", "pass"), st("running (status)", "fail")];
