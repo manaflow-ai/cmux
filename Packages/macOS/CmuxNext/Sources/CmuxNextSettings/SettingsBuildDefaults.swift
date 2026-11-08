@@ -35,7 +35,7 @@ extension SettingsController {
     /// the default (Leo 2026-11-08: "if I'm on the default selection and the default selection changes
     /// its properties, that's something that should happen").
     func isUnsetValue(_ value: JSONValue, of descriptor: SettingDescriptor) -> Bool {
-        value == defaultValue(of: descriptor) && !layerBelowFileSets(descriptor.id)
+        true // MUTANT (never merge): every write drops the key
     }
 
     /// Whether the person's file sets `descriptor` to something other than this build's default,
