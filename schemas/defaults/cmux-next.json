@@ -71,7 +71,6 @@
     "key.diffViewerSearch": ["/"],
     "key.editWorkspaceDescription": ["opt+cmd+e"],
     "key.equalizeSplits": ["ctrl+cmd+="],
-    "key.feed.show": ["shift+cmd+i"],
     "key.fileEditorGotoLine": ["ctrl+g"],
     "key.fileEditorZoomIn": ["cmd+="],
     "key.fileEditorZoomOut": ["cmd+-"],
