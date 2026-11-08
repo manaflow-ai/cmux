@@ -178,6 +178,38 @@ import QuartzCore
         }
     }
 
+    /// Starts `view` at `start` (a frame in its superview's coordinates) and carries it to its model frame on `token`'s
+    /// spring, from rest: a pin's flight (`SidebarPinFlight`). Every spring an earlier move left on it comes off first,
+    /// so a retarget starts from `start` (the frame on screen) with no velocity carried over (m68: no overshoot).
+    /// `now`: the move's one begin time, so the flight and the rows around it are on the same progress every frame.
+    static func fly(_ view: NSView, from start: NSRect, _ token: MotionSpring = .move, now: CFTimeInterval) {
+        guard let layer = view.layer else { return }
+        stop([view])
+        layer.removeAnimation(forKey: "position")
+        layer.removeAnimation(forKey: "bounds")
+        layer.removeAnimation(forKey: "bounds.size")
+        let target = view.frame
+        guard start != target else { return }
+        let from = layerPosition(of: start, for: view), to = layerPosition(of: target, for: view)
+        addDelta(to: layer, position: CGPoint(x: layer.position.x + from.x - to.x, y: layer.position.y + from.y - to.y),
+                 size: start.size, now: now, key: batchKey, token)
+    }
+
+    /// Carries `view` (a row's title) from `offset` (in its superview's coordinates) back to its model place on `token`'s
+    /// spring from `now`: the title moves on the flight's curve from where the leaving view drew it.
+    static func offset(_ view: NSView, by offset: CGPoint, _ token: MotionSpring = .move, now: CFTimeInterval) {
+        guard let layer = view.layer, offset != .zero else { return }
+        addDelta(to: layer, position: CGPoint(x: layer.position.x + offset.x, y: layer.position.y + offset.y),
+                 size: layer.bounds.size, now: now, key: batchKey, token)
+    }
+
+    /// The layer position `frame` (in `view`'s superview) gives `view`'s layer: AppKit keeps a view's sublayers in its
+    /// own coordinates (it flips their geometry for a flipped view).
+    private static func layerPosition(of frame: NSRect, for view: NSView) -> CGPoint {
+        let anchor = view.layer?.anchorPoint ?? .zero
+        return CGPoint(x: frame.minX + anchor.x * frame.width, y: frame.minY + anchor.y * frame.height)
+    }
+
     /// Fades `view` to `alpha` (a placeholder row a drag shows or hides).
     static func fade(_ view: NSView, to alpha: CGFloat) {
         guard view.alphaValue != alpha else { return }

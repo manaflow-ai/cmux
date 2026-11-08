@@ -238,6 +238,11 @@ extension SidebarListViewComponents {
             settleOpenings()
         }
         let reopened = animate ? Self.movedByThemselves(openingRows.keys, from: old, to: layout) : []
+        // A pin or an unpin hands its workspace from a list row to a block item or back: the arriving view starts where
+        // the leaving one is drawn now and moves on the rows' spring (`SidebarListView+PinFlight`).
+        let flightSources = pinFlightSources(from: old, to: layout, moves: opensRows && !adopting)
+        if !flightSources.pins.isEmpty { for region in blockRegions { region.flyingWorkspaces = Set(flightSources.pins.keys) } }
+        var flights: [SidebarPinFlight] = []
         // A spliced row is its own run (rows still opening that moved by themselves are found by the walk).
         let insertRuns = spliced.flatMap { key in reopened.isEmpty ? layout.row(for: key).map { [key: $0.y] } : nil }
             ?? SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
@@ -290,7 +295,9 @@ extension SidebarListViewComponents {
             framesComputed += 1
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
-            guard existing != nil || target.intersects(realize) else { continue }
+            let unpinSource = existing == nil ? flightSources.unpin(for: row.key) : nil
+            // An unpinned row whose slot is out of view still flies there from the item, and slides out of view.
+            guard existing != nil || target.intersects(realize) || unpinSource != nil else { continue }
             keep.insert(row.key)
             // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's
             // does: a space's rows then make no new views once the pool holds some (space-switch-fast).
@@ -300,7 +307,7 @@ extension SidebarListViewComponents {
             configure(view, row: row, animated: animate || (adopting && existing != nil))
             // A row new to the layout, one that moved by itself, or one still opening that scrolls in with no view
             // (it opens in place, as `RowMotion.place` opens one on a scroll).
-            let opens = animate && existing == nil
+            let opens = animate && existing == nil && unpinSource == nil
                 && (old.row(for: row.key) == nil || reopened.contains(row.key) || openingRows[row.key] != nil)
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
@@ -322,6 +329,7 @@ extension SidebarListViewComponents {
             // A parked view (`recycle`) keeps its old place in the stack: put it at the bottom of the rows,
             // as a new one, so it never draws over a block that a move raised (scroll realization skips this).
             if existing == nil { addSubview(view, positioned: .above, relativeTo: decorations); rowViews[row.key] = view }
+            if let unpinSource { flights.append(unpinFlight(view, from: unpinSource)) }
             // Adopting: a row new to the list fades in at its slot (adoptRows), one only scrolled in shows at once.
             if adopting, existing == nil { view.alphaValue = old.row(for: row.key) == nil ? 0 : 1 }
             if suppressed.contains(row.key) {
@@ -355,6 +363,11 @@ extension SidebarListViewComponents {
                 view.layoutSubtreeIfNeeded()
             }
             rowViews[key] = nil
+            // A pinned row's block item took over its frame in this transaction: the row goes at once (one copy on screen).
+            if flightSources.pins(key) {
+                recycle(view)
+                continue
+            }
             let placeholder = switch key { case .emptySection, .emptyGroup: true; default: false }
             let replaced = old.row(for: key).map { returning.contains($0.section) || $0.group.map(emptied.contains) == true } ?? false
             // Under a dropped card on its way to its slot, a leaving row goes at once (`isUnderCard`).
@@ -389,8 +402,10 @@ extension SidebarListViewComponents {
             SidebarDragSpring.move(history + lines.springs, in: self)
             return adoptRows(targets: targets, leaving: leaving, lines: lines)
         }
+        if !flightSources.pins.isEmpty { flights += pinFlights(flightSources) }
+        // A flight and the rows it passes start from where they are drawn, at rest: a retarget carries no velocity (m68).
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history, insert: insertMotion,
-                  travel: insertTravel, folding: folding)
+                  travel: insertTravel ?? (flights.isEmpty ? nil : .greatestFiniteMagnitude), folding: folding, flights: flights)
             .run(in: self, from: old, to: layout, animated: animate)
     }
     /// The indices into `layout.rows`, in order, of the rows an apply can draw: the rows `realize` holds (by y), the

@@ -103,6 +103,9 @@ final class SidebarRegionView: NSView {
         }
     }
     private(set) var itemViews: [LayoutItemID: SidebarItemRowView] = [:]
+    /// The workspaces a pin flies in this apply (`SidebarListView.pinFlights`): a new item for one of them is placed
+    /// in its slot at once, never grown from an empty frame; the list's flight moves it from where the row was.
+    var flyingWorkspaces: Set<WorkspaceID> = []
     private(set) var headerViews: [LayoutSectionID: SidebarSectionHeaderView] = [:]
     /// The drag in progress (R77) and the order the region shows while it
     /// runs and until its card has landed.
@@ -282,7 +285,14 @@ final class SidebarRegionView: NSView {
                 view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
                 view.activatesOnPress = item.ref.activatesOnPress
                 view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
-                place(view, row.frame, new: new)
+                if new, let workspace = info.workspace, flyingWorkspaces.contains(workspace) {
+                    Motion.withoutAnimation {
+                        view.frame = row.frame
+                        view.layoutSubtreeIfNeeded()
+                    }
+                } else {
+                    place(view, row.frame, new: new)
+                }
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
                 edit(view, id)
             }
@@ -440,6 +450,11 @@ final class SidebarRegionView: NSView {
 
     /// The item view for `id` (tests, hover cards).
     func itemView(_ id: LayoutItemID) -> SidebarItemRowView? { itemViews[id] }
+
+    /// The item that draws workspace `id`, if this region draws it now.
+    func itemView(workspace id: WorkspaceID) -> SidebarItemRowView? {
+        itemViews.values.first { $0.info.workspace == id && $0.superview != nil }
+    }
 
     /// Up and Down from a focused item walk the whole sidebar (`SidebarArrowWalk`).
     override func keyDown(with event: NSEvent) {

@@ -1687,6 +1687,18 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - The +'s top snaps to the device pixel grid, not whole points (the line can sit on a half point).
 - The sidebar re-lays out its top row when the card's reach changes: gutter, pane padding, floating panes, strip tokens.
 
+## A pin or an unpin moves the workspace to its new slot (2026-11-08, task pin-motion, DRAFT)
+
+- Lawrence 2026-11-08 (cmux-ad m70): "animation when i pin stuff and unpin stuff is not very good. like it needs to
+  translate properly from its original position to new position".
+- Before: a pin closed the list row in place (a fade) and grew the Pinned item out of an empty frame at the block's
+  corner; an unpin dropped the item and faded a new row in at its slot.
+- Now (`SidebarListView+PinFlight`): the arriving view (Pinned item or list row) starts on the frame the leaving view
+  is drawn on, the leaving view goes in the same transaction (one copy each frame), and it, its title and the rows
+  between the two slots move on the rows' one `.move` spring (critically damped, no overshoot) from rest. Motion off
+  or Reduce Motion: the final state in one frame. Regression: `SidebarPinFlightTests`.
+- Gap: the first pin, which creates the Pinned block, still opens that block with its own fade.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
