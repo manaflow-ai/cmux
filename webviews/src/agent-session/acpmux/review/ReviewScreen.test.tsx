@@ -22,7 +22,7 @@ const sessions = ["a", "b"].map((name, at) =>
     title: `Change ${name}`,
     worktree: `/work/${name}`,
     branch: `lane/${name}`,
-    activityAt: new Date(NOW - (at + 1) * 60_000).toISOString(),
+    activityAt: NOW - (at + 1) * 60_000,
   }),
 );
 const readDiff = async () => ({
