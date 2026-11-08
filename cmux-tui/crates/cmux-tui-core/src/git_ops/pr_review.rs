@@ -250,7 +250,12 @@ fn worktree(
 /// A worktree on `cmux/<name>` or `cmux/<name>-<k>` whose HEAD is `head`
 /// and whose branch an earlier review of `url` recorded (`cmuxReview`): an
 /// ordinary worktree that happens to have the name keeps its comments.
-fn existing(repository: &Repository, name: &str, url: &str, head: &str) -> Option<(PathBuf, String)> {
+fn existing(
+    repository: &Repository,
+    name: &str,
+    url: &str,
+    head: &str,
+) -> Option<(PathBuf, String)> {
     let output = repository.run(&["worktree", "list", "--porcelain"], 1024 * 1024).ok()?;
     let listing = String::from_utf8_lossy(&output.stdout).into_owned();
     let prefix = format!("refs/heads/{}{name}", worktree::BRANCH_PREFIX);

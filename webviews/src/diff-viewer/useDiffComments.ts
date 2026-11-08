@@ -256,7 +256,12 @@ export function useDiffComments({
         if (activeRepoRoot.current !== targetRepoRoot) return setPostState("idle");
         // The host found no review under this opid and none of its drafts unchanged: nothing of it
         // reached GitHub, so the drafts as they are now go as a new review.
-        if (!fresh && batch === pending && error instanceof DiffCommentsBridgeError && error.reason === "nothing_to_post") {
+        if (
+          !fresh &&
+          batch === pending &&
+          error instanceof DiffCommentsBridgeError &&
+          error.reason === "nothing_to_post"
+        ) {
           pendingPosts.current.delete(targetRepoRoot);
           setPostState("idle");
           return postBatch(true);

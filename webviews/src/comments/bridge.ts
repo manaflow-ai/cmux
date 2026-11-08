@@ -88,7 +88,11 @@ async function callPageDiffComments<T>(
     if (isPageError(error)) {
       // The session host's own words (gh's error, a moved head) say more than its code.
       const { reason, message } = refusal(error.details);
-      throw new DiffCommentsBridgeError(message || error.message || "Diff comments request failed.", error.code, reason);
+      throw new DiffCommentsBridgeError(
+        message || error.message || "Diff comments request failed.",
+        error.code,
+        reason,
+      );
     }
     throw new DiffCommentsBridgeError(error instanceof Error ? error.message : String(error));
   }
