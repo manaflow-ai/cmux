@@ -35,6 +35,13 @@ struct BookmarksBarPagesTests {
         return window
     }
 
+    /// The page's layout report of an empty row for `profile`.
+    static func reportEmpty(_ provider: BookmarksBarProvider, profile: String) async throws {
+        _ = try await provider.call(BookmarksBarProvider.prefix + "layout",
+                                    params: .object(["profile": .string(profile), "visible": .array([]), "overflow": .array([])]),
+                                    context: PageCallContext(page: PageDescriptor.bookmarksBar.id))
+    }
+
     @Test func hiddenTabsHoldNoPageAndTabsTakingTurnsInAPaneShareOne() throws {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let (pages, root) = try Self.pool(services: services)
@@ -74,6 +81,7 @@ struct BookmarksBarPagesTests {
         let provider = try #require(bar.page?.bar)
         let context = PageCallContext(page: PageDescriptor.bookmarksBar.id)
         _ = try await provider.call(BookmarksBarProvider.prefix + "layout", params: .object([
+            "profile": .string("default"),
             "visible": .array([.object(["id": .string("bm_a"), "title": .string("GitHub"), "x": .number(2), "width": .number(70)])]),
             "overflow": .array([.string("Docs")]),
         ]), context: context)
@@ -86,5 +94,36 @@ struct BookmarksBarPagesTests {
         bar.removeFromSuperview()
         window.contentView?.addSubview(bar)
         #expect(bar.pageView?.alphaValue == 1)
+    }
+
+    /// A page lent from one profile's bar to another's shows once it reports the new profile, even
+    /// when both rows are empty (the report is the same but for the profile), and a late report
+    /// for the profile it left keeps it hidden.
+    @Test func aPageLentToAnotherProfilesEmptyBarShowsOnItsReport() async throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let work = BookmarksBarHostView(tabKey: "tab-work", pages: pages, profile: { "work" })
+        let personal = BookmarksBarHostView(tabKey: "tab-personal", pages: pages, profile: { "personal" })
+        let window = Self.window()
+        defer { window.close() }
+        let content = try #require(window.contentView)
+
+        content.addSubview(work)
+        let provider = try #require(work.page?.bar)
+        try await Self.reportEmpty(provider, profile: "work")
+        #expect(work.pageView?.alphaValue == 1)
+
+        work.removeFromSuperview()
+        content.addSubview(personal)
+        #expect(pages.made == 1, "the personal tab's bar borrows the page the work tab gave back")
+        let view = try #require(personal.pageView)
+        #expect(view.alphaValue == 0, "the page still holds the work profile's row")
+        try await Self.reportEmpty(provider, profile: "work")
+        #expect(view.alphaValue == 0, "a late report for the work profile is stale here")
+        try await Self.reportEmpty(provider, profile: "personal")
+        #expect(view.alphaValue == 1)
+        #expect(provider.drawnProfile == "personal")
+        personal.removeFromSuperview()
     }
 }

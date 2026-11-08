@@ -112,11 +112,13 @@ export function BookmarksBar(props: BookmarksBarProps) {
     if (visible.length > 0) onIcons(visible);
   });
 
-  // The host hears what shows after each change of it (not each render).
+  // The host hears what shows after each change of it (not each render). The profile is part of
+  // the report, so a page lent to another profile's bar always reports its new row.
   const reported = useRef("");
   useLayoutEffect(() => {
     if (!snapshot.loaded || !onLayout) return;
     const laidOut: LaidOut = {
+      profile: snapshot.profile,
       visible: visible.map((node, index) => ({
         id: node.id,
         title: titles[index] ?? "",
@@ -277,9 +279,11 @@ function BarItem({ node, title, frame, metrics, icon, onOpen, onFolder, onContex
         else onOpen(node, disposition(event));
       }}
       onAuxClick={(event) => {
-        if (event.button !== 1 || folder) return;
+        if (event.button !== 1) return;
         event.preventDefault();
-        onOpen(node, disposition(event, true));
+        // A middle click acts as a click on a folder (its menu), as the native bar's did.
+        if (folder) onFolder(node, anchorOf(event.currentTarget));
+        else onOpen(node, disposition(event, true));
       }}
       onContextMenu={(event) => {
         event.preventDefault();

@@ -153,9 +153,11 @@ public final class BookmarksBarHostView: NSView {
         // tab's row (the strip's fill stands in, as the native bar's did before its tree loaded).
         page.view.alphaValue = page.bar.drawnProfile == profile ? 1 : 0
         page.bar.onLayout = { [weak self, weak page] layout in
-            guard let self, let page, self.page === page else { return }
+            // A report for the profile the page drew before it came here is stale: the page stays
+            // hidden until it reports this tab's profile.
+            guard let self, let page, self.page === page, let drawn = layout.profile, drawn == self.profile() else { return }
             shown = layout
-            page.bar.drawnProfile = self.profile()
+            page.bar.drawnProfile = drawn
             page.view.alphaValue = 1
         }
         page.view.frame = bounds
@@ -179,7 +181,8 @@ public final class BookmarksBarHostView: NSView {
 ///   the bar is in (a native menu choice is the person's own act).
 /// - `contextMenu {bookmark?, point: {x, y}}`: the registry's Bookmark menu, or the Bookmarks
 ///   Bar menu for the bar's empty area.
-/// - `layout {visible: [{id, title, x, width}], overflow: [title]}`: what the bar shows.
+/// - `layout {profile, visible: [{id, title, x, width}], overflow: [title]}`: what the bar shows
+///   for `profile`; the bar view drops a report for a profile it does not show.
 /// - `refused {message}`: the owner refused a drop or a move.
 @MainActor
 public final class BookmarksBarProvider: PageProvider {
@@ -193,6 +196,8 @@ public final class BookmarksBarProvider: PageProvider {
     }
 
     public struct Layout: Equatable, Sendable {
+        /// The profile whose row the page laid out.
+        public var profile: String?
         public var visible: [Item] = []
         public var overflow: [String] = []
         public init() {}
@@ -235,6 +240,7 @@ public final class BookmarksBarProvider: PageProvider {
             return .object([:])
         case Self.prefix + "layout":
             var layout = Layout()
+            layout.profile = params["profile"]?.stringValue
             layout.visible = (params["visible"]?.arrayValue ?? []).compactMap { item in
                 guard let id = item["id"]?.stringValue else { return nil }
                 return Item(id: id, title: item["title"]?.stringValue ?? "", x: CGFloat(item["x"]?.doubleValue ?? 0),
