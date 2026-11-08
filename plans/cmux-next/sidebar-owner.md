@@ -1810,6 +1810,13 @@ An empty group now keeps only its header at rest. The header's existing + appear
   so there the crossed rows still hide and fade back as before.
 - Test: `SidebarGroupFlickerTests` event i (no top group piece below opacity 1 in any frame; the moving row above the
   group and opaque), red commit first.
+- Follow-ups (review, 2026-11-08): the ground is the nearest opaque fill behind the rows, so an opaque
+  `appearance.surfaces.sidebar` covers in a translucent or frosted window too; only where what is behind the rows
+  really shows through do crossed rows still hide. A cover ends when a later move retargets the row (a new one,
+  timed to that move, goes on if it still crosses rows), when the move snaps, and when the selection leaves the row
+  (`SidebarRowView.isSelected`), so no opaque cover paints over a row that is no longer selected. Tests:
+  `SidebarGroupFlickerTests` event i [see-through window] [opaque sidebar surface], and
+  `aCoverEndsWhenItsRowIsDeselected`, red commit first.
 
 ## Reviewed behavior-only commits
 

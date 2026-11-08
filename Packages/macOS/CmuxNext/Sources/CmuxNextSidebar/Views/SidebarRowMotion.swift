@@ -36,6 +36,8 @@ struct RowMotion {
         // so every row shows its slot now (`SidebarDragSpring.stop`).
         let views = targets.map(\.0) + appearing.map(\.0) + leaving.map(\.0)
         guard animated else {
+            // The selected row lands now: a pass-over cover still running from an earlier move ends with it.
+            Self.endCover(in: list)
             list.settleOpenings()
             Motion.withoutAnimation {
                 moves()
@@ -49,6 +51,7 @@ struct RowMotion {
         guard Motion.sidebar.animatesMovement else {
             // Reduce Motion: rows take their places in one step, with no crossfade standing in
             // for the motion (DESIGN P6): no movement, and nothing a person must wait out.
+            Self.endCover(in: list)
             list.settleOpenings()
             Motion.withoutAnimation {
                 moves()
@@ -273,9 +276,10 @@ struct RowMotion {
     /// itself: its background shows its fill over the sidebar's opaque ground until the move has nearly settled, then
     /// fades to its own fill (`passOverCover`, on the render server, gone once it ends), so a translucent selection
     /// fill never shows a title through it while every crossed row stays drawn at full opacity (cx-bqm6, cx-ai79;
-    /// Leo 2026-11-08: "there's like still a bit of a flicker on that, like individual top group"). In a see-through
-    /// window no opaque color matches what is behind the rows, so there each crossed row still hides at once and
-    /// fades back in once the move has nearly settled.
+    /// Leo 2026-11-08: "there's like still a bit of a flicker on that, like individual top group"). The ground is opaque
+    /// in an opaque window, and in any window under an opaque sidebar surface fill (`rowGround`). Where what is behind
+    /// the rows shows through no opaque color matches it, so there each crossed row still hides at once and fades back
+    /// in once the move has nearly settled. A later move of the row, or the selection leaving it, ends its cover.
     private func passOver(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout) {
         // A dragged row is hidden under its lifted card, which already draws
         // above the list: no row passes under it, so none hides (cx-ikxz).
@@ -283,6 +287,9 @@ struct RowMotion {
         // to pass over with: the rows it crosses stay as they are.
         guard let key = list.selectedRowKey, !list.suppressed.contains(key), !appearing.contains(where: { $0.0.key == key }),
               let before = old.row(for: key)?.y, let after = layout.row(for: key)?.y, before != after else { return }
+        // This move retargets the selected row: a cover an earlier pass-over left on it is held for that move's
+        // settle, not this one's. It comes off here, and goes back on below, timed to this move, if the row still crosses rows.
+        Self.endCover(in: list)
         let passed = targets.map(\.0).filter { view in
             guard view.key != key, let was = old.row(for: view.key)?.y, let now = layout.row(for: view.key)?.y else { return false }
             return (was < before) != (now < after)
@@ -300,7 +307,7 @@ struct RowMotion {
             let fill = layer.backgroundColor
             let cover = fill.flatMap(Self.rgb).map { $0.composited(over: ground) } ?? ground
             if let hold = Motion.sidebar.passOverCover(.move, cover: cover.cgColor, fill: fill) {
-                layer.add(hold, forKey: "cmux.passOverCover")
+                layer.add(hold, forKey: SidebarRowView.passOverCoverKey)
             }
             return
         }
@@ -310,29 +317,47 @@ struct RowMotion {
         }
     }
 
+    /// Ends the pass-over cover on the selected row (`passOver`). Only the selected row carries one: a row the selection
+    /// leaves ends its own (`SidebarRowView.isSelected`), and a recycled row loses every animation.
+    private static func endCover(in list: SidebarListView) {
+        guard let key = list.selectedRowKey else { return }
+        list.rowViews[key]?.endPassOverCover()
+    }
+
     private static func rgb(_ color: CGColor) -> ThemeRGB? {
         guard let rgb = NSColor(cgColor: color)?.usingColorSpace(.sRGB) else { return nil }
         return ThemeRGB(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent, alpha: rgb.alphaComponent)
     }
 
-    /// The opaque color the sidebar shows behind its rows: the theme's sidebar background under what the sidebar's
-    /// own views paint over it (`appearance.surfaces.sidebar`, the rail's overlay). Nil in a see-through window
-    /// (translucent, frosted, glass, a picture), where the desktop or the picture shows through and no opaque color
-    /// matches it.
+    /// The opaque color the sidebar shows behind its rows: what the sidebar's own views paint (`appearance.surfaces.sidebar`,
+    /// the rail's overlay) over the nearest opaque thing behind them. That is an opaque fill of the sidebar's own (an
+    /// opaque `appearance.surfaces.sidebar`, in any window, translucent and frosted ones too: nothing behind it shows
+    /// through), or else, in an opaque window, the theme's sidebar background. Nil when what is behind the rows shows
+    /// through (a see-through window, translucent, frosted, glass or a picture, under no opaque sidebar fill), where no
+    /// opaque color matches it.
     private static func rowGround(of list: SidebarListView) -> ThemeRGB? {
         list.performWithTheme {
             let tokens = list.themeTokens
-            guard WindowBackdrop.current(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled).isOpaque else { return nil }
-            var fills: [CGColor] = []
+            // The fills between the rows and the window, nearest first, up to the first opaque one, which hides the rest.
+            var fills: [ThemeRGB] = []
             var ancestor = list.superview
             while let view = ancestor {
-                if let fill = view.layer?.backgroundColor, fill.alpha > 0 { fills.append(fill) }
+                if let color = view.layer?.backgroundColor, color.alpha > 0, let fill = rgb(color) {
+                    fills.append(fill)
+                    if fill.alpha >= 1 { break }
+                }
                 if view is SidebarContainerView || view === list.window?.contentView { break }
                 ancestor = view.superview
             }
-            return fills.reversed().reduce(tokens.sidebarBackground.withAlpha(1)) { ground, fill in
-                rgb(fill).map { $0.composited(over: ground) } ?? ground
+            let base: ThemeRGB
+            if let last = fills.last, last.alpha >= 1 {
+                base = fills.removeLast()
+            } else if WindowBackdrop.current(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled).isOpaque {
+                base = tokens.sidebarBackground.withAlpha(1)
+            } else {
+                return nil
             }
+            return fills.reversed().reduce(base) { ground, fill in fill.composited(over: ground) }
         }
     }
 }

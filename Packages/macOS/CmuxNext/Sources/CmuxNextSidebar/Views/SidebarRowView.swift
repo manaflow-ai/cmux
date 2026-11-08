@@ -14,6 +14,8 @@ class SidebarRowView: NSView {
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
+            // A row the selection leaves mid-move no longer covers the rows it crosses: its own fill shows now.
+            if !isSelected { endPassOverCover() }
             updateAccessibilitySelection()
             fadesNextFill = false
             needsDisplay = true
@@ -21,6 +23,12 @@ class SidebarRowView: NSView {
             needsLayout = true
         }
     }
+
+    /// The key of the opaque cover a selected row moving past other rows shows (`RowMotion.passOver`).
+    static let passOverCoverKey = "cmux.passOverCover"
+
+    /// Takes off a pass-over cover still running (`RowMotion.passOver`): the row shows its own fill in the next frame.
+    func endPassOverCover() { layer?.removeAnimation(forKey: Self.passOverCoverKey) }
 
     /// The row shows as selected, the one source of its AXSelected. A row with more
     /// selection state overrides it and calls `updateAccessibilitySelection()` when that changes.
