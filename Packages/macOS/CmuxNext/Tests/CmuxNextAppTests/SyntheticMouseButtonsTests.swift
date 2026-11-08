@@ -143,6 +143,26 @@ struct SyntheticMouseButtonsTests {
         #expect(NSEvent.pressedMouseButtons & 0b1100 == 0)
     }
 
+    /// The buttons a view reads as it takes a press and its release.
+    private final class ButtonsReadingView: NSView {
+        var readAtDown: Int?
+        var readAtUp: Int?
+        override func mouseDown(with event: NSEvent) { readAtDown = NSEvent.pressedMouseButtons }
+        override func mouseUp(with event: NSEvent) { readAtUp = NSEvent.pressedMouseButtons }
+    }
+
+    /// A click handed straight to a page's view (`debug.mouse` target page, the agent pane's click) holds its
+    /// button while the view takes the press and lets go before it takes the release, as one through the app does.
+    @Test func aClickHandedStraightToAViewHoldsItsButtonUntilTheRelease() throws {
+        let base = 908_000 + Double.random(in: 0..<1000)
+        let view = ButtonsReadingView()
+        SyntheticInput.click(view, down: try Self.event(.leftMouseDown, at: base),
+                             up: try Self.event(.leftMouseUp, at: base + 0.01))
+        #expect(view.readAtDown.map { $0 & 1 } == 1, "the view took the press with no button held")
+        #expect(view.readAtUp.map { $0 & 1 } == 0, "the view took the release with button 1 still held")
+        #expect(NSEvent.pressedMouseButtons & 1 == 0)
+    }
+
     /// The person's own press is the hardware's to report: one that was never registered changes nothing.
     @Test func thePersonsOwnPressHoldsNoSyntheticButton() throws {
         let base = 902_000 + Double.random(in: 0..<1000)

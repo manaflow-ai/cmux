@@ -88,6 +88,12 @@ public struct SyntheticInput {
         return user
     }
 
+    /// A synthetic click handed straight to `view` (`mouseDown(with:)`, `mouseUp(with:)`), not through `sendEvent`.
+    public static func click(_ view: NSView, down: NSEvent, up: NSEvent) {
+        view.mouseDown(with: down)
+        view.mouseUp(with: up)
+    }
+
     /// The `pressedMouseButtons` bit a press or release of `event` changes, or 0 (not a press or release).
     private nonisolated static func buttonBit(_ event: NSEvent) -> Int {
         switch event.type {
