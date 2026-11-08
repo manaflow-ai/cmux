@@ -972,6 +972,25 @@ class GatewayRoute(unittest.TestCase):
         self.assertIn("no idle runner left for fast-tier-fleet", dropped.why)
         self.assertIs(placement.fleet_gateway(self.fleet_placed(), values, one, LIGHT_SIDE).fleet_jobs, ())
 
+    def test_a_kept_fleet_job_leaves_its_blacksmith_label_and_a_dropped_one_keeps_it(self):
+        # next_macos_cascade.place() lists a job a Blacksmith macOS label took (cmux#38130: a cold 6 vCPU
+        # build ran out the fast tier's 20 minutes); it leaves that label only for an idle gateway runner.
+        small = placement.cascade.SMALL
+        placed = placement.cascade.Placement({placement.cascade.LARGE: (), small: ("fast-tier", "generated-files")},
+                                             "", "placed", fleet_jobs=("fast-tier",))
+        values = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "swift-canary-fleet"}
+        kept = placement.fleet_gateway(placed, values, self.light(False, False), LIGHT_SIDE)
+        self.assertEqual((kept.fleet_jobs, kept.jobs[small]), (("fast-tier",), ("generated-files",)))
+        dropped = placement.fleet_gateway(placed, values, self.light(False, True), LIGHT_SIDE)
+        self.assertEqual((dropped.fleet_jobs, dropped.jobs[small]), ((), ("fast-tier", "generated-files")))
+        rerun = placement.fleet_gateway(placed, values, self.light(False, False), "")
+        self.assertEqual((rerun.fleet_jobs, rerun.jobs[small]), ((), ("fast-tier", "generated-files")))
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            placement.cascade.write(kept, {"GITHUB_OUTPUT": str(out)})
+            lines = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            self.assertEqual((lines["blacksmith_6_jobs"], lines["fleet_jobs"]), (" generated-files ", " fast-tier "))
+
     def test_main_lists_a_fleet_job_only_with_a_gateway_runner_for_its_client(self):
         values = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "swift-canary-fleet", "CASCADE_RUNS": ""}
         for runners, listed in ((self.light(False, False), " fast-tier "), (self.light(False, True), "")):
