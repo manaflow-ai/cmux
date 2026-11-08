@@ -663,12 +663,24 @@ fn carrier_busy(paths: &Paths) -> Option<String> {
     carrier_busy_from(paths, carrier_sessions())
 }
 
-/// [`carrier_busy`] for a rollback: only sessions the list shows hold it,
-/// under the same bound. A list that can't be read holds nothing here: the
-/// session host that would answer is the build being rolled back, and
+/// [`carrier_busy`] for a rollback's wait: only sessions the list shows hold
+/// it, under the same bound. A list that can't be read holds nothing here:
+/// the session host that would answer is the build being rolled back, and
 /// keeping a broken build is worse than a restart (#37280).
-fn rollback_carrier_busy(paths: &Paths) -> Option<String> {
-    carrier_sessions().ok().and_then(|ids| carrier_busy_from(paths, Ok(ids)))
+#[derive(Default)]
+pub(super) struct RollbackCarrier;
+
+impl RollbackCarrier {
+    /// One look at `now` at the sessions read.
+    pub(super) fn look(
+        &mut self,
+        paths: &Paths,
+        now: Instant,
+        sessions: Result<Vec<String>, String>,
+    ) -> Option<String> {
+        let ids = sessions.ok()?;
+        carrier_busy_at(paths, now, Ok(ids))
+    }
 }
 
 /// [`carrier_busy`] for the sessions one look read.
@@ -676,8 +688,17 @@ pub(super) fn carrier_busy_from(
     paths: &Paths,
     sessions: Result<Vec<String>, String>,
 ) -> Option<String> {
+    carrier_busy_at(paths, Instant::now(), sessions)
+}
+
+/// [`carrier_busy_from`] at `now`.
+pub(super) fn carrier_busy_at(
+    paths: &Paths,
+    now: Instant,
+    sessions: Result<Vec<String>, String>,
+) -> Option<String> {
     let mut hold = CARRIER.lock().unwrap_or_else(|e| e.into_inner());
-    let look = hold.get_or_insert_with(CarrierHold::default).look(Instant::now(), sessions);
+    let look = hold.get_or_insert_with(CarrierHold::default).look(now, sessions);
     drop(hold);
     act_on_look(look, || {
         hold_connects(paths);
@@ -862,8 +883,9 @@ fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
             return true;
         }
         if Instant::now() >= deadline {
+            let mut carrier = RollbackCarrier::default();
             return timeout_rollback_waits(
-                &mut || rollback_carrier_busy(paths),
+                &mut || carrier.look(paths, Instant::now(), carrier_sessions()),
                 || {
                     rollback(
                         paths,
@@ -1107,8 +1129,9 @@ pub fn verb(args: &[String]) -> u8 {
                 clear_pending(&paths);
                 return 0;
             }
+            let mut carrier = RollbackCarrier::default();
             guard_rollback_waits(
-                &mut || rollback_carrier_busy(&paths),
+                &mut || carrier.look(&paths, Instant::now(), carrier_sessions()),
                 || {
                     rollback(
                         &paths,

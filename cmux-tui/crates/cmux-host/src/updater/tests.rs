@@ -467,6 +467,7 @@ fn attached_carrier_sessions_are_connected_or_reconnecting() {
 fn a_new_carrier_session_starts_the_connect_hold() {
     use std::time::Duration;
 
+    let _shared = SHARED_CARRIER_HOLD.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
     assert_eq!(role::carrier_busy_from(&paths, Ok(Vec::new())), None);
@@ -886,4 +887,41 @@ fn a_repaired_gate_state_keeps_a_bind_in_flight() {
     let lapsed = T0_MS + gate::BIND_IN_FLIGHT_FOR.as_millis() as u64;
     assert!(cli.run_test(lapsed, false, |_| ran = true).is_ok());
     assert!(ran, "the repaired barrier outlived its bound");
+}
+
+/// The tests that drive the forward update's carrier hold (a global) take
+/// this, so they never see each other's sessions.
+#[cfg(target_os = "linux")]
+static SHARED_CARRIER_HOLD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Review of #38483 (P2): a rollback's wait has its own carrier hold, started
+/// when the wait begins. Past the forward update's 30-minute bound, a
+/// session that just reconnected still holds the rollback, for the
+/// rollback's own bound.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_rollback_wait_after_the_forward_hold_expired_still_holds_a_new_session() {
+    use std::time::{Duration, Instant};
+
+    let _shared = SHARED_CARRIER_HOLD.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let t0 = Instant::now();
+    let past_bound = t0 + carrier::CARRIER_MAX_HOLD + Duration::from_secs(60);
+    // The forward update held for a stuck session until its bound passed.
+    assert!(role::carrier_busy_at(&paths, t0, Ok(vec!["d1/a#1".to_owned()])).is_some());
+    assert_eq!(role::carrier_busy_at(&paths, past_bound, Ok(vec!["d1/a#1".to_owned()])), None);
+
+    // The rollback's wait begins; the session just reconnected.
+    let mut rollback = role::RollbackCarrier::default();
+    let reconnected = || Ok(vec!["d1/a#2".to_owned()]);
+    assert!(
+        rollback.look(&paths, past_bound, reconnected()).is_some(),
+        "the rollback restarted under a session that just reconnected"
+    );
+    let later = past_bound + carrier::CARRIER_MAX_HOLD - Duration::from_secs(60);
+    assert!(rollback.look(&paths, later, reconnected()).is_some(), "held under its own bound");
+    let after = past_bound + carrier::CARRIER_MAX_HOLD + Duration::from_secs(1);
+    assert_eq!(rollback.look(&paths, after, reconnected()), None, "its own bound passed");
+    assert_eq!(rollback.look(&paths, after, Err("unreadable".to_owned())), None);
 }
