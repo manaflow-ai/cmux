@@ -4745,6 +4745,9 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
 
     def test_hiding_constructs_and_a_second_target_are_refused(self):
         self.refused_unread("has '#if'", manifest=self.MANIFEST + "#if false\nlet x = 1\n#endif\n")
+        # It would point the loader's #filePath at an unchecked pin file (review of 0505923b, F1).
+        self.refused_unread("has '#sourceLocation'",
+                            manifest='#sourceLocation(file: "/tmp/x/Package.swift", line: 1)\n' + self.MANIFEST)
         self.refused_unread("has '/\\*'", manifest=self.MANIFEST + "/* x */\n")
         self.refused_unread("has '#\"'", manifest=self.MANIFEST + 'let s = #"x"#\n')
         self.refused_unread("has 2 'binaryTarget'",

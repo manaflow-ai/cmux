@@ -20,8 +20,8 @@ reads the JSON and never Swift:
   makes every re-pin change Package.swift's text too, and is its only change there. It holds no other pin:
   `binaryTarget` occurs once (in LOADER), no `releases/download/`, `xcframework.zip` or `cmux-app-ffi-` anywhere,
   and none of the constructs that can hide a line or carry one over several (`/*`, `*/`, three quotes, `#"`, `#/`,
-  `#if`). Every other line that names a LOADER symbol has one fixed, anchored shape (OTHER_LINES), none of which can
-  declare or extend one.
+  `#if`), nor `#sourceLocation`, which would point `#filePath` at another pin file. Every other line that names a
+  LOADER symbol has one fixed, anchored shape (OTHER_LINES), none of which can declare or extend one.
 
 Anything else refuses, naming the first thing that does not match. base_red_excuse.py's published-base-pin rule,
 scripts/cmux-next/check-app-ffi-pin.sh, the repin picker (scripts/cmux-next/newest_app_ffi_release.py) and the repin
@@ -77,7 +77,9 @@ def loader(checksum: str) -> str:
 
 
 IMPORT = "import Foundation"
-FORBIDDEN = ("/*", "*/", '"""', '#"', "#/", "#if")
+# `#sourceLocation(file:line:)` would redirect the loader's `#filePath`, so SwiftPM read another pin file than the
+# one checked here (review of 0505923b, F1).
+FORBIDDEN = ("/*", "*/", '"""', '#"', "#/", "#if", "#sourceLocation")
 ABSENT = ("releases/download/", "xcframework.zip", "cmux-app-ffi-")
 ONCE = ("binaryTarget", "JSONDecoder", "app-ffi-pin.json\")", "#filePath", "app-ffi-pin-checksum")
 # A line outside LOADER that names one of these must be one of OTHER_LINES.
