@@ -38,7 +38,11 @@ test("a send's upload begins every file under the Send's ticket, one by one with
     if (method === "chat.upload.finish") return { path: `/Users/me/.cmux/uploads/${String(params.token).slice(2)}` };
     return {};
   };
-  const sent = await uploadForSend([pdf(1, 600), pdf(2, 999)], { sessionId: "s-1", promptId: "p-1", ticket: "k-1" }, call);
+  const sent = await uploadForSend(
+    [pdf(1, 600), pdf(2, 999)],
+    { sessionId: "s-1", promptId: "p-1", ticket: "k-1" },
+    call,
+  );
   expect(sent).toEqual({
     ticket: "k-1",
     attachments: [
@@ -161,7 +165,9 @@ test("past the budget a send to a shown chat uploads the largest under its chat-
 test("a send under a ticket bound to no chat (a held prompt's) uploads nothing", async () => {
   const { pane, uploaded } = await client();
   try {
-    await pane.send("read these", [pdf(1), pdf(2), pdf(3)], crypto.randomUUID(), undefined, "held").catch(() => undefined);
+    await pane
+      .send("read these", [pdf(1), pdf(2), pdf(3)], crypto.randomUUID(), undefined, "held")
+      .catch(() => undefined);
     expect(uploaded.names).toEqual([]);
   } finally {
     pane.close?.();
