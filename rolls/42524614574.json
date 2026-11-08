@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42524614574",
+  "recorded_at": "2026-11-08T21:31:29Z",
+  "reason": "cmux-tui fc7f522de581 changes the image's cmux-tui (pinned f56cb4ca98e4)",
+  "dry_run": false,
+  "cmux_tui": "fc7f522de581679157969198dd5d5ec232b463a7",
+  "fixes": [
+    {
+      "sha": "fc7f522de581679157969198dd5d5ec232b463a7",
+      "mergedAt": "2026-11-08T13:04:13-08:00",
+      "subject": "remote: the link redials within its budget, watches the network and reports its state (#38850)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T21:31:29Z",
+    "snapshot_id": "sh-cce0611a545641ec8b3fc98ca8d96cce",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42524614574): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7662edd582d3ca048fdea394f377537b751498ba",
+    "image": "cloud-native-auto-fc7f522d-42524614574-1",
+    "revision": "ci-42524614574-1",
+    "at": "2026-11-08T21:31:29Z"
+  },
+  "rolled_back": false
+}
