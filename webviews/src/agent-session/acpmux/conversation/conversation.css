@@ -5294,9 +5294,11 @@ a.cv-sha:focus-visible {
     animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
       both;
   }
+  /* Backwards fill only: the clip is the entrance's, and once it ends the bubble draws unclipped, so
+     the "Sending" mark just outside its left edge (`.cv-user__delivery`) shows on a slow send. */
   .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
     animation: cv-send-reveal var(--agent-motion-send, 265ms) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
-      both;
+      backwards;
   }
   /* The text comes in a beat behind the bubble's edge, so no letter shows cut at the edge. */
   .acpmux-user.acpmux-row--message-enter .cv-user__bubble > * {
