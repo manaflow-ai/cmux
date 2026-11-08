@@ -192,9 +192,12 @@ public final class PairInviteCardProvider: WebCard {
         case Self.confirmOp:
             // SECURITY: pairs a machine into the person's account: only their own click on the card.
             // Confirm and Try Again (after a failed approve) both send it (PairInviteCardHost.tsx).
+            // The machine the person saw when they clicked; another one by the time the click checks out approves nothing.
+            let seen = approver.candidate?.code
             guard await host?.isPersonClick(context, on: ["confirm", "retry"]) == true else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: PairInviteCardStrings.clickOnly)
             }
+            guard seen != nil, approver.candidate?.code == seen else { return .null }
             confirm(name: params["name"]?.stringValue)
             return .null
         default:

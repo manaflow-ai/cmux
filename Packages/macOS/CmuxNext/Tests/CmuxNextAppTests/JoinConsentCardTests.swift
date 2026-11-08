@@ -193,6 +193,23 @@ import Testing
         #expect(ask.fake.writes == ["screen true"])
     }
 
+    /// SECURITY (review F2 on cmux#37286): the hit test answers later than the click; a card that drew
+    /// anew while it was pending (a new ask, a new machine) takes nothing from that click.
+    @Test func aClickWhoseHitTestOutlivesARedrawGrantsNothing() async throws {
+        let ask = try await ask()
+        var held: [@MainActor (String?) -> Void] = []
+        ask.panel.controlAt = { _, done in held.append(done) }
+        let up = try ask.click()
+        // task-owner: the test's own call, awaited below
+        let answer = Task { await ask.allow(up) }
+        for _ in 0..<1000 where held.count < 2 { await Task.yield() }
+        ask.redraw()
+        for done in held { done("allow") }
+        #expect(!(await answer.value), "the card drew anew while the click was checked")
+        await ask.settle()
+        #expect(ask.fake.writes.isEmpty && ask.model.ask != nil)
+    }
+
     /// One click answers once, and while a write is in flight (both buttons off) neither Allow nor Deny
     /// does anything: no second grant and no Deny closing the ask over a grant still landing.
     @Test func whileAWriteIsInFlightNeitherButtonActsAndOneClickAnswersOnce() async throws {

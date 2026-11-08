@@ -63,6 +63,9 @@ public final class WebCardPanel: NSPanel {
     public var controlAt: @MainActor (CGPoint, @escaping @MainActor (String?) -> Void) -> Void = { _, done in done(nil) }
     /// When the card last drew anew (a click begun sooner is not aimed at what shows now).
     private var armedAt: TimeInterval = 0
+    /// Goes up whenever the card draws anew or closes: a click checked before a wait counts only
+    /// when this is the same after it.
+    private var generation = 0
     /// The click a person-only action already spent.
     private var spentClick: TimeInterval?
 
@@ -159,6 +162,7 @@ public final class WebCardPanel: NSPanel {
     /// a pointer aimed at what was there before).
     public func rearm(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         armedAt = uptime
+        generation += 1
     }
 
     /// SECURITY: whether a page call comes from the person's own left click on one of `actions`
@@ -173,8 +177,10 @@ public final class WebCardPanel: NSPanel {
               let upOn = click.upOn, gesture == up || gesture == click.down,
               click.down - armedAt >= NSEvent.doubleClickInterval, spentClick != up else { return false }
         spentClick = up
+        let drawn = generation
         guard let downAction = await click.downOn.value, let upAction = await upOn.value else { return false }
-        return downAction == upAction && actions.contains(downAction)
+        // The card drew anew or closed while the hit test answered: the click was aimed at what was there before.
+        return generation == drawn && isVisible && downAction == upAction && actions.contains(downAction)
     }
 
     /// A point of the panel's window in the page's CSS px, top-left origin (what
@@ -283,6 +289,7 @@ public final class WebCardPanel: NSPanel {
 
     private func finish(_ card: String) {
         personClick = nil
+        generation += 1
         cards[card]?.closed()
     }
 }
