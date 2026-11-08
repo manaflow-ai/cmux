@@ -25,7 +25,7 @@ type Hooks = {
   answer: (method: string, params: any) => Promise<unknown>;
   emit: (target: string, step: any) => void;
 };
-async function connect(hold = false, refuse = false) {
+async function connect(hold = false, refuse = false, unreadable = false) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const sent: any[] = [];
@@ -42,7 +42,7 @@ async function connect(hold = false, refuse = false) {
           if (refuse) throw new Error("attachment test refused");
           return hold ? new Promise(() => undefined) : { stopReason: "end_turn" };
         }
-        if (method === "_acpmux/attachment") return { mimeType: "image/png", data: "AQID" };
+        if (method === "_acpmux/attachment") return unreadable ? {} : { mimeType: "image/png", data: "AQID" };
         return answer(method, params);
       };
     }
@@ -527,6 +527,28 @@ for (const kind of ["document", "audio"] as const) {
       const row = io.rows().find((row) => row.inlineParts?.some((part) => part.kind === kind))!;
       expect(row.kind).toBe("user");
       expect(row.incoming?.kind).not.toBe("hidden");
+    } finally {
+      io.client.close?.();
+    }
+  });
+}
+
+// After a reload or eviction acpmux may no longer hold a sent image's bytes. Retry then fails as a
+// whole, with the image named, instead of sending the prompt empty or without that image.
+for (const recorded of [false, true]) {
+  test(`Retry of an image-only prompt whose image cannot be read back fails${recorded ? " (recorded parts)" : ""}`, async () => {
+    const io = await connect(false, false, true);
+    try {
+      await io.client.send("warm");
+      const sessionId = io.sent[0].sessionId;
+      const image = { id: "gone-sha", mimeType: "image/png", name: "gone.png" };
+      io.emit(sessionId, {
+        mux: "user_message",
+        msg: { text: "", images: [image], ...(recorded ? { inlineParts: [{ kind: "image", ...image }] } : {}) },
+      });
+      await settle(() => io.rows().some((row) => row.images?.some((each) => each.id === "gone-sha")));
+      const row = io.rows().find((row) => row.images?.some((each) => each.id === "gone-sha"))!;
+      await expect(io.client.resendPrompt(row.id, "")).rejects.toThrow("gone.png");
     } finally {
       io.client.close?.();
     }
