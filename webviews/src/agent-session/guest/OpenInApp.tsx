@@ -23,15 +23,13 @@ export function OpenInApp({ appUrl, onContinue, win, waitMs = APP_OPEN_WAIT_MS }
   const continued = useRef(onContinue);
   continued.current = onContinue;
   useEffect(() => {
-    let live = true;
-    void tryOpenApp(win ?? (window as unknown as AppOpenWindow), appUrl, waitMs).then((took) => {
-      if (!live) return;
+    const controller = new AbortController();
+    void tryOpenApp(win ?? (window as unknown as AppOpenWindow), appUrl, waitMs, controller.signal).then((took) => {
+      if (controller.signal.aborted) return;
       if (took) setOpened(true);
       else continued.current();
     });
-    return () => {
-      live = false;
-    };
+    return () => controller.abort();
   }, [appUrl, win, waitMs]);
   return (
     <main className="guest-card" data-testid="guest-open-in-app">
