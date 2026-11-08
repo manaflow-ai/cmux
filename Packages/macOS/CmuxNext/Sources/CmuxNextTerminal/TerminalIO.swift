@@ -87,8 +87,8 @@ public nonisolated protocol TerminalIO: Sendable {
 }
 
 public extension TerminalIO {
-    var uploadsPasteboardFiles: Bool { false }
-    func pasteFiles(_ pasteboard: TerminalFilePaste) async throws { throw CocoaError(.featureUnsupported) }
+    nonisolated var uploadsPasteboardFiles: Bool { false }
+    nonisolated func pasteFiles(_ pasteboard: TerminalFilePaste) async throws { throw CocoaError(.featureUnsupported) }
     var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
     @MainActor var linkGrids: TerminalLinkGrids? { nil }

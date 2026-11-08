@@ -172,6 +172,7 @@ impl Endpoint {
             if announced.get("ok") != Some(&Value::Bool(true)) {
                 return Err("terminal-paste-bridge-unavailable");
             }
+            child.0.stderr = Some(stderr);
             (ours, Some(child))
         } else {
             (connect_socket(Path::new(&request.socket_path))?, None)
@@ -180,13 +181,62 @@ impl Endpoint {
         Ok(Self { socket, pending: Vec::new(), _child: child })
     }
 
+    /// Keep draining bridge diagnostics for its whole lifetime. Closing stderr
+    /// after the handshake can crash the bridge; leaving it full can stall it.
+    /// This shares the request deadline, so log output cannot prolong a paste.
+    fn wait_io(&mut self, events: i16, deadline: Instant) -> Result<()> {
+        loop {
+            let remaining =
+                deadline.checked_duration_since(Instant::now()).ok_or("terminal-paste-timeout")?;
+            let stderr = self._child.as_mut().and_then(|child| child.0.stderr.as_mut());
+            let mut descriptors = [
+                libc::pollfd { fd: self.socket.as_raw_fd(), events, revents: 0 },
+                libc::pollfd {
+                    fd: stderr.as_ref().map_or(-1, |pipe| pipe.as_raw_fd()),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+            ];
+            let millis = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+            let result = unsafe { libc::poll(descriptors.as_mut_ptr(), 2, millis) };
+            if result < 0 {
+                if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err("terminal-paste-daemon-unavailable");
+            }
+            if result == 0 {
+                return Err("terminal-paste-timeout");
+            }
+            if descriptors[1].revents != 0 {
+                let mut discarded = [0; 8192];
+                if let Some(stderr) = stderr {
+                    match stderr.read(&mut discarded) {
+                        Ok(0) | Err(_) => {
+                            if let Some(child) = self._child.as_mut() {
+                                child.0.stderr = None;
+                            }
+                        }
+                        Ok(_) => {}
+                    }
+                }
+            }
+            if descriptors[0].revents & libc::POLLNVAL != 0 {
+                return Err("terminal-paste-daemon-unavailable");
+            }
+            if descriptors[0].revents != 0 {
+                return Ok(());
+            }
+        }
+    }
+
     fn send(&mut self, message: &Value, deadline: Instant) -> Result<()> {
         let mut bytes =
             serde_json::to_vec(message).map_err(|_| "terminal-paste-invalid-request")?;
         bytes.push(b'\n');
         let mut rest = bytes.as_slice();
         while !rest.is_empty() {
-            wait_fd(self.socket.as_raw_fd(), libc::POLLOUT, deadline)?;
+            self.wait_io(libc::POLLOUT, deadline)?;
             match self.socket.write(rest) {
                 Ok(0) => return Err("terminal-paste-daemon-unavailable"),
                 Ok(n) => rest = &rest[n..],
@@ -220,7 +270,7 @@ impl Endpoint {
                 return Err("terminal-paste-daemon-unavailable");
             }
             scanned = self.pending.len();
-            wait_fd(self.socket.as_raw_fd(), libc::POLLIN, deadline)?;
+            self.wait_io(libc::POLLIN, deadline)?;
             let mut buffer = [0; 8192];
             match self.socket.read(&mut buffer) {
                 Ok(0) => return Err("terminal-paste-daemon-unavailable"),
@@ -412,8 +462,9 @@ fn transfer(request: Request) -> Result<()> {
             .map_err(|_| "terminal-paste-invalid-request")?;
         session.upload(Some(&image.mime), None, bytes.len() as u64, bytes.as_slice())?;
     } else {
-        for (index, path) in request.files.iter().enumerate() {
-            let (file, name, size) = open_file(path)?;
+        // Validate the full selection before the first path reaches the PTY.
+        let files = request.files.iter().map(|path| open_file(path)).collect::<Result<Vec<_>>>()?;
+        for (index, (file, name, size)) in files.into_iter().enumerate() {
             if index > 0 {
                 session.separator()?;
             }

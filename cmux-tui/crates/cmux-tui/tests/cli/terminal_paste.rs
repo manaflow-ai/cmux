@@ -135,7 +135,12 @@ while True:
     for source in ready:
         data = os.read(source if source == 0 else source.fileno(), 65536)
         if not data: sys.exit(0)
-        if source == 0: remote.sendall(data)
+        if source == 0:
+            # More than pipe capacity after readiness: the helper must keep
+            # stderr open AND drain it while waiting for protocol replies.
+            sys.stderr.write('bridge progress ' * 8192 + '\n')
+            sys.stderr.flush()
+            remote.sendall(data)
         else:
             while data:
                 data = data[os.write(1, data):]
@@ -154,4 +159,18 @@ while True:
     assert_success(&output);
     let received = read_back(&server, &terminal, &result);
     assert_eq!(received[0]["bytes"], base64::engine::general_purpose::STANDARD.encode(IMAGE));
+}
+
+#[test]
+fn terminal_paste_invalid_later_file_does_not_paste_an_earlier_file() {
+    let server = HeadlessServer::start("terminal-paste-invalid-selection");
+    let (terminal, result) = remote_reader(&server, 0);
+    let source = server.dir.join("valid.png");
+    fs::write(&source, IMAGE).unwrap();
+    let output = paste_helper(json!({
+        "socket_path": server.socket, "terminal_id": terminal, "files": [source, server.dir]
+    }));
+    assert!(!output.status.success());
+    let received = read_back(&server, &terminal, &result);
+    assert_eq!(received, json!([]));
 }
