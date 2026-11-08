@@ -60903,79 +60903,6 @@
 
       ],
       "category" : "notifications",
-      "cliName" : "feed show",
-      "computed" : {
-        "canonical_action_id" : "feed.show",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : {
-        "key" : "i",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
-      "description" : null,
-      "focuses" : false,
-      "group" : "NotificationActionCatalog",
-      "hint" : null,
-      "id" : "feed.show",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "inbox",
-        "requests",
-        "notifications",
-        "approvals"
-      ],
-      "mainMenu" : "window",
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette",
-        "keyboard",
-        "menu"
-      ],
-      "symbol" : "tray.full",
-      "targets" : [
-
-      ],
-      "title" : "Show Feed",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "notifications",
       "cliName" : "notification show",
       "computed" : {
         "canonical_action_id" : "showNotifications",
@@ -113025,7 +112952,6 @@
     ]
   },
   "legacy_aliases" : {
-    "agentInbox" : "feed.show",
     "app.quit" : "quit",
     "browserNewProfile" : "browserProfile.new",
     "browserProfile.clearRoomDefault" : "browserProfile.clearSpaceDefault",

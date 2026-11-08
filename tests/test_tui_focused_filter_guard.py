@@ -122,6 +122,69 @@ def test_focused_script_runs_the_selected_tests_with_extra_args() -> None:
     assert "test --workspace --locked --no-fail-fast some_filter -- --test-threads=2" in calls
 
 
+def test_a_test_binary_that_hangs_while_listing_fails_fast_and_is_named() -> None:
+    """A cmux_tui test binary hung while listing on macOS and ran into the job's 40 minute
+    timeout with only "The operation was canceled." (runs 42458823348, 42461695724). The
+    listing now fails once it is quiet past its deadline, naming the last binary cargo ran."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            'case "$*" in\n'
+            '  *"--list"*) echo "     Running unittests src/main.rs (target/debug/deps/cmux_tui-abc)"; sleep 60 ;;\n'
+            "esac\n",
+            encoding="utf-8",
+        )
+        cargo.chmod(0o755)
+        result = subprocess.run(
+            ["bash", str(FOCUSED_SCRIPT), "some_filter"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "RUNNER_TEMP": str(root),
+                "CMUX_TUI_FOCUSED_LIST_SILENCE_SECONDS": "2",
+            },
+        )
+    output = result.stdout + result.stderr
+    assert result.returncode == 124, output
+    assert "::error" in output and "target/debug/deps/cmux_tui-abc" in output, output
+
+
+def test_a_hang_in_the_ignored_listing_still_names_its_binary() -> None:
+    """The ignored pass writes to a file; its watchdog report must still reach the log."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            'case "$*" in\n'
+            '  *"--list --ignored"*) echo "     Running tests/slow.rs (target/debug/deps/slow-abc)"; sleep 60 ;;\n'
+            '  *"--list"*) printf "tui::a_test: test\\n" ;;\n'
+            "esac\n",
+            encoding="utf-8",
+        )
+        cargo.chmod(0o755)
+        result = subprocess.run(
+            ["bash", str(FOCUSED_SCRIPT), "some_filter"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "RUNNER_TEMP": str(root),
+                "CMUX_TUI_FOCUSED_LIST_SILENCE_SECONDS": "2",
+            },
+        )
+    output = result.stdout + result.stderr
+    assert result.returncode == 124, output
+    assert "::error" in output and "target/debug/deps/slow-abc" in output, output
+
+
 def test_ignored_only_guard_returns_failure() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

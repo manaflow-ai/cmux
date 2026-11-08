@@ -416,11 +416,16 @@ only with the shell's next mark.
 
 `list --agents` lists the terminals that run a coding agent, from one
 `session.snapshot`: the harness (Claude Code, Codex, … from hook or plugin
-agent records, else the app of an OSC 7501 status record), its state (`busy`,
-`idle`, `waiting-for-input` when a permission dialog or question waits,
-`ended`), the age of that state, the workspace and the title. Waiting agents
-sort first. `--json` prints `[{terminal, harness, state, title, workspace_id,
-workspace, cwd, updated_at_ms, age_ms, source}]`.
+agent records, else the app of an OSC 7501 status record), its status
+(`blocked` when a permission dialog, question or error waits, `done` when a
+turn finished and nobody has viewed the terminal yet, `working`, `idle`,
+`unknown`, or `ended`), the age of that state, the workspace and the title.
+Blocked agents sort first, then done, working, idle, unknown and ended.
+Listing never clears `done`; viewing the tab in a client does. `--json` prints
+`[{terminal, harness, status, state, title, workspace_id, workspace, cwd,
+updated_at_ms, age_ms, source}]`: `status` is the word above (`null` for an
+ended session) and `state` keeps the older words (`busy`, `idle`,
+`waiting-for-input`, `ended`) for existing scripts.
 
 `send` talks to the agent or shell in a terminal in one call. It types the
 message as one bracketed paste when the terminal has paste mode on (so a
