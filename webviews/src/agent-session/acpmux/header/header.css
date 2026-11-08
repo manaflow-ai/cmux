@@ -57,6 +57,8 @@
 .acpmux-chat-menu-image{flex:none;display:block;width:14px;aspect-ratio:1;border-radius:50%;object-fit:cover}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
 .ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
+/* Delete Machine… and a paused machine's near delete date: the danger colour, its glyph too, even on a row no click runs. */
+.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive,.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive>svg{color:var(--cmux-app-danger,var(--agent-danger,var(--agent-text)))}
 .acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font-family:var(--font-ui);font-size:var(--text-detail);line-height:18px;letter-spacing:var(--text-detail--letter-spacing)}
 .ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
