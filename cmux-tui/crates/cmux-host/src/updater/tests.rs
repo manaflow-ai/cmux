@@ -420,7 +420,7 @@ fn carrier_sessions_hold_the_flip_up_to_the_bound() {
     let passed = hold.look(t0 + Duration::from_secs(60) + CARRIER_MAX_HOLD, Ok(mac.clone()));
     assert_eq!(passed.busy, None, "a stuck session holds no update past the bound");
     assert!(passed.bound_passed);
-    let again = hold.look(t0 + Duration::from_secs(120) + CARRIER_MAX_HOLD, Ok(mac.clone()));
+    let again = hold.look(t0 + Duration::from_secs(120) + CARRIER_MAX_HOLD, Ok(mac));
     assert_eq!(again.busy, None);
     assert!(!again.bound_passed, "the bound is reported once");
 
