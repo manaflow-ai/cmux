@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42536138328",
+  "recorded_at": "2026-11-08T23:46:25Z",
+  "reason": "cmux-tui 2b16801c75ad changes the image's cmux-tui (pinned 0bafba673e20)",
+  "dry_run": false,
+  "cmux_tui": "2b16801c75ad2d99b9fd9dd9d5fd88fa48fd9146",
+  "fixes": [
+    {
+      "sha": "2b16801c75ad2d99b9fd9dd9d5fd88fa48fd9146",
+      "mergedAt": "2026-11-08T15:22:49-08:00",
+      "subject": "acpmux chat text: read the saved copy within its bound; merge_freeze: quota shim refusal falls back (#38924)"
+    },
+    {
+      "sha": "0f0d443faa339a378ec83b89411e62a49741a4ba",
+      "mergedAt": "2026-11-08T15:22:23-08:00",
+      "subject": "acpmux: split hub/lifecycle.rs under 100 KB (model probe, start watch, tests) (#38946)"
+    },
+    {
+      "sha": "8690c7a3c026356fd587474f6a88c456f187442f",
+      "mergedAt": "2026-11-08T15:21:40-08:00",
+      "subject": "cmux-host: a carrier resume waiting for its client keeps its generation, and a bind cancels it (#38775)"
+    },
+    {
+      "sha": "395681a7115d92d9e851b91b86a89520d47a16e4",
+      "mergedAt": "2026-11-08T15:19:41-08:00",
+      "subject": "feat(next): Split Up and Split Left show in the key's turn (split-before-v1) (#38602)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T23:46:25Z",
+    "snapshot_id": "sh-4259c4e0040846219a7cfe28b366f9a5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42536138328): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0425ac6a3c44cc406f23fefeab08013318ab5378",
+    "image": "cloud-native-auto-2b16801c-42536138328-1",
+    "revision": "ci-42536138328-1",
+    "at": "2026-11-08T23:46:25Z"
+  },
+  "rolled_back": false
+}
