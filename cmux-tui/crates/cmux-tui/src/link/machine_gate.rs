@@ -137,7 +137,7 @@ pub(crate) fn identify(socket: &Path) -> Option<Value> {
 
 /// One request on the daemon's socket: its `data`, or why not (the daemon's
 /// `error_code: error`, or what went wrong reading it).
-pub(super) fn call(socket: &Path, request: Value) -> Result<Value, String> {
+pub(crate) fn call(socket: &Path, request: Value) -> Result<Value, String> {
     call_within(socket, request, REQUEST_BUDGET).map_err(|failure| failure.to_string())
 }
 
@@ -263,7 +263,8 @@ mod tests {
 
     #[test]
     fn only_an_older_machine_is_outdated() {
-        let identity = json!({"capabilities": ["agent-session-start-v1"], "build_id": "other-build"});
+        let identity =
+            json!({"capabilities": ["agent-session-start-v1"], "build_id": "other-build"});
         let outdated = outdated_identity(&identity, &["fs-v1"]).expect("fs-v1 is missing");
         assert!(outdated.older);
         assert_eq!(outdated.line()["error_code"], json!(OUTDATED));

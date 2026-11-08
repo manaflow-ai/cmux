@@ -11,6 +11,8 @@
 #    development config; with step 1 its PLATFORM binding and CLOUD_DO point at that platform preview).
 # 3. Runs `bun scripts/cmux-next/cloud-journey.ts --backend preview-<tag>` with the words after `--`.
 # Each part's seconds and the total are printed at the end (the loop time this exists to keep small).
+# Machine-side changes (cmux-tui, cmux-host, acpmux) iterate on one kept Cloud machine instead:
+# scripts/cmux-next/cloud-devloop.ts (build on fleet Linux, patch-push, restart, journey on that machine).
 #
 # Needs: the cf CLI signed in (deploy-worker.sh reads its OAuth token) or CLOUDFLARE_API_TOKEN;
 # ~/.secrets/cmux-next-api-preview.env (JWT_PRIVATE_JWK), as for any preview; the agent test account in
@@ -26,7 +28,7 @@ while [ $# -gt 0 ]; do
     --no-deploy) deploy=0; shift ;;
     --credentials) creds="$2"; shift 2 ;;
     --) shift; break ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "unknown argument $1 (journey arguments go after --)" >&2; exit 2 ;;
   esac
 done

@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import CmuxTabsKit
 import CmuxMobileDesign
 import CmuxMobileModel
@@ -55,6 +56,7 @@ public struct WorkspaceScreen: View {
         makeSource = {
             let source = WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator)
             source.offersScreenSharing = screenSharing != nil
+            source.screenSharing = screenSharing
             return source
         }
         _showsGrid = State(initialValue: startsInGrid)
@@ -71,7 +73,8 @@ public struct WorkspaceScreen: View {
         TabsView(source: source, isShowingOverview: $showsGrid)
             .tabsKitTheme(.mobile)
             .overlay(alignment: .top) {
-                if showsGrid {
+                // Select Tabs puts its Close | More where Back is.
+                if showsGrid, !source.isSelectingTabs {
                     WorkspaceGridHeader(source: source).transition(.opacity.animation(.easeOut(duration: 0.2)))
                 }
             }
@@ -118,6 +121,12 @@ public struct WorkspaceScreen: View {
                                 ToolbarItem(placement: .cancellationAction) {
                                     Button("Done") { source.showingScreenSharing = false }
                                         .accessibilityIdentifier("screenSharing.done")
+                                }
+                                // Screen Sharing as a tab of this workspace (user 2026-11-05).
+                                ToolbarItem(placement: .primaryAction) {
+                                    Button("Open as Tab", systemImage: "plus.rectangle.on.rectangle") { source.openScreenSharingTab() }
+                                        .labelStyle(.titleOnly)
+                                        .accessibilityIdentifier("screenSharing.openAsTab")
                                 }
                             }
                     }
@@ -167,7 +176,7 @@ public struct WorkspaceScreen: View {
             if let title = source.pendingTabTitle {
                 // A tab on its way: the grid keeps its cards until the Mac lists it.
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    CmuxSpinner().controlSize(.small)
                     Text(Self.openingText(title))
                 }
                 .font(theme.type.meta.weight(.semibold))
@@ -330,6 +339,8 @@ private struct InteractivePopEnabler: UIViewControllerRepresentable {
 /// on a Mac publish, not the workspace screen and the tabs under it.
 struct WorkspaceGridHeader: View {
     let source: WorkspaceTabsSource
+    /// TabsKit's top-control metrics, so Back matches More and the bottom bar.
+    private let metrics = TabsKitTheme.mobile.metrics
 
     var body: some View {
         ZStack {
@@ -344,9 +355,9 @@ struct WorkspaceGridHeader: View {
                     source.exit()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: metrics.toolbarGlyph, weight: .medium))
                         .foregroundStyle(theme.colors.label.color)
-                        .frame(width: 36, height: 36)
+                        .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)

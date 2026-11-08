@@ -82,6 +82,7 @@ impl Hub {
                 boundary.through_seq,
                 Some((id, boundary)),
                 false,
+                None,
             ))
             .await?;
         Ok((child, warning))
@@ -165,7 +166,11 @@ impl Hub {
         let (seq, before, through, msg) = found.pop().ok_or_else(|| {
             refused("fork.unknown_prompt", "promptId is not recorded in this session")
         })?;
-        if msg.get("steer").is_some() || msg.pointer("/_meta/provenance").is_some() {
+        // An `unverified` prompt names no other sender: it is edited as an unnamed one was.
+        let provenance = msg.pointer("/_meta/provenance");
+        if msg.get("steer").is_some()
+            || (provenance.is_some() && !crate::prompt_provenance::is_unverified(provenance))
+        {
             return Err(refused(
                 "fork.unsupported",
                 "steered or synthesized prompts cannot be edited this way",

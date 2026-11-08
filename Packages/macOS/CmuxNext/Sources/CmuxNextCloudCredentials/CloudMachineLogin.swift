@@ -35,9 +35,9 @@ public nonisolated enum CloudMachineLogin: String, Sendable, Equatable, CaseIter
     /// Runs the probe on the machine (with `api` already pinned to the machine's team) and reads whether
     /// cmux holds this account's login. Never throws: `probe` is nil for an exec that failed, which the
     /// start reads as `.none`, as the probe before it did.
-    public static func read(on api: CloudAPIClient, machineID: String, teamID: String?, userID: String) async
+    public static func read(on api: CloudAPIClient, machineID: String, teamID: String?, userID: String, otherTeams: [String?] = []) async
         -> (probe: CloudHarnessLoginDecision.MachineProbe?, cached: Bool) {
-        let cached = (try? await CloudCredentialLogin.load(provider: .claude, teamID: teamID, userID: userID)) ?? nil
+        let cached = (try? await CloudCredentialLogin.loadAny(provider: .claude, teamID: teamID, otherTeams: otherTeams, userID: userID)) ?? nil
         guard let result = try? await api.exec(machineID, command: probe(cachedFingerprint: cached.flatMap(fingerprint)), timeoutMs: 30_000) else {
             return (nil, cached != nil)
         }

@@ -12,12 +12,68 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### An update draws at once while a host size's frame waits for the embedder's present (ghostty-next)
+
+- Fork PR #86 (`fix/renderer-draws-now-for-a-waiting-host-frame`, head `538a3e2ef`, on `1740c4452`); the pin is the fix
+  release branch `release/cmux-1740c445-resize-p0-10` at `538a3e2ef` until #86 merges to fork `main`.
+- What: `src/renderer/Thread.zig` `drawsNow` gets `host_frame_waits` (`Metal.hostFrameWaits`: the embedder presents host
+  sizes, a host size is set and its frame was not taken yet, `fresh.armed`). While it holds, every frame update draws at
+  once instead of at the next display-link tick. A frame the renderer shows itself, off main, at the host size ends
+  the wait (`fresh.shown_generation`), so at rest and in the renderer's own present mode output stays paced.
+- Why: cmux RESIZE P0 10 (T render hop). In a key-resize spring the next refresh's size goes to Ghostty after each commit
+  and draws at once; the program's redraw for the grid just sent was parsed ~3 ms later but waited for the next tick
+  (the resize frame counted as drawn since the tick), raced cmux's present, and the next host size dropped it: the
+  program's grid showed 2-4 refreshes behind its pane.
+- Conflict notes: keep the `host_frame_waits` term in `drawsNow` when upstream changes the vsync pacing rule.
+
+### A resize's prompt clear waits for the shell (ghostty-next, opt-in)
+
+- Fork PR #85 (head `e6d6eec09`, on `850bb9849`), merged to fork `main` as `1740c4452`.
+  GhosttyNextKit `xcframework-1740c44523895c3c0ec8f89203741abf3ca7efa3-apple-v6` (zip sha256 `ba1abb11...4ec426`, run 42336304101). New C API option
+  `GHOSTTY_TERMINAL_OPT_PROMPT_REDRAW_WAITS_FOR_SHELL` (1028), `Terminal.flags.prompt_redraw_waits_for_shell`, default
+  off. cmux-tui's `ghostty-vt` turns it on for every terminal (host and daemon mirrors); the app's surfaces turn it on in
+  `src/termio/Manual.zig` (`Termio.swapTerminalLocked` keeps it on a terminal swap).
+- What: a resize that would clear a redrawable prompt keeps it and stores `Terminal.prompt_redraw_pending` (the grid
+  and prompt rows the shell drew at, from the first resize the shell has not answered). The stream handler's next
+  action calls `Terminal.settlePromptRedraw`: the clear runs if the grid differs from the drawn grid (and marks the
+  terminal dirty), else the prompt stays. A GHOSTSNP snapshot taken while a clear is pending carries it in the optional
+  record PROMPT_REDRAW (tag 11, `src/terminal/snapshot/prompt_redraw.zig`, between CONTINUATION and READY), so a
+  restored mirror clears at the same byte as the owner. Older decoders skip the record.
+- Why: close-then-type P0 (empty fresh screen). zsh reads two SIGWINCHes of a 34 -> 35 -> 34 bounce as one, finds its
+  old size and redraws nothing; the immediate clear left the prompt blank.
+- Conflict notes: keep `settlePromptRedraw` first in `Handler.vt` and `Handler.vtPrintAscii` (both
+  `stream_terminal.zig` and `termio/stream_handler.zig`), keep `.prompt_redraw = .false` for the primary screen's
+  resize while the option is on, and keep record tag 11 free for PROMPT_REDRAW.
+
+### The reflow preview re-wraps each frame's grid off the terminal lock (ghostty-next)
+
+- Fork `main` at the merge commit `850bb9849` (fork PR #84, on `383b27d73`). #84 ports fork PR #83 (merged on
+  `release/cmux-9ce9b7d0-e2` as `510ca45ff`); the source is byte-identical to #83's reviewed head `79d62f7c5`.
+  GhosttyNextKit `xcframework-850bb98497044f6632310c303a68974b6289af4b-apple-v6` (zip sha256 `f8b0c657...3006f`, run 42047067774). No C API
+  change: `ghostty_surface_set_reflow_preview` and `ghostty_surface_set_size` per frame, as before.
+- What: the preview (`src/renderer/ReflowPreview.zig`) keeps the live terminal's last copy (`base`, not reflowed).
+  A frame whose only change is the grid (each frame of a key resize or a divider drag) re-wraps a copy of `base`
+  with no terminal lock held. The live terminal is copied under the lock only when it changed: a dirty flag, a
+  color epoch, the watch's cursor (position, style, visibility, blink, password input) or colors (bg, fg, cursor),
+  a new grid of the live terminal, or `base` lacking the history the new grid needs. The watch's dirty state is
+  reset after it is read. A frame that draws the live terminal ends the preview.
+- Why: cmux-ad m18 (T-REWRAP). Before, the watch's dirty state was never reset, so every preview frame copied the
+  live terminal under the terminal lock (0.43-0.55 ms p50 at 200x60, M5 Max), against the output parser and the
+  main thread's lock users. Now 1 copy serves 800 frames of a drag.
+- Tests: `reflow preview:` in `src/renderer/ReflowPreview.zig` (6 tests, in the fork CI filter list); bench
+  `ghostty-bench +reflow-preview` (ReleaseFast). Release line: reds 42018811302 and 42024684069, green 42025379357.
+  Main (Zig 0.17): tests + bench 42040022802 (84/84; 1 copy for 800 frames), PR build 42040024043 (224/224, lib-vt
+  481/481). Independent reviews: SHIP at `79d62f7c5` (#83), delta SHIP at `f9048ee65` (#84).
+- Conflict notes: keep `self.watch.dirty = .false` right after the watch's `endUpdate` in `update`, and the
+  `watchSnapshot` comparison around `beginUpdate`: without either, a frame either copies under the lock every time or
+  draws a stale cursor. Keep `end()` in `source` when the live terminal is drawn.
+
 ### The embedder presents a new host size with its bounds (ghostty-next)
 
-- Fork release branch `release/cmux-9ce9b7d0-e2` at the merge commit `6cc749a8a` (fork PR #75, on `bd7ff2687` = fork
-  PRs #72 and #73 on `7d43bb68b`, fork PR #71 on `635c6c12a` = fork PR #70 on `dfd07de4a`, the earlier pin
-  `34e73ba8b` plus fork PR #69). GhosttyNextKit `xcframework-6cc749a8a53b1d62465e0faf848e430a82f690aa-apple-v6` (zip sha256
-  `018d2bdb...f4a40`, run 41922548637).
+- Fork release branch `release/cmux-9ce9b7d0-e2` at the merge commit `12ec155e1` (fork PR #79, on `ae7c1f741` = fork
+  PR #77 on `6cc749a8a` = fork PR #75 on `bd7ff2687` = fork PRs #72 and #73 on `7d43bb68b`, fork PR #71 on
+  `635c6c12a` = fork PR #70 on `dfd07de4a`, the earlier pin `34e73ba8b` plus fork PR #69). GhosttyNextKit
+  `xcframework-12ec155e1e67f8f33a1cee5fd2e129f59277465c-apple-v6` (zip sha256 `5defd8f8...30aa7`, run 41955494921).
 - What: opt-in on macOS host-sized surfaces, `ghostty_surface_set_host_present(surface, GHOSTTY_HOST_PRESENT_EMBEDDER)`.
   The renderer still draws each new host size at once with cells rebuilt for it, but never shows a frame of another
   size than the shown one itself. A new size asks for no display pass, and a display pass never waits.
@@ -28,7 +84,9 @@ When we change the fork, update this document and the parent submodule SHA.
   CA lock (fork PR #71: #70 committed under the lock and deadlocked against main's commit). A frame kept for the
   embedder's present that the layer cannot show in its bounds goes to no main-queue block (fork PR #75: it was
   dropped on main, one main wake per moving terminal and frame); the skip is decided under the CA lock and then
-  the fresh-frame mutex, only while the kept frame is still that frame.
+  the fresh-frame mutex, only while the kept frame is still that frame. An off-main present begins a CA
+  transaction only for a frame it shows (fork PR #79: each frame that went through main, or that a newer frame
+  superseded, committed an empty transaction on the GPU completion thread).
 - Why: cmux FRAME OWNER REFACTOR stage S4 (ready-or-keep). In every commit a terminal's bounds and pixels change
   together, or both keep their last size. Before, a new-size frame landed in the old bounds 2-4 refreshes after the
   geometry. The waiting present (G1) cost main 4-9 ms per drag frame.
@@ -40,13 +98,17 @@ When we change the fork, update this document and the parent submodule SHA.
   the mode per surface and changes it only when the Debug switch changes).
 - Fork PR #71 (the deadlock): with the switch on and the film recorder's load, main hung in
   `CA::Transaction::commit` and the Metal completion thread in `setSurfaceOffMain`, which committed while it held
-  `[CATransaction lock]`. Now every off-main present does `begin`, lock, checks, unlock, `commit`. `ghostty.h`: the
+  `[CATransaction lock]`. Since fork PR #79 an off-main present does lock, checks, then (only for a frame it shows)
+  `begin`, set contents, unlock, `commit`; a frame that goes through main or that a newer frame superseded unlocks and
+  commits nothing. `ghostty.h`: the
   embedder presents and sets the bounds in one explicit lock span (fork PR #72: not a layout or display pass), and
   never commits, flushes or draws in it (`ghostty_surface_draw`, a first frame's display pass). Test: `host present:
   an off-main present never commits while it holds the Core Animation lock` (red run 41694823112, green run
   41694827381; Codex SHIP at `3163f4b73`).
-- Conflict notes: keep `setSurfaceOffMain` in the order `begin`, lock, checks, unlock, `commit` in both modes (never
-  commit under the lock), and its gate check (`main_pending`) after the shown-size and sequence checks. Keep
+- Conflict notes: keep `setSurfaceOffMain` in the order lock, checks (`offMainDecisionLocked`), then `begin`, set
+  contents, unlock, `commit` only for a frame it shows, in both modes: never commit under the lock, and never begin a
+  transaction for a frame it does not show (fork PR #79, test `host present: an off-main present that does not show
+  its frame commits no transaction`). Keep its gate check (`main_pending`) after the shown-size and sequence checks. Keep
   `changesShownSize` as the only condition that closes the gate in `setSurfaceCallback` and `setSurfaceSync`.
   `publishFresh` keeps the newest frame by present sequence.
 - When cmux moves to fork `main`, port #70 to `main` (it is based on the release branch).

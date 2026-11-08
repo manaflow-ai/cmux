@@ -41,6 +41,7 @@ blob backend/packages/home-core/conformance/conversation-search-cases.json
 blob docs/remote-agents-and-cloud.md
 blob mux/packages/brain/conformance/chief-cases.json
 blob plans/cmux-next/action-surfaces.json
+blob plans/cmux-next/daemon-capabilities.json
 # Not plans/cmux-next/spec-proposals/visuals/design-tokens.json: cmux-theme-tokens
 # embeds it and cmux-motion's build.rs reads it, but no published binary links
 # either crate (scripts/ci/check_cmux_tui_tree_inputs.py checks the closure).
@@ -84,6 +85,7 @@ blob skills/cmux-browser/templates/authenticated-session.sh
 blob skills/cmux-browser/templates/capture-workflow.sh
 blob skills/cmux-browser/templates/form-automation.sh
 blob skills/cmux-cua/SKILL.md
+blob skills/cmux-live/SKILL.md
 blob skills/cmux-customization/SKILL.md
 blob skills/cmux-customization/references/examples.md
 blob skills/cmux-customization/references/local-app-views.md

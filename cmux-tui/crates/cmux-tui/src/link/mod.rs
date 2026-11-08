@@ -44,6 +44,7 @@ mod native_supervision;
 mod paired_streams;
 mod process_exit;
 mod receiver_deadline;
+mod refusal_watch;
 mod state;
 
 #[cfg(test)]

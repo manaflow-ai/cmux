@@ -25,3 +25,19 @@ struct CloudLoginCopyConsentSettingTests {
         #expect(setting.consent(file: yes, effective: yes, managed: true) == false)
     }
 }
+
+/// The Codex sign-in consent shares the rule: only the person's own cmux.json says yes.
+struct CloudCodexSignInConsentSettingTests {
+    let setting = CloudCodexSignInConsentSetting()
+    let yes: JSONValue = ["cloud": ["useMyCodexLoginOnMyCloudMachines": true]]
+    let none: JSONValue = .object([:])
+
+    @Test func onlyThePersonsFileSaysYes() {
+        #expect(setting.consent(file: none, effective: none, managed: false) == nil)
+        #expect(setting.consent(file: yes, effective: yes, managed: false) == true)
+        #expect(setting.consent(file: none, effective: yes, managed: false) == nil)
+        #expect(setting.consent(file: yes, effective: yes, managed: true) == false)
+        // The Claude answer is not the Codex one.
+        #expect(setting.consent(file: ["cloud": ["useMyClaudeLoginOnMyCloudMachines": true]], effective: none, managed: false) == nil)
+    }
+}

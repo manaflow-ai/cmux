@@ -28,7 +28,8 @@ await requireBrowserLane("session-info-glass.test.tsx", async () => {
     return;
   }
   const src = path.resolve(import.meta.dir, "../src");
-  const css = ["ui/glass/glass.css", "agent-session/acpmux/session-info/sessionInfo.css"]
+  // desktop.css first, as every page loads it: it holds the glass levels the panel names.
+  const css = ["pages/shared/desktop.css", "ui/glass/glass.css", "agent-session/acpmux/session-info/sessionInfo.css"]
     .map((file) => readFileSync(path.join(src, file), "utf8"))
     .join("\n");
   // The block gap that holds the hairline is a grid token (#27570), which the page defines.

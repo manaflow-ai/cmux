@@ -203,6 +203,65 @@ fn a_stream_record_is_written_at_once_and_synced_after_its_delay() {
     journal.wait_durable(lsn, WAIT).unwrap_or_else(|e| panic!("{e}"));
 }
 
+/// A daemon's kept change (a draft, a name) is answered once its `Stream` record is written: the
+/// written listener hears the write before the sync, and a waiter for the record's sync (a
+/// checkpoint) asks for it at once instead of waiting out the stream sync delay.
+#[test]
+fn written_listeners_hear_a_stream_record_before_its_sync_and_a_waiter_syncs_it_at_once() {
+    let storage = SimStorage::new(7);
+    let config = Config { stream_sync_delay: Duration::from_secs(30), ..quick() };
+    let (journal, _, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let sink = heard.clone();
+    journal.on_written(move |lsn| sink.lock().unwrap_or_else(|e| e.into_inner()).push(lsn));
+    let lsn = journal.append(9, Class::Stream, b"draft").unwrap_or_else(|e| panic!("{e}"));
+    let last = || heard.lock().unwrap_or_else(|e| e.into_inner()).last().copied();
+    assert!(eventually(|| last() == Some(lsn)), "{:?}", last());
+    assert_eq!(journal.durable_lsn(), 0, "a stream record alone is not synced at once");
+    let started = std::time::Instant::now();
+    journal.wait_durable(lsn, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    let took = started.elapsed();
+    assert!(took < Duration::from_secs(5), "the waiter waited out the stream delay: {took:?}");
+}
+
+/// Kept records are synced in idle time: none during a burst of them, all once the journal is
+/// quiet for `Config::kept_sync_quiet`, long before the stream sync delay; so the next acked
+/// batch syncs only its own records (probe job 01189fd6: a prompt's sync carried 316 kept
+/// records, 1.17 MB, 7.3 ms).
+#[test]
+fn kept_records_are_synced_once_the_journal_is_quiet() {
+    let storage = SimStorage::new(71);
+    let config = Config {
+        stream_sync_delay: Duration::from_secs(60),
+        // No full sync of its own covers the stream record at the end.
+        full_sync_interval: Duration::from_secs(60),
+        kept_sync_quiet: Duration::from_millis(300),
+        ..quick()
+    };
+    let (journal, _, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    let mut last = 0;
+    for index in 0..200u64 {
+        last = journal.append_kept(4, &payload(index)).unwrap_or_else(|e| panic!("{e}"));
+    }
+    assert!(eventually(|| journal.stats().written_lsn >= last), "{:?}", journal.stats());
+    let stats = journal.stats();
+    assert_eq!(stats.durable_lsn, 0, "a burst of kept records was synced before it paused");
+    assert_eq!(stats.barrier_syncs + stats.full_syncs, 0, "{stats:?}");
+    // Quiet now: synced on their own, with no acked record and well before the 60 s delay.
+    assert!(eventually(|| journal.durable_lsn() >= last), "{:?}", journal.stats());
+    // Nothing is left unsynced, so the next acked record's sync carries only itself.
+    let before = journal.stats();
+    assert_eq!(before.durable_lsn, last, "{before:?}");
+    assert_eq!(before.written_lsn, last, "{before:?}");
+    let ack = journal.append(1, Class::Ack, b"prompt").unwrap_or_else(|e| panic!("{e}"));
+    journal.wait_durable(ack, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    // A plain `Stream` record keeps the stream sync delay.
+    let stream = journal.append(9, Class::Stream, b"output").unwrap_or_else(|e| panic!("{e}"));
+    assert!(eventually(|| journal.stats().written_lsn >= stream), "{:?}", journal.stats());
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(journal.durable_lsn() < stream, "a stream record was synced as a kept one");
+}
+
 #[test]
 fn an_idle_journal_touches_no_storage() {
     let storage = SimStorage::new(7);
@@ -273,6 +332,31 @@ fn check_append_says_what_append_would_do() {
     assert_eq!(journal.check_append(1), Err(AppendError::Closed));
 }
 
+/// A control record (`append_control`) is taken while the queue is full, and becomes durable as
+/// any record; a sealed journal refuses it too.
+#[test]
+fn a_control_record_is_taken_while_the_queue_is_full() {
+    let storage = SimStorage::new(37);
+    let config = Config { max_pending_bytes: 4096, ..quick() };
+    let (journal, _, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    storage.set_sync_delay(Duration::from_millis(500));
+    let big = vec![b'a'; 1000];
+    let full = (0..50).any(|_| journal.append(1, Class::Ack, &big) == Err(AppendError::Backlog));
+    assert!(full, "the pending cap never refused an append");
+    let control = journal
+        .append_control(2, Class::Ack, b"frozen")
+        .unwrap_or_else(|e| panic!("a full queue refused a control record: {e}"));
+    assert_eq!(journal.append(1, Class::Ack, &big), Err(AppendError::Backlog));
+    storage.set_sync_delay(Duration::ZERO);
+    journal.wait_durable(control, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    assert!(journal.seal(WAIT).is_ok());
+    assert_eq!(journal.append_control(2, Class::Ack, b"frozen"), Err(AppendError::Closed));
+    assert_eq!(
+        journal.append_control(2, Class::Ack, &vec![0u8; crate::MAX_PAYLOAD_LEN + 1]),
+        Err(AppendError::TooLarge)
+    );
+}
+
 #[test]
 fn a_sealed_journal_refuses_appends() {
     let storage = SimStorage::new(10);
@@ -281,6 +365,34 @@ fn a_sealed_journal_refuses_appends() {
     assert_eq!(journal.seal(WAIT), Ok(1));
     assert_eq!(journal.append(1, Class::Ack, b"b"), Err(AppendError::Closed));
     assert_eq!(journal.full_durable_lsn(), 1);
+}
+
+/// A seal hands the journal over (a daemon's restart, whose next process opens it while the old
+/// one still exits): the next open takes it at once though the sealed handle lives on, and the
+/// sealed handle changes no file of the folder after that.
+#[test]
+fn a_sealed_journal_is_handed_to_the_next_open_at_once() {
+    let storage = SimStorage::new(35);
+    let config = Config { segment_bytes: 600, ..quick() };
+    let (first, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    // One batch per record, so the segments rotate: a retirement would delete some.
+    for lsn in 1..=40 {
+        let got = first.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        first.wait_durable(got, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    }
+    assert!(first.stats().segments_created >= 3, "{:?}", first.stats());
+    assert_eq!(first.seal(WAIT), Ok(40));
+    let (second, _, seen) = open_at(&storage, config, 0)
+        .unwrap_or_else(|e| panic!("the sealed journal kept its folder: {e}"));
+    assert_eq!(lsns(&seen), (1..=40).collect::<Vec<_>>());
+    let names = storage.names_in(&dir());
+    assert!(names.iter().filter(|name| name.ends_with(".seg")).count() >= 3, "{names:?}");
+    assert!(first.retire_through(40).is_err(), "a retirement after the handoff");
+    assert!(first.clear_damage().is_err(), "a damage clear after the handoff");
+    assert_eq!(storage.names_in(&dir()), names, "the sealed handle changed the folder");
+    assert_eq!(second.append(3, Class::Ack, &payload(41)), Ok(41));
+    drop(first);
+    second.wait_durable(41, WAIT).unwrap_or_else(|e| panic!("{e}"));
 }
 
 #[test]

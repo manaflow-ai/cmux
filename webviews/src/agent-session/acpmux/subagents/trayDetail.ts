@@ -1,6 +1,5 @@
-// What a tray line says a running subagent or chat does now (SubagentTray.tsx): its status in words,
-// never a raw shell line (Leo 2026-10-25 on a tray line reading "cd /Users/…/checkouts/… && sed -i
-// …": "it's kind of wack"). Only a tool call's title is ever a command: a Claude subagent's action
+// What a tray line says a running subagent or chat does now (SubagentTray.tsx): its status in words.
+// Command rows additionally show their trimmed raw shell line as activity; a subagent's action
 // is its latest call's title, and a chat's doing line (sessionList.ts `doingLine`) is its plan step,
 // prose that is never touched, then its latest call's title (`doingTool`). ACP titles every other
 // call in words that start with a capital ("Read AgentCard.tsx", "Run cargo test"); a shell call's

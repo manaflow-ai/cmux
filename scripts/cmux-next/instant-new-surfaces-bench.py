@@ -13,7 +13,13 @@ display frame of visibility (1 = the first frame drawn after the key) is above N
 
 `--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
 `link_home`, the same link from Home's dock alone (a new column beside it), `split_browser`, Split Browser Right,
-and `dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, run only when named, warm arm); `--workspaces 10,100` runs every phase again at
+`dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, `github_right`, a github.com
+pull request link opened to the right in the native GitHub page (`--link-url`, default a cmux pull request; its
+pull request is seeded into the app's cache, as a chat's link card has read it, and `page_ms` is the page drawing it),
+and the diff viewer's `diff_small` (one file, 20 changed lines), `diff_5k` (5,000 changed lines in 10 files) and
+`diff_200` (200 files), each a scratch repository's uncommitted changes opened in a diff tab of the focused pane
+(`page_ms`: the frame after the page drew its first hunk, `cmux.diff.shown`; `diff` has the page's timeline), run
+only when named; the cold arm times a diff opened as the launch's first action, right after a restart); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
 Three arms of each command (`--arms`, default all; bench_arms.py), each reported with p50/p95/p99/max of
@@ -57,6 +63,10 @@ parser.add_argument("--storm", type=int, default=8)
 parser.add_argument("--phases", default="idle,load")
 parser.add_argument("--commands", default="split_right,split_down,new_tab,new_terminal,new_workspace")
 parser.add_argument("--workspaces", default="", help="comma-separated workspace counts to run every phase at (empty: as launched)")
+parser.add_argument("--empty-workspaces", action="store_true",
+                    help="seed additional workspaces without terminals (safe for 1000-workspace scaling runs)")
+parser.add_argument("--exact-workspaces", action="store_true",
+                    help="close restored workspaces before each count so the topology is exactly the requested size")
 parser.add_argument("--budget-frames", type=float, default=0, help="fail when a command's p95 display frame of visibility is above this (1: the first frame; 0: report only)")
 parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--hang-stacks", action="store_true",
@@ -83,12 +93,39 @@ CONFIG = os.path.join(SCRATCH, "cmux.json")
 LINK_PAGE = os.path.join(SCRATCH, "link.html")
 open(LINK_PAGE, "w").write("<!doctype html><title>link</title><body style='background:#2a6'><h1>link page</h1></body>\n")
 LINK_URL = opts.link_url or "file://" + LINK_PAGE
-PAGE_COMMANDS = ("link_right", "link_home", "split_browser")  # the app reports page_ms (the new pane's page painted) for these
+GITHUB_URL = opts.link_url if opts.link_url.startswith("https://github.com/") else "https://github.com/manaflow-ai/cmux/pull/34637"
+DIFF_COMMANDS = {"diff_small": (1, 20), "diff_5k": (10, 500), "diff_200": (200, 10)}  # files, changed lines per file
+PAGE_COMMANDS = ("link_right", "link_home", "split_browser", "github_right", *DIFF_COMMANDS)  # the app reports page_ms (the new pane's page painted) for these
 open(CONFIG, "w").write(json.dumps({"tabs": {"nativeNewTabPage": True}} if opts.native_new_tab else {}) + "\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
            "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
+
+
+def diff_repository(name, files, lines):
+    """A scratch repository with `files` files of `lines` changed lines each, uncommitted (the diff tab's default
+    scope shows them), on a `main` branch that is also its base."""
+    root = os.path.join(SCRATCH, "repos", name)
+    os.makedirs(os.path.join(root, "src"), exist_ok=True)
+    git = lambda *args: subprocess.run(["git", "-C", root, *args], check=True, capture_output=True,
+                                       env={**os.environ, "GIT_AUTHOR_NAME": "bench", "GIT_AUTHOR_EMAIL": "bench@example.com",
+                                            "GIT_COMMITTER_NAME": "bench", "GIT_COMMITTER_EMAIL": "bench@example.com"})
+    git("init", "-q", "-b", "main")
+    paths = [os.path.join(root, "src", f"file_{index:03d}.ts") for index in range(files)]
+    for path in paths:
+        with open(path, "w") as handle:
+            handle.writelines(f"export const value{line} = {line}; // the line before the change\n" for line in range(lines * 2))
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    for path in paths:
+        with open(path, "w") as handle:
+            handle.writelines((f"export const value{line} = {line * 7}; // changed by the agent's turn\n" if line % 2 == 0
+                               else f"export const value{line} = {line}; // the line before the change\n") for line in range(lines * 2))
+    return root
+
+
+DIFF_FOLDERS = {name: diff_repository(name, *size) for name, size in DIFF_COMMANDS.items() if name in opts.commands.split(",")}
 COMMANDS = [c for c in opts.commands.split(",") if c]
 if opts.arms is None:
     opts.arms = "warm" if opts.budget_frames else "warm,quick,cold"
@@ -220,6 +257,10 @@ def timed(command, phase, index, arm=None):
     params = {"action": "bench_create", "command": sent}
     if sent == "link_right":
         params["url"] = LINK_URL
+    if sent == "github_right":
+        params.update({"url": GITHUB_URL, "seed": True})
+    if command in DIFF_COMMANDS:
+        params.update({"command": "diff_right", "folder": DIFF_FOLDERS[command]})
     result = rpc("debug.new_tab", params, timeout=20) or {}
     result.update({"phase": phase, "run": index, "command": command})
     if arm:
@@ -227,7 +268,8 @@ def timed(command, phase, index, arm=None):
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
           f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} marks={marks} "
-          f"err={result.get('error')}", flush=True)
+          f"err={result.get('error')}" + (f" github={result['github']}" if 'github' in result else "")
+          + (f" diff={json.dumps(result.get('diff'))}" if command in DIFF_COMMANDS else ""), flush=True)
     return result
 
 
@@ -338,15 +380,27 @@ def workspace_count():
 
 
 def grow_workspaces(count):
-    """At least `count` terminal workspaces, the bench's still shown (scripts make them unfocused)."""
+    """At least `count` workspaces; optionally seed empty rows to avoid opening 1000 PTYs."""
     have = workspace_count()
     for index in range(have, count):
-        rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
+        if opts.empty_workspaces:
+            run("workspace", "create", "--empty", "--name", f"bench-{index}", timeout=120)
+        else:
+            rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
     now = workspace_count()
     print(f"workspaces: {have} -> {now}", flush=True)
     if now < count:
         sys.exit(f"could not reach {count} workspaces (have {now})")
     return now
+
+
+def reset_workspaces():
+    """Drop restored rows in this isolated bench profile before an exact topology run."""
+    if workspace_count() == 0:
+        return
+    done = run("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
+    if done.returncode != 0 or not wait(lambda: workspace_count() == 0, 30):
+        sys.exit(f"could not clear restored workspaces: {done.stderr[-400:]}")
 
 
 def frame_of(row, key="visible_ms"):
@@ -374,7 +428,7 @@ def summary(rows):
             out[f"{phase}/{command}"] = {
                 "n": len(sel), "missed": sum(v is None for v in vis),
                 "key_p50": pct([r.get("key_ms") for r in sel], .5), "key_max": pct([r.get("key_ms") for r in sel], 1),
-                "visible_p50": pct(vis, .5), "visible_p95": pct(vis, .95), "visible_max": pct(vis, 1),
+                "visible_p50": pct(vis, .5), "visible_p95": pct(vis, .95), "visible_p99": pct(vis, .99), "visible_max": pct(vis, 1),
                 "frames_p50": pct([frame_of(r) for r in sel], .5),
                 "frames_p95": pct([frame_of(r) for r in sel], .95),
                 "frames_max": pct([frame_of(r) for r in sel], 1),
@@ -451,8 +505,12 @@ def main():
     for count in counts:
         suffix = ""
         if count is not None:
+            if opts.exact_workspaces:
+                reset_workspaces()
             ensure_terminal()
             suffix = f"@{grow_workspaces(count)}ws"
+            if opts.exact_workspaces and workspace_count() != count:
+                sys.exit(f"exact workspace count failed: requested {count}, have {workspace_count()}")
         for phase in opts.phases.split(","):
             if phase == "load":
                 start_load()

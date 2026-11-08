@@ -2,6 +2,8 @@ use super::*;
 
 // The app fallback and the app scopes exist on unix only (cli.rs).
 #[cfg(unix)]
+mod action_argument_contract;
+#[cfg(unix)]
 mod action_surface_parity;
 #[cfg(unix)]
 mod cli_name_hints;
@@ -283,7 +285,7 @@ mod remote_cli_docs {
         let args =
             strings(&["cloud", "exec", "--target", "machine:builder", "--arg", "command=uname -a"]);
         assert!(app::parse(&args).is_ok());
-        assert!(cloud_help::overview(false).contains("cloud <action>"));
+        assert!(cloud_help::overview(false).contains("vm <action>"));
         assert!(AGENT_HELP.contains("agent open-tab"));
         assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]"));
     }
@@ -811,6 +813,46 @@ fn cmux_server_is_the_machine_server() {
 }
 
 #[test]
+fn cmux_pair_runs_the_machine_servers_invite_pairing() {
+    // Invite pairing: the app shows the code, the new machine runs `cmux pair CODE`.
+    let args = |line: &[&str], surface| {
+        machine_server::args_for(&strings(line), surface).map(|r| r.map_err(|(e, _)| e.0))
+    };
+    let machine = |line: &[&str]| Some(Ok(ServerRoute::Machine(strings(line))));
+    assert_eq!(
+        args(&["pair", "ABCDE-12345"], Surface::Cmux),
+        machine(&["pair", "--invite=ABCDE-12345"])
+    );
+    assert_eq!(
+        args(&["pair", "ABCDE", "12345", "--name", "Studio"], Surface::Cmux),
+        machine(&["pair", "--invite=ABCDE12345", "--name", "Studio"])
+    );
+    assert_eq!(
+        args(&["--json", "pair", "--name", "Studio box", "abcde-12345"], Surface::Cmux),
+        machine(&["pair", "--invite=abcde-12345", "--name", "Studio box", "--json"])
+    );
+    assert_eq!(args(&["pair", "--help"], Surface::Cmux), machine(&["--help"]));
+    let Some(Err(error)) = args(&["pair"], Surface::Cmux) else {
+        panic!("cmux pair without a code ran")
+    };
+    assert!(error.contains("cmux pair CODE"), "{error}");
+    let Some(Err(error)) = args(&["--session", "build", "pair", "ABCDE-12345"], Surface::Cmux)
+    else {
+        panic!("cmux pair with --session ran")
+    };
+    assert!(error.contains("--session"), "{error}");
+    assert_eq!(args(&["pair", "ABCDE-12345"], Surface::CmuxTui), None, "cmux-tui has no pair verb");
+    // The routed words parse as the machine server's `pair` verb with its invite.
+    let Some(Ok(ServerRoute::Machine(routed))) = args(&["pair", "ABCDE-12345"], Surface::Cmux)
+    else {
+        panic!("cmux pair was not routed to the machine server");
+    };
+    let parsed = cmux_server::cli::parse(&routed).unwrap();
+    assert_eq!(parsed.verb_str(), "pair");
+    assert_eq!(parsed.value("invite"), Some("ABCDE-12345"));
+}
+
+#[test]
 fn cmux_server_refuses_global_options_that_do_not_apply() {
     // CLI owner condition: refused with a usage error, never dropped.
     for (line, option) in [
@@ -1204,5 +1246,54 @@ fn space_mutations_accept_global_json_without_changing_the_action() {
         assert!(matches!(global.output, OutputMode::Json));
         assert_eq!(remaining, strings(&words));
         assert!(app::parse(&remaining).unwrap().is_some());
+    }
+}
+
+/// `cmux --help` opens with what a person does first (sign in, chat, VMs, devices), then the
+/// agents' COMMON TASKS within the first screen (#28414), and lists the person's scopes before
+/// the pane and terminal plumbing.
+#[test]
+fn root_help_lists_vm_and_its_old_name_in_its_own_language() {
+    for (locale, foreign) in [("en_US.UTF-8", "マシン"), ("ja_JP.UTF-8", "Run Cloud machine")] {
+        let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+        assert!(!help.contains(foreign), "{locale}: the other language's text");
+        let vm = help.lines().find(|line| line.starts_with("  vm ")).unwrap_or_default();
+        assert!(vm.contains("`cmux cloud`"), "{locale}: {vm}");
+        assert!(!help.lines().any(|line| line.starts_with("  cloud ")), "{locale}");
+    }
+}
+
+#[test]
+fn root_help_leads_with_person_verbs_and_keeps_the_agents_tasks_near_the_top() {
+    for (locale, start, common, person, control) in [
+        (
+            "en_US.UTF-8",
+            "START HERE",
+            "COMMON TASKS",
+            "YOU AND YOUR CHATS",
+            "AGENT AND SCRIPT CONTROL",
+        ),
+        (
+            "ja_JP.UTF-8",
+            "はじめに",
+            "よく使う操作",
+            "あなたとチャット",
+            "エージェントとスクリプトの操作",
+        ),
+    ] {
+        let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+        let line = |prefix: &str| {
+            help.lines()
+                .position(|line| line.starts_with(prefix))
+                .unwrap_or_else(|| panic!("{locale}: no line starts with {prefix:?}"))
+        };
+        assert!(line(start) < line(common), "{locale}");
+        for verb in ["login", "chat", "vm", "device"] {
+            assert!(line(&format!("  cmux {verb} ")) < line(common), "{locale}: {verb}");
+            assert!(line(&format!("  {verb} ")) > line(person), "{locale}: {verb}");
+            assert!(line(&format!("  {verb} ")) < line(control), "{locale}: {verb}");
+        }
+        assert!(line(common) < 12, "{locale}: COMMON TASKS left the first screen");
+        assert!(line("  pane ") > line(control), "{locale}");
     }
 }

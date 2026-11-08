@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextWindowRules
 import Observation
 
 extension AgentHandlers {
@@ -16,17 +17,29 @@ extension AgentHandlers {
     /// still fail normally instead of switching panes.
     static func withAgentPane(_ invocation: ActionInvocation, context: AppActionContext, seed: AgentPaneSeed,
                               _ open: @escaping @MainActor (PaneController) -> Void) {
-        // A shown pane target may allow a view change (for example, a context-menu action).
-        // Resolve that explicit target before applying the untargeted top-page route.
-        if invocation.target != nil, let pane = context.scope(invocation).pane { return open(pane) }
-        guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
-        // Over a top page the parked workspace's panes never mount: a new workspace, or a refusal now.
-        if context.activeWindow?.state.page != nil {
+        // The route is cmux-window-rules `chat::agent::pane_route`: an explicit target opens in its shown pane (a
+        // context-menu action may allow a view change) or is refused; over a top page the parked workspace's panes
+        // never mount, so a new workspace takes the chat, or a refusal now.
+        // The scope's pane and workspace are read only where the route reads them: a read of a target that names
+        // nothing reports it, once.
+        let scope = context.scope(invocation)
+        let targeted = invocation.target != nil, topPage = context.activeWindow?.state.page != nil
+        let pane = targeted || !topPage ? scope.pane : nil
+        let workspace = !targeted && !topPage && pane == nil ? scope.workspace : nil
+        let route = WindowRules().chatPaneRoute(targeted: targeted, hasPane: pane != nil, topPage: topPage, hasWorkspace: workspace != nil)
+        switch route {
+        case .open?:
+            if let pane { open(pane) }
+            return
+        case .overTopPage?:
             if !openChatWorkspaceOverTopPage(invocation, context: context, seed: seed) { context.refuse(MiscHandlerStrings.noPane) }
             return
+        case .refuse?, nil:
+            return context.refuse(MiscHandlerStrings.noPane)
+        case .firstPane?:
+            break
         }
-        if let pane = context.scope(invocation).pane { return open(pane) }
-        guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
+        guard let workspace else { return context.refuse(MiscHandlerStrings.noPane) }
         _ = context.registry.perform("newTab.default", invocation: invocation)
         context.registry.track(Task { @MainActor in
             let pane = try? await ControlDeadline.shared.run(
@@ -77,36 +90,36 @@ extension AgentHandlers {
             }
             destination = remote
         }
-        guard !Task.isCancelled else { return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected)) }
-        guard destination.isReady else {
-            return .failure(ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.machineNotConnected))
+        // The plan is cmux-window-rules `chat::agent::host_plan`: a peer needs no cmux workspace daemon, so its tab stays
+        // in the requested local pane while the Environment picker's chat.new path starts it on the peer.
+        let route: WindowRules.ChatHostRoute = switch destination.route {
+        case .local: .local
+        case .peer(let peer): .peer(peer)
+        case .cloud(let id): .cloud(id)
+        case .pending: .pending
+        }
+        let targetLocal = invocation.target.map { AgentChatPlacement.resolve($0, services: context.services)?.daemon.isLocal == true } ?? false
+        let facts = WindowRules.ChatHostFacts(route: route, ready: destination.isReady, cancelled: Task.isCancelled,
+                                              targeted: invocation.target != nil, targetLocal: targetLocal,
+                                              activeLocal: context.services.activeDaemon.isLocal)
+        guard let plan = WindowRules().chatHostPlan(facts) else {
+            return .failure(ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.noMachine))
         }
         var routed = invocation
-        if case .local = destination.route {
-            routed.arguments["host"] = .string("local")
-        }
-        if case .peer(let peer) = destination.route {
-            // A peer does not need a cmux workspace daemon. The tab stays in the requested
-            // local pane while the Environment picker's chat.new path starts it on the peer.
-            routed.arguments["host"] = .string(peer)
-        }
-        switch destination.route {
-        case .cloud, .pending: break
-        case .local, .peer:
-            if let target = invocation.target {
-                guard AgentChatPlacement.resolve(target, services: context.services)?.daemon.isLocal == true else {
-                    return .failure(ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.noMachine))
-                }
-            } else if !context.services.activeDaemon.isLocal {
-                return await AgentChatPlacement.openLocalChat(routed, context: context)
-            }
+        if let host = plan.host { routed.arguments["host"] = .string(host) }
+        switch plan.open {
+        case .refuse("cancelled"): return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected))
+        case .refuse("notReady"): return .failure(ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.machineNotConnected))
+        case .refuse: return .failure(ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.noMachine))
+        case .localPlacement: return await AgentChatPlacement.openLocalChat(routed, context: context)
+        case .cloud, .local: break
         }
         // Capture child work synchronously inside this task, then await it here. The outer
         // CLI/MCP run must not answer before tab creation or lose the new tab's result fields.
         var failure: ActionWorkFailure?
         let captured = context.registry.capturingRun {
             let refused = context.registry.capturingRefusal {
-                if case .cloud(let id) = destination.route { openCloudChat(routed, machine: id, context: context) }
+                if case .cloud(let id) = plan.open { openCloudChat(routed, machine: id, context: context) }
                 else { openLocalChat(routed, context: context) }
             }
             if let refused { failure = ActionWorkFailure(refusal: .unavailable, reason: refused) }
@@ -144,7 +157,8 @@ extension AgentHandlers {
                     return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected))
                 }
                 let account = services.cloud.account
-                if session.daemon.connection == nil { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
+                await session.refreshIfMaybePaused() // the idle auto-pause may have parked it behind the app's record
+                if session.daemon.connection == nil { session.machine.status == .paused ? session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) : session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
                 let connected = await CloudWait.holds(within: CloudStartSession.connectWait) {
                     session.resumeFailure != nil || (session.daemon.connection != nil && AgentTabStore.registryHost(of: session.daemon) != nil)
                 }
@@ -191,29 +205,39 @@ extension AgentHandlers {
     /// window shows was refused ("That pane is no longer open"). A person's run (context menu) and
     /// a run that asks for focus keep the shown-pane path. False when this path does not apply.
     static func openTargetedChat(_ invocation: ActionInvocation, context: AppActionContext) -> Bool {
-        guard let target = invocation.target, target.kind == .pane || target.kind == .workspace else { return false }
+        guard let target = invocation.target else { return false }
         let services = context.services
-        guard let place = AgentChatPlacement.resolve(target, services: services) else {
+        let applies = target.kind == .pane || target.kind == .workspace
+        let found = applies ? AgentChatPlacement.resolve(target, services: services) : nil
+        let shown = found.flatMap { services.paneController(for: $0.pane) }
+        // The route is cmux-window-rules `chat::agent::targeted_route`. The docked agent chat gets no strip tabs: a
+        // script aimed at it keeps New Agent Chat's own placement (`NewChatPlacement`) in that pane, as before, also
+        // for a workspace target.
+        let route = WindowRules().chatTargetedRoute(
+            applies: applies, pane: target.kind == .pane, found: found != nil, shown: shown != nil,
+            shownDocksChat: shown.map { ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat } ?? false,
+            allowsViewChange: invocation.allowsViewChange)
+        let place: AgentChatPlacement, selects: Bool
+        switch route {
+        case .skip?, nil:
+            return false
+        case .notFound?:
             services.registry.refuseNotFound(target.kind == .pane ? RefusalStrings.noPaneID(target.id) : RefusalStrings.noWorkspace(target.id))
             return true
-        }
-        let shown = services.paneController(for: place.pane)
-        // The docked agent chat gets no strip tabs: a script aimed at it keeps New Agent Chat's
-        // own placement (`NewChatPlacement`) in that pane, as before, also for a workspace target.
-        if let shown, ChatColumnPlacement.resolve(from: shown, services: services) == .dockChat {
+        case .inShown?:
+            guard let shown else { return false }
             openNewAgentChat(in: shown, invocation: invocation, context: context)
             return true
-        }
-        if let shown, invocation.allowsViewChange {
-            guard target.kind == .workspace else { return false }
-            openNewAgentChat(in: shown, invocation: invocation, context: context)
-            return true
+        case .store(let selectsTab)?:
+            guard let found else { return false }
+            place = found
+            selects = selectsTab
         }
         let requested = seed(for: invocation)
         let seed = AgentPaneSeed(cwd: requested.host == nil ? place.cwd(requested.cwd) : requested.cwd,
                                  harness: requested.harness, model: requested.model, host: requested.host)
         do {
-            services.registry.track(result: try place.openTab(seed: seed, selects: shown == nil, services: services))
+            services.registry.track(result: try place.openTab(seed: seed, selects: selects, services: services))
         } catch let failure as ActionFailure {
             services.registry.refuse(failure.message)
         } catch {

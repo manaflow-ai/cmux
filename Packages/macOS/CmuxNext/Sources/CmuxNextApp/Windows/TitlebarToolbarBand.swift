@@ -58,6 +58,9 @@ final class TitlebarToolbarBand: NSView {
         forwardButton.action = #selector(goForward)
         backButton.menuProvider = { [weak self] in self?.historyMenu?(.back) }
         forwardButton.menuProvider = { [weak self] in self?.historyMenu?(.forward) }
+        // A dimmed arrow (nowhere to go) still lists Recently Closed and Show Full History.
+        backButton.opensMenuWhenDisabled = true
+        forwardButton.opensMenuWhenDisabled = true
         [sidebarToggle, backButton, forwardButton].forEach(addSubview)
         sidebarToggle.setAccessibilityIdentifier("cmux.titlebar.toggleSidebar")
         backButton.setAccessibilityIdentifier("cmux.titlebar.back")
@@ -86,7 +89,8 @@ final class TitlebarToolbarBand: NSView {
         direction == .back ? backButton : forwardButton
     }
 
-    /// Back and Forward are enabled only when the trail has somewhere to go.
+    /// Back and Forward click only when the trail has somewhere to go; their right-click list
+    /// opens either way (`opensMenuWhenDisabled`).
     func setHistoryEnabled(back: Bool, forward: Bool) {
         backButton.isEnabled = back
         forwardButton.isEnabled = forward

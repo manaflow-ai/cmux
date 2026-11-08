@@ -1,0 +1,239 @@
+/* The workspace group editor. The native bubble draws the glass card behind the page
+   (Glass.makeOverlayPanel), so the document paints no fill of its own; the bubble sizes itself to
+   the card's height (`cmux.groupEditor.ready`). Sizes are the native editor's at the default
+   density (SidebarGroupEditor.swift, Metrics): an 8 inset, a 24 field, 18 dots with a 1.5 ring
+   around a 12 fill, 24 rows with a 14 icon, 2 between rows and 6 around the hairlines. They scale
+   with the interface size as Metrics.scale does. */
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+}
+
+.group-editor {
+  --group-editor-inset: calc(8px * var(--cmux-interface-scale, 1));
+  --group-editor-gap: calc(2px * var(--cmux-interface-scale, 1));
+  --group-editor-gap-wide: calc(6px * var(--cmux-interface-scale, 1));
+  --group-editor-gap-row: calc(4px * var(--cmux-interface-scale, 1));
+  --group-editor-text-inset: calc(6px * var(--cmux-interface-scale, 1));
+  --group-editor-trailing-gap: calc(8px * var(--cmux-interface-scale, 1));
+  --group-editor-row: calc(24px * var(--cmux-interface-scale, 1));
+  --group-editor-icon: calc(14px * var(--cmux-interface-scale, 1));
+  --group-editor-dot: calc(18px * var(--cmux-interface-scale, 1));
+  --group-editor-ring: calc(1.5px * var(--cmux-interface-scale, 1));
+  --group-editor-fill-inset: calc(1.5px * var(--cmux-interface-scale, 1));
+  --group-editor-radius: var(--ds-radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--group-editor-gap);
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--group-editor-inset);
+  color: var(--page-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+/* The name: a rounded filled box with a hairline in the focus color, as the native field. */
+.group-editor-field {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: var(--cmux-control-height);
+  margin-bottom: calc(var(--group-editor-gap-wide) - var(--group-editor-gap));
+  padding-inline: var(--group-editor-text-inset);
+  border: var(--cmux-hairline, 1px) solid var(--cmux-focus-ring, var(--ds-color-focus));
+  border-radius: var(--group-editor-radius);
+  background: var(--page-hover);
+}
+
+.group-editor-name {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--page-text);
+  caret-color: var(--cmux-caret, var(--page-text));
+  text-overflow: ellipsis;
+  user-select: text;
+}
+
+.group-editor-name::placeholder {
+  color: var(--page-text-3);
+}
+
+/* Gray selection, never the system accent. */
+.group-editor-name::selection {
+  background: var(--cmux-selection-fill, var(--cmux-text-selection, var(--page-selection)));
+}
+
+/* The dots and the emoji button: one row, spread across the card. The radio group adds no box, so
+   the button spaces with the dots. */
+.group-editor-dots {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--group-editor-gap);
+}
+
+.group-editor-radios {
+  display: contents;
+}
+
+/* A dot: the ring is always drawn (transparent until hover or chosen), so nothing moves. */
+.group-editor-swatch {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: var(--group-editor-dot);
+  height: var(--group-editor-dot);
+  padding: var(--group-editor-fill-inset);
+  border: var(--group-editor-ring) solid transparent;
+  border-radius: 50%;
+  outline: none;
+}
+
+.group-editor-swatch:hover {
+  border-color: var(--page-separator);
+}
+
+.group-editor-swatch[data-chosen] {
+  border-color: var(--page-text);
+}
+
+.group-editor-swatch:focus-visible {
+  box-shadow: 0 0 0 var(--cmux-focus-ring-width) var(--ds-color-focus);
+}
+
+.group-editor-swatch-fill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  color: var(--page-text-2);
+}
+
+/* The No color dot and the empty custom dot: a hairline edge in the tertiary text color. */
+.group-editor-swatch[data-outlined] .group-editor-swatch-fill {
+  border: var(--cmux-hairline, 1px) solid var(--page-text-3);
+}
+
+.group-editor-icon-button {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: var(--group-editor-dot);
+  height: var(--group-editor-dot);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: transparent;
+  color: var(--page-text-2);
+  outline: none;
+}
+
+.group-editor-icon-button:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+
+.group-editor-icon-button:focus-visible {
+  box-shadow: 0 0 0 var(--cmux-focus-ring-width) var(--ds-color-focus);
+}
+
+.group-editor-glyph {
+  flex: none;
+}
+
+/* A section: a hairline, then its rows. */
+.group-editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--group-editor-gap);
+  margin-top: calc(var(--group-editor-gap-wide) - var(--group-editor-gap));
+}
+
+.group-editor-hairline {
+  flex: none;
+  height: var(--cmux-hairline-ring);
+  margin: 0 0 calc(var(--group-editor-gap-row) - var(--group-editor-gap));
+  border: 0;
+  background: var(--page-separator);
+}
+
+/* An action row, like a menu item: icon, title, then the shortcut or value in tertiary text. */
+.group-editor-row {
+  display: flex;
+  align-items: center;
+  gap: var(--group-editor-text-inset);
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--group-editor-row);
+  padding: 0 var(--group-editor-text-inset);
+  border: 0;
+  border-radius: var(--group-editor-radius);
+  background: transparent;
+  color: var(--page-text);
+  text-align: start;
+  outline: none;
+}
+
+.group-editor-row:hover {
+  background: var(--page-hover);
+}
+
+.group-editor-row:focus-visible {
+  box-shadow: inset 0 0 0 var(--cmux-focus-ring-width) var(--ds-color-focus);
+}
+
+.group-editor-row-icon {
+  flex: none;
+  width: var(--group-editor-icon);
+  height: var(--group-editor-icon);
+  background-color: var(--page-text-2);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+.group-editor-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-editor-row-trailing {
+  flex: none;
+  margin-inline-start: calc(var(--group-editor-trailing-gap) - var(--group-editor-text-inset));
+  color: var(--page-text-3);
+}
+
+/* Gallery alternative: the dots on a grid, larger and further apart (two rows). */
+.group-editor[data-layout="grid"] {
+  --group-editor-dot: calc(24px * var(--cmux-interface-scale, 1));
+  --group-editor-fill-inset: calc(2.5px * var(--cmux-interface-scale, 1));
+}
+
+.group-editor[data-layout="grid"] .group-editor-dots {
+  display: grid;
+  grid-template-columns: repeat(6, var(--group-editor-dot));
+  justify-content: space-between;
+  row-gap: var(--group-editor-gap-wide);
+}
+
+/* Gallery alternative: rows at the menu row height, their text on the field's text edge. */
+.group-editor[data-layout="plain"] {
+  --group-editor-row: var(--ds-control-row);
+}

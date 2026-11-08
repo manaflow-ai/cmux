@@ -126,7 +126,7 @@ import Testing
         let checking = SidebarNoticeCard(id: "update", title: "Checking for Updates…")
         let found = SidebarNoticeCard(id: "update", title: "Update Available",
                                       actions: [.init(id: "update", title: "Update", prominent: true), .init(id: "release_notes", title: "Release Notes")])
-        let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNoticeCardView.height(for: found)))
+        let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNoticeCardView.height(for: found, width: 216)))
         card.configure(checking)
         let shown = ProcessInfo.processInfo.systemUptime
         card.configure(found)

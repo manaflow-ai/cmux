@@ -8,34 +8,27 @@
 // terminal beside the chat (processTerminal.ts); a peer's (SSH) or Cloud chat has none, so there
 // it shows the Bash call that started it in the transcript, and a row with neither is no button
 // and says why. A command the registry lists also has Stop.
-// Dev servers are listed under Servers instead (ServersSection.tsx). The list scrolls inside the
-// section; nothing is cut to a few rows. A command that starts while the list is drawn drops in at
-// the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
+// Dev servers head the section in rows of their own (ServersSection.tsx). A running row's time ends
+// it, and on the row's hover or focus Stop takes the time's place (sessionInfo.css). The panel's body
+// scrolls, not the section; nothing is cut to a few rows. A command that starts while the list is drawn
+// drops in at the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
 import { useState } from "react";
 import { useArrivals } from "../../../ui/presence";
-import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openCommand } from "../processTerminal";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import type { SummaryWakeup } from "../summary/sessionSummary";
 import { arrivalKey, sendLabel, splitCommands, type BackgroundCommand } from "./processes";
 import { scheduledTrailing, splitScheduled, useScheduledClock, type ScheduledEntry } from "./scheduled";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { TASK_ICONS } from "./taskIcons";
+import { COMMAND_STATE } from "./tasksSectionModel";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
-
-/// What a command's state says (the summary card's rows say the same, summary/SummaryTasks.tsx).
-export const COMMAND_STATE: Record<BackgroundCommand["state"], StringKey> = {
-  running: "bgTask.state.running",
-  completed: "bgTask.state.completed",
-  failed: "bgTask.state.failed",
-  stopped: "bgTask.state.stopped",
-  lost: "sessionInfo.tasks.lost",
-};
 
 export function TasksSection({
   commands,
@@ -62,7 +55,6 @@ export function TasksSection({
   const t = useT();
   const language = usePaneLanguage();
   const [showFinished, setShowFinished] = useState(false);
-  const listEdges = useScrollEdges();
   const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
   // Moves once, when the earliest wakeup or cron job still ahead ends (no per-second poll).
@@ -102,7 +94,7 @@ export function TasksSection({
             void openCommand(toolCallId, { local, showCall: onShowCall });
           }}
         >
-          <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row className="acpmux-row-glyph" />
+          <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
           {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
@@ -116,20 +108,38 @@ export function TasksSection({
   const scheduledRow = (entry: ScheduledEntry) => {
     const trailing = scheduledTrailing(t, language, entry);
     const ended = entry.status.state !== "scheduled";
-    return (
-      <li
-        key={`scheduled:${entry.item.id}`}
-        className="acpmux-session-info-task"
-        data-kind={entry.item.kind}
-        data-state={entry.status.state}
-        title={entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text}
-      >
-        <Icon name={TASK_ICONS[entry.item.kind].web} size={ROW_ICON} row className="acpmux-row-glyph" />
+    // A wakeup or cron job is the call that made it (sessionSummary `scheduled`, keyed by the call):
+    // while the loaded transcript holds that call, a click shows it, and the row lights on hover as
+    // a command's does (Leo, 2026-11-06: the "Fallback heartbeat ... doesn't get highlighted in the
+    // same way that the other ones do"). With no call to show it stays plain text, as a command
+    // with nothing to open does.
+    const call = entry.item.id;
+    const shows = !!onShowCall && (calls?.has(call) ?? false);
+    const body = (
+      <>
+        <Icon name={TASK_ICONS[entry.item.kind].web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
         <span className="acpmux-session-info-task__command">{entry.item.text}</span>
         {trailing !== undefined && (
           <span className={ended ? "acpmux-session-info-task__state" : "acpmux-session-info-task__time"}>
             {trailing}
           </span>
+        )}
+      </>
+    );
+    return (
+      <li
+        key={`scheduled:${entry.item.id}`}
+        className={`acpmux-session-info-task${shows ? " acpmux-session-info-task--opens" : ""}`}
+        data-kind={entry.item.kind}
+        data-state={entry.status.state}
+        title={entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text}
+      >
+        {shows ? (
+          <button type="button" className="acpmux-session-info-task__open" onClick={() => onShowCall(call)}>
+            {body}
+          </button>
+        ) : (
+          body
         )}
       </li>
     );
@@ -140,7 +150,7 @@ export function TasksSection({
     ...ended.map((entry) => ({ at: entry.status.endedAt, entry })),
   ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity));
   return (
-    <div ref={listEdges} className="acpmux-session-info-scroll ui-scroll-edge-fade" data-section="tasks">
+    <div data-section="tasks">
       {(running.length > 0 || active.length > 0) && (
         <ul className="acpmux-session-info-list">
           {running.map((command) =>
@@ -165,17 +175,21 @@ export function TasksSection({
           </SessionInfoFold>
           {showFinished && (
             <ul className="acpmux-session-info-list" data-finished="">
-              {finishedRows.map((entry) =>
-                "command" in entry
-                  ? row(
-                      entry.command,
-                      entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
-                        ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
-                        : undefined,
-                      t(COMMAND_STATE[entry.command.state]),
-                    )
-                  : scheduledRow(entry.entry),
-              )}
+              {/* However many ended, the open draws the rows that can show (WindowedRows). */}
+              <WindowedRows
+                items={finishedRows}
+                render={(entry) =>
+                  "command" in entry
+                    ? row(
+                        entry.command,
+                        entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
+                          ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
+                          : undefined,
+                        t(COMMAND_STATE[entry.command.state]),
+                      )
+                    : scheduledRow(entry.entry)
+                }
+              />
             </ul>
           )}
         </>

@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDesign
 import Foundation
 import Testing
@@ -75,7 +76,6 @@ struct CloudLivePreviewTests {
             bundled: ["CMUX_VM_API_BASE_URL": "https://backend.fixture.invalid",
                       "CMUX_NEXT_PLATFORM_PREVIEW_API_URL": "https://platform.fixture.invalid"],
             process: [:], isDebugBuild: true)
-        #expect(configuration.linkSource == .appServer)
         #expect(configuration.platformPreviewAPIBaseURL() == URL(string: "https://platform.fixture.invalid"))
     }
 
@@ -98,11 +98,13 @@ struct CloudLivePreviewTests {
     }
 
     @Test func pickerShowsDetectedOriginsAndOpensTheSelectedPort() throws {
-        let spec = CloudHandlers.previewPicker(try inventory(), machineName: "My machine")
-        let view = CmuxDialogView(spec: spec)
-        #expect(view.setValue(.text("3000"), for: "port"))
-        #expect(view.values["port"] == .text("3000"))
-        #expect(!view.setValue(.text("22"), for: "port"), "an unavailable listener cannot be opened")
+        let spec = CloudPreviewPresentation(try inventory()).picker(machineName: "My machine", cancelTitle: "Cancel")
+        let center = CmuxDialogCenter(host: CmuxDialogHeadlessHost())
+        let id = center.present(spec, in: .app) { _ in }
+        defer { center.dismissAll() }
+        #expect(center.setValue(.text("3000"), for: "port", in: id))
+        #expect(center.record(id)?.values["port"] == .text("3000"))
+        #expect(!center.setValue(.text("22"), for: "port", in: id), "an unavailable listener cannot be opened")
         #expect(spec.defaultButton?.id == "open")
         #expect(spec.lines == ["My machine"])
         guard case .choice(_, _, let options, _) = try #require(spec.fields.first) else {

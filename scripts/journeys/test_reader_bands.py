@@ -4,7 +4,10 @@
 scripts/ci/pr_media_ocr.swift reads an image in which Vision finds no text at all again in 4 horizontal bands, and names
 on stderr a band that read no text ("...; 19 lines in 4 bands; no text in band 4"): on macOS 27 such a band can hold
 text (the "Did you know?" card in the r3fc frame of 8e8f5f70). The read is then partial: a check that text is ABSENT
-(`lacks`) must not pass on it; a check that text is there, or a line count, may.
+(`lacks`) must not pass on it; a check that text is there, or a line count, may. A band that shows no ink at all (empty
+terminal rows: band 3 in all 30 band reads of the 53-frame corpus) is named "blank": it holds no text, so the read is
+not partial there (review 2 of #35282, notes 1-3). A forbidden text that the read does find fails the check, partial
+read or not.
 
     python3 -I scripts/journeys/test_reader_bands.py
 """
@@ -71,6 +74,20 @@ class ReadTextTests(unittest.TestCase):
         self.assertEqual(D.unread_bands(["a plain list"]), [])
 
 
+    def test_a_blank_band_is_not_an_unread_band(self):
+        # review 2 of #35282, note 1: the reader names a band with no ink "blank"; only a band with ink and no text is unread
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = fake_reader(tmp, "a\nb\n", "pr-media-ocr: no text in the whole image; 2 lines in 4 bands; blank bands 2, 3; "
+                                              "no text in band 4\n")
+            lines = D.App.read_text(type("Reader", (), {"ocr": str(tool)})(), Path(tmp) / "x.png")
+            self.assertEqual((D.unread_bands(lines), D.blank_bands(lines)), ([4], [2, 3]))
+            tool = fake_reader(tmp, "a\n", "pr-media-ocr: no text in the whole image; 1 lines in 4 bands; blank band 3\n")
+            lines = D.App.read_text(type("Reader", (), {"ocr": str(tool)})(), Path(tmp) / "x.png")
+            self.assertEqual((D.unread_bands(lines), D.blank_bands(lines), lines.banded), ([], [3], True))
+            tool = fake_reader(tmp, "a\n")
+            whole = D.App.read_text(type("Reader", (), {"ocr": str(tool)})(), Path(tmp) / "x.png")
+            self.assertEqual((D.unread_bands(whole), D.blank_bands(whole), whole.banded), ([], [], False))
+
 class LacksOnAPartialReadTests(unittest.TestCase):
     def journey(self, tmp, read):
         return D.Journey({"id": "bands", "steps": []}, StubApp(read), tmp, D.now() + 60, 1.0)
@@ -99,6 +116,38 @@ class LacksOnAPartialReadTests(unittest.TestCase):
             ok, detail = ext_smoke.cond_smoke_frame(self.journey(tmp, D.Read(list(partial), [])), {"lacks": ["x"]}, {})
             self.assertTrue(ok, detail)
 
+
+    def test_a_forbidden_text_the_read_finds_fails_on_a_partial_read(self):
+        # review 2 of #35282, note 3: a partial read cannot prove a text absent, but a text it does read is there
+        partial = D.Read(["J> echo one", "secret"], [4])
+        with tempfile.TemporaryDirectory() as tmp:
+            ok, detail = self.journey(tmp, partial).cond_frame_screen({"shows": ["one"], "lacks": ["secret"]}, {})
+            self.assertFalse(ok, detail)
+            self.assertNotIn("lacks_not_judged", detail)
+            self.assertEqual(detail["present"], ["secret"])
+            ok, detail = ext_smoke.cond_smoke_frame(self.journey(tmp, D.Read(["a", "b", "secret"], [2])), {"lacks": ["secret"]}, {})
+            self.assertFalse(ok, detail)
+            self.assertNotIn("lacks_not_judged", detail)
+
+    def test_a_read_with_only_blank_bands_judges_a_lacks_check(self):
+        read = D.Read(["J> echo one", "one"], [], blank=[3])
+        with tempfile.TemporaryDirectory() as tmp:
+            ok, detail = self.journey(tmp, read).cond_frame_screen({"shows": ["one"], "lacks": ["secret"]}, {})
+            self.assertTrue(ok, detail)
+            self.assertEqual(detail.get("bands"), {"unread": [], "blank": [3]})
+            ok, detail = ext_smoke.cond_smoke_frame(self.journey(tmp, D.Read(["a", "b", "c"], [], blank=[2, 3])),
+                                                    {"lacks": ["secret"]}, {})
+            self.assertTrue(ok, detail)
+            self.assertEqual(detail.get("bands"), {"unread": [], "blank": [2, 3]})
+
+    def test_every_frame_check_on_a_band_read_records_its_bands(self):
+        partial = D.Read(["J> echo one", "one"], [4], blank=[3])
+        with tempfile.TemporaryDirectory() as tmp:
+            ok, detail = self.journey(tmp, partial).cond_frame_screen({"shows": ["one"]}, {})
+            self.assertTrue(ok, detail)
+            self.assertEqual(detail.get("bands"), {"unread": [4], "blank": [3]})
+            ok, detail = self.journey(tmp, D.Read(["one"], [])).cond_frame_screen({"shows": ["one"]}, {})
+            self.assertNotIn("bands", detail)  # a whole read
 
 if __name__ == "__main__":
     unittest.main()

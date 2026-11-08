@@ -146,6 +146,12 @@ pub(crate) enum SnapshotAdmission {
 struct GateState {
     last_snapshot_at: Option<Instant>,
     pending: bool,
+    /// A throttled request waits for the end of its interval: the worker
+    /// asks for its snapshot then (``SnapshotRequestGate::fire_deferred``).
+    /// A viewer whose local history did not match after a resize holds the
+    /// READY without its scrollback until this snapshot arrives, so a
+    /// throttled request is never dropped.
+    deferred_at: Option<Instant>,
 }
 
 /// Collapses duplicate snapshot requests and rate-limits them per viewer.
@@ -206,6 +212,13 @@ impl SnapshotRequestGate {
             let next = last + SNAPSHOT_REQUEST_MIN_INTERVAL;
             if now < next {
                 let wait = next - now;
+                let first = state.deferred_at.is_none();
+                state.deferred_at = Some(next);
+                drop(state);
+                // The worker's wait takes the new deadline.
+                if first {
+                    self.handle.poke();
+                }
                 return SnapshotAdmission::Throttled {
                     retry_after_ms: wait.as_millis().max(1) as u64,
                 };
@@ -215,7 +228,31 @@ impl SnapshotRequestGate {
             return SnapshotAdmission::NotAttached;
         }
         state.pending = true;
+        state.deferred_at = None;
         SnapshotAdmission::Accepted
+    }
+
+    /// When a throttled request asks for its snapshot (the worker wakes
+    /// then), or `None` when no request waits.
+    pub(crate) fn deferred_at(&self) -> Option<Instant> {
+        self.state.lock().unwrap().deferred_at
+    }
+
+    /// Queues the snapshot of a throttled request whose interval ended by
+    /// `now`. Returns true when it queued one.
+    pub(crate) fn fire_deferred(&self, now: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        match state.deferred_at {
+            Some(at) if at <= now => {
+                state.deferred_at = None;
+                if state.pending || !self.handle.request() {
+                    return false;
+                }
+                state.pending = true;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// The worker sent a snapshot at `now`, or tried and deferred it (a
@@ -226,6 +263,8 @@ impl SnapshotRequestGate {
         // its own snapshot, so it stays pending (later requests collapse).
         state.pending = self.handle.snapshot_pending();
         state.last_snapshot_at = Some(now);
+        // This snapshot answers a throttled request too.
+        state.deferred_at = None;
     }
 }
 

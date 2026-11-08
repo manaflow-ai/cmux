@@ -55,11 +55,13 @@ jobs:
         with:
           persist-credentials: false
 
+      # The Zig is the one the ghostty-next gitlink's build.zig.zon names, so the
+      # gitlink in the key covers a Zig change.
       - name: Key the headless cmux-tui build
         id: headless-key
         run: |
           set -euo pipefail
-          echo "key=cmux-tui-headless-v1-${RUNNER_OS}-${RUNNER_ARCH}-zig0.16.0-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-tui-headless-v2-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
 
       - name: Check for a saved build
         id: headless-cache
@@ -83,11 +85,20 @@ jobs:
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Set up Zig for Ghostty
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.16.0
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
 
       # The exact binary's key names the whole cmux-tui tree, so a PR that changes
       # cmux-tui never hits it. feat-cmux-next keeps its target dir
@@ -107,8 +118,9 @@ jobs:
         env:
           CARGO_NET_RETRY: "10"
           CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_REQUIRED: ${{ steps.ghostty-zig-version.outputs.version }}
         run: |
-          test "$(zig version)" = "0.16.0"
+          test "$(zig version)" = "$GHOSTTY_ZIG_REQUIRED"
           cargo build -p cmux-tui --bin cmux-tui --locked
 
       - name: Save the headless cmux-tui build

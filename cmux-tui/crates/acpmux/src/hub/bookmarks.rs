@@ -66,6 +66,14 @@ impl Hub {
                 meta.updated_at = before;
             }
         }
+        // `append` notes the record before the timestamp rewind above. Note again after the
+        // direct metadata write so a closed snapshot that raced the append cannot publish the
+        // forward timestamp as this chat's newest continuation.
+        self.chat_activity_cache.note(
+            &session.id,
+            "bookmarks",
+            session.status() == crate::store::SessionStatus::Closed,
+        );
         let saved = self.save_meta_answered(session);
         drop(moving);
         saved.map(|()| marks)

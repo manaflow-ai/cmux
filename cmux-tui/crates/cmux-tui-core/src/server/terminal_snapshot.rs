@@ -52,7 +52,8 @@
 //! `snapshot-request {surface, reason?, have?, request_id?}` is the raw v12
 //! form of the channel message `snapshot_request` (sync-and-transport.md):
 //! requests collapse while a snapshot is pending, and a viewer gets at most
-//! one requested snapshot per 500 ms (`snapshot_throttled {retry_after_ms}`).
+//! one requested snapshot per 500 ms (`snapshot_throttled {retry_after_ms}`;
+//! the throttled request still gets its READY when the interval ends).
 //! A channel transport maps its message onto [`handle_request`].
 
 use crate::panic_free::JsonFields;
@@ -709,12 +710,15 @@ impl SnapshotWorker {
                 }
                 digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
             }
+            // A throttled snapshot request whose interval ended: its READY is
+            // the next event (``SnapshotRequestGate::fire_deferred``).
+            self.gate.fire_deferred(Instant::now());
             // A hidden viewer's digest waits for the batch it would describe.
             let digest = if self.hidden_batch.is_empty() { digest_at } else { None };
             let deadline = if self.tail.is_some() {
                 Some(Instant::now())
             } else {
-                [digest, batch_at].into_iter().flatten().min()
+                [digest, batch_at, self.gate.deferred_at()].into_iter().flatten().min()
             };
             let event = self.receiver.recv_viewer_event(&interrupt, deadline);
             let sent = match event {

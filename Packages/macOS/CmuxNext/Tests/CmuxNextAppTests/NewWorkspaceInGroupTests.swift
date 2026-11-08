@@ -11,7 +11,8 @@ import Testing
 /// `g1` (`c`, `d`, `e`) went to the top of the group, above `c`; it belongs right below `d`.
 /// Lawrence 2026-10-28: a new workspace made inside a group goes to the TOP of that group by
 /// default, like a new workspace goes to the top of the sidebar; `afterCurrent` ("After Current
-/// Workspace" in Settings) keeps Leo's place right below the current one.
+/// Workspace" in Settings) keeps Leo's place right below the current one, and is the default again
+/// since 2026-11-06 (`NewWorkspaceFromSelectionTests`).
 @Suite struct NewWorkspaceInGroupTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     static let g1 = GroupID("g1")
@@ -54,9 +55,9 @@ import Testing
         }
     }
 
-    @Test func theDefaultPlacementPutsANewWorkspaceFirstInItsGroup() throws {
-        let placed = try Self.placed(CmuxConfigSnapshot.newWorkspacePlacementFallback, from: "d")
-        #expect(placed.group == ["n", "c", "d", "e"])
+    @Test func theDefaultPlacementPutsANewWorkspaceRightBelowTheCurrentOne() throws {
+        let placed = try Self.placed(CmuxConfigSnapshot.newWorkspacePlacementDefault, from: "d")
+        #expect(placed.group == ["c", "d", "n", "e"])
     }
 
     @Test func afterCurrentFromAGroupMemberGoesRightBelowItInThatGroup() throws {
@@ -86,7 +87,7 @@ import Testing
         return []
     }
 
-    @Test func theGroupsPlusPutsTheNewWorkspaceAtItsTopByDefault() throws {
+    @Test func theGroupsPlusPutsTheNewWorkspaceAtItsTopUnderTop() throws {
         for current in ["a", "d", nil] {
             #expect(try Self.placedFromGroup(.top, current: current) == ["n", "c", "d", "e"], "from \(current ?? "none")")
         }
@@ -94,7 +95,7 @@ import Testing
 
     @Test func theGroupsPlusFollowsAfterCurrentAndBottom() throws {
         #expect(try Self.placedFromGroup(.afterCurrent, current: "d") == ["c", "d", "n", "e"])
-        #expect(try Self.placedFromGroup(.afterCurrent, current: "a") == ["n", "c", "d", "e"])
+        #expect(try Self.placedFromGroup(.afterCurrent, current: "a") == ["c", "d", "e", "n"])
         #expect(try Self.placedFromGroup(.bottom, current: "d") == ["c", "d", "e", "n"])
     }
 

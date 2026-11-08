@@ -24,6 +24,20 @@ public nonisolated enum TabLoadingAnimation: String, Sendable, CaseIterable, Tun
     }
 }
 
+/// How a hovered tab's x takes its status's slot (`TabStripMetrics.hoverCloseSwap`; the tab bar
+/// playground's Hover Close page compares them). In every treatment but `beside` only the x shows on
+/// hover, in the slot the spinner or status mark holds at rest (Leo 2026-11-05).
+public nonisolated enum TabHoverCloseSwap: String, Sendable, CaseIterable {
+    /// The status fades out on the hover curve while the x fades in, and back on leaving.
+    case crossFade
+    /// The status gives way at once and the x fades in, as a sidebar workspace row's hover controls.
+    case instant
+    /// As `crossFade`, with the x's hover fill drawn while it stands in for the status.
+    case disc
+    /// Before: the x appears beside the status. The playground's comparison only.
+    case beside
+}
+
 /// What the tab bar's trailing controls (the plus, the pane's pins and "…") show at rest
 /// (`TabTunables.crowdedControls`). Their room is kept either way, so no tab moves on hover.
 public nonisolated enum TabCrowdedControls: String, Sendable, CaseIterable, TunableChoice {
@@ -83,12 +97,13 @@ public nonisolated enum TabTunables {
     public static let separatorHeight = points("separatorHeight", "Separator height", help: "Height of the line between tabs. Default: 55% of the tab height.") {
         (Metrics.tabHeight * 0.55).rounded()
     }
-    // @intent Leo 2026-10-14 asked for lines between tabs; Lawrence removed them in 7f9fc1ed, so they
-    // stay opt-in until the default call is made.
+    // @intent Lawrence 2026-11-05: "for horizontal tabs, we should have subtle border between all the
+    // tabs (and also between the last tab and plus button)". On by default; hidden only beside the
+    // selected tab, whose fill already makes that edge.
     public static let separators = Tunable<Bool>.toggle(
         "tabs.separators", .tabs, "Tab separators",
-        help: "A short line between tabs, hidden beside the selected and the hovered tab.",
-        default: false, code: "TabTunables.separators")
+        help: "A short line between tabs and before +, hidden beside the selected tab.",
+        default: true, code: "TabTunables.separators")
     public static let pinnedDivider = Tunable<Bool>.toggle(
         "tabs.pinnedDivider", .tabs, "Pinned group divider",
         help: "A short line between the pinned tabs and the other tabs.",

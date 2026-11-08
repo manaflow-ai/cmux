@@ -159,7 +159,7 @@ export function EnvironmentScript({
               );
             }}
           >
-            <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" aria-hidden="true">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" aria-hidden="true">
               <rect x="7" y="7" width="10" height="10" rx="2" />
               <path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
             </svg>

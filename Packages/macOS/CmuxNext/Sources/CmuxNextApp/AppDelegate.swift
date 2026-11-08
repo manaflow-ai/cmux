@@ -11,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextKeepAwake
+import CmuxNextLiveCode
 import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextWebUpdates
@@ -94,11 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // task-owner: cloudBootstrap; one CLI read before services, cancelled at termination.
+        // task-owner: cloudBootstrap; one CLI read before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self] in
             guard let self else { return }
             do {
-                let selection = try await CloudEnvironmentBootstrap(work: launchReads.work).resolve()
+                let (selection, refresh) = try await CloudEnvironmentBootstrap(work: launchReads.work).resolveAtLaunch()
                 try Task.checkCancellation()
                 environment.cloudConfiguration = CloudConfiguration.from(selection: selection, isDebugBuild: ControlService.isDebugBuild)
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
@@ -106,9 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_BACKEND"] = selection.apiOrigin.absoluteString
                 environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
                 daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: SidebarMirror.isLinked)
-                finishLaunching()
+                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
+                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
+                finishLaunching(); await firstFrame.opened(); await refresh()
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
@@ -120,8 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     environment.terminalEnvironment.removeValue(forKey: key)
                 }
                 daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: SidebarMirror.isLinked)
+                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
+                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
                 finishLaunching()
             }
             cloudBootstrap = nil
@@ -160,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cmux.json's appearance goes on the Ghostty overrides before the
         // runtime's first config load, so the first frame needs no reload.
         let settingsRead = SettingsController.readAtLaunch(
-            fileURL: settingsFileURL(), buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))
+            fileURL: CmuxConfigFile.launchURL(), buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))
         TerminalThemeSetting.prime(settingsRead.snapshot)
         // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
         BrowserImportGate.prime(settingsRead.snapshot)
@@ -213,11 +214,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchSettle.install(daemon: services.daemon)
         daemonPrompts = DaemonPrompts.start(services)
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
+                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
-        firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
+        // Labs > Live Code starts the live code watcher with the other non-paint services.
+        firstFrame.whenOpen { [weak services] in services?.startNonPaintServices(); services?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
         firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
@@ -244,13 +246,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.firstFrame.open()
             }
         }
-        // Once the first terminal frame is drawn, the palette panel is made
-        // at the next idle moment, so the first open costs what later opens
-        // cost (a launcher panel opens in one frame), without
-        // delaying that frame.
-        // Then the icon picker (its panel, page and symbol catalog), so the first Set Icon opens warm.
+        // Once the first terminal frame is drawn, the palette panel is made at the next idle moment, so the first
+        // open costs what later opens cost (a launcher panel opens in one frame), without delaying that frame.
+        // Then the icon picker (its panel, page and symbol catalog) and the dialogs' page, so the first Set Icon and dialog open warm.
         launchSettle.whenSettled { [palette = services.palette, weak services] in
-            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare() } }
+            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare(); services?.dialogs.prewarm() } }
         }
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
@@ -284,8 +284,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 services?.settings?.snapshot.browserDefaultEngine ?? services?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
             keyRouter: services.keyRouter) { [weak services] page in
-            // A pane's own Chromium page (the applier's childWindowTab; not a nested one, the Home dock's Channels) attached after it showed: the focus model applies again (W1, W4).
-            let pane = page.window.flatMap { window in services?.windows.owner(of: window) }?.content?.panes.values.first { pane in (page.chromiumPage as? CEFPageChromiumPage).map { pane.currentContent?.childWindowTab === $0.tab } == true }
+            // A pane's own page (the one PageWebView.shown finds, as the applier's childWindowTab; not a nested one, the Home dock's Channels) changed the view that takes its keys (its Chromium page attached after it showed, or it moved to WebKit, its Chromium tab gone): the focus model applies again (W1, W4).
+            let pane = page.window.flatMap { window in services?.windows.owner(of: window) }?.content?.panes.values.first { pane in if case .page(let view)? = pane.currentContent { PageWebView.shown(in: view.content) === page } else { (page.chromiumPage as? CEFPageChromiumPage).map { pane.currentContent?.childWindowTab === $0.tab } == true } }
             if let pane, pane.workspace?.isParked == false { pane.workspace?.focus.send(.contentPresented(pane: pane.paneKey)) }
             return pane != nil
         }
@@ -326,22 +326,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// cmux.json, created on first launch.
-    private func settingsFileURL() -> URL {
-        do {
-            return try CmuxConfigFile.prepareDefaultURL()
-        } catch {
-            logger.error("cmux-next config bootstrap failed: \(String(describing: error), privacy: .public)")
-            return CmuxConfigFile.defaultURL()
-        }
-    }
-
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
         // Start the web OTA launch check before any restored or prewarmed page can
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
         WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
+        // Before any page asks: Live Web Reload off ignores web-dev.json from the first request.
+        WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
@@ -368,7 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
-        AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [firstFrame] in await firstFrame.opened() })
+        AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
         let acpmux = QuitAgents.environment(services)
@@ -429,15 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
-            _ = try? await settings.migrateLegacyQuitBehavior()
-            _ = try? await settings.migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
-            _ = try? await settings.migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
-            // Classic cmux keys next reads under another name (`ClassicSettingRename`).
-            _ = try? await settings.migrateClassicSettings()
-            // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
-            _ = try? await settings.importClassicShortcuts(marker: .standard)
-            _ = try? await settings.importClassicPreferences(marker: .standard)
+            await settings.runLaunchMigrations(marker: .standard) // legacy keys, classic imports, stored defaults
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
@@ -483,7 +467,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
                     BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
                                        agentMouse: { [weak settings] in
-                                           await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
+                                           await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting.fallback
                                        }, mirrors: services).install(on: router)
                     services.apps.attach(router: router)
                 }
@@ -552,7 +536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
         services.input.endRelaunchBehind("external open")
         let auth = services.cloud.auth
-        let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
+        let destination = OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url)
         guard destination == .auth else { return }
         Task {
             guard await !auth.handleCallback(url) else { return }

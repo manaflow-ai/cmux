@@ -154,6 +154,23 @@
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
+/* A cmux deeplink in the draft (composer/deeplinkTokens.ts): the link blue and the faint underline
+   a sent prompt's link has (.cv-link), so the draft reads as it will send. Only its look changes;
+   the text is the URL. The chip arm puts it on the session chip's grey wash instead. */
+.acpmux-md .acpmux-deeplink.is-link {
+  color: var(--agent-link, var(--agent-accent));
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+}
+.acpmux-md .acpmux-deeplink.is-chip {
+  padding: 0 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  color: var(--agent-link, var(--agent-accent));
+  box-decoration-break: clone;
+}
 .acpmux-md code {
   padding: 1px 4px;
   border-radius: 4px;
@@ -307,13 +324,39 @@
   margin: 0 !important;
 }
 
-/* Attachments are atoms in the editable line, as in Messages. */
+/* Attachments are atoms in the editable line, as in Messages. The room after a chip is inside the
+   node (the chip's trailing margin, below), never the node's own margin: both engines paint the caret
+   beside an atom at the edge of its box, so a margin left the caret on the chip's edge (Leo,
+   2026-11-07: "the blinking caret to the right of attachments needs a little more space ... it just
+   sort of bleeds into the glass of the attachment"). All of it trails the chip, so the caret after a
+   chip stands as far from it as the next chip does (8px); the caret before a chip meets its leading
+   edge. The room is layout only: the prompt's text gains no space. --acpmux-inline-room is the
+   gallery's (composer.gallery.ts attachment-inline-caret-room-*). */
 .acpmux-md-inline {
   display: inline-block;
   vertical-align: bottom;
-  margin: 2px 2px;
+  /* Its old 2px above and below, as a line's own room for a chip. */
+  --acpmux-inline-block: 2px;
+  margin: var(--acpmux-inline-block) 0;
   border-radius: var(--acpmux-attach-radius, 8px);
   user-select: none;
+  /* A click in the room is the text's: it puts the caret beside the chip, as one there did before. */
+  pointer-events: none;
+}
+.acpmux-md-inline > * {
+  pointer-events: auto;
+}
+/* The room is the chip's margin inside the node, so the node's content ends where its box does:
+   WebKit paints the caret after an atom at one or the other, and they are then the same place. */
+.acpmux-md-inline > .acpmux-md-inline-chip {
+  margin-inline-end: var(--acpmux-inline-room, 8px);
+}
+/* A selected chip's ring is the chip's own, not its room's. */
+.acpmux-md .acpmux-md-inline.ProseMirror-selectednode {
+  outline: none;
+}
+.acpmux-md .acpmux-md-inline.ProseMirror-selectednode > .acpmux-md-inline-chip {
+  outline: 2px solid var(--agent-accent);
 }
 /* Inside a selection (Select All, a drag across it) the chip wears the selection's tint, as the text
    around it does: the browser's highlight passes over a non-text atom (composer/inlineNode.ts). The
@@ -324,7 +367,7 @@
 .acpmux-md-inline-selected::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: 0 var(--acpmux-inline-room, 8px) 0 0;
   border-radius: inherit;
   background: color-mix(
     in srgb,
@@ -406,8 +449,9 @@
    label; never the underlined name above. */
 .acpmux-md-inline-chip[data-preview="text"] {
   justify-content: stretch;
-  width: 168px;
-  max-width: 168px;
+  /* Wide enough for two wrapped lines of the paste and its size ("42 lines · 1.8K characters"). */
+  width: 256px;
+  max-width: min(256px, 100%);
   height: calc(var(--cmux-control-height, 24px) * 2);
   padding: 0;
 }
@@ -441,13 +485,14 @@
   height: 20px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   opacity: 0;
-  background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
-  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
-  color: var(--agent-text);
+  /* The strip's solid, inverted badge (composerAttachments.css .acpmux-attachment-remove). */
+  background: var(--agent-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--acpmux-base, Canvas) 72%, transparent);
+  color: var(--acpmux-base, Canvas);
 }
 .acpmux-md-inline-chip:hover .acpmux-md-inline-remove,
 .acpmux-md-inline-chip:focus-within .acpmux-md-inline-remove,
@@ -455,11 +500,11 @@
   opacity: 1;
 }
 .acpmux-md-inline-remove:hover {
-  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+  background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas));
 }
 .acpmux-md-inline-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
+  outline-offset: 1.5px;
 }
 /* The agent's suggested next prompt in italics (experiment `prompt-suggestion-look`, arm italic). */
 .acpmux-composer-prompt.is-suggestion-italic .acpmux-md-placeholder {

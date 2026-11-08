@@ -55,7 +55,7 @@ const text = (selector: string) => host.querySelector(selector)?.textContent ?? 
 test("the effort slider names its ends and the model's recommended level", async () => {
   const { createRoot } = await import("react-dom/client");
   const { EffortTrack } = await import("../src/agent-session/acpmux/EffortTrack");
-  const { reasoningChoices } = await import("../src/agent-session/acpmux/ComposerPickers");
+  const { reasoningChoices } = await import("../src/agent-session/acpmux/composerPickerModel");
   const { translate } = await import("../src/agent-session/acpmux/i18n");
   const options = ["low", "medium", "high", "max"].map((value) => ({ value }));
   const efforts = reasoningChoices(

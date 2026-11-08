@@ -420,6 +420,20 @@ impl Mux {
                 } else {
                     Vec::new()
                 };
+                // A move within the pane changes its screen's value too, which lists each pane's
+                // tabs in order: restate it, so the journal states the new order. A later scoped
+                // walk that leaves this workspace out trusts the stated value
+                // (`layout_ops_conserve_tabs`).
+                if source_pane == target_pane && final_index != old_index {
+                    let screen = topology_screen(&after, &target_screen_id)?;
+                    let value = screen_value(
+                        screen,
+                        &after,
+                        after.active_workspace.as_ref(),
+                        active_screen(&after, &screen.workspace_id),
+                    )?;
+                    deltas.push(upsert(deltas.len(), "screen", target_screen_id.as_str(), value));
+                }
                 let mut changed_tabs = vec![tab_id.clone()];
                 changed_tabs.extend(shifted);
                 changed_tabs.extend(

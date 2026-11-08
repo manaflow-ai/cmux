@@ -196,13 +196,15 @@ final class WorkspacesHeightCache {
     }
 
     /// A row's shape: what its height depends on below the accessibility sizes
-    /// (one line each for the name and the status). Nil at accessibility sizes,
+    /// (one line each for the name and the status, or the name alone). Nil at accessibility sizes,
     /// where the name and the status wrap to two lines: measured per row.
     private func shape(_ item: WorkspacesListItem) -> String? {
         guard case let .row(model) = item, !textSize.isAccessibilityCategory else { return nil }
         let icon = model.workspace.icon ?? ""
         let iconKind = icon.isEmpty ? "none" : (WorkspaceSwatch.isSymbol(icon) ? "symbol" : "emoji")
-        return "row.\(iconKind)\(model.compact ? ".compact" : "")"
+        // One line (compact, or a blank status line that the row leaves out) or two.
+        let oneLine = !WorkspaceRow.showsStatusLine(model.workspace, status: model.status, macName: model.macName, compact: model.compact)
+        return "row.\(iconKind)\(oneLine ? ".compact" : "")"
     }
 }
 

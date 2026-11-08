@@ -16,6 +16,7 @@ const turns = (count: number) =>
     summary(399.6 - index * 3, { status: "completed" }),
   ]).flat();
 const done = turns(30);
+const short = turns(5);
 const streaming = [
   ...done,
   user("Prompt 61: write the release notes", 2),
@@ -52,6 +53,12 @@ export default agentPaneEntry({
       snapshot: chat(streaming, { title: "VS Code Minimap, streaming" }),
       display,
       play: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-minimap__placeholder")),
+    },
+    short: {
+      note: "A short chat: drawn at a quarter of its size from the top, as VS Code draws a short file, in a strip as wide as the gutter allows (up to 120px).",
+      snapshot: chat(short, { title: "VS Code Minimap, short chat" }),
+      display,
+      play: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-minimap canvas[data-draws]")),
     },
     "at-rest": {
       note: "No reply streaming: the whole chat drawn, prompts as accent bars at the right, replies as text lines, the view box at the reader's place.",

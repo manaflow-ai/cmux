@@ -3,11 +3,11 @@
 //! One implementation of the palette's match tiers, typo correction, user
 //! aliases and pins, learned picks and frecency, so every host (the macOS
 //! app over the C ABI in [`ffi`], browser pages and other frontends) ranks a
-//! query the same way. It is a 1:1 port of the TypeScript ranker
-//! (`webviews/src/palette/ranker.ts`): the same scores, the same order and
-//! the same JSON request and response shapes. The checked-in corpus
-//! (`tests/corpus/`) holds that ranker's answers and the behavior test
-//! replays it through the C ABI.
+//! query the same way. It began as a 1:1 port of the TypeScript ranker it
+//! replaced (deleted since): the same scores, the same order and the same
+//! JSON request and response shapes. The checked-in corpus (`tests/corpus/`)
+//! holds that ranker's answers and the behavior test replays it through the
+//! C ABI.
 //!
 //! Known differences, all on input the app never sends or for the better:
 //! lowercasing here uses no locale, where JavaScriptCore's
@@ -120,7 +120,12 @@ pub struct RankRequest {
     pub version: Option<i64>,
     pub query: Option<String>,
     pub section_orders: Option<Vec<i64>>,
+    /// The usage history for this request. Absent with `history_revision`: the ranker reads the
+    /// history installed for that revision ([`Ranker::install_history`]).
     pub frecency: Option<Frecency>,
+    /// The revision of the installed history to rank with when `frecency` is absent, so a
+    /// keystroke does not send (and parse) the whole history again.
+    pub history_revision: Option<i64>,
     pub now: Option<f64>,
     pub shows_recent: Option<bool>,
     pub keeps_section_order: Option<bool>,
@@ -134,6 +139,25 @@ pub struct RankRequest {
     pub pinned_section_index: Option<i64>,
     pub row_limit: Option<i64>,
     pub highlight_limit: Option<i64>,
+    /// Whether a typed query also ranks one-edit typos: absent, only when the strict pass found
+    /// fewer than [`TYPO_PASS_THRESHOLD`] rows at the substring tier or better; false never; true
+    /// always. A host that ranks one catalog in several requests (each within a size cap) ranks
+    /// them all strictly, sums their [`RankAnswer::strict_matches`], and ranks them again with
+    /// true when that sum is below the threshold, so they decide the pass as one request would.
+    /// (Rust only: the TypeScript ranker has no such field.)
+    pub typo_pass: Option<bool>,
+}
+
+/// The typo pass runs only when the strict pass found fewer rows than this at the substring tier
+/// or better (see [`RankRequest::typo_pass`]).
+pub const TYPO_PASS_THRESHOLD: usize = 3;
+
+/// One request's answer and the count a host needs to merge several requests' answers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RankAnswer {
+    pub sections: Vec<RankedSection>,
+    /// Rows the strict pass matched at the substring tier or better (0 for the empty query).
+    pub strict_matches: usize,
 }
 
 /// One ranked row by entry index.
@@ -158,6 +182,8 @@ pub struct RankedSection {
 pub enum RankError {
     /// The request has no entries and the ranker holds none for its version.
     NotInstalled(Option<i64>),
+    /// The request names a history revision the ranker does not hold.
+    HistoryNotInstalled(i64),
 }
 
 impl std::fmt::Display for RankError {
@@ -168,6 +194,9 @@ impl std::fmt::Display for RankError {
             }
             RankError::NotInstalled(None) => {
                 write!(f, "palette ranker: no entries installed for version undefined")
+            }
+            RankError::HistoryNotInstalled(revision) => {
+                write!(f, "palette ranker: no history installed for revision {revision}")
             }
         }
     }
@@ -181,10 +210,12 @@ struct Installed {
     prepared: rank::Prepared,
 }
 
-/// A ranker that holds one snapshot of entries, so a keystroke sends only its query.
+/// A ranker that holds one snapshot of entries and one usage history, so a keystroke sends
+/// only its query.
 #[derive(Default)]
 pub struct Ranker {
     installed: Option<Installed>,
+    history: Option<(i64, Frecency)>,
 }
 
 impl Ranker {
@@ -198,14 +229,29 @@ impl Ranker {
         self.installed = Some(Installed { version, entries, prepared });
     }
 
-    /// Ranks one request: its own entries, or the installed ones of its version.
+    /// Holds `history` for `revision`; later requests name the revision and carry no history.
+    pub fn install_history(&mut self, revision: i64, history: Frecency) {
+        self.history = Some((revision, history));
+    }
+
+    /// Ranks one request: its own entries, or the installed ones of its version, with its own
+    /// history, or the installed one of its history revision.
     pub fn rank(&self, request: &RankRequest) -> Result<Vec<RankedSection>, RankError> {
+        let store = match (request.frecency.as_ref(), request.history_revision) {
+            (Some(frecency), _) => Some(frecency),
+            (None, Some(revision)) => match &self.history {
+                Some((installed, history)) if *installed == revision => Some(history),
+                _ => return Err(RankError::HistoryNotInstalled(revision)),
+            },
+            (None, None) => None,
+        };
         if let Some(entries) = request.entries.as_deref() {
-            return Ok(rank_entries(request, entries, None));
+            return Ok(rank_entries(request, entries, None, store).sections);
         }
         match &self.installed {
             Some(installed) if Some(installed.version) == request.version => {
-                Ok(rank_entries(request, &installed.entries, Some(&installed.prepared)))
+                Ok(rank_entries(request, &installed.entries, Some(&installed.prepared), store)
+                    .sections)
             }
             _ => Err(RankError::NotInstalled(request.version)),
         }
@@ -216,17 +262,31 @@ fn rank_entries(
     request: &RankRequest,
     entries: &[Entry],
     prepared: Option<&rank::Prepared>,
-) -> Vec<RankedSection> {
+    store: Option<&Frecency>,
+) -> RankAnswer {
     if request.operation == "rankEmpty" {
-        return rank::rank_empty(request, entries);
+        return RankAnswer {
+            sections: rank::rank_empty(request, entries, store),
+            strict_matches: 0,
+        };
     }
     match prepared {
-        Some(prepared) => rank::rank(request, entries, prepared),
-        None => rank::rank(request, entries, &rank::Prepared::new(entries)),
+        Some(prepared) => rank::rank(request, entries, prepared, store),
+        None => rank::rank(request, entries, &rank::Prepared::new(entries), store),
     }
 }
 
-/// Ranks a request that carries its own entries.
+/// Ranks a request that carries its own entries and history.
 pub fn rank_request(request: &RankRequest) -> Vec<RankedSection> {
-    rank_entries(request, request.entries.as_deref().unwrap_or_default(), None)
+    rank_request_answer(request).sections
+}
+
+/// [`rank_request`] with the strict match count.
+pub fn rank_request_answer(request: &RankRequest) -> RankAnswer {
+    rank_entries(
+        request,
+        request.entries.as_deref().unwrap_or_default(),
+        None,
+        request.frecency.as_ref(),
+    )
 }

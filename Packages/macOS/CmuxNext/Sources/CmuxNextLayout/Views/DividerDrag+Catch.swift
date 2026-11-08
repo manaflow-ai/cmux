@@ -79,7 +79,9 @@ extension DividerDrag {
             fresh.grabOffset += rest - caught.held
             fresh.pressAt += rest - caught.held
         }
-        fresh.clampHold = SharedEdgeClamp(kind, axis: caught.axis, held: caught.held, on: screen, influence: influence)
+        if !fresh.modifiers.push, !fresh.modifiers.all {
+            fresh.clampHold = SharedEdgeClamp(kind, axis: caught.axis, held: caught.held, base: caught.base, on: screen, influence: influence)
+        }
         screen.activeDrag = fresh
     }
 

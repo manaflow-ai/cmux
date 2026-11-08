@@ -57,9 +57,8 @@ pub(super) fn data_frame(frame: &str) -> bool {
     frame_command(frame).is_some()
         || crate::git_seed::frame_command(frame).is_some()
         || crate::blob_fetch::frame_command(frame).is_some()
-        || crate::cloud_repos::frame_command(frame).is_some_and(|cmd| {
-            !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember")
-        })
+        || crate::cloud_repos::frame_command(frame)
+            .is_some_and(|cmd| !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember"))
 }
 
 /// Whether a dial stamped with a Native link token of `vm_kind` may send `frame`: a data frame

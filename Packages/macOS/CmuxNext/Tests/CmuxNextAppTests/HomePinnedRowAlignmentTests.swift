@@ -104,6 +104,32 @@ import Testing
         }
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/38061: a pinned row's pin ("CLOUDMUX") did not line up under Home's
+    /// house. Each started its ink at the row inset, so the narrow pin's center sat left of the house's. Home's row and a
+    /// pinned row share one fixed-width icon column (one x, one width), and each glyph's ink centers in it, at every
+    /// density, minimal mode, width and text size.
+    @Test(arguments: cases)
+    func homesGlyphAndThePinCenterInOneIconColumn(_ c: Case) throws {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
+            let (list, window) = Self.list(width: c.width)
+            defer { window.close() }
+            let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)
+            let homeColumn = list.convert(home.leadingColumnFrame, from: home)
+            let pinColumn = list.convert(pin.leadingColumnFrame, from: pin)
+            try #require(homeColumn.width > 0 && pinColumn.width > 0, "\(c.testDescription): a row has no icon column")
+            #expect(abs(homeColumn.minX - pinColumn.minX) <= Self.tolerance && abs(homeColumn.width - pinColumn.width) <= Self.tolerance,
+                    "\(c.testDescription): Home's icon column \(homeColumn.minX) + \(homeColumn.width), the pinned row's \(pinColumn.minX) + \(pinColumn.width)")
+            let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
+            let pinInk = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin)
+            #expect(abs(homeInk.midX - homeColumn.midX) <= Self.tolerance,
+                    "\(c.testDescription): Home's glyph centers at \(homeInk.midX), its icon column at \(homeColumn.midX)")
+            #expect(abs(pinInk.midX - pinColumn.midX) <= Self.tolerance,
+                    "\(c.testDescription): the pin centers at \(pinInk.midX), its icon column at \(pinColumn.midX)")
+            #expect(abs(homeInk.midX - pinInk.midX) <= Self.tolerance,
+                    "\(c.testDescription): Home's glyph centers at \(homeInk.midX), the pin at \(pinInk.midX)")
+        }
+    }
+
     /// Home's label, a pinned row's title and the title of a workspace row with an icon start at one text column.
     @Test(arguments: cases)
     func titlesAfterALeadingGlyphStartAtOneColumn(_ c: Case) throws {

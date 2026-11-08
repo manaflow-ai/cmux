@@ -143,6 +143,11 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
       viewport: { width: 1200, height: 1100 },
       deviceScaleFactor: 2,
     });
+    // Leo's capture of a Claude chat, as Claude's in-place runs draw it (claudeTurnFold.experiment.ts
+    // arm "runs"); by default a finished Claude turn folds under Worked for (Codex parity).
+    await page.addInitScript(() => {
+      globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
+    });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     try {
       await page.goto(
