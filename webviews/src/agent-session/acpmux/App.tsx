@@ -3566,12 +3566,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             ...(shownSessionId ? { sessionId: shownSessionId } : {}),
             ...(individualPermission ? { permission: individualPermission } : {}),
             ...(snapshot.permissionsQueued ? { queued: snapshot.permissionsQueued } : {}),
-            rows: chatPresentation === "messages" ? sourceRows : turnRowsShown,
-            messages: chatPresentation === "messages",
+            // The turn view turnRowsShown shaped (its ref): its cards say which ask is the chat's last
+            // word, the one the pinned stack leaves to the hat (turns.ts `lastWordAsk`). The drawn rows
+            // can fold away the prompt after a card, so the hat never reads them for that (#38964).
+            ...(chatPresentation === "messages"
+              ? { rows: sourceRows, messages: true }
+              : lastTurns.current
+                ? { turns: lastTurns.current.turns }
+                : {}),
             ...(restartChat ? { nextStepOwner: restartChat } : {}),
             sessions: snapshot.sessions,
             asks: snapshot.asks ?? [],
           }),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the turn view turnRowsShown shaped, read from its ref
     [
       childRows,
       quick,

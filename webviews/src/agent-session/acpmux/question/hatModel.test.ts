@@ -11,7 +11,6 @@ import {
   hatShows,
   hatTag,
   keepShown,
-  liveNextStep,
   messagesNextStep,
   oneClickAnswers,
   sameHatQuestions,
@@ -46,6 +45,10 @@ const tagged = (extra: { answer?: string; superseded?: boolean } = {}) =>
     },
   });
 const said = (text: string) => row("user", { text });
+/// A turn view whose last word is `card` (turns.ts `lastWordAsk`), for the hat's own rules.
+const lastWord = (card: AcpmuxRow, extra: { later?: boolean; spoke?: boolean } = {}) => ({
+  turns: { nextSteps: [{ at: 0, row: card, turn: 0, ...extra }], rows: [card] },
+});
 
 describe("the questions the composer hat holds", () => {
   test("one click answers a single choice of up to four, and nothing that needs more", () => {
@@ -81,21 +84,19 @@ describe("the questions the composer hat holds", () => {
   // from relevance is a thing that needs to be accounted for".
   test("a tagged ask leaves the hat once any prompt follows it, or a later card settles it", () => {
     const ask = tagged();
-    expect(liveNextStep([said("go"), row("assistant"), ask])).toBe(ask);
-    expect(liveNextStep([ask, said("I made the key but on the other account")])).toBeUndefined();
-    // What answers nothing still opens a later turn: another agent's message, one received, a failed
-    // or blank send. The ask, still waiting, is pinned above the composer then (#38964, below).
-    expect(liveNextStep([ask, row("user", { text: "from the chief", incoming: {} as never })])).toBeUndefined();
-    expect(liveNextStep([ask, row("user", { text: "from the phone", received: {} as never })])).toBeUndefined();
-    expect(liveNextStep([ask, row("user", { text: "Yes", failed: true })])).toBeUndefined();
-    expect(liveNextStep([ask, row("user", { text: "" })])).toBeUndefined();
-    expect(liveNextStep([tagged({ answer: "Yes" })])).toBeUndefined();
-    expect(liveNextStep([tagged({ superseded: true })])).toBeUndefined();
-    const [shown] = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", rows: [ask], sessions: [], asks: [] });
+    const hat = (turns: ReturnType<typeof lastWord>) =>
+      hatQuestions({ sessionId: "chat", nextStepOwner: "chat", ...turns, sessions: [], asks: [] });
+    const [shown] = hat(lastWord(ask));
     expect(shown).toMatchObject({ source: "nextStep", sessionId: "chat", tag: "physical", typed: true });
     expect(shown!.answers.map((answer) => answer.key)).toEqual(["recap.yes", "recap.notNow"]);
+    // The person said something after it; any prompt came after it (pinned then, #38964 below);
+    // answered or superseded.
+    expect(hat(lastWord(ask, { spoke: true }))).toEqual([]);
+    expect(hat(lastWord(ask, { later: true }))).toEqual([]);
+    expect(hat(lastWord(tagged({ answer: "Yes" })))).toEqual([]);
+    expect(hat(lastWord(tagged({ superseded: true })))).toEqual([]);
     // Where the composer could not send it (View Only, a read-only pane), the hat offers no answer.
-    expect(hatQuestions({ sessionId: "chat", rows: [ask], sessions: [], asks: [] })).toEqual([]);
+    expect(hatQuestions({ sessionId: "chat", ...lastWord(ask), sessions: [], asks: [] })).toEqual([]);
   });
 
   test("in Messages, the tagged ask is read from the completed turn's reply itself", () => {
@@ -169,7 +170,7 @@ describe("the questions the composer hat holds", () => {
       sessionId: "chat",
       permission: permission(fixture("pending-single")),
       nextStepOwner: "chat",
-      rows: [tagged()],
+      ...lastWord(tagged()),
       sessions: [],
       asks: [],
     });
@@ -208,11 +209,11 @@ describe("the questions the composer hat holds", () => {
 
   test("a list that draws the same keeps its identity, so a streamed chunk never redraws the hat", () => {
     const ask = tagged();
-    const one = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", rows: [ask], sessions: [], asks: [] });
+    const one = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", ...lastWord(ask), sessions: [], asks: [] });
     const two = hatQuestions({
       sessionId: "chat",
       nextStepOwner: "chat",
-      rows: [ask, row("thinking")],
+      ...lastWord({ ...ask }),
       sessions: [],
       asks: [],
     });
@@ -226,7 +227,9 @@ describe("the questions the composer hat holds", () => {
 // (conversation/PendingAsks.tsx) and again in the hat right under it, and the card's Dismiss seemed to
 // do nothing: it hid the card, and the hat's copy stayed in its place. The hat holds a tagged ask
 // while it is the chat's last word; once another turn came after it, the pinned card holds it, with
-// its Dismiss. Read from the same shaped rows the pane gives both, each ask is in exactly one.
+// its Dismiss. Both read the one turn view the pane shapes (App.tsx `lastTurns`), whose cards know
+// whether a prompt came after them from the turns themselves: the drawn rows can fold that prompt
+// away (a Codex turn's Worked for) or merge several into one line (laneNoticeBatches.ts).
 describe("a waiting tagged ask is in the hat or pinned above the composer, never both", () => {
   let at = 0;
   const line = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
@@ -243,9 +246,13 @@ describe("a waiting tagged ask is in the hat or pinned above the composer, never
       untyped: true,
       incoming: { kind: "message", message: { name: "ci-lane", text, raw: text } },
     } as Partial<AcpmuxRow>);
-  const surfaces = (rows: readonly AcpmuxRow[], working = false) => {
-    const view = turnViewFrom(rows, new Set(), { working });
-    const hat = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", rows: view.rows, sessions: [], asks: [] });
+  const surfaces = (
+    rows: readonly AcpmuxRow[],
+    working = false,
+    { agentFamily, open }: { agentFamily?: string; open?: string } = {},
+  ) => {
+    const view = turnViewFrom(rows, new Set(open ? [open] : []), { working, ...(agentFamily && { agentFamily }) });
+    const hat = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", turns: view, sessions: [], asks: [] });
     return { hat: hat.map((question) => question.prompt), pinned: waitingAsks(view).map(questionOf) };
   };
   const questionOf = (card: AcpmuxRow) => card.nextStep?.ask.question;
@@ -267,6 +274,38 @@ describe("a waiting tagged ask is in the hat or pinned above the composer, never
       line("s2", "turnSummary", { status: "completed" }),
     ];
     expect(surfaces(ended)).toEqual({ hat: [], pinned: [QUESTION] });
+  });
+
+  test("two other agents' messages after it, which draw as one line: pinned only", () => {
+    const rows = [
+      ...asked,
+      peer("m1", "Pushed abc123."),
+      peer("m2", "The focused checks are green."),
+      line("a2", "assistant", { text: "Noted." }),
+      line("s2", "turnSummary", { status: "completed" }),
+    ];
+    expect(surfaces(rows)).toEqual({ hat: [], pinned: [QUESTION] });
+  });
+
+  test("a Codex turn another agent started: pinned while it runs, after it ends, its Worked for open or closed", () => {
+    const opened = [
+      ...asked,
+      peer("m1", "Pushed abc123."),
+      line("t1", "activity", { items: [] } as Partial<AcpmuxRow>),
+    ];
+    const codex = { agentFamily: "codex" };
+    expect(surfaces([...opened, line("a2", "assistant", { text: "Reading" })], true, codex)).toEqual({
+      hat: [],
+      pinned: [QUESTION],
+    });
+    const ended = [
+      ...opened,
+      line("a2", "assistant", { text: "Noted." }),
+      line("s2", "turnSummary", { status: "completed" }),
+    ];
+    // Closed, the Worked for folds the other agent's prompt in: no prompt row is drawn after the card.
+    expect(surfaces(ended, false, codex)).toEqual({ hat: [], pinned: [QUESTION] });
+    expect(surfaces(ended, false, { ...codex, open: "worked-m1" })).toEqual({ hat: [], pinned: [QUESTION] });
   });
 
   test("a send that failed after it: pinned only, still answerable", () => {
