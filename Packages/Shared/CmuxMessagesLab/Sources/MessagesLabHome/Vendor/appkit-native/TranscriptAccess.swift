@@ -251,6 +251,20 @@ final class TranscriptSelection {
         return true
     }
 
+    /// cmux: a triple-click selects the bubble's whole text and nothing of its neighbours, as in
+    /// Messages (https://github.com/manaflow-ai/cmux/issues/38145). Returns false when the point
+    /// is not on text.
+    @discardableResult
+    func selectRow(at p: CGPoint) -> Bool {
+        guard let pos = position(at: p), let g = geometry(key: pos.key), g.length > 0 else { return false }
+        anchor = TextPosition(key: pos.key, offset: 0)
+        focus = TextPosition(key: pos.key, offset: g.length)
+        downPoint = nil
+        dragging = false
+        refresh()
+        return true
+    }
+
     /// The drawn text geometry of a row (cmux: the layout the row DRAWS with). A markdown
     /// row's `text` is a one-line proxy of its display string, measured as one line as wide
     /// as the whole string: hit-testing and highlighting through it put the highlight past

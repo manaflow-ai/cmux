@@ -839,7 +839,14 @@ final class ChatController: NSObject, NSTextViewDelegate {
         hold.cancel()
         if held || thread.swallowed(e) { return }
         if selection.mouseUp() { return }
-        if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) }
+        if e.clickCount >= 3 { tripleClicked(p) } else if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) }
+    }
+
+    /// A triple-click on a bubble's text selects all of that bubble's text and only it
+    /// (https://github.com/manaflow-ai/cmux/issues/38145); AppKit counts a fourth click on as three.
+    func tripleClicked(_ p: CGPoint) {
+        guard let hit = demo?.hit(p), SelText.isText(hit.row.part) else { return }
+        if selection.selectRow(at: p) { window?.makeFirstResponder(host.scrollView.document) }
     }
 
     func clicked(_ p: CGPoint) {
