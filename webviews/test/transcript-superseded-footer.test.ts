@@ -6,7 +6,8 @@
 // me to copy/paste your stuff / cuz look claude code lets that happen if the user comes in").
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { SUPERSEDED, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import { SUPERSEDED, footerLabel, turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 const START = Date.UTC(2026, 10, 3, 20, 0, 0);
 let at = START;
@@ -51,8 +52,12 @@ for (const family of ["claude", "codex"])
     expect(footer!.turnCopy?.some((part) => "text" in part && part.text.includes("contained Rust"))).toBe(true);
     // Right over the steer, after the work the stretch ended on.
     expect(list.indexOf(`${SUPERSEDED}-s1`)).toBe(list.indexOf("s1") - 1);
-    // Its time is the stretch's, never "Worked for".
-    expect(footer!.durationMs).toBeUndefined();
+    // Its time is the stretch's; its tooltip says how long the stretch worked, from the prompt to the
+    // steer, as a turn's own footer does (Leo, 2026-11-08: "I wasn't able to hover over your
+    // timestamp to see, like, this was in and out or whatever ... I steered it?").
+    // Each fixture row comes 10 s after the last: the steer is four rows after the prompt.
+    expect(footer!.durationMs).toBe(40_000);
+    expect(footerLabel(translate, footer!)).toBe(translate("turn.worked", { time: "40s" }));
   });
 
 test("an ended turn keeps its own footer and adds one over the steer", () => {
