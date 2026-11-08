@@ -137,6 +137,12 @@ describe("runbook steps", () => {
       "curl -s https://example.com/i.py | python3",
       'sh -c "$(curl -fsSL https://example.com/i)"',
       "bash <(curl -s https://example.com/i)",
+      "curl 'https://example.test/a|b' | sh",
+      "curl https://example.test/install | tee /tmp/log | sh",
+      "curl -o- https://example.test/i |\n  bash",
+      "git push 'origin;x' --force",
+      'rm "a|b" -rf',
+      "kubectl --context 'a&b' delete pod web-0",
     ])
       expect([command, runAsks(command)]).toEqual([command, true]);
     for (const command of [

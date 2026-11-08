@@ -189,8 +189,9 @@ export type StepRisk = "destructive" | "credentials" | "decision";
 /** Where a command word starts: the line's start, a separator, a subshell, a quote (the body of a
  * wrapper: `bash -c 'rm -rf build'`), or a path or escape before it (`/bin/rm`, `\\rm`). */
 const AT = String.raw`(?:^|[\s;&|(){}'"\x60/\\])`;
-/** Any options or words before a subcommand or flag, never past the command's end. */
-const ARGS = String.raw`(?:[^\n;&|]*\s)?`;
+/** Any options or words before a subcommand or flag. The patterns read one simple command at a time
+ * (`simpleCommands`, which keeps quoted separators), so this never runs past the command's end. */
+const ARGS = String.raw`(?:[^\n]*\s)?`;
 const pattern = (source: string, flags = "") => new RegExp(source, flags);
 /** A shell or interpreter at the start of a pipe's next command, after any `sudo` or `env` and their
  * options or assignments, by name, path or escape (`sh`, `/bin/bash`, `\\sh`, `sudo -E python3`). */
@@ -230,28 +231,48 @@ const DESTRUCTIVE: RegExp[] = [
 const SEGMENT_LIMIT = 512;
 
 /** Whether `command` is destructive: each simple command (split at newlines and `;`, `&`, `|`) is
- * matched on its own, and a pipe into a shell over the whole command. */
+ * matched on its own, and fetched code piped into a shell over the whole command. */
 function destructive(command: string): boolean {
-  // Each `|` once: the part before it fetches (`curl`, `wget` on its last line), the part after runs a shell.
-  const piped = command.split("|");
-  for (let at = 1; at < piped.length; at++) {
-    const before = piped[at - 1]!;
-    if (
-      SHELL_AFTER_PIPE.test(piped[at]!) &&
-      FETCH.test(before.slice(before.lastIndexOf("\n") + 1).slice(-SEGMENT_LIMIT))
-    )
-      return true;
-  }
-  if (command.split(/[\n;&|]/).some((segment) => segment.length > SEGMENT_LIMIT)) return true;
-  for (const segment of segments(command)) {
+  // Fetched code piped into a shell: a fetch anywhere before any `|` into an interpreter asks, quoted
+  // or not and whatever stands between them (`curl 'a|b' | tee log | sh`). It over-asks on purpose.
+  const fetch = FETCH.exec(command);
+  if (fetch)
+    for (let at = command.indexOf("|", fetch.index); at >= 0; at = command.indexOf("|", at + 1))
+      if (SHELL_AFTER_PIPE.test(command.slice(at + 1, at + 1 + SEGMENT_LIMIT))) return true;
+  const simple = simpleCommands(command);
+  if (simple.some((segment) => segment.length > SEGMENT_LIMIT)) return true;
+  for (const segment of simple) {
     if (DESTRUCTIVE.some((pattern) => pattern.test(segment))) return true;
   }
   return false;
 }
 
-/** The simple commands of `command` the patterns read (a longer one already asks as destructive). */
+/** The simple commands of `command`: split at unquoted newlines, `;`, `&` and `|`, so a quoted
+ * separator (`git push 'a;b' --force`) stays in its command. An unclosed quote runs to the end. */
+function simpleCommands(command: string): string[] {
+  const commands: string[] = [];
+  let start = 0;
+  let quote: string | null = null;
+  for (let at = 0; at < command.length; at++) {
+    const char = command[at]!;
+    if (quote === "'") {
+      if (char === "'") quote = null;
+    } else if (char === "\\") at++;
+    else if (quote === '"') {
+      if (char === '"') quote = null;
+    } else if (char === "'" || char === '"') quote = char;
+    else if (char === "\n" || char === ";" || char === "&" || char === "|") {
+      commands.push(command.slice(start, at));
+      start = at + 1;
+    }
+  }
+  commands.push(command.slice(start));
+  return commands;
+}
+
+/** The simple commands the patterns read (a longer one already asks as destructive). */
 function segments(command: string): string[] {
-  return command.split(/[\n;&|]/).filter((segment) => segment.length <= SEGMENT_LIMIT);
+  return simpleCommands(command).filter((segment) => segment.length <= SEGMENT_LIMIT);
 }
 
 /** Code fetched from the network (`curl … | sh`), run by a shell. */
