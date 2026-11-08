@@ -6,9 +6,11 @@ public import Foundation
 /// page and cookie records are little-endian. Expiries are IEEE-754 doubles in
 /// Mac absolute time (seconds since 2001-01-01 UTC). Every read is bounds
 /// checked, so a damaged or hostile file produces a ``ParseError`` instead of a
-/// crash. Bytes after the last page (Safari's checksum, trailer and policy
-/// plist) and bytes inside a record that the fixed header does not address are
-/// ignored, so newer Safari versions that append fields still decode.
+/// crash, and the bytes decoded from cookie records are capped so a page whose
+/// offset table points at one record thousands of times cannot exhaust memory.
+/// Bytes after the last page (Safari's checksum, trailer and policy plist) and
+/// bytes inside a record that the fixed header does not address are ignored,
+/// so newer Safari versions that append fields still decode.
 ///
 /// Layout, with field offsets relative to the enclosing structure:
 ///
@@ -32,8 +34,11 @@ public struct SafariBinaryCookiesParser: Sendable {
         case pageOutOfBounds(pageIndex: Int)
         /// A page is too small for its header or claims more cookies than fit.
         case invalidPageHeader(pageIndex: Int)
-        /// A cookie record, or one of its string offsets, leaves its page or record.
+        /// A cookie record, or one of its string offsets, leaves its page or
+        /// record, or a string has no null terminator inside the record.
         case cookieOutOfBounds(pageIndex: Int, cookieIndex: Int)
+        /// Decoding the records would exceed the parser's byte limit.
+        case decodedSizeExceeded(limit: Int)
     }
 
     private static let magic: [UInt8] = Array("cook".utf8)
@@ -42,15 +47,28 @@ public struct SafariBinaryCookiesParser: Sendable {
     private static let secureFlag: UInt32 = 0x1
     private static let httpOnlyFlag: UInt32 = 0x4
 
-    /// Creates a parser. It holds no state, so one instance can decode many stores.
-    public init() {}
+    /// Upper bound on the record bytes one `parse` call decodes.
+    ///
+    /// Record sizes are summed as records are visited, so an offset table that
+    /// names the same record many times counts it each time.
+    public let maximumDecodedBytes: Int
+
+    /// Creates a parser. It holds no mutable state, so one instance can decode many stores.
+    ///
+    /// - Parameter maximumDecodedBytes: Record bytes a single store may decode
+    ///   before ``ParseError/decodedSizeExceeded(limit:)`` is thrown. The default
+    ///   of 64 MiB is far above any real Safari store, which is a few megabytes.
+    public init(maximumDecodedBytes: Int = 64 << 20) {
+        self.maximumDecodedBytes = maximumDecodedBytes
+    }
 
     /// Decodes a whole `Cookies.binarycookies` file.
     ///
     /// - Parameter data: The file's bytes.
     /// - Returns: Every cookie in page order. Cookies with an empty name are
     ///   returned as stored; the caller decides whether to keep them.
-    /// - Throws: ``ParseError`` when the file's structure is inconsistent.
+    /// - Throws: ``ParseError`` when the file's structure is inconsistent or
+    ///   decoding would exceed ``maximumDecodedBytes``.
     public func parse(_ data: Data) throws -> [SafariBinaryCookie] {
         let file = ByteReader(bytes: [UInt8](data))
         guard file.count >= 8 else { throw ParseError.tooShort }
@@ -62,6 +80,7 @@ public struct SafariBinaryCookiesParser: Sendable {
         }
 
         var cookies: [SafariBinaryCookie] = []
+        var decodedBytes = 0
         var pageStart = 8 + pageCount * 4
         for pageIndex in 0..<pageCount {
             let pageSize = Int(file.bigEndianUInt32(at: 8 + pageIndex * 4) ?? 0)
@@ -69,13 +88,13 @@ public struct SafariBinaryCookiesParser: Sendable {
                 throw ParseError.pageOutOfBounds(pageIndex: pageIndex)
             }
             let page = file.slice(at: pageStart, count: pageSize)
-            cookies.append(contentsOf: try parsePage(page, pageIndex: pageIndex))
+            cookies.append(contentsOf: try parsePage(page, pageIndex: pageIndex, decodedBytes: &decodedBytes))
             pageStart += pageSize
         }
         return cookies
     }
 
-    private func parsePage(_ page: ByteReader, pageIndex: Int) throws -> [SafariBinaryCookie] {
+    private func parsePage(_ page: ByteReader, pageIndex: Int, decodedBytes: inout Int) throws -> [SafariBinaryCookie] {
         // Header, cookie count and footer are the minimum a page carries.
         guard page.count >= 12, page.bytes(at: 0, count: 4) == Self.pageHeader else {
             throw ParseError.invalidPageHeader(pageIndex: pageIndex)
@@ -92,8 +111,14 @@ public struct SafariBinaryCookiesParser: Sendable {
             guard offset <= page.count - Self.cookieFixedHeaderSize,
                   let size = page.littleEndianUInt32(at: offset).map(Int.init),
                   size >= Self.cookieFixedHeaderSize,
-                  size <= page.count - offset,
-                  let cookie = parseCookie(page.slice(at: offset, count: size)) else {
+                  size <= page.count - offset else {
+                throw ParseError.cookieOutOfBounds(pageIndex: pageIndex, cookieIndex: cookieIndex)
+            }
+            guard size <= maximumDecodedBytes - decodedBytes else {
+                throw ParseError.decodedSizeExceeded(limit: maximumDecodedBytes)
+            }
+            decodedBytes += size
+            guard let cookie = parseCookie(page.slice(at: offset, count: size)) else {
                 throw ParseError.cookieOutOfBounds(pageIndex: pageIndex, cookieIndex: cookieIndex)
             }
             cookies.append(cookie)
@@ -102,7 +127,12 @@ public struct SafariBinaryCookiesParser: Sendable {
     }
 
     /// Decodes one record whose size has already been checked against its page.
-    /// Returns `nil` when a string offset points outside the record.
+    /// Returns `nil` when a string offset points outside the record or a string
+    /// runs to the end of the record without a terminator.
+    ///
+    /// A zero or non-finite expiry means a session cookie. A negative expiry is
+    /// a real date before 2001 and is kept, so the caller can see the cookie has
+    /// already expired instead of treating it as a session cookie.
     private func parseCookie(_ record: ByteReader) -> SafariBinaryCookie? {
         guard let flags = record.littleEndianUInt32(at: 8),
               let domain = record.cString(atOffsetStoredAt: 16),
@@ -113,7 +143,7 @@ public struct SafariBinaryCookiesParser: Sendable {
             return nil
         }
 
-        let expiresDate: Date? = (expiry.isFinite && expiry > 0)
+        let expiresDate: Date? = (expiry.isFinite && expiry != 0)
             ? Date(timeIntervalSinceReferenceDate: expiry)
             : nil
 
@@ -173,8 +203,8 @@ public struct SafariBinaryCookiesParser: Sendable {
 
         /// Reads the little-endian offset stored at `offsetField`, then the
         /// null-terminated string it points at. A string with no terminator
-        /// before the window ends is taken to the end; invalid UTF-8 is
-        /// replaced rather than rejected.
+        /// before the window ends is a truncated record and yields `nil`;
+        /// invalid UTF-8 is replaced rather than rejected.
         func cString(atOffsetStoredAt offsetField: Int) -> String? {
             guard let stringOffset = littleEndianUInt32(at: offsetField).map(Int.init),
                   stringOffset < count else {
@@ -182,7 +212,7 @@ public struct SafariBinaryCookiesParser: Sendable {
             }
             let begin = start + stringOffset
             let end = start + count
-            let terminator = storage[begin..<end].firstIndex(of: 0) ?? end
+            guard let terminator = storage[begin..<end].firstIndex(of: 0) else { return nil }
             return String(decoding: storage[begin..<terminator], as: UTF8.self)
         }
     }
