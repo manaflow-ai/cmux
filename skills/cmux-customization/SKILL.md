@@ -186,7 +186,7 @@ The worked example, as copy-paste files, and the recipe for adding a view:
 To make a button run the person's own command, read the current workspace,
 follow changes or open a pane of their own, start from a folder in
 [templates/](templates/) (`starter`, `sidebar-section`, `command-button`,
-`pane`). A button runs a `cmux-next.json` action with
+`pane`, `threads`: the agent chats as a thread list, from `agent_chat.list`). A button runs a `cmux-next.json` action with
 `cmux.actions.run("cmuxConfig.<name>")` from a click, once the person turns on
 `actions:run`. What an extension can call, what is missing, and how to install
 a template: [references/extensions.md](references/extensions.md).
