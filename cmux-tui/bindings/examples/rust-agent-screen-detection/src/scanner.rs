@@ -787,16 +787,7 @@ fn scan_terminal(
         if metadata_fresh { screen.osc_progress.as_deref().unwrap_or_default() } else { "" };
     let mut detection =
         manifest.detect(DetectionInput { screen: &screen.text, osc_title, osc_progress });
-    // Flowing PTY output is a working signal for the screen source. It only
-    // upgrades an idle read and owes one expiry re-evaluation; hooks still
-    // win in the core roster reducer.
-    if !detection.skip_state_update
-        && detection.state == crate::manifest::ScreenState::Idle
-        && state.tracker.output_active(&terminal_id, now)
-    {
-        detection.state = crate::manifest::ScreenState::Working;
-        state.tracker.note_activity_upgrade(&terminal_id);
-    }
+    state.tracker.apply_output_activity(&terminal_id, &mut detection, now);
     if let Some(emission) = state.tracker.record_detection_at(
         &terminal_id,
         Some((manifest.id(), detection)),
