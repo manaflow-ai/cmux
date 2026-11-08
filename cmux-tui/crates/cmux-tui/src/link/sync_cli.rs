@@ -607,7 +607,12 @@ pub(super) fn copy_folder_with_progress(
     for (relative, file) in set.files {
         // Each file's checks are round trips too: the app's idle deadline hears them.
         progress();
-        // A file reached through a symlink swapped in after listing stays.
+        // The folder is checked again before each file, so a folder swapped
+        // in while copying stops the copy, and a file reached through a
+        // symlink swapped in after listing stays.
+        if !unmoved() {
+            anyhow::bail!("{} changed while it was sent; the rest was not sent", local.display());
+        }
         let path = local.join(&relative);
         if !local::below(&relative)
             || !path.starts_with(local)
@@ -638,12 +643,23 @@ pub(super) fn copy_folder_with_progress(
         }
         Ok(())
     };
+    let changed = || anyhow::anyhow!("{} changed while it was sent", local.display());
+    if !unmoved() {
+        return Err(changed());
+    }
     write_parallel(socket, target, small, connections(), &mut |_, result| {
         let landed = landed(result);
         progress();
+        // Each write landing checks the folder again, stopping the rest.
+        if landed.is_ok() && !unmoved() {
+            return Err(changed());
+        }
         landed
     })?;
     for job in alone {
+        if !unmoved() {
+            anyhow::bail!("{} changed while it was sent; the rest was not sent", local.display());
+        }
         let (parent, _) = remote::split(&job.target)?;
         let result = if through_link(&mut remote, target, parent, &mut seen)? {
             Err(LinkInTheWay.into())
