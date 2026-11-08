@@ -87,6 +87,26 @@ export type AppOpenWindow = {
  * removed when it settles.
  */
 export function tryOpenApp(win: AppOpenWindow, url: string, waitMs = APP_OPEN_WAIT_MS): Promise<boolean> {
+  if (win.document.visibilityState === "hidden") return whenVisible(win).then(() => attempt(win, url, waitMs));
+  return attempt(win, url, waitMs);
+}
+
+/**
+ * A page opened hidden (a background tab) asks nothing until it is shown: hidden is the only proof the app took
+ * the link, so an attempt from a hidden page would always look taken. The one listener goes when it fires.
+ */
+function whenVisible(win: AppOpenWindow): Promise<void> {
+  return new Promise((resolve) => {
+    const shown = () => {
+      if (win.document.visibilityState === "hidden") return;
+      win.removeEventListener("visibilitychange", shown);
+      resolve();
+    };
+    win.addEventListener("visibilitychange", shown);
+  });
+}
+
+function attempt(win: AppOpenWindow, url: string, waitMs: number): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
     const settle = (opened: boolean) => {

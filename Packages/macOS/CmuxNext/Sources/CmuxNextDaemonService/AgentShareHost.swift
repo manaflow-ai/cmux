@@ -20,6 +20,9 @@ public protocol AgentShareHost: AnyObject {
     func shareIsOnThisMac(_ tab: TabModel) -> Bool
     /// This Mac's daemon connection (list, revoke and kick act on this Mac's shares).
     var shareLocalConnection: DaemonConnection? { get }
+    /// This Mac's daemon connection once it has one: waits for the first connection on a cold launch (or for
+    /// startup to give up, then nil), so a link the app is launched with is not lost.
+    func shareLocalConnected() async -> DaemonConnection?
     /// A fresh cmux install token of the signed-in owner (`/v1/auth/token`, ES256) from `api`, the API the
     /// daemon's share room takes tokens from (nil: the daemon did not say, the build's default); nil signed out.
     func shareOwnerToken(api: URL?) async -> String?
@@ -109,4 +112,5 @@ public struct AgentShareConsentAsk: Sendable, Hashable {
 public extension AgentShareHost {
     /// No sign-in to hand a share page: a link opens signed out.
     func shareSignInToken() async -> String? { nil }
+    func shareLocalConnected() async -> DaemonConnection? { shareLocalConnection }
 }

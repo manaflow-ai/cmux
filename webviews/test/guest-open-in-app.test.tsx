@@ -149,6 +149,23 @@ test("a page that stays visible was not taken by the app: a visibility change to
   expect(await pending).toBe(false);
 });
 
+test("a page opened hidden asks the app only once it is shown, so a background tab is not taken for the app", async () => {
+  const background = fakeWindow(false);
+  background.document.visibilityState = "hidden";
+  const pending = tryOpenApp(background.win, "cmux://share", 1500);
+  await Promise.resolve();
+  expect(background.assigned).toEqual([]);
+  expect(background.timers.size).toBe(0);
+  // Shown: now it asks, and with no app the page stays visible, so the attempt answers no.
+  background.document.visibilityState = "visible";
+  background.listeners.get("visibilitychange")?.();
+  await Promise.resolve();
+  expect(background.assigned).toEqual(["cmux://share"]);
+  background.elapse();
+  expect(await pending).toBe(false);
+  expect(background.listeners.size).toBe(0);
+});
+
 async function mount(took: boolean) {
   const fake = fakeWindow(took);
   const appUrl = appLinkUrl("cmux", "https://share.cmux.dev", { shareId: SHARE, secret: SECRET });
