@@ -1,0 +1,4 @@
+{"Time":"2026-11-08T10:00:00Z","Action":"pass","Package":"example","Test":"TestParse"}
+{"Time":"2026-11-08T10:00:00Z","Action":"skip","Package":"example","Test":"TestNetwork"}
+{"Time":"2026-11-08T10:00:00Z","Action":"fail","Package":"example","Test":"TestReject"}
+{"Time":"2026-11-08T10:00:00Z","Action":"pass","Package":"example","Test":"TestRoundTrip"}

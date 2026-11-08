@@ -76,7 +76,7 @@ pub(super) fn transcript_rows_range(
     let tool_rows = |rows: &mut Vec<Row>, i: usize, indent: &str| {
         let iw = width.saturating_sub(indent.len());
         match &t.items[i] {
-            Item::Tool { title, kind, status, detail, .. } => {
+            Item::Tool { title, kind, status, detail, test_results, .. } => {
                 // Codex app: one muted line per activity, an icon for the
                 // kind, paths shortened, red only when it failed. Details
                 // open on click.
@@ -95,7 +95,8 @@ pub(super) fn transcript_rows_range(
                     "in_progress" | "pending" => (c.muted(), c.muted()),
                     _ => (c.dim(), c.muted()),
                 };
-                let open = !detail.is_empty() && is_open(Toggle::Item(i), false);
+                let open = (!detail.is_empty() || test_results.is_some())
+                    && is_open(Toggle::Item(i), false);
                 // A diff names its files better than the harness's generic
                 // "Editing files": "Edited calc.py".
                 let files: Vec<String> = detail
@@ -115,12 +116,22 @@ pub(super) fn transcript_rows_range(
                     shorten_tool_title(title)
                 };
                 let title_shown = truncate(&shown, iw.saturating_sub(4));
-                let text = format!("{indent}{glyph} {title_shown}");
+                let result_label = test_results.as_ref().map(|results| results.label());
+                let text = format!(
+                    "{indent}{glyph} {title_shown}{}",
+                    result_label.as_ref().map(|label| format!("  {label}")).unwrap_or_default()
+                );
                 let mut spans = vec![
                     Span::raw(indent.to_owned()),
                     Span::styled(format!("{glyph} "), gstyle),
                     Span::styled(title_shown, tstyle),
                 ];
+                if let Some(results) = test_results {
+                    let style =
+                        if results.failed > 0 { Style::default().fg(c.error_fg) } else { c.dim() };
+                    let label = format!("  {}", results.label());
+                    spans.push(Span::styled(label, style));
+                }
                 let counts = crate::transcript::diff_counts(detail);
                 if let Some((plus, minus)) = counts {
                     spans.push(Span::styled(
@@ -132,14 +143,18 @@ pub(super) fn transcript_rows_range(
                         Style::default().fg(c.diff_del_fg),
                     ));
                 }
-                if !detail.is_empty() {
+                if !detail.is_empty() || test_results.is_some() {
                     spans.push(Span::styled(if open { "  ▾" } else { "  ›" }, c.dim()));
                 }
                 rows.push(Row {
                     line: Line::from(spans),
                     text,
                     item: i,
-                    toggle: if detail.is_empty() { None } else { Some(Toggle::Item(i)) },
+                    toggle: if detail.is_empty() && test_results.is_none() {
+                        None
+                    } else {
+                        Some(Toggle::Item(i))
+                    },
                 });
                 if open && counts.is_some() {
                     // Diff lines keep their prefix colors and are not wrapped.
@@ -159,7 +174,48 @@ pub(super) fn transcript_rows_range(
                         });
                     }
                 } else if open {
-                    wrap(detail, iw.saturating_sub(2), c.dim(), &format!("{indent}  "), i, rows);
+                    if !detail.is_empty() {
+                        wrap(
+                            detail,
+                            iw.saturating_sub(2),
+                            c.dim(),
+                            &format!("{indent}  "),
+                            i,
+                            rows,
+                        );
+                    }
+                }
+                if open {
+                    if let Some(results) = test_results {
+                        for failure in &results.failures {
+                            let location = match (&failure.file, failure.line) {
+                                (Some(file), Some(line)) => format!("  {file}:{line}"),
+                                (Some(file), None) => format!("  {file}"),
+                                _ => String::new(),
+                            };
+                            let reason = if failure.reason.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" — {}", failure.reason)
+                            };
+                            let text = truncate(
+                                &format!("{indent}  ✗ {}{location}{reason}", failure.name),
+                                iw,
+                            );
+                            rows.push(Row {
+                                line: Line::from(Span::styled(
+                                    text.clone(),
+                                    Style::default().fg(c.error_fg),
+                                )),
+                                text,
+                                item: i,
+                                toggle: None,
+                            });
+                        }
+                        if results.failures_truncated {
+                            plain(&format!("{indent}  … more failures"), c.dim(), i, rows);
+                        }
+                    }
                 }
             }
             Item::Permission { title, decided, .. } => {

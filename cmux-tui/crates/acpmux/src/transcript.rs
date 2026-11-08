@@ -1,6 +1,7 @@
 //! A display model built from acpmux events. Shared by the CLI stream view
 //! and the TUI so both render the same thing.
 
+use crate::test_results::TestResults;
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,6 +23,7 @@ pub enum Item {
         kind: String,
         status: String,
         detail: String,
+        test_results: Option<TestResults>,
     },
     Plan {
         entries: Vec<(String, String)>,
@@ -328,6 +330,11 @@ impl Transcript {
                 let title = update.get("title").and_then(Value::as_str).map(str::to_owned);
                 let tkind = update.get("kind").and_then(Value::as_str).map(str::to_owned);
                 let status = update.get("status").and_then(Value::as_str).map(str::to_owned);
+                let command = update
+                    .pointer("/rawInput/command")
+                    .and_then(Value::as_str)
+                    .or_else(|| title.as_deref())
+                    .unwrap_or("");
                 let mut detail = String::new();
                 if let Some(c) = update.get("content").and_then(Value::as_array) {
                     for block in c {
@@ -356,6 +363,22 @@ impl Transcript {
                         other => other.to_string(),
                     };
                 }
+                if let Some(delta) =
+                    update.pointer("/_meta/terminal_output_delta/data").and_then(Value::as_str)
+                {
+                    if !detail.is_empty() {
+                        detail.push('\n');
+                    }
+                    detail.push_str(delta);
+                }
+                let test_results =
+                    if matches!(tkind.as_deref(), Some("execute" | "terminal" | "shell"))
+                        || command.to_ascii_lowercase().contains("test")
+                    {
+                        crate::test_results::parse(command, &detail)
+                    } else {
+                        None
+                    };
                 if detail.len() > 4000 {
                     let mut cut = 4000;
                     while !detail.is_char_boundary(cut) {
@@ -368,7 +391,14 @@ impl Transcript {
                     Item::Tool { id: tid, .. } if *tid == id => Some(i),
                     _ => None,
                 }) {
-                    if let Item::Tool { title: et, kind: ek, status: es, detail: ed, .. } = existing
+                    if let Item::Tool {
+                        title: et,
+                        kind: ek,
+                        status: es,
+                        detail: ed,
+                        test_results: er,
+                        ..
+                    } = existing
                     {
                         if let Some(t) = title {
                             *et = t;
@@ -382,6 +412,9 @@ impl Transcript {
                         if !detail.is_empty() {
                             *ed = detail;
                         }
+                        if test_results.is_some() {
+                            *er = test_results;
+                        }
                     }
                 } else {
                     self.items.push(Item::Tool {
@@ -390,6 +423,7 @@ impl Transcript {
                         kind: tkind.unwrap_or_default(),
                         status: status.unwrap_or_else(|| "pending".into()),
                         detail,
+                        test_results,
                     });
                 }
                 self.refresh_activity();
@@ -476,13 +510,18 @@ impl Transcript {
         self.active_terminals = self.items.iter().filter(|item| matches!(item,
             Item::Tool { kind, status, .. } if matches!(kind.as_str(), "execute" | "terminal" | "shell") && (status == "pending" || status == "in_progress")
         )).count();
-        if let Some(title) = self.items.iter().rev().find_map(|item| match item {
-            Item::Tool { title, status, .. } if status == "pending" || status == "in_progress" => {
-                Some(title.as_str())
+        if let Some((title, results)) = self.items.iter().rev().find_map(|item| match item {
+            Item::Tool { title, status, test_results, .. }
+                if status == "pending" || status == "in_progress" =>
+            {
+                Some((title.as_str(), test_results.as_ref()))
             }
             _ => None,
         }) {
-            self.activity = Some(title.chars().take(120).collect());
+            self.activity = Some(
+                results
+                    .map_or_else(|| title.chars().take(120).collect(), |results| results.label()),
+            );
         } else if let Some(step) = self.items.iter().rev().find_map(|item| match item {
             Item::Plan { entries } => entries
                 .iter()

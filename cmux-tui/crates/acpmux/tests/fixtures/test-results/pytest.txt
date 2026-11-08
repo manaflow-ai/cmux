@@ -1,0 +1,3 @@
+=========================== short test summary info ============================
+FAILED tests/test_parser.py::test_bad_input - assert 2 == 3
+=================== 1 failed, 8 passed, 2 skipped in 0.42s ======================

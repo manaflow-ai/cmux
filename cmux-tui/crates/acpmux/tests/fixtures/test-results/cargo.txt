@@ -1,0 +1,12 @@
+running 145 tests
+test parser::accepts ... ok
+test parser::rejects_missing ... FAILED
+test parser::rejects_invalid ... FAILED
+test parser::ignored_network ... ignored
+
+test result: FAILED. 142 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out
+failures:
+---- parser::rejects_missing stdout ----
+assertion failed: input
+---- parser::rejects_invalid stdout ----
+expected token
