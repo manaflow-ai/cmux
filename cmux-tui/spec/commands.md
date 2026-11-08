@@ -3965,12 +3965,22 @@ object{
   agents: array<object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
+    status?: "working"|"blocked"|"done"|"idle"|"unknown"|null,
     source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
     updated_at_ms: uint64
   }>
 }
 ```
+
+`state` is the roster state; `done` there is an agent session that ended.
+`status` is the one status vocabulary every client shows: `blocked`, `done`
+(the agent finished a turn and no client has shown its tab since: `state` is
+`idle` and the terminal still carries its unread marker), `working`, `idle`
+and `unknown`, ranked for attention in that order; null for an ended session.
+`list-agents` is a read and never clears `done`; `ack-tab-notifications`, which
+a frontend sends when it shows the tab to the person, makes it `idle`. Older
+daemons omit `status`; use `state` there.
 
 Errors:
 
@@ -3996,6 +4006,37 @@ Example:
 {"id":107,"cmd":"list-agents","state":"blocked"}
 {"id":107,"ok":true,"data":{"agents":[{"surface":1,"state":"blocked","source":"hook","session":"abc","updated_at_ms":1710000000000}]}}
 ```
+
+### ack-tab-notifications
+
+| Field | Value |
+| --- | --- |
+| name | `ack-tab-notifications` |
+| status | implemented |
+| since | protocol 12 additive extension |
+
+Clears a tab's unread marker without selecting or focusing it (all views of
+one terminal share the marker). Frontends keep focus client-local and call
+this when the person has seen the tab: the TUI sends it when a finished agent
+turn (`list-agents` `status` `done`) is in the tab it shows while its host
+terminal has focus. Emits `tree-changed` when a marker cleared. Acknowledging a
+tab with no marker succeeds with `cleared:false`. The clear is in memory, as
+with `select-tab`: a daemon restart restores the marker of a notification
+that is still unread in the journal.
+
+Params: `surface` (`Id`, required).
+
+Result:
+
+```text
+object{surface:Id, cleared:bool}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown surface <id>` | The tab does not exist |
 
 ### report-agent
 

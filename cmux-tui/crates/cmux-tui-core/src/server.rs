@@ -1147,6 +1147,11 @@ enum Command {
         #[serde(default)]
         state: Option<String>,
     },
+    /// Clear one tab's unread marker without selecting or focusing it: the
+    /// frontend showed the tab to the person (done-until-seen).
+    AckTabNotifications {
+        surface: SurfaceId,
+    },
     ReportAgent {
         surface: SurfaceId,
         state: String,
@@ -1684,6 +1689,7 @@ impl Command {
             | Self::SendKey { surface, .. }
             | Self::Copy { surface, .. }
             | Self::ReportAgent { surface, .. }
+            | Self::AckTabNotifications { surface }
             | Self::VtState { surface }
             | Self::MintTerminalRenderer { surface, .. }
             | Self::BrowserFramePresented { surface, .. }
@@ -11011,10 +11017,14 @@ fn parse_notification_level(level: &str) -> anyhow::Result<NotificationLevel> {
     }
 }
 
+/// A roster state word. The older CLI words are aliases: `busy` is
+/// `working`, `waiting-for-input` is `blocked` and `ended` is `done` (the
+/// roster's word for an ended session).
 fn parse_agent_state(state: &str) -> anyhow::Result<AgentState> {
     match state {
-        "working" => Ok(AgentState::Working),
-        "blocked" => Ok(AgentState::Blocked),
+        "working" | "busy" => Ok(AgentState::Working),
+        "blocked" | "waiting-for-input" => Ok(AgentState::Blocked),
+        "ended" => Ok(AgentState::Done),
         "idle" => Ok(AgentState::Idle),
         "done" => Ok(AgentState::Done),
         "unknown" => Ok(AgentState::Unknown),
@@ -11030,10 +11040,15 @@ fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
     }
 }
 
-fn agent_json(record: &AgentRecord) -> Value {
+/// One `list-agents` row. `state` is the roster state (`done` there is an
+/// ended session); `status` is what the person sees (`working`, `blocked`,
+/// `done` for a finished turn not yet seen, `idle`, `unknown`), `null` for an
+/// ended session.
+fn agent_json(record: &AgentRecord, status: Option<crate::AgentStatus>) -> Value {
     json!({
         "surface": record.surface,
         "state": record.state.as_str(),
+        "status": status.map(crate::AgentStatus::as_str),
         "source": record.source.as_str(),
         "session": record.session,
         "agent": record.agent,
@@ -12743,8 +12758,17 @@ fn handle_command_with_cancellation(
                 Some(state) => Some(parse_agent_state(&state)?),
                 None => None,
             };
-            let agents = mux.list_agents(surface, state).iter().map(agent_json).collect::<Vec<_>>();
+            let agents = mux
+                .list_agents(surface, state)
+                .iter()
+                .map(|record| agent_json(record, mux.agent_status(record)))
+                .collect::<Vec<_>>();
             Ok(json!({ "agents": agents }))
+        }
+        Command::AckTabNotifications { surface } => {
+            get_surface(mux, surface)?;
+            let cleared = mux.clear_surface_notification(surface);
+            Ok(json!({ "surface": surface, "cleared": cleared }))
         }
         Command::ReportAgent { surface, state, source, session } => {
             get_surface(mux, surface)?;
@@ -21039,6 +21063,60 @@ mod tests {
             identity["protocol"].as_u64(),
             Some(u64::from(TERMINAL_LIFECYCLE_PROTOCOL_VERSION) + 1)
         );
+    }
+
+    /// Done-until-seen: a finished turn lists as `status: done` (the roster
+    /// `state` stays `idle`) until a frontend acknowledges the tab; reading the
+    /// list again does not clear it, and the next turn is `working` again.
+    #[test]
+    fn agent_status_done_until_seen_survives_reads_and_clears_on_ack() {
+        let mux = test_mux();
+        let tab = mux.new_workspace(None, None).unwrap();
+        let report = |state: AgentState| {
+            mux.report_agent(tab.id, state, AgentSource::Hook, Some("done-until-seen".into()))
+                .unwrap();
+        };
+        let listed = || {
+            let command = Command::ListAgents { surface: Some(tab.id), state: None };
+            let listed = handle_command(&mux, 0, command, &test_writer()).unwrap();
+            let agent = listed["agents"].as_array().unwrap().first().cloned().unwrap_or_default();
+            (
+                agent["state"].as_str().map(str::to_owned),
+                agent["status"].as_str().map(str::to_owned),
+            )
+        };
+        let pair = |state: &str, status: &str| (Some(state.to_owned()), Some(status.to_owned()));
+
+        report(AgentState::Idle);
+        assert_eq!(listed(), pair("idle", "idle"), "a new session has nothing unseen");
+        report(AgentState::Working);
+        assert_eq!(listed(), pair("working", "working"));
+        report(AgentState::Idle);
+        mux.post_notification(
+            "Claude finished".into(),
+            String::new(),
+            NotificationLevel::Info,
+            Some(tab.id),
+        )
+        .unwrap();
+        assert_eq!(listed(), pair("idle", "done"), "the finished turn is not seen yet");
+        assert_eq!(listed(), pair("idle", "done"), "a read must not clear done");
+
+        let ack = |expected: bool| {
+            let command = Command::AckTabNotifications { surface: tab.id };
+            let result = handle_command(&mux, 0, command, &test_writer()).unwrap();
+            assert_eq!(result["cleared"], expected, "{result}");
+            assert_eq!(result["surface"], tab.id, "{result}");
+        };
+        ack(true);
+        assert_eq!(listed(), pair("idle", "idle"), "viewing the tab clears done");
+        ack(false);
+
+        report(AgentState::Working);
+        assert_eq!(listed(), pair("working", "working"));
+        let busy = Command::ListAgents { surface: Some(tab.id), state: Some("busy".into()) };
+        let busy = handle_command(&mux, 0, busy, &test_writer()).unwrap();
+        assert_eq!(busy["agents"].as_array().map(Vec::len), Some(1), "`busy` is `working`: {busy}");
     }
 
     #[test]

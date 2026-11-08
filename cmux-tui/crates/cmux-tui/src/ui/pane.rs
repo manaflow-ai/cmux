@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use cmux_tui_core::{BrowserStatus, Rect, SurfaceKind};
+use cmux_tui_core::{AgentStatus, BrowserStatus, Rect, SurfaceKind};
 use ghostty_vt::RenderState;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
@@ -234,16 +234,20 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let Some(screen_view) = app.tree.active_screen() else { return };
     let Some(pane) = screen_view.pane(area.pane) else { return };
     let tab_cfg = app.config.tabs.clone();
-    let tabs: Vec<String> = pane
+    let tabs: Vec<(String, Option<AgentStatus>)> = pane
         .tabs
         .iter()
         .enumerate()
         .map(|(i, t)| {
+            let agent = app.sidebar_status.tab(t.surface);
             let mut label = tab_label(&tab_cfg, i, &t.title, t.name.as_deref());
-            if t.notification.is_some_and(|notification| notification.unread) {
+            // A done agent's glyph already says "finished, unseen".
+            if agent != Some(AgentStatus::Done)
+                && t.notification.is_some_and(|notification| notification.unread)
+            {
                 label.push_str(" •");
             }
-            label
+            (label, agent)
         })
         .collect();
     let active_tab = pane.active_tab;
@@ -336,15 +340,24 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     // Layout the tab labels: " 1 zsh " ... " + ", scrolled so the range
     // starting at tab_scroll fits; the active tab is always kept visible.
     let min_w = tab_cfg.min_width as usize;
-    let labels: Vec<String> = tabs
+    // Each label, and the cell offset of its agent status glyph.
+    let (labels, agent_glyphs): (Vec<String>, Vec<Option<(u16, AgentStatus)>>) = tabs
         .iter()
-        .map(|t| {
-            let label = format!(" {} ", truncate(t, 16));
+        .map(|(t, agent)| {
+            // The agent's status glyph leads the truncated title.
+            let label = match agent.map(crate::sidebar_status::status_glyph) {
+                Some(glyph) => format!(" {glyph} {} ", truncate(t, 16)),
+                None => format!(" {} ", truncate(t, 16)),
+            };
             // Pad to the configured minimum width, keeping the text centered-ish.
             let short = min_w.saturating_sub(label.width());
-            format!("{}{}{}", " ".repeat(short / 2), label, " ".repeat(short - short / 2))
+            let glyph_offset = agent.map(|agent| ((short / 2 + 1) as u16, agent));
+            (
+                format!("{}{}{}", " ".repeat(short / 2), label, " ".repeat(short - short / 2)),
+                glyph_offset,
+            )
         })
-        .collect();
+        .unzip();
     // Pill and slant chips wrap solid tabs in cap glyphs, one cell on each
     // side; the caps take part in layout, scrolling, and hit rects.
     let chip_caps = tab_cfg.solid_background.then(|| tab_cfg.style.caps()).flatten();
@@ -411,6 +424,15 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             buf.set_stringn(origin_x + x, origin_y, label, w as usize, style);
             if tab_cfg.solid_background && is_active {
                 buf[(origin_x + x, origin_y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
+            }
+        }
+        if let Some(&Some((offset, agent))) = agent_glyphs.get(i) {
+            let glyph_x = x + u16::from(chip_caps.is_some()) + offset;
+            if glyph_x < x + w.saturating_sub(u16::from(chip_caps.is_some())) {
+                let color =
+                    super::sidebar::status_indicator(&theme, chrome.sidebar_dim_fg, agent).color;
+                buf[(origin_x + glyph_x, origin_y)]
+                    .set_style(style.fg(color).add_modifier(Modifier::BOLD));
             }
         }
         if drop_index == Some(i) && x < max_x {
