@@ -145,11 +145,20 @@ fi
 # Re-read the run before accepting it so a branch/ref race cannot make us
 # watch a run for a different revision.
 run_identity="$(gh run view --repo "$REPO" "$run_id" \
-  --json headSha,headBranch,event,displayTitle \
-  --jq '[.headSha, .headBranch, .event, .displayTitle] | @tsv')"
-IFS=$'\t' read -r run_head_sha run_head_branch run_event run_display_title <<< "$run_identity"
+  --json headSha,headBranch,event,displayTitle,workflowName \
+  --jq '[.headSha, .headBranch, .event, .displayTitle, .workflowName] | @tsv')"
+IFS=$'\t' read -r run_head_sha run_head_branch run_event run_display_title run_workflow_name \
+  <<< "$run_identity"
+# Right after the dispatch GitHub can still show the workflow's name as the
+# title, before it evaluates run-name. The run id came from this dispatch, so
+# that pending title is ours too; any other title is not.
+run_title_ok=false
+if [[ "$run_display_title" == "$run_title" || \
+      ( -n "$run_workflow_name" && "$run_display_title" == "$run_workflow_name" ) ]]; then
+  run_title_ok=true
+fi
 if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
-      "$run_event" != "workflow_dispatch" || "$run_display_title" != "$run_title" ]]; then
+      "$run_event" != "workflow_dispatch" || "$run_title_ok" != true ]]; then
   echo "error: discovered workflow run identity changed; refusing non-exact run" >&2
   printf 'expected: sha=%s branch=%s event=workflow_dispatch title=%s\n' \
     "$commit" "$remote_branch" "$run_title" >&2
