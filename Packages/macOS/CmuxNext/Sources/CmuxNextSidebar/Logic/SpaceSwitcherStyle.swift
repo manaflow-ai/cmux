@@ -10,7 +10,7 @@ public nonisolated enum SpaceSwitcherStyle: String, Sendable, CaseIterable, Hash
     case ring
     /// A small window glyph at the mark's corner instead of the ring (the named chips' marker on the dots).
     case glyph
-    /// Arc's space menu: the current space's mark opens every space with its window, Move Here / Go to
+    /// a space menu: the current space's mark opens every space with its window, Move Here / Go to
     /// Window on the ones another window shows, and New Space / New Incognito Space at the end.
     case menu
     /// Today's strip: no marker, a click switches this window.
@@ -27,7 +27,7 @@ public nonisolated enum SpaceSwitcherStyle: String, Sendable, CaseIterable, Hash
 
     public static let tunable = Tunable<SpaceSwitcherStyle>.choice(
         "sidebar.spaceSwitcher", .sidebar, "Space switcher",
-        help: "How the spaces strip shows a space another window shows: a ring, a window glyph, or Arc's space menu from the current space; plain is the strip without a marker.",
+        help: "How the spaces strip shows a space another window shows: a ring, a window glyph, or a space menu from the current space; plain is the strip without a marker.",
         default: .ring, code: "SpaceSwitcherStyle.tunable")
 
     /// Whether the strip marks and offers another window's spaces at all.

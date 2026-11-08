@@ -82,7 +82,7 @@ extension ProfileBarView {
         return menu
     }
 
-    /// Arc's space menu (the `menu` style's current space): every space with its window, the current one checked;
+    /// a space menu (the `menu` style's current space): every space with its window, the current one checked;
     /// one another window shows takes Go to Window / Move Here in a submenu; New Space and New Incognito Space last.
     func spaceMenu() -> NSMenu {
         let menu = NSMenu()
