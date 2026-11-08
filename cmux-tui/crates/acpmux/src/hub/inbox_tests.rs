@@ -611,3 +611,96 @@ fn a_relayed_sender_is_named_plainly_and_its_preview_is_the_message() {
     assert_eq!(part("p2")["preview"], "matrix green");
     assert_eq!(part("p2")["sender"]["verification"], "declared");
 }
+
+mod agent_messaging {
+    use super::*;
+
+    /// The session that started a chat or first gave it work controls it: its message is the next
+    /// step of that work, a prompt (`inbox_route`), and it wakes the chat; nobody else's result does.
+    #[test]
+    fn the_chats_parent_or_delegator_controls_it_and_no_one_else() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "lane", "harness": "fake",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap();
+        meta.turn_count = 3;
+        meta.delegator = Some("s-coord".into());
+        assert!(controls(&meta, Some("s-coord")));
+        assert!(!controls(&meta, Some("s-other")));
+        assert!(!controls(&meta, None), "a sender with no session controls nothing");
+        assert!(wakes_as(&meta, PromptClass::Result, false, Some("s-coord")));
+        assert!(!wakes_as(&meta, PromptClass::Result, false, Some("s-other")));
+        assert!(wakes_as(&meta, PromptClass::Question, false, Some("s-other")), "a question wakes");
+        assert!(!wakes_as(&meta, PromptClass::Fyi, false, Some("s-coord")), "an fyi never does");
+        assert!(
+            wakes_as(&meta, PromptClass::Result, true, Some("s-other")),
+            "a report of its work"
+        );
+    }
+
+    /// A Claude Code subagent's message names the subagent beside its lead's session, and the notice
+    /// says how each sender gets an answer: the one that waits gets this turn's reply, another
+    /// session `inbox_reply` or `acpmux send`, and a subagent only the reply to its own send.
+    #[test]
+    fn a_notice_names_a_subagent_and_says_how_each_sender_gets_its_answer() {
+        let sub = json!({"id": "a0a68e7af3df5967e", "type": "general-purpose"});
+        let provenance = crate::prompt_provenance::with_subagent(
+            crate::prompt_provenance::session_message("s-lead", "claude-17", "s-alpha"),
+            &json!({"_meta": {"acpmux": {"callerSubagent": sub}}}),
+        );
+        assert_eq!(provenance[crate::prompt_provenance::FROM_SUBAGENT], sub);
+        assert_eq!(provenance["verified"], true, "still the session its caller token proved");
+        let sender = crate::prompt_provenance::sender_record(Some(&provenance), None, None);
+        assert_eq!(sender["subagent"], sub);
+        assert_eq!(
+            display_sender(&sender, "claude-17"),
+            "claude-17's general-purpose subagent a0a68e7a"
+        );
+
+        // Waiting on its send: this turn's reply goes back to it.
+        let mut asked = item("p1", "from:claude-17", "claude-17", PromptClass::Question, 1, "2+2?");
+        asked.from_session = Some("s-lead".into());
+        asked.sender = sender.clone();
+        let (tx, _rx) = tokio::sync::watch::channel(None);
+        asked.answer = Some(tx);
+        let hint = reply_hint(&[&asked]).expect("a hint");
+        assert!(
+            hint.starts_with("Reply with acpmux, not your harness's own messaging: "),
+            "{hint}"
+        );
+        assert!(
+            hint.contains("goes back to claude-17's general-purpose subagent a0a68e7a, waiting"),
+            "{hint}"
+        );
+        assert!(hint.contains("`acpmux send claude-17` reaches claude-17 itself"), "{hint}");
+
+        // Another session that no longer waits: the commands that reach it.
+        let mut lane = item("p2", "from:lane-b", "lane-b", PromptClass::Result, 2, "merged");
+        lane.from_session = Some("s-b".into());
+        let hint = reply_hint(&[&lane]).unwrap();
+        assert!(
+            hint.contains("To answer lane-b, inbox_reply or `acpmux send lane-b \"…\"`"),
+            "{hint}"
+        );
+        assert!(!hint.contains("goes back"), "nobody waits: {hint}");
+
+        // A sender with no session that does not wait can be answered by nobody: no hint.
+        let declared = item("p3", "declared:x", "x", PromptClass::Result, 3, "hi");
+        assert_eq!(reply_hint(&[&declared]), None);
+        // A session message with no subagent says nothing of one.
+        let plain = crate::prompt_provenance::with_subagent(
+            crate::prompt_provenance::session_message("s-lead", "claude-17", "s-alpha"),
+            &json!({"_meta": {"acpmux": {"callerSubagent": {"id": "a b", "type": "x"}}}}),
+        );
+        assert!(plain.get(crate::prompt_provenance::FROM_SUBAGENT).is_none(), "{plain}");
+        let named = crate::prompt_provenance::with_subagent(
+            crate::prompt_provenance::named_sender("dot", "s-alpha"),
+            &json!({"_meta": {"acpmux": {"callerSubagent": sub}}}),
+        );
+        assert!(
+            named.get(crate::prompt_provenance::FROM_SUBAGENT).is_none(),
+            "only a proven session"
+        );
+    }
+}

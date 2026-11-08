@@ -1696,7 +1696,12 @@ async fn dispatch_request_with_identity(
                 (None, Some(caller)) if !conn.is_person() && caller != s.id => {
                     hub.resolve(caller).ok().map(|from| {
                         let name = from.meta().name;
-                        crate::prompt_provenance::session_message(&from.id, &name, &s.id)
+                        // Which of its agents: a Claude Code subagent's send says so
+                        // (`prompt_provenance::FROM_SUBAGENT`), within the proven session.
+                        crate::prompt_provenance::with_subagent(
+                            crate::prompt_provenance::session_message(&from.id, &name, &s.id),
+                            &params,
+                        )
                     })
                 }
                 (provenance, _) => provenance,
@@ -1767,10 +1772,12 @@ async fn dispatch_request_with_identity(
                 // A proven session's note to itself: that session's, as the daemon knows.
                 None if conn.caller() == Some(s.id.as_str()) => {
                     let name = hub.session_name(&s.id);
-                    Some(crate::prompt_provenance::observed(
+                    // A subagent's report to its own lead's chat names that subagent too.
+                    let note = crate::prompt_provenance::with_subagent(
                         crate::prompt_provenance::session_message(&s.id, &name, &s.id),
-                        transport,
-                    ))
+                        &params,
+                    );
+                    Some(crate::prompt_provenance::observed(note, transport))
                 }
                 None => Some(crate::prompt_provenance::unverified(
                     &s.id,
@@ -1954,6 +1961,7 @@ async fn dispatch_request_with_identity(
                 admitted: false,
                 send_now: false,
                 thread,
+                wake_or_fail: flag("wakeOrFail") == Some(true),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
                         conn.origin == super::Origin::Peer,
