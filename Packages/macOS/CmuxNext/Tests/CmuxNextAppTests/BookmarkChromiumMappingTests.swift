@@ -29,7 +29,7 @@ struct BookmarkChromiumMappingTests {
         #expect(create["url"] as? String == "https://example.com/")
         #expect(create["created_ms"] as? Double == 1_000)
         #expect(throws: BookmarkError.invalidURL) {
-            try CEFBookmarkEvent.changed(id: uuid, title: "x", url: "not a url").bookmarkOps(profile: "default")
+            try CEFBookmarkEvent.changed(id: uuid, title: "x", url: "").bookmarkOps(profile: "default")
         }
         #expect(try CEFBookmarkEvent.reordered(parent: "bar", children: [uuid, uuid]).bookmarkOps(profile: "default").count == 2)
     }

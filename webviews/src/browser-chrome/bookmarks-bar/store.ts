@@ -2,8 +2,8 @@
 // it draws: the bar root's own children and whether Other Bookmarks holds anything, with one
 // `cmux.bookmarks.children` each, again on every `cmux.bookmarks.changed` of its profile (and on a
 // relay resync). A folder menu reads the folder's subtree on its click. Every change is one
-// `cmux.bookmarksBar.apply` from the person's drag or drop, written by the app (its copy of the tree
-// and the last folder follow, as for the star). The app serves the profile, the icons and opening
+// `cmux.bookmarksBar.apply` from the person's drag or drop: the app checks the gesture and sends one
+// daemon `bookmarks.apply` for it (the last folder follows, as for the star). The app serves the profile, the icons and opening
 // (`cmux.bookmarkPage.*`), and the native menus, layout reports and writes (`cmux.bookmarksBar.*`).
 import { isPageError, type PageClient } from "../../pages/shared/pageClient";
 import { subscribePageStreams } from "../../pages/shared/pageStreams";

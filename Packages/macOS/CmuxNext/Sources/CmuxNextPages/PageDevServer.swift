@@ -30,6 +30,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.artifacts",
         "cmux.bookmark-edit",
         "cmux.bookmarks",
+        "cmux.bookmarks-bar",
         "cmux.changelog",
         "cmux.chief-inspector",
         "cmux.chief-usage",
