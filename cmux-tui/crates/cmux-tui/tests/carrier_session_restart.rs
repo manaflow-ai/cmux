@@ -350,6 +350,9 @@ fn a_carrier_desktop_dial_spends_one_fresh_session_budget_across_both_restart_wi
     let mut stderr = BufReader::new(child.stderr.take().unwrap());
     let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
     assert_eq!(reply["ok"], false, "no session lasts, so the dial fails: {reply}");
+    // The third session's mux-control open found it gone with the budget
+    // spent: that, not the desktop, ends the dial.
+    assert_eq!(reply["error_code"], "handshake", "{reply}");
     assert_ne!(wait(&mut child, Duration::from_secs(20)), Some(0));
     let sessions = world.sessions.load(Ordering::SeqCst);
     assert_eq!(

@@ -189,6 +189,13 @@ fn serve(
                 }
                 continue;
             }
+            // As in the desktop window: client bytes wait, so the handshake
+            // completes on the client and its mux-control open (not the
+            // handshake) is what finds the session gone.
+            let proxy = host.lock().await.proxy.clone();
+            proxy.frozen.store(true, Ordering::SeqCst);
+            proxy.holding.send_replace(true);
+            tokio::time::sleep(Duration::from_millis(500)).await;
             stop(&host).await;
             host.lock().await.stopped.extend([
                 Box::new(session) as Box<dyn std::any::Any + Send>,
@@ -197,6 +204,8 @@ fn serve(
             ]);
             let started = register(&host, &starts).await;
             serve(host, starts, restart, started);
+            proxy.frozen.store(false, Ordering::SeqCst);
+            proxy.holding.send_replace(false);
             return;
         }
     });
