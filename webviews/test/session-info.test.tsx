@@ -655,7 +655,7 @@ test("pushing, the pinned column moves left, keeps its width and is centered bes
     const panel = pushedWidth(pane, 320);
     const room = pushedRoom(pane, panel);
     const chat = pane - room;
-    expect(room % 8).toBe(0);
+    expect(room % 2).toBe(0);
     expect(pushKeepsColumn(pane, room)).toBe(true);
     // Pushed, the page pins the column at its whole-pane width, centered unrounded in the chat
     // (sessionInfo.css): it fits with the two page edges, and ends a margin clear of the panel.

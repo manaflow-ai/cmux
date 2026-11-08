@@ -53,6 +53,24 @@ describe("sessionInfoPopover", () => {
   // panel, the push takes that whole room and the chat is centered beside the panel (Lucas, 2026-11-06:
   // "we need to make sure that the chat is centered when the session info is open"); past that it takes
   // the least room that clears the panel, so the room can step down once there.
+  // Odd panel widths and content past the column take an odd room at the snap to the whole room: the
+  // stage still only moves on, one pixel of drag at a time.
+  test("no pixel of a drag moves the stage back, at any overflow", () => {
+    const order = ["float", "push", "overlay"];
+    for (const overflow of [0, 3, 5, 40]) {
+      for (const paneWidth of [900, 1017, 1021, 1100, 1401]) {
+        let lastStage = 0;
+        for (let width = SESSION_INFO_WIDTH.min; width <= SESSION_INFO_WIDTH.max; width++) {
+          const stage = order.indexOf(
+            sessionInfoStage("overlay", { width: paneWidth, height: 960 }, width, undefined, false, overflow),
+          );
+          expect(stage).toBeGreaterThanOrEqual(lastStage);
+          lastStage = stage;
+        }
+      }
+    }
+  });
+
   test("dragging the edge wider pushes the chat left, centered beside the panel while it fits", () => {
     const order = ["float", "push", "overlay"];
     for (const paneWidth of [760, 900, 1100, 1200, 1400, 1600, 2000]) {

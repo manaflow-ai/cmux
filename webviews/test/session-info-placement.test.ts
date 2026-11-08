@@ -195,7 +195,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     // position sure but it itself and its text shouldn't be affected by the session info if it would need
     // to be then session info should be an overlay". In these panes a push would narrow the column: it
     // lies over the chat, its foot above the composer's top, so the composer shows whole and the chat
-    // keeps the pane's width. Under 648px a saved open state leaves the chat alone until the toggle.
+    // keeps the pane's width. A new chat's Session Info waits for the toggle at every width.
     for (const width of [370, 528, 740]) {
       const over = true;
       test(`${name}: in a ${width}px pane it lies over the chat above the composer, and the composer shows whole`, async () => {
@@ -209,7 +209,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           );
           const toggle = page.locator("button.acpmux-session-info-toggle");
           await toggle.waitFor({ timeout: 10_000 });
-          // Session Info's saved state is open (the default): only a pane with room shows it unasked.
+          // A new chat starts with Session Info closed (#37576), whatever the pane's room: never unasked.
           const unasked = (await toggle.getAttribute("aria-pressed")) === "true";
           const { panel } = await openSessionInfo(page);
           // The card's foot settles on the composer's top (sessionInfo.css data-foot-moves).
@@ -243,7 +243,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             composerWhole: composer.left >= main.left - 0.5 && composer.right <= main.right + 0.5,
             lastRowWhole: last.left >= main.left - 0.5 && last.right <= main.right + 0.5,
           }).toEqual({
-            unasked: width >= 648,
+            unasked: false,
             placement: over ? "overlay" : "push",
             // Under 648px it is a popover (Lucas, 2026-11-06: "In a narrow layout: it becomes a popover
             // and starts closed"): over the chat, with no foot of its own over the composer.

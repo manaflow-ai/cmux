@@ -6,7 +6,7 @@
 # rewrites the pages' strings tables (webviews/src/**/generated/), which are
 # build output since #21946 and stay out of the index.
 #
-# The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
+# The web bundles (agent pane, pages, Agent Activity, webviews
 # app) are build output since cx-vn5 and gitignored; every build path runs
 # scripts/cmux-next/build-web-bundles.sh. A merge with a branch from before that
 # change gets modify/delete conflicts on them. This resolves those by removing
@@ -28,7 +28,6 @@ INSPECTOR="Native/OptChat/optchat-chief/inspector/index.html"
 FORMER="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity
 Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages
-Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js
 Resources/markdown-viewer/webviews-app"
 
 cd "$ROOT"

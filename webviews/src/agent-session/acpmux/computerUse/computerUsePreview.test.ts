@@ -186,10 +186,10 @@ describe("computerUsePreview", () => {
 describe("the column keeps the card's room", () => {
   test("a pane whose gutter is too narrow moves the column's end in, and keeps its start", () => {
     const plain = transcriptColumn(900, column);
-    expect(plain).toEqual({ inset: 48, insetEnd: 48, width: 804 });
+    expect(plain).toEqual({ inset: 50, insetEnd: 50, width: 800 });
     const beside = transcriptColumn(900, column, COMPUTER_USE_PREVIEW_RESERVE);
-    expect(beside).toEqual({ inset: 48, insetEnd: 204, width: 648 });
-    expect(transcriptRowWidth(900, column, COMPUTER_USE_PREVIEW_RESERVE)).toBe(648);
+    expect(beside).toEqual({ inset: 50, insetEnd: 204, width: 646 });
+    expect(transcriptRowWidth(900, column, COMPUTER_USE_PREVIEW_RESERVE)).toBe(646);
   });
 
   test("a wide pane's gutter already holds the card: nothing moves", () => {
