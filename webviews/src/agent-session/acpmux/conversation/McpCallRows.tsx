@@ -31,16 +31,18 @@ import { ToolOutput } from "./ToolOutputBody";
 import { isMcpLifecycleOutput, usefulMcpResponse } from "./mcpPresentation";
 import { ToolDetail } from "./ToolDetail";
 import { argsSource, inputFields, requestText, type InputField } from "./toolInputFields";
-import { toolIcon, ToolImages } from "./ToolRow";
+import { ToolImages } from "./ToolRow";
+import { toolIcon } from "./toolRowModel";
 import { ToolVisualRow } from "./ToolVisualPreview";
 import { VideoFramesCard } from "./VideoFramesCard";
 import { videoFrames } from "./videoFrames";
-import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ToolLabel } from "./ToolVerb";
 import { useMoreBelow } from "./moreBelow";
 import { toolFailure } from "./toolFailure";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord } from "./toolFailureCauseModel";
 
 export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   return items.length === 1 ? (

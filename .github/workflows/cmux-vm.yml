@@ -783,6 +783,8 @@ jobs:
   # cmux-next-cloud-journey (as in backend.yml's journey-production), not in cmux-vm-production, whose journey steps
   # above say "not run" until it holds CMUX_JOURNEY_PROD_STACK_*. This job proves the deploy (its verdict
   # annotation is what cmuxterm-hq's cloud_deploy_gate reads, within 5 min of the deploy); it does not roll back.
+  # It takes no deploy lock: a queued job in that concurrency group would cancel a queued deploy. Instead the gate
+  # proves no deploy with a journey that finished after a later production deploy.
   journey-production:
     needs: deploy-production
     # Never after a rollback: a journey on the previous version would prove the deploy it replaced.
@@ -790,7 +792,8 @@ jobs:
       (!cancelled() && needs.deploy-production.result == 'success' && needs.deploy-production.outputs.deployed == 'success') &&
       !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 15
+    # The full lifecycle journey's waits; cloud-journey-prod.yml allows the same.
+    timeout-minutes: 30
     environment: cmux-next-cloud-journey
     permissions:
       contents: read

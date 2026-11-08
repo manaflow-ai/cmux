@@ -135,6 +135,9 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "liveWeb.start",
                 title: String(localized: "action.liveWeb.start", defaultValue: "Edit cmux Live…", bundle: .module),
+                hint: String(localized: "action.liveWeb.start.hint",
+                             defaultValue: "Change cmux's own UI and see it here at once, or let your agent do it. No build.",
+                             bundle: .module),
                 keywords: ["live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
                 category: .settings, symbol: "bolt.horizontal.circle", surfaces: [.palette],
                 arguments: [CatalogArgument.optionalPathString]

@@ -1341,6 +1341,34 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache.</string>
+			<key>pfm_name</key>
+			<string>agents.cacheCompact.enabled</string>
+			<key>pfm_title</key>
+			<string>Compact Before the Cache Expires</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>50</integer>
+			<key>pfm_description</key>
+			<string>Chats using less of their context window than this are left as they are.</string>
+			<key>pfm_name</key>
+			<string>agents.cacheCompact.minContextPercent</string>
+			<key>pfm_range_max</key>
+			<real>95</real>
+			<key>pfm_range_min</key>
+			<real>10</real>
+			<key>pfm_title</key>
+			<string>Only Above Context Used (%)</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first.</string>
 			<key>pfm_name</key>
 			<string>agents.trust.autoTrust</string>
@@ -7359,6 +7387,18 @@
 			<string>browser.import.cookieBanner</string>
 			<key>pfm_title</key>
 			<string>Offer to Import Cookies</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.</string>
+			<key>pfm_name</key>
+			<string>browser.import.cookieSync</string>
+			<key>pfm_title</key>
+			<string>Keep Imported Cookies in Sync</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

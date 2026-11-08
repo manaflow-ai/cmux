@@ -60,10 +60,10 @@ public final class AgentPaneView: NSView {
     var crashReloadCount = 0
     /// The automatic retries after the page's web content ended.
     let crashRetry = AgentPageCrashRetry()
-    /// Where the window's toasts rest (window coordinates), nil when none shows (AgentPaneView+ToastRoom.swift).
-    var toastsRect: NSRect?
-    /// The toast band the page last got, in CSS pixels.
-    var sentToastRoom: Double = 0
+    /// The rect the window's toasts last heard this pane avoids, window coordinates (AgentPaneView+ToastAvoidance.swift).
+    var lastToastAvoidance: NSRect = .zero
+    /// The window that rect was in: a move to another window at the same frame is a move too.
+    weak var lastToastAvoidanceWindow: NSWindow?
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
     /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
@@ -350,6 +350,7 @@ public final class AgentPaneView: NSView {
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         installSessionInfo()
+        model.onToastAvoidance = { [weak self] in self?.toastAvoidanceMoved() }
         installHostGlass()
     }
 
@@ -448,8 +449,8 @@ public final class AgentPaneView: NSView {
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
         layoutHostGlass()
-        // A pane resized or moved under shown toasts: its band follows at once.
-        if toastsRect != nil || sentToastRoom != 0 { sendToastRoom(duration: 0) }
+        // A pane resized or moved under shown toasts: they stay clear of its composer.
+        toastAvoidanceMoved()
         redraw.laidOut(self)
     }
 
@@ -507,17 +508,21 @@ public final class AgentPaneView: NSView {
     /// The app's microphone watcher (``AgentPaneShared/microphone``); nil: no outside-dictation mark.
     var microphoneActivity: MicrophoneActivity?
 
-    /// While `on`, tells the page whenever another app takes or releases the microphone; off (the
-    /// page's composers lost the keyboard) or a closed pane stops watching.
+    /// While `on`, tells the page whenever another app takes or releases the microphone, and its
+    /// level while metered; off (the page's composers lost the keyboard) or a closed pane stops watching.
     func watchMicrophone(_ on: Bool) {
         guard let microphoneActivity else { return }
         guard on, let pageEvents else {
             microphoneActivity.unwatch(self)
             return
         }
-        microphoneActivity.watch(self) { [weak pageEvents] state in
+        microphoneActivity.watch(self, onLevel: { [weak pageEvents] level in
+            // A level is stale at once: with no page subscribed, none is buffered for later.
+            guard let pageEvents, pageEvents.hasSubscribers else { return }
+            _ = pageEvents.publish(.micLevel(level))
+        }, onChange: { [weak pageEvents] state in
             _ = pageEvents?.publish(.micActivity(state))
-        }
+        })
     }
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
@@ -584,6 +589,8 @@ public final class AgentPaneView: NSView {
         super.viewDidHide()
         dictation.handle(.stop)
         popupHostStorage?.dismiss()
+        // Hidden, itself or an ancestor (a workspace switch): toasts stop avoiding its composer.
+        toastAvoidanceMoved()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -602,17 +609,26 @@ public final class AgentPaneView: NSView {
         onNativeToolOwnerChange?()
     }
 
+    /// Shown again, itself or a hidden ancestor (a workspace switch): toasts avoid its composer again.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        toastAvoidanceMoved()
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
         if window == nil {
             dictation.handle(.stop)
             popupHostStorage?.dismiss()
+            // The rect it last told a window belongs to that window: moved into another one (even
+            // at the same frame), it tells the new window afresh.
+            lastToastAvoidance = .zero
         } else {
             // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
             openPanel?.warmWhenIdle()
-            // The toasts may have come or gone while the pane was out of the window.
-            if let window { CmuxToastAvoidance.reservingViewMoved(self, to: window) }
+            // The window's toasts stay clear of its composer.
+            toastAvoidanceMoved()
         }
         applyTheme()
     }

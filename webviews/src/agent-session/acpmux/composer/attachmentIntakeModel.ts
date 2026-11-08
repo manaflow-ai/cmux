@@ -17,7 +17,7 @@ import {
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { type StringKey, type Translate, useT } from "../i18n";
 import { keptThumb, keepThumb } from "./imagePool";
-import { imageSize, MAX_DECODE_PIXELS } from "./imageWork";
+import { imageSize, MAX_DECODE_PIXELS, thumbRatio } from "./imageWork";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
@@ -36,6 +36,7 @@ export const ATTACHMENT_LABELS = {
   pastedText: "composer.pastedText",
   pastedLines: "transcript.pastedLines",
   editPasted: "composer.pastedText.edit",
+  keepPasted: "composer.pastedText.keepFile",
   cancelAttachment: "composer.cancelAttachment",
   retryAttachment: "composer.retryAttachment",
   originalFailed: "composer.originalFailed",
@@ -155,7 +156,45 @@ export type PendingAttachment = {
   /// browser has read it, before its preview is scaled and encoded (Leo, 2026-11-07: "can't we make this all
   /// "appear" a lot faster").
   preview?: string;
+  /// An image's pixel size from its file's header, read at once: its loading tile takes the shape
+  /// its thumbnail will have, so the picture arriving moves nothing (Leo, 2026-11-07: "they go up top
+  /// above and then they land to where they should be").
+  size?: { width: number; height: number };
+  /// An image whose header is still being read (a few bytes, a frame or two): its tile is held, zero
+  /// wide and unseen, so it first shows at its thumbnail's size, never a stand-in width. For
+  /// HEADER_WAIT_MS at most; one whose header does not answer by then shows at the stand-in.
+  sizing?: boolean;
 };
+
+/// The style that gives a tile its image's thumbnail shape (`size`, the image's pixels; imageWork.ts
+/// thumbRatio): its CSS (composerAttachments.css `[data-sized]`) holds the height and the width bounds
+/// the thumbnail has, and the ratio picks the width within them, so a loading tile takes the slot its
+/// thumbnail ends in.
+export function imageShape(size: { width: number; height: number } | undefined): { aspectRatio: string } | undefined {
+  return size?.width && size.height ? { aspectRatio: String(thumbRatio(size.width, size.height)) } : undefined;
+}
+
+/// How long a pasted image's tile is held unseen for its header (sizeFromHeader): a few bytes of a file
+/// in memory, read in a frame or two (the page's first read of one can take a few frames).
+const HEADER_WAIT_MS = 120;
+
+/// Reads `file`'s pixel size from its header and answers it to `done`: when the header answers, or
+/// undefined after HEADER_WAIT_MS if it has not (the tile then shows at its stand-in width); a size
+/// that comes after that still answers.
+function sizeFromHeader(file: File, done: (size: { width: number; height: number } | undefined) => void) {
+  let answered = false;
+  const answer = (size: { width: number; height: number } | undefined) => {
+    if (answered && !size) return;
+    answered = true;
+    clearTimeout(deadline);
+    done(size);
+  };
+  // timeout: a header read that never answers (an unreadable file) must not hold its tile unseen.
+  const deadline = setTimeout(() => answer(undefined), HEADER_WAIT_MS);
+  void imageSize(file)
+    .catch(() => undefined)
+    .then((size) => answer(size?.width && size.height ? { width: size.width, height: size.height } : undefined));
+}
 
 /// Past this many bytes a loading tile shows no picture of the file itself, only its preview once
 /// made: its `data:` URL is a string the page holds and parses on its main thread, and three 8 MB
@@ -338,6 +377,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// the file input (`choose`), which the host asks only where its files came from. `again`: the
   /// failed chip whose file `given` is, read again under its id (Retry): it keeps its place in the
   /// strip and in the text, and its node there draws what the read makes.
+  /// Pending image `id`'s header answered `size` (undefined: it gave none by the frame): its tile shows.
+  const [sized] = useState(
+    () => (id: string, size: { width: number; height: number } | undefined) =>
+      setPending((chips) =>
+        chips.some((chip) => chip.id === id && (chip.sizing || (size && !chip.size)))
+          ? chips.map((chip) =>
+              chip.id === id ? { ...chip, sizing: false, ...(size && !chip.size ? { size } : {}) } : chip,
+            )
+          : chips,
+      ),
+  );
   const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, needs = false) => {
     if (given.length === 0) return;
     // When the page took the gesture: the host answers its source only from a record made before
@@ -355,11 +405,19 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       name: file.name,
       image: isImageFile(file),
       ...(isVideoName(file.name) ? { video: true } : {}),
+      ...(!isMadeFile(file) && isImageFile(file) ? { sizing: true } : {}),
       scope: batch.scope,
     }));
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
       const id = shown[index]!.id;
+      if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size));
+      // A capture the page makes (Attach Screenshot) has no bytes yet: its shape once it has.
+      else if (isMadeFile(file) && isImageFile(file))
+        void file.file.then(
+          (made) => sizeFromHeader(made, (size) => size && sized(id, size)),
+          () => {},
+        );
       void instantPreview(file).then((preview) => {
         if (!preview) return;
         setPending((chips) =>

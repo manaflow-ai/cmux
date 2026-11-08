@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
@@ -27,8 +28,7 @@ extension DebugMouse {
               let target = frame.hitTest(frame.convert(events[0].locationInWindow, from: nil)) else {
             return .object(["error": .string("no view under the point")])
         }
-        target.mouseDown(with: events[0])
-        target.mouseUp(with: events[1])
+        SyntheticInput.click(target, down: events[0], up: events[1])
         return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                         "view": .string(String(describing: type(of: target))), "delivered": .number(2)])
     }
