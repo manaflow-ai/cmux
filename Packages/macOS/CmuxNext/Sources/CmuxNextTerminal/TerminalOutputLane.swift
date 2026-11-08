@@ -36,9 +36,8 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     var lastLocalHistoryResult: Int32 { localHistoryResult.load(ordering: .acquiring) }
     /// Ghostty's alternate screen was active after the last parsed chunk that could change it (``noteScreen(_:after:)``).
     private let alternateScreen = Atomic<Bool>(false)
-    /// The last chunk ended inside an escape introducer (ESC, or ESC `[`): the next chunk's start may finish a mode
-    /// change. Touched only on `queue`.
-    private var endsInEscape = false
+    /// Which parsed chunks need the alternate-screen read (``noteScreen(_:after:)``). Touched only on `queue`.
+    private var screenWatch = TerminalScreenSwitchWatch()
     /// Whether a full-screen program draws the screen (Ghostty's alternate screen is active), as of the last parsed
     /// output. Lock-free, any thread: the resize hold reads it on main (``TerminalSurfaceView/programHoldTicks``, RESIZE
     /// P0 15), where Ghostty's own read (`ghostty_surface_grid_metrics`) would wait for the renderer-state mutex.
@@ -214,42 +213,16 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     }
 
     /// On `queue`, after `surface` parsed `data` (nil: a snapshot restore, which can change anything): reads whether
-    /// Ghostty's alternate screen is active when the chunk could have changed it. Only a DEC private mode set or reset
-    /// (ESC `[` `?` ... `h`/`l`: 1049, 1047, 47) or a full reset (ESC `c`) switches the screen, so a chunk with neither
-    /// introducer (typed echo, plain output) costs one byte scan and no lock; an introducer split across two chunks is
-    /// read at the second (``endsInEscape``).
+    /// Ghostty's alternate screen is active when the chunk could have changed it (``TerminalScreenSwitchWatch``), so a
+    /// chunk that cannot switch the screen (typed echo, plain output) costs one byte scan and no lock.
     private func noteScreen(_ surface: ghostty_surface_t, after data: Data?) {
-        if let data {
-            let (changes, endsInEscape) = Self.mayChangeScreen(data, afterEscape: self.endsInEscape)
-            self.endsInEscape = endsInEscape
-            guard changes else { return }
-        }
+        guard screenWatch.needsRead(after: data) else { return }
         var metrics = ghostty_surface_grid_metrics_s()
-        // False while an unlocked grid's resize is in flight: the screen did not change then; the next chunk reads it.
-        guard ghostty_surface_grid_metrics(surface, &metrics) else { return }
+        // False while an unlocked grid's resize is in flight: the screen did not change then.
+        let read = ghostty_surface_grid_metrics(surface, &metrics)
+        screenWatch.readFinished(read)
+        guard read else { return }
         alternateScreen.store(metrics.alternate_screen, ordering: .releasing)
-    }
-
-    /// Whether `data` holds an introducer of a screen switch (ESC `[` `?`, or ESC `c`), counting a chunk before it that
-    /// ended inside one (`afterEscape`), and whether `data` itself ends inside one.
-    static func mayChangeScreen(_ data: Data, afterEscape: Bool) -> (changes: Bool, endsInEscape: Bool) {
-        data.withUnsafeBytes { raw -> (Bool, Bool) in
-            let bytes = raw.bindMemory(to: UInt8.self)
-            let count = bytes.count
-            guard count > 0, let base = bytes.baseAddress else { return (false, afterEscape) }
-            let ends = bytes[count - 1] == 0x1B || (count >= 2 && bytes[count - 2] == 0x1B && bytes[count - 1] == 0x5B)
-            if afterEscape, bytes[0] == 0x5B || bytes[0] == 0x3F || bytes[0] == 0x63 { return (true, ends) }
-            var index = 0
-            // memchr to each ESC: output with no escapes is one scan.
-            while index < count, let found = memchr(base + index, 0x1B, count - index) {
-                index = UnsafeRawPointer(base).distance(to: UnsafeRawPointer(found))
-                let next = index + 1 < count ? bytes[index + 1] : 0
-                if next == 0x63 { return (true, ends) }
-                if next == 0x5B, index + 2 < count, bytes[index + 2] == 0x3F { return (true, ends) }
-                index += 1
-            }
-            return (false, ends)
-        }
     }
 
     private func parsed(_ count: Int) {
