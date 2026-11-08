@@ -38,14 +38,26 @@ impl Fixture {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let index = NEXT.fetch_add(1, Ordering::Relaxed);
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() % 1_000_000;
-        let key = format!("{}-{index}-{stamp}", std::process::id());
-        let dir = PathBuf::from("/tmp").join(format!("cmux-cssd-{key}"));
+        // Short names: the session host's admin.sock sits under
+        // <dir>/home/.local/state/cmux/remote/sessions/<base64 session>/, and a
+        // path past the 107-byte Linux socket limit is relocated (cmux-remote
+        // daemon_paths), which this test's readiness wait would not find. Hex
+        // keeps the worst case (7-digit pid) near 90 bytes.
+        let key = format!("{:x}-{index:x}-{stamp:x}", std::process::id());
+        let dir = PathBuf::from("/tmp").join(format!("cs-{key}"));
         fs::create_dir_all(dir.join("home")).unwrap();
         fs::create_dir_all(dir.join("login-runtime")).unwrap();
         for path in [dir.clone(), dir.join("home"), dir.join("login-runtime")] {
             fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
         }
-        Self { session: format!("cssd-{key}"), dir, host: None }
+        let fixture = Self { session: format!("c{key}"), dir, host: None };
+        let admin = fixture.session_state().join("admin.sock");
+        assert!(
+            admin.as_os_str().len() <= 100,
+            "fixture socket path too long: {}",
+            admin.display()
+        );
+        fixture
     }
 
     fn home(&self) -> PathBuf {
