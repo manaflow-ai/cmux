@@ -35,19 +35,27 @@ export const shortSender = (name: string) => senderName(name).split("/").at(-1)?
 export type GroupHoverList = { messages: readonly IncomingMessage[]; total: number };
 
 /// A group's hover from its members, oldest first; `counts[i]` is how many messages member i stands
-/// for (a preview-only inbox delivery stands for its thread's count), one when not given.
+/// for (a preview-only inbox delivery stands for its thread's count), one when not given; `ats[i]`
+/// is member i's row time. Newest first by when each message came (its own `at`, an inbox
+/// message's, else its row's), never by the members' order alone: an inbox notice lists its
+/// threads in its own order. A tie, or a member with no time, keeps the later member first.
 export function hoverMessages(
   messages: readonly (IncomingMessage | undefined)[],
   counts: readonly (number | undefined)[] = [],
+  ats: readonly (number | undefined)[] = [],
 ): GroupHoverList {
-  const listed: IncomingMessage[] = [];
+  const listed: { message: IncomingMessage; at?: number; order: number }[] = [];
   let total = 0;
   messages.forEach((message, index) => {
     if (!message) return;
-    listed.push(message);
+    const at = message.at ?? ats[index];
+    listed.push({ message, ...(at !== undefined && { at }), order: index });
     total += Math.max(1, counts[index] ?? 1);
   });
-  return { messages: listed.reverse(), total };
+  listed.sort((a, b) =>
+    a.at !== undefined && b.at !== undefined ? b.at - a.at || b.order - a.order : b.order - a.order,
+  );
+  return { messages: listed.map((entry) => entry.message), total };
 }
 
 /// An inbox notice's hover: every message of every thread, newest first by when acpmux recorded it

@@ -65,7 +65,8 @@ extension SidebarDocProjection {
                 // does (its header alone, also while its last one closes or a new one waits for its window's row).
                 return elsewhere.contains(group.id) ? nil : .group(Self.emptyGroup(group, folds: drag.document?.groupFolds))
             }
-            guard !passedMachines || !nodes.isEmpty else { continue }
+            // After the lists a section draws its groups; an app section draws its view (a block) with none.
+            guard !passedMachines || !nodes.isEmpty || layoutSection.content == .app else { continue }
             let section = SidebarSection(kind: .custom(SidebarCustomSection(id: id, title: layoutSection.title, showsTitle: false)), nodes: nodes)
             if passedMachines { after.append(section) } else { before.append(section) }
         }
