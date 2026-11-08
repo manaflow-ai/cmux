@@ -2837,6 +2837,10 @@ pub fn lift_query_token(url: &str) -> (String, Option<String>) {
 }
 
 #[cfg(test)]
+#[path = "peer_attach_filter_tests.rs"]
+mod attach_filter_tests;
+
+#[cfg(test)]
 #[path = "peer_attach_tests.rs"]
 mod attach_tests;
 
