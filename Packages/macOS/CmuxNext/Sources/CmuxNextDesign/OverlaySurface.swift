@@ -287,15 +287,16 @@ public final class OverlaySurfaceView: NSView {
                 materialView?.layer?.borderColor = nil
                 return
             }
+            let veil = tone.style.map { Palette.veil(of: $0) }
             switch material {
             case .liquidGlass:
-                (materialView as? GlassPanelView)?.tintColor = isClear ? nil : look?.veil.nsColor ?? overlayTint
+                (materialView as? GlassPanelView)?.tintColor = isClear ? nil : veil ?? overlayTint
                 if let card {
                     tintView?.layer?.backgroundColor = card.tint.nsColor.cgColor
                     tintView?.layer?.borderColor = Borders.color(card.rim.nsColor).cgColor
                 }
             case .vibrancy:
-                tintView?.layer?.backgroundColor = (card?.tint.nsColor ?? look?.veil.nsColor ?? overlayTint).cgColor
+                tintView?.layer?.backgroundColor = (card?.tint.nsColor ?? veil ?? overlayTint).cgColor
                 // The neutral glass's rim replaces the hairline.
                 materialView?.layer?.borderColor = look == nil
                     ? Borders.color(card?.rim.nsColor ?? Palette.separator).cgColor : NSColor.clear.cgColor
