@@ -2734,7 +2734,7 @@ function ComposerFrame({
         }
         actionsLead={
           <>
-            {listening && dictation && <DictationStrip dictation={dictation} />}
+            {dictation && <DictationStrip dictation={dictation} shown={!!listening} />}
             {quietActions && sendControl}
           </>
         }

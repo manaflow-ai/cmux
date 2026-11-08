@@ -238,8 +238,8 @@ struct PageFactory {
             .array(SettingsSchema.actions(in: section).compactMap { id in
                 // An action a setting turns off (Import from Browser with `browser.import.enabled` off) leaves the page.
                 guard let descriptor = registry.descriptor(for: id), registry.settingOffReason(id) == nil else { return nil }
-                return ["id": .string(id.rawValue), "title": .string(descriptor.title),
-                        "enabled": .bool(registry.isAvailable(id))]
+                return ["id": .string(id.rawValue), "title": .string(descriptor.title), "enabled": .bool(registry.isAvailable(id)),
+                        "hint": descriptor.hint.map(JSONValue.string) ?? .null]
             })
         }
         provider.pickFolders = { [weak services] in

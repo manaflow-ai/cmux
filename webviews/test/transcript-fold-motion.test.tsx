@@ -363,7 +363,9 @@ test("a fold reopened as its close ends opens from its own size, not the pinned 
   expect(container.querySelector(".cv-fold")).toBe(box);
   expect(animations.length).toBe(3);
   expect(animations[2]!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
-  expect(box.style.height).toBe("");
+  // Under the motion the box holds the open's start height, never the close's pin: a frame drawn
+  // before the motion applies shows it shut, not open at full height (composer-hat-fold-balance).
+  expect(box.style.height).toBe("0px");
   expect(box.style.opacity).toBe("");
   animations[2]!.finish();
   expect(box.style.height).toBe("");

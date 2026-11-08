@@ -643,6 +643,34 @@ button.acpmux-attachment-pasted-open:hover {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
 }
+/* An oversized paste's other way on: Keep as .txt, on its card's label row at the end, always shown
+   so both choices are on the card (a click on the card is the other). Either host: the strip's card
+   and the one placed in the prompt (composer/attachmentIntake.tsx KeepFileButton). */
+.acpmux-text-card {
+  position: relative;
+}
+.acpmux-attachment-keep-file {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--acpmux-base, Canvas);
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  line-height: var(--text-caption--line-height);
+}
+.acpmux-attachment-keep-file:hover {
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, Canvas));
+}
+.acpmux-attachment-keep-file:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
 /* The card's body, in either host: lines from the top, the label pinned to the bottom. */
 .acpmux-text-card .acpmux-attachment-pasted-open,
 .acpmux-text-card .acpmux-text-card__open {
