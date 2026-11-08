@@ -25,10 +25,10 @@ public enum ChiefPanelStyle: String, CaseIterable, Sendable {
     case seeThroughBar
 
     /// Whether the style rests small and grows into the chat with the keys.
-    public var collapses: Bool { self == .composeBar || self == .pill || self == .bubble }
+    public var collapses: Bool { self == .composeBar || self == .pill || self == .bubble || self == .seeThroughBar }
 
     /// Whether the panel draws no glass behind the chat (the workspace shows between the bubbles).
-    public var isSeeThrough: Bool { false }
+    public var isSeeThrough: Bool { self == .seeThrough || self == .seeThroughBar }
 
     /// The style a window uses when the setting is unset or unknown.
     public static let `default` = ChiefPanelStyle.composeBar

@@ -4,7 +4,9 @@
 /// - `home.chiefDock.edge`: the edge the Chief docks to (its panel's Dock button): `left` (the default), `right`,
 ///   `top` or `bottom`.
 /// - `home.chiefPanel.style`: how the floating Chief looks: `composeBar` (the default: only the message box, which
-///   grows into the chat with the keys), `pill`, `card`, `panel` or `bubble`.
+///   grows into the chat with the keys), `pill`, `card`, `panel`, `bubble`, `seeThrough` (the bubbles over the
+///   workspace, as in Messages) or `seeThroughBar` (its message box alone, which grows into it).
+/// - `home.chiefPanel.seesScreen`: opening the floating Chief gives it one look at the screen; on when unset.
 /// - `home.chiefDock.openBeside`: a workspace, tab or subagent link clicked in the Chief opens its workspace with the
 ///   Chief floating over it; on when unset.
 public nonisolated struct ChiefDockSetting {
@@ -14,11 +16,14 @@ public nonisolated struct ChiefDockSetting {
     /// `home.chiefPanel.style`.
     public static let stylePath = ["home", "chiefPanel", "style"]
     /// The floating Chief's styles, in the Settings choice's order (the Layout package's `ChiefPanelStyle`).
-    public static let styles = ["composeBar", "pill", "card", "panel", "bubble"]
+    public static let styles = ["composeBar", "pill", "card", "panel", "bubble", "seeThrough", "seeThroughBar"]
     /// The compose bar: the least on screen that still takes a message (user 2026-11-07).
     public static let defaultStyle = "composeBar"
-    /// `home.chiefPanel.seesScreen`.
+    /// `home.chiefPanel.seesScreen`: the floating Chief's eye; when on, opening the panel gives the Chief one look at
+    /// the screen behind cmux (Share Screen with Chief's helper and grant, never a prompt).
     public static let seesScreenPath = ["home", "chiefPanel", "seesScreen"]
+    /// On: the eye in the panel shows it, and a click turns it off (user 2026-11-07, default picked by the Chief).
+    public static let defaultSeesScreen = true
     /// `home.chiefDock.openBeside`.
     public static let openBesidePath = ["home", "chiefDock", "openBeside"]
     /// The edges, in the Settings choice's order.
