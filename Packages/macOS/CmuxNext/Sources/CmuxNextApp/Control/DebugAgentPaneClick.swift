@@ -95,16 +95,15 @@ enum DebugAgentPaneClick {
             // it goes to the web view as for a window that is not key. A click AppKit gave another view stays there.
             let pageSawIt = (try? await view.callPageScript(arrived, arguments: ["ms": 500])) as? Bool
             if path != "app", pageSawIt == false, hit?.isDescendant(of: webView) == true {
-                webView.mouseDown(with: down); webView.mouseUp(with: up)
+                SyntheticInput.click(webView, down: down, up: up)
                 delivered = "app, then view"
             }
         } else {
             DebugNativeInput.runPaneMonitors(down, in: window, services: services) // the local monitor sees mouse downs only
-            SyntheticInput.register([down, up])
             // As AppKit's click does, inside an input event: the clicked web view takes the keyboard (AgentPaneView.refusesSelfFocus).
             let app = NSApp as? CmuxApplication, outer = app?.isHandlingSendEvent() ?? false; app?.setHandlingSendEvent(true)
             if hit?.isDescendant(of: webView) == true { window.makeFirstResponder(webView) }
-            webView.mouseDown(with: down); webView.mouseUp(with: up); app?.setHandlingSendEvent(outer)
+            SyntheticInput.click(webView, down: down, up: up); app?.setHandlingSendEvent(outer)
             delivered = "view"
         }
         let gestures = view.model.transport.gestures.debugState

@@ -88,9 +88,14 @@ public struct SyntheticInput {
         return user
     }
 
-    /// A synthetic click handed straight to `view` (`mouseDown(with:)`, `mouseUp(with:)`), not through `sendEvent`.
+    /// A synthetic click handed straight to `view` (`mouseDown(with:)`, `mouseUp(with:)`), not through `sendEvent`
+    /// (a page window that is not key drops a posted click). Each event takes the path `sendEvent` gives it first:
+    /// the press holds its button while the view takes it, and the release lets go before the view takes it.
     public static func click(_ view: NSView, down: NSEvent, up: NSEvent) {
+        register([down, up])
+        _ = isUserInput(down)
         view.mouseDown(with: down)
+        _ = isUserInput(up)
         view.mouseUp(with: up)
     }
 
