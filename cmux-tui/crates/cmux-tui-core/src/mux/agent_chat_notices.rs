@@ -1016,11 +1016,14 @@ impl Chat {
             self.deferred.clone_from(&last);
         }
         let deferred_due = !self.in_turn && self.deferred.is_some() && self.deferred == last;
+        // Held: acpmux may mark it unread meanwhile (a hidden pane), and that waits too.
+        let held = self.in_turn && self.deferred.is_some();
         if !self.in_turn {
             self.deferred = None;
         }
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
+            && !held
             && (self.unread || (below_ended && !self.in_turn) || deferred_due || ended_now(turn))
             && self.notified_turn.as_ref() != Some(turn)
         {
@@ -1560,20 +1563,26 @@ mod tests {
     #[test]
     fn work_that_outlives_its_turn_into_a_trigger_turn_posts_the_old_finish_when_it_stops() {
         // A Cloud trigger's turn runs and stops without ending a turn of its own (`lastTurn` stays
-        // T1): T1's finish, held while it ran, posts once it stops.
+        // T1): T1's finish, held while it ran, posts once it stops, with the pane on screen or
+        // hidden (acpmux marks a hidden chat unread when the work ends, mid-trigger).
         let trigger_runs = |mut change: Value| {
             change["turn"] = json!({"turnId": "trigger-1"});
             change
         };
-        let changes = [
-            summary("working", 8, true, None, false),
-            summary("done", 9, true, Some(("t1", "completed")), true),
-            trigger_runs(summary("working", 10, true, Some(("t1", "completed")), true)),
-            trigger_runs(summary("working", 11, true, Some(("t1", "completed")), false)),
-            summary("done", 12, true, Some(("t1", "completed")), false),
-        ];
-        let keys: Vec<_> = posted(&changes).into_iter().map(|notice| notice.key).collect();
-        assert_eq!(keys, ["done-t1"]);
+        for shown in [true, false] {
+            let changes = [
+                summary("working", 8, shown, None, false),
+                summary("done", 9, shown, Some(("t1", "completed")), true),
+                trigger_runs(summary("working", 10, shown, Some(("t1", "completed")), true)),
+                trigger_runs(summary("working", 11, shown, Some(("t1", "completed")), false)),
+                summary("done", 12, shown, Some(("t1", "completed")), false),
+            ];
+            let keys = |changes: &[Value]| -> Vec<String> {
+                posted(changes).into_iter().map(|notice| notice.key).collect()
+            };
+            assert!(keys(&changes[..4]).is_empty(), "posted while the trigger ran (shown {shown})");
+            assert_eq!(keys(&changes), ["done-t1"], "shown {shown}");
+        }
     }
 
     #[test]
