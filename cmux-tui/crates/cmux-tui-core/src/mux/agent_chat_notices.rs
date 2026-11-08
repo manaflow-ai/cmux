@@ -1004,9 +1004,8 @@ impl Chat {
         };
         // Work it started past its turn ended in this change, and no newer turn runs: one that
         // does supersedes the old turn's finish, and its own end notifies.
-        let below_ended = before.is_some_and(|chat| chat.works_below)
-            && !self.works_below
-            && !self.in_turn;
+        let below_ended =
+            before.is_some_and(|chat| chat.works_below) && !self.works_below && !self.in_turn;
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
             && (self.unread || below_ended || ended_now(turn))
