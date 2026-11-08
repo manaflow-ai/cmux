@@ -119,9 +119,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // it. Without this switch that profile is `Default`, which no cmux tab uses, yet every regular
         // profile loads the --load-extension extensions: `Default` ran its own uBlock Origin
         // background page, an extension renderer of about 105 MB, from launch on (hq#7860).
-        // Starting in the default cmux profile leaves one regular profile at idle. An incognito
-        // context still derives from `Default` (CEF's GetPrimaryUserProfile), so `Default` loads
-        // only when the first incognito window opens.
+        // Starting in the default cmux profile leaves one regular profile at idle. An
+        // off-the-record context (an incognito window's store; the app opens one at launch)
+        // derives from CEF's GetPrimaryUserProfile, which is this startup profile from fork
+        // cmux.48 on (manaflow-ai/cef#32); before it was always `Default`, so `Default` loaded anyway.
         if let initialProfileDirectory, !initialProfileDirectory.isEmpty {
             result.append("profile-directory=" + initialProfileDirectory)
         }
