@@ -226,8 +226,26 @@ fn the_tool_is_listed_only_beside_get_window_state() {
         listed["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert_eq!(names, ["get_window_state", "click", TOOL]);
     assert_eq!(listed["tools"][2]["annotations"]["readOnlyHint"], true);
-    // Listing twice, or an upstream tool of the same name, adds nothing.
+    // Listing twice adds nothing.
     assert_eq!(with_definition(listed.clone()), listed);
     let without = json!({"tools": [{"name": "click"}]});
     assert_eq!(with_definition(without.clone()), without);
+}
+
+#[test]
+fn a_helper_tool_of_the_same_name_is_replaced_by_the_one_that_runs() {
+    // The bridge answers every call of this name, so the helper's own
+    // definition (its schema could differ) must not be what is listed.
+    let helper_own =
+        json!({"name": TOOL, "inputSchema": {"type": "object", "required": ["selector"]}});
+    let listed = with_definition(
+        json!({"tools": [{"name": "get_window_state"}, helper_own.clone(), {"name": "click"}]}),
+    );
+    assert_eq!(
+        listed["tools"],
+        json!([{"name": "get_window_state"}, {"name": "click"}, definition()])
+    );
+    // Without get_window_state the bridge cannot serve it: nothing of this name is listed.
+    let alone = with_definition(json!({"tools": [helper_own, {"name": "click"}]}));
+    assert_eq!(alone["tools"], json!([{"name": "click"}]));
 }

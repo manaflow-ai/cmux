@@ -70,16 +70,17 @@ pub fn definition() -> Value {
     })
 }
 
-/// A `tools/list` result with [`definition`] added, when the helper serves
-/// the tool each check calls and has no tool of this name itself.
+/// A `tools/list` result with [`definition`] in it, when the helper serves
+/// the tool each check calls.
+///
+/// The bridge answers every call of this name itself, so a helper tool of
+/// the same name is never listed: what an agent sees is what runs.
 pub fn with_definition(mut list: Value) -> Value {
     let Some(tools) = list.get_mut("tools").and_then(Value::as_array_mut) else {
         return list;
     };
-    let named = |name: &str| {
-        tools.iter().any(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
-    };
-    if named(READ_TOOL) && !named(TOOL) {
+    tools.retain(|tool| tool.get("name").and_then(Value::as_str) != Some(TOOL));
+    if tools.iter().any(|tool| tool.get("name").and_then(Value::as_str) == Some(READ_TOOL)) {
         tools.push(definition());
     }
     list
