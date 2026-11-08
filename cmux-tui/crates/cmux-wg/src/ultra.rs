@@ -915,6 +915,26 @@ mod tests {
         assert_eq!(wire.lock().unwrap().len(), 1, "no parity goes out");
     }
 
+    /// A side with the mode off keeps nothing until the peer's first trusted
+    /// parity: a loss in that first group stays lost (TCP retransmits it),
+    /// and every later group is rebuilt.
+    #[test]
+    fn an_off_receiver_rebuilds_from_the_second_group_on() {
+        let index = [7, 7, 7, 7];
+        let peer = origin(1);
+        let (first_group, first_parity) = group_of(index, 0, 4);
+        let (second_group, second_parity) = group_of(index, 4, 4);
+        let mut inbox: Vec<_> = [0, 1, 3].map(|i| (first_group[i].clone(), peer)).to_vec();
+        inbox.push((first_parity[0].clone(), peer));
+        inbox.extend([0, 2, 3].map(|i| (second_group[i].clone(), peer)));
+        inbox.push((second_parity[0].clone(), peer));
+        let authentic: Vec<_> = first_group.iter().chain(&second_group).cloned().collect();
+        let (ultra, out, _) = receive(UltraMode::Off, Some(peer), inbox, &authentic);
+        assert!(!out.contains(&first_group[2]), "the first group is not rebuilt: {out:?}");
+        assert_eq!(out.last(), Some(&second_group[1]), "the second group is: {out:?}");
+        assert_eq!(ultra.counters.snapshot().recovered, 1);
+    }
+
     /// An on-path attacker drops a genuine datagram and sends its unchanged
     /// ciphertext as single-member parity with a costly mode in the header.
     /// The rebuilt datagram is the genuine one and authenticates, and still
