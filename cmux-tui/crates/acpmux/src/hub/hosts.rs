@@ -555,7 +555,7 @@ impl Hub {
         };
         // Its replay is not known to be in the log until its end is learned (below).
         child.mark_replay_unknown();
-        let proven = self.adopt_caller_token(&session.id, caller_token);
+        let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
         // A fork through an adopted agent asks for the list it started with
         // (`spawn.rs` decides it at session/new for a spawned one).
         let meta = session.meta();
@@ -1925,7 +1925,7 @@ impl Hub {
         if let Some(pid) = record.harness_pid {
             crate::cpu_class::clear_running(pid);
         }
-        self.forget_adopted_caller(&session.id);
+        self.forget_adopted_caller(&session.id, &record.incarnation);
         // Logged before the first entry, so a later controller counts every
         // entry of this incarnation.
         let mut started = json!({
