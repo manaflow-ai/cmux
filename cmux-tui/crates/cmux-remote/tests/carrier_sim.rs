@@ -177,6 +177,20 @@ fn seeds_hold() {
     );
 }
 
+/// The seeds that found a bug, each kept so it stays found: 3 (the daemon's deadlines on another
+/// clock than its timers: every link group past 30 s expired as it formed) and 658 (a relay that
+/// stalls after the Noise handshake: the wait for link-ready had no deadline, and the session it
+/// returned 60 s later was one the daemon had dropped).
+#[test]
+fn seeds_that_found_bugs_hold() {
+    for seed in [3, 658] {
+        let o = world::run(seed, true);
+        if let Err(failure) = invariants::check(&o) {
+            panic!("seed {seed}: {failure}\nreplay: {}", replay_command(seed));
+        }
+    }
+}
+
 /// A seed is one run: the same seed twice gives the same events, sessions and recoveries.
 #[test]
 fn a_seed_replays_exactly() {
