@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42433266100",
+  "recorded_at": "2026-11-08T01:19:55Z",
+  "reason": "cmux-tui 374815231677 changes the image's cmux-tui (pinned a8abe664914f)",
+  "dry_run": false,
+  "cmux_tui": "374815231677a56c1dfd23a0c0dd904f7a853601",
+  "fixes": [
+    {
+      "sha": "f1ebca568c5dd8c1337f5ab80e9728919c63a202",
+      "mergedAt": "2026-11-07T16:58:21-08:00",
+      "subject": "palette: delete the dead TypeScript ranker source (#38097)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T01:19:55Z",
+    "snapshot_id": "sh-facd13cb828147818b440bcdeb3f5a5c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42433266100): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "650ec3e5e2df6fe6cebe672718ebe4ecea76de24",
+    "image": "cloud-native-auto-37481523-42433266100-1",
+    "revision": "ci-42433266100-1",
+    "at": "2026-11-08T01:19:55Z"
+  },
+  "rolled_back": false
+}
