@@ -84,7 +84,7 @@ enum TabGroupMoves {
     /// strips drop them and the group's chip with no close. Returns `completion` behind the outcome.
     @MainActor private static func depart(_ group: TabGroupID, services: AppServices, then completion: @escaping Completion) -> Completion {
         guard let store = GroupOwnership.daemon(holdingTabGroup: group, machines: services.machines)?.store else { return completion }
-        return tabs(of: group, in: store).reduce(completion) { next, tab in TabMoves.depart(tab, closesPane: false, services: services, then: next) }
+        return tabs(of: group, in: store).reduce(completion) { next, tab in TabMoves.depart(tab, services: services)(false, next) }
     }
 
     private static func tabs(of group: TabGroupID, in store: DaemonStore) -> [TabModel] {

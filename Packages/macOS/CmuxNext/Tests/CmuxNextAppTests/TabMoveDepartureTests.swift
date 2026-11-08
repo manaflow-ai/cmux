@@ -23,13 +23,15 @@ import Testing
                                                       b: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(2), b: .leaf(3)))
 
     /// One move of `TabMoves.move` in its turn, as it shows with no daemon (these tests have no
-    /// connection, so `intendNow` would show nothing): the departure and the move's intent in the
-    /// store. No strip syncs in between, as in one action batch or two moves in one turn.
+    /// connection, so `intendNow` would show nothing): the departure, the move's intent in the store,
+    /// then the departure's close. No strip syncs in between, as in one action batch or two moves in
+    /// one turn. Returns the move's outcome step and its intent's transaction.
     @discardableResult
-    private func moveNow(_ tab: TabModel, from source: PaneController, to target: PaneController, _ shown: PaneCloseControllerTests.Shown) -> TabMoves.Completion {
-        let finish = TabMoves.depart(tab, into: target.pane, from: source, closesPane: true, services: shown.services) { _ in }
-        shown.services.daemon.store.intend(.moveTab(surface: tab.surface, toPane: target.pane.handle, index: target.pane.tabs.count), transaction: .generate())
-        return finish
+    private func moveNow(_ tab: TabModel, from source: PaneController, to target: PaneController,
+                         _ shown: PaneCloseControllerTests.Shown) -> (finish: TabMoves.Completion, transaction: ClientTransactionID) {
+        let leave = TabMoves.depart(tab, into: target.pane, from: source, services: shown.services), transaction = ClientTransactionID.generate()
+        shown.services.daemon.store.intend(.moveTab(surface: tab.surface, toPane: target.pane.handle, index: target.pane.tabs.count), transaction: transaction)
+        return (leave(true) { _ in }, transaction)
     }
 
     /// A strip on screen with the structural `newTab` switch on: the case where a move used to play
@@ -95,7 +97,7 @@ import Testing
         defer { shown.end() }
         let source = try shown.controller(2), target = try shown.controller(1)
         let tab = try #require(source.pane.tabs.first)
-        source.move(StripTabID(tab.id), toPane: target, index: 1)
+        moveNow(tab, from: source, to: target, shown)
         #expect(shown.content.layoutModel.isClosing(source.layoutPaneID), "the emptied pane waited for the daemon's tree")
         #expect(shown.content.layoutModel.screens.first?.layout.contains(source.layoutPaneID) == false,
                 "the emptied pane still shows")
@@ -113,8 +115,10 @@ import Testing
         defer { shown.end() }
         let source = try shown.controller(2)
         let tab = try #require(source.pane.tabs.first)
-        let finish = TabMoves.depart(tab, into: try shown.controller(1).pane, from: source, closesPane: true, services: shown.services) { _ in }
+        let (finish, transaction) = moveNow(tab, from: source, to: try shown.controller(1), shown)
+        #expect(shown.content.layoutModel.isClosing(source.layoutPaneID), "the emptied pane waited for the daemon's tree")
         #expect(shown.content.focus.state.topology.allTabIDs.contains(tab.id), "the moved tab left the focus topology")
+        shown.services.daemon.store.rejectIntent(transaction) // as `intendNow` does before its failure
         finish(false)
         #expect(!shown.content.layoutModel.isClosing(source.layoutPaneID), "a refused move kept the pane closed")
         #expect(!source.stripModel.departures.contains(StripTabID(tab.id)), "a refused move left the tab departing")
@@ -128,9 +132,20 @@ import Testing
         defer { shown.end() }
         let source = try shown.controller(2), target = try shown.controller(1)
         let tab = try #require(source.pane.tabs.first)
-        source.move(StripTabID(tab.id), toPane: target, index: 1)
+        moveNow(tab, from: source, to: target, shown)
         #expect(!shown.content.layoutModel.isClosing(source.layoutPaneID), "a pane with a tab left closed")
         #expect(source.stripModel.departures.contains(StripTabID(tab.id)))
+    }
+
+    /// With no daemon the move's intent never shows: the tab stays in its pane, so the pane stays
+    /// too, rather than closing and coming back on the refusal.
+    @Test func aMoveTheStoreDoesNotShowKeepsThePane() throws {
+        let shown = try PaneCloseControllerTests.Shown(tree: PaneCloseControllerTests.splitTree(Self.sideBySide))
+        defer { shown.end() }
+        let source = try shown.controller(2), target = try shown.controller(1)
+        let tab = try #require(source.pane.tabs.first)
+        source.move(StripTabID(tab.id), toPane: target, index: 1)
+        #expect(!shown.content.layoutModel.isClosing(source.layoutPaneID), "the pane left while the store still holds its tab")
     }
 
     /// Router review F1 (#37735): in one turn A's tab moves into B, then B's own tab into C. B's

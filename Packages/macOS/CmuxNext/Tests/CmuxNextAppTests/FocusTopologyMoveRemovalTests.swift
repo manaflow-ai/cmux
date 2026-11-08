@@ -11,13 +11,13 @@ import Testing
     )
 
     @Test func theMovedTabLandsInItsDestination() {
-        let after = Self.topology.removing(pane: "right", moving: "b", to: "left")
+        let after = Self.topology.removing(pane: "right", carrying: { ["b": "left"][$0] })
         #expect(!after.contains(pane: "right"))
         #expect(after.pane("left")?.tabs.map(\.id) == ["a", "b"])
         #expect(after.pane("left")?.tab("b")?.kind == .browser)
     }
 
     @Test func anUnknownDestinationDropsThePaneAsBefore() {
-        #expect(Self.topology.removing(pane: "right", moving: "b", to: "gone") == Self.topology.removing(pane: "right"))
+        #expect(Self.topology.removing(pane: "right", carrying: { ["b": "gone"][$0] }) == Self.topology.removing(pane: "right"))
     }
 }

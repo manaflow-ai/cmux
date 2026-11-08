@@ -19,16 +19,16 @@ extension PaneController {
     /// daemon's echo finds the focus where its own topology would put it. No pane is named here (a
     /// run that may not move the view still has the focus taken off the closed pane: a topology is
     /// no view change).
-    func showPaneClose(moving tab: (id: String, to: String)? = nil) -> PendingPaneClose? {
+    func showPaneClose() -> PendingPaneClose? {
         guard let workspace, let close = workspace.layoutModel.showPaneClose(layoutPaneID) else { return nil }
         let focused = isFocusedInWorkspace
         // The held topology with this pane taken out: no rebuild over every pane (the echo's apply
-        // sends the close's one built topology, the perf gate's split budget). A topology a pane
-        // marked changed this turn is built first, from the layout without this pane. A background
-        // close updates it too: a later close of the focused pane, before this one's echo, must not
-        // pick this hidden pane.
-        let held = workspace.focus.currentState().topology
-        if held.contains(pane: paneKey) { workspace.focus.send(.topology(tab.map { held.removing(pane: paneKey, moving: $0.id, to: $0.to) } ?? held.removing(pane: paneKey))) }
+        // sends the close's one built topology, the perf gate's split budget), its tabs the store shows
+        // in another pane (moves of this turn) carried there. A topology a pane marked changed this turn
+        // is built first. A background close updates it too: a later close of the focused pane, before
+        // this one's echo, must not pick this hidden pane.
+        let held = workspace.focus.currentState().topology, store = daemon.store
+        if held.contains(pane: paneKey) { workspace.focus.send(.topology(held.removing(pane: paneKey) { store.tab(idOrResource: $0).flatMap { store.pane(holding: $0) }.flatMap { $0 === pane ? nil : workspace.pane(for: $0.handle)?.paneKey } })) }
         // The layout shows the reducer's pick in this frame, with or without the window's applier.
         if focused, let pane = workspace.focus.state.pane, pane != paneKey { workspace.layoutModel.focus(LayoutPaneID(pane), notify: false) }
         // The store tree has not changed: the view mirrors the hidden pane now, and the daemon's
