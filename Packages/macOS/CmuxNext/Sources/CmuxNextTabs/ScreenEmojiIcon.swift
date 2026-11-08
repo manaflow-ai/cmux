@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextTabs
 
 /// Draws an emoji screen icon into a `TabImage` at the tab icon size. The
 /// cache keeps one image per emoji and backing scale.

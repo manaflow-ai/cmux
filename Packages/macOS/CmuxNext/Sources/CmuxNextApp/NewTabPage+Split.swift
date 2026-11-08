@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 import enum CmuxNextLayout.NewChatPlacement
 

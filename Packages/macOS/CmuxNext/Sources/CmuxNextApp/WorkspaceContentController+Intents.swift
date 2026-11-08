@@ -263,6 +263,3 @@ extension WorkspaceContentController: DividerWorkspace {
         return nil
     }
 }
-extension AppActionContext {
-    func dividerContent(_ invocation: ActionInvocation) -> WorkspaceContentController? { scope(invocation).workspace.flatMap(content(showing:)) }
-}

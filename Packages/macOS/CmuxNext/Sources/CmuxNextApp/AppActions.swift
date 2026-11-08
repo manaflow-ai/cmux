@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebarActions
