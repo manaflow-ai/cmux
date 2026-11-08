@@ -20,7 +20,10 @@ nothing and drop every typed secret value.
 The heading and the Cancel/Save row are fixed; only the fields between them scroll, so a long page
 (many secrets, each unfolding its delivery) never pushes the actions out of the sheet. The sheet
 grows with its content up to its height cap, then the fields scroll; the heading and actions never
-move (gallery `secret-many-expanded`; `webviews/test/cloud-environment-sheet-geometry.test.ts`).
+move (gallery `secret-many-expanded`; `webviews/test/cloud-environment-sheet-geometry.test.ts`). One
+box scrolls, `.env-scroll` (`min-height: 0`, `overflow-y: auto`) between the heading and the actions;
+the sheet and the form clip (`overflow: clip`, never `hidden`, which script can still scroll), so no
+field paints under the actions and the last Header line and Add stay reachable.
 
 ## Secret row
 
