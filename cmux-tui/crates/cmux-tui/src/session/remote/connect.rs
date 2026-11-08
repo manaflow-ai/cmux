@@ -246,6 +246,11 @@ impl RemoteSession {
         if self.supports_capability(PLACEMENT_SHIFT_CAPABILITY) {
             negotiated.push(PLACEMENT_SHIFT_CAPABILITY);
         }
+        // `restart` on the shutdown notice: reconnect after `daemon restart`,
+        // exit after `daemon stop` (app/daemon_reconnect.rs).
+        if self.supports_capability(cmux_tui_core::server::DAEMON_SHUTDOWN_RESTART_CAPABILITY) {
+            negotiated.push(cmux_tui_core::server::DAEMON_SHUTDOWN_RESTART_CAPABILITY);
+        }
         if !negotiated.is_empty() {
             client_info.set("capabilities", json!(negotiated));
         }

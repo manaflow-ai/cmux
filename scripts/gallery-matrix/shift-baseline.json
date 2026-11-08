@@ -1811,7 +1811,7 @@
     "agent-pane.transcript#codex-turn-headers": 0,
     "agent-pane.transcript#codex-turn-live": 0,
     "agent-pane.transcript#codex-turn-raw-commands": 0,
-    "agent-pane.transcript#codex-turn-run-open": 0,
+    "agent-pane.transcript#codex-turn-run-open": 0.0043,
     "agent-pane.transcript#collapsed-run": 0,
     "agent-pane.transcript#collapsed-run-failed": 0,
     "agent-pane.transcript#collapsed-run-open": 0.02651,

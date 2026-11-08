@@ -185,6 +185,12 @@ pub(super) enum AppCommand {
     Live(live::Command),
 }
 
+/// Whether `args` (after the global options) is the classic `cmux identify`,
+/// which a cmux-tui pane answers from its own session (pane_identify.rs).
+pub(super) fn is_classic_identify(args: &[String]) -> bool {
+    classic::classic_system_method(args) == Some("system.identify")
+}
+
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
 pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     let Some(scope) = args.first() else { return Ok(None) };
