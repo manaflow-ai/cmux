@@ -785,7 +785,11 @@ fn agent_chat_dock_takes_split_up_below_the_chat() {
     let up = wire.ok(json!({"cmd": "split", "pane": below, "dir": "down", "before": true}));
     let up: SurfaceId = serde_json::from_value(up["surface"].clone()).unwrap();
     let up = wire.mux.with_state(|state| state.pane_of(up).unwrap());
-    assert_eq!(column_panes(&wire)[0], vec![panes[0], up, below], "the new pane sits between the chat and its target");
+    assert_eq!(
+        column_panes(&wire)[0],
+        vec![panes[0], up, below],
+        "the new pane sits between the chat and its target"
+    );
 
     let fields = serde_json::Map::from_iter([(
         crate::mux::PANE_BROWSER_URL_FIELD.to_string(),
@@ -793,17 +797,31 @@ fn agent_chat_dock_takes_split_up_below_the_chat() {
     )]);
     let page = wire
         .mux
-        .split_browser_pane_with_fields_as(&crate::Actor::Daemon, below, "up", None, fields.clone(), Some((38, 11)))
+        .split_browser_pane_with_fields_as(
+            &crate::Actor::Daemon,
+            below,
+            "up",
+            None,
+            fields.clone(),
+            Some((38, 11)),
+        )
         .expect("a background Split Up below the chat is taken");
     let page = wire.mux.with_state(|state| state.pane_of(page.id).unwrap());
     assert_eq!(column_panes(&wire)[0], vec![panes[0], up, page, below]);
 
     let before = column_panes(&wire);
-    let refused = wire.send(json!({"cmd": "split", "pane": panes[0], "dir": "down", "before": true}));
+    let refused =
+        wire.send(json!({"cmd": "split", "pane": panes[0], "dir": "down", "before": true}));
     assert_eq!(refused["ok"], false, "{refused}");
     assert!(refused.to_string().contains("dock-column-agent-chat"), "{refused}");
-    let refused =
-        wire.mux.split_browser_pane_with_fields_as(&crate::Actor::Daemon, panes[0], "up", None, fields, Some((38, 11)));
+    let refused = wire.mux.split_browser_pane_with_fields_as(
+        &crate::Actor::Daemon,
+        panes[0],
+        "up",
+        None,
+        fields,
+        Some((38, 11)),
+    );
     assert!(refused.is_err(), "nothing lands above the chat");
     assert_eq!(column_panes(&wire), before, "a refused split changes nothing");
     assert!(wire.mux.with_state(|state| crate::mux::pane_is_agent_chat_top(state, panes[0])));
