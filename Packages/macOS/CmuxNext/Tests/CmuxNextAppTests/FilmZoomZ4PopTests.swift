@@ -39,9 +39,11 @@ struct FilmZoomZ4PopTests {
         defer { watches.forEach { $0.invalidate() } }
         screen.screen.stopFilmFade(retiring: true) // what the fade's completion runs
 
+        let shown = hosts.filter { !$0.isHidden }.map(\.pane.rawValue)
+        let dimmed = hosts.filter { $0.layer?.opacity != 1 }.map(\.pane.rawValue)
         #expect(seen.shownAtFull.isEmpty, "covered panes back at opacity 1 while still shown: \(seen.shownAtFull)")
-        #expect(hosts.allSatisfy(\.isHidden), "the fade's end retires (hides) every covered pane")
-        #expect(hosts.allSatisfy { $0.layer?.opacity == 1 }, "a retired pane keeps full opacity for the unzoom")
+        #expect(shown.isEmpty, "the fade's end retires (hides) every covered pane: \(shown) still shown")
+        #expect(dimmed.isEmpty, "a retired pane keeps full opacity for the unzoom: \(dimmed) not at 1")
     }
 }
 #endif
