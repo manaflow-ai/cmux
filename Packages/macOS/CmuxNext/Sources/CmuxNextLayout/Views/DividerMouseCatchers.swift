@@ -28,6 +28,13 @@ public final class DividerMouseCatchers {
     public var onHover: ((String, Bool) -> Void)?
     /// Whether a layout divider drag runs: only then does a pressed panel keep the resize cursor off the panel.
     public var isDividerDragging: () -> Bool = { false }
+    /// Whether the left button is down now. A seam for tests, which press no hardware button.
+    var isLeftButtonDown: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+    /// The last ``update(_:active:)``'s input, applied again when a held panel's press ends.
+    private var lastAreas: [LayoutMouseArea] = []
+    private var lastActive = false
+    /// Panels an update would have parked or moved while they held a press: they wait for the release.
+    private var held: Set<String> = []
     /// Panel frame changes and panels made since launch (`debug.layers`): each is a window
     /// server move, so a bench counts them over an action.
     public private(set) var panelUpdates = 0
@@ -64,11 +71,23 @@ public final class DividerMouseCatchers {
 
     /// Shows one panel per area (window coordinates) that a page window over the content covers, or none when
     /// `active` is false (no page window is visible).
+    ///
+    /// A panel that holds a press stays where the press found it, shown and taking the mouse, until the release: the
+    /// drag's events and its release come to that panel's window wherever the pointer goes, so parking it (no size, no
+    /// mouse) or ordering it out mid-drag drops the drag. A divider press can detach the page under it (an unfocused page
+    /// leaves the window for the resize motion, #36541): that left no page over the divider, so the next update parked
+    /// the panel that held the press and took it out of the window. The release applies the last update again.
     public func update(_ areas: [LayoutMouseArea], active: Bool) {
+        (lastAreas, lastActive) = (areas, active)
         pages = Self.pageFrames(over: window)
         let wanted = active && window.isVisible ? areas.filter { area in pages.contains { $0.intersects(area.rect) } } : []
         let ids = Set(wanted.map(\.id))
+        held.removeAll()
         for (id, panel) in panels where !ids.contains(id) {
+            if holdsPress(panel) {
+                held.insert(id)
+                continue
+            }
             panels[id] = nil
             park(panel)
         }
@@ -85,6 +104,10 @@ public final class DividerMouseCatchers {
                 panel = makePanel(id: area.id)
             }
             panels[area.id] = panel
+            if holdsPress(panel) {
+                held.insert(area.id)
+                continue
+            }
             panel.catcher.resizesColumns = area.resizesColumns
             let frame = window.convertToScreen(area.rect)
             if panel.frame != frame {
@@ -96,6 +119,18 @@ public final class DividerMouseCatchers {
         // No divider wants the spares now (no page window, or fewer dividers): only the newest stay parked.
         if wanted.isEmpty, !active || !window.isVisible { for panel in spares { remove(panel) }; spares.removeAll() }
         while spares.count > Self.maxSpares { remove(spares.removeFirst()) }
+    }
+
+    /// A shown panel between a press in it and the release, while the button is still down (a release that never
+    /// came, such as one lost to another app, holds nothing past the next update).
+    private func holdsPress(_ panel: DividerMousePanel) -> Bool {
+        panel.parent === window && panel.catcher.isPressed && isLeftButtonDown()
+    }
+
+    /// A held panel's press ended: it follows the last update now.
+    private func pressEnded(_ panel: DividerMousePanel) {
+        guard held.contains(panel.areaID), panels[panel.areaID] === panel else { return }
+        update(lastAreas, active: lastActive)
     }
 
     /// A panel whose divider left: no size and no mouse, still a child of the window, ready for the next divider.
@@ -115,6 +150,8 @@ public final class DividerMouseCatchers {
     }
 
     public func teardown() {
+        // The window closes: no press holds a panel.
+        for panel in panels.values { panel.catcher.resetForReuse() }
         update([], active: false)
     }
 
@@ -127,6 +164,10 @@ public final class DividerMouseCatchers {
             self?.onHover?(panel.areaID, hovered)
         }
         panel.catcher.isDividerDragging = { [weak self] in self?.isDividerDragging() ?? false }
+        panel.catcher.onPressEnded = { [weak self, weak panel] in
+            guard let self, let panel else { return }
+            self.pressEnded(panel)
+        }
         return panel
     }
 }
@@ -198,7 +239,9 @@ final class DividerMouseCatcherView: NSView {
     private var isEntered = false
     /// Between a press here and its release: the drag's events come here wherever the pointer goes, and this
     /// panel stays where the press found it until the release (`WindowOverlayLayer`, `isInLayoutMotion`).
-    private var isPressed = false
+    private(set) var isPressed = false
+    /// After a release here has reached the parent window.
+    var onPressEnded: (() -> Void)?
 
     /// Its panel was parked (its divider left): no enter, press or queued cursor carries to the next divider.
     func resetForReuse() {
@@ -249,6 +292,7 @@ final class DividerMouseCatcherView: NSView {
     override func mouseUp(with event: NSEvent) {
         isPressed = false
         forward(event)
+        onPressEnded?()
     }
     override func rightMouseDown(with event: NSEvent) { forward(event) }
     override func rightMouseUp(with event: NSEvent) { forward(event) }
@@ -281,3 +325,10 @@ final class DividerMouseCatcherView: NSView {
         parent.sendEvent(forwarded)
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension DividerMousePanel: LayoutPassRoleNaming {
+    /// The divider it takes the mouse for (a parked spare keeps its last one).
+    var layoutPassRole: String { "divider catcher \(areaID)" }
+}
+#endif

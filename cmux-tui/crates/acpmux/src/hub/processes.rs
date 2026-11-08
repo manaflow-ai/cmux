@@ -547,7 +547,7 @@ impl Hub {
                 // so it is kept here.
                 let tool = params.pointer("/update/toolCallId").and_then(Value::as_str);
                 let i = tool.and_then(|tool| table.find_tool(tool));
-                let p = i.map(|i| &mut table.processes[i]);
+                let p = i.and_then(|i| table.processes.get_mut(i));
                 if let (Some(p), Some(file)) = (p, output.filter(|f| !f.is_empty()))
                     && p.output_file.is_none()
                 {
@@ -574,8 +574,13 @@ impl Hub {
     /// A process still runs in the background: the chat is not idle
     /// (`idle.rs`).
     pub(super) fn any_process_running(&self, session: &Session) -> bool {
-        let table = self.process_table(session);
-        !table.running.is_empty()
+        self.running_processes(session) > 0
+    }
+
+    /// How many of the session's background processes run (reading its log once if this
+    /// daemon has not yet).
+    pub(super) fn running_processes(&self, session: &Session) -> usize {
+        self.process_table(session).running.len()
     }
 
     /// How many of the session's background processes run, from a table this
@@ -789,7 +794,7 @@ impl Hub {
             "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
             "auto": auto,
         });
-        let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params);
+        let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params.clone());
         match tokio::time::timeout(timeout, ask).await {
             Ok(Ok(answer)) => {
                 let moved = answer.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
@@ -797,6 +802,14 @@ impl Hub {
             }
             Ok(Err(e)) => Err(e),
             Err(_) => {
+                // Logged, so an answer that comes later shows as Claude Code's delay, not
+                // hidden behind this wait (bg-8 of Leo's chat: 10 s here, 195.9 s to answer).
+                self.append(
+                    session,
+                    "mux",
+                    "background_wait_ended",
+                    json!({"toolCallId": tool, "timeoutMs": params.get("timeoutMs"), "auto": auto}),
+                );
                 Err(RpcError::internal("Claude Code did not answer background_tasks in time"))
             }
         }

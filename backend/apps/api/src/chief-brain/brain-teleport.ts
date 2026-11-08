@@ -61,8 +61,6 @@ export const writeTeleport = (sql: SqlStorage, t: Teleport | null): void => {
 
 const Args = Type.Object({ to: Type.String({ description: 'home, or ssh:HOST (a Mac mini the person names).' }) })
 
-type Settings = { configure(agent: string, owner: string, patch: Record<string, unknown>): Promise<{ ok: true } | { ok: false; code: string; message: string }> }
-
 /** The `teleport` tool, for a brain whose `who()` names its chief and owner (null: not bound yet). */
 export const teleportTools = (env: Env, who: () => { agent: string | null; owner: string | null }, effectsAuthorized: () => boolean = () => true): [ToolRegistration<typeof Args>] => [
   {
@@ -79,7 +77,7 @@ export const teleportTools = (env: Env, who: () => { agent: string | null; owner
         if (bad) return `teleport: ${bad}`
         const request: Teleport = { to: to.trim(), id: `tp_${crypto.randomUUID().replaceAll("-", "")}`, at: new Date().toISOString() }
         // The same mutation path as the owner's PUT (configure), on the Chief's settings object (name = agent).
-        const settings = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent)) as unknown as Settings
+        const settings = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent))
         const r = await settings.configure(agent, owner, { teleport: request })
         if (!r.ok) return `teleport: not saved (${r.code}): ${r.message}`
         return `Move requested (${request.to}). The person's Mac will move you after this turn ends; your memory and this conversation go with you. Say goodbye now, in one short line.`

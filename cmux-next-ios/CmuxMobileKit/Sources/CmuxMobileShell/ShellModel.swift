@@ -168,6 +168,15 @@ final class ShellModel {
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
         }
+        // Voice mode on a terminal while an agent runs in it (it replaced the dictation
+        // mic): the agent's Feed events are read aloud; the user's words are typed in.
+        terminalTabs.voiceSourceProvider = { [weak store, weak terminalTabs] tab, workspace, _ in
+            let workspaceID = workspace.id, tabID = tab.id
+            return TerminalVoiceSource(
+                macID: workspace.macID, workspaceID: workspaceID, tabID: tabID, feed: .shared,
+                currentTab: { store?.workspace(id: workspaceID)?.tabs.first { $0.id == tabID } },
+                currentModel: { terminalTabs?.model(forTabID: tabID) })
+        }
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
         }
@@ -595,10 +604,10 @@ final class ShellModel {
         }
     }
 
-    /// Call Chief from anywhere: the live call, or Settings → Chief Calls
-    /// when this account has no OpenAI API key yet.
-    func callChief() {
-        guard !ChiefLiveCall.shared.start() else { return }
+    /// Call Chief from anywhere: the live call to `chief` (nil: the default
+    /// Chief), or Settings → Chief Calls when this account has no OpenAI API key yet.
+    func callChief(_ chief: ChiefSession? = nil) {
+        guard !ChiefLiveCall.shared.start(chief: chief) else { return }
         openChiefCallSettings()
     }
 

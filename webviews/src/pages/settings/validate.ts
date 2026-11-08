@@ -113,6 +113,25 @@ export function isCustomDensity(value: unknown): boolean {
   return Object.values(tokens).every((token) => typeof token === "number" && Number.isFinite(token) && token >= 0);
 }
 
+/**
+ * One command label item (`agentPane.display.commandLabels`): a preset name, or a rule with a label
+ * and a program or pattern. The Swift rule is `CommandLabelsSetting.isItem`.
+ */
+export function isCommandLabel(value: unknown): boolean {
+  const nonBlank = (item: unknown) => typeof item === "string" && item.trim() !== "";
+  if (typeof value === "string") return nonBlank(value);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const rule = value as Record<string, unknown>;
+  if (!nonBlank(rule.label)) return false;
+  if (rule.program !== undefined) {
+    const names = Array.isArray(rule.program) ? rule.program : [rule.program];
+    if (!names.length || !names.every(nonBlank)) return false;
+  }
+  if (rule.match !== undefined && !nonBlank(rule.match)) return false;
+  if (["link", "icon"].some((key) => rule[key] !== undefined && typeof rule[key] !== "string")) return false;
+  return rule.program !== undefined || rule.match !== undefined;
+}
+
 /** Returns null when `value` is valid for `row`, otherwise a short English reason. */
 export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domains>): string | null {
   const choices = row.choices?.map((choice) => choice.value) ?? [];
@@ -129,6 +148,11 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     return Array.isArray(value) && value.every(isCustomDensity)
       ? null
       : "expected a list of densities, each with a lowercase id and a name";
+  }
+  if (row.validation === "domain:command_labels") {
+    return Array.isArray(value) && value.every(isCommandLabel)
+      ? null
+      : "expected a list of preset names and rules, each with a label and a program or match";
   }
   if (row.validation === "domain:search_template") {
     return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";

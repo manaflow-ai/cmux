@@ -22,6 +22,10 @@ public final class ImportHistoryPageProvider: PageProvider {
     public var anchor: () -> NSWindow? = { nil }
     public var restart: () -> Void = {}
     public var finish: (Bool) -> Void = { _ in }
+    /// A line under the sources about another tool's import (Import from Conductor's), and when it
+    /// ends (its deadline: the page drops it then, with no new detection); nil for none. Called off
+    /// the main thread each time the page detects its sources.
+    public var notice: (@Sendable () -> (text: String, until: Date)?)?
 
     public init(muxHome: String, personOnlyMessage: String, run: @escaping Run) {
         command = MemoryImportCommand(target: .local(muxHome: muxHome))
@@ -40,18 +44,29 @@ public final class ImportHistoryPageProvider: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.importHistory.detect":
-            // No --exports, including when this page is restored on screen at launch.
-            let result = try await run(command.detect(), .seconds(60))
-            let sources = (result["sources"]?.arrayValue ?? []).filter {
-                ["claude-code", "claude-memory", "codex"].contains($0["source"]?.stringValue ?? "")
+            // Passive page detection must stay TCC-safe. Export folders are scanned only after
+            // the person clicks Find exports in the open import page.
+            let includesExports = params["exports"]?.boolValue == true
+            if includesExports { try requireGesture(context) }
+            let result = try await run(command.detect(exports: includesExports), .seconds(60))
+            let sources = (result["sources"]?.arrayValue ?? []).filter { source in
+                includesExports || !(source["source"]?.stringValue ?? "").hasPrefix("zip:")
             }
             for source in sources {
-                if let name = source["source"]?.stringValue { admitted[name] = "" }
+                if let name = source["source"]?.stringValue {
+                    // Presence hints for no-export assistants are already text sources;
+                    // preserve their origin so the page can import the admitted path.
+                    let kind = source["kind"]?.stringValue ?? ""
+                    admitted[name] = ["grok-bot", "muse", "dots", "instinct"].contains(kind) ? kind : ""
+                }
             }
+            let line = await Self.line(notice)
             return ["sources": .array(sources.map { source in
-                ["source": source["source"] ?? .null, "items": source["count"] ?? .null,
+                ["source": source["source"] ?? .null, "kind": source["kind"] ?? .null,
+                 "path": source["path"] ?? .null, "items": source["count"] ?? .null,
                  "bytes": source["bytes"] ?? .null]
-            })]
+            }), "notice": line.map { JSONValue.string($0.text) } ?? .null,
+               "noticeUntil": line.map { JSONValue.number(($0.until.timeIntervalSince1970 * 1000).rounded()) } ?? .null]
         case "cmux.importHistory.begin":
             try requireGesture(context)
             guard !busy, let id = params["batch"]?.stringValue, !id.isEmpty else {
@@ -167,6 +182,12 @@ public final class ImportHistoryPageProvider: PageProvider {
             throw PageError(code: PageNativeOp.userOnlyCode, message: personOnlyMessage)
         }
         spentGesture = event
+    }
+
+    private nonisolated static func line(_ notice: (@Sendable () -> (text: String, until: Date)?)?) async -> (text: String, until: Date)? {
+        guard let notice else { return nil }
+        // task-owner: one off-main folder listing per detection, awaited here
+        return await Task.detached(priority: .utility) { notice() }.value
     }
 
     private nonisolated static func pasteFile(_ text: String) async throws -> (URL, URL) {

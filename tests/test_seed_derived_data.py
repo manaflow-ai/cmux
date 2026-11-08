@@ -712,8 +712,15 @@ MINIS_FIRST_THROUGH_ATTEMPT_3 = frozenset({"cmux-next.yml", "cmux-next-batch.yml
 # not re-run them (it judges only build-nightly-app). The exemption holds only while a job keeps exactly this route.
 OWNED_ONLY_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
                                      "legacy-signer-dmg-image", "verify-nightly-identity-legacy-pool",
-                                     "generate-nightly-deltas"})
+                                     "generate-nightly-deltas", "build-sign-notarize-nightly",
+                                     "recover-nightly-next-notarization", "verify-signed-nightly",
+                                     "verify-final-dmg-nightly", "launch-smoke-nightly", "signer-dmg-image",
+                                     "verify-recovered-nightly-next"})
 OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
+# The secret-bearing ones end on the signer's label alone (signing_runner.SIGNER_LABEL).
+SIGNING_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "generate-nightly-deltas", "build-sign-notarize-nightly",
+                                  "recover-nightly-next-notarization"})
+SIGNING_NIGHTLY_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
 
 
 TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|\.|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
@@ -989,14 +996,14 @@ class Wiring(unittest.TestCase):
         self.assertIn("admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-", key["run"])
         nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
         job = workflow["jobs"]["seed"]
-        # The nightly cold seed runs on Blacksmith macOS 26, never a GitHub-hosted
-        # Mac (Leo, 2026-10-27; tests/test_ci_nightly_no_hosted_mac.py) and never
-        # macOS 15 (no nightly job runs there), with the per-push seeder's Xcode.
+        # The nightly cold seed runs on our nightly-only minis, never Blacksmith (nightlies never use
+        # Blacksmith, Lawrence 2026-10-30), never a GitHub-hosted Mac (Leo, 2026-10-27;
+        # tests/test_ci_nightly_no_hosted_mac.py) and never macOS 15, with the per-push seeder's Xcode.
         self.assertEqual(nightly["runs-on"], "${{ matrix.pool }}")
         schedule = github_context("schedule")
         nightly_pools = [pool if "${{" in pool else f"${{{{ '{pool}' }}}}" for pool in nightly["strategy"]["matrix"]["pool"]]
         self.assertEqual([evaluate(pool, schedule) for pool in nightly_pools],
-                         ["blacksmith-6vcpu-macos-26"])
+                         ["glaeda-nightly-only-m4pro"])
         for pool, blacksmith in (("blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-26"),
                                  ("macos-26", "blacksmith-6vcpu-macos-26")):
             with self.subTest(pool=pool):
@@ -1511,6 +1518,9 @@ class Wiring(unittest.TestCase):
                     with self.subTest(workflow=path.name, job=name, attempt=attempt):
                         if attempt != last:
                             checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
+                        elif path.name == "nightly.yml" and name in SIGNING_NIGHTLY_JOBS:
+                            self.assertTrue(runs_on.endswith(SIGNING_NIGHTLY_FALLBACK), runs_on)
+                            self.assertEqual(labels, ["glaeda-trusted-next-signing"])
                         elif path.name == "nightly.yml" and name in OWNED_ONLY_NIGHTLY_JOBS:
                             # Owned-only by design: the late attempt takes the owned pool route, not a picked mini.
                             self.assertTrue(runs_on.endswith(OWNED_ONLY_NIGHTLY_FALLBACK), runs_on)

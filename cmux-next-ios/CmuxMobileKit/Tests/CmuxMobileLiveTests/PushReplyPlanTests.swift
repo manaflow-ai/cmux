@@ -190,7 +190,7 @@ import Testing
     }
 }
 
-/// The Face ID prompt names what is being sent (review M1, L3).
+/// The approval reason names what is being sent (review M1, L3).
 @Suite struct ApprovalReasonTests {
     @Test func anAnswerNamesItsChoices() throws {
         let request = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"toolCall":{"toolCallId":"q1","title":"Question","kind":"other","_meta":{"claude":{"tool":"AskUserQuestion"}},"rawInput":{"questions":[{"question":"Deploy?","options":[{"label":"Yes, deploy"},{"label":"No"}],"multiSelect":false}]}},"options":[{"optionId":"allow_once","name":"Answer","kind":"allow_once"}]}"#.utf8))

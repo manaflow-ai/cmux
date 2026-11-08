@@ -285,6 +285,20 @@ TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-
 # nightly-next's build picker offers first (nightly_build_runner.NIGHTLY_SLOT_LABEL). main's copy of this watch (the
 # one workflow_run runs) matches it through pr_runner_pool.LANE_LABEL; this copy matches it too.
 NIGHTLY_SLOT_LABEL = re.compile(r"glaeda-(?:aws-)?nightly-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# NEXT's all-nightly reservation is a set of labels rather than a normal
+# persistent pool.  The app build can be queued on the reservation while the
+# rest of the run is still healthy, so it must be visible to this rescue too.
+# Keep the prefix here in sync with nightly_build_runner.py's declared
+# NIGHTLY_ONLY_* labels; a new dedicated class remains covered without making
+# the rescue depend on a second workflow checkout.
+NIGHTLY_ONLY_LABEL_PREFIX = "glaeda-nightly-only-"
+
+
+def nightly_owned_label(label: object) -> bool:
+    """Whether a label is a NEXT nightly-owned route judged by the rescue."""
+    value = str(label or "")
+    return (bool(TRUSTED_LABEL.fullmatch(value)) or bool(NIGHTLY_SLOT_LABEL.fullmatch(value))
+            or nightly_dedicated(value) or value.startswith(NIGHTLY_ONLY_LABEL_PREFIX))
 # feat-cmux-next-only owned workflows the rescue leaves to a person. main's copy of this file is the one the
 # workflow_run runs and holds the full UNRESCUED_WORKFLOW_PATHS; an entry here changes no behaviour (an unlisted
 # workflow is already not watched) and only records the acknowledgement while main takes no merges.
@@ -296,6 +310,10 @@ _POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#
                   "on a live Linux member; the queue janitor re-runs a job queued on a dead one, and no owned Mac is "
                   "involved for the rescue to move")
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/gateway-e2e.yml":
+        "a manual proof (the inference gateway on an owned Mac on the tailnet): its mac job holds the dev stack pair "
+        "and must stay on an owned Mac to reach the subscription router, so a Blacksmith rescue could only fail it; "
+        "its 45-minute timeout clears a stuck run and the person re-dispatches",
     ".github/workflows/backend.yml":
         "migrations-push-guard reads vars.RUNNER_POOLS.linux (cmux#30685, kept by #30761), which runner_pools.py "
         "keeps on a live Linux member, and it holds no secret; its job timeout or a person's cancel clears a stuck "
@@ -308,7 +326,6 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/ci-repo-variables.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-guest-install.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-image-bake.yml": _POOL_READ_WHY,
-    ".github/workflows/cloud-vm-image-contract.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-image-lock.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-base-tier-kick.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-chromium-currency.yml": _POOL_READ_WHY,
@@ -332,11 +349,8 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/ios-internal-nightly-trigger.yml": _POOL_READ_WHY,
     ".github/workflows/labels-sync.yml": _POOL_READ_WHY,
     ".github/workflows/mux.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-capture-check.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-body-checks.yml": _POOL_READ_WHY,
     ".github/workflows/pr-checks.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-cloud-backend-check.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-design-spec-check.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-perf-section-check.yml": _POOL_READ_WHY,
     ".github/workflows/r2-upload-tests.yml": _POOL_READ_WHY,
     ".github/workflows/required-checks-drift.yml": _POOL_READ_WHY,
     ".github/workflows/risk-tier-tests.yml": _POOL_READ_WHY,
@@ -526,8 +540,7 @@ def parse_time(value: object) -> dt.datetime | None:
 def job_pool(job: Mapping[str, Any]) -> str | None:
     """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
     for label in job.get("labels") or []:
-        if (persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or NIGHTLY_SLOT_LABEL.fullmatch(str(label))
-                or nightly_dedicated(str(label))):
+        if (persistent(str(label)) or nightly_owned_label(label)):
             return str(label)
     return None
 
@@ -554,10 +567,11 @@ def nightly_watched(job: Mapping[str, Any]) -> bool:
     minutes past the signed build (visual-gate-nightly-verdict), so a queued
     gate holds nothing.
     """
-    return job.get("name") == NIGHTLY_APP_JOB or any(TRUSTED_LABEL.fullmatch(str(label))
-                                                     for label in job.get("labels") or []) \
+    return job.get("name") == NIGHTLY_APP_JOB or any(
+        TRUSTED_LABEL.fullmatch(str(label)) or nightly_dedicated(str(label))
+        for label in job.get("labels") or []) \
         or job.get("name") == NIGHTLY_DECIDE_JOB and any(
-            NIGHTLY_SLOT_LABEL.fullmatch(str(label)) or nightly_control_label(label)
+            nightly_owned_label(label) or nightly_control_label(label)
             for label in job.get("labels") or [])
 
 

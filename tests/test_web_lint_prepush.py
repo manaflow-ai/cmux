@@ -154,6 +154,7 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/merge-pbxproj.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
+            "scripts/merge-insertions.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -789,7 +790,8 @@ class WebLintPrePushTests(unittest.TestCase):
         result = self.push()
 
         self.assertIn("webviews: not linted here", result.stderr)
-        self.assertIn("Scripts/cmux-next/json.py", result.stderr)
+        # There git records the file under the existing scripts/, so the hook names it in lower case.
+        self.assertIn("scripts/cmux-next/json.py", result.stderr.lower())
 
     def test_an_eslint_or_babel_config_the_tools_find_first_is_check_code(self):
         for name in ("web/eslint.config.js", "web/eslint.config.ts", "web/babel.config.js", "web/.babelrc",

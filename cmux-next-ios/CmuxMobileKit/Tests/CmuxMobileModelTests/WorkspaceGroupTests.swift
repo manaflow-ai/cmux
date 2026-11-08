@@ -129,8 +129,8 @@ import Testing
         func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws {
             moves.append("\(workspace.id) \(after ? "after" : "before") \(anchor.id)")
         }
-        func duplicate(_ workspace: Workspace) async throws -> Workspace {
-            try record("duplicate \(workspace.id)")
+        func duplicate(_ workspace: Workspace, browsers: Bool) async throws -> Workspace {
+            try record(browsers ? "duplicate \(workspace.id)" : "duplicate \(workspace.id) terminals-only")
             return Workspace(id: workspace.id + "-copy", macID: workspace.macID, title: workspace.title, directory: workspace.directory,
                              tabs: [], lastActivityAt: Date())
         }

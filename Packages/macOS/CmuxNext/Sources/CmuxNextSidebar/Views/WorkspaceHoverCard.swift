@@ -131,7 +131,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// The pointer is on a row's pull request badge, whose own card (`SidebarPullRequestCard`)
     /// shows there instead.
     static func onPullRequestBadge(_ badge: SidebarPullRequestBadgeView?, window: NSWindow, screenPoint: CGPoint) -> Bool {
-        guard let badge, !badge.isHidden, badge.badge?.items.isEmpty == false, SidebarPullRequestCardController.isEnabled
+        guard let badge, !badge.isHidden, badge.badge?.items.isEmpty == false
         else { return false }
         return window.convertToScreen(badge.convert(badge.bounds, to: nil)).contains(screenPoint)
     }
@@ -152,7 +152,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         let wantsTimeline = options.layout != .classic
         let timeline = wantsTimeline ? (timelineSource?(ws, Self.timelineReadLimit) ?? []) : []
         // The workspace on screen needs no digest: the person is looking at it.
-        let looked = SidebarTunables.sinceLooked.value && ws != list.model.activeWorkspaceID ? SidebarLookedStore.shared.stamps[ws] : nil
+        let looked = ws != list.model.activeWorkspaceID ? SidebarLookedStore.shared.stamps[ws] : nil
         let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
                                                      looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
         body.configure(content)
@@ -405,6 +405,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private var builtIn: [NSView] = []
     /// The shown content, for the live elapsed times (`tick`).
     private var content: WorkspaceHoverCardContent?
+    /// Hidden history is measured only when details open, never on a hover retarget.
+    private var pendingTimelineAt: Date?
     /// The machine `hostLabel` names, whose color pick (`appearance.machineColors`) it draws in.
     private var hostMachine: String?
     /// The shown status word, before its elapsed time.
@@ -487,7 +489,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = Metrics.space3
+        // The shared hover card style's one spacing scale (`HoverCardStyle`), as every other hover card.
+        stack.spacing = HoverCardStyle.shared.rowGap
         // Show details reads as the list's last row, on the rows' spacing.
         stack.setCustomSpacing(Metrics.space1, after: tabList)
         stack.setCustomSpacing(Metrics.space1, after: titleRow)
@@ -635,12 +638,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             factsStack.setCustomSpacing(next?.isPreview == true ? Metrics.space3 : NSStackView.useDefaultSpacing, after: row)
         }
         factsStack.isHidden = !content.facts.contains { $0.kind != "machine" }
-        let log = content.options.layout == .log
-        timeline.isHidden = content.timeline.isEmpty
-        if !content.timeline.isEmpty {
-            timeline.configure(content.timeline, width: width - 2 * Self.padding,
-                               maxHeight: log ? Self.logMaxHeight : Self.timelineMaxHeight, textLines: log ? 3 : 2, now: now)
-        }
+        pendingTimelineAt = now
         applyColors()
         updateDetailsVisibility()
     }
@@ -699,6 +697,14 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     private func updateDetailsVisibility() {
+        if detailsExpanded, let now = pendingTimelineAt, let content {
+            pendingTimelineAt = nil
+            if !content.timeline.isEmpty {
+                let log = content.options.layout == .log
+                timeline.configure(content.timeline, width: width - 2 * Self.padding,
+                                   maxHeight: log ? Self.logMaxHeight : Self.timelineMaxHeight, textLines: log ? 3 : 2, now: now)
+            }
+        }
         detailsToggle.title = detailsExpanded ? Strings.hideDetails : Strings.showDetails
         detailsToggle.isExpanded = detailsExpanded
         if !detailsExpanded {
@@ -809,7 +815,7 @@ extension WorkspaceHoverCardView {
             // The frosted material (Lawrence msg 19245: glass over a busy terminal was hard to read): a veil of
             // the theme's window background over the glass, below the overlay rule's solid alpha.
             wantsLayer = true
-            layer?.cornerRadius = Metrics.panelCornerRadius
+            layer?.cornerRadius = HoverCardStyle.shared.cornerRadius
             layer?.cornerCurve = .continuous
             // 0.55: as dense as the overlay rule allows a body's tint (under 0.6).
             layer?.backgroundColor = style.material == .frosted ? Palette.windowBackground.withAlphaComponent(0.55).cgColor : nil
@@ -834,7 +840,7 @@ extension WorkspaceHoverCardView {
 
     /// The machine's name in its color pick, else the secondary ink like the rest of the header (read in the
     /// card's theme scope).
-    private var hostColor: NSColor { hostMachine.flatMap { MachineColor(name: $0).pickedColor } ?? Palette.textSecondary }
+    private var hostColor: NSColor { hostMachine.flatMap { MachineColor(name: $0).pickedCardTextColor } ?? Palette.textSecondary }
 
     /// A machine color picked while the card shows reaches the header only through this hook (a store
     /// repaint carries no new theme).

@@ -165,7 +165,7 @@ extension WorkspaceCreator {
             do {
                 let copy = try await grouper.createGroup(named: group.name, color: color, on: macID)
                 for member in members {
-                    let duplicate = try await backend.duplicate(member)
+                    let duplicate = try await backend.duplicate(member, browsers: true)
                     try await grouper.place(duplicate, in: copy)
                 }
             } catch {

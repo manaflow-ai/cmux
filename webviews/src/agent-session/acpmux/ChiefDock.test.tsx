@@ -25,6 +25,9 @@ function installDom(): HTMLElement {
     "Element",
     "KeyboardEvent",
     "IS_REACT_ACT_ENVIRONMENT",
+    // test/preload.ts installs the real pane table; restore it after, never delete it, so later
+    // files in the same bun process still read translated strings.
+    "__cmuxPaneStrings",
   ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -61,7 +64,6 @@ afterEach(async () => {
   root = undefined;
   dom?.window.close();
   dom = undefined;
-  delete globalThis.__cmuxPaneStrings;
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -99,6 +101,17 @@ const tabStops = (dock: HTMLElement) =>
   [...dock.querySelectorAll<HTMLButtonElement>("button")].filter(
     (button) => !button.disabled && !button.closest("[inert]"),
   );
+
+test("a remote session card puts the session name before its secondary machine", async () => {
+  const dock = await render(
+    [chat("remote", { name: "gcp-codex-lane-10/pr-row", peer: "gcp-codex-lane-10", harness: "codex" })],
+    true,
+  );
+  const identity = dock.querySelector(".acpmux-sender");
+  expect(identity?.querySelector(".acpmux-sender__name")?.textContent).toBe("pr-row");
+  expect(identity?.querySelector(".acpmux-sender__host")?.textContent).toBe("gcp-codex-lane-10");
+  expect(identity?.textContent).toBe("pr-rowgcp-codex-lane-10");
+});
 
 const label = (button: Element) => button.getAttribute("aria-label");
 

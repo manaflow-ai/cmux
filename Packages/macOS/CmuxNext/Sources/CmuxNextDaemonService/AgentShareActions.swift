@@ -91,7 +91,8 @@ public struct AgentShareActions {
     }
 
     /// A new share of `chat` with the owner's token (asked for only now, after any consent).
-    static func create(_ chat: AgentShareChat, ttl: UInt64?, uses: UInt32?, host: any AgentShareHost) async throws -> AgentSessionShareCreated {
+    static func create(_ chat: AgentShareChat, ttl: UInt64?, uses: UInt32?, role: String? = nil,
+                       host: any AgentShareHost) async throws -> AgentSessionShareCreated {
         // The token comes from the API the daemon's room takes (cmux#31372); a daemon too old to
         // say leaves the build's default.
         let room = try? await chat.connection?.request(AgentSessionShareRoomRequest())
@@ -99,7 +100,7 @@ public struct AgentShareActions {
         // The session pins the chat: the daemon refuses if the surface shows another one by now.
         let createID = UUID().uuidString
         let request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, createId: createID, ttlSecs: ttl,
-                                                     uses: uses, ownerToken: token)
+                                                     uses: uses, ownerToken: token, role: role)
         // Create waits out the hosted room's provisioning (its request budget is 15 s,
         // agent_session_share_room.rs): its answer is the only copy of the link's secret.
         let connection = try Self.connected(chat.connection)

@@ -42,8 +42,8 @@ async fn pending_retry_survives_restart_at_its_original_deadline_once() {
     drop(rpc);
 
     // A crash may persist the schedule before the async session metadata writer catches up.
-    // The retry and its failed cut turn must be recovered from the journal in that case too.
-    let meta_path = daemon.home.join("sessions").join(&session).join("session.json");
+    // The retry and its failed cut turn must be recovered from the log in that case too.
+    let meta_path = daemon.saved_meta_path(&session);
     let mut meta: Value = serde_json::from_slice(&std::fs::read(&meta_path).unwrap()).unwrap();
     meta.as_object_mut().unwrap().remove("lastTurn");
     std::fs::write(&meta_path, serde_json::to_vec(&meta).unwrap()).unwrap();
@@ -387,7 +387,7 @@ async fn an_adopted_idle_chat_saved_waiting_with_nothing_asked_is_ready() {
     assert_eq!(rpc.call("session/prompt", prompt).await["stopReason"], "end_turn");
     drop(rpc);
     daemon.sigkill();
-    let path = daemon.home.join("sessions").join(&session).join("session.json");
+    let path = daemon.saved_meta_path(&session);
     let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     meta["status"] = json!("waiting");
     std::fs::write(&path, serde_json::to_vec_pretty(&meta).unwrap()).unwrap();

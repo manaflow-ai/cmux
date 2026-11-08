@@ -51,7 +51,7 @@ export default agentPaneEntry({
       ),
     },
     "finished-step": {
-      note: "Between steps the line holds the last finished step with its own time (3m 27s), then the turn's clock after a dot.",
+      note: "Between steps: the finished step stays in its run and the line reads Thinking at once, the turn's clock named after a dot (Leo, 2026-11-07).",
       snapshot: chat(
         [
           prompt(),
@@ -64,6 +64,37 @@ export default agentPaneEntry({
               }),
             ],
             5,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    thinking: {
+      note: "Past the first step with nothing streaming and no own time: Thinking 1h 24m 7s, the turn's clock beside the word, no dot and no word total (#34866).",
+      snapshot: chat(
+        [
+          prompt(),
+          activity([tool("git log --oneline -5", "execute", "completed", { command: "git log --oneline -5" })], 3),
+          assistant("The signing step waits on a single runner.", 2),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "ran-command": {
+      note: "A command that just finished: its own 0s on its words, then the turn's clock after the dot, 4px each side and one dim tone, as in Leo's capture of the running-step line (2026-11-03: \"same here it's annoying to look at\").",
+      snapshot: chat(
+        [
+          prompt(),
+          plan(),
+          activity(
+            [
+              tool("cat /tmp/copy/message.md | head -30", "execute", "completed", {
+                command: "cat /tmp/copy/message.md | head -30",
+                startedAt: minutesAgo(0.2),
+                endedAt: minutesAgo(0.2) + 300,
+              }),
+            ],
+            0.2,
           ),
         ],
         { isWorking: true },

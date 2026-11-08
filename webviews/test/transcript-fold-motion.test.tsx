@@ -10,13 +10,20 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
-import { cssTimeMs, FOLD_DURATION_VAR, foldMotion } from "../src/agent-session/acpmux/conversation/fold";
+import {
+  cssTimeMs,
+  FOLD_DROP_MS,
+  FOLD_DURATION_VAR,
+  FOLD_RESTART_MAX_MS,
+  foldMotion,
+} from "../src/agent-session/acpmux/conversation/fold";
+import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
 import { McpCallRows } from "../src/agent-session/acpmux/conversation/McpCallRows";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -35,6 +42,8 @@ type Animated = {
   finish: () => void;
   ends: () => void;
   cancel: () => void;
+  /// The animation's clock, as the fold sets it (`currentTime`): null until a test gives it a time.
+  clock: { currentTime: number | null };
 };
 let animations: Animated[] = [];
 
@@ -67,6 +76,7 @@ beforeEach(() => {
     options: KeyframeAnimationOptions,
   ) {
     const animation = {
+      currentTime: null as number | null,
       onfinish: null as null | (() => void),
       oncancel: null as null | (() => void),
       cancel() {
@@ -79,6 +89,7 @@ beforeEach(() => {
       finish: () => act(() => animation.onfinish?.()),
       ends: () => animation.onfinish?.(),
       cancel: () => act(() => animation.cancel()),
+      clock: animation,
     });
     return animation;
   };
@@ -139,7 +150,8 @@ const collapsibles: Array<{ name: string; node: () => ReactNode; body: string }>
         items={[tool("mcp", { title: "mcp__hub__send_message", inputSummary: '{"to":"lane"}' })]}
       />
     ),
-    body: ".cv-mcp-call",
+    // An object of arguments opens to its labeled fields (ToolDetail.tsx).
+    body: ".cv-tool-detail",
   },
   {
     name: "a settled run",
@@ -246,6 +258,67 @@ test("a close holds its box shut until React removes the body, so it never flash
     expect(box.style.overflow).toBe("hidden");
   });
   expect(container.querySelector(".cv-fold")).toBeNull();
+});
+
+/// Leo, 2026-11-06, on a recording under heavy load: "way too discontinuous". A fold whose frames
+/// come steadily plays; the second frame in a row that comes FOLD_DROP_MS after the one before it
+/// lands the fold at its end, and its frame loop stops there. One late frame alone is not load (Leo,
+/// 2026-11-07: "sometimes it doesn't play ythe animation"): the fold plays on.
+test("under load a fold lands at its end on the second dropped frame in a row, not on one late frame", () => {
+  const frames: FrameRequestCallback[] = [];
+  (dom!.window as unknown as { requestAnimationFrame: unknown }).requestAnimationFrame = (
+    callback: FrameRequestCallback,
+  ) => frames.push(callback);
+  const frame = (at: number) => act(() => frames.splice(0).forEach((callback) => callback(at)));
+  render(<ToolRow item={tool("load")} />);
+  click();
+  animations[0]!.finish();
+  // The open ended on its own: its loop stopped with it.
+  frame(0);
+  expect(frames).toEqual([]);
+  click();
+  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
+  // Steady frames: the close plays on.
+  frame(1000);
+  frame(1000 + 16.7);
+  frame(1000 + 33.4);
+  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
+  expect(frames.length).toBe(1);
+  // One frame FOLD_DROP_MS late, then a steady one: still playing.
+  frame(1000 + 33.4 + FOLD_DROP_MS);
+  frame(1000 + 50 + FOLD_DROP_MS);
+  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
+  expect(frames.length).toBe(1);
+  // Two late frames in a row: the body is shut and gone at once, and nothing asks for another frame.
+  frame(1000 + 50 + 2 * FOLD_DROP_MS);
+  frame(1000 + 50 + 3 * FOLD_DROP_MS);
+  expect(container.querySelector(".cv-tool-output-card")).toBeNull();
+  expect(frames).toEqual([]);
+});
+
+/// The gap after a fold's first frame holds the page drawing what opened (a long log at the bottom,
+/// Leo 2026-11-07: "sometimes it lags when i open it"). When it is slow the fold's clock goes back by
+/// what that frame cost, at most FOLD_RESTART_MAX_MS, so the motion is not half over when it shows.
+test("a slow first frame restarts the fold's clock instead of skipping the motion", () => {
+  const frames: FrameRequestCallback[] = [];
+  (dom!.window as unknown as { requestAnimationFrame: unknown }).requestAnimationFrame = (
+    callback: FrameRequestCallback,
+  ) => frames.push(callback);
+  const frame = (at: number) => act(() => frames.splice(0).forEach((callback) => callback(at)));
+  render(<ToolRow item={tool("slow-first")} />);
+  click();
+  const opening = animations[0]!;
+  frame(1000);
+  // The page took 90 ms to draw the opened body; the clock ran on meanwhile.
+  opening.clock.currentTime = 90;
+  frame(1090);
+  expect(opening.clock.currentTime).toBeCloseTo(1000 / 60, 0);
+  // A first frame slower still goes back by no more than FOLD_RESTART_MAX_MS.
+  expect(FOLD_RESTART_MAX_MS).toBeLessThan(FOLD_SETTLE_MS);
+  // Steady frames after it: the open plays on, nothing landed.
+  frame(1090 + 16.7);
+  expect(frames.length).toBe(1);
+  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
 });
 
 test("a motion policy cancellation finishes a closing tool call instead of leaving its body mounted", () => {

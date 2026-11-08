@@ -1,6 +1,6 @@
 // Session reference hover cards (started/SessionHoverCard.tsx): a started chat's name chip and a
 // session id in a reply show the session as a row of Claude Code's PR list does, the title over
-// `Status · repo #N`, then its folder and branch, beside the chip (above it when more of the reply runs under
+// `Status · repo #N`, then its folder and branch and when it last changed, beside the chip (above it when more of the reply runs under
 // it), after a short rest of the pointer, at once for keyboard focus, and a click on it opens it.
 import { afterAll, beforeAll, describe, expect, jest, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -12,7 +12,8 @@ import {
   hoverInfo,
   withSessionIds,
 } from "../src/agent-session/acpmux/started/sessionHover";
-import { SessionHoverContent, hoverCardSide } from "../src/agent-session/acpmux/started/SessionHoverCard";
+import { SessionHoverContent } from "../src/agent-session/acpmux/started/SessionHoverCard";
+import { hoverCardSide } from "../src/agent-session/acpmux/started/sessionHoverCardModel";
 
 const ID = "01a0ebd5-0efe-721d-9edc-cf1a6ba78d98";
 const entry = (extra: Record<string, unknown> = {}) =>
@@ -40,6 +41,7 @@ describe("hover info", () => {
       title: "Switch gh-merge-green to merge-freeze issues",
       status: "done",
       meta: ["cmux"],
+      changedAt: 5,
     });
     expect(hoverInfo(entry({ branch: "merge-freeze" })).meta).toEqual(["cmux", "merge-freeze"]);
     expect(hoverInfo(entry({ host: "mini-7", hostKind: "cloud", branch: "main" })).meta).toEqual(["cmux", "mini-7"]);
@@ -223,7 +225,7 @@ test("a name chip's card waits for the pointer, shows at once for focus, takes A
   const { UiProvider } = await import("../src/ui/UiProvider");
   const { StartedSessionChip } = await import("../src/agent-session/acpmux/started/StartedSessionCard");
   const { SessionHoverContext, SESSION_HOVER_DELAY } =
-    await import("../src/agent-session/acpmux/started/SessionHoverCard");
+    await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
   const rootElement = dom.window.document.getElementById("root")!;
   const root = createRoot(rootElement);
   const store = new SessionHoverStore();
@@ -258,7 +260,7 @@ test("a name chip's card waits for the pointer, shows at once for focus, takes A
     await act(async () => wait(1));
     expect(card()?.getAttribute("role")).toBe("dialog");
     expect(card()?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
-    expect(card()?.textContent).toBe("Switch gh-merge-green to merge-freeze issuesRunningcmux");
+    expect(card()?.textContent).toBe("Switch gh-merge-green to merge-freeze issuesRunningcmux · updated just now");
     expect(chip.getAttribute("aria-describedby")).toBe(card()?.id ?? "missing");
 
     // Pointer away: the card goes after its grace.
@@ -320,4 +322,266 @@ test("without a hover store a chip draws no card", async () => {
     />,
   );
   expect(html).not.toContain("acpmux-session-hover");
+});
+
+// A sender's name opens its chat as a sender (App.tsx `openSenderChat`); its card opens it the same
+// way, not as the page's started chats do (review of #36360 at b9c69d0c). A chat the list does not
+// have draws no card, so its name keeps its tooltip.
+test("a sender's card opens its chat as the name does; an unlisted chat's name keeps its tooltip", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
+  const { useSessionHover } = await import("../src/agent-session/acpmux/started/useSessionHover");
+  const { AgentTag } = await import("../src/agent-session/acpmux/conversation/AgentTag");
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const store = new SessionHoverStore();
+  store.set([entry({ indicator: "done", updatedAt: Date.now() })]);
+  const opened: string[] = [];
+  const asSender: string[] = [];
+  function Name({ sessionId }: { sessionId: string }) {
+    const { trigger, card } = useSessionHover(sessionId, (id) => void asSender.push(id));
+    return (
+      <>
+        <AgentTag name={sessionId} title={`Open ${sessionId}`} hover={trigger} onClick={() => undefined} />
+        {card}
+      </>
+    );
+  }
+  await act(async () => {
+    root.render(
+      <UiProvider container={rootElement}>
+        <SessionHoverContext.Provider value={{ store, open: (id) => void opened.push(id) }}>
+          <Name sessionId={ID} />
+          <Name sessionId="unlisted" />
+        </SessionHoverContext.Provider>
+      </UiProvider>,
+    );
+  });
+  const [listed, unlisted] = [...rootElement.querySelectorAll<HTMLButtonElement>("button.cv-agent-tag")];
+  expect(listed!.getAttribute("title")).toBeNull();
+  expect(unlisted!.getAttribute("title")).toBe("Open unlisted");
+  await act(async () => unlisted!.focus());
+  expect(unlisted!.hasAttribute("aria-describedby")).toBe(false);
+  await act(async () => listed!.focus());
+  await act(async () => rootElement.querySelector<HTMLButtonElement>(".acpmux-session-hover")!.click());
+  expect(asSender).toEqual([ID]);
+  expect(opened).toEqual([]);
+  await act(async () => root.unmount());
+});
+
+// An agent link (`cmux.com/deeplink/agent?session=...`) that names one of the reader's listed chats
+// shows that chat's card in place of the site's, and the card opens it as the link does.
+test("an agent link to a listed chat shows that chat's card, opening it as the link does", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+  const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+  refs.setSessionRefResolver(async () => ({ session: { sessionId: ID } }));
+  await refs.resolveSessionRef(ID);
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const store = new SessionHoverStore();
+  store.set([entry({ indicator: "done", updatedAt: Date.now() })]);
+  const opened: string[] = [];
+  const asSender: string[] = [];
+  const href = `https://cmux.com/deeplink/agent?session=${ID}`;
+  try {
+    await act(async () => {
+      root.render(
+        <UiProvider container={rootElement}>
+          <SubsessionContext.Provider
+            value={{
+              store: new SubsessionStore(),
+              open: (id) => void opened.push(id),
+              openSender: (id) => void asSender.push(id),
+            }}
+          >
+            <SessionHoverContext.Provider value={{ store, open: (id) => void opened.push(id) }}>
+              <p>
+                See <UrlChip href={href}>{href}</UrlChip>.
+              </p>
+            </SessionHoverContext.Provider>
+          </SubsessionContext.Provider>
+        </UiProvider>,
+      );
+    });
+    const link = rootElement.querySelector<HTMLAnchorElement>("a.cv-chip")!;
+    expect(link.getAttribute("data-open-session")).toBe(ID);
+    await act(async () => link.focus());
+    const card = rootElement.querySelector<HTMLElement>(".acpmux-session-hover-card");
+    expect(card?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
+    await act(async () => card!.querySelector<HTMLButtonElement>(".acpmux-session-hover")!.click());
+    expect(asSender).toEqual([ID]);
+    expect(opened).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+    refs.setSessionRefResolver(undefined);
+    refs.resetSessionRefs();
+  }
+});
+
+// An agent link's first hover or focus is what asks acpmux for its chat. Its answer coming in while
+// the site's card is up puts the chat's card in its place at once, with the focus still on the link:
+// no card lost, none waiting on the pointer to leave and come back (review of #36360 at 7211b8f2).
+test("an agent link that resolves while its card is up shows the chat's card in its place", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+  const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+  let answer: (value: unknown) => void = () => undefined;
+  refs.setSessionRefResolver(() => new Promise((resolve) => (answer = resolve)));
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const store = new SessionHoverStore();
+  store.set([entry({ indicator: "done", updatedAt: Date.now() })]);
+  const href = `https://cmux.com/deeplink/agent?session=${ID}`;
+  try {
+    await act(async () => {
+      root.render(
+        <UiProvider container={rootElement}>
+          <SubsessionContext.Provider value={{ store: new SubsessionStore(), open: () => undefined }}>
+            <SessionHoverContext.Provider value={{ store, open: () => undefined }}>
+              <p>
+                See <UrlChip href={href}>{href}</UrlChip>.
+              </p>
+            </SessionHoverContext.Provider>
+          </SubsessionContext.Provider>
+        </UiProvider>,
+      );
+    });
+    const link = rootElement.querySelector<HTMLAnchorElement>("a.cv-chip")!;
+    await act(async () => link.focus());
+    expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
+    await act(async () => {
+      answer({ session: { sessionId: ID } });
+      await Promise.resolve();
+    });
+    expect(link.getAttribute("data-open-session")).toBe(ID);
+    // In the same act: the site's card is gone and the chat's is up, with no fade in.
+    expect(rootElement.querySelector(".cv-link-preview")).toBeNull();
+    const card = rootElement.querySelector<HTMLElement>(".acpmux-session-hover-card");
+    expect(card?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
+    expect(card?.closest("[data-instant]")).not.toBeNull();
+    expect(dom.window.document.activeElement).toBe(link);
+    expect(link.getAttribute("aria-describedby")).toBe(card!.id);
+  } finally {
+    await act(async () => root.unmount());
+    refs.setSessionRefResolver(undefined);
+    refs.resetSessionRefs();
+  }
+});
+
+// A chat that leaves the list while its card is up takes the card with it; the reference loses its
+// card's handlers then, so a blur in that time reaches no one. The chat coming back draws no card
+// until the reference is hovered or focused again (review of #36360 at 1bc9da1e, F1).
+test("a chat that leaves the list and comes back draws no card until it is hovered or focused again", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
+  const { useSessionHover } = await import("../src/agent-session/acpmux/started/useSessionHover");
+  const { AgentTag } = await import("../src/agent-session/acpmux/conversation/AgentTag");
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const store = new SessionHoverStore();
+  store.set([entry({ indicator: "done", updatedAt: Date.now() })]);
+  function Name() {
+    const { trigger, card } = useSessionHover(ID);
+    return (
+      <>
+        <AgentTag name={ID} title={`Open ${ID}`} hover={trigger} onClick={() => undefined} />
+        {card}
+      </>
+    );
+  }
+  const card = () => rootElement.querySelector<HTMLElement>(".acpmux-session-hover-card");
+  try {
+    await act(async () => {
+      root.render(
+        <UiProvider container={rootElement}>
+          <SessionHoverContext.Provider value={{ store, open: () => undefined }}>
+            <Name />
+          </SessionHoverContext.Provider>
+        </UiProvider>,
+      );
+    });
+    const name = rootElement.querySelector<HTMLButtonElement>("button.cv-agent-tag")!;
+    await act(async () => name.focus());
+    expect(card()).not.toBeNull();
+    await act(async () => store.set([]));
+    expect(card()).toBeNull();
+    await act(async () => name.blur());
+    await act(async () => store.set([entry({ indicator: "done", updatedAt: Date.now() })]));
+    expect(card()).toBeNull();
+    expect(name.hasAttribute("aria-describedby")).toBe(false);
+    // Focus again: the card is back.
+    await act(async () => name.focus());
+    expect(card()).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// An agent link whose chat leaves the list while the link has focus gives the link back to the
+// site's card at once, with no need to leave the link and come back (review of #36360 at 1bc9da1e, F2).
+test("an agent link whose chat leaves the list gives the link back to the site's card", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+  const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+  refs.setSessionRefResolver(async () => ({ session: { sessionId: ID } }));
+  await refs.resolveSessionRef(ID);
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const store = new SessionHoverStore();
+  store.set([entry({ indicator: "done", updatedAt: Date.now() })]);
+  const href = `https://cmux.com/deeplink/agent?session=${ID}`;
+  try {
+    await act(async () => {
+      root.render(
+        <UiProvider container={rootElement}>
+          <SubsessionContext.Provider value={{ store: new SubsessionStore(), open: () => undefined }}>
+            <SessionHoverContext.Provider value={{ store, open: () => undefined }}>
+              <p>
+                See <UrlChip href={href}>{href}</UrlChip>.
+              </p>
+            </SessionHoverContext.Provider>
+          </SubsessionContext.Provider>
+        </UiProvider>,
+      );
+    });
+    const link = rootElement.querySelector<HTMLAnchorElement>("a.cv-chip")!;
+    await act(async () => link.focus());
+    expect(rootElement.querySelector(".acpmux-session-hover-card")).not.toBeNull();
+    expect(rootElement.querySelector(".cv-link-preview")).toBeNull();
+    await act(async () => store.set([]));
+    expect(rootElement.querySelector(".acpmux-session-hover-card")).toBeNull();
+    expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
+    expect(dom.window.document.activeElement).toBe(link);
+  } finally {
+    await act(async () => root.unmount());
+    refs.setSessionRefResolver(undefined);
+    refs.resetSessionRefs();
+  }
+});
+
+test("a session listed twice is one card: an unchanged list tells no one", () => {
+  const store = new SessionHoverStore();
+  const twice = [entry(), entry()];
+  store.set(twice);
+  let told = 0;
+  store.subscribe(() => void told++);
+  store.set(twice);
+  expect(told).toBe(0);
 });
