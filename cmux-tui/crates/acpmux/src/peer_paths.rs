@@ -49,6 +49,17 @@ pub enum Carrier {
 }
 
 impl Carrier {
+    /// The same carrier on the wire (`_acpmux/peer_state_changed`, `peer_carrier.rs`).
+    pub fn wire(self) -> crate::protocol::peer_state::Carrier {
+        use crate::protocol::peer_state::Carrier as Wire;
+        match self {
+            Self::Direct => Wire::Direct,
+            Self::Ssh => Wire::Ssh,
+            Self::Hub => Wire::Hub,
+            Self::Cloud => Wire::Cloud,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Direct => "direct",

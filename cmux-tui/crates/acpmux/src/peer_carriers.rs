@@ -274,14 +274,10 @@ impl Peer {
         self.switch_wanted.store(false, Ordering::SeqCst);
     }
 
-    /// `carrier` and `paths` of `_acpmux/peers`: what carries the live link, and every path's
-    /// health and round trip.
-    pub(crate) fn paths_summary(&self) -> (Option<&'static str>, serde_json::Value) {
-        let carrier = self
-            .serving()
-            .filter(|_| self.connected.load(Ordering::SeqCst))
-            .map(|via| via.carrier().as_str());
-        (carrier, self.with_paths(|paths| paths.view(crate::store::now_ms())))
+    /// `paths` of `_acpmux/peers`: every path's health and round trip (the live link's
+    /// carrier is `carrier`, from `peer_carrier.rs`).
+    pub(crate) fn paths_view(&self) -> serde_json::Value {
+        self.with_paths(|paths| paths.view(crate::store::now_ms()))
     }
 
     /// A pong on `via`.
@@ -445,7 +441,12 @@ impl Peer {
                 None,
             )
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| {
+                if tokens::refused(&e) {
+                    self.token_refused();
+                }
+                e.to_string()
+            })
         };
         let (ws, _) = tokio::time::timeout(self.timings.connect, connect)
             .await
@@ -560,6 +561,7 @@ impl Peer {
                 continue;
             }
             if refused {
+                self.token_refused();
                 self.read_tokens.forget();
                 // Kept tokens the remote no longer takes: read them again and retry once, now.
                 if kept && !self.stop.load(Ordering::SeqCst) {
