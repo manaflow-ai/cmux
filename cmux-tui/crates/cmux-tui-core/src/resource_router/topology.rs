@@ -364,6 +364,12 @@ fn dispatch_exact_topology_mutation(
         // unless the caller passes `focus: true`.
         fields.entry(crate::mux::WORKSPACE_CREATE_FOCUS_FIELD).or_insert(Value::Bool(false));
     }
+    if operation == ResourceOperation::ScreenCreate {
+        // And `screen.create`: the focused screen stays, so an attached TUI
+        // does not jump to the new screen when it next follows the daemon's
+        // focus (a reconnect after `daemon restart`).
+        fields.entry(crate::mux::SCREEN_CREATE_FOCUS_FIELD).or_insert(Value::Bool(false));
+    }
     let commit = mux
         .resource_topology_operation(
             operation,

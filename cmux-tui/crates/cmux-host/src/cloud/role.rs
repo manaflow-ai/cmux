@@ -27,10 +27,8 @@ use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContex
 use serde_json::{Value, json};
 
 use super::agent_socket::listen;
-use super::carrier_server::CarrierServer;
-use super::client::{
-    BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
-};
+use super::carrier_server::{CarrierServer, Resumes};
+use super::client::{BindResult, CloudClient, Http, Store, ensure_install_key, ensure_wg_key};
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
@@ -208,17 +206,57 @@ impl Store for FileStore {
 /// [`Http`] over cmux-server's HTTPS poster.
 pub struct PosterHttp(pub JsonPoster);
 
+impl PosterHttp {
+    /// Runs `send` on this poster and `url`. Tests: while [`TEST_ORIGIN`] is
+    /// set, every request goes to its path at that plain-HTTP origin instead,
+    /// on a poster of the calling thread (the before/after harness).
+    fn via<T>(&self, url: &str, send: impl FnOnce(&JsonPoster, &str) -> T) -> T {
+        #[cfg(test)]
+        let send = match test_route(url, send) {
+            Ok(answer) => return answer,
+            Err(send) => send,
+        };
+        send(&self.0, url)
+    }
+}
+
+/// [`PosterHttp::via`] while [`TEST_ORIGIN`] is set; `Err(send)` otherwise.
+#[cfg(test)]
+fn test_route<T, F: FnOnce(&JsonPoster, &str) -> T>(url: &str, send: F) -> Result<T, F> {
+    let Some(origin) =
+        TEST_ORIGIN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    else {
+        return Err(send);
+    };
+    thread_local! {
+        static POSTER: Option<JsonPoster> = JsonPoster::allowing_http().ok();
+    }
+    let path = url
+        .split_once("://")
+        .and_then(|(_, rest)| rest.find('/').map(|at| rest.split_at(at).1))
+        .unwrap_or("/");
+    let routed = format!("{origin}{path}");
+    POSTER.with(|poster| match poster {
+        Some(poster) => Ok(send(poster, &routed)),
+        None => Err(send),
+    })
+}
+
+/// Tests: the origin every Cloud request goes to ([`PosterHttp::via`]).
+#[cfg(test)]
+pub(crate) static TEST_ORIGIN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
 impl Http for PosterHttp {
     fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.0.get(url, bearer)
+        self.via(url, |poster, url| poster.get(url, bearer))
     }
 
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.0.post(url, body, bearer)
+        self.via(url, |poster, url| poster.post(url, body, bearer))
     }
 
     fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.0.post_empty(url, bearer)
+        self.via(url, |poster, url| poster.post_empty(url, bearer))
     }
 
     fn request_with_deadline(
@@ -228,7 +266,7 @@ impl Http for PosterHttp {
         bearer: Option<&str>,
         deadline: &cmux_server::cloud_http::RequestDeadline,
     ) -> Result<(u16, Vec<u8>), String> {
-        self.0.request_with_deadline(url, body, bearer, deadline)
+        self.via(url, |poster, url| poster.request_with_deadline(url, body, bearer, deadline))
     }
 
     fn request_with_headers(
@@ -238,11 +276,19 @@ impl Http for PosterHttp {
         bearer: Option<&str>,
         deadline: &cmux_server::cloud_http::RequestDeadline,
     ) -> Result<cmux_server::cloud_http::Response, String> {
-        self.0.request_with_deadline_headers(url, body, bearer, deadline)
+        self.via(url, |poster, url| {
+            poster.request_with_deadline_headers(url, body, bearer, deadline)
+        })
     }
 
     fn reset(&self) {
         self.0.reset();
+        #[cfg(test)]
+        let _ = test_route("/", |poster, _| poster.reset());
+    }
+
+    fn fresh(&self) -> Option<Self> {
+        self.0.twin().ok().map(PosterHttp)
     }
 }
 
@@ -360,6 +406,9 @@ struct WorkerHandle {
     /// Set before `stop`: from then on the minter hands out no token,
     /// even if the worker is stuck in a request past the deadline.
     github_stop: Arc<Stop>,
+    /// Noted on `HostEvent::Resumed`: the carrier ticket thread reads it
+    /// directly, never through the worker's loop.
+    resumes: Arc<Resumes>,
 }
 
 impl CloudRole {
@@ -422,21 +471,30 @@ impl Role for CloudRole {
         let (done_tx, done) = std::sync::mpsc::channel::<()>();
         let github_stop = Arc::new(Stop::default());
         let worker_stop = Arc::clone(&github_stop);
+        let resumes = Arc::new(Resumes::default());
+        let worker_resumes = Arc::clone(&resumes);
         let thread = std::thread::Builder::new()
             .name("cmux-host-cloud".to_owned())
             .spawn(move || {
                 let _done = done_tx;
-                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs, worker_stop)
-                    .map(|mut worker| {
-                        worker.bootstrap = bootstrap;
-                        worker
-                    });
+                let worker = Worker::new(
+                    paths,
+                    instance_id,
+                    heartbeat_env,
+                    theirs,
+                    worker_stop,
+                    worker_resumes,
+                )
+                .map(|mut worker| {
+                    worker.bootstrap = bootstrap;
+                    worker
+                });
                 if let Err(e) = worker.and_then(|mut w| w.run()) {
                     log(&format!("worker stopped: {e}"));
                 }
             })
             .map_err(|e| RoleError(e.to_string()))?;
-        self.worker = Some(WorkerHandle { thread, control: ours, done, github_stop });
+        self.worker = Some(WorkerHandle { thread, control: ours, done, github_stop, resumes });
         Ok(())
     }
 
@@ -447,6 +505,11 @@ impl Role for CloudRole {
     fn on_event(&mut self, event: &HostEvent) -> Result<(), RoleError> {
         match event {
             HostEvent::Resumed => {
+                // First: the carrier ticket thread asks for a fresh ticket while the session host finds its
+                // registration from before the pause dead.
+                if let Some(worker) = &self.worker {
+                    worker.resumes.note();
+                }
                 if let Some(bridge) = &self.bootstrap {
                     let _ = bridge.resume();
                 }
@@ -541,6 +604,7 @@ impl Worker {
         heartbeat_env: Option<String>,
         control: UnixStream,
         github_stop: Arc<Stop>,
+        resumes: Arc<Resumes>,
     ) -> io::Result<Worker> {
         let state_dir = paths.at(STATE_DIR);
         fs::create_dir_all(&state_dir)?;
@@ -554,7 +618,14 @@ impl Worker {
         let keyset = super::carrier_keyset::Refresher::spawn(paths.clone(), log)?;
         // Before the bind: a ticket asked meanwhile waits for it there, not in the poll loop.
         let carrier = listen(&paths, super::carrier_server::CARRIER_SOCKET)
-            .and_then(|l| CarrierServer::spawn(l, wall_ms, log, Arc::clone(&github_stop)))
+            .and_then(|l| {
+                let hooks = super::carrier_server::Hooks {
+                    now: wall_ms,
+                    log,
+                    ask_wait: super::carrier_server::ASK_WAIT,
+                };
+                CarrierServer::spawn(l, hooks, Arc::clone(&github_stop), resumes)
+            })
             .map_err(|e| log(&format!("carrier socket: {e}")))
             .ok();
         Ok(Worker {
@@ -914,7 +985,9 @@ impl Worker {
         // The bind writes carrier.json; the keyset refresher's write waits.
         let carrier_lock = self.keyset.carrier_lock();
         let carrier_held = carrier_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let result = bind_machine(
+        // The updater's connect hold, then the request (`hold_then_bind`).
+        let result = super::client::hold_then_bind(
+            &self.paths,
             &mut self.store,
             &http,
             &key,
@@ -924,6 +997,11 @@ impl Worker {
             wall_ms(),
         );
         drop(carrier_held);
+        let Some(result) = result else {
+            log("bind: a restart of this service is pending; the restarted service binds");
+            self.bind_retry_at = Some(self.now() + 30_000);
+            return;
+        };
         log(&format!("bind: {}", result.describe()));
         match result {
             BindResult::Bound(bound) => {
@@ -993,7 +1071,9 @@ impl Worker {
         }
         if let Some(carrier) = self.carrier.as_ref() {
             match github_client(&bound, &key) {
-                Ok(client) => carrier.bound(client),
+                // A machine with a relay carrier asks for its first ticket now (`carrier_server.rs`).
+                Ok(client) => carrier
+                    .bound(client, self.paths.at(crate::carrier_entry::CARRIER_FILE).is_file()),
                 Err(e) => log(&format!("carrier ticket: {e}")),
             }
         }
@@ -1048,10 +1128,15 @@ impl Worker {
         if self.activity.unsupported || self.live.is_none() {
             return;
         }
-        let attempt = daemon_socket(&self.paths)
+        let paths = self.paths.clone();
+        let mut identified = None;
+        let attempt = daemon_socket(&paths)
             .ok_or_else(|| io::Error::other("no daemon socket"))
             .and_then(|socket| {
                 let identify = query_identify(&socket, Duration::from_secs(2))?;
+                // The running session host's block, not the bake's (Session::daemon_identified).
+                identified =
+                    Some(with_desktop(&paths, daemon_info_from_identify(&identify, false)));
                 let caps = identify.field("capabilities").as_array().cloned().unwrap_or_default();
                 if !caps.iter().any(|c| c == DAEMON_ACTIVITY_CAPABILITY) {
                     return Ok(None);
@@ -1061,6 +1146,13 @@ impl Worker {
                 stream.set_nonblocking(true)?;
                 Ok(Some(stream))
             });
+        if let Some(daemon) = identified {
+            let now = self.now();
+            if let Some(live) = self.live.as_mut() {
+                let reqs = live.session.daemon_identified(&daemon, now);
+                self.drive(reqs);
+            }
+        }
         match attempt {
             Ok(Some(stream)) => self.activity.stream = Some(stream),
             Ok(None) => {
@@ -1371,3 +1463,7 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
 #[cfg(test)]
 #[path = "role_tests.rs"]
 mod role_tests;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "carrier_register_harness_tests.rs"]
+mod carrier_register_harness;

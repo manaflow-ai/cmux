@@ -43,9 +43,7 @@ cursorHide, hibernateIcon, the attention swell and the agent cursor glide limit
 ceiling kept their damping and got a shorter response: zoom 0.2 (was 0.30,
 354 ms visible), exit 0.2 (0.24, 283 ms), split 0.23 (0.28, 287 ms), popover
 0.24 (0.25, 248 ms), pinDrag 0.215 (0.351, 390 ms); scroll and screen 0.2,
-panel 0.165 and popoverClose 0.15 now end by 180 ms. Split went to 0.115 (117 ms
-visible) on 2026-11-08, when Leo set Claude desktop's split as the bar ("our
-animations should be so fast"). `settle` stays at 235 ms
+panel 0.165 and popoverClose 0.15 now end by 180 ms. `settle` stays at 235 ms
 (it carries the release velocity). Exceptions: the long ambient fades
 `highlight` (1.2 s) and `hibernateRing` (1 s), loops, and hover-intent
 delays (tooltip, hover card aim and grace, marquee, launch), which are waits,

@@ -17,6 +17,12 @@
 # cmux-tui-holder-<target> (the terminal holder, std and libc only) goes beside
 # bin/cmux as bin/cmux-holder: the daemon starts every terminal holder from a
 # content-addressed copy of it, else runs the holder built into cmux-tui-host.
+# cmux-tui-agent-screen-detection-<target> (the agent screen-detection plugin,
+# GPL-3.0-or-later AND Apache-2.0) goes beside bin/cmux as
+# bin/cmux-agent-screen-detection, the exact name the daemon runs by default
+# from beside its own (symlink-resolved) executable. Like the browser host, it is
+# installed only while bundle-map.json maps that path; a build that publishes
+# none installs none.
 #
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
@@ -59,7 +65,7 @@
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
 
-usage() { sed -n '2,23p' "$0"; }
+usage() { sed -n '2,36p' "$0"; }
 
 APP_PATH=""
 MANIFEST_URL="${CMUX_TUI_CLIENT_MANIFEST_URL:-https://files.cmux.com/cmux-tui/latest/manifest.json}"
@@ -237,28 +243,34 @@ check_acpmux() {
   echo "warning: installed binary does not run acpmux through bin/acpmux ($version); the agent chat pane falls back to acpmux on PATH" >&2
 }
 
-# The companions this bundle may carry: the browser host only once its license
-# notices are mapped (see the header).
+# The companions this bundle may carry: the browser host and the agent
+# screen-detection plugin only while their license notices are mapped (see the
+# header).
 COMPANIONS=(cmux-app-host cmux-cloud cmux-tui-host cmux-holder)
 BUNDLE_MAP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/notices/bundle-map.json"
-if python3 -c 'import json,sys; sys.exit(0 if any(e.get("path") == "Contents/Resources/bin/cmux-browser-host" for e in json.load(open(sys.argv[1]))["entries"]) else 1)' "$BUNDLE_MAP" 2>/dev/null; then
+bundle_map_has() { # <installed name>
+  python3 -c 'import json,sys; sys.exit(0 if any(e.get("path") == "Contents/Resources/bin/" + sys.argv[2] for e in json.load(open(sys.argv[1]))["entries"]) else 1)' "$BUNDLE_MAP" "$1" 2>/dev/null
+}
+if bundle_map_has cmux-browser-host; then
   COMPANIONS+=(cmux-browser-host)
   SHIP_BROWSER_HOST=1
 else
   SHIP_BROWSER_HOST=0
   echo "note: bin/cmux-browser-host is not installed: $BUNDLE_MAP does not map it (no license notices yet)"
 fi
-
-# The agent screen detector is not shipped here until its notices are mapped
-# (bundle-cmux-tui.sh places it in dev builds only); drop a stale copy so a
-# Release daemon never runs one from another build.
-rm -f "$DEST_DIR/cmux-agent-screen-detection"
+if bundle_map_has cmux-agent-screen-detection; then
+  COMPANIONS+=(cmux-agent-screen-detection)
+  SHIP_SCREEN_DETECTION=1
+else
+  SHIP_SCREEN_DETECTION=0
+  echo "note: bin/cmux-agent-screen-detection is not installed: $BUNDLE_MAP does not map it (no license notices yet)"
+fi
 
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
   install_binary "$CMUX_TUI_CLIENT_LOCAL"
   # A local client brings its app host and app servers when they sit beside it.
-  rm -f "$DEST_DIR/cmux-browser-host"
+  rm -f "$DEST_DIR/cmux-browser-host" "$DEST_DIR/cmux-agent-screen-detection"
   for companion in "${COMPANIONS[@]}"; do
     rm -f "$DEST_DIR/$companion"
     if [[ -f "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" ]]; then
@@ -447,6 +459,11 @@ if [[ "$SHIP_BROWSER_HOST" == 1 ]]; then
   install_companion cmux-tui-browser-host cmux-browser-host
 else
   rm -f "$DEST_DIR/cmux-browser-host"
+fi
+if [[ "$SHIP_SCREEN_DETECTION" == 1 ]]; then
+  install_companion cmux-tui-agent-screen-detection cmux-agent-screen-detection
+else
+  rm -f "$DEST_DIR/cmux-agent-screen-detection"
 fi
 # One arch per invocation: some lipo builds (Xcode 27 beta 4) consume only one
 # arch after -verify_arch and read the second as an extra input file, failing

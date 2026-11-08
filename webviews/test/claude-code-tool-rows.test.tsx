@@ -131,7 +131,8 @@ test("the live line draws no mark of its own: the shimmer is its only working si
 test("the split arm keeps out and in on the live line", () => {
   globalThis.cmuxExperiments = { "live-line-tokens": "split" };
   expect(shown(liveLine({ doing: "Using repo: repo grep" }))).toBe(
-    "Using repo: repo grep 3m 2s · ↓ 47.4K out ↑ 2.7M in",
+    // "in" is the uncached input (9K fresh + 41K cache writes), never every call's reads added up.
+    "Using repo: repo grep 3m 2s · ↓ 47.4K out ↑ 50K in",
   );
 });
 

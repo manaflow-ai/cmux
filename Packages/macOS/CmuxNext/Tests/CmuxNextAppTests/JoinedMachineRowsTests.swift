@@ -11,7 +11,7 @@ import CmuxNextTestSupport
 import CmuxNextWakeups
 
 /// The Machines section's machines joined through the hub: rows from `cmux machine list` (none
-/// while the store has no service), online by a heartbeat within 90 s, revoked ones dropped, Revoke and Rotate through the CLI and a fresh read after, Check
+/// while the store has no service), online by a heartbeat within 30 s, revoked ones dropped, Revoke and Rotate through the CLI and a fresh read after, Check
 /// as the Check Machine checklist on `machine doctor ID`, and the "…" menu's items.
 @MainActor @Suite(.closesItsWindows, .serialized) struct JoinedMachineRowsTests {
     // The service's closures are @Sendable and run off the main actor: the fakes are not isolated to it.
@@ -81,19 +81,19 @@ import CmuxNextWakeups
         #expect(fake.lists == 1)
     }
 
-    /// An online row turns offline once its heartbeat passes the 90 s window, offline and revoked rows
+    /// An online row turns offline once its heartbeat passes the 30 s window, offline and revoked rows
     /// stay as they are, and the next deadline is the first online row's expiry.
     @Test func anOnlineRowAgesOfflinePastTheHeartbeatWindow() {
         let t0 = Date(timeIntervalSince1970: 1_000_000)
         let fresh = JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: t0)
-        let older = JoinedMachine(id: "m_2", name: "b", state: .online, heartbeatAt: t0.addingTimeInterval(-30))
+        let older = JoinedMachine(id: "m_2", name: "b", state: .online, heartbeatAt: t0.addingTimeInterval(-10))
         let off = JoinedMachine(id: "m_3", name: "c", state: .offline, heartbeatAt: t0)
-        #expect(fresh.aged(now: t0.addingTimeInterval(90)).state == .online)
-        #expect(fresh.aged(now: t0.addingTimeInterval(91)).state == .offline)
+        #expect(fresh.aged(now: t0.addingTimeInterval(30)).state == .online)
+        #expect(fresh.aged(now: t0.addingTimeInterval(31)).state == .offline)
         #expect(off.aged(now: t0.addingTimeInterval(1)).state == .offline, "aging never brings a row online")
         #expect(JoinedMachine(id: "m_4", name: "d", state: .online).aged(now: .distantFuture).state == .online,
                 "no readable heartbeat: the CLI's word stands")
-        #expect(JoinedMachine.nextExpiry([fresh, older, off]) == t0.addingTimeInterval(60))
+        #expect(JoinedMachine.nextExpiry([fresh, older, off]) == t0.addingTimeInterval(20))
         #expect(JoinedMachine.nextExpiry([off]) == nil)
     }
 

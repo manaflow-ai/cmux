@@ -233,9 +233,9 @@ fn terminal_output_read(
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
     let pattern = required_string(&request.fields, "pattern")?;
-    let regex = Regex::new(pattern).map_err(|error| {
+    let regex = crate::wait_pattern::compile(pattern).map_err(|error| {
         validation_error(
-            "terminal wait pattern is not a valid regular expression",
+            &crate::wait_pattern::invalid_message(pattern, &error),
             json!({"pattern":pattern,"error":error.to_string()}),
         )
     })?;
@@ -529,34 +529,30 @@ fn execute_browser_effect(
                     "url",
                     &prepared.operation,
                 )?)
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
-            "browser.back" => surface
-                .browser_back_confirmed()
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
-            "browser.forward" => surface
-                .browser_forward_confirmed()
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
-            "browser.reload" => surface
-                .browser_reload_confirmed()
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
-            "browser.activate" => surface
-                .browser_activate_confirmed()
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
+                .map_err(unconfirmed_browser_action),
+            "browser.back" => surface.browser_back_confirmed().map_err(unconfirmed_browser_action),
+            "browser.forward" => {
+                surface.browser_forward_confirmed().map_err(unconfirmed_browser_action)
+            }
+            "browser.reload" => {
+                surface.browser_reload_confirmed().map_err(unconfirmed_browser_action)
+            }
+            "browser.activate" => {
+                surface.browser_activate_confirmed().map_err(unconfirmed_browser_action)
+            }
             "browser.input.text" => surface
                 .browser_insert_text_confirmed(required_intent_string(
                     &fields,
                     "text",
                     &prepared.operation,
                 )?)
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
+                .map_err(unconfirmed_browser_action),
             "browser.input.key" => browser_key(&surface, &fields),
             "browser.input.mouse" => browser_mouse(&surface, &fields),
             "browser.input.wheel" => browser_wheel(&surface, &fields),
             "browser.close" => {
                 if surface.browser_source().is_some() {
-                    surface
-                        .browser_close_confirmed()
-                        .map_err(|error| ActionFailure::Indeterminate(error.to_string()))?;
+                    surface.browser_close_confirmed().map_err(unconfirmed_browser_action)?;
                 }
                 Ok(())
             }
@@ -662,11 +658,11 @@ fn finish_projection_commit(
 ) -> Result<Value, ResourceError> {
     let commit = match commit {
         Ok(commit) => commit,
-        Err(_) => {
-            let _ = mux.mark_resource_effect_indeterminate(&prepared.idempotency_key);
-            return Err(effects::indeterminate_error(
-                &prepared.idempotency_key,
-                &prepared.operation,
+        Err(error) => {
+            return Err(effects::mark_indeterminate(
+                mux,
+                prepared,
+                &format!("the projection commit failed: {error:#}"),
             ));
         }
     };
@@ -760,9 +756,17 @@ fn confirmed_input_error(
             ActionFailure::Known(ResourceError::operation_failed(operation, message, json!({})))
         }
         crate::surface::ConfirmedInputFailure::Indeterminate(error) => {
-            // Raw transport diagnostics must not enter the durable API response.
-            drop(error);
-            ActionFailure::Indeterminate("terminal_input_delivery_indeterminate".into())
+            // Raw transport text can name private sockets, so neither the
+            // durable API response nor the daemon log gets it: the log gets
+            // the error kind and OS code, which tell a missed InputAck
+            // (TimedOut, ConnectionAborted) from a failed frame write.
+            let cause = match error.raw_os_error() {
+                Some(code) => {
+                    format!("input delivery failed: {:?} (os error {code})", error.kind())
+                }
+                None => format!("input delivery failed: {:?}", error.kind()),
+            };
+            ActionFailure::Indeterminate(cause)
         }
     }
 }
@@ -1018,7 +1022,7 @@ fn browser_key(surface: &Surface, fields: &Map<String, Value>) -> Result<(), Act
                 modifiers,
                 text,
             )
-            .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+            .map_err(unconfirmed_browser_action)
     };
     match kind {
         "down" => send("keyDown", text.as_deref()),
@@ -1054,7 +1058,7 @@ fn browser_mouse(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
     let pointer_frame_seq = required_decimal_action(fields, "pointer_frame_seq")?;
     surface
         .browser_mouse_event_confirmed(event_type, x, y, button, click_count, pointer_frame_seq)
-        .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+        .map_err(unconfirmed_browser_action)
 }
 
 fn browser_wheel(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
@@ -1066,7 +1070,7 @@ fn browser_wheel(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
             required_f64(fields, "delta_y")?,
             required_decimal_action(fields, "pointer_frame_seq")?,
         )
-        .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+        .map_err(unconfirmed_browser_action)
 }
 
 /// The refusal of a key the encoder does not know names the form it takes: the key
@@ -1606,8 +1610,16 @@ fn direct_child_pids(_pid: u32) -> Vec<u32> {
     Vec::new()
 }
 
+/// Browser bridge errors can echo a URL or typed text, so the daemon log
+/// gets only the stage of an unconfirmed browser action.
+fn unconfirmed_browser_action(_error: anyhow::Error) -> ActionFailure {
+    ActionFailure::Indeterminate("the browser did not confirm the action".into())
+}
+
 enum ActionFailure {
     Known(ResourceError),
+    /// The effect may have run. The text is the cause for the daemon
+    /// diagnostic log only; it never enters the API response.
     Indeterminate(String),
 }
 
@@ -1618,7 +1630,9 @@ fn finish_action_failure(
 ) -> Result<Value, ResourceError> {
     match failure {
         ActionFailure::Known(error) => effects::commit_known_failure(mux, prepared, error),
-        ActionFailure::Indeterminate(_message) => Err(effects::mark_indeterminate(mux, prepared)),
+        ActionFailure::Indeterminate(cause) => {
+            Err(effects::mark_indeterminate(mux, prepared, &cause))
+        }
     }
 }
 
@@ -2887,5 +2901,78 @@ mod tests {
         assert_eq!(record["extra"]["last_command"]["exit_code"], 7, "{record}");
         assert!(record["extra"]["last_command"]["finished_at_ms"].is_string());
         assert!(record["extra"]["prompt"].is_object());
+    }
+
+    fn capture_diagnostics(mux: &Mux) -> Arc<std::sync::Mutex<Vec<String>>> {
+        let diagnostics = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+        diagnostics
+    }
+
+    #[test]
+    fn a_failed_outcome_commit_reports_its_cause_to_the_daemon_log() {
+        let (mux, _surface, selectors) = terminal_fixture(None);
+        let diagnostics = capture_diagnostics(&mux);
+        mux.reject_resource_effect_commits_for_test();
+
+        let error = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.input.write",
+                &selectors,
+                json!({"text":"echo cause\n"}),
+                Some("terminal-write-commit-cause"),
+            ),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "mutation.indeterminate");
+        let diagnostics = diagnostics.lock().unwrap();
+        assert!(
+            diagnostics.iter().any(|message| message.contains("terminal.input.write")
+                && message.contains("terminal-write-commit-cause")
+                && message.contains("injected outcome commit failure")),
+            "the daemon log has no cause for the indeterminate outcome: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_unconfirmed_terminal_input_reports_its_kind_but_no_private_detail() {
+        let (mux, _surface, _selectors) = terminal_fixture(None);
+        let diagnostics = capture_diagnostics(&mux);
+        let private = "internal socket /private/terminal.sock token=secret-test-value";
+        let failure = crate::surface::ConfirmedInputFailure::Indeterminate(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            private,
+        ));
+        let prepared = PreparedEffect {
+            idempotency_key: "terminal-write-transport-cause".into(),
+            operation: "terminal.input.write".into(),
+            fingerprint: json!({}),
+            intent: json!({}),
+        };
+
+        let error = finish_action_failure(
+            &mux,
+            prepared,
+            confirmed_input_error("terminal.input.write", failure),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "mutation.indeterminate");
+        assert!(!error.details.to_string().contains(private));
+        let diagnostics = diagnostics.lock().unwrap();
+        assert!(
+            diagnostics.iter().any(|message| message.contains("terminal-write-transport-cause")
+                && message.contains("TimedOut")),
+            "the daemon log has no cause for the unconfirmed input: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics.iter().all(|message| !message.contains("secret-test-value")),
+            "raw transport text reached the daemon log: {diagnostics:?}"
+        );
     }
 }

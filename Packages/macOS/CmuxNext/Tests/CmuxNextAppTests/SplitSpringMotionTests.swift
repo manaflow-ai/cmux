@@ -159,9 +159,9 @@ struct SplitSpringMotionTests {
 
     // MARK: The spring
 
-    /// The split's spring (`split`, response 0.115 s, damping 0.95): fast (Leo 2026-11-08, beside
-    /// Claude desktop: "our animations should be so fast"), about four fifths of the way at 50 ms
-    /// but not a cut, no visible overshoot, and at rest at exactly its target within 0.75 s.
+    /// The split's spring (`split`, response 0.11 s, damping 0.95): done in about 113 ms (about
+    /// four fifths of the way at 50 ms, Leo 2026-11-08 instant-splits), no visible overshoot, and
+    /// at rest at exactly its target within 0.75 s.
     @Test(arguments: [SplitAxis.horizontal, .vertical])
     func aSplitRunsOnTheSplitSpringWithoutOvershootAndLandsExactly(axis: SplitAxis) throws {
         let screen = Screen(.leaf("p1"))
@@ -176,7 +176,7 @@ struct SplitSpringMotionTests {
             if rest == nil, !moving { rest = frame }
         }
         let early = sizes[Int((0.05 * Self.scale / Self.dt).rounded()) - 1] / extent(target)
-        #expect(early > 0.6 && early < 0.9, "at 50 ms the new pane is at \(early) of its size")
+        #expect(early > 0.7 && early < 0.9, "at 50 ms the new pane is at \(early) of its size")
         #expect(zip(sizes, sizes.dropFirst()).allSatisfy { $1 >= $0 - 0.1 }, "the new pane shrank on its way in")
         #expect(sizes.allSatisfy { $0 <= extent(target) + 0.25 }, "the new pane overshot: \(sizes.max() ?? 0) > \(extent(target))")
         #expect(screen.rect("p2") == target)

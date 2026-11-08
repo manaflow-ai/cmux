@@ -19,7 +19,7 @@ public nonisolated struct RemoteRdByteStream: Sendable {
 }
 
 /// The rd byte path over a `RemoteRdByteStream`: opens it when the transport starts, then copies
-/// both directions; either direction ending ends the path (`.closed`), so the pane says why and
+/// both directions; either direction ending ends the path (`.closed(reason:)`), so the pane says why and
 /// never waits.
 public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
     private let open: @Sendable () async throws -> RemoteRdByteStream
@@ -55,10 +55,11 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
             do {
                 stream = try await open()
             } catch {
-                // The open's own error (no link, a refused lookup or dial) is the only record of why the pane
-                // says the connection was lost: the closed event carries no reason.
-                Self.logger.error("rd stream did not open: \(String(describing: error), privacy: .public)")
-                self.emit(.closed)
+                // The open's own error (no link, a refused lookup or dial) is why the pane says the
+                // connection was lost: the closed event carries it to the session snapshot.
+                let reason = "rd stream did not open: \(String(describing: error))"
+                Self.logger.error("\(reason, privacy: .public)")
+                self.emit(.closed(reason: reason))
                 return
             }
             guard self.adopt(stream) else {
@@ -75,19 +76,23 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
                     }
                     // A read also ends when this side closed the stream (cancel(), a failed write): only an end
                     // nobody here asked for is the host's.
-                    if !self.state.withLock({ $0.cancelled || $0.closedHere }) {
-                        Self.logger.notice("rd stream ended by the host after \(received, privacy: .public) bytes")
+                    if self.state.withLock({ $0.cancelled || $0.closedHere }) {
+                        self.emit(.closed(reason: "rd stream closed by this side"))
+                    } else {
+                        let reason = "rd stream ended by the host after \(received) bytes"
+                        Self.logger.notice("\(reason, privacy: .public)")
+                        self.emit(.closed(reason: reason))
                     }
-                    self.emit(.closed)
                 }
                 group.addTask {
                     for await bytes in outgoing {
                         do {
                             try await stream.write(bytes)
                         } catch {
-                            Self.logger.error("rd stream write failed: \(String(describing: error), privacy: .public)")
+                            let reason = "rd stream write failed: \(String(describing: error))"
+                            Self.logger.error("\(reason, privacy: .public)")
                             self.state.withLock { $0.closedHere = true }
-                            self.emit(.closed)
+                            self.emit(.closed(reason: reason))
                             return
                         }
                     }
