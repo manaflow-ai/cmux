@@ -50,6 +50,7 @@ mod base;
 mod git_back;
 mod history;
 mod links;
+mod listed;
 mod local;
 mod merge;
 mod names;
