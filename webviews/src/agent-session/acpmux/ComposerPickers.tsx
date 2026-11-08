@@ -21,10 +21,8 @@ import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
-import { HarnessInstallDialog } from "./harnesses/HarnessInstallDialog";
 import { useHarnessInstaller } from "./harnesses/harnessInstallContext";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
-import { useHarnessInstall } from "./harnesses/useHarnessInstall";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
@@ -205,6 +203,8 @@ export function ComposerPickers({
   const { showContextUsage, harnessSwitch, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
   const chatAccounts = useChatAccounts();
   const summary = snapshot.summary;
+  // The pane's one-click install (cmux#38191; harnessInstallContext.tsx): only a chat on this Mac has one.
+  const installer = useHarnessInstaller();
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
   // probe alone (a timeout) keeps it.
@@ -456,6 +456,7 @@ export function ComposerPickers({
   const pickHarness =
     switchHarness &&
     ((picked: string, pickedModel?: string, options?: Readonly<Record<string, string>>) => {
+      installer?.cancelPick();
       if (remembers)
         rememberPick({ harness: picked, ...(pickedModel ? { model: pickedModel } : {}) }, folder ?? summary?.cwd);
       switchHarness(picked, pickedModel, options);
@@ -488,6 +489,7 @@ export function ComposerPickers({
     });
   };
   const land = (pickedModel: string, pickedEffort?: string) => {
+    installer?.cancelPick();
     // A pick of the chat's own harness drops another harness's held pick: the next message stays
     // in this chat.
     if (forks) clearHeldFork(sessionId);
@@ -531,6 +533,8 @@ export function ComposerPickers({
   // such tier (standard and ultrafast only). Every path a combo's Fast takes sends this or nothing.
   const comboFast = fastOption ? heldOptionPick(HELD_FAST_ID, HELD_FAST_ON, [fastOption]) : undefined;
   const combo = (picked: ModelCombo) => {
+    // A pick made meanwhile wins over the one a hidden install would make when it ends.
+    installer?.cancelPick();
     crossing.current = undefined;
     fastWanted.current = undefined;
     if (picked.harness !== harness) {
@@ -570,12 +574,6 @@ export function ComposerPickers({
   // One-click install (cmux#38191): a pick of a harness this Mac does not have opens its install
   // prompt; once it is installed (acpmux has found it, the catalog read again) the pick lands as a
   // combo does. Only a chat on this Mac has an installer (harnessInstallContext.ts).
-  const installer = useHarnessInstaller();
-  const harnessInstall = useHarnessInstall({
-    callNative: installer?.native ?? noInstaller,
-    cwd: folder ?? summary?.cwd,
-    refreshCatalog: installer?.refreshCatalog,
-  });
   // The pick runs after the install, on the chips of that moment, not of the render that asked.
   const latestCombo = useRef(combo);
   latestCombo.current = combo;
@@ -584,7 +582,7 @@ export function ComposerPickers({
       (candidate) => (candidate.acpmuxHarness ?? candidate.id) === pick.harness,
     );
     const model = pick.model;
-    harnessInstall.request(
+    installer?.request(
       {
         harness: pick.harness,
         name: entry?.name ?? pick.harness,
@@ -595,6 +593,7 @@ export function ComposerPickers({
       model
         ? () => latestCombo.current({ harness: pick.harness, model, effort: pick.effort, fast: pick.fast })
         : undefined,
+      folder ?? summary?.cwd,
     );
   };
   const switchFailed = snapshot.switching?.phase === "failed";
@@ -1212,25 +1211,8 @@ export function ComposerPickers({
       />
     </div>
   );
-  return (
-    <>
-      {chips}
-      {harnessInstall.state && (
-        <HarnessInstallDialog
-          state={harnessInstall.state}
-          onInstall={harnessInstall.install}
-          onCancel={harnessInstall.dismiss}
-          {...(harnessInstall.state.target.docsUrl ? { onSetupGuide: harnessInstall.setupGuide } : {})}
-        />
-      )}
-    </>
-  );
+  return chips;
 }
-
-/// The install prompt's host calls when the pane provides no installer: never reached, since the
-/// picker then offers no install pick.
-// l10n-allow: a developer error, never shown
-const noInstaller = () => Promise.reject(new Error("no harness installer"));
 
 /// No start mode to name: the access chip holds its place as "Mode" (a borrowed answer's face).
 const MODE_PLACEHOLDER: KeptStartMode = { modeId: "", borrowed: true };

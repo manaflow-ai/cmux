@@ -109,11 +109,17 @@ function fakeHost(reads: (Read | Promise<Read>)[]) {
 }
 
 /// The composer chips of a new chat on a Mac that has only Claude Code, over the bundled catalog.
-async function render(installer?: { native: (method: string, params?: Record<string, unknown>) => Promise<unknown> }) {
+async function render(
+  installer?: {
+    native: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+    refreshFails?: boolean;
+  },
+  composer = true,
+) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
-  const { HarnessInstallContext } = await import("../src/agent-session/acpmux/harnesses/harnessInstallContext");
+  const { HarnessInstallProvider } = await import("../src/agent-session/acpmux/harnesses/harnessInstallContext");
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   const catalog = BUNDLED_MODEL_CATALOG.harnesses
@@ -156,27 +162,26 @@ async function render(installer?: { native: (method: string, params?: Record<str
       />
     );
   }
+  const tree = (withComposer: boolean) => (
+    <QueryClientProvider client={new QueryClient()}>
+      {/* The pane's provider, as App.tsx draws it: no `native` for a chat on another machine. */}
+      <HarnessInstallProvider
+        {...(installer ? { native: installer.native } : {})}
+        refreshCatalog={async () => {
+          refreshed++;
+          if (installer?.refreshFails) throw new Error("models.catalog refresh failed");
+        }}
+      >
+        {withComposer && <Host />}
+      </HarnessInstallProvider>
+    </QueryClientProvider>
+  );
   root ??= createRoot(host);
-  await act(async () => {
-    root!.render(
-      <QueryClientProvider client={new QueryClient()}>
-        {installer ? (
-          <HarnessInstallContext.Provider
-            value={{
-              native: installer.native,
-              refreshCatalog: async () => void refreshed++,
-            }}
-          >
-            <Host />
-          </HarnessInstallContext.Provider>
-        ) : (
-          <Host />
-        )}
-      </QueryClientProvider>,
-    );
-  });
+  await act(async () => root!.render(tree(composer)));
   await settle();
-  return { started, added: () => added, refreshed: () => refreshed };
+  /// The composer goes away (the New Tab became a chat, the Harnesses page over it); the pane stays.
+  const dropComposer = () => act(async () => root!.render(tree(false)));
+  return { started, added: () => added, refreshed: () => refreshed, dropComposer };
 }
 
 const doc = () => dom.window.document;
@@ -298,6 +303,74 @@ describe("one-click install from the model picker", () => {
     expect(dialog()).toBeNull();
     expect(calls).toEqual([]);
     expect(view.started).toEqual([]);
+  });
+
+  test("a catalog read that fails after a good install still starts the picked model", async () => {
+    const { native } = fakeHost([{ output: "ok\n", next: 1, exit: { code: 0 } }]);
+    const view = await render({ native, refreshFails: true });
+    await act(async () => (await geminiRow()).click());
+    await settle();
+    await act(async () => button(dialog()!, "Install")!.click());
+    await settle();
+    await settle();
+    expect(view.refreshed()).toBe(1);
+    expect(dialog()).toBeNull();
+    expect(view.started.map((args) => args[0])).toEqual(["gemini"]);
+  });
+
+  test("a hidden install outlives the composer that asked, and its pick still lands", async () => {
+    let finish!: (read: Read) => void;
+    const { calls, native } = fakeHost([
+      new Promise<Read>((resolve) => {
+        finish = resolve;
+      }),
+    ]);
+    const view = await render({ native });
+    await act(async () => (await geminiRow()).click());
+    await settle();
+    await act(async () => button(dialog()!, "Install")!.click());
+    await settle();
+    await act(async () => button(dialog()!, "Hide")!.click());
+    await view.dropComposer();
+    await settle();
+    await act(async () => finish({ output: "installed\n", next: 1, exit: { code: 0 } }));
+    await settle();
+    await settle();
+    // Never stopped: the install ran to its end, acpmux looked again, and the pick landed.
+    expect(calls.some((call) => call.method === "shell.stop")).toBe(false);
+    expect(calls.some((call) => call.method === "harness.health")).toBe(true);
+    expect(view.started.map((args) => [args[0], args[1]])).toEqual([["gemini", "gemini-3.1-pro-preview"]]);
+  });
+
+  test("another pick made while a hidden install runs wins over the install's pick", async () => {
+    let finish!: (read: Read) => void;
+    const { native } = fakeHost([
+      new Promise<Read>((resolve) => {
+        finish = resolve;
+      }),
+    ]);
+    const view = await render({ native });
+    await act(async () => (await geminiRow()).click());
+    await settle();
+    await act(async () => button(dialog()!, "Install")!.click());
+    await settle();
+    await act(async () => button(dialog()!, "Hide")!.click());
+    await settle();
+    // Meanwhile the person picks Claude Sonnet on Claude Code's tab.
+    await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-model button")!.click());
+    await settle();
+    const claudeTab = doc().querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label="Claude Code"]')!;
+    await act(async () => claudeTab.click());
+    await settle();
+    const sonnet = [...doc().querySelectorAll<HTMLElement>('.acpmux-cols [role="listbox"] [role="option"]')].find(
+      (item) => item.title.endsWith("claude-sonnet-5-5"),
+    )!;
+    await act(async () => sonnet.click());
+    await settle();
+    await act(async () => finish({ next: 1, exit: { code: 0 } }));
+    await settle();
+    await settle();
+    expect(view.started.map((args) => args[0])).not.toContain("gemini");
   });
 
   test("without an installer the rows stay unpickable and Install… opens the Harnesses page", async () => {
