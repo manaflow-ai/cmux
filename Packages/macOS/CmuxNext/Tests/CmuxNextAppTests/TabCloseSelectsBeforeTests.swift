@@ -117,9 +117,9 @@ struct TabCloseSelectsBeforeTests {
         try await PinnedPageTests.withApp { services, connection in
             let (pane, ids, _) = try await Self.pane(services, connection, browsers: 3) // T b0 b1 b2
             try await Self.select(ids[3], in: pane)
-            pane.stripModel.send(.closeToRight(TabID(ids[1])))
+            pane.stripModel.send(.closeToRight(of: TabID(ids[1])))
             try await Self.expect(pane, services, closed: [ids[2], ids[3]], selects: ids[1], "Close Tabs to the Right")
-            pane.stripModel.send(.closeOthers(TabID(ids[1])))
+            pane.stripModel.send(.closeOthers(keeping: TabID(ids[1])))
             try await Self.expect(pane, services, closed: [ids[0]], selects: ids[1], "Close Other Tabs")
         }
     }
