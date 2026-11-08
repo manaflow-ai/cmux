@@ -14,7 +14,7 @@ import {
   SENDER_ICON_CORNER_KEY,
   SENDER_ICON_LEAD_KEY,
 } from "./senderIconLook";
-import { foreignHarness } from "./AgentIdentity";
+import { foreignHarness } from "./agentIdentityModel";
 import { rememberHarnessIcons } from "../../shared/harnessIcons";
 import { SubagentsSection } from "../session-info/SubagentsSection";
 import type { Subagent } from "./subagentFold";

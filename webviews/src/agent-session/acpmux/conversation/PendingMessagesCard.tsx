@@ -15,7 +15,8 @@ import { FindReveal } from "./chatFind";
 import { messageOpened, setDigestOpened, setMessageOpened } from "./incomingOpened";
 import { bySender } from "./pendingMessages";
 import { SenderName } from "./IncomingMessageCard";
-import { groupSender, MessageGroupHead } from "./MessageGroupHead";
+import { MessageGroupHead } from "./MessageGroupHead";
+import { groupSender } from "./messageGroupHeadModel";
 import "./PendingMessagesCard.css";
 
 /// The ids a digest's lines open by: each message's row. A batch inside it ("Received N messages",

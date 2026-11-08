@@ -58,6 +58,7 @@ members = [
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
+    "crates/cmux-cloud-codex-holder",
     "crates/cmux-cloud-api",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
@@ -103,7 +104,9 @@ members = [
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-agent-pane-policy",
+    "crates/cmux-daemon-conn-core",
     "crates/cmux-daemon-launch-core",
+    "crates/cmux-cookie-sync",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -112,6 +115,7 @@ members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-vault-egress",
@@ -154,6 +158,7 @@ default-members = [
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
+    "crates/cmux-cloud-codex-holder",
     "crates/cmux-cloud-api",
     "crates/cmux-pty",
     "crates/cmux-process",
@@ -193,6 +198,7 @@ default-members = [
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-daemon-launch-core",
+    "crates/cmux-cookie-sync",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -201,6 +207,7 @@ default-members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-url-input",
@@ -208,6 +215,7 @@ default-members = [
 ]
 exclude = [
     "vendor/crossterm",
+    "vendor/smoltcp",
     "crates/cmux-rd-host",
     "crates/cmux-cellgrid-bench",
     "crates/acpmux-hot/guest",
@@ -267,11 +275,13 @@ cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
 cmux-window-rules = { path = "crates/cmux-window-rules" }
 cmux-cloud-client = { path = "crates/cmux-cloud-client" }
+cmux-cloud-codex-holder = { path = "crates/cmux-cloud-codex-holder" }
 cmux-cloud-api = { path = "crates/cmux-cloud-api" }
 cmux-cloud-environment = { path = "crates/cmux-cloud-environment" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
+cmux-daemon-conn-core = { path = "crates/cmux-daemon-conn-core" }
 acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
@@ -287,6 +297,8 @@ cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
+cmux-tasks = { path = "crates/cmux-tasks" }
+cmux-tasks-core = { path = "crates/cmux-tasks-core" }
 cmux-imessage = { path = "crates/cmux-imessage" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
@@ -433,6 +445,9 @@ crossterm = { path = "vendor/crossterm" }
 # The cmux Crossterm patch adds `Event::EnhancedKey`. Keep the adapter's
 # exhaustive event mapping in the same source-controlled compatibility layer.
 terminput-crossterm = { path = "vendor/terminput-crossterm" }
+# smoltcp 0.14.0 starts CUBIC at 2 × 1024 bytes; the cmux patch starts it at
+# RFC 6928's 10 segments (vendor/smoltcp/CMUX_PATCH.md).
+smoltcp = { path = "vendor/smoltcp" }
 
 # Thin LTO. Every tree build compiles this profile, and NEXT nightly waits on the
 # tree. Fat LTO in one codegen unit (#19666) spent about 6 single-threaded

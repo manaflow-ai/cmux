@@ -320,6 +320,10 @@ public final class AgentChatStore {
     public private(set) var pendingPermission: PermissionRecord?
     /// The newest turn's open question.
     public private(set) var pendingQuestion: AgentQuestion?
+    /// The chat's open sudo card (acpmux `elevation_request`), until it is answered or closed.
+    public private(set) var pendingElevation: AgentElevationAsk?
+    /// The sudo card's Approve is being signed and sent.
+    public private(set) var sendingElevation = false
     /// The running turn's latest plan.
     public private(set) var runningPlanEntries: [ACPPlanEntry]?
     /// Turns before the newest that hold an edit (counted once per new turn).
@@ -497,6 +501,14 @@ public final class AgentChatStore {
         permissionAnswerUncertain = false
         awaitsPermissionReply = true
         source.send(.respondPermission(permissionId: request.id, optionId: option?.id))
+    }
+
+    /// Answers the sudo card: Approve with the password (signed with the approval key), or Deny.
+    /// The card stays until acpmux records its decision; a failed send says why (``clientError``).
+    public func answerElevation(_ ask: AgentElevationAsk, password: String?) {
+        clientError = nil
+        sendingElevation = password != nil
+        source.send(.answerElevation(ask, password: password.map(AgentSecretText.init)))
     }
 
     // MARK: Bookmarks, pins and permissions (chat polish parity)
@@ -890,6 +902,15 @@ public final class AgentChatStore {
                 return .permission(record)
             }
             summary.status = turns.last?.status == .running ? .running : .idle
+        case .elevationRequest(let ask):
+            pendingElevation = ask
+            sendingElevation = false
+            summary.status = .waiting
+        case .elevationDecision(let id):
+            guard pendingElevation?.id == id else { break }
+            pendingElevation = nil
+            sendingElevation = false
+            summary.status = turns.last?.status == .running ? .running : .idle
         case .questionAnswered(let questionId, let answer):
             decidedAsks.insert(questionId)
             updateItems { item in
@@ -924,6 +945,7 @@ public final class AgentChatStore {
             if status == .disconnected { retryRequested = false }
         case .clientError(let message):
             approvingOptionID = nil
+            sendingElevation = false
             // The error that follows an answer whose ask is still open: it did not reach the
             // Mac (or its reply was lost). Another call's error says nothing about it.
             if awaitsPermissionReply, let sent = sentPermissionAnswer, pendingPermission?.request.id == sent.permissionID {

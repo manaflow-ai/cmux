@@ -6,6 +6,9 @@
 // - `page-load`: this document loaded (`type`: navigate, reload, back_forward).
 // - `visibility`: the document became hidden or visible (WebKit follows the window's occlusion).
 // - `transcript-mount`: the transcript's root mounted; `n` over 1 is a remount on this page.
+// - `transcript-replace`: the chat on screen drew a frame with none of its rows from before (an
+//   empty transcript, or every row built anew), after a reset of it (direct.ts `noteReplace`):
+//   `cause` names the reset, `blank` an empty frame, `n` the chat's count on this page.
 // - `long-frame`: a frame over 100 ms while the page is visible, from a `long-animation-frame`
 //   observer where the engine has one, else from the frame watch below.
 // - `frames`: how smoothly the page drew while it changed, at most once a second: `n` frames that
@@ -38,7 +41,9 @@ export class FlickerLog {
   constructor(
     private readonly send: Send,
     private readonly now: () => number = Date.now,
-    private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = setTimeout,
+    // Called through a closure: Chromium refuses `setTimeout` called as this object's method.
+    private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = (run, ms) =>
+      setTimeout(run, ms),
   ) {}
 
   record(kind: string, fields: Record<string, string | number | boolean> = {}): void {
@@ -109,11 +114,12 @@ export function frameStats(intervals: readonly number[], span: number): FrameSta
 /// and the intervals of frames that drew a change as one `frames` summary a second at most.
 export class FrameWatch {
   private last: number | undefined;
-  /// The frame before `last` (or the change that armed the watch).
-  private beforeLast: number | undefined;
   private until = 0;
   private running = false;
-  private lastChange = -Infinity;
+  /// A change came since the last frame: the next frame draws it.
+  private pending = false;
+  /// The last frame drew a change: the interval after it is that change's cost.
+  private drew = false;
   private intervals: number[] = [];
   /// The span of the counted intervals: the first one's start and the newest one's end.
   private windowStart: number | undefined;
@@ -128,20 +134,20 @@ export class FrameWatch {
   ) {}
 
   arm(): void {
-    this.lastChange = this.now();
-    this.until = this.lastChange + WATCH_MS;
+    this.until = this.now() + WATCH_MS;
+    this.pending = true;
     if (this.running) return;
     this.running = true;
     // From the change itself: a frame that the change made long is the first one timed.
     this.last = this.visible() ? this.now() : undefined;
-    this.beforeLast = undefined;
+    this.drew = false;
     this.frame((time) => this.tick(time));
   }
 
   /// The page was hidden: the next gap spans the hidden time, so it is not a frame.
   reset(): void {
     this.last = undefined;
-    this.beforeLast = undefined;
+    this.drew = false;
     this.endWindow();
   }
 
@@ -150,17 +156,18 @@ export class FrameWatch {
     if (visible && this.last !== undefined) {
       const ms = time - this.last;
       if (ms > LONG_FRAME_MS) this.report(Math.round(ms));
-      // A change is drawn in the frame it came before, so its cost is the interval after that
-      // frame: count an interval when a change came since the frame before it. The first interval
-      // runs from the change, not from a frame, so it is no frame's length.
-      if (this.beforeLast !== undefined && this.lastChange >= this.beforeLast) {
+      // A change is drawn in the frame after it, so its cost is the interval that starts at that
+      // frame: one interval per frame that drew a change, however many changes it drew. The first
+      // interval runs from the change, not from a frame, so it is no frame's length.
+      if (this.drew) {
         this.windowStart ??= this.last;
         this.windowEnd = time;
         this.intervals.push(ms);
         if (time - this.windowStart >= WINDOW_MS) this.endWindow();
       }
     }
-    this.beforeLast = visible ? this.last : undefined;
+    this.drew = visible && this.pending;
+    this.pending = false;
     this.last = visible ? time : undefined;
     if (this.now() >= this.until) {
       this.running = false;
@@ -183,6 +190,11 @@ let log: FlickerLog | undefined;
 /// The transcript's root mounted (App.tsx VirtualTranscript); nothing before startFlickerLog.
 export function noteTranscriptMount(): void {
   log?.transcriptMounted();
+}
+
+/// The chat on screen was replaced whole (direct.ts `noteReplace`); nothing before startFlickerLog.
+export function noteTranscriptReplace(cause: string, blank: boolean, n: number): void {
+  log?.record("transcript-replace", { cause, blank, n });
 }
 
 /// Long frames from the engine's `long-animation-frame` entries; false when it has none or refuses

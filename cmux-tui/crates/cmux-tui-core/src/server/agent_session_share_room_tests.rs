@@ -470,11 +470,11 @@ fn an_account_redeem_answers_the_invitees_role_and_nothing_else_about_the_accoun
     assert_eq!((again["guest_id"].clone(), again["role"].clone()), (guest, json!("view")));
     room.send(invited("r3", "attempt-2", "tom@example.com"));
     assert_eq!(room.frame(conn)["role"], "talk");
-    // A link guest's answer is as before: no role (the room reads none as a link guest).
+    // A guest who joins by the link alone (nobody signed in) watches only.
     room.send(redeem("r4", "attempt-3", &share["secret"]));
     let link = room.frame(conn);
     assert!(link["guest_id"].is_string(), "{link}");
-    assert!(link.get("role").is_none(), "{link}");
+    assert_eq!(link["role"], "view", "{link}");
 }
 
 #[test]
@@ -1502,7 +1502,8 @@ fn sized(seq: u64, bytes: usize) -> Value {
         "msg": {"text": "x".repeat(bytes)}})
 }
 
-/// A share with two redeemed guests and its host socket past `guests`: (share, [guest ids], conn).
+/// A share with two redeemed guests (accounts invited with `talk`, so they may send) and its host
+/// socket past `guests`: (share, [guest ids], conn).
 fn two_guests(room: &FakeRoom, owner: &mut Client, surface: u64) -> (Value, [String; 2], u64) {
     let reply = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
         "owner_token":OWNER_TOKEN, "uses":2}));
@@ -1511,9 +1512,14 @@ fn two_guests(room: &FakeRoom, owner: &mut Client, surface: u64) -> (Value, [Str
     assert_eq!(room.next(conn, "guests")["active"], json!([]));
     let mut guests = [String::new(), String::new()];
     for (index, name) in ["Ann", "Bob"].into_iter().enumerate() {
+        let account = format!("{}@example.com", name.to_lowercase());
+        let invite = owner.request(json!({"cmd":"agent-session-share-invite",
+            "share_id":share["share_id"], "account":account, "role":"talk"}));
+        assert_eq!(invite["ok"], true, "{invite}");
         let reply = owner.request(json!({"cmd":"agent-session-share-redeem",
-            "share_id":share["share_id"], "secret":share["secret"], "name":name,
+            "share_id":share["share_id"], "account":account, "name":name,
             "attempt_id":format!("attempt-{index}")}));
+        assert_eq!(reply["data"]["role"], "talk", "{reply}");
         guests[index] = reply["data"]["guest_id"].as_str().unwrap().to_owned();
     }
     (share, guests, conn)

@@ -11,13 +11,9 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { SenderIcon } from "../subagents/SenderIcon";
 import { agentTone } from "../subagents/agentTones";
-import { tooltipProps } from "../shortcuts";
 import { readableParent, subagentBackLabel, type SubagentScope } from "./subagentScope";
-
-export type SubagentHeaderVariant = "title" | "crumb" | "card";
-/// The one the panel draws.
-export const SUBAGENT_HEADER: SubagentHeaderVariant = "title";
-
+import { type SubagentHeaderVariant } from "./subagentScopeHeaderModel";
+import { tooltipProps } from "../shortcuts";
 type Props = { scope: Pick<SubagentScope, "agent" | "parent" | "onBack"> };
 
 function Back({ scope }: Props) {
