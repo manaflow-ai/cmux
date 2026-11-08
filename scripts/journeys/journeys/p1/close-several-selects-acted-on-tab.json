@@ -24,8 +24,8 @@
      "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_tab", "equals": "${b0_id}"}},
              {"app_rpc": {"method": "debug.surfaces", "path": "windows.0", "contains": "\"selected_tab\": \"${b0_id}\""}}]},
 
-    {"do": "rpc", "method": "action.run", "params": {"action": "closeOtherTabsInPane", "target": "tab:${b2_id}", "focus": true, "wait": true}, "mark": "others"},
-    {"do": "expect", "title": "Close Other Tabs on b2 (b0 selected, T pinned): b0 and b1 close, b2 is selected", "since": "others", "timeout": 10, "settle": 1,
+    {"do": "rpc", "method": "action.run", "params": {"action": "closeOtherTabsInPane", "target": "tab:${b2_id}", "focus": true, "wait": true}},
+    {"do": "expect", "title": "Close Other Tabs on b2 (b0 selected, T pinned): b0 and b1 close, b2 is selected", "timeout": 10, "settle": 1,
      "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_tab", "equals": "${b2_id}"}},
              {"app_layout": {"workspace": "jr-cos-${nonce}", "pane_tabs": 2}}]},
 
@@ -35,8 +35,8 @@
     {"do": "rpc", "method": "action.run", "params": {"action": "tab.focus", "target": "tab:${t_id}", "focus": true, "wait": true}},
     {"do": "expect", "title": "T selected", "timeout": 10,
      "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_tab", "equals": "${t_id}"}}]},
-    {"do": "rpc", "method": "action.run", "params": {"action": "closeTabsToRight", "target": "tab:${b2_id}", "focus": true, "wait": true}, "mark": "right"},
-    {"do": "expect", "title": "Close Tabs to the Right of b2 (pinned T selected): b3 closes, b2 is selected", "since": "right", "timeout": 10, "settle": 1,
+    {"do": "rpc", "method": "action.run", "params": {"action": "closeTabsToRight", "target": "tab:${b2_id}", "focus": true, "wait": true}},
+    {"do": "expect", "title": "Close Tabs to the Right of b2 (pinned T selected): b3 closes, b2 is selected", "timeout": 10, "settle": 1,
      "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_tab", "equals": "${b2_id}"}},
              {"app_layout": {"workspace": "jr-cos-${nonce}", "pane_tabs": 2}}]},
 
@@ -46,8 +46,8 @@
     {"do": "rpc", "method": "action.run", "params": {"action": "tab.focus", "target": "tab:${b2_id}", "focus": true, "wait": true}},
     {"do": "expect", "title": "b2 selected", "timeout": 10,
      "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_tab", "equals": "${b2_id}"}}]},
-    {"do": "rpc", "method": "action.run", "params": {"action": "closeTabsToLeft", "target": "tab:${b4_id}", "focus": true, "wait": true}, "mark": "left"},
-    {"do": "expect", "title": "Close Tabs to the Left of b4 (b2 selected, T pinned): b2 closes, b4 is selected, not T", "since": "left", "timeout": 10, "settle": 1,
+    {"do": "rpc", "method": "action.run", "params": {"action": "closeTabsToLeft", "target": "tab:${b4_id}", "focus": true, "wait": true}},
+    {"do": "expect", "title": "Close Tabs to the Left of b4 (b2 selected, T pinned): b2 closes, b4 is selected, not T", "timeout": 10, "settle": 1,
      "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_tab", "equals": "${b4_id}"}},
              {"app_layout": {"workspace": "jr-cos-${nonce}", "pane_tabs": 2}}]},
     {"do": "expect", "title": "debug.surfaces names b4 as the pane's selected tab", "timeout": 5,
