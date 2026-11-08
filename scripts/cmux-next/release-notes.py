@@ -19,6 +19,15 @@ matter (lines before the first blank line):
     action: palette.checkForUpdates | Try it      (optional "Try it" button)
     clip: https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/whats-new/ID/HASH.webp | SHA256
                                                   (optional; written by media/whats-new-clips.py)
+    gallery: agent-pane.composer/streaming        (optional: the webview gallery state that shows it)
+    before: agent-pane.composer/streaming-old     (optional, for an improvement: the state it replaced)
+
+A highlight's gallery state is rendered and published by media/whats-new-gallery.py when the file
+merges (gallery_url); with --pr-media the notes take that picture, and its `before:` picture after it,
+each with a `role` ("after", "before"), when there is no clip. A picture not published yet is left out.
+With no `gallery:` line, a New or Improved highlight takes the state media/whats-new-gallery.py picked
+from the gallery files its commit changed, and an Improved one with no `before:` takes the same state
+rendered at the commit before it; both sit at fixed names (gallery_auto_url).
 
 A highlight's clip is its looping demo (scripts/cmux-next/media/whats-new-clips.py records it from
 release-notes/next/clips/ID.json, whose caption becomes its alt). It wins over --pr-media's picture,
@@ -465,13 +474,19 @@ def rev_range(since, head):
     return f"{since}..{head}" if since else head
 
 
-def parse_highlight(path, text):
+def front_matter(text):
+    """A highlight file's front matter (lines before the first blank line) and its body."""
     head, _, body = text.partition("\n\n")
     meta = {}
     for line in head.splitlines():
         key, sep, value = line.partition(":")
         if sep:
             meta[key.strip().lower()] = value.strip()
+    return meta, body
+
+
+def parse_highlight(path, text):
+    meta, body = front_matter(text)
     if "title" not in meta:
         raise SystemExit(f"{path}: a highlight needs a 'title:' line")
     item = {"id": os.path.splitext(os.path.basename(path))[0], "title": meta["title"], "body": body.strip(), "media": []}
@@ -529,6 +544,79 @@ def reannounced(since, head, added):
 
 
 PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")
+
+# Gallery pictures (Leo 2026-10-20: "vids and before/afters for our techincal stuff is p important"): a
+# highlight names the webview gallery state that shows it (`gallery: ENTRY/VARIANT`) and, for an
+# improvement, the state it replaced (`before:`). media/whats-new-gallery.py renders both (dark default
+# theme, normal pane width) when the file merges and puts them at gallery_url, a name fixed by the
+# highlight, the role and the state, so these notes find them with no write back to the file. A highlight
+# with no `gallery:` line gets its state picked from its commit, and an improvement with no `before:` the
+# state at the commit before it, at names fixed by the highlight and the role (gallery_auto_url).
+GALLERY_STATE = re.compile(r"[a-z0-9][a-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*")
+GALLERY_ROLES = ("after", "before")
+
+
+def gallery_states(meta):
+    """{"after": state, "before": state} from a highlight's `gallery:` and `before:` lines, the valid ones;
+    a `before:` without a `gallery:` names nothing."""
+    states = {}
+    for role, key in (("after", "gallery"), ("before", "before")):
+        value = meta.get(key, "")
+        if GALLERY_STATE.fullmatch(value):
+            states[role] = value
+    return states if "after" in states else {}
+
+
+def gallery_url(highlight_id, role, state):
+    return f"{CLIP_PREFIX}{highlight_id}/gallery-{hashlib.sha256(state.encode()).hexdigest()[:12]}-{role}.png"
+
+
+def gallery_auto_url(highlight_id, role):
+    """Where media/whats-new-gallery.py puts a picture no line names: the state it inferred from the
+    highlight's commit ("after"), or the state rendered at the commit before it ("before")."""
+    return f"{CLIP_PREFIX}{highlight_id}/gallery-auto-{role}.png"
+
+
+def gallery_urls(meta, highlight_id, category):
+    """{role: url} of a highlight's gallery pictures: a named state's own URL, else the inferred one for
+    the state, and for an Improved highlight with no `before:`, the state at the commit before it."""
+    states = gallery_states(meta)
+    urls = {role: gallery_url(highlight_id, role, state) for role, state in states.items()}
+    if "after" not in urls and "clip" not in meta and category in {"new", "improved"}:
+        urls["after"] = gallery_auto_url(highlight_id, "after")
+    if "after" in urls and "before" not in urls and category == "improved":
+        urls["before"] = gallery_auto_url(highlight_id, "before")
+    return urls
+
+
+def add_gallery_media(highlight, text, deadline):
+    """Gives `highlight` its published gallery pictures: the state first, then its before, each with a
+    role when both are there. True when it got the picture. A missing or unreadable one only leaves it out."""
+    urls = gallery_urls(front_matter(text)[0], highlight["id"], highlight.get("category", "new"))
+    if not urls:
+        return False
+    fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
+    fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
+    media = []
+    for role in GALLERY_ROLES:
+        if role not in urls or time.monotonic() > deadline:
+            continue
+        url = urls[role]
+        try:
+            data = pr_download(url, fixture)
+        except Exception as error:
+            print(f"gallery: {highlight['id']} {role}: {type(error).__name__}: {error}; left out", file=sys.stderr)
+            data = None
+        if data is None or not pr_media_picture(data):
+            if role == "after":
+                return False
+            continue
+        media.append({"url": url, "sha256": hashlib.sha256(data).hexdigest(), "kind": "image",
+                      "alt": highlight["title"] if role == "after" else f"Before: {highlight['title']}", "role": role})
+    if len(media) == 1:
+        del media[0]["role"]
+    highlight["media"] = media
+    return True
 
 # --pr-media: a highlight shows the first picture of the pull request that added it (Leo 2026-10-21,
 # What's New design pass), when that picture is one this repository published to pr-media
@@ -886,11 +974,13 @@ def build(args):
     added = surviving_highlights(args.head, added)
     again = reannounced(args.since, args.head, added)
     for path in sorted(added | set(again)):
-        highlight = parse_highlight(path, git("show", f"{args.head}:{path}"))
+        text = git("show", f"{args.head}:{path}")
+        highlight = parse_highlight(path, text)
         if highlight["media"]:
             clip_caption(highlight, args.head)
         elif args.pr_media and highlight.get("category", "new") in {"new", "improved"}:
-            add_pr_media(highlight, path, args.head, deadline)
+            if not add_gallery_media(highlight, text, deadline):
+                add_pr_media(highlight, path, args.head, deadline)
         highlights.append(highlight)
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
     # build whose notes never published loses no change to the build after it.

@@ -48,12 +48,17 @@ mod host_orphan_policy;
 mod local_actor;
 #[cfg(unix)]
 mod machine_secrets;
+#[cfg(unix)]
+mod own_build_helpers;
 mod page_listener;
 mod private_mode;
+mod screen_detection_status;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
 mod signal_sender;
+#[cfg(unix)]
+mod terminal_paste;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[cfg(unix)]
@@ -117,6 +122,7 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod sidebar_status;
 #[cfg(unix)]
 mod staged_update;
 // The staged swap probes builds through cmux-remote, a unix-only dependency:
@@ -2189,8 +2195,9 @@ fn relay_daemon_options(
                 RelayCredentialArg::File(path) => {
                     cmux_remote::provider::RelayCredentialSource::file(path)
                 }
+                // The daemon's own Register: the ticket command's answer may take up to its 30 s read.
                 RelayCredentialArg::Command { program, args } => {
-                    cmux_remote::provider::RelayCredentialSource::command(program, args)
+                    cmux_remote::provider::RelayCredentialSource::daemon_command(program, args)
                 }
             };
             Ok(remote_runtime::RelayDaemonOptions {
@@ -2492,31 +2499,14 @@ fn run_server(
     if args.agent_browser_provider {
         agent_browser_provider::configure_surface_options(&mut surface_options)?;
     }
-    if let Some(helper) = agent_hook_install::runtime_helper_path() {
-        surface_options
-            .extra_env
-            .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
-    }
-    // `claude` resolves to a shim that adds the session's agent hooks, even
-    // under launchers with their own settings and config directory.
+    // `claude` and `codex` resolve to shims that add the session's agent
+    // hooks (even under launchers with their own settings and config
+    // directory), and the hooks run this build's helper. Codex runs its hooks
+    // in a shared daemon that cannot see the terminal's environment, so only
+    // its shim routes them. All three are this build's own, never the copies
+    // another install on this machine wrote.
     #[cfg(unix)]
-    claude_wrapper::configure_pane_path(&mut surface_options);
-    // The Codex shim lives in the same shim directory, so its PATH entry is
-    // usually the one the Claude shim already added.
-    #[cfg(unix)]
-    if let Some(path) = codex_wrapper::pane_path() {
-        if !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path) {
-            surface_options.extra_env.push(("PATH".into(), path));
-        }
-        // Integrated shells keep this directory first after startup files
-        // reorder PATH: Codex runs its hooks in a shared daemon that cannot
-        // see the terminal's environment, so only the shim routes them.
-        if let Some(dir) =
-            codex_wrapper::shim_directory().and_then(|dir| dir.into_os_string().into_string().ok())
-        {
-            surface_options.extra_env.push((cmux_tui_core::AGENT_SHIMS_ENV.into(), dir));
-        }
-    }
+    own_build_helpers::configure_pane(&mut surface_options);
     // The app's bundled `cmux` (the app starts the daemon with it) stays
     // first after the shim on a caller PATH (`terminal_spawn_options`).
     surface_options.bundled_cli = cmux_tui_core::daemon_env::bundled_cli_from_process_env();

@@ -60,9 +60,10 @@ that note (its 11-character sha) passes. CI also sweeps every commit since the c
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
 a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
-Also on every push: "Leo's bans" (check-leo-bans.py): the UI font stays Inter, bundled, with its
-calculated tracking (schemas/type-scale/leo-bans.json), and no webviews stylesheet names the system
-font. It is not skippable either; only a `Leo-order: <Leo's words>` trailer changes the pin.
+Also on every push: "UI font" (check-ui-font.py): the UI font stays the macOS system font with no
+letter-spacing and nothing bundled (schemas/type-scale/ui-font-pin.json; Lawrence 2026-11-07), and no
+webviews default font stack names Inter. It is not skippable either; only a `Font-order: <the user's
+words>` trailer changes the pin.
 
 Also on every local run (the hook and a plain run; never --base/--head, --commits or GitHub Actions, so CI gains no
 gate): "What's New highlights": each release-notes/next/highlights/*.md file the push adds or changes is validated as
@@ -277,9 +278,9 @@ WINDOW_FILE = Path(os.environ.get("CMUX_WINDOW_FILE") or
 FREEZE_LINE = re.compile(r"(?m)^FREEZE:[ \t]*(\S+)[ \t]+token=(\S+)")
 FREEZE_TRAILER = re.compile(r"(?mi)^Freeze-Token:[ \t]*(\S+)[ \t]*$")
 
-# The UI font is Inter with its calculated tracking (Leo 2026-10-21, ask-52da478628).
-LEO_BANS_CHECK = "Leo's bans (Inter UI font and tracking, schemas/type-scale/leo-bans.json)"
-LEO_BANS_SCRIPT = SCRIPTS + "/check-leo-bans.py"
+# The UI font is the macOS system font, everywhere (Lawrence 2026-11-07).
+UI_FONT_CHECK = "UI font (the system font, schemas/type-scale/ui-font-pin.json)"
+UI_FONT_SCRIPT = SCRIPTS + "/check-ui-font.py"
 
 # The What's New highlights (release-notes/next/WRITING.md), judged by the release-notary job's own validator.
 HIGHLIGHTS_CHECK = "What's New highlights (scripts/whats-new/validate.py, the release-notary test)"
@@ -434,41 +435,38 @@ def read_lock(lock: Path) -> dict[str, tuple[str, str, str, str]]:
     return rows
 
 
-GITHUB_RELEASE_DOWNLOAD = re.compile(r"https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)")
-
-
-def fetch(url: str, out: Path, accept: str | None = None) -> None:
-    request = urllib.request.Request(url)
-    if accept:
-        request.add_header("Accept", accept)
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if token and url.startswith("https://api.github.com/"):
-        # Unredirected: the asset's redirect goes to a signed storage URL, which must not get the token.
-        request.add_unredirected_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(request, timeout=120) as response, open(out, "wb") as sink:
-        shutil.copyfileobj(response, sink)
+def release_download():
+    """scripts/ci/github_release_download.py: the copy install-git-hooks.sh puts beside the hook's copy of this
+    file, else this checkout's, else None. None in a hook installed before it: that install's refresh_checks.py
+    rewrites this file from feat-cmux-next but copies nothing from scripts/ci (#38454 review)."""
+    name = "cmux_github_release_download"
+    if name not in sys.modules:
+        script = Path(__file__).with_name("github_release_download.py")
+        if not script.is_file():
+            script = Path(__file__).resolve().parent.parent / "ci" / "github_release_download.py"
+        if not script.is_file():
+            return None
+        spec = importlib.util.spec_from_file_location(name, script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules[name] = module
+    return sys.modules[name]
 
 
 def download(url: str, archive: Path) -> None:
-    """The pinned archive at `url`. A GitHub release download that fails is fetched once more through the
-    release-assets API, which serves the same file another way (2026-11-08: every release download answered 504
-    for every PR's fast gates while the API served the same bytes). The caller's sha256 check judges either."""
-    try:
-        fetch(url, archive)
+    """The pinned archive at `url`, through the release-assets API when its GitHub release download fails
+    (github_release_download.py). The caller's sha256 check judges either."""
+    fetcher = release_download()
+    if fetcher is None:
+        log("prepush-gate: github_release_download.py is not installed, so a failed release download is not retried "
+            "through the release-assets API; rerun scripts/install-git-hooks.sh")
+        with urllib.request.urlopen(url, timeout=120) as response, open(archive, "wb") as out:
+            shutil.copyfileobj(response, out)
         return
-    except OSError as error:  # urllib.error.URLError and HTTPError are OSErrors
-        match = GITHUB_RELEASE_DOWNLOAD.fullmatch(url)
-        if not match:
-            raise
-        log(f"prepush-gate: {url} failed ({error}); fetching it through the release-assets API")
-    owner, repo, tag, name = match.groups()
-    listing = archive.with_suffix(".release.json")
-    fetch(f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}", listing, "application/vnd.github+json")
-    assets = json.loads(listing.read_text(encoding="utf-8")).get("assets") or []
-    asset = next((a for a in assets if a.get("name") == name), None)
-    if asset is None:
-        raise SystemExit(f"prepush-gate: release {owner}/{repo} {tag} has no asset {name}")
-    fetch(asset["url"], archive, "application/octet-stream")
+    try:
+        fetcher.download(url, archive, log=lambda message: log(f"prepush-gate: {message}"))
+    except fetcher.NoAsset as error:
+        raise SystemExit(f"prepush-gate: {error}") from error
 
 
 def ensure_tool(lock: Path, tool: str) -> Path:
@@ -1117,21 +1115,21 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
     return fresh
 
 
-def leo_bans(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
-    """What head adds to Leo's bans (LEO_BANS_CHECK) over base: findings base does not have, and a
-    pin change in base..head with no `Leo-order:` trailer."""
-    script = check_script(repo, head, LEO_BANS_SCRIPT, trusted_scripts)
+def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """What head adds to the UI font check (UI_FONT_CHECK) over base: findings base does not have, and a
+    pin change in base..head with no `Font-order:` trailer."""
+    script = check_script(repo, head, UI_FONT_SCRIPT, trusted_scripts)
     if script is None:
         return []  # a commit older than this check
-    with tempfile.TemporaryDirectory(prefix="cmux-leo-bans-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="cmux-ui-font-") as tmp:
         check = Path(tmp) / "check.py"
         check.write_bytes(script)
 
         def findings(*args: str) -> list[str]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
             if code == 124:
-                return [f"check-leo-bans.py {' '.join(args)}: {out}"]
-            return [line for line in out.splitlines() if line.strip() and not line.startswith("leo bans:")]
+                return [f"check-ui-font.py {' '.join(args)}: {out}"]
+            return [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
 
         base_lines = set(findings("--rev", base))
         return [line for line in findings("--rev", head, "--base", base) if line not in base_lines]
@@ -1443,9 +1441,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     if only is None or "reserved" in only:
         fresh = reserved_keys(repo, base, head, trusted_scripts)
         reserved = [(RESERVED_CHECK, fresh)] if fresh else []
-    if only is None or "leo-bans" in only:
-        fresh = leo_bans(repo, base, head, trusted_scripts)
-        reserved += [(LEO_BANS_CHECK, fresh)] if fresh else []
+    if only is None or "ui-font" in only:
+        fresh = ui_font(repo, base, head, trusted_scripts)
+        reserved += [(UI_FONT_CHECK, fresh)] if fresh else []
     if only is None or "conflicts" in only:
         markers = conflict_markers(repo, base, head)
         if markers:
@@ -1894,7 +1892,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--own-range", help="sidebar sweep on a pull request: the PR's own commits (BASE..HEAD). A "
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,leo-bans,conflicts,"
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,freeze,highlights,workflows")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
@@ -2024,9 +2022,9 @@ def main(argv: list[str] | None = None) -> int:
     elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
-    elif skip and any(name == LEO_BANS_CHECK for name, _ in found_any):
-        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {LEO_BANS_CHECK}. The UI font and its "
-              "tracking change only by Leo's order, quoted in a `Leo-order: <Leo's words>` commit trailer.")
+    elif skip and any(name == UI_FONT_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {UI_FONT_CHECK}. The UI font changes only "
+              "on the user's order, quoted in a `Font-order: <the user's words>` commit trailer.")
     elif skip:
         print(f"prepush-gate: SKIPPED by CMUX_NEXT_CHECKS_SKIP_REASON={skip!r}. Say so in your report; "
               "CI still names the commit.")

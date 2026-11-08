@@ -974,6 +974,9 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-ask .acpmux-permission-keys{display:inline-flex;align-items:center;gap:var(--grid-half-step);margin-inline-start:var(--ds-space-2)}
 .acpmux-permission-ask .acpmux-permission-keys .acpmux-keycap{display:inline-flex;align-items:center;justify-content:center;min-width:var(--ds-control-icon);height:var(--ds-control-icon);margin:0;padding:0 4px;border-radius:4px;background:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 35%,transparent);color:color-mix(in srgb,currentColor 75%,transparent);font-family:var(--font-ui);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* The answer's letter, then its other keys: a faint slash between them reads as "or", never as a chord. */
+.acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 45%,transparent);font:var(--text-caption)/1 var(--font-ui)}
+.acpmux-permission-ask .acpmux-permission-keys .acpmux-permission-action-shortcut{margin:0}
 /* The key hint (KeyHint): smaller and fainter than the label, on its baseline, a fixed step after it;
    the modifiers fainter still so the digit leads. No box: a keycap crowds a 24px button. */
 .acpmux-permission-ask .acpmux-permission-action-shortcut{flex-shrink:0;align-self:center;margin:0 0 0 var(--ds-space-2);padding:0;border-radius:0;background:none;color:color-mix(in srgb,currentColor 62%,transparent);font:var(--text-caption)/1 var(--font-ui);font-variant-numeric:tabular-nums;letter-spacing:.02em;opacity:1}

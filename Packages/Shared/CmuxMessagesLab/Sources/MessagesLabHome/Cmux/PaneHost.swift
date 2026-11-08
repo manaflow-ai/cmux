@@ -370,8 +370,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: a click on an app link (`URL.isCmuxAppLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
     /// cmux: a click on an agent's pill in an agents row (``HomeAgentFoldRowProvider``): the host opens
-    /// that agent's chat (its id); nil: the click opens and closes the row as before.
-    var onAgentPill: ((String) -> Void)?
+    /// that agent (its id, and the pill's frame in window coordinates); nil: the click opens and closes the row.
+    var onAgentPill: ((String, CGRect) -> Void)?
+    /// cmux: the context menu of an agent's pill: the host's items for that agent (its id); none or nil: the
+    /// message's own menu.
+    var agentPillMenu: ((String) -> [NSMenuItem])?
     /// cmux: the pointer moved over the transcript (or left it: nil), in screen coordinates; the
     /// host's hover cards for link chips follow it (HomeLinkChip).
     var onPointerMoved: ((CGPoint?) -> Void)?
@@ -884,9 +887,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
             if quoteClicked(hit, at: p) { return }
             // cmux: a click on an agent's pill opens its chat in the host's agent pane.
             if let onAgentPill, case let .custom(custom) = hit.row.part,
-               let peer = HomeAgentFoldRowProvider.peer(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY),
+               let pill = HomeAgentFoldRowProvider.pill(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY),
                                                         width: hit.body.width) {
-                onAgentPill(peer)
+                onAgentPill(pill.peer, host.convert(pill.rect.offsetBy(dx: hit.body.minX, dy: hit.body.minY), to: nil))
                 return
             }
             // cmux: a picture in a table card opens in the large picture viewer, with the table's other pictures

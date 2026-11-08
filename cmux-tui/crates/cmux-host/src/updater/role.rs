@@ -16,6 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContext};
 use serde_json::{Value, json};
 
+use super::carrier::{CARRIER_MAX_HOLD, CarrierHold};
 use super::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI, CMUX_TUI_HOOK};
 use super::store::{self, STORE_DIR};
 use super::{
@@ -92,7 +93,10 @@ pub(super) fn hold_left(held: Option<Instant>, now: Instant) -> Option<Duration>
     held.and_then(|held| held.checked_duration_since(now)).filter(|left| !left.is_zero())
 }
 
-fn hold_connects() {
+/// Starts (or extends) the connect hold now: a role start, a bind, a resume,
+/// a restore or a new carrier session. The Cloud role calls it at a bind's
+/// commit, which the supervisor's `Bound` (an instance id change) does not see.
+pub(crate) fn hold_connects() {
     let mut held = HELD_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
     *held = Some(extended_hold(*held, Instant::now()));
 }
@@ -102,6 +106,36 @@ fn hold_connects() {
 pub(super) fn held_outcome(now: Instant) -> Option<Outcome> {
     held_for(now)
         .map(|left| Outcome::Busy(vec![format!("connect hold, {} s left", left.as_secs())]))
+}
+
+/// `realtime - boottime` at the worker's last look ([`hold_after_restore`]).
+static CLOCK_OFFSET: Mutex<Option<i128>> = Mutex::new(None);
+
+/// Whether `realtime - boottime` moved from `before` to `now` by a whole stop:
+/// a snapshot restore, as the supervisor's clock-set wake counts one.
+pub(super) fn restored_between(before: Option<i128>, now: i128) -> bool {
+    before.is_some_and(|before| {
+        crate::agent::clock_set_wake(before, now) == crate::agent::Wake::ClockSet
+    })
+}
+
+/// Starts the connect hold for a snapshot restore the supervisor's
+/// `Resumed` has not reached yet. A new machine is a restore of the bake's
+/// snapshot, so the hold its role start set ran out long before. Its
+/// `Resumed` comes only after a metadata read, and this worker's next
+/// look could flip first (production probe, 2026-11-08: a new machine
+/// flipped 10 s after its create and the app's first link ended).
+fn hold_after_restore() {
+    #[cfg(target_os = "linux")]
+    {
+        let now = crate::linux::realtime_minus_boottime_ns();
+        let mut last = CLOCK_OFFSET.lock().unwrap_or_else(|e| e.into_inner());
+        if restored_between(*last, now) {
+            hold_connects();
+            log("a snapshot restore: no flip during the connect hold");
+        }
+        *last = Some(now);
+    }
 }
 
 /// How much of the connect hold is left at `now`.
@@ -186,6 +220,7 @@ impl Role for UpdaterRole {
             return Ok(());
         }
         hold_connects();
+        hold_after_restore();
         let (tx, rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel::<()>();
         let paths = self.paths.clone();
@@ -245,6 +280,7 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
     loop {
         // A check during the hold waits it out (a Check message only wakes it
         // to look again).
+        hold_after_restore();
         if let Some(left) = held_for(Instant::now()) {
             if !wait(rx, left) {
                 return;
@@ -402,6 +438,7 @@ fn check_inner(paths: &Paths) -> Outcome {
         },
     };
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    hold_after_restore();
     let last = last
         .or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())))
         .or_else(|| held_outcome(Instant::now()));
@@ -553,9 +590,71 @@ fn acpmux(args: &[&str]) -> Option<(bool, String)> {
     Some((output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned()))
 }
 
-/// What a restart would cut: [`acpmux_busy_sessions`]. Empty only when it is idle.
+/// What a restart would cut: the attached carrier sessions ([`carrier_busy`],
+/// bounded), then [`acpmux_busy_sessions`]. Empty only when both are idle.
 fn busy_sessions() -> Result<Vec<String>, String> {
-    acpmux_busy_sessions()
+    let carrier = carrier_busy();
+    let mut busy = acpmux_busy_sessions()?;
+    busy.extend(carrier);
+    Ok(busy)
+}
+
+/// The carrier hold between looks ([`super::carrier`]).
+static CARRIER: Mutex<Option<CarrierHold>> = Mutex::new(None);
+
+/// One look at the session host's carrier sessions: why they hold the
+/// update, if they do. A new session starts the connect hold, so a claimed
+/// spare's first link is never cut, also past the carrier hold's bound.
+fn carrier_busy() -> Option<String> {
+    carrier_busy_from(carrier_sessions())
+}
+
+/// [`carrier_busy`] for the sessions one look read.
+pub(super) fn carrier_busy_from(sessions: Result<Vec<String>, String>) -> Option<String> {
+    let mut hold = CARRIER.lock().unwrap_or_else(|e| e.into_inner());
+    let look = hold.get_or_insert_with(CarrierHold::default).look(Instant::now(), sessions);
+    drop(hold);
+    if look.new_session {
+        hold_connects();
+        log("a new carrier session: no flip during the connect hold");
+    }
+    if look.bound_passed {
+        log(&format!(
+            "carrier sessions held this update for {} min; it goes at the next idle gap",
+            CARRIER_MAX_HOLD.as_secs() / 60
+        ));
+    }
+    look.busy
+}
+
+/// The attached carrier sessions, from the session host's admin channel
+/// (`cmux-tui remote enroll connections --json`, at most 20 s), run as the
+/// user and home the session host runs with (the layout marker), since the
+/// channel answers only its own user.
+fn carrier_sessions() -> Result<Vec<String>, String> {
+    let marker = fs::read_to_string(Paths::new("/").at(crate::config::LAYOUT_MARKER_FILE)).ok();
+    let home = crate::cloud::daemon_noise_key::session_home(marker.as_deref())
+        .ok_or("the session host's layout is not recorded yet")?;
+    let mut cmd = Command::new("timeout");
+    cmd.arg("20");
+    if home != Path::new(crate::daemon_spec::ROOT_HOME) {
+        cmd.args(["runuser", "-u", WORK_USER, "--"]);
+    }
+    let output = cmd
+        .arg("env")
+        .arg(format!("HOME={}", home.display()))
+        .arg(super::CURRENT_CMUX_TUI)
+        .args(["remote", "enroll", "connections", "--session", crate::daemon_spec::SESSION])
+        .arg("--json")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| format!("cmux-tui: {e}"))?;
+    if !output.status.success() {
+        return Err(format!("its admin channel answered {}", output.status));
+    }
+    super::carrier::attached_sessions_in(&String::from_utf8_lossy(&output.stdout))
+        .ok_or_else(|| "its connection list is unreadable".to_owned())
 }
 
 /// The acpmux sessions that run a turn or wait on a permission, by name

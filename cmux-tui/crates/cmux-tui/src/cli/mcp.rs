@@ -1463,7 +1463,7 @@ impl<B: Backend> Server<B> {
         }
         // On screen the typed line follows the prompt, so an output line is the one
         // that starts with the match.
-        if !regex::Regex::new(&pattern).ok()?.is_match(&typed) {
+        if !cmux_tui_core::wait_pattern::compile(&pattern).ok()?.is_match(&typed) {
             return None;
         }
         let anchored = format!("(?m)^\\s*(?:{pattern})");

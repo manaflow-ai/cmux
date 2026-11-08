@@ -198,8 +198,13 @@ final class SidebarIconButton: ClickableButton {
         if takesKeyFocus { keyRepaint.track() }
     }
 
+    /// Draws its hover, pressed and focus fills as a circle instead of the rounded square.
+    var isRound = false {
+        didSet { needsDisplay = true }
+    }
+
     override func updateLayer() {
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        layer?.cornerRadius = isRound ? min(bounds.width, bounds.height) / 2 : Metrics.itemCornerRadius
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }

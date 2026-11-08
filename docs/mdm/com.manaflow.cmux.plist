@@ -476,18 +476,6 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
-			<string>When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.</string>
-			<key>pfm_name</key>
-			<string>tabs.cmdWClosesPinnedTabs</string>
-			<key>pfm_title</key>
-			<string>Cmd-W Closes Pinned Tabs</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.</string>
@@ -1006,6 +994,18 @@
 			<string>sessions.promptSuggestions</string>
 			<key>pfm_title</key>
 			<string>Suggest Follow-Up Tasks</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change.</string>
+			<key>pfm_name</key>
+			<string>agents.promptSuggestions</string>
+			<key>pfm_title</key>
+			<string>Suggest Next Prompt</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -4391,13 +4391,15 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>inter-tuned</string>
+			<string>system-ui</string>
 			<key>pfm_description</key>
 			<string>The font of the whole chat: replies, the composer, cards and menus.</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.font.ui</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>system-ui</string>
+				<string>system-ui-tight</string>
 				<string>inter-tuned</string>
 				<string>inter</string>
 				<string>verdana</string>
@@ -4408,8 +4410,6 @@
 				<string>cmux-sans</string>
 				<string>hanken</string>
 				<string>atkinson</string>
-				<string>system-ui</string>
-				<string>system-ui-tight</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Chat Interface Font</string>
@@ -5739,7 +5739,7 @@
 			<key>pfm_default</key>
 			<string>glass</string>
 			<key>pfm_description</key>
-			<string>Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient.</string>
+			<string>Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list.</string>
 			<key>pfm_name</key>
 			<string>sidebar.groupPalette</string>
 			<key>pfm_range_list</key>
@@ -5750,6 +5750,7 @@
 				<string>grayscale</string>
 				<string>vibrant</string>
 				<string>gradient</string>
+				<string>pictorial</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Group Colors</string>
@@ -8308,6 +8309,40 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>composeBar</string>
+			<key>pfm_description</key>
+			<string>How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip.</string>
+			<key>pfm_name</key>
+			<string>home.chiefPanel.style</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>composeBar</string>
+				<string>pill</string>
+				<string>card</string>
+				<string>panel</string>
+				<string>bubble</string>
+				<string>seeThrough</string>
+				<string>seeThroughBar</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Floating Chief Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off.</string>
+			<key>pfm_name</key>
+			<string>home.chiefPanel.seesScreen</string>
+			<key>pfm_title</key>
+			<string>Chief Sees Your Screen When It Opens</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.</string>
@@ -9518,6 +9553,18 @@
 			<string>diagnostics.hangReports</string>
 			<key>pfm_title</key>
 			<string>Send Hang Reports</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them.</string>
+			<key>pfm_name</key>
+			<string>developerTools.appPages</string>
+			<key>pfm_title</key>
+			<string>Developer Tools for cmux Pages</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

@@ -51,7 +51,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
     private var presentedReport = PresentedContentReport() // what this pane last reported as presented to focus
     private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`stripIsStale`)
-    private var closeTabs: [(SurfaceID, String)] = [] // the tabs of the last apply: a closed tab's opener picks its successor (BrowserTabOpeners.closeRelations)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
@@ -351,8 +350,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Members of a collapsed group are hidden: a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
         let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
         let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: hidden,
-                                                openers: services.cache.pageRequests.openers.closeRelations(among: pane.tabs, last: &closeTabs))
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: hidden)
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)

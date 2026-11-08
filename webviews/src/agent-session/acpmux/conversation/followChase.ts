@@ -100,8 +100,9 @@ export type FollowChase = {
   hold(following?: () => boolean): void;
   /// Followed again: a held chase goes on home from where it is drawn.
   resume(): void;
-  /// The turn ended: the chase lands now, at once within a line of home, else within BURST_S at no
-  /// more than a line a frame (a snap of the whole trail moved the rows up to two lines in a frame).
+  /// The turn ended: the chase lands at once when that frame, with what it already moved, stays within
+  /// CHASE_LAND_LINES; else within BURST_S at no more than a line a frame (a snap of the whole trail
+  /// moved the rows up to two lines in a frame, and a snap on top of a frame that had moved, 26-40 px).
   land(): void;
 };
 
@@ -150,8 +151,10 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   /// What `shift` moved at once since the last step (px): that display frame's step moves less by
   /// it, so the frame keeps to CHASE_LAND_LINES (a line in a burst).
   let spent = 0;
-  /// How far the last step moved the rows (px): a landing in the same display frame as that step
-  /// moves at once less by it (whether a commit lands before or after the frame's step varies).
+  /// How far the last display frame moved the rows so far (px): its step and what moved at once
+  /// before it. A landing in the same frame as that step moves at once less by it (a commit lands
+  /// before the frame's step, after it in the frame's measuring pass, or both: counting only the
+  /// step moved one frame of the send 34.5 px, its landings before and after the step together).
   let stepped = 0;
   /// While it chases the thread is its own compositor layer, so a frame's step moves it without
   /// painting its rows again (a `translate` on an unpromoted thread repainted every row each frame).
@@ -249,8 +252,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       v = (nextX - x) / Math.max(dt, 1e-3);
       x = nextX;
     }
+    stepped = Math.abs(x - from) + spent;
     spent = 0;
-    stepped = Math.abs(x - from);
     if (Math.abs(x) < REST_PX && Math.abs(v) < REST_SPEED) {
       stop();
       return;
@@ -293,12 +296,17 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     resume,
     land() {
       const line = currentChatMetrics().lineHeight;
-      if (!thread || Math.abs(x) <= CHASE_MAX_FRAME_LINES * line) {
+      // At once only when that frame, with what it already moved (`spent`, `stepped`), stays within
+      // a landing frame's CHASE_LAND_LINES: a turn that settles quietly stops where it is drawn, and
+      // nothing moves after it settles (agent-pane-stream-jitter). Otherwise not at once: the frame
+      // the turn ends in has often moved already (the reply's last line landing, the chase's step),
+      // and a snap of what is left on top of that moved the rows 26-40 px in one frame
+      // (send-stream-motion). Nothing under the stack holds it back (`fit`), and it moves at least
+      // the rest of the trail over BURST_S, no frame more than a line with what the frame moved.
+      if (!thread || Math.abs(x) + spent + stepped <= CHASE_LAND_LINES * line) {
         stop();
         return;
       }
-      // Nothing under the stack holds it back (`fit`), and it moves at least the rest of the trail
-      // over BURST_S, no frame more than a line.
       landing = true;
       rising = true;
       burst = Math.min((CHASE_MAX_FRAME_LINES * line) / (1 / 120), Math.abs(x) / BURST_S);

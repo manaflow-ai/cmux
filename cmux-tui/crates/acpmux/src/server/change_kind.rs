@@ -40,6 +40,8 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "auto_resume_settled"
         // Work the session started runs past its turn, or ended (`hub/work_below.rs`).
         | "subagents_working"
+        // A sub-session below it started or stopped waiting on the person (`hub/asks_below.rs`).
+        | "subsessions_waiting"
         // How many subagents run changed, or a background command started or ended: the
         // summary's `subagentsRunning`, `subagentNames` and `commandsRunning` (`hub/views.rs`).
         | "subagents_running"
@@ -72,5 +74,11 @@ mod tests {
     fn running_work_changes_publish_a_session_change() {
         assert_eq!(super::session_change_kind("subagents_running"), Some("subagents_running"));
         assert_eq!(super::session_change_kind("process_update"), Some("process_update"));
+    }
+
+    /// A parent's row reads `input` while a sub-session below it waits (`hub/asks_below.rs`).
+    #[test]
+    fn asks_below_publish_a_session_change() {
+        assert_eq!(super::session_change_kind("subsessions_waiting"), Some("subsessions_waiting"));
     }
 }

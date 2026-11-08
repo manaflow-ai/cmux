@@ -134,7 +134,9 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 title: SettingsText.keyed("settings.agentPane.display.uiFont", "Chat Interface Font"),
                 help: SettingsText.keyed("settings.agentPane.display.uiFont.help", "The font of the whole chat: replies, the composer, cards and menus."),
                 kind: .choice([
-                    SettingChoice("inter-tuned", SettingsText.keyed("settings.choice.agentChatUiFontInterTuned", "cmux Inter (default)")),
+                    SettingChoice("system-ui", SettingsText.keyed("settings.choice.agentChatUiFontSystemUi", "System (default)")),
+                    SettingChoice("system-ui-tight", SettingsText.keyed("settings.choice.agentChatUiFontSystemUiTight", "System, tight")),
+                    SettingChoice("inter-tuned", SettingsText.keyed("settings.choice.agentChatUiFontInterTuned", "cmux Inter")),
                     SettingChoice("inter", SettingsText.keyed("settings.choice.agentChatUiFontInter", "Inter")),
                     SettingChoice("verdana", SettingsText.keyed("settings.choice.agentChatUiFontVerdana", "Verdana")),
                     SettingChoice("roboto", SettingsText.keyed("settings.choice.agentChatUiFontRoboto", "Roboto")),
@@ -144,11 +146,9 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("cmux-sans", SettingsText.keyed("settings.choice.agentChatUiFontCmuxSans", "cmux Sans")),
                     SettingChoice("hanken", SettingsText.keyed("settings.choice.agentChatUiFontHanken", "Hanken Grotesk")),
                     SettingChoice("atkinson", SettingsText.keyed("settings.choice.agentChatUiFontAtkinson", "Atkinson Hyperlegible Next")),
-                    SettingChoice("system-ui", SettingsText.keyed("settings.choice.agentChatUiFontSystemUi", "System")),
-                    SettingChoice("system-ui-tight", SettingsText.keyed("settings.choice.agentChatUiFontSystemUiTight", "System, tight")),
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.uiFontDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "font", "interface", "ui", "typeface", "verdana", "roboto", "inter", "plex", "geist", "source sans", "cmux sans", "hanken", "atkinson"]
+                keywords: ["agent", "chat", "acp", "display", "reading", "font", "interface", "ui", "typeface", "verdana", "roboto", "inter", "plex", "geist", "source sans", "cmux sans", "hanken", "atkinson", "system"]
             ),
             SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.fontSizePath,

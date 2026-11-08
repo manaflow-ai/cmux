@@ -244,4 +244,57 @@ struct UpdatedCardHoverPreviewTests {
         #expect(island.overlayHeight >= 248, "the preview's room reaches the host (in points, at the page's zoom)")
         #expect(island.contentHeight >= 48)
     }
+
+    /// Leo 2026-11-08: "flicker upon hovering over what's new". The host's hover is where the pointer is
+    /// now: the open preview handing its room back under a still pointer ends the hover once, and the
+    /// room above the glass never counts. A tracking area on the whole view sent no exit when it shrank,
+    /// so the page kept hearing "inside" over the rows and opened the list again.
+    @Test func theHoverEndsWhenTheRoomGoesBackUnderAStillPointer() throws {
+        UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightKey)
+        UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightsKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightKey)
+            UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightsKey)
+        }
+        let surfaces = FakeSurfaces()
+        let model = SidebarModel(sections: [])
+        model.updatedCard = Self.card
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 260, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = sidebar
+        defer {
+            PointerHover.setDebugPointer(nil, in: window)
+            window.close()
+        }
+        sidebar.updateSurfaces = surfaces
+        let host = sidebar.updatedCardView
+        host.configure(Self.card)
+        let island = try #require(surfaces.islands.first)
+        island.report(height: 48, overlay: 0)
+        sidebar.layoutSubtreeIfNeeded()
+        let card = host.convert(host.bounds, to: nil)
+        PointerHover.setDebugPointer(NSPoint(x: card.midX, y: card.midY), in: window)
+        #expect(host.isHovered, "the pointer on the card")
+
+        // The view grows for the room before the page opens: the room alone is not the card.
+        island.report(height: 48, overlay: 248)
+        sidebar.layoutSubtreeIfNeeded()
+        let above = NSPoint(x: card.midX, y: card.maxY + 100)
+        PointerHover.setDebugPointer(above, in: window)
+        #expect(!host.isHovered, "the room asked for before the preview opens is not the card")
+
+        // Open: the glass reaches the pointer.
+        island.report(height: 48, overlay: 248, preview: 200)
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(host.isHovered, "the open preview's glass is the card")
+
+        // The page closes and hands the room back while the pointer stays put, over the rows now.
+        island.report(height: 48, overlay: 0, preview: 0)
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(!host.isHovered, "the room gone from under a still pointer ends the hover")
+        #expect(island.pointer.last == false, "the page hears it, so it does not open the list again")
+        host.configure(nil)
+    }
 }

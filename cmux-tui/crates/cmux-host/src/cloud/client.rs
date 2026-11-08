@@ -59,6 +59,16 @@ pub trait Http {
     /// Drops any pooled connection, so the next request dials a fresh one (after a pause, a pooled connection is
     /// dead and nothing says so). A transport with no pool does nothing.
     fn reset(&self) {}
+
+    /// A transport like this one with a pool of its own, so a request on it
+    /// never waits for one in flight here (a request from before a pause).
+    /// `None` when the transport cannot make one.
+    fn fresh(&self) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        None
+    }
 }
 
 #[derive(Deserialize)]
@@ -400,6 +410,17 @@ impl<H: Http> CloudClient<H> {
     /// The next request (a bearer mint included) goes on a fresh connection: see [`Http::reset`].
     pub fn reset_transport(&self) {
         self.http.reset();
+    }
+
+    /// A client for the same machine, key and bearer on a transport of its
+    /// own ([`Http::fresh`]), for a request that must not wait for one in
+    /// flight on this client.
+    pub fn fresh(&self) -> Option<CloudClient<H>> {
+        let http = self.http.fresh()?;
+        let key = InstallKey::from_pkcs8(self.key.pkcs8(), &self.rng).ok()?;
+        let mut client = CloudClient::new(http, self.bound.clone(), key);
+        client.cached = self.cached.clone();
+        Some(client)
     }
 
     pub(super) fn url(&self, path: &str) -> String {

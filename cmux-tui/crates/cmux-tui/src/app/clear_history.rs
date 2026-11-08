@@ -70,7 +70,9 @@ pub(super) fn adjust_active_tab_after_removal(pane: &mut PaneView, removed_tab_i
     let surviving: Vec<usize> =
         old.iter().copied().filter(|index| *index != removed_tab_index).collect();
     let shown: HashSet<usize> = surviving.iter().copied().collect();
-    let pick = cmux_focus_core::close_focus::tab(Some(&pane.active_tab), &old, &surviving, &shown);
+    // A stale index past the old strip stands for its last tab, as before the shared rule.
+    let active = pane.active_tab.min(pane.tabs.len());
+    let pick = cmux_focus_core::close_focus::tab(Some(&active), &old, &surviving, &shown);
     let index = pick.map_or(0, |index| index - usize::from(index > removed_tab_index));
     pane.active_tab = index.min(pane.tabs.len().saturating_sub(1));
 }

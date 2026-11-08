@@ -61,12 +61,18 @@ public final class TabStripView: NSView {
     /// A separate pane-type chooser beside +; the plus keeps its default-tab action.
     public var showsNewTabMenuButton = false {
         didSet {
-            newTabMenuButton.isHidden = !showsNewTabMenuButton || !model.showsNewTabButton
+            newTabMenuButton.isHidden = !showsTypeChooser || !model.showsNewTabButton
             applyTokens(animated: false)
         }
     }
+    /// The trailing controls' look (`TabTunables.trailingButtons`), applied with the design tokens.
+    public internal(set) var trailingButtons = TabTunables.trailingButtons.value
+    /// The pane-type ⌄ shows: the pane asks for it and the trailing look keeps it.
+    var showsTypeChooser: Bool { showsNewTabMenuButton && trailingButtons.showsTypeChooser }
     var newTabControlsWidth: CGFloat {
-        metrics.newTabButtonWidth + (showsNewTabMenuButton ? Metrics.smallIconSize + Metrics.space2 : 0)
+        guard showsTypeChooser else { return metrics.newTabButtonWidth }
+        // Circles: the ⌄ takes the +'s square, so both circles are one diameter.
+        return metrics.newTabButtonWidth + (trailingButtons == .circles ? metrics.newTabButtonWidth : Metrics.smallIconSize + Metrics.space2)
     }
     var windowControlsInset: CGFloat = 0
     /// The tabs' top the last layout applied (``computeTabTop()``); a move in the window that changes it lays out again.
@@ -263,7 +269,7 @@ public final class TabStripView: NSView {
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
         contentView.addSubview(newTabMenuButton)
-        newTabMenuButton.isHidden = !showsNewTabMenuButton || !model.showsNewTabButton
+        newTabMenuButton.isHidden = !showsTypeChooser || !model.showsNewTabButton
         newTabMenuButton.onPress = { [weak self] in
             guard let self else { return }
             showNewTabMenu(anchor: newTabMenuButton)
@@ -479,6 +485,10 @@ public final class TabStripView: NSView {
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
+        trailingButtons = TabTunables.trailingButtons.value
+        newTabButton.hoverStyle = trailingButtons.hoverStyle
+        newTabMenuButton.style = trailingButtons
+        newTabMenuButton.isHidden = !showsTypeChooser || !model.showsNewTabButton
         hoverCard.tokensChanged()
         geometryDidChange()
         let font = Typography.tabTitle

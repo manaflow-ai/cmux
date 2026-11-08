@@ -611,6 +611,7 @@ pub fn tree_from_state_with_notifications(
     state: &State,
     notifications: &HashMap<SurfaceId, SurfaceNotification>,
     attention: &HashMap<String, cmux_tui_core::TabAttentionRecord>,
+    git_branches: &HashMap<SurfaceId, String>,
 ) -> TreeView {
     let ids = state
         .workspaces
@@ -688,6 +689,7 @@ pub fn tree_from_state_with_notifications(
                             reason: std::sync::Arc::from(mark.reason.as_str()),
                             at_ms: mark.at_ms,
                         }),
+                    git_branch: git_branches.get(sid).cloned(),
                 })
                 .collect(),
         })
@@ -841,6 +843,11 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                             notification: tab.get("notification").and_then(parse_notification),
                             program_status: parse_program_status(tab),
                             attention: parse_attention(tab),
+                            git_branch: tab
+                                .get("git_branch")
+                                .and_then(Value::as_str)
+                                .filter(|branch| !branch.is_empty())
+                                .map(str::to_string),
                         })?;
                         if raw_active_tab == Some(raw_index) {
                             active_tab = Some(compact_index);

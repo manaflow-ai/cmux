@@ -17,7 +17,7 @@ function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, u
     rows: new OrderedRows(),
     sessions: [],
     askedSessions: [],
-    asks: { sessions: () => undefined, list: () => [] },
+    asks: { sessions: () => undefined, list: () => [], listGrouped: () => [] },
     extensions: [],
     handoff: { state: {} },
     permissions: {
