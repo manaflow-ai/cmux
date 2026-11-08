@@ -79,7 +79,7 @@ fn luma(rgb: &[u8], stride: usize) -> Vec<f64> {
 /// Mean SSIM over 8x8 windows of luma.
 fn ssim(a: &[f64], b: &[f64], w: usize, h: usize) -> f64 {
     let (c1, c2) = ((0.01f64 * 255.0).powi(2), (0.03f64 * 255.0).powi(2));
-    let (mut total, mut n) = (0.0, 0.0);
+    let (mut total, mut n) = (0.0f64, 0.0f64);
     for by in (0..h.saturating_sub(7)).step_by(8) {
         for bx in (0..w.saturating_sub(7)).step_by(8) {
             let (mut ma, mut mb) = (0.0, 0.0);
@@ -114,7 +114,7 @@ fn ssim(a: &[f64], b: &[f64], w: usize, h: usize) -> f64 {
 /// PSNR (dB) of luma on text strokes only: pixels whose horizontal or
 /// vertical luma step in the original is over 48, where JPEG ringing shows.
 fn edge_psnr(a: &[f64], b: &[f64], w: usize, h: usize) -> f64 {
-    let (mut se, mut n) = (0.0, 0.0);
+    let (mut se, mut n) = (0.0f64, 0.0f64);
     for y in 1..h {
         for x in 1..w {
             let i = y * w + x;
@@ -240,5 +240,48 @@ fn frame_formats_table() {
             rows.iter().map(|r| r.3).sum::<f64>() / n,
             min_p
         );
+    }
+}
+
+// ---- scratch survey (uncommitted) ----
+fn survey_dir() -> PathBuf {
+    PathBuf::from(std::env::var("SURVEY_DIR").expect("SURVEY_DIR"))
+}
+
+#[test]
+#[ignore]
+fn survey_dump() {
+    std::fs::create_dir_all(survey_dir()).unwrap();
+    for (name, w, h, px) in inputs() {
+        std::fs::write(survey_dir().join(format!("{name}.png")), frame::encode_png(w, h, &px).unwrap()).unwrap();
+    }
+}
+
+#[test]
+#[ignore]
+fn survey_score() {
+    println!("| frame | encoding | bytes | vs png | wall ms (CLI) | SSIM | edge PSNR dB |");
+    println!("|---|---|---:|---:|---:|---:|---:|");
+    let dir = survey_dir();
+    for (name, w, h, px) in inputs() {
+        let orig = luma(&px, 4);
+        let png_len = frame::encode_png(w, h, &px).unwrap().len();
+        let mut labels: Vec<String> = std::fs::read_dir(&dir).unwrap().filter_map(|e| {
+            let f = e.ok()?.file_name().to_string_lossy().into_owned();
+            Some(f.strip_prefix(&format!("{name}."))?.strip_suffix(".bytes")?.to_string())
+        }).collect();
+        labels.sort();
+        for label in labels {
+            let bytes: usize = std::fs::read_to_string(dir.join(format!("{name}.{label}.bytes"))).unwrap().trim().parse().unwrap();
+            let ms = std::fs::read_to_string(dir.join(format!("{name}.{label}.ms"))).unwrap_or_default();
+            let (s, p) = match load_png(&dir.join(format!("{name}.{label}.dec.png"))) {
+                Some((dw, dh, d)) if dw == w && dh == h => {
+                    let back = luma(&d, 4);
+                    (ssim(&orig, &back, w as usize, h as usize), edge_psnr(&orig, &back, w as usize, h as usize))
+                }
+                _ => (f64::NAN, f64::NAN),
+            };
+            println!("| {name} | {label} | {bytes} | {:.0}% | {} | {s:.4} | {p:.1} |", 100.0 * bytes as f64 / png_len as f64, ms.trim());
+        }
     }
 }
