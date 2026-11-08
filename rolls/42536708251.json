@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42536708251",
+  "recorded_at": "2026-11-08T23:53:25Z",
+  "reason": "cmux-tui c9c9558f12bd changes the image's cmux-tui (pinned 2b16801c75ad)",
+  "dry_run": false,
+  "cmux_tui": "c9c9558f12bda487c6d7907279f394102c863684",
+  "fixes": [
+    {
+      "sha": "c9c9558f12bda487c6d7907279f394102c863684",
+      "mergedAt": "2026-11-08T15:30:38-08:00",
+      "subject": "acpmux: daemon-made prompts get no agentText note, a footer is its own line, a task title one line; Keep as .txt in RTL (#38707)"
+    },
+    {
+      "sha": "065480aa26534b5448927f92acafa22eee730889",
+      "mergedAt": "2026-11-08T15:28:50-08:00",
+      "subject": "cmux-tui: split journal_extensions.rs into hooks, segments and tests modules (#38901)"
+    },
+    {
+      "sha": "07de32d268b873fc412dfb86b6d65f99930563f9",
+      "mergedAt": "2026-11-08T15:27:50-08:00",
+      "subject": "smoltcp (vendored): take upstream main's TCP fixes since 0.14.0 (#37890)"
+    },
+    {
+      "sha": "77d6d0ad37202abb1a5c3dc724fe100aada10b88",
+      "mergedAt": "2026-11-08T23:26:33Z",
+      "subject": "chore(next): base autofix at a4fcb523b7a2"
+    },
+    {
+      "sha": "a4fcb523b7a2287ced017da88f16fa1d282b9e12",
+      "mergedAt": "2026-11-08T15:25:25-08:00",
+      "subject": "cmux-tui: move machine_provider_client tests to a sibling file (#38906)"
+    },
+    {
+      "sha": "cb2d30e51087b52399ba204f3add5266d5831ae2",
+      "mergedAt": "2026-11-08T15:22:51-08:00",
+      "subject": "fix(cmux-tui-core): keep memory-only agent texts out of session checkpoints (#38963)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T23:53:25Z",
+    "snapshot_id": "sh-ef538390ba7243fbbca2181a16cc3dbb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42536708251): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2177c93ab7d03dac4de68998eda68eb03bd87973",
+    "image": "cloud-native-auto-c9c9558f-42536708251-1",
+    "revision": "ci-42536708251-1",
+    "at": "2026-11-08T23:53:25Z"
+  },
+  "rolled_back": false
+}
