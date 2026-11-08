@@ -744,6 +744,21 @@ struct Flags: TunableFactory {
         self.assertEqual(passed.returncode, 0, passed.stdout)
         self.assertNotIn("next:", passed.summary)
 
+    def test_a_cmux_bot_approval_body_never_counts_but_its_plain_review_does(self):
+        head = self.changed_head()
+        line = f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {head}"
+        for state, code in (("APPROVED", 1), ("COMMENTED", 0)):
+            pull = {"author": {"login": AUTHOR}, "body": "Author-agent: claude-author", "headRefOid": head,
+                    "merged": False, "comments": {"nodes": []},
+                    "reviews": {"nodes": [{"author": {"login": "cmux-bot", "__typename": "Bot", "id": "BOT_kgDOFMYsLQ"},
+                                           "authorAssociation": "NONE", "state": state,
+                                           "submittedAt": "2026-10-21T10:00:00Z", "body": line,
+                                           "commit": {"oid": head}}]}}
+            path = self.repo.root.parent / f"{self.repo.root.name}-bot-review-{state}.json"
+            path.write_text(json.dumps(pull), encoding="utf-8")
+            result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path))
+            self.assertEqual(result.returncode, code, (state, result.stdout))
+
     def test_a_block_says_push_a_fix_before_a_new_request(self):
         head = self.changed_head()
         result = self.check(head, comments=[self.receipt(f"Review (subagent): BLOCK at {head}")])

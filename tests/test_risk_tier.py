@@ -945,6 +945,12 @@ class SameAccountReceiptTests(unittest.TestCase):
             self.assertIsNone(self.signed(item), item["user"])
         approval = dict(self.bot("cmux-bot approves it"), state="APPROVED")
         self.assertIsNone(risk.signed_off([], [approval], HEAD, self.AUTHOR, self.pr()))
+        # An approval whose body mirrors a self-started receipt never counts, and never beats a BLOCK.
+        mirrored = dict(self.bot(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}",
+                                 at="2026-10-21T20:10:00Z"), state="APPROVED")
+        self.assertIsNone(risk.signed_off([], [mirrored], HEAD, self.AUTHOR, self.pr()))
+        block = self.comment(f"Review (codex-reviewer-7, started by lead): BLOCK at {HEAD}")
+        self.assertIsNone(risk.signed_off([block], [mirrored], HEAD, self.AUTHOR, self.pr()))
 
     def test_a_later_service_block_beats_an_earlier_ship(self):
         ship = self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")

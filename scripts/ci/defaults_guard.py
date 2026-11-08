@@ -752,8 +752,10 @@ def receipt_verdict(pull: Mapping[str, object], head: str,
         author = item.get("author") or {}
         blocks_only = False
         if author.get("__typename") == "Bot":
+            # The App's comments and plain reviews only: its APPROVED reviews mirror another account's receipt.
             trusted = (str(author.get("login") or "") in CMUX_BOT_LOGINS
-                       and str(author.get("id") or "") == CMUX_BOT_NODE_ID)
+                       and str(author.get("id") or "") == CMUX_BOT_NODE_ID
+                       and item.get("state") in (None, "COMMENTED"))
         elif author.get("__typename") == "User":
             trusted = (item.get("authorAssociation") in TRUSTED
                        or str(author.get("login") or "").lower() in writers)

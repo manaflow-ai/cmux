@@ -1044,7 +1044,10 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
 
     for review in reviews:
         if service(review):
-            receipt(review, review.get("submitted_at") or "")  # its receipt line only, never its approval
+            # Its receipt line only, and only in a plain review: an APPROVED (or dismissed) one mirrors another
+            # account's receipt, maybe a self-started one, so its body never counts either.
+            if review.get("state") == "COMMENTED":
+                receipt(review, review.get("submitted_at") or "")
             continue
         if not trusted(review):
             continue
