@@ -32,10 +32,12 @@ type PermissionCardFrameProps = {
   leading?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  /// The card takes focus from code (``permissionFocus``), so its keys answer.
+  focusable?: boolean;
 };
 
 export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, PermissionCardFrameProps>(
-  function PermissionCardFrame({ title, ariaLabel, leading, children, className }, ref) {
+  function PermissionCardFrame({ title, ariaLabel, leading, children, className, focusable }, ref) {
     const titleId = React.useId();
     return (
       <fieldset
@@ -43,6 +45,7 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
         className={`acpmux-permission-card${className ? ` ${className}` : ""}`}
         aria-labelledby={title ? titleId : undefined}
         aria-label={!title ? ariaLabel : undefined}
+        tabIndex={focusable ? -1 : undefined}
       >
         {title && (
           <div className="acpmux-permission-card-heading">
@@ -380,6 +383,14 @@ export function PermissionCard({
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [active, fieldOpen]);
+  // A click on the ask's notification opens the chat with the card focused (`permissionFocus`), not
+  // the composer: the next 1, 2, 3, Return or Esc answers it.
+  useEffect(() => {
+    if (!active) return;
+    const focus = () => group.current?.focus();
+    window.addEventListener("cmux-acpmux-permissionFocus", focus);
+    return () => window.removeEventListener("cmux-acpmux-permissionFocus", focus);
+  }, [active]);
   // The app's permission shortcuts (⌥⌘1, ⌥⌘2, ⌥⌘3) arrive as page events.
   useEffect(() => {
     if (!active) return;
@@ -457,7 +468,7 @@ export function PermissionCard({
   );
 
   return (
-    <PermissionCardFrame ref={group} className="acpmux-permission-ask ui-glass" ariaLabel={title}>
+    <PermissionCardFrame ref={group} className="acpmux-permission-ask ui-glass" ariaLabel={title} focusable>
       <div className="acpmux-permission-request" data-harness={harness || undefined}>
         <div className="acpmux-permission-request-head">
           <span className="acpmux-permission-request-icon" aria-hidden="true">
