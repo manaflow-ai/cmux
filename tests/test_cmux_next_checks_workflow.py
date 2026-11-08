@@ -2235,13 +2235,13 @@ class FastTierStartsWarm(unittest.TestCase):
             (repo / "Packages/macOS/A").mkdir(parents=True)
             (repo / "Packages/macOS/A/Package.swift").write_text("// swift-tools-version: 6.2\n")
             subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
-            env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(repo / "out")}
+            env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(repo / "out"), "GITHUB_SHA": "abc"}
             script = re.search(r"(?s)inputs=\"\$\((.*?)\)\"", run).group(1)
             got = subprocess.run(["/bin/bash", "-c", script.replace("scripts/cmux-next/", str(ROOT / "scripts/cmux-next") + "/")],
                                  cwd=repo, env=env, check=True, capture_output=True, text=True).stdout.strip()
             keys = dict(line.split("=", 1) for line in subprocess.run(
                 [str(ROOT / "scripts/cmux-next/fast-tier-cache-key.sh")], cwd=repo, check=True, capture_output=True, text=True,
-                env={**env, "CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 26.6", "GITHUB_SHA": "abc"}).stdout.split())
+                env={**env, "CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 26.6"}).stdout.split())
             self.assertRegex(got, r"^[0-9a-f]{16}$")
             self.assertIn(f"-{got}-", keys["swift-prefix"], "the same inputs field the seed's key holds")
 
