@@ -240,23 +240,27 @@ fn parity_datagrams(group: &Group, k: u8, m: u8) -> Vec<Vec<u8>> {
         .map(|j| {
             let subgroup = group.ciphertexts.iter().skip(j).step_by(parities);
             let longest = subgroup.clone().map(Vec::len).max().unwrap_or(0);
-            let mut out = vec![0u8; PARITY_HEADER + longest];
+            let mut xor = vec![0u8; longest];
             let mut lengths = 0u16;
             for ciphertext in subgroup {
                 lengths ^= u16::try_from(ciphertext.len()).unwrap_or(u16::MAX);
-                for (slot, byte) in out[PARITY_HEADER..].iter_mut().zip(ciphertext) {
+                for (slot, byte) in xor.iter_mut().zip(ciphertext) {
                     *slot ^= byte;
                 }
             }
-            out[0] = TAG;
-            out[1] = VERSION;
-            out[2] = j as u8;
-            out[3] = (m << 4) | parities as u8;
-            out[4] = members as u8;
-            out[5] = k;
-            out[6..8].copy_from_slice(&lengths.to_be_bytes());
-            out[8..12].copy_from_slice(&group.index);
-            out[12..16].copy_from_slice(&(group.first as u32).to_le_bytes());
+            let mut header = [0u8; PARITY_HEADER];
+            header[0] = TAG;
+            header[1] = VERSION;
+            header[2] = j as u8;
+            header[3] = (m << 4) | parities as u8;
+            header[4] = members as u8;
+            header[5] = k;
+            header[6..8].copy_from_slice(&lengths.to_be_bytes());
+            header[8..12].copy_from_slice(&group.index);
+            header[12..16].copy_from_slice(&(group.first as u32).to_le_bytes());
+            let mut out = Vec::with_capacity(PARITY_HEADER + longest);
+            out.extend_from_slice(&header);
+            out.extend_from_slice(&xor);
             out
         })
         .collect()
@@ -276,7 +280,7 @@ struct Parity<'a> {
 }
 
 fn parse_parity(datagram: &[u8]) -> Option<Parity<'_>> {
-    let header = datagram.get(..PARITY_HEADER)?;
+    let header: [u8; PARITY_HEADER] = datagram.get(..PARITY_HEADER)?.try_into().ok()?;
     if header[0] != TAG || header[1] != VERSION {
         return None;
     }
@@ -292,9 +296,9 @@ fn parse_parity(datagram: &[u8]) -> Option<Parity<'_>> {
         k: header[5],
         m: header[3] >> 4,
         lengths: u16::from_be_bytes([header[6], header[7]]),
-        index: header[8..12].try_into().ok()?,
-        first_low: u32::from_le_bytes(header[12..16].try_into().ok()?),
-        xor: &datagram[PARITY_HEADER..],
+        index: [header[8], header[9], header[10], header[11]],
+        first_low: u32::from_le_bytes([header[12], header[13], header[14], header[15]]),
+        xor: datagram.get(PARITY_HEADER..)?,
     })
 }
 
@@ -386,14 +390,14 @@ impl Kept {
         }
         let Some(counter) = missing else { return Rebuild::Whole };
         let length = usize::from(lengths);
-        if length < WG_DATA_HEADER || length > xor.len() {
+        let Some(body) = xor.get(..length).filter(|_| length >= WG_DATA_HEADER) else {
             return Rebuild::Whole;
-        }
+        };
         let mut datagram = Vec::with_capacity(WG_DATA_HEADER + length);
         datagram.extend_from_slice(&[4, 0, 0, 0]);
         datagram.extend_from_slice(&parity.index);
         datagram.extend_from_slice(&counter.to_le_bytes());
-        datagram.extend_from_slice(&xor[..length]);
+        datagram.extend_from_slice(body);
         Rebuild::Done(datagram)
     }
 }
@@ -510,7 +514,7 @@ impl UltraUnderlay {
             ciphertexts: Vec::with_capacity(usize::from(k)),
             priority,
         });
-        group.ciphertexts.push(datagram[WG_DATA_HEADER..].to_vec());
+        group.ciphertexts.push(datagram.get(WG_DATA_HEADER..).unwrap_or_default().to_vec());
         group.priority = priority.or(group.priority);
         if group.ciphertexts.len() >= usize::from(k) {
             self.close_group();
@@ -558,7 +562,7 @@ impl UltraUnderlay {
 
     fn on_rebuilt(&mut self, rebuilt: Vec<u8>, origin: Origin, proposed: Option<UltraMode>) {
         if let Some((index, counter)) = data_id(&rebuilt) {
-            self.received.keep(index, counter, &rebuilt[WG_DATA_HEADER..]);
+            self.received.keep(index, counter, rebuilt.get(WG_DATA_HEADER..).unwrap_or_default());
         }
         UltraCounters::add(&self.counters.recovered, 1);
         self.rebuilt.push_back((rebuilt, origin, proposed));
@@ -669,7 +673,7 @@ impl Underlay for UltraUnderlay {
                 && self.trusts(received.origin)
                 && let Some((index, counter)) = data_id(datagram)
             {
-                self.on_data(index, counter, &datagram[WG_DATA_HEADER..]);
+                self.on_data(index, counter, datagram.get(WG_DATA_HEADER..).unwrap_or_default());
             }
             return Poll::Ready(Ok(received));
         }
