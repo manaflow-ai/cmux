@@ -792,7 +792,7 @@ mod tests {
         arguments: Value,
         mode: &str,
     ) -> Option<(i32, String, String)> {
-        if std::process::Command::new("python3").arg("-c").arg("").status().is_err() {
+        if cmux_process::Command::new("python3").arg("-c").arg("").status().is_err() {
             eprintln!("skipped: no python3 on this host");
             return None;
         }
@@ -818,11 +818,11 @@ esac
         );
         let bin = dir.join("cmux-cua");
         std::fs::write(&bin, stub).unwrap();
-        std::process::Command::new("chmod").arg("+x").arg(&bin).status().unwrap();
+        std::fs::set_permissions(&bin, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
         let step = desktop_step(op, arguments.as_object().unwrap()).unwrap();
         // The machine's bin dir becomes the stand-in's.
         let prelude = DESKTOP_PRELUDE.replace("/opt/cmux/current/bin", &dir.display().to_string());
-        let output = std::process::Command::new("sh")
+        let output = cmux_process::Command::new("sh")
             .arg("-c")
             .arg(format!("{prelude}{}", step.script))
             .output()

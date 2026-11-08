@@ -549,6 +549,7 @@ final class CloudService {
     private func readPlan(account: [String?]) {
         planGeneration += 1
         let generation = planGeneration
+        // task-owner: fire-and-forget plan read; result lands only for the latest generation and signed-in account, nothing to cancel
         Task { [weak self] in
             guard let self else { return }
             let answer: JSONValue
