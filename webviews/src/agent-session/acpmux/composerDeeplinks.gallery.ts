@@ -29,6 +29,45 @@ const drawnWith = (url: string) => async (ctx: PlayContext) => {
 };
 const drawn = drawnWith(WORKSPACE);
 
+const TAB_ID = "tab_0123456789abcdef0123456789abcdef";
+const TAB = `cmux-nightly://tab/${TAB_ID}`;
+
+/** The host names the draft's workspace and tab after the draft drew (`linkPlaces`, as the app
+ * pushes it): each draws as the sent message's chip, the kind's icon and the title on its wash with
+ * its padding and radius, and the draft's line keeps its height (review of #38166: the wash had been
+ * 0 px tall, only its side padding showing). */
+const namedLater = async (ctx: PlayContext) => {
+  const doc = ctx.document;
+  await drawnWith(TAB)(ctx);
+  const line = () => doc.querySelector<HTMLElement>(".acpmux-md p");
+  const view = doc.defaultView as unknown as {
+    cmuxAcpmuxBridge?: { applyLinkPlaces?(places: unknown): void };
+  };
+  view.cmuxAcpmuxBridge?.applyLinkPlaces?.([
+    { id: WORKSPACE.slice(WORKSPACE.lastIndexOf("/") + 1), kind: "workspace", title: "Retry fix" },
+    { id: TAB_ID, kind: "tab", title: "zsh", workspace: "cmux next" },
+  ]);
+  await ctx.waitFor(() => doc.querySelectorAll(".is-titled[data-title][data-icon]").length === 2);
+  const chips = [...doc.querySelectorAll<HTMLElement>(".is-titled[data-title][data-icon]")];
+  for (const chip of chips) {
+    const icon = getComputedStyle(chip, "::before");
+    const title = getComputedStyle(chip, "::after");
+    if (!(icon.maskImage || icon.getPropertyValue("-webkit-mask-image")).includes("data:image/svg"))
+      throw new Error(`the ${chip.dataset.kind} chip draws no kind icon`);
+    if (
+      title.backgroundColor === "rgba(0, 0, 0, 0)" ||
+      title.paddingTop !== "1px" ||
+      title.borderTopLeftRadius !== "4px"
+    )
+      throw new Error(`the ${chip.dataset.kind} chip's title has no wash, padding or radius`);
+  }
+  // One line of text and two chips: the line is the field's one line height, as with no chip.
+  const p = line()!;
+  const lineHeight = parseFloat(getComputedStyle(p).lineHeight);
+  if (Number.isFinite(lineHeight) && Math.abs(p.getBoundingClientRect().height - lineHeight) > 0.5)
+    throw new Error(`the draft's line is ${p.getBoundingClientRect().height}px, not its ${lineHeight}px line`);
+};
+
 const variant = (note: string, draft: string, url = WORKSPACE): AgentPaneVariant => ({
   note,
   ready: { draft },
@@ -42,13 +81,24 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 520,
   widths: { narrow: 400, normal: 760, wide: 760 },
-  covers: ["agent-session/acpmux/composer/deeplinkTokens.ts", "agent-session/acpmux/composer/deeplinks.ts"],
+  covers: [
+    "agent-session/acpmux/composer/deeplinkTokens.ts",
+    "agent-session/acpmux/composer/deeplinks.ts",
+    "agent-session/acpmux/composer/deeplinkTitles.ts",
+    "agent-session/acpmux/icons/iconMask.ts",
+  ],
   keywords: ["deeplink", "link", "workspace link", "agent link", "cmux://"],
   variants: {
     "workspace-and-agent": variant(
       "A draft with a workspace link and an agent link: each draws as a link, its text the URL; the sent prompt above draws its links the same way.",
       DRAFT,
     ),
+    "named-by-the-app": {
+      note: "The app names the draft's workspace and tab (its `linkPlaces` push, after the draft drew): each draws as the sent message's chip, the kind's icon and the title on the session chip's wash, its padding and radius; the line keeps its height and the draft's text is still the link.",
+      ready: { draft: `Open ${WORKSPACE} and ${TAB}` },
+      snapshot,
+      play: namedLater,
+    },
     "web-agent-link": variant(
       "A cmux.com agent deeplink in the draft draws as a link too.",
       `Pick up where ${WEB_AGENT} left off`,
