@@ -48,7 +48,7 @@ pub fn breaks_params_rule(
         return meta.keys().any(|k| *k != p.gesture_ticket_key);
     }
     // A permission answer's `_meta` holds the pick's ticket and nothing else.
-    if method == "_acpmux/permission_respond" {
+    if matches!(method, "_acpmux/permission_respond" | "chat.fix_from_link") {
         return meta.len() != 1 || !meta.contains_key(&p.gesture_ticket_key);
     }
     // A prompt held for the folder trust answer redeems its ticket beside its

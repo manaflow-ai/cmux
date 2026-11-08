@@ -14768,6 +14768,19 @@
           {
             "keys" : [
               {
+                "key" : "",
+                "modifiers" : [
+                  "ctrl",
+                  "opt",
+                  "cmd"
+                ]
+              }
+            ],
+            "when" : "!codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
                 "key" : "]",
                 "modifiers" : [
                   "opt",
@@ -14785,7 +14798,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "",
+        "key" : "l",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -14851,6 +14864,19 @@
           {
             "keys" : [
               {
+                "key" : "",
+                "modifiers" : [
+                  "ctrl",
+                  "opt",
+                  "cmd"
+                ]
+              }
+            ],
+            "when" : "!codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
                 "key" : "[",
                 "modifiers" : [
                   "opt",
@@ -14868,7 +14894,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "",
+        "key" : "h",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -32864,6 +32890,95 @@
 
       ],
       "title" : "Stop All Agents",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "agent",
+          "suggestions" : null,
+          "title" : "Agent"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "conversation",
+          "suggestions" : null,
+          "title" : "Conversation"
+        }
+      ],
+      "category" : "agents",
+      "cliName" : "home start-agent",
+      "computed" : {
+        "canonical_action_id" : "home.startQueuedAgent",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "HomeActionCatalog",
+      "hint" : null,
+      "id" : "home.startQueuedAgent",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "chief",
+        "home",
+        "agent",
+        "subagent",
+        "queue",
+        "queued",
+        "waiting",
+        "start",
+        "now",
+        "cap"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "play.circle",
+      "targets" : [
+
+      ],
+      "title" : "Start Queued Agent Now",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -105126,6 +105241,74 @@
     },
     {
       "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "apps reload",
+      "computed" : {
+        "canonical_action_id" : "app.reloadCustomViews",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AppStoreActionCatalog",
+      "hint" : null,
+      "id" : "app.reloadCustomViews",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "apps",
+        "reload",
+        "customize",
+        "custom views",
+        "sidebar sections",
+        "refresh",
+        "script",
+        "error"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.clockwise",
+      "targets" : [
+
+      ],
+      "title" : "Reload Custom Views",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
         {
           "isRequired" : true,
           "isSuppliedByTarget" : false,
@@ -112548,6 +112731,54 @@
       }
     ],
     "space_aliases" : [
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "space.previous",
+        "keys" : [
+          {
+            "key" : "",
+            "modifiers" : [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "not" : {
+            "has" : "codeEditorFocused"
+          }
+        },
+        "when_text" : "!codeEditorFocused"
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "space.next",
+        "keys" : [
+          {
+            "key" : "",
+            "modifiers" : [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "not" : {
+            "has" : "codeEditorFocused"
+          }
+        },
+        "when_text" : "!codeEditorFocused"
+      },
       {
         "argument" : null,
         "arguments" : {

@@ -17,7 +17,7 @@ cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ## macOS host
 
 ```
-cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps 60] [--profile high|baseline]
+cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline]
 ```
 
 The codec is always `videotoolbox`, fed the captured IOSurface with no copy. The process, or
