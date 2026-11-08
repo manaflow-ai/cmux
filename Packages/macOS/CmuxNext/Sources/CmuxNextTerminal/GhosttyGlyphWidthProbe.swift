@@ -88,7 +88,8 @@ public nonisolated struct GhosttyGlyphWidthProbe: Sendable {
             var glyphs = [CGGlyph](repeating: 0, count: unitString.length)
             let mapped = characters.withUnsafeBufferPointer { characters in
                 glyphs.withUnsafeMutableBufferPointer { glyphs in
-                    CTFontGetGlyphsForCharacters(font, characters.baseAddress!, glyphs.baseAddress!, unitString.length)
+                    guard let charactersBase = characters.baseAddress, let glyphsBase = glyphs.baseAddress else { return false }
+                    return CTFontGetGlyphsForCharacters(font, charactersBase, glyphsBase, unitString.length)
                 }
             }
             if !mapped || glyphs[0] == 0 { return true }

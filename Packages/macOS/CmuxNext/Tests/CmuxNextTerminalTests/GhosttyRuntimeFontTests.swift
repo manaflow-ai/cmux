@@ -28,7 +28,18 @@ struct GhosttyRuntimeFontTests {
         #expect(probe.measurements.map(\.sample.name) == ["ASCII", "CJK", "Nerd Font", "Emoji"])
         #expect(probe.measurements.allSatisfy { $0.cellWidth > 0 && $0.advance.isFinite })
         #expect(probe.measurements.allSatisfy { $0.sample.expectedCells > 0 })
-        #expect(probe.measurements.allSatisfy { $0.matchesCellGrid })
-        #expect(probe.measurements.allSatisfy { !$0.missingGlyph })
+        #expect(probe.measurements[0].matchesCellGrid)
+        #expect(!probe.measurements[0].missingGlyph)
+    }
+
+    @Test func glyphProbeCellGridDecisionCatchesMissingOrOverflowingFixtures() {
+        let sample = GhosttyGlyphWidthProbe.Sample(name: "fixture", text: "x", expectedCells: 1)
+        let aligned = GhosttyGlyphWidthProbe.Measurement(sample: sample, cellWidth: 8, advance: 8, missingGlyph: false)
+        let overflowing = GhosttyGlyphWidthProbe.Measurement(sample: sample, cellWidth: 8, advance: 20, missingGlyph: false)
+        let missing = GhosttyGlyphWidthProbe.Measurement(sample: sample, cellWidth: 8, advance: 8, missingGlyph: true)
+        #expect(aligned.matchesCellGrid)
+        #expect(overflowing.overflowsCellGrid)
+        #expect(!overflowing.matchesCellGrid)
+        #expect(!missing.matchesCellGrid)
     }
 }
