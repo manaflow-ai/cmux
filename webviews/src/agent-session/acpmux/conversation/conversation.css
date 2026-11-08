@@ -6114,9 +6114,16 @@ a.cv-sha:focus-visible {
     color-mix(in srgb, var(--agent-text) 6%, transparent)
   );
 }
-.acpmux-jump-latest:focus-visible {
-  outline: 2px solid var(--agent-accent);
-  outline-offset: 2px;
+/* Keyboard focus: the pane's focus pill (agent-session/shared/styles.css) laid over the glass, with
+   the glass's rim and shadow kept. The button opts out of the shared rule (data-focus-ring="none"),
+   whose `box-shadow: none` stripped the rim, so the focused disc read as a flat blot with no ring
+   (#38090's capture after #38126). The Needs you pill keeps the shared rule. */
+.acpmux-jump-latest[data-focus-ring="none"]:focus-visible {
+  outline: none;
+  background-image: linear-gradient(
+    var(--acpmux-focus-pill, var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent))),
+    var(--acpmux-focus-pill, var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent)))
+  );
 }
 .acpmux-inspecting > .acpmux-jump-latest {
   visibility: hidden;
