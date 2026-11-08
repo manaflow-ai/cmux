@@ -47,6 +47,11 @@ await requireBrowserLane("guest-open-in-app-banner-browser.test.ts", async () =>
       await page.goto(`${origin}/g/${SHARE}?app=cmux-dev#c2VjcmV0LWJhbm5lcg`);
       const banner = page.getByTestId("guest-open-in-app");
       await banner.waitFor();
+      // The dev server injects the stylesheet as a module: measure once it applies.
+      await page.waitForFunction(() => {
+        const element = document.querySelector("[data-testid=guest-open-in-app]");
+        return element !== null && getComputedStyle(element).position === "fixed";
+      });
       const boxes = await banner.evaluate((element) => {
         const box = (node: Element) => node.getBoundingClientRect().toJSON() as DOMRect;
         return {
@@ -55,12 +60,16 @@ await requireBrowserLane("guest-open-in-app-banner-browser.test.ts", async () =>
           viewport: document.documentElement.clientWidth,
         };
       });
+      if (process.env.CMUX_BANNER_DEBUG) console.log(width, JSON.stringify(boxes));
+      if (process.env.CMUX_BANNER_DEBUG) await page.screenshot({ path: `/tmp/banner-${width}.png` });
       expect(boxes.banner.left).toBeGreaterThanOrEqual(0);
       expect(boxes.banner.right).toBeLessThanOrEqual(boxes.viewport);
       expect(boxes.parts.length).toBe(3);
       for (const part of boxes.parts) {
-        expect({ part: part.name, inside: part.left >= boxes.banner.left - 0.5 && part.right <= boxes.banner.right + 0.5 })
-          .toEqual({ part: part.name, inside: true });
+        expect({
+          part: part.name,
+          inside: part.left >= boxes.banner.left - 0.5 && part.right <= boxes.banner.right + 0.5,
+        }).toEqual({ part: part.name, inside: true });
         expect(part.width).toBeGreaterThan(0);
       }
       await page.close();
