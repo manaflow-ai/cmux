@@ -559,6 +559,35 @@ impl Machine {
         }
     }
 
+    /// A process holding the checkout's history lock, as a running history fetch does (it sleeps
+    /// 30 s; kill it). None on a host with no flock(1).
+    fn hold_history(&self) -> Option<std::process::Child> {
+        let lock = self.checkout().join(".git/cmux-history.lock");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut holder = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("exec 9>\"$1\" && flock 9 && echo locked && exec sleep 30")
+            .arg("sh")
+            .arg(&lock)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .ok()?;
+        let stdout = holder.stdout.take().unwrap();
+        std::thread::spawn(move || {
+            use std::io::BufRead as _;
+            let mut line = String::new();
+            let _ = std::io::BufReader::new(stdout).read_line(&mut line);
+            let _ = tx.send(line);
+        });
+        let locked = rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap_or_default();
+        if locked.trim() != "locked" {
+            let _ = holder.kill();
+            let _ = holder.wait();
+            return None;
+        }
+        Some(holder)
+    }
+
     fn commit_upstream(&self, file: &str) {
         let made = std::process::Command::new("sh")
             .arg("-c")
@@ -627,29 +656,7 @@ fn a_start_during_the_history_fetch_leaves_the_checkout_to_it() {
     let (code, _) = machine.run();
     machine.settle();
     assert_eq!(code, 0);
-    let lock = machine.checkout().join(".git/cmux-history.lock");
-    let (tx, rx) = std::sync::mpsc::channel();
-    let holder = std::process::Command::new("sh")
-        .arg("-c")
-        .arg("exec 9>\"$1\" && flock 9 && echo locked && exec sleep 30")
-        .arg("sh")
-        .arg(&lock)
-        .stdout(std::process::Stdio::piped())
-        .spawn();
-    let Ok(mut holder) = holder else { return };
-    let stdout = holder.stdout.take().unwrap();
-    std::thread::spawn(move || {
-        use std::io::BufRead as _;
-        let mut line = String::new();
-        let _ = std::io::BufReader::new(stdout).read_line(&mut line);
-        let _ = tx.send(line);
-    });
-    let locked = rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap_or_default();
-    if locked.trim() != "locked" {
-        let _ = holder.kill();
-        let _ = holder.wait();
-        return; // no flock(1) on this host
-    }
+    let Some(mut holder) = machine.hold_history() else { return };
     machine.commit_upstream("z.txt");
     let before = machine.git(&["rev-parse", "HEAD"]);
     let (code, record) = machine.run();
@@ -677,4 +684,66 @@ fn a_start_with_a_ref_or_a_script_waits_for_the_fill() {
     machine.settle();
     let (code, record) = machine.run_with(None, "#!/bin/sh\ntrue\n");
     assert_eq!((code, record["status"].as_str()), (0, Some("updated")), "{record}");
+}
+
+#[cfg(unix)]
+/// Review F1 (cmux#38582, f2d6d161820): the history fetch took its lock only after the fill had
+/// returned and the barrier opened, so a start in between found neither and fetched beside it.
+/// The fill now holds the lock when it returns: this `repo hold` reads it right then, with the
+/// history fetch slowed so it cannot have ended.
+#[test]
+fn the_history_lock_is_held_when_the_barrier_opens() {
+    let Some(machine) = Machine::new(true) else { return };
+    let Ok(real) = std::process::Command::new("sh").arg("-c").arg("command -v git").output() else {
+        return;
+    };
+    let real = String::from_utf8_lossy(&real.stdout).trim().to_owned();
+    let slow = format!(
+        "#!/bin/sh\ncase \"$*\" in *--unshallow*) sleep 2 ;; esac\nexec '{real}' \"$@\"\n"
+    );
+    std::fs::write(machine.0.join("bin/git"), slow).unwrap();
+    machine.cmux(
+        "#!/bin/sh\n[ \"$1 $2\" = \"repo hold\" ] || exit 2\n[ \"$3\" = --help ] && exit 0\n\
+         d=$3; shift 4; \"$@\" || exit\n\
+         if flock -n \"$d/.git/cmux-history.lock\" true; then echo free; else echo held; fi > \"$HOME/at-open\"\n",
+    );
+    use std::os::unix::fs::PermissionsExt as _;
+    let git = machine.0.join("bin/git");
+    std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("background")), "{record}");
+    let at_open = std::fs::read_to_string(machine.0.join("home/at-open")).unwrap_or_default();
+    machine.settle();
+    assert_eq!(at_open.trim(), "held");
+}
+
+#[cfg(unix)]
+/// Review F2 (cmux#38582, f2d6d161820): a history fetch can outlive a fill that left the barrier
+/// failed, and a start with no ref and no script of its own took the keep path, so nothing opened
+/// the barrier again. It now waits for the fetch and fills again under the barrier.
+#[test]
+fn a_failed_barrier_is_filled_again_after_the_history_fetch() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    assert_eq!(code, 0);
+    machine.settle();
+    machine.barrier_reads(1);
+    std::fs::remove_file(machine.0.join("home/held")).unwrap();
+    let Some(mut holder) = machine.hold_history() else { return };
+    let pid = holder.id();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+    });
+    let (code, record) = machine.run();
+    let _ = release.join();
+    let _ = holder.kill();
+    let _ = holder.wait();
+    assert_eq!(
+        (code, record["status"].as_str(), record["fill"].as_str()),
+        (0, Some("updated"), Some("background")),
+        "{record}"
+    );
+    assert!(machine.0.join("home/held").exists(), "held again");
 }

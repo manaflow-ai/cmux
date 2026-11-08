@@ -126,15 +126,19 @@ fill_later() {
   fi
 }
 # Run by `cmux repo hold` (`fill_later`): the whole tree, then, once the barrier is open, the history.
+# The fill takes the history lock before the barrier opens and hands it (fd 9) to the history
+# fetch, so no later start finds the checkout open with the fetch not yet holding it.
 if [ "${1:-}" = fill ]; then
   use "${2:-anonymous}"
+  exec 9>"$history_lock" || exit 1
+  if command -v flock >/dev/null 2>&1; then flock 9 || exit 1; fi
   g -C "$dir" sparse-checkout disable || exit 1
   setsid "$d/repo" unshallow "${2:-anonymous}" </dev/null >>"$d/bootstrap.log" 2>&1 &
   exit 0
 fi
+# Run by `fill`, with the history lock it holds on fd 9.
 if [ "${1:-}" = unshallow ]; then
   use "${2:-anonymous}"
-  exec 9>"$history_lock" && flock 9 || exit 1
   [ "$(g -C "$dir" rev-parse --is-shallow-repository)" = true ] || exit 0
   g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin
   exit
@@ -171,9 +175,10 @@ if [ -d "$dir/.git" ]; then
   # or fills beside it (its git locks would fail this start). A start that needs nothing more than
   # the checkout as it is (no ref, no script of its own) leaves it to that one: its chat's tools
   # wait at the barrier. Any other waits for it first (a script runs on the tree right after this
-  # step, and a ref skipped now would be skipped by every identical start after it).
+  # step, and a ref skipped now would be skipped by every identical start after it). So does one
+  # whose barrier failed: a history fetch can outlive its fill, and only a start opens the barrier.
   if [ "$state" = busy ] || history_busy; then
-    if [ -z "$ref" ] && no_script; then
+    if [ "$state" != failed ] && [ -z "$ref" ] && no_script; then
       echo "cmux repo: $dir is still being filled by an earlier start; it is left to that one" >&2
       [ "$state" = busy ] && fill=background
       status=kept; sha=$(git -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
