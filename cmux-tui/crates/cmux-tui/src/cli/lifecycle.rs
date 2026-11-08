@@ -197,11 +197,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             return ensure_after_stop(expected_session, None);
         }
         Err(error) if matches!(action, ServerAction::Stop { .. }) && is_absent(&error) => {
+            // A start lock an earlier owner left goes too.
+            let removed = remove_start_lock(&socket);
             return print_success(
                 json!({
                     "status":"not_running",
                     "session":expected_session,
                     "socket":socket_output,
+                    "removed":removed,
                     "message":crate::localization::catalog().local_server.not_running,
                 }),
                 global.output,
@@ -500,6 +503,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 }
                 return ensure_after_stop(Some(actual_session.to_owned()), Some((pid, launch)));
             }
+            let removed = remove_stopped_owner_files(pid, &socket);
             print_success(
                 json!({
                     "status":"stopped",
@@ -508,6 +512,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "pid":pid,
                     "generation":generation,
                     "ended_terminals":result["ended_terminals"].as_u64(),
+                    "removed":removed,
                     "message":if end_terminals {
                         crate::localization::catalog().local_server.stopped_terminals_ended
                     } else {
@@ -1186,6 +1191,29 @@ fn wait_for_exit(pid: u32, deadline: Instant) -> Result<(), String> {
     #[cfg(not(unix))]
     let _ = (pid, deadline);
     Ok(())
+}
+
+/// After a stop (not a restart): once the owner `pid` exited, removes what
+/// only a running owner needs, the socket's start lock (`<socket>.spawn-lock`,
+/// cmux-tui-core `remove_socket_start_lock`). The session's saved state stays
+/// (`cmux session <name> reset-state` removes it). Returns the removed paths;
+/// an owner that does not exit within 5 s, or a start that holds the lock,
+/// leaves the file and removes nothing.
+fn remove_stopped_owner_files(pid: u32, socket: &std::path::Path) -> Vec<String> {
+    if wait_for_exit(pid, Instant::now() + Duration::from_secs(5)).is_err() {
+        return Vec::new();
+    }
+    remove_start_lock(socket)
+}
+
+/// Removes `socket`'s start lock file; the removed path, or none.
+fn remove_start_lock(socket: &std::path::Path) -> Vec<String> {
+    let lock = cmux_tui_core::server::socket_start_lock_path(socket);
+    let deadline = Instant::now() + Duration::from_millis(500);
+    match cmux_tui_core::server::remove_socket_start_lock(socket, deadline) {
+        Ok(true) => vec![lock.display().to_string()],
+        Ok(false) | Err(_) => Vec::new(),
+    }
 }
 
 fn usage_error(message: &str, output: OutputMode) -> i32 {

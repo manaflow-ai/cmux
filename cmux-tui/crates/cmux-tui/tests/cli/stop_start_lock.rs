@@ -1,0 +1,29 @@
+//! `daemon stop` and the `<socket>.spawn-lock` start lock (W3-H).
+
+use super::*;
+
+/// W3-H: a stop removes the start lock an earlier owner left next to the
+/// socket (`<socket>.spawn-lock`) and names it in `removed`.
+#[test]
+fn w3h_stop_removes_a_left_start_lock() {
+    let dir = TestTempDir::create("server-stop-spawn-lock");
+    let socket = dir.path().join("left.sock");
+    let lock = dir.path().join("left.sock.spawn-lock");
+    fs::write(&lock, b"").unwrap();
+    let stopped = lifecycle_cli(&[
+        "--json",
+        "server",
+        "stop",
+        "--session",
+        "left",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    assert_success(&stopped);
+    let result = json_output(&stopped);
+    assert_eq!(result["status"], "not_running");
+    assert_eq!(result["removed"], serde_json::json!([lock.to_str().unwrap()]));
+    assert!(!lock.exists(), "the start lock is left behind");
+    let again = lifecycle_cli(&["--json", "server", "stop", "--socket", socket.to_str().unwrap()]);
+    assert_eq!(json_output(&again)["removed"], serde_json::json!([]));
+}

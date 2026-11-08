@@ -337,7 +337,12 @@ running owner keeps the listener it was started with. The owner serves the page
 bundle from `CMUX_TUI_PAGES_DIR`, else `<binary dir>/../share/cmux-tui/pages`.
 `daemon stop` first reads the process identity, then sends the existing PID and
 generation-fenced graceful shutdown operation. An absent server is success,
-and stopping never deletes the durable topology. `session <name>|current stop`
+and stopping never deletes the durable topology. Once the owner has exited
+(it waits up to 5 s), stop removes the socket's `<socket>.spawn-lock` start
+lock, which it takes first so it never unlinks a lock a starting owner holds,
+and reports the removed paths as `removed` (`[]` when there was none; an
+absent server also removes a stale lock). Durable state (`writer.lock`, the
+registry) stays; `session <name> reset-state` deletes it. `session <name>|current stop`
 is an alias for the same local operation. Opaque session IDs are not accepted
 because local socket resolution uses a session name. `--all` is intentionally
 deferred until a multi-session registry can identify every target without
@@ -456,8 +461,10 @@ An instance selector accepts:
 or for an agent session (`CMUX_AGENT_SESSION`) the place of its chat that the
 app's `system.identify` reports. The CLI resolves it to ids before it sends the
 request. It fails with `selector.not_found` when no caller is known and with
-`selector.invalid` under `--socket`, `--session` or `--machine`, which name
-another session or machine.
+`selector.invalid` under `--machine`, or under a `--socket` or `--session` that
+names another session than the caller's. A `--socket` or `--session` that
+resolves to the caller's own session socket (`CMUX_TUI_SOCKET` or
+`CMUX_MUX_SOCKET`) keeps `caller`, and `current` then means the caller too.
 
 `current` is the caller's object as well when a caller is known and the
 request routes to the caller's own session, so an agent never acts on the
@@ -469,6 +476,18 @@ explicit id or name, and for a browser target. The daemon itself only knows
 `current` as focused. `cmux agents` keeps `current` focused and does not take
 `caller`. The MCP tools resolve `current` to the chat's own place themselves,
 use `focused` for the object the person looks at, and do not take `caller`.
+
+An agent name (`cmux agent start NAME`) and any tab name that is unique in the
+session select that tab's terminal, tab or pane wherever such a selector goes:
+the word after `terminal`, `tab` or `pane`, and the `--terminal`, `--tab` and
+`--pane` values of those scopes and of `agent` and `notification`. Before it
+parses the command, the CLI reads one `session.snapshot` and puts the id in
+place of the name: a tab with that name whose terminal runs an agent, else one
+whose terminal runs, else one whose terminal exited (so `terminal NAME resume`
+finds it). Two tabs at the first step that has any return
+`selector.ambiguous` with their tab ids. A word that matches no tab, an id,
+`current`, `caller`, `focused` and command words are left to the rules below;
+a pane selector stays when a pane has that name itself.
 
 Names may be empty, contain Unicode or whitespace, and need not be unique.
 `name:<value>` forces name interpretation and is required for names equal to
@@ -1228,6 +1247,64 @@ and `cwd`. `--json --counts` prints `{"agents": [...], "counts": {...}}`
 instead: `counts` has `blocked`, `done`, `working`, `idle`, `unknown`, `ended` and
 `total`, counted before `--limit`. `--jsonl` prints one agent per line with
 or without `--counts`.
+
+## Agent start and resume
+
+```text
+cmux agent start NAME [--cmd <launcher>] [--harness H] [--pane <sel>]
+  [--split right|down|left|up] [--cwd DIR] [--focus|--no-focus]
+  [--timeout 90s] [--no-wait] [-- ARGS...]
+cmux agent resume NAME [the same options]
+cmux terminal <sel> resume [the same options]
+cmux terminal <sel> wait --until ready [--timeout D]
+```
+
+`agent start` runs a coding agent in a new tab named NAME and waits until it
+can take a message. NAME is a lowercase letter, then up to 31 lowercase
+letters, digits, `-` or `_`; it may not be a command word, `current`,
+`caller`, `focused`, `start`, `resume` or id-shaped, and no running tab may
+have it (`agent.name_taken`). The launcher is a shell command line: `--cmd`,
+else the `CMUX_AGENT_COMMAND` environment variable, else `claude` (`sr2
+claude`, `codex --model o3`). The tab runs `$SHELL -lc 'LAUNCHER "$@"'
+cmux-agent ARGS...` (`/bin/sh` when `$SHELL` is not a POSIX shell), so each
+extra argument stays one argv word, with `pane run --on-exit keep`: the exited
+terminal keeps its argv and name for `resume`. Without `--pane` or `--split`
+the caller's pane (else the focused pane) is split to the right; `--pane SEL`
+alone opens a tab in that pane; `--split DIR` splits SEL (default: the
+caller's pane). The split's shell tab is closed once the agent runs. The tab
+is focused unless `--no-focus`.
+
+The wait looks four times a second at the terminal, its agent records and its
+screen. A startup dialog on screen is `blocked` with `dialog` (`folder_trust`,
+`bypass_permissions_warning`, `api_key`, `login`, `onboarding`,
+`update_prompt`) and a `reason`; a fresh hook record that says `blocked` is
+`agent_question`. Otherwise a fresh hook record that says idle (the
+`SessionStart` hook) or the agent's input box on screen is `ready`. Both count
+only once the screen stood still for 1 s. cmux never answers a dialog.
+
+`--json` prints `{name, state, reason, dialog, harness, launcher, args, cwd,
+placement, workspace_id, screen_id, pane_id, tab_id, terminal_id, waited_ms}`.
+`state` is `ready` (exit 0), `blocked` (exit 4), `timeout` (exit 124, default
+`--timeout` 90s), `exited` (exit 1) or `started` with `--no-wait` (exit 0).
+`harness` uses the one vocabulary of `terminal list --agents`.
+
+`agent resume NAME` and `terminal <sel> resume` bring back an agent whose
+terminal exited (a running one is `agent.running`). They read the harness
+session id from `agent list --terminal` (`extra.agent_session_id`; none is
+`agent.no_session`) and the launcher from `terminal <t> process show`, drop a
+resume tail an earlier resume added, and append the harness's own resume
+arguments as separate argv words: `claude --resume <id>`, `codex resume <id>`,
+`gemini --resume <id>`, `opencode --session <id>`, `amp threads continue
+<id>`. `--cmd` replaces the recorded launcher; `--harness` names the harness
+when no record does. The agent reopens in the exited tab's pane unless `--pane`
+or `--split` say otherwise, with the old tab's name and folder; the exited tab
+is closed. The output adds `resumed: {terminal_id, tab_id, agent_session_id,
+tab_closed}`.
+
+`terminal <sel> wait --until ready` is the same wait for any terminal (agent
+records of any age count). `ready` and `blocked` print `{terminal_id, until,
+state, dialog, reason, waited_ms}` and exit 0 and 4; an exit is
+`terminal.exited` (exit 1) and a passed `--timeout` `wait.timeout` (exit 124).
 
 ## Agent messages
 
