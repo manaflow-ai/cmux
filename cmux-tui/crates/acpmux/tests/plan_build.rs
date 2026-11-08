@@ -201,14 +201,17 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     assert!(app.said(rid).await.contains("chose yes"));
 
     // Build on two agents: two chats in two new worktrees, the plan's own chat stopped.
-    let (rid, pid) = app.ask_plan(&chat, "plan-ask: Add a license file").await;
+    // A harness that plans on after the rejected plan (as Claude's adapter does) is stopped.
+    let (rid, pid) = app.ask_plan(&chat, "plan-ask-on: Add a license file").await;
     let built = app
         .ok(
             "_acpmux/plan/build",
             json!({"sessionId": chat, "permissionId": pid, "target": "compare", "harnesses": ["fake", "fake"]}),
         )
         .await;
-    assert!(app.said(rid).await.contains("chose no"), "the plan's chat stops: {built}");
+    let said = app.said(rid).await;
+    assert!(said.contains("chose no"), "the plan's chat stops: {built}");
+    assert!(!said.contains("kept planning"), "the plan's turn is stopped: {said}");
     let builds = built["builds"].as_array().unwrap();
     assert_eq!(builds.len(), 2, "{built}");
     let build_id = built["buildId"].as_str().unwrap().to_owned();

@@ -112,6 +112,34 @@ fn refused(reason: &str, message: impl Into<String>) -> RpcError {
     RpcError::invalid_params(message.into()).with_data(json!({"reason": reason}))
 }
 
+/// The plan approvals a build call is answering now, by `session:permission`: a second call for
+/// the same approval is refused while the first starts its builds, so two clicks (or two
+/// devices) never start two sets of worktrees.
+static CLAIMS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// A build call's hold on one plan approval ([`claim`]), released when dropped.
+pub struct PlanClaim(String);
+
+impl Drop for PlanClaim {
+    fn drop(&mut self) {
+        CLAIMS.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.0);
+    }
+}
+
+/// Holds plan approval `permission_id` of `session_id` for one build call, or refuses
+/// (`plan_build.in_progress`) while another call holds it.
+pub fn claim(session_id: &str, permission_id: &str) -> Result<PlanClaim, RpcError> {
+    let key = format!("{session_id}:{permission_id}");
+    if !CLAIMS.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone()) {
+        return Err(refused(
+            "plan_build.in_progress",
+            "this plan is already being built: its builds are starting",
+        ));
+    }
+    Ok(PlanClaim(key))
+}
+
 /// The plan an ask approves, as the card reads it (webviews `direct.ts` `permissionPlan`): one
 /// acpmux attached (`_meta.acpmux.plan.markdown`), else for Claude Code's ExitPlanMode or a
 /// `switch_mode` ask its input's `plan`, else its text content. None for any other ask.
@@ -254,6 +282,15 @@ pub(crate) fn build_status(
 }
 
 impl Hub {
+    /// Stops the plan's own turn `turn_id` once its approval was answered for a build elsewhere:
+    /// a harness may take the rejected plan as a tool denial and plan on, or ask again. Only
+    /// that turn: a later one the person started runs.
+    pub async fn stop_plan_turn(self: &Arc<Self>, session: &Arc<Session>, turn_id: Option<&str>) {
+        if let Some(turn_id) = turn_id {
+            self.cancel_turn(session, turn_id).await;
+        }
+    }
+
     /// The plan of `session`'s pending ask `permission_id`, with the ask itself.
     pub(crate) fn pending_plan(
         &self,
