@@ -126,6 +126,9 @@ impl Selectors {
 #[derive(Default)]
 struct Flags {
     values: BTreeMap<String, Option<String>>,
+    /// The flag names in the order they were given, for flags where the
+    /// last one wins ([`Flags::last_given`]).
+    order: Vec<String>,
     /// The resolved action, so debug builds can prove its help lists every
     /// flag the parser reads.
     action: Option<&'static actions::ActionSpec>,
@@ -154,6 +157,12 @@ impl Flags {
     fn boolean(&mut self, name: &str) -> bool {
         self.assert_documented(name);
         self.values.remove(name).is_some()
+    }
+
+    /// Which of `names` was given last, if any (`--focus` and `--no-focus`:
+    /// the last one wins). Read it before taking those flags.
+    fn last_given(&self, names: &[&str]) -> Option<&str> {
+        self.order.iter().rev().map(String::as_str).find(|given| names.contains(given))
     }
 
     /// Take a flag by its dashed spelling, for compatibility flags whose bare
@@ -392,6 +401,7 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if flags.values.insert(name.to_string(), flag_value).is_some() {
                 return Err(UsageError::new(format!("duplicate flag --{name}")));
             }
+            flags.order.push(name.to_string());
         } else if value.starts_with('-') {
             return Err(UsageError::new(format!("unknown short flag {value:?}")));
         } else {
@@ -1001,6 +1011,9 @@ fn parse_pane_strings(
             }
             let new_screen = flags.boolean("new-screen");
             let new_tab = flags.boolean("new-tab");
+            // `--focus` and `--no-focus`: the last one given wins.
+            let focus = flags.last_given(&["focus", "no-focus"]) == Some("focus");
+            let _ = flags.boolean("focus");
             let _ = flags.boolean("no-focus");
             let move_flags = super::pane_move::MoveFlags {
                 to_pane: flags.take("to-pane"),
@@ -1009,7 +1022,7 @@ fn parse_pane_strings(
                 split: flags.take("split"),
                 name: flags.take("name"),
                 new_screen: new_screen || new_tab,
-                focus: flags.boolean("focus"),
+                focus,
                 idempotency_key: flags.take("idempotency-key"),
             };
             super::pane_move::request(selector, move_flags).map(CommandPlan::PaneMove)

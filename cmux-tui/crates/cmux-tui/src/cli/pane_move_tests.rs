@@ -207,6 +207,14 @@ fn w4j_pane_move_parses_one_destination_and_refuses_the_rest() {
         assert_eq!(request.destination, Destination::NewScreen { workspace: None });
         assert!(request.focus);
     }
+    // `--focus` and `--no-focus` together: the last one given wins.
+    for (flags, focus) in [
+        (&["--new-screen", "--focus", "--no-focus"][..], false),
+        (&["--new-screen", "--no-focus", "--focus"][..], true),
+        (&["--new-screen", "--no-focus"][..], false),
+    ] {
+        assert_eq!(parsed(flags).expect("parsed").focus, focus, "{flags:?}");
+    }
     for bad in [
         &[][..],
         &["--new-screen", "--to-pane", PANE_T],
