@@ -1,7 +1,8 @@
 // The wiring of History's Waiting on you and Costs tabs (newtab/HistoryScreen.tsx) in the pane
 // (App.tsx): reads through the pane's own acpmux connection (direct.ts), answers through Needs
-// you's path (needsYou/useNeedsYou.ts `answerAnotherChat`), the chat shown the way Needs you shows
-// another chat's ask (`chat.asks.open`).
+// you's path (needsYou/useNeedsYou.ts `answerAnotherChat`), and a chat shown the way History's own
+// rows and the New Tab page's open one: in this tab, in place of the page (App.tsx `selectSession`,
+// `chat.select`). Needs you's `chat.asks.open` opens nothing from a New Tab page.
 import { copyText } from "../conversation/clipboard";
 import type { WatchedAsk } from "../needsYou/model";
 import { answerAnotherChat } from "../needsYou/useNeedsYou";
@@ -30,10 +31,13 @@ export const asksKey = (asks: readonly WatchedAsk[]) => asks.map((ask) => ask.pe
 export function historyPages({
   client,
   callNative,
+  selectSession,
   asks,
 }: {
   client: () => HistoryPagesClient | undefined;
   callNative: CallNative;
+  /// Shows chat `sessionId` of this Mac's acpmux in this tab (App.tsx `selectSession`).
+  selectSession: (sessionId: string) => void;
   asks: readonly WatchedAsk[];
 }): { queue: ComponentProps<typeof QueueScreen>; ledger: ComponentProps<typeof LedgerScreen> } {
   const connected = () => {
@@ -41,11 +45,10 @@ export function historyPages({
     if (!current) throw Object.assign(new Error("not connected"), { code: "native.not_connected" });
     return current;
   };
-  const openChat = (sessionId: string) => void callNative("chat.asks.open", { sessionId }).catch(() => undefined);
   const open = (item: QueueItem) => {
     // Another machine's chat is answered there; this pane has no local chat to show for it.
     if (item.host || !item.sessionId) return;
-    openChat(item.sessionId);
+    selectSession(item.sessionId);
   };
   return {
     queue: {
@@ -57,8 +60,9 @@ export function historyPages({
           open: () => open(item),
         }),
       verdict: async (item, verdict, comment) => {
-        // Another machine's pull request is reviewed in its own chat.
-        if (item.host) return open(item);
+        // Another machine's pull request is reviewed there (its row offers no verdict): refused, so
+        // the row stays rather than hiding while acpmux still lists it.
+        if (item.host) throw new Error("answered on its machine");
         const params = verdictParams(item, verdict, comment);
         if (!params) throw new Error("unanswerable");
         return connected().reviewVerdict(params);
@@ -76,7 +80,7 @@ export function historyPages({
     },
     ledger: {
       load: async (params) => connected().ledger(params),
-      openSession: openChat,
+      openSession: selectSession,
     },
   };
 }

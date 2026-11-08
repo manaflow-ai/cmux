@@ -1,8 +1,10 @@
 // l10n-allow-file: test fixtures (sample asks), not shipped UI.
-// Waiting on you is keyboard first (queue/QueueScreen.tsx): j/k move the cursor, `a` and `d` answer
-// the selected ask with its allow once and deny once, a number picks a question's choice, `x`
-// exports the audit trail, Return goes to the chat. An answered row leaves as a transition (it
-// stays, collapsed, until acpmux drops it), and an older acpmux gets words, not a failure.
+// Waiting on you is keyboard first (queue/QueueScreen.tsx): j/k move the cursor, `x` exports the
+// audit trail, Return goes to the chat, and the app's permission shortcuts (the host counts them as
+// the person's, then sends the page `cmux-acpmux-permissionAllowOnce` / `-permissionDeny`) answer the
+// selected row. A plain letter answers nothing: a permission answer needs the person's own click or
+// that shortcut. An answered row leaves as a transition (it stays, collapsed, until acpmux drops
+// it), and an older acpmux gets words, not a failure.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -135,6 +137,12 @@ async function press(list: HTMLElement, key: string) {
   });
 }
 
+async function shortcut(kind: "AllowOnce" | "Deny") {
+  await act(async () => {
+    dom.window.dispatchEvent(new dom.window.Event(`cmux-acpmux-permission${kind}`));
+  });
+}
+
 const selected = () => host.querySelector(".wq-row[data-selected]")?.id;
 
 test("the queue is sorted by score and the first ask is selected", async () => {
@@ -165,9 +173,13 @@ test("j and k move; Return goes to the chat; x exports", async () => {
   expect(host.querySelector(".wq-notice")?.textContent).toBe(translate("waiting.exported", { n: 3 }));
 });
 
-test("a allows the selected ask; its row leaves as a transition and the cursor moves on", async () => {
+test("the Allow Once shortcut allows the selected ask; its row leaves as a transition and the cursor moves on", async () => {
   const { list, calls } = await render();
+  // A plain letter is a keystroke the page saw, never the person's answer.
   await press(list, "a");
+  await press(list, "d");
+  expect(calls.answers).toEqual([]);
+  await shortcut("AllowOnce");
   expect(calls.answers).toEqual([["acpmux:p1", "allow"]]);
   const row = host.querySelector("#wq-row-acpmux_p1")!;
   // Still drawn, collapsing: no jump, no pop.
@@ -176,17 +188,34 @@ test("a allows the selected ask; its row leaves as a transition and the cursor m
   expect(selected()).toBe("wq-row-acpmux_p2");
 });
 
-test("a number picks a question's choice; d on a pull request asks for the change", async () => {
+test("a question is answered in its chat; on a pull request Deny asks for the change and Allow accepts", async () => {
   const { list, calls } = await render();
   await press(list, "j");
+  // The question offers no answer here: its card in the chat asks the whole of it.
   await press(list, "2");
-  expect(calls.answers).toEqual([["acpmux:p2", "dev"]]);
-  // The cursor stays on the next row: the pull request.
+  await shortcut("AllowOnce");
+  expect(calls.answers).toEqual([]);
+  expect(host.querySelector("#wq-row-acpmux_p2 .wq-button")).toBeNull();
+  await press(list, "Enter");
+  expect(calls.opened).toEqual(["s2"]);
+  await press(list, "j");
   expect(selected()).toBe("wq-row-pr_u");
-  await press(list, "d");
+  await shortcut("Deny");
   expect(host.querySelector(".wq-comment-field")).not.toBeNull();
-  await press(list, "a");
+  await shortcut("AllowOnce");
   expect(calls.verdicts).toEqual([["pr:u", "accept"]]);
+});
+
+test("another machine's pull request offers no verdict here and keeps its row", async () => {
+  const peer = { ...items[2]!, id: "pr:peer", host: "studio" };
+  const { calls } = await render(async () => ({ items: [peer], now: 10 }));
+  expect(host.querySelector("#wq-row-pr_peer .wq-button")).toBeNull();
+  expect(host.querySelector("#wq-row-pr_peer .wq-answers")?.textContent).toBe(
+    translate("waiting.answerThere", { host: "studio" }),
+  );
+  await shortcut("AllowOnce");
+  expect(calls.verdicts).toEqual([]);
+  expect(host.querySelector("#wq-row-pr_peer")?.hasAttribute("data-leaving")).toBe(false);
 });
 
 test("an acpmux older than the queue says so in words", async () => {

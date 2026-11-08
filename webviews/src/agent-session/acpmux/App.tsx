@@ -11267,7 +11267,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // Waiting on you and Costs read this Mac's acpmux, which answers them to its own app only
               // (an older acpmux that names no origin says on the tab that it keeps neither yet).
               {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
-                ? historyPages({ client: () => directClient.current, callNative, asks: snapshot.asks ?? [] })
+                ? historyPages({
+                    client: () => directClient.current,
+                    callNative,
+                    selectSession,
+                    asks: snapshot.asks ?? [],
+                  })
                 : {})}
             />
           ) : showNewTab ? (

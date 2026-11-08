@@ -1,9 +1,12 @@
 // Waiting on you (History > Waiting on you): every approval, plan, question and pull request that
 // waits on the person, across agents and machines, highest score first (queueModel.ts). Keyboard
-// first: j/k or the arrows move, Return goes to the chat, `a` allows (accepts a pull request), `d`
-// denies (asks for changes on one), 1 to 9 pick a question's choice, `x` copies the audit trail.
-// An answer goes the way Needs you sends it; its row leaves in the frame the person decides and
-// closes up over the house settle, and a refusal brings it back with the reason under it.
+// first: j/k or the arrows move, Return goes to the chat, `x` copies the audit trail, and the app's
+// permission shortcuts (Allow Once, Deny) answer the selected row: allow or deny once, or accept a
+// pull request or ask for changes on one. A plain letter never answers: a permission answer needs
+// the person's click or that shortcut, which the host counts as theirs (AgentPaneUserGestures). A
+// question opens its chat, whose card asks the whole of it. An answer goes the way Needs you sends
+// it; its row leaves in the frame the person decides and closes up over the house settle, and a
+// refusal brings it back with the reason under it.
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { age } from "../homeListsModel";
 import { useT, type Translate } from "../i18n";
@@ -11,6 +14,7 @@ import { Keycap } from "../Keycap";
 import { AgentMark } from "../NewTabPage";
 import type { NeedsYouAnswer } from "../needsYou/model";
 import { formatCost } from "../ledger/ledgerModel";
+import { SHORTCUT_ACTIONS, useShortcut } from "../shortcuts";
 import { queueAnswers, queueCommand, queueReasons, type QueueItem, type QueueReason } from "./queueModel";
 import { useQueue } from "./useQueue";
 import "./queue.css";
@@ -28,7 +32,7 @@ export type QueueActions = {
   answer(item: QueueItem, choice: NeedsYouAnswer): Promise<"answered" | "opened">;
   /// A pull request's verdict (`_acpmux/review_verdict`).
   verdict(item: QueueItem, verdict: "accept" | "changes", comment?: string): Promise<unknown>;
-  /// Shows the item's chat (Needs you's `chat.asks.open`).
+  /// Shows the item's chat in this tab, as History's own rows open one (`chat.select`).
   open(item: QueueItem): void;
   /// Copies the audit trail (`_acpmux/audit`); resolves to how many entries it copied.
   exportAudit(): Promise<number>;
@@ -164,35 +168,39 @@ export function QueueScreen({
         return true;
       }
       if (!current) return false;
-      const answers = queueAnswers(current);
-      switch (command.kind) {
-        case "open":
-          open(current);
-          return true;
-        case "allow":
-          if (current.kind === "pr") {
-            sendVerdict(current, "accept");
-            return true;
-          }
-          return give(
-            current,
-            answers.find((each) => each.tone === "allow"),
-          );
-        case "deny":
-          if (current.kind === "pr") {
-            setComment({ id: current.id, text: "" });
-            return true;
-          }
-          return give(
-            current,
-            answers.find((each) => each.tone === "deny"),
-          );
-        case "choose":
-          return give(current, answers.filter((each) => each.tone === "choice")[command.index]);
-      }
+      open(current);
+      return true;
     })();
     if (handled) event.preventDefault();
   };
+
+  // The app's permission shortcuts reach the page as events once the host counted the key as the
+  // person's (AgentPaneView+Commands `runPermissionAction`); they answer the selected row.
+  const shortcut = useRef<(kind: "allow" | "deny") => void>(() => undefined);
+  shortcut.current = (kind) => {
+    if (!current || current.host) return;
+    if (current.kind === "pr") {
+      if (kind === "allow") sendVerdict(current, "accept");
+      else setComment({ id: current.id, text: "" });
+      return;
+    }
+    give(
+      current,
+      queueAnswers(current).find((each) => each.tone === kind),
+    );
+  };
+  useEffect(() => {
+    const events = [
+      ["cmux-acpmux-permissionAllowOnce", () => shortcut.current("allow")],
+      ["cmux-acpmux-permissionDeny", () => shortcut.current("deny")],
+    ] as const;
+    for (const [event, handler] of events) window.addEventListener(event, handler);
+    return () => {
+      for (const [event, handler] of events) window.removeEventListener(event, handler);
+    };
+  }, []);
+  const allowKey = useShortcut(SHORTCUT_ACTIONS.permissionAllowOnce);
+  const denyKey = useShortcut(SHORTCUT_ACTIONS.permissionDeny);
 
   const status =
     state.phase === "older"
@@ -218,7 +226,7 @@ export function QueueScreen({
           {t("waiting.export")}
         </button>
       </div>
-      {/* The keys belong to the whole list (j/k, Return, a, d, 1-9, x), so the list takes the focus
+      {/* The keys belong to the whole list (j/k, Return, x), so the list takes the focus
           and the selected row is marked current; each row's own buttons stay real buttons. */}
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the keyboard surface of the list below */}
       <div
@@ -226,7 +234,7 @@ export function QueueScreen({
         className="wq-list"
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- one Tab stop for the list's keys
         tabIndex={0}
-        aria-keyshortcuts="j k Enter a d x"
+        aria-keyshortcuts="j k Enter x"
         onKeyDown={onKeyDown}
       >
         <ul className="wq-rows" aria-label={t("waiting.title")}>
@@ -246,6 +254,8 @@ export function QueueScreen({
               onSelect={setSelected}
               onOpen={open}
               onAnswer={give}
+              allowKey={allowKey}
+              denyKey={denyKey}
               onVerdict={sendVerdict}
               onComment={setComment}
               onCancel={() => {
@@ -279,18 +289,18 @@ export function QueueScreen({
             <Keycap>↩</Keycap>
             {t("waiting.key.open")}
           </span>
-          <span>
-            <Keycap>a</Keycap>
-            {t("waiting.key.allow")}
-          </span>
-          <span>
-            <Keycap>d</Keycap>
-            {t("waiting.key.deny")}
-          </span>
-          <span>
-            <Keycap>1</Keycap>
-            {t("waiting.key.choose")}
-          </span>
+          {allowKey && (
+            <span>
+              <Keycap>{allowKey}</Keycap>
+              {t("waiting.key.allow")}
+            </span>
+          )}
+          {denyKey && (
+            <span>
+              <Keycap>{denyKey}</Keycap>
+              {t("waiting.key.deny")}
+            </span>
+          )}
           <span>
             <Keycap>x</Keycap>
             {t("waiting.key.export")}
@@ -345,6 +355,9 @@ type RowProps = {
   onSelect(id: string): void;
   onOpen(item: QueueItem): void;
   onAnswer(item: QueueItem, choice: NeedsYouAnswer): boolean;
+  /// The app's Allow Once and Deny shortcuts, shown on the selected row's answers.
+  allowKey?: string | undefined;
+  denyKey?: string | undefined;
   onVerdict(item: QueueItem, verdict: "accept" | "changes", comment?: string): void;
   onComment(comment: { id: string; text: string } | undefined): void;
   onCancel(): void;
@@ -364,6 +377,8 @@ const Row = memo(function Row({
   onSelect,
   onOpen,
   onAnswer,
+  allowKey,
+  denyKey,
   onVerdict,
   onComment,
   onCancel,
@@ -374,7 +389,7 @@ const Row = memo(function Row({
   const when = age(item.at, now, t);
   const where = item.host ?? t("waiting.thisMac");
   const showsAnswers = look === "cards" || selected;
-  let choice = 0;
+  const keyOf = (tone: "allow" | "deny") => (selected ? (tone === "allow" ? allowKey : denyKey) : undefined);
   return (
     // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- a click picks the row; the list owns the keys (j/k, Return)
     <li
@@ -422,29 +437,33 @@ const Row = memo(function Row({
               never moves a line. */}
           {look !== "compact" && (
             <div className="wq-answers" data-shown={showsAnswers || undefined} aria-hidden={!showsAnswers}>
-              {item.kind === "pr" ? (
+              {item.kind === "pr" && !item.host ? (
                 <>
                   <button
                     type="button"
                     className="wq-button"
                     data-tone="allow"
                     tabIndex={-1}
+                    aria-keyshortcuts={keyOf("allow")}
                     onClick={() => onVerdict(item, "accept")}
                   >
+                    {keyOf("allow") && <Keycap>{keyOf("allow")}</Keycap>}
                     {t("waiting.pr.accept")}
                   </button>
                   <button
                     type="button"
                     className="wq-button"
                     tabIndex={-1}
+                    aria-keyshortcuts={keyOf("deny")}
                     onClick={() => onComment({ id: item.id, text: "" })}
                   >
+                    {keyOf("deny") && <Keycap>{keyOf("deny")}</Keycap>}
                     {t("waiting.pr.changes")}
                   </button>
                 </>
               ) : answers.length > 0 ? (
                 answers.map((each) => {
-                  const key = each.tone === "allow" ? "a" : each.tone === "deny" ? "d" : String(++choice);
+                  const key = each.tone === "choice" ? undefined : keyOf(each.tone);
                   return (
                     <button
                       key={each.id}
@@ -455,7 +474,7 @@ const Row = memo(function Row({
                       aria-keyshortcuts={key}
                       onClick={() => onAnswer(item, each)}
                     >
-                      <Keycap>{key}</Keycap>
+                      {key && <Keycap>{key}</Keycap>}
                       {each.label}
                     </button>
                   );

@@ -113,14 +113,11 @@ export function sortQueue(items: readonly QueueItem[]): QueueItem[] {
   return [...items].sort((a, b) => b.score - a.score || a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-/// What a key does on the list. Plain keys only; a modified key is the app's.
-export type QueueCommand =
-  | { kind: "move"; step: 1 | -1 }
-  | { kind: "open" }
-  | { kind: "allow" }
-  | { kind: "deny" }
-  | { kind: "choose"; index: number }
-  | { kind: "export" };
+/// What a plain key does on the list (a modified key is the app's). Answers are not plain keys:
+/// a permission answer needs the person's click or the app's permission shortcut (Allow Once,
+/// Deny), which the host counts as theirs and the page gets as an event (QueueScreen.tsx), never a
+/// keystroke the page saw.
+export type QueueCommand = { kind: "move"; step: 1 | -1 } | { kind: "open" } | { kind: "export" };
 
 export type QueueKey = { key: string; metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean };
 
@@ -135,15 +132,11 @@ export function queueCommand(event: QueueKey): QueueCommand | undefined {
       return { kind: "move", step: -1 };
     case "Enter":
       return { kind: "open" };
-    case "a":
-      return { kind: "allow" };
-    case "d":
-      return { kind: "deny" };
     case "x":
     case "e":
       return { kind: "export" };
     default:
-      return /^[1-9]$/.test(event.key) ? { kind: "choose", index: Number(event.key) - 1 } : undefined;
+      return undefined;
   }
 }
 
@@ -161,26 +154,16 @@ export function itemQuestion(item: QueueItem): AgentQuestion | undefined {
   }
 }
 
-/// The one-click answers an item takes in place: allow and deny once for an approval or a plan,
-/// a single question's choices (at most nine, one per number key), Accept and Request changes for
-/// a pull request. An ask on another machine is answered there: no answers here.
+/// The one-click answers an item takes in place: allow once and deny once for an approval or a
+/// plan, the tool permissions the host answers for a chat this page does not show
+/// (`chat.asks.answer`). A pull request takes its verdict instead. A question is answered in its
+/// chat, where its card shows the whole question: no chat shows here for `chat.permission` to
+/// answer, and the host's one-click answer takes tool permissions only. An ask on another machine
+/// is answered there.
 export function queueAnswers(item: QueueItem): NeedsYouAnswer[] {
-  if (item.kind === "pr") return [];
-  if (item.host) return [];
-  const question = item.kind === "question" ? itemQuestion(item) : undefined;
-  if (question) {
-    const [first, ...more] = question.items;
-    if (!first || more.length > 0 || first.multiSelect) return [];
-    return first.options.slice(0, 9).map((option) => ({ id: option.id, label: option.label, tone: "choice" }));
-  }
+  if (item.kind === "pr" || item.kind === "question" || item.host) return [];
   const allow = item.options.find((option) => option.kind === "allow_once") ?? item.options.find(isAllow);
   const deny = item.options.find((option) => option.kind === "reject_once") ?? item.options.find(isDeny);
-  if (item.kind === "question") {
-    // A question's answer is one of its choices. Allowing the tool call that asked it would answer
-    // nothing, so a question whose choices did not come with it is answered in its chat.
-    if (allow || deny) return [];
-    return item.options.slice(0, 9).map((option) => ({ id: option.optionId, label: option.name, tone: "choice" }));
-  }
   return [
     ...(allow ? [{ id: allow.optionId, label: allow.name, tone: "allow" as const }] : []),
     ...(deny ? [{ id: deny.optionId, label: deny.name, tone: "deny" as const }] : []),

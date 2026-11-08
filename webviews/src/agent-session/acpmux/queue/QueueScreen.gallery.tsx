@@ -137,7 +137,7 @@ export default componentEntry<Props>({
       props: { ...base, look: "cards" },
     },
     compact: {
-      note: "Alternative: one line a row, answers by key only.",
+      note: "Alternative: one line a row, answered by the app's permission shortcuts only.",
       props: { ...base, look: "compact" },
     },
     many: {

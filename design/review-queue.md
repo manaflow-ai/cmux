@@ -10,13 +10,13 @@ the person, ranked by acpmux's score. An ask can be:
 - a pull request ready for review
 
 The asks come from every chat, on this Mac and on the person's other machines. The keyboard
-answers them without opening each chat.
+moves through them and answers this Mac's approvals and pull requests without opening each chat.
 
 ## References
 
 - A priority inbox: one ranked list, the selected row expanded, single-key triage, and an answered
   row that leaves in place.
-- A review tool's keyboard: j/k to move, one letter for each verdict, and numbers for choices.
+- A review tool's keyboard: j/k to move and one key for each verdict.
 
 ## Layout
 
@@ -24,9 +24,10 @@ answers them without opening each chat.
 - Row line 1: the kind's glyph, the ask, and the age. Line 2: the chat's title, the host (when it is
   another machine), the agent, and why it ranks high (`impactReasons` in words: "Blocks a turn",
   "Prompts queued: 2", "Spent $3.40", "Sub-sessions: 3", "Waiting long").
-- The selected row shows its answers (Allow / Deny, a plan's own two options, or a question's
-  numbered choices, at most 9) and its detail. Other rows keep that slot reserved at height 0, so
-  moving the cursor moves nothing else.
+- The selected row shows its answers (Allow / Deny, or a plan's own two options) with the app's
+  shortcut on each, and its detail. A question shows "Answer in its chat": its card there asks the
+  whole question. Other rows keep that slot reserved at height 0, so moving the cursor moves
+  nothing else.
 - Pull request rows show Accept and Request changes. Request changes opens a comment box in the row.
 - Under the list: the key hints, the machines that did not answer the read, and Export audit.
 - There are no borders: the selected row is one tonal step up.
@@ -36,20 +37,24 @@ answers them without opening each chat.
 | Key | Does |
 | --- | --- |
 | j / ↓, k / ↑ | move the cursor |
-| Return | open the chat |
-| a | allow once (a plan: approve; a pull request: accept) |
-| d | deny once (a pull request: open Request changes) |
-| 1–9 | pick a question's choice |
+| Return | open the chat in this tab, as History's own rows do (`chat.select`) |
+| Allow Once shortcut (⌥⌘1 by default) | allow once (a plan: approve; a pull request: accept) |
+| Deny shortcut (⌥⌘3 by default) | deny once (a pull request: open Request changes) |
 | x | export the audit trail (`_acpmux/audit`, every page) to the clipboard as JSON |
 
-A chord (Cmd, Ctrl, Alt or Shift) is the app's, never the queue's.
+A chord (Cmd, Ctrl, Alt or Shift) is the app's, never the queue's. Answers take the app's
+permission shortcuts, not plain letters: a permission answer needs the person's own click or that
+shortcut, which the host counts as theirs (`AgentPaneUserGestures`, cx-ocdz), and never a keystroke
+the page saw. The footer shows the shortcuts as the person has them bound.
 
 ## Answering
 
 The page answers the same way Needs you does: `answerParams` builds the `chat.permission` params,
 and `answerAnotherChat` (needsYou/useNeedsYou.ts) sends them through the host's
-`chat.asks.answer`. There is no second path. An ask from another machine opens its chat instead
-(the host cannot answer a peer's permission from here). A pull request verdict goes through
+`chat.asks.answer`. There is no second path. A question is answered in its chat: no chat shows on
+this page for `chat.permission`, and `chat.asks.answer` takes tool permissions only. An ask from
+another machine is answered there and offers no answer here (the host cannot answer a peer's
+permission, nor record a peer's verdict). A pull request verdict goes through
 `_acpmux/review_verdict`.
 
 ## Row states
@@ -59,7 +64,7 @@ and `answerAnotherChat` (needsYou/useNeedsYou.ts) sends them through the host's
 | Arrives after the first read | — | fades and grows in on the house curve |
 | Answered | the row | stays drawn, collapses (`grid-template-rows` 1fr → 0fr) and is hidden from assistive tech; the cursor moves to the next row in the same frame. The next read drops it |
 | Answer refused | collapsing | back in place with "Could not answer it here." |
-| Peer ask answered | — | "Answer on {host}": its chat opens; the row stays until the peer answers |
+| Another machine's ask | — | "Answer on {host}", no answers; the row stays until that machine answers |
 | Older acpmux (`method not found`, or not on the relay's list) | — | "This Mac's agent service is older and keeps no queue yet. Update cmux to see every ask here." |
 | Empty | — | "Nothing is waiting on you." |
 
@@ -67,7 +72,7 @@ and `answerAnotherChat` (needsYou/useNeedsYou.ts) sends them through the host's
 
 1. `inbox`: two lines per row, with the answers only on the selected row.
 2. `cards`: every row is a tonal card, with its answers and detail showing.
-3. `compact`: one line per row, answered by key only.
+3. `compact`: one line per row, answered by the app's permission shortcuts only.
 
 Shipped: `inbox`. It fits about 10 asks in a pane, and the reasons stay readable. Answers appear
 exactly where the cursor is. `cards` fits 3 asks and makes the eye hunt across repeated buttons.

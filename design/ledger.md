@@ -41,7 +41,7 @@ companies/projects should typically just stay internal. We should defo build ALL
 | State | Start | End |
 | --- | --- | --- |
 | Range or group changes | the old rows | the new rows, with bars moving from their old share to the new one on the house curve |
-| Session row: pointer or focus | the tonal fill | one step stronger; Return or a click opens that chat (`chat.asks.open`) |
+| Session row: pointer or focus | the tonal fill | one step stronger; Return or a click opens that chat in this tab, as History's own rows do (`chat.select`) |
 | Loading | dashes in the strip, no rows | the numbers, in place: the strip never changes height |
 | Older acpmux (`method not found`, or the relay does not list it) | — | "This Mac's agent service is older and keeps no cost ledger yet. Update cmux to see costs here." No error tone |
 | Failed | — | the reason and Try again |

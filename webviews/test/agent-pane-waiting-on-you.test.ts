@@ -5,7 +5,7 @@
 // `answerParams`), never a second one.
 import { expect, test } from "bun:test";
 import { answerAnotherChat, answerParams } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
-import { asksKey } from "../src/agent-session/acpmux/queue/historyPages";
+import { asksKey, historyPages } from "../src/agent-session/acpmux/queue/historyPages";
 import {
   auditEntries,
   isOlderDaemon,
@@ -87,16 +87,16 @@ test("the order never shuffles between reads of the same items", () => {
   expect(sortQueue([...items].reverse()).map((each) => each.id)).toEqual(["c", "a", "b"]);
 });
 
-test("the keyboard map: j/k and the arrows move, Return opens, a/d answer, numbers pick, x exports", () => {
+test("the keyboard map: j/k and the arrows move, Return opens, x exports; no plain key answers", () => {
   expect(queueCommand({ key: "j" })).toEqual({ kind: "move", step: 1 });
   expect(queueCommand({ key: "ArrowDown" })).toEqual({ kind: "move", step: 1 });
   expect(queueCommand({ key: "k" })).toEqual({ kind: "move", step: -1 });
   expect(queueCommand({ key: "ArrowUp" })).toEqual({ kind: "move", step: -1 });
   expect(queueCommand({ key: "Enter" })).toEqual({ kind: "open" });
-  expect(queueCommand({ key: "a" })).toEqual({ kind: "allow" });
-  expect(queueCommand({ key: "d" })).toEqual({ kind: "deny" });
-  expect(queueCommand({ key: "1" })).toEqual({ kind: "choose", index: 0 });
-  expect(queueCommand({ key: "9" })).toEqual({ kind: "choose", index: 8 });
+  // A permission answer needs the person's click or the app's shortcut, never a letter the page saw.
+  expect(queueCommand({ key: "a" })).toBeUndefined();
+  expect(queueCommand({ key: "d" })).toBeUndefined();
+  expect(queueCommand({ key: "1" })).toBeUndefined();
   expect(queueCommand({ key: "x" })).toEqual({ kind: "export" });
   expect(queueCommand({ key: "e" })).toEqual({ kind: "export" });
   // A chord is the app's, and other keys do nothing.
@@ -126,7 +126,9 @@ test("an approval answers allow once and deny once, never the lasting allow", ()
   ]);
 });
 
-test("a question whose options are plain choices takes them by number; another machine's ask takes none", () => {
+test("a question is answered in its chat; another machine's ask and a pull request take no one-click answer", () => {
+  // No chat shows on the page for `chat.permission`, and the host's one-click answer takes tool
+  // permissions only, so a question's choices are its chat card's.
   const question = item({
     kind: "question",
     options: [
@@ -134,11 +136,7 @@ test("a question whose options are plain choices takes them by number; another m
       { optionId: "two", name: "Skip it" },
     ],
   });
-  expect(queueAnswers(question)).toEqual([
-    { id: "one", label: "Use the cache", tone: "choice" },
-    { id: "two", label: "Skip it", tone: "choice" },
-  ]);
-  // A question that came as an allow/deny permission, without its choices: answered in its chat.
+  expect(queueAnswers(question)).toEqual([]);
   expect(queueAnswers(item({ kind: "question" }))).toEqual([]);
   expect(queueAnswers(item({ host: "studio" }))).toEqual([]);
   expect(queueAnswers(item({ kind: "pr", prUrl: "https://example.com/pull/1" }))).toEqual([]);
@@ -256,4 +254,39 @@ test("the queue reads again exactly when an ask comes or goes", () => {
   expect(asksKey([ask("p1"), ask("p2")])).toBe("p1,p2");
   expect(asksKey([ask("p1")])).not.toBe(asksKey([ask("p1"), ask("p2")]));
   expect(asksKey([])).toBe("");
+});
+
+test("History opens a chat in its own tab (`chat.select`); another machine's pull request is refused and stays", async () => {
+  const natives: string[] = [];
+  const selected: string[] = [];
+  const verdicts: unknown[] = [];
+  const client = {
+    ledger: async () => ({}),
+    reviewQueue: async () => ({}),
+    reviewVerdict: async (params: Record<string, unknown>) => verdicts.push(params),
+    audit: async () => ({ entries: [] }),
+  };
+  const pages = historyPages({
+    client: () => client,
+    callNative: async <T>(method: string) => {
+      natives.push(method);
+      return undefined as T;
+    },
+    selectSession: (sessionId) => selected.push(sessionId),
+    asks: [],
+  });
+  // Needs you's `chat.asks.open` opens nothing from a New Tab page: Return and a row's click show the
+  // chat where History's own rows show one.
+  pages.queue.open(item());
+  pages.ledger.openSession("s9");
+  expect(selected).toEqual(["s1", "s9"]);
+  expect(natives).toEqual([]);
+  // Another machine's chat is answered there: nothing opens here.
+  pages.queue.open(item({ host: "studio" }));
+  expect(selected).toEqual(["s1", "s9"]);
+  const pr = item({ kind: "pr", prUrl: "https://example.com/pull/1" });
+  await expect(pages.queue.verdict({ ...pr, host: "studio" }, "accept")).rejects.toThrow();
+  expect(verdicts).toEqual([]);
+  await pages.queue.verdict(pr, "accept");
+  expect(verdicts).toEqual([{ prUrl: "https://example.com/pull/1", sessionId: "s1", verdict: "accepted" }]);
 });
