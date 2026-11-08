@@ -105,6 +105,9 @@ public final class AcpmuxChatWindows {
             refusals.append(({ [weak owner] in owner }, refused))
         }
 
+        /// The followers whose owner lives, and the entries held (live and not yet dropped), for tests.
+        var followerCounts: (live: Int, held: Int) { (followers.count { $0.owner() != nil }, followers.count) }
+
         fileprivate func refused() {
             refusals.removeAll { $0.owner() == nil }
             for refusal in refusals { refusal.refused() }
