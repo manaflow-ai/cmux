@@ -3,7 +3,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { MOTION_MS } from "../../motion/scale.generated";
+import { MOTION_MS, MOTION_TEXT_SWAP } from "../../motion/scale.generated";
+import scale from "../../../../schemas/motion-scale/motion-scale.json";
 import {
   TEXT_SWAP_FADE,
   TEXT_SWAP_GONE_AT,
@@ -186,6 +187,18 @@ async function mountLine(options: { reduced?: boolean; motion?: string } = {}) {
 
 const ghosts = (mount: HTMLElement) => [...mount.querySelectorAll<HTMLElement>(".ui-text-swap__ghost")];
 const on = (selector: string) => played.filter((entry) => entry.element.matches(selector));
+
+// One swap for the web and the app (Leo, 2026-11-08: a workspace renamed in the sidebar should have "that same
+// fade in animation that the tool call situation has"): its numbers are the motion scale's, which the app's
+// MotionGate.swapText reads too, never a copy kept here.
+test("the swap's numbers are the shared motion scale's", () => {
+  expect(TEXT_SWAP_RISE_PX).toBe(MOTION_TEXT_SWAP.risePx);
+  expect(TEXT_SWAP_GONE_AT).toBe(MOTION_TEXT_SWAP.goneAt);
+  expect(TEXT_SWAP_SHOW_FROM).toBe(MOTION_TEXT_SWAP.showFrom);
+  expect(TEXT_SWAP_MAX_GHOSTS).toBe(MOTION_TEXT_SWAP.maxGhosts);
+  const { risePx, goneAt, showFrom, maxGhosts } = scale.textSwap;
+  expect({ ...MOTION_TEXT_SWAP }).toEqual({ risePx, goneAt, showFrom, maxGhosts });
+});
 
 test("the first frame and the clock's ticks move nothing", async () => {
   const mount = await mountLine();

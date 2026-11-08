@@ -151,14 +151,16 @@ extension SidebarListView {
                 continue
             }
             displayed.setContent(content, for: row.key)
-            reconfigure(row.key)
+            reconfigure(row.key, patched: true)
         }
         return heightChanged
     }
 
     /// Configures `key`'s realized view from the shown layout; a row with no view is drawn when it scrolls in.
-    private func reconfigure(_ key: SidebarRowKey) {
+    /// `patched`: the row's content changed in place, so its title may swap (`WorkspaceRowView.swapsNextTitle`).
+    private func reconfigure(_ key: SidebarRowKey, patched: Bool = false) {
         guard let view = rowViews[key], let row = displayed.row(for: key) else { return }
+        (view as? WorkspaceRowView)?.swapsNextTitle = patched
         configure(view, row: row, animated: false)
     }
 }

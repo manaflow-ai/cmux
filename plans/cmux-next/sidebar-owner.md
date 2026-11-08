@@ -1697,6 +1697,25 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - The +'s top snaps to the device pixel grid, not whole points (the line can sit on a half point).
 - The sidebar re-lays out its top row when the card's reach changes: gutter, pane padding, floating panes, strip tokens.
 
+## A renamed workspace's title swaps like the agent chat's live line (2026-11-08)
+
+- Leo 2026-11-08: "i feel like when workspaces get renamed (esp by agents) it should have that same fade in animation
+  that the tool call situation has..."
+- One transition: the web's `useTextSwap` constants moved into the motion scale (`textSwap` in
+  schemas/motion-scale/motion-scale.json; `MOTION_TEXT_SWAP`, `MotionScale.textSwap*`), and the swap is ported once
+  to the app as `MotionGate.swapText` (CmuxNextDesign Motion, with the pure timing in `TextSwapMotion`). The old
+  words are a snapshot layer over the title that rises and fades; the title's layer rises in. Transform and opacity
+  only; Reduce Motion crossfades; motion off swaps in one frame. The row's title uses it; design/sidebar.md says how.
+- Real changes only: `SidebarListView.patchRowsNow` marks a row it patched in place (`WorkspaceRowView.swapsNextTitle`,
+  as `GroupHeaderRowView.fadesNextActivity`), and the row swaps only when the same workspace's name (not the
+  `sidebar.rowTitle` mode or a breadcrumb's tab) changed under a title that showed on screen. First paint, a restore,
+  a reload, a reused view and a scroll-in show the name at once (Leo 2026-10-31: "WE DON'T NEED A FADE IN ANIMATION
+  UNLESS IT'S THE WORST CASE").
+- `sidebar.workspaceTitleMotion` (instant, crossfade, lift; a Debug prototype defaulting to instant) is gone with its
+  CATransition path: the swap is the one behavior, and `ui.animations.sidebar` or the master switch turns it off.
+  The placeholder-to-title arrival it drove (never on by default) is gone too: a first name shows at once.
+- Tests: `SidebarTitleTextSwapTests` (red commit first), `MotionTextSwapTests`; gallery `AATitleTextSwapGalleryTests`.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:

@@ -28,4 +28,13 @@ public nonisolated struct MotionScale: Sendable {
 
     /// One turn of every spinner (`MotionLoop.spinner`'s default); a loop, not a step of the scale.
     public static let spinnerPeriod: TimeInterval = 2
+
+    /// The text swap (`MotionGate.swapText`, the webviews' `useTextSwap`): how far the words rise, in points.
+    public static let textSwapRise: Double = 5
+    /// The old words are gone by this fraction of `micro`.
+    public static let textSwapGoneAt: Double = 0.5
+    /// The new words stay unseen up to this fraction of `standard`.
+    public static let textSwapShowFrom: Double = 0.35
+    /// Old copies over the words at once; a faster run of changes drops the oldest.
+    public static let textSwapMaxGhosts: Int = 2
 }

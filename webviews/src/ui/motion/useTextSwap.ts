@@ -24,19 +24,21 @@
 // Stop conditions: no timer and no frame loop. Each change plays finite Web Animations (at most
 // --cmux-motion-standard) that end on their own; the next change and unmount cancel them.
 import { type RefObject, useLayoutEffect, useRef } from "react";
-import { MOTION_EASE_OUT, MOTION_MS } from "../../motion/scale.generated";
+import { MOTION_EASE_OUT, MOTION_MS, MOTION_TEXT_SWAP } from "../../motion/scale.generated";
 import { motionMode } from "./motionMode";
 import "./motion.css";
 
+// The swap's numbers are the one motion scale's (schemas/motion-scale/motion-scale.json `textSwap`), shared with
+// the app's MotionGate.swapText, which swaps a sidebar workspace's name the same way.
 /// How far the words rise: the old ones up and out, the new ones up into place.
-export const TEXT_SWAP_RISE_PX = 5;
+export const TEXT_SWAP_RISE_PX = MOTION_TEXT_SWAP.risePx;
 /// Old copies on the line at once; a faster run of changes drops the oldest.
-export const TEXT_SWAP_MAX_GHOSTS = 2;
+export const TEXT_SWAP_MAX_GHOSTS = MOTION_TEXT_SWAP.maxGhosts;
 /// Words never overlap the sliding clock legibly (Leo, 2026-11-05: overlapping text "is just the
 /// worst thing ever"): the clock slides in --cmux-motion-micro, the old words are gone by this
 /// fraction of theirs, and the new ones stay unseen up to this fraction of theirs.
-export const TEXT_SWAP_GONE_AT = 0.5;
-export const TEXT_SWAP_SHOW_FROM = 0.35;
+export const TEXT_SWAP_GONE_AT = MOTION_TEXT_SWAP.goneAt;
+export const TEXT_SWAP_SHOW_FROM = MOTION_TEXT_SWAP.showFrom;
 /// The words' container: what follows them up to it slides with their width. Without it, their parent.
 export const TEXT_SWAP_ROOT = "data-text-swap-root";
 /// A layer over the words that fades in with the new ones instead of sliding (the shimmer's lit copy).

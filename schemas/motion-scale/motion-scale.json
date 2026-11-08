@@ -11,6 +11,13 @@
     "for": "one turn of every spinner, app and pages alike: a calm turn, the reference spinner's (Leo 2026-11-07: \"Let's have all our spinners go at that speed.\")"
   },
   "easeOut": [0, 0, 0.58, 1],
+  "textSwap": {
+    "risePx": 5,
+    "goneAt": 0.5,
+    "showFrom": 0.35,
+    "maxGhosts": 2,
+    "for": "words that change in place (the running turn's live line, a workspace's name in the sidebar): the old words rise risePx and fade, gone at goneAt of micro; the new ones rise in from risePx below over standard, unseen until showFrom of it, so no two texts read over each other; both ease out. A change while one plays keeps at most maxGhosts old copies. Reduce Motion crossfades with nothing moving; motion off changes the words in one frame. useTextSwap.ts (web) and MotionGate.swapText (app) read these"
+  },
   "spring": {
     "step": "large",
     "for": "a selection or view that travels to where it lands and settles with a touch of give (a sliding tab indicator, the chat switch); run over its step (large, 240 ms) it is visibly settled by 58% (about 140 ms) and at rest by the end",

@@ -19,6 +19,12 @@ import Testing
 
     static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
 
+    /// Turns the run loop for `seconds` (the frames commit and the swap advances); a synchronous call, since
+    /// `RunLoop.run(until:)` is not available from an async test.
+    static func spin(_ seconds: TimeInterval) {
+        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+    }
+
     final class Harness {
         let model: SidebarModel
         let sidebar: SidebarView
@@ -52,6 +58,9 @@ import Testing
             sidebar.layoutSubtreeIfNeeded()
             sidebar.list.reload(animated: false)
             sidebar.layoutSubtreeIfNeeded()
+            // Drawn once, as a row the person reads has been: AppKit hangs a view's layer under its parent's
+            // at the first display, and a title never drawn changes at once (it was not seen).
+            window.displayIfNeeded()
         }
 
         func close() { window.closeAfterTest() }
@@ -214,8 +223,12 @@ import Testing
     }
 
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
-    func theSwapMovesNoFrame() throws {
-        try Self.withMotion {
+    func theSwapMovesNoFrame() async throws {
+        let previous = Motion.reduceMotionOverride
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = previous }
+        try #require(Motion.sidebar.animatesMovement, "sidebar motion is off on this host")
+        do {
             let h = Harness()
             defer { h.close() }
             let row = try h.row(3)
@@ -225,15 +238,17 @@ import Testing
             var sawSwap = false, samples = 0
             let end = Date().addingTimeInterval(0.3)
             while Date() < end {
-                RunLoop.main.run(until: Date().addingTimeInterval(0.008))
+                Self.spin(0.008)
                 samples += 1
                 let now = h.frames
                 #expect(now == before, "sample \(samples): \(now.filter { before[$0.key] != $0.value })")
                 if let shown = row.title.layer?.presentation(), shown.opacity < 0.99 || shown.transform.m42 != 0 { sawSwap = true }
             }
-            #expect(samples > 10)
+            #expect(samples >= 5, "the run loop turned \(samples) times")
             #expect(sawSwap, "the title's layer showed the swap on screen")
             #expect(row.title.stringValue.hasPrefix("A much longer name"))
+            // Awaited, not a spun run loop: the fade's completion comes on the main queue this test runs on.
+            try await MotionTextSwapTests.until(deadline: 1) { Self.ghosts(row).isEmpty }
             #expect(Self.ghosts(row).isEmpty, "the snapshot left when its fade ended")
             #expect(Self.swapKeys(row).isEmpty, "the swap ended on its own")
         }

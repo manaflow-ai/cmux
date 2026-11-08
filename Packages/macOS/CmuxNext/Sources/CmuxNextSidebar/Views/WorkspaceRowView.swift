@@ -135,17 +135,16 @@ final class WorkspaceRowView: SidebarRowView {
     /// The bar's share of the text width, varied per row so a column of
     /// placeholders does not read as one block.
     var placeholderFraction: CGFloat = 0.6
-    /// The last title painted by this view. Recycled rows clear this so a
-    /// different workspace never inherits a title transition.
+    /// The last title painted by this view, and what it said: whose name, under which `sidebar.rowTitle`
+    /// mode. Recycled rows clear it, so a row scrolled back into view or another workspace's row never
+    /// swaps its title.
     internal var lastTitle: String?
-    /// A placeholder row can become a titled row after the daemon reports it.
-    /// Keep both layers alive until the first post-layout frame so the loading
-    /// bar can fade away as the title arrives instead of disappearing first.
-    var titleArrivalPending = false
-    var titleArrivalScheduled = false
-    var titleArrivalActive = false
-    internal var titleArrivalGeneration: UInt = 0
-    internal var titleArrivalVariant = SidebarWorkspaceTitleMotionVariant.instant
+    private var lastTitleSource: TitleSource?
+    /// The list patched this row's content in place (`SidebarListView.patchRowsNow`), the house pattern of
+    /// `GroupHeaderRowView.fadesNextActivity`: the next configure may swap its title (`swapsTitle`). A reload,
+    /// a reuse and a scroll-in never set it, so first paint, restore and a row coming into view show the title at
+    /// once (Leo 2026-10-31: "WE DON'T NEED A FADE IN ANIMATION UNLESS IT'S THE WORST CASE").
+    var swapsNextTitle = false
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
@@ -217,15 +216,17 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleTree = nil
         onToggleAudio = nil
         title.stopMarquee()
-        title.layer?.removeAnimation(forKey: "workspace-title-motion")
-        lastTitle = nil
-        titleArrivalGeneration &+= 1
-        titleArrivalPending = false
-        titleArrivalScheduled = false
-        titleArrivalActive = false
-        title.alphaValue = 1
-        placeholderBar.layer?.removeAllAnimations()
-        placeholderBar.alphaValue = 1
+        Motion.sidebar.cancelTextSwap(in: title)
+        (lastTitle, lastTitleSource, swapsNextTitle) = (nil, nil, false)
+    }
+
+    /// What a drawn title says: the workspace's own name (an inherited chat's, a started session's "of"
+    /// line) under one `sidebar.rowTitle` mode. Only a change of the name swaps; a mode change or a new focused
+    /// tab in a breadcrumb redraws at once.
+    private struct TitleSource: Equatable {
+        var workspace: WorkspaceID
+        var name: String
+        var mode: SidebarRowTitleMode, singleChat: Bool
     }
 
     private struct Content: Hashable {
@@ -239,6 +240,8 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     func configure(_ ws: SidebarWorkspace, row: SidebarRow, badgeStyle: SidebarRowBadgeStyle? = nil) {
+        let patched = swapsNextTitle
+        swapsNextTitle = false
         lastConfiguration = (ws, row, badgeStyle)
         let tunables = observedTunables()
         let content = Content(
@@ -249,6 +252,8 @@ final class WorkspaceRowView: SidebarRowView {
             row: row.content
         )
         guard needsConfigure(content) else { return }
+        // Read before this configure changes them: the title the person could see.
+        let titleWasShown = window != nil && !title.isHidden && !renaming && !isPlaceholderRow && !visibleRect.isEmpty
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
         isShowingPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
         isPlaceholderRow = ws.rowState.isPending
@@ -267,34 +272,26 @@ final class WorkspaceRowView: SidebarRowView {
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
         configureColor(shown)
-        let priorTitle = lastTitle
-        if titleArrivalPending || titleArrivalScheduled || titleArrivalActive {
-            titleArrivalGeneration &+= 1
-            titleArrivalPending = false
-            titleArrivalScheduled = false
-            titleArrivalActive = false
-            title.alphaValue = 1
-            placeholderBar.layer?.removeAllAnimations()
-            placeholderBar.alphaValue = 1
-        }
         // The name the row draws (`sidebar.rowTitle`): the workspace's, else a breadcrumb to its focused tab.
         // A started session named like its parent says whose it is (`WorkspaceRowContent.subagentOf`).
         let shownTitle = shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
-        title.stringValue = shownTitle
-        lastTitle = shownTitle
+        let source = TitleSource(workspace: ws.id,
+                                 name: shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(.workspace, inheritsSingleChat: content.rowTitleSingleChat),
+                                 mode: content.rowTitle, singleChat: content.rowTitleSingleChat)
+        // A rename (an agent's, another device's) of the words the person was reading swaps them as the agent chat's
+        // live line does (Leo 2026-11-08, `MotionGate.swapText`); the row's width and every other row stay put.
+        if Self.swapsTitle(patched: patched, shown: titleWasShown, from: lastTitle, lastTitleSource, to: shownTitle, source),
+           !isShowingPlaceholder, !isPlaceholderRow {
+            Motion.sidebar.swapText(in: title) { title.stringValue = shownTitle }
+        } else if title.stringValue != shownTitle {
+            Motion.sidebar.cancelTextSwap(in: title)
+            title.stringValue = shownTitle
+        }
+        (lastTitle, lastTitleSource) = (shownTitle, source)
         hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
         isQuiet = ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
         isArchived = ws.isArchived
         icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
-        let arrival = priorTitle?.isEmpty == true && !shownTitle.isEmpty && !isPlaceholderRow
-            && tunables.workspaceTitleMotion != .instant && Motion.sidebar.animatesMovement
-        if arrival {
-            titleArrivalPending = true
-            titleArrivalVariant = tunables.workspaceTitleMotion
-        } else {
-            animateTitleChange(from: priorTitle, to: shownTitle, variant: tunables.workspaceTitleMotion,
-                               placeholder: isShowingPlaceholder || isPlaceholderRow)
-        }
         title.font = ws.titleWeight.map { SidebarStyle.titleFont(weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.setFont(SidebarStyle.subtitleFont)
         subtitle.setString(shown.now.map(Strings.rowNow) ?? row.detail ?? "")
@@ -351,53 +348,13 @@ final class WorkspaceRowView: SidebarRowView {
         needsDisplay = true
     }
 
-    /// Applies a title-only transition after the row's content has been set.
-    /// CATransition snapshots the old and new glyphs in the same layer, which
-    /// avoids the blank frame that a separate fade-out/fade-in would expose.
-    private func animateTitleChange(from old: String?, to new: String,
-                                    variant: SidebarWorkspaceTitleMotionVariant,
-                                    placeholder: Bool) {
-        guard !placeholder, let old, !old.isEmpty, !new.isEmpty, old != new,
-              variant != .instant, Motion.sidebar.animatesMovement else { return }
-        let transition: CATransition
-        switch variant {
-        case .instant: return
-        case .crossfade: transition = Motion.crossfadeAction
-        case .lift: transition = Motion.pushUpAction
-        }
-        transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)
-        transition.timingFunction = Motion.fadeCurve
-        title.layer?.add(transition, forKey: "workspace-title-motion")
-    }
-
-    /// Starts after layout has placed both the title and its placeholder bar.
-    /// The title transition and bar fade then share a frame, so a new name
-    /// never flashes in after the loading state has already vanished.
-    func startTitleArrival() {
-        titleArrivalScheduled = false
-        guard titleArrivalPending else { return }
-        titleArrivalPending = false
-        titleArrivalActive = true
-        let generation = titleArrivalGeneration
-        let variant = titleArrivalVariant
-        title.isHidden = false
-        placeholderBar.isHidden = false
-        let transition: CATransition = switch variant {
-        case .instant: Motion.crossfadeAction
-        case .crossfade: Motion.crossfadeAction
-        case .lift: Motion.pushUpAction
-        }
-        transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)
-        transition.timingFunction = Motion.fadeCurve
-        title.layer?.add(transition, forKey: "workspace-title-motion")
-        Motion.sidebar.animate(.fadeOut, in: placeholderBar, { [weak placeholderBar] in
-            placeholderBar?.animator().alphaValue = 0
-        }, completion: { [weak self] in
-            guard let self, self.titleArrivalGeneration == generation else { return }
-            self.titleArrivalActive = false
-            self.placeholderBar.alphaValue = 1
-            self.placeholderBar.isHidden = true
-        })
+    /// Whether a configure swaps the title: the list patched the row in place, the same workspace's title showed
+    /// on screen before, and its name changed, not the `sidebar.rowTitle` mode or a breadcrumb's tab.
+    private static func swapsTitle(patched: Bool, shown: Bool, from oldTitle: String?, _ oldSource: TitleSource?,
+                                   to newTitle: String, _ newSource: TitleSource) -> Bool {
+        guard patched, shown, let oldTitle, let oldSource, !oldTitle.isEmpty, !newTitle.isEmpty, oldTitle != newTitle else { return false }
+        return oldSource.workspace == newSource.workspace && oldSource.mode == newSource.mode
+            && oldSource.singleChat == newSource.singleChat && oldSource.name != newSource.name
     }
 
     var renaming = false

@@ -43,24 +43,6 @@ public nonisolated enum SidebarCollapseMotionVariant: String, Sendable, CaseIter
     var fadesPanel: Bool { self == .slideFade }
 }
 
-/// Prototype variants for a workspace's generated/display title changing after
-/// a new tab or agent chat becomes identifiable (`sidebar.workspaceTitleMotion`).
-/// The title keeps its measured slot in every variant, so a late name never
-/// causes a row reflow or a one-frame blank replacement.
-public nonisolated enum SidebarWorkspaceTitleMotionVariant: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    case instant
-    case crossfade
-    case lift
-
-    public var tunableTitle: String {
-        switch self {
-        case .instant: "Instant"
-        case .crossfade: "Crossfade"
-        case .lift: "Lift"
-        }
-    }
-}
-
 /// Debug Settings tunables of sidebar drag and drop (`DropResolver`).
 /// Sidebar sizes come from `Metrics` (`MetricTunables`).
 public nonisolated enum SidebarTunables {
@@ -198,13 +180,6 @@ public nonisolated enum SidebarTunables {
         help: "Prototype for hiding and showing the sidebar: slide keeps the panel opaque; slide and fade fades its content with the same width motion.",
         default: .slide, code: "SidebarTunables.collapseMotion")
 
-    /// The transition used when a workspace row receives its generated or
-    /// agent-derived title after creation. Crossfade is the shipped default (#21242).
-    public static let workspaceTitleMotion = Tunable<SidebarWorkspaceTitleMotionVariant>.choice(
-        "sidebar.workspaceTitleMotion", .sidebar, "Workspace title motion",
-        help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
-        default: .instant, code: "SidebarTunables.workspaceTitleMotion")
-
     /// Where a hovered workspace row's ✕ sits (`SidebarRowCloseSpot`); at the row's end by default.
     public static let rowCloseSpot = Tunable<SidebarRowCloseSpot>.choice(
         "sidebar.rowCloseSpot", .sidebar, "Workspace row close position",
@@ -271,7 +246,6 @@ public nonisolated enum SidebarTunables {
             workspaceOntoEnd.descriptor,
             workspaceOntoStart.descriptor,
             workspacesAsTabs.descriptor,
-            workspaceTitleMotion.descriptor,
         ] + SidebarSectionTunables.all
     }
 }

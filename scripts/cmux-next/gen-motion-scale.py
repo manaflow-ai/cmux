@@ -8,6 +8,10 @@ CSS (the generated block of webviews/src/pages/shared/desktop.css: --cmux-motion
 --cmux-ease-out, --cmux-ease-spring, and the fold's --cmux-ease-settle over --cmux-motion-settle) and their TypeScript (webviews/src/motion/scale.generated.ts: for Web Animations
 and timers), so a duration changes in one place for all three.
 
+The scale's `textSwap` holds the text swap's own numbers (how far the words rise, when the old ones are
+gone and the new ones show, how many old copies stay): MOTION_TEXT_SWAP for useTextSwap.ts and
+MotionScale.textSwap* for the app's MotionGate.swapText, so the web and the app swap words alike.
+
 The scale's `spinner` is the one period every spinner turns at (Leo 2026-11-07, of a reference desktop
 app's spinner: "Let's have all our spinners go at that speed."). It goes to the same three copies
 (--cmux-spinner-period, SPINNER_PERIOD_MS, MotionScale.spinnerPeriod), to the shared native spinner
@@ -59,6 +63,12 @@ def load():
     assert isinstance(settle["ms"], int) and 0 < settle["ms"] <= 300, settle
     # Never past its end: both control points' progress stays within 0..1.
     assert len(settle["bezier"]) == 4 and all(0 <= value <= 1 for value in settle["bezier"]), settle
+    swap = data["textSwap"]
+    assert set(swap) == {"risePx", "goneAt", "showFrom", "maxGhosts", "for"}, swap
+    assert isinstance(swap["risePx"], (int, float)) and 0 < swap["risePx"] <= 12, swap
+    # The old words are gone before the new ones show past half their own fade (useTextSwap.ts).
+    assert 0 < swap["goneAt"] < 1 and 0 <= swap["showFrom"] < 1, swap
+    assert isinstance(swap["maxGhosts"], int) and swap["maxGhosts"] >= 1, swap
     spinner = data["spinner"]
     assert set(spinner) == {"ms", "for"} and isinstance(spinner["ms"], int) and spinner["ms"] >= 600, spinner
     return data
@@ -135,7 +145,24 @@ export const MOTION_SETTLE_MS = {settle_ms};
 
 /** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
 export const SPINNER_PERIOD_MS = {spinner};
-""".format(src=SOURCE, steps=steps, ease=bezier(data), spring=spring_linear(data),
+
+/**
+ * The text swap (`useTextSwap`, the app's `MotionGate.swapText`): {swap_for}.
+ */
+export const MOTION_TEXT_SWAP = {{
+  /** How far the words rise (px): the old ones up and out, the new ones up into place. */
+  risePx: {swap_rise},
+  /** The old words are gone by this fraction of `MOTION_MS.micro`. */
+  goneAt: {swap_gone},
+  /** The new words stay unseen up to this fraction of `MOTION_MS.standard`. */
+  showFrom: {swap_show},
+  /** Old copies on the line at once; a faster run of changes drops the oldest. */
+  maxGhosts: {swap_ghosts},
+}} as const;
+""".format(swap_for=data["textSwap"]["for"], swap_rise="%g" % data["textSwap"]["risePx"],
+           swap_gone="%g" % data["textSwap"]["goneAt"], swap_show="%g" % data["textSwap"]["showFrom"],
+           swap_ghosts=data["textSwap"]["maxGhosts"],
+           src=SOURCE, steps=steps, ease=bezier(data), spring=spring_linear(data),
            spring_for=data["spring"]["for"], spring_step=data["spring"]["step"], spinner=data["spinner"]["ms"],
            settle=bezier(data, data["settle"]["bezier"]), settle_for=data["settle"]["for"],
            settle_ms=data["settle"]["ms"])
@@ -169,8 +196,19 @@ public nonisolated struct MotionScale: Sendable {{
 
     /// One turn of every spinner (`MotionLoop.spinner`'s default); a loop, not a step of the scale.
     public static let spinnerPeriod: TimeInterval = {spinner}
+
+    /// The text swap (`MotionGate.swapText`, the webviews' `useTextSwap`): how far the words rise, in points.
+    public static let textSwapRise: Double = {swap_rise}
+    /// The old words are gone by this fraction of `micro`.
+    public static let textSwapGoneAt: Double = {swap_gone}
+    /// The new words stay unseen up to this fraction of `standard`.
+    public static let textSwapShowFrom: Double = {swap_show}
+    /// Old copies over the words at once; a faster run of changes drops the oldest.
+    public static let textSwapMaxGhosts: Int = {swap_ghosts}
 }}
-""".format(src=SOURCE, steps=steps, all=", ".join(step["name"] for step in data["steps"]),
+""".format(swap_rise="%g" % data["textSwap"]["risePx"], swap_gone="%g" % data["textSwap"]["goneAt"],
+           swap_show="%g" % data["textSwap"]["showFrom"], swap_ghosts=data["textSwap"]["maxGhosts"],
+           src=SOURCE, steps=steps, all=", ".join(step["name"] for step in data["steps"]),
            ceiling=data["steps"][-1]["name"], ease=ease, spinner="%g" % (data["spinner"]["ms"] / 1000))
 
 

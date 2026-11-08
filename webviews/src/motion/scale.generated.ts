@@ -36,3 +36,17 @@ export const MOTION_SETTLE_MS = 265;
 
 /** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
 export const SPINNER_PERIOD_MS = 2000;
+
+/**
+ * The text swap (`useTextSwap`, the app's `MotionGate.swapText`): words that change in place (the running turn's live line, a workspace's name in the sidebar): the old words rise risePx and fade, gone at goneAt of micro; the new ones rise in from risePx below over standard, unseen until showFrom of it, so no two texts read over each other; both ease out. A change while one plays keeps at most maxGhosts old copies. Reduce Motion crossfades with nothing moving; motion off changes the words in one frame. useTextSwap.ts (web) and MotionGate.swapText (app) read these.
+ */
+export const MOTION_TEXT_SWAP = {
+  /** How far the words rise (px): the old ones up and out, the new ones up into place. */
+  risePx: 5,
+  /** The old words are gone by this fraction of `MOTION_MS.micro`. */
+  goneAt: 0.5,
+  /** The new words stay unseen up to this fraction of `MOTION_MS.standard`. */
+  showFrom: 0.35,
+  /** Old copies on the line at once; a faster run of changes drops the oldest. */
+  maxGhosts: 2,
+} as const;

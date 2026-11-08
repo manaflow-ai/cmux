@@ -272,9 +272,9 @@ extension WorkspaceRowView {
             textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
         let textW = max(0, trailing - textX)
-        let titleArrival = titleArrivalPending || titleArrivalActive
-        title.isHidden = renaming || (isShowingPlaceholder && !titleArrival)
-        placeholderBar.isHidden = !isShowingPlaceholder && !titleArrival
+        // A placeholder's first name shows at once, in the bar's place (Leo 2026-10-31: no fade in unless it is the worst case).
+        title.isHidden = renaming || isShowingPlaceholder
+        placeholderBar.isHidden = !isShowingPlaceholder
         let barHeight = SidebarStyle.placeholderBarHeight
         placeholderBar.frame = NSRect(x: textX + Self.labelInset, y: cy - barHeight / 2,
                                       width: max(0, textW - 2 * Self.labelInset) * placeholderFraction, height: barHeight)
@@ -304,10 +304,6 @@ extension WorkspaceRowView {
             fadeOpacity(mark, to: covered ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
-        if titleArrivalPending && !titleArrivalScheduled {
-            titleArrivalScheduled = true
-            CATransaction.setCompletionBlock { [weak self] in self?.startTitleArrival() }
-        }
         // No needsDisplay here: `updateLayer` reads no layout value, and configure, hover, selection,
         // drop target and appearance changes mark display themselves. Each display costs AppKit a
         // contents-scale walk to the window (perf round 4: the top display frames while scrolling).
