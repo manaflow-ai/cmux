@@ -1,9 +1,12 @@
 // A message this agent sent another one, drawn as another agent's message to this chat is
 // (IncomingMessageCard.tsx; ask-64e107ccf0, Leo 2026-11-07: "it's just not good, compared to the
-// normal ones"): the shared DisclosureRow's line, the envelope in the sender's mark slot, "Sent to"
+// normal ones"): the one message row every message between agents draws (AgentMessageRow.tsx; Leo,
+// 2026-11-07, on a "Sent to" row beside a received one: "why is it formatted differently from
+// everything else?"), the envelope in the icon column where a sender's mark sits, "Sent to"
 // ("Sending to" while it goes out, "Couldn't send to" when it failed), the recipient's chip with its
-// machine after it, muted, as a sender's is, then the message's first line muted and the chevron,
-// and how it was delivered at the line's end ("queued"). Direction is the words, never another look.
+// machine after it, muted, as a sender's is, then the message's first line muted, how it was
+// delivered in the trailing column ("queued"), and the chevron. Direction is the words, never
+// another look.
 // The row opens to the received message's card: the whole message as Markdown, its first line then
 // gone from the line (Leo 2026-10-29: "this rendering can be better for sent stuff"), Copy in the
 // card's corner, and Raw under it as a received message's Details is, closed until asked for and
@@ -22,6 +25,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCallPart, SendState } from "./acpmuxSends";
+import { AgentMessageRow } from "./AgentMessageRow";
 import { messagePreview } from "./agentMessageRowModel";
 import { messageDelivery } from "./agentMessages";
 import { activityText, FindReveal, foldFind, useFindReveal } from "./chatFind";
@@ -41,7 +45,6 @@ import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { ToolRow } from "./ToolRow";
 import { useMessageLineLook } from "./messageLineLook";
 import { sentMessageLook } from "./sentMessageLook.experiment";
-import { DisclosureRow } from "../subagents/DisclosureRow";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import "./AgentMessageRow.css";
 import "./SubsessionCallCard.css";
@@ -191,18 +194,35 @@ export function SentMessageLine({
   const more = others === 1 ? t("send.moreOne") : others > 1 ? t("send.more", { n: others }) : undefined;
   const icon = state === "failed" ? <AlertCircle /> : <Envelope />;
   const words = [before.trim(), target, after.trim()].filter(Boolean).join(" ");
+  // The one message row (AgentMessageRow.tsx), as a received message's (`cv-received`): the
+  // envelope in the icon column, "Sent to", the recipient's chip and machine in the sender span, the
+  // count, the first line; opened, the message in the same card as theirs with Copy in its corner,
+  // Raw under it.
+  const quoted =
+    shape === "quote" && trailing
+      ? // l10n-allow: punctuation around the message's own words.
+        `“${trailing}”`
+      : trailing;
   return (
-    <DisclosureRow
-      className={`cv-received cv-sent-msg look-${look}${state === "sending" ? " is-live" : ""}${state === "failed" ? " is-failed" : ""}`}
+    <AgentMessageRow
+      direction="sent"
+      className={`cv-received cv-sent-msg look-${look}${state === "sending" ? " is-live" : ""}`}
       attributes={{ "data-send-state": state }}
-      open={open}
-      onOpenChange={setOpen}
-      lineClassName="cv-agent-activity-row"
-      leading={
+      lineClassName="cv-sent"
+      // Find counts the send, never the line that sums it up, as DisclosureRow's line added no
+      // matches (IncomingMessageCard.tsx).
+      lineAttributes={{ "data-find-skip": "" }}
+      previewClassName="cv-received__preview cv-sent__preview"
+      belowClassName="cv-sent__below"
+      icon={
+        <span className={`cv-received__mark${state === "failed" ? " cv-tool__failed" : ""}`} aria-hidden="true">
+          {icon}
+        </span>
+      }
+      sentence={"\u0000"}
+      name={target}
+      nameSlot={
         <span className="cv-received__sender cv-sent__sender">
-          <span className={`cv-received__mark${state === "failed" ? " cv-tool__failed" : ""}`} aria-hidden="true">
-            {icon}
-          </span>
           {/* The spaces are part of the accessible sentence; flex gap supplies their visual spacing. */}
           {before.trim() && <span className="cv-sent__words">{before.trim()}</span>}
           {before.trim() && " "}
@@ -213,52 +233,61 @@ export function SentMessageLine({
           {after.trim() && <span className="cv-sent__words">{after.trim()}</span>}
         </span>
       }
-      toggleLabel={[words, more, trailing || source].filter(Boolean).join(" · ")}
-      label={
-        (more || trailing || source) && (
-          <span className="cv-received__preview cv-sent__preview" data-find-skip="">
-            {more && <span className="cv-sent__more">{`· ${more}`}</span>}
-            {more && (trailing || source) && " "}
-            {shape === "quote" && trailing
-              ? // l10n-allow: punctuation around the message's own words.
-                `“${trailing}”`
-              : trailing}
-            {source && (
-              <code className="cv-sent__file" title={source}>
-                {source}
-              </code>
-            )}
-          </span>
-        )
+      detail={
+        <>
+          {more && " "}
+          {more && (
+            <span className="cv-tool__detail cv-sent__more" data-find-skip="">
+              {`· ${more}`}
+            </span>
+          )}
+          {source && " "}
+          {source && (
+            // tooltip-allow: the whole path, which the line cuts with an ellipsis in a narrow pane
+            <code className="cv-tool__detail cv-sent__file" title={source} data-find-skip="">
+              {source}
+            </code>
+          )}
+        </>
       }
-      below={below ? text ? below : <code className="cv-sent__file">{below}</code> : undefined}
-      fadeIn={false}
-      actions={
+      // Stacked, the first line (or the file) takes the line under the row (`below`).
+      preview={stacked ? below : quoted}
+      label={[words, more, trailing || source].filter(Boolean).join(" · ")}
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+      failed={state === "failed"}
+      live={state === "sending"}
+      meta={
         detail ? (
           <span className="cv-command__meta cv-agentmsg__status cv-sent__status">
             <span className="cv-row-status">{detail}</span>
           </span>
         ) : undefined
       }
-    >
-      {text ? (
-        <>
-          {/* No Copy on the line (Leo, 2026-11-04: "let's remove copy button"); the card's corner
-              copies the words, as a received message's does. */}
-          <CardCopy text={text} />
-          <div className="cv-received__text selectable">
-            <AgentMessageBody text={text} commits="quiet" />
-          </div>
+      body={
+        text ? (
+          <>
+            {/* No Copy on the line (Leo, 2026-11-04: "let's remove copy button"); the card's corner
+                copies the words, as a received message's does. */}
+            <CardCopy text={text} />
+            <div className="cv-received__text selectable">
+              <AgentMessageBody text={text} commits="quiet" />
+            </div>
+          </>
+        ) : (
+          // No words to render: the call is all there is, so it shows at once, not behind a
+          // second "Raw" click (Leo 2026-10-26: "EITHER SHOW IT DIRECT WITHOUT OR ... RENDER IT").
+          <div className="cv-sent__call">{raw(reveal)}</div>
+        )
+      }
+      under={
+        text ? (
           <RawDetails open={rawShown} onOpenChange={setRawShown}>
             {raw(reveal)}
           </RawDetails>
-        </>
-      ) : (
-        // No words to render: the call is all there is, so it shows at once, not behind a
-        // second "Raw" click (Leo 2026-10-26: "EITHER SHOW IT DIRECT WITHOUT OR ... RENDER IT").
-        <div className="cv-sent__call">{raw(reveal)}</div>
-      )}
-    </DisclosureRow>
+        ) : undefined
+      }
+    />
   );
 }
 

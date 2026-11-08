@@ -85,7 +85,9 @@ contains(' <key> ') matches whole keys only:
   overflow route.
 - `fast_runner`: FAST_LABEL (vars.CI_FAST_LANE_RUNNER, the fast tier's
   reserved glaeda-fast-* runner) while an online runner carrying it is idle
-  now, else empty (fast_route()). Only then does the fast tier leave JOBS and
+  now; with none idle, the light minis' side label (SIDE_LABEL on the light class) while
+  one of its runners is idle and no nightly or release job waits on the light family
+  (light_fast_route()); else empty (fast_route()). Only then does the fast tier leave JOBS and
   CASCADE_RUNS; otherwise it is placed like any other job, so a busy or shrunken
   fast pool never holds it in a queue no overflow reaches.
 - `fresh_runner` and `fresh_jobs`: FRESH_LABEL (the DEV compile slot,
@@ -501,6 +503,69 @@ def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     return label if pool.live_owned_free(runners, [label])[label] > 0 else ""
 
 
+def light_side_label(label: str) -> str:
+    """The light class's side label for an owned side label (glaeda-side-std-xcode-26.6 ->
+    glaeda-side-light-xcode-26.6), or "" when `label` is no owned side label or is light already."""
+    if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
+        return ""
+    own = pool.owned_class(label)
+    if not own or own == pool.LIGHT_CLASS:
+        return ""
+    parts = label.split("-")
+    return "-".join(pool.LIGHT_CLASS if part == own else part for part in parts)
+
+
+def _family(label: str) -> str:
+    """`<class>-xcode-<version>` for any glaeda label naming a class, whatever its role or namespace
+    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than
+    portable_job_placement.family(), which reads only pool.OWNED_LABEL: the nightly builder's pool
+    (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must hold the light minis too."""
+    parts = (label or "").split("-")
+    if not parts or parts[0] != "glaeda":
+        return ""
+    own = next((index for index, part in enumerate(parts) if part in (*pool.RUN_CLASSES, "xl")), None)
+    if own is None or own + 2 >= len(parts) or parts[own + 1] != "xcode":
+        return ""
+    return "-".join(parts[own:own + 3])
+
+
+def light_fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any) -> str:
+    """The light minis' side label for the fast tier while one of its runners is idle, else "".
+
+    Leo, 2026-11-08, on the PR verdict taking p50 31 minutes against 10: "Ci it's fine to start stuff in
+    parallel sometimes the light minis are largely idling rn". Over the 7 days to 2026-11-08 the light
+    minis (cmux17 to cmux23, 16 GB, glaeda class light) averaged 16 to 28% CPU and held 0.1 to 0.3 of their
+    12 capacity units, while the std minis averaged 63 to 80% and glaeda-side-std-xcode-26.6 queued its
+    jobs p50 4.7 min and p90 34 min (ci-dash speed.json). On the fast lane the light minis already run
+    the fast tier (1,371 runs in 4 days, p50 8.8 min against 10.1 min on the std minis), but only on
+    their one fast runner each (FAST_LABEL); a busy fast runner sent the tier to the std side queue while
+    the same minis' side runners sat idle, because compatible_labels() never narrows a class.
+
+    So the fast tier alone, which needs no GUI or session runner, takes an idle light side runner when
+    no fast runner is idle. Only an idle runner (beyond the jobs already queued on the label), on attempt
+    1 of a run decide() places, and never while a nightly or release job waits on the light family (the
+    janitor snapshot's reserved_queued: nightly first). An unread or stale snapshot places nothing.
+    """
+    if not (env.get("FAST_LABEL") or "").strip() or runners is None:
+        return ""
+    if (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
+        return ""
+    label = light_side_label((env.get("SIDE_LABEL") or "").strip())
+    if not label or FAST_JOB not in (env.get("JOBS") or "").split():
+        return ""
+    snapshot = getattr(seen, "snapshot", None) if seen is not None else None
+    if not isinstance(snapshot, Mapping) or getattr(seen, "stale", True):
+        return ""
+    pools = snapshot.get("pools") or {}
+    own = _family(label)
+    if not isinstance(pools, Mapping) or any(
+            _family(str(name)) == own and int((entry or {}).get("reserved_queued") or 0) > 0
+            for name, entry in pools.items() if isinstance(entry, Mapping)):
+        return ""
+    queued = int((getattr(seen, "owned_queued", None) or {}).get(label, 0) or 0)
+    return label if pool.live_owned_free(runners, [label])[label] - queued > 0 else ""
+
+
 def fresh_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, tuple[str, ...]]:
     """(FRESH_LABEL, the FRESH_JOBS it takes) while its online runners are idle for them, else ("", ()).
 
@@ -817,7 +882,12 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
         return rerun_fleet_main(env, runners)
     if cascade.bot_rerun(env):
         return rerun_main(env, runners)
+    # The pool snapshot and Blacksmith's queues, read once: the light fast route and the GUI routes are
+    # weighed against them here and the cascade places with them below.
+    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     fast = fast_route(env, runners)
+    light_fast = "" if fast else light_fast_route(env, runners, seen)
+    fast = fast or light_fast
     if fast:
         env = without_fast(env)
     fresh, fresh_jobs = fresh_route(env, runners)
@@ -826,9 +896,6 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners, len((env.get("JOBS") or "").split()))
-    # The pool snapshot and Blacksmith's queues, read once: the GUI routes are weighed against them here and
-    # the cascade places with them below.
-    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     live_gui = gui_route_label(label, runners)
     gui_route = healthy_role_label(live_gui, runners, seen, waiting)
     session_route = healthy_role_label(session_route_label(label, runners), runners, seen, waiting)
@@ -842,7 +909,8 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
         why += (f"; `{route}` has more live room than `{label}`, routing jobs there"
                 if route.startswith(pool.SIDE_PREFIX) else f"; no online side runner, routing jobs on `{route}`")
     if (env.get("FAST_LABEL") or "").strip():
-        why += (f"; the fast tier takes idle `{fast}`" if fast
+        why += (f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier takes idle light `{fast}`"
+                if light_fast else f"; the fast tier takes idle `{fast}`" if fast
                 else f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier is placed like the other jobs")
     if (env.get("FRESH_LABEL") or "").strip() and (env.get("FRESH_JOBS") or "").strip() or fresh_jobs:
         why += (f"; {', '.join(fresh_jobs)} take idle `{fresh}`, the freshness slot" if fresh_jobs
