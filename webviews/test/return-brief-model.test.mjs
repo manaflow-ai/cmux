@@ -232,5 +232,8 @@ void test("a run links to Actions only in its own repository, which must be the 
   const other = { ...base(), run: { ...run(), repository: "someone/else" } };
   assert.equal(item(missing, "checks").href, undefined);
   assert.equal(item(other, "checks").href, undefined);
-  assert.match(item({ ...base(), run: run() }, "checks").href, /^https:\/\/github\.com\/example\/atlas\/actions\/runs\/47$/);
+  assert.match(
+    item({ ...base(), run: run() }, "checks").href,
+    /^https:\/\/github\.com\/example\/atlas\/actions\/runs\/47$/,
+  );
 });

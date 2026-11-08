@@ -37,6 +37,8 @@ export type ReturnBriefInput = {
     kind: "tests" | "build";
     state: "running" | "succeeded" | "failed" | "cancelled" | "outcome_unknown";
     tests?: { passed: number; failed: number; skipped: number };
+    /** The repository the run belongs to, as its owner reports it; the Actions link needs it. */
+    repository?: string;
     githubRunId?: number;
   };
   /** Re-read immutable file bytes, hash them, check CURRENT identity and read permission.
@@ -83,7 +85,7 @@ export const MAX_ARTIFACT_READ_AGE_MS = 60_000;
 const sameTurn = (input: ReturnBriefInput, other: { sessionId: string; turnId: string }) =>
   input.sessionId === other.sessionId && input.turnId === other.turnId;
 const sourceMatches = (input: ReturnBriefInput, sha: string) => SHA.test(input.commit) && sha === input.commit;
-const safeRepository = (repo: string) => (REPOSITORY.test(repo) ? repo : undefined);
+const safeRepository = (repo: string | undefined) => (repo !== undefined && REPOSITORY.test(repo) ? repo : undefined);
 const testCounts = (
   counts: NonNullable<ReturnBriefInput["run"]>["tests"],
 ): counts is {
@@ -130,7 +132,10 @@ export function returnBrief(input: ReturnBriefInput): {
     });
   } else {
     const href =
-      repository && Number.isSafeInteger(run.githubRunId) && (run.githubRunId ?? 0) > 0
+      repository &&
+      safeRepository(run.repository) === repository &&
+      Number.isSafeInteger(run.githubRunId) &&
+      (run.githubRunId ?? 0) > 0
         ? "https://github.com/" + repository + "/actions/runs/" + run.githubRunId
         : undefined;
     let level: EvidenceLevel;
@@ -281,7 +286,7 @@ export function returnBrief(input: ReturnBriefInput): {
     items.push({
       id: "pull-request",
       label: "Pull request",
-      level: matching ? "verified" : "stale",
+      level: !matching ? "stale" : pr.state === "closed" ? "failed" : "verified",
       detail: matching
         ? pr.state === "merged"
           ? "GitHub reports merged"
