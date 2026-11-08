@@ -118,7 +118,9 @@ extension DaemonStore {
         verifyMirrorUnchanged(before: writer)
         overlayLifted = true
         let held = holdOverlayPublication()
-        let closedTabs = liftOverlay()
+        // Only a pane the confirmed records hold now can be one the daemon closes in `body`; a provisional or stand-in
+        // pane is never in them, so it is never orphaned by this apply.
+        let closedTabs = liftOverlay().filter { pane($0.pane.handle) === $0.pane }
         let result = body()
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, snapshot: snapshot, in: self) }) {
             intentSettlements.append((intent.transaction, .applied))
@@ -128,7 +130,7 @@ extension DaemonStore {
         releaseStandInTargets()
         releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
-        let orphaned = closedTabs.filter { pane($0.pane.handle) !== $0.pane } // the daemon closed it: read before an overlay hides a pane again
+        let orphaned = closedTabs.filter { pane($0.pane.handle) !== $0.pane } // held before, gone now: read before an overlay hides a pane again
         restoreOverlay()
         TabCloseOverlay(store: self).dropFromClosedPanes(orphaned)
         overlayLifted = false
