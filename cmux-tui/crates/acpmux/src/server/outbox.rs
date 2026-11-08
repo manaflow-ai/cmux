@@ -31,7 +31,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::hub::no_session::NO_SESSION_PREFIX;
-use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, RETRY_FOR_MS, State};
+use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, State};
 
 /// What an attempt that did not deliver leaves the delivery as.
 #[derive(Debug, PartialEq)]
@@ -140,6 +140,7 @@ pub(super) async fn handle(
         attempts: 0,
         never_sent: true,
         relay_post: None,
+        interactive: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -236,6 +237,7 @@ pub(super) async fn remember_forward(
         attempts: 0,
         never_sent: false,
         relay_post: None,
+        interactive: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -516,7 +518,7 @@ pub fn resume(hub: &Arc<Hub>, pending: Vec<Delivery>) {
     }
 }
 
-fn spawn(hub: Arc<Hub>, id: String) {
+pub(super) fn spawn(hub: Arc<Hub>, id: String) {
     if !hub.outbox.start_delivery(&id) {
         return;
     }
@@ -546,7 +548,10 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     d.state = State::Failed;
                     let last =
                         d.error.take().map(|e| format!("; last error: {e}")).unwrap_or_default();
-                    d.error = Some(format!("not delivered within a day of being sent{last}"));
+                    d.error = Some(match &d.interactive {
+                        Some(waiting) => super::prompt_outbox::expired_error(&waiting.peer, &last),
+                        None => format!("not delivered within a day of being sent{last}"),
+                    });
                     crate::attach::strip(&mut d.request);
                 }
             });
@@ -565,8 +570,9 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             return;
         }
         let mut request = delivery.request.clone();
-        // A later attempt asks for the first one's outcome when the target took it already.
-        if attempt > 1
+        // A later attempt asks for the first one's outcome when the target took it already, and
+        // so does every attempt of a prompt whose first send may have reached the peer.
+        if (attempt > 1 || delivery.interactive.is_some())
             && let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
         {
             mux.insert("resend".into(), json!(true));
@@ -591,11 +597,16 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             })
         } else {
             let caller = Caller::of(&delivery);
-            let outcome = attempt_once(hub, caller, request, Origin::Local).await;
+            let replay = delivery.interactive.as_ref().map(|i| i.replay).unwrap_or_default();
+            let origin = if replay.app { Origin::LocalApp } else { Origin::Local };
+            let outcome = attempt_once(hub, caller, request, origin, replay.person).await;
             link_unsent = matches!(outcome, Err((_, Next::Unsent)));
             match outcome {
-                // Nothing has reached the target: the mesh relay carries it when it can.
-                Err((error, Next::Unsent)) if delivery.never_sent => {
+                // Nothing has reached the target: the mesh relay carries it when it can. Not a
+                // waiting prompt, whose caller waits on its own prompt id (`prompt_outbox.rs`).
+                Err((error, Next::Unsent))
+                    if delivery.never_sent && delivery.interactive.is_none() =>
+                {
                     match relay_attempt(hub, &delivery).await {
                         Some(Ok(accepted)) => Ok(accepted),
                         Some(Err((why, next))) => Err((format!("{error}; {why}"), next)),
@@ -686,25 +697,26 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
 }
 
 /// How long `delivery` sleeps before its next attempt, given the schedule's `secs`: a message
-/// no longer than what is left of its day ([`RETRY_FOR_MS`]), a projection intent the whole delay.
+/// no longer than what is left of its wait ([`Delivery::gives_up_at`]), a projection intent the
+/// whole delay.
 fn retry_sleep(delivery: &Delivery, secs: u64, now: u64) -> Duration {
     let delay = Duration::from_secs(secs);
     if delivery.projection_only() {
         return delay;
     }
-    let left = delivery.created_at.saturating_add(RETRY_FOR_MS).saturating_sub(now);
+    let left = delivery.gives_up_at().saturating_sub(now);
     delay.min(Duration::from_millis(left))
 }
 
 /// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
-/// past [`RETRY_FOR_MS`] since it was handed over and still not delivered.
+/// past [`Delivery::gives_up_at`] and still not delivered.
 fn expired(delivery: &Delivery, now: u64) -> bool {
-    !delivery.projection_only() && now >= delivery.created_at.saturating_add(RETRY_FOR_MS)
+    !delivery.projection_only() && now >= delivery.gives_up_at()
 }
 
 /// The wait before the next attempt of `delivery`: the next of [`RETRY_DELAYS_SECS`], then
-/// the last one again until [`RETRY_FOR_MS`] after the message was handed over. A projection
-/// intent keeps the bounded schedule alone. None: it fails.
+/// the last one again until [`Delivery::gives_up_at`]. A projection intent keeps the bounded
+/// schedule alone. None: it fails.
 fn retry_delay(
     delays: &mut std::slice::Iter<'_, u64>,
     delivery: &Delivery,
@@ -713,7 +725,7 @@ fn retry_delay(
     if let Some(secs) = delays.next() {
         return Some(*secs);
     }
-    let within = now < delivery.created_at.saturating_add(RETRY_FOR_MS);
+    let within = now < delivery.gives_up_at();
     (within && !delivery.projection_only()).then(|| RETRY_DELAYS_SECS.last().copied()).flatten()
 }
 
@@ -784,6 +796,7 @@ pub(super) async fn attempt_once(
     caller: Option<Caller<'_>>,
     request: Value,
     origin: Origin,
+    person: bool,
 ) -> Result<Value, (String, Next)> {
     let target = request.get("sessionId").and_then(Value::as_str).unwrap_or_default();
     let summary = hub
@@ -806,7 +819,7 @@ pub(super) async fn attempt_once(
         .to_owned();
     let (in_tx, in_rx) = mpsc::channel(16);
     let (out_tx, mut out_rx) = mpsc::channel(1024);
-    tokio::spawn(super::serve_outbox_connection(hub.clone(), in_rx, out_tx, origin));
+    tokio::spawn(super::serve_outbox_connection(hub.clone(), in_rx, out_tx, origin, person));
     let mut hello = json!({
         "protocolVersion": 1,
         "clientCapabilities": {},
@@ -925,6 +938,7 @@ mod no_session_next_tests {
 #[cfg(test)]
 mod retry_delay_tests {
     use super::*;
+    use crate::hub::outbox::RETRY_FOR_MS;
 
     fn delivery(created_at: u64, projection: bool) -> Delivery {
         let mut request = json!({"sessionId": "gone/lane", "_meta": {"acpmux": {"promptId": "p"}}});
@@ -941,6 +955,7 @@ mod retry_delay_tests {
             attempts: 0,
             never_sent: true,
             relay_post: None,
+            interactive: None,
             error: None,
             accepted: None,
             created_at,

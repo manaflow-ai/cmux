@@ -474,6 +474,7 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
         attempts: 0,
         never_sent: false,
         relay_post: None,
+        interactive: None,
         error: None,
         accepted: None,
         created_at: crate::store::now_ms(),

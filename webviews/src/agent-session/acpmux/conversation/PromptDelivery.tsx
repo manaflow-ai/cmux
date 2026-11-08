@@ -31,6 +31,16 @@ export function DeliveryMark({ delivery }: { delivery: PromptDelivery }) {
     const timer = setTimeout(() => setLate(true), Math.max(0, CLOCK_AFTER_MS - (Date.now() - delivery.sentAt)));
     return () => clearTimeout(timer);
   }, [sending, late, delivery.sentAt]);
+  // acpmux took it, and sends it once the chat's machine is back.
+  if (delivery.state === "delivered" && delivery.waitsFor) {
+    const waiting = t("prompt.delivery.waitsForMachine", { machine: delivery.waitsFor });
+    return (
+      <output className="cv-user__status cv-user__delivery" data-delivery="waiting" aria-label={waiting}>
+        <Clock size={12} />
+        <span>{waiting}</span>
+      </output>
+    );
+  }
   if (!sending || (!late && !delivery.slow)) return null;
   const label = t(delivery.slow ? "prompt.delivery.stillSending" : "prompt.delivery.sending");
   // The clock alone names itself in a tooltip; once the send is slow its words show, and no tooltip.

@@ -375,6 +375,9 @@ pub enum SocketPeer {
     /// The daemon's own outbox delivering a send it kept (`server/outbox.rs`), the one local
     /// connection whose [`CHECKED_KEY`] is the daemon's own.
     Outbox,
+    /// [`Self::Outbox`] sending again a prompt the person's own connection sent in this launch
+    /// (`server/prompt_outbox.rs`): that connection is the person too. Only the daemon makes one.
+    OutboxPerson,
 }
 
 /// For a `session/prompt` or `send_queue`: the pid to walk from, and whether the
@@ -383,7 +386,7 @@ pub enum SocketPeer {
 /// nothing and its [`CHECKED_KEY`] is dropped, as a Web client's is.
 pub fn check_trust(peer: SocketPeer, local: bool, peer_token: bool) -> (Option<u32>, bool) {
     match peer {
-        SocketPeer::Outbox => (None, true),
+        SocketPeer::Outbox | SocketPeer::OutboxPerson => (None, true),
         SocketPeer::Pid(pid) if local => (Some(pid), false),
         _ => (None, !local && peer_token),
     }
