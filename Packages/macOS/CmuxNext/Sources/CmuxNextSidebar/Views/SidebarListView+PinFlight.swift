@@ -295,7 +295,12 @@ extension SidebarListViewComponents {
     @discardableResult
     private func raiseForFlight(_ view: NSView) -> SidebarFlightGround? {
         view.layer?.zPosition = 1
-        guard view is SidebarItemRowView || view is WorkspaceRowView, let layer = view.layer else { return nil }
+        // A list row paints its own fill on its layer at every display pass: it keeps the ground under that fill.
+        if let row = view as? WorkspaceRowView {
+            row.flightGround = Palette.sidebarBackground
+            return nil
+        }
+        guard view is SidebarItemRowView, let layer = view.layer else { return nil }
         let before = SidebarFlightGround(color: layer.backgroundColor, cornerRadius: layer.cornerRadius)
         var ground: CGColor?
         view.effectiveAppearance.performAsCurrentDrawingAppearance { ground = Palette.sidebarBackground.withAlphaComponent(1).cgColor }
@@ -310,6 +315,7 @@ extension SidebarListViewComponents {
     static func landFlights(_ flights: [SidebarPinFlight]) {
         for flight in flights {
             flight.view.layer?.zPosition = 0
+            (flight.view as? SidebarRowView)?.flightGround = nil
             if let block = flight.view.enclosingRow { block.layer?.zPosition = 0 }
             if let ground = flight.ground {
                 Motion.withoutAnimation {
