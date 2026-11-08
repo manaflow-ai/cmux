@@ -52,7 +52,8 @@ extension TabStripView {
 
     /// The divider's path when tabs fly across the pinned group's end: from `oldX` it fades out on the first half of
     /// the move (sooner if a flying tab reaches it; a tab that grows into it from the left pushes it along), and at
-    /// `newX` it fades in once no flying tab covers that place. Opacity and x per 120 Hz sample, as keyframes.
+    /// `newX` it fades in once no flying tab covers that place (past the move's end when one covers it until then).
+    /// Opacity and x per 120 Hz sample, as keyframes.
     /// `neighbours`: the tabs that stay in their region (they slide, they do not fly). One that lands right of the new
     /// place carries the divider on its leading edge and one it would cover hides it, as a flying tab does: the divider
     /// never draws through a sliding tab's icon (the films: through tab1's icon for 4 frames).
@@ -88,7 +89,7 @@ extension TabStripView {
             frames[k].indices.contains { index in covers(oldX, frames[k][index]) && frames[0][index].minX >= oldX }
         }) { outEnd = max(2, min(outEnd, reached - 1)) }
         // In: a tab that lands left of the new place carries it on its trailing edge (the pinned group's end), so it
-        // never draws inside that tab; it shows after the last sample a flying tab covers it (at least three before the end).
+        // never draws inside that tab; it shows after the last sample a flying tab covers it.
         let ends = frames[last]
         let inXs = times.indices.map { k in
             let left = frames[k].indices.reduce(newX) { x, index in
@@ -103,10 +104,19 @@ extension TabStripView {
             frames[k].contains { covers(inXs[k], $0) }
                 || slid[k].indices.contains { index in !covers(newX, slidEnds[index]) && covers(inXs[k], slid[k][index]) }
         } ?? -1
-        let inStart = min(max(outEnd, coveredLast + 1), max(outEnd, last - 3))
+        // It fades in over at least three samples from the one after the last a tab covers it. When a tab covers it
+        // until the move's last samples (the flying tab's width settles last), the fade runs on past the move's end: a
+        // fade clamped into the move showed the line inside that tab (tick 22 of 24 at 9c2b9a9, TabPinMotionTests).
+        let inStart = max(outEnd, coveredLast + 1)
+        let end = max(last, inStart + 3)
+        let step = duration / Double(max(1, last))
+        let timeline = times + (0..<(end - last)).map { times[last] + step * Double($0 + 1) }
         var xs: [CGFloat] = [], opacities: [Float] = []
-        for k in times.indices {
-            if k <= outEnd, wasShown {
+        for k in timeline.indices {
+            if k > last {
+                xs.append(inXs[last])
+                opacities.append(Float(CGFloat(max(0, k - inStart)) / CGFloat(max(1, end - inStart))))
+            } else if k <= outEnd, wasShown {
                 // A tab left of it at the start that grows into it pushes it along its trailing edge.
                 var x = oldX
                 for (index, start) in frames[0].enumerated() where start.maxX <= oldX {
@@ -116,14 +126,14 @@ extension TabStripView {
                 opacities.append(fromOpacity * Float(1 - CGFloat(k) / CGFloat(max(1, outEnd))))
             } else {
                 xs.append(inXs[k])
-                opacities.append(k <= inStart ? 0 : Float(CGFloat(k - inStart) / CGFloat(max(1, last - inStart))))
+                opacities.append(k <= inStart ? 0 : Float(CGFloat(k - inStart) / CGFloat(max(1, end - inStart))))
             }
         }
         let y = divider.position.y
-        if let position = MotionPath.keyframes("position", values: xs.map { NSValue(point: CGPoint(x: $0, y: y)) }, times: times, on: divider) {
+        if let position = MotionPath.keyframes("position", values: xs.map { NSValue(point: CGPoint(x: $0, y: y)) }, times: timeline, on: divider) {
             move.add(position, to: divider, as: "divider.crossing.position")
         }
-        if let fade = MotionPath.keyframes("opacity", values: opacities.map { NSNumber(value: $0) }, times: times, on: divider) {
+        if let fade = MotionPath.keyframes("opacity", values: opacities.map { NSNumber(value: $0) }, times: timeline, on: divider) {
             move.add(fade, to: divider, as: "divider.crossing.opacity")
         }
     }
