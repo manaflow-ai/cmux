@@ -30,6 +30,7 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
+  type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -503,6 +504,10 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.settings.devices.state": () => this.devices,
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
+      "cmux.settings.tailnet.state": () => this.tailnet,
+      "cmux.settings.tailnet.start": () => this.stepTailnet("start"),
+      "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
+      "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
       "cmux.settings.shares.list": () => this.shares,
       "cmux.settings.shares.revoke": (params) =>
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
@@ -604,6 +609,10 @@ export class MockSettingsProvider {
       "cmux.settings.environments.run",
       "cmux.settings.shares.list",
       "cmux.settings.shares.revoke",
+      "cmux.settings.tailnet.state",
+      "cmux.settings.tailnet.start",
+      "cmux.settings.tailnet.login",
+      "cmux.settings.tailnet.logout",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
       "cmux.settings.theme.set",
@@ -695,6 +704,25 @@ export class MockSettingsProvider {
       ),
     };
     return { share_id: id, state: "revoked" };
+  }
+
+  /** Settings > Server > This Mac on Your Tailnet as acpmux answers the app's relay: signed out; null is
+   * an acpmux with no tailnet. */
+  tailnet: TailnetState | null = { state: "stopped" };
+  /** Every tailnet step the page asked for, in order (tests). */
+  tailnetSteps: string[] = [];
+
+  /** Every tailnet step answers null while true (the relay got no answer). */
+  tailnetRefuses = false;
+
+  /** As acpmux does: Start and Login answer `starting` at once and the node publishes its sign-in page
+   * on the next read; Logout signs out. */
+  private stepTailnet(verb: "start" | "login" | "logout"): TailnetState | null {
+    this.tailnetSteps.push(verb);
+    if (this.tailnet === null || this.tailnetRefuses) return null;
+    if (verb === "logout") return (this.tailnet = { state: "stopped" });
+    this.tailnet = { state: "needs_login", browse_to_url: "https://login.tailscale.com/a/1a2b3c4d5e" };
+    return { state: "starting" };
   }
 
   /** Settings > Accounts > Cloud Environments as the app's model serves it. */

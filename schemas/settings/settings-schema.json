@@ -1835,7 +1835,8 @@
         ],
         "id" : "server",
         "lead" : [
-          "server"
+          "server",
+          "tailnet"
         ],
         "symbol" : "server.rack",
         "title" : {
