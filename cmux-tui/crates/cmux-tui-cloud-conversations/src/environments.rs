@@ -76,6 +76,24 @@ impl CloudConversations {
                 // Validation details belong to the platform; preserve null and empty values.
                 send("PATCH", &format!("/v1/cloud-environments/{id}"), &json!(patch))?
             }
+            // New environment… (the composer's Environment chip): one new environment, with the
+            // platform's create fields only; the platform validates them.
+            "create" if params.len() == 1 => {
+                let environment =
+                    params.get("environment").and_then(Value::as_object).ok_or_else(invalid)?;
+                if environment
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_none_or(|name| name.trim().is_empty())
+                    || environment.keys().any(|key| {
+                        !["name", "scope", "setup_script", "env_vars", "secrets", "network"]
+                            .contains(&key.as_str())
+                    })
+                {
+                    return Err(invalid());
+                }
+                send("POST", "/v1/cloud-environments", &json!(environment))?
+            }
             "derive" => {
                 if params.keys().any(|key| !["repo", "ref", "environment"].contains(&key.as_str()))
                     || params.get("repo").and_then(Value::as_str).is_none_or(|s| s.is_empty())

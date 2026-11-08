@@ -64,17 +64,21 @@ import Testing
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == settings.terminalFontSize)
         #expect(CmuxMobilePreferences.wrapCode(defaults) == settings.wrapCode)
         #expect(CmuxMobilePreferences.keyClicks(defaults) == settings.keyClicks)
+        #expect(CmuxMobilePreferences.predictiveEcho(defaults) == settings.predictiveEcho)
+        #expect(CmuxMobilePreferences.predictiveEcho(defaults))
         #expect(CmuxMobilePreferences.dismissKeyboardAfterSend(defaults) == settings.dismissKeyboardAfterSend)
         #expect(!CmuxMobilePreferences.steersFollowUps(defaults))
 
         settings.terminalFontSize = 17
         settings.wrapCode = true
         settings.keyClicks = false
+        settings.predictiveEcho = false
         settings.dismissKeyboardAfterSend = false
         settings.followUp = .steer
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == 17)
         #expect(CmuxMobilePreferences.wrapCode(defaults))
         #expect(!CmuxMobilePreferences.keyClicks(defaults))
+        #expect(!CmuxMobilePreferences.predictiveEcho(defaults))
         #expect(!CmuxMobilePreferences.dismissKeyboardAfterSend(defaults))
         #expect(CmuxMobilePreferences.steersFollowUps(defaults))
 

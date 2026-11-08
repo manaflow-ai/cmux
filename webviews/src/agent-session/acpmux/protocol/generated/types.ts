@@ -278,6 +278,9 @@ export interface BtwParams {
   sessionId?: unknown;
 }
 
+/** The carrier a live link runs over (`carrier`); null while no link is open. */
+export type Carrier = ("direct" | "ssh" | "hub" | "cloud");
+
 export type ChangedSession = (SessionSummary | PurgedSession);
 
 export type ChatAllowance = {
@@ -322,6 +325,12 @@ export type DeliveryState = "queued" | "acknowledged";
 
 /** An acknowledgement with nothing in it. */
 export type Done = Record<string, unknown>;
+
+/**
+ * Why a link is down (`cause`), so a surface can tell this Mac's network apart from the
+ * machine. Null while the link is up or on its way the first time.
+ */
+export type DownCause = ("localNetwork" | "hubDown" | "peerDown" | "auth");
 
 export interface DraftGetParams {
   _meta?: RequestMeta;
@@ -603,6 +612,22 @@ export type LifecycleReceipt = {
   state: string;
 } & Record<string, unknown>;
 
+/**
+ * The bounded diagnosis shown beside a looping chat. The daemon emits one event when this
+ * becomes active and another when progress clears it; the summary lets a newly attached client
+ * render the current state without replaying the transcript.
+ */
+export type LoopEpisodeSummary = {
+  count: number;
+  diagnosis: string;
+  episodeId: number;
+  hint: string;
+  since: number;
+} & Record<string, unknown>;
+
+/** A machine link's whole state (`link`): what every surface draws, from acpmux alone. */
+export type MachineLink = ("connected" | "connecting" | "reconnecting" | "restarting" | "degraded" | "offline" | "authFailed" | "updateRequired" | "paused");
+
 export interface MailAckParams {
   messageId: string;
   recipient: string;
@@ -685,6 +710,15 @@ export interface MemberApproverDecision {
   decisionNonce: string;
 }
 
+export interface MemoryResolveParams {
+  _meta?: RequestMeta;
+  accept?: unknown;
+  dismiss?: unknown;
+  file?: unknown;
+  offerId?: unknown;
+  sessionId?: unknown;
+}
+
 /** The sender and receiver projection of a persisted session-to-session message. */
 export type MessageEvent = {
   at: number;
@@ -736,7 +770,7 @@ export type Participant = {
   viewing: boolean;
 } & Record<string, unknown>;
 
-/** A peer link's state (`peer_link.rs` `PeerState`; `state` in `_acpmux/peers`). */
+/** A peer link's state, folded for older apps (`state`): read `link` for the whole of it. */
 export type PeerLinkState = ("connecting" | "connected" | "degraded" | "reconnecting" | "offline");
 
 export interface PeerReconnectParams {
@@ -756,19 +790,30 @@ export interface PeerSnapshotParams {
 
 /**
  * `_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's
- * state changes, never twice for the same state: a peer that is added sends its first state,
- * and one that is removed a last `offline` with `error: "removed"`. Listed as the
- * `peerStateEvents` feature.
+ * link changes (`link`, `carrier`, `cause` or `nextRetryAt`), never twice for the same one: a
+ * peer that is added sends its first state, and one that is removed a last `offline` with
+ * `error: "removed"`. Listed as the `peerStateEvents` feature.
  */
 export type PeerStateChanged = {
-  /** When the state changed, ms since the epoch. */
+  /** When the note was made, ms since the epoch. */
   at: number;
+  /** The carrier the open link runs over; null while none is open. */
+  carrier: (Carrier | null);
+  /** Why the link is down; null while it is up or on its way the first time. */
+  cause: (DownCause | null);
   /** Why the link is down, when it is. */
   error: (string | null);
   /** The last frame from the peer, ms since the epoch. */
   lastSeen: (number | null);
+  /** The link's whole state: what a surface draws. */
+  link: MachineLink;
+  /** When acpmux dials again on its own, ms since the epoch; null while it is not waiting. */
+  nextRetryAt: (number | null);
   /** The peer's name, as in `_acpmux/peers`. */
   peer: string;
+  /** When `link` took its value, ms since the epoch. */
+  since: number;
+  /** `link` folded to the older five words, for an app that predates `link`. */
   state: PeerLinkState;
 } & Record<string, unknown>;
 
@@ -1358,6 +1403,11 @@ export type SessionDetail = {
    */
   lifecycleReceipt?: (LifecycleReceipt | null);
   /**
+   * A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.
+   * Additive so older clients and peers can omit it.
+   */
+  loopEpisode?: (LoopEpisodeSummary | null);
+  /**
    * The MCP servers the harness says it loaded, from its own report (Claude
    * Code's system/init); null when it reports none (every ACP harness).
    */
@@ -1642,6 +1692,11 @@ export type SessionSummary = {
    * status or placement fields.
    */
   lifecycleReceipt?: (LifecycleReceipt | null);
+  /**
+   * A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.
+   * Additive so older clients and peers can omit it.
+   */
+  loopEpisode?: (LoopEpisodeSummary | null);
   /**
    * The MCP servers the harness says it loaded, from its own report (Claude
    * Code's system/init); null when it reports none (every ACP harness).

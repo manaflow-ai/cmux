@@ -81,9 +81,21 @@ export class EnvironmentStore {
     this.state = { open: true, section: options.section ?? "overview", loading: true, saving: false };
     this.set({});
     try {
-      const environment = options.environmentId
-        ? await this.client.get(options.environmentId)
-        : (await this.client.list()).find((item) => item.scope === "personal" && item.is_default);
+      const created =
+        options.create && this.client.create
+          ? await this.client.create({ name: options.create.name, setup_script: null })
+          : undefined;
+      if (created) {
+        // Made once: a retry or a later open edits it, never makes another.
+        const { create: _made, ...rest } = options;
+        this.options = { ...rest, environmentId: created.id };
+        options.onCreated?.(created);
+      }
+      const environment =
+        created ??
+        (options.environmentId
+          ? await this.client.get(options.environmentId)
+          : (await this.client.list()).find((item) => item.scope === "personal" && item.is_default));
       if (generation !== this.generation) return;
       if (!environment) return this.set({ loading: false, error: "missing" });
       this.set({ original: environment, draft: environmentDraft(environment), loading: false });

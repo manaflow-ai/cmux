@@ -61,6 +61,10 @@ export const MessageRow = memo(
                   promptIds: [...row.inboxThread.promptIds],
                   ...(row.inboxThread.fromSession ? { fromSession: row.inboxThread.fromSession } : {}),
                   ...(row.inboxThread.fromHarness ? { fromHarness: row.inboxThread.fromHarness } : {}),
+                  ...(row.inboxThread.unverified ? { unverified: row.inboxThread.unverified } : {}),
+                  // acpmux's record of who sent it: the chip asks for that chat by it (a label-only
+                  // sender by its whole label), never by the bare name the line shows.
+                  ...(row.inboxThread.senderRecord ? { sender: row.inboxThread.senderRecord } : {}),
                 },
               ],
             }}

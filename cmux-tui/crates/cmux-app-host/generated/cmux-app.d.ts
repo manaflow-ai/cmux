@@ -1388,7 +1388,7 @@ interface CmuxGlobal {
   }
   screen: {
     /** `screen.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; argv?: Array<string>; shell?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; argv?: Array<string>; shell?: string; focus?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `screen.focus` (mutation, scope `workspace:write`) */
     focus: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
     /** `screen.get` (read, scope `workspace:read`) */
@@ -1697,7 +1697,7 @@ interface CmuxGlobal {
     /** `terminal.attach` (stream_open, scope `terminal:execute`) */
     attach: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; stream_id: string /* stream_… */; cols?: number; rows?: number; read_only?: boolean }, Cmux.ViewAttachmentStreamOpened>
     /** `terminal.copy` (read, scope `terminal:read`) */
-    copy: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; mode?: "screen" | "selection" | "scrollback" }, Cmux.TerminalCopyResult>
+    copy: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; mode?: "screen" | "selection" | "scrollback"; unwrap?: boolean }, Cmux.TerminalCopyResult>
     /** `terminal.get` (read, scope `terminal:read`) */
     get: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.TerminalSnapshot>
     history: {
@@ -1728,7 +1728,7 @@ interface CmuxGlobal {
     project: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; destination_workspace: unknown; destination_screen: unknown; destination_pane: unknown; index: number; name?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
     screen: {
       /** `terminal.screen.read` (read, scope `terminal:read`) */
-      read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.TerminalScreenResult>
+      read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; unwrap?: boolean; lines?: number }, Cmux.TerminalScreenResult>
     }
     state: {
       /** `terminal.state.read` (read, scope `terminal:read`) */
@@ -1739,7 +1739,7 @@ interface CmuxGlobal {
       scroll: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; delta_rows: number; expected_revision?: string }, Cmux.MutationResult<Cmux.EmptyResult>>
     }
     /** `terminal.wait` (read, scope `terminal:read`) */
-    wait: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; pattern: string; timeout_ms?: string }, Cmux.TerminalWaitResult>
+    wait: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; pattern: string; timeout_ms?: string; new?: boolean }, Cmux.TerminalWaitResult>
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
   }

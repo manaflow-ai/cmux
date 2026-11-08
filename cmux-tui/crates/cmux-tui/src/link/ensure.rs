@@ -7,7 +7,7 @@
 //! app's link never share a socket, a registration or a state directory.
 //!
 //! - `ensure --state-dir D [--install ID] [--port P] [--session-socket S]
-//!   [--server-config F] [--cloud-token-file F]`: runs `init` first when D has no config (then
+//!   [--server-config F]`: runs `init` first when D has no config (then
 //!   `--install` is required; `--port 0` binds any free UDP port), returns
 //!   the live link of D when one runs, else starts `cmux link serve` in its
 //!   own session (it survives the caller) and waits for its ready line. A
@@ -87,8 +87,6 @@ impl ReadyPipe {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Served {
     pub session_socket: Option<std::path::PathBuf>,
-    pub credential_socket: Option<std::path::PathBuf>,
-    pub cloud_token_file: Option<std::path::PathBuf>,
     pub server_config: Option<std::path::PathBuf>,
     pub server_config_sha256: Option<String>,
 }
@@ -114,8 +112,6 @@ impl Served {
             bytes.map(|bytes| Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect());
         Self {
             session_socket: flags.get("--session-socket").map(std::path::PathBuf::from),
-            credential_socket: flags.get("--credential-socket").map(std::path::PathBuf::from),
-            cloud_token_file: flags.get("--cloud-token-file").map(std::path::PathBuf::from),
             server_config,
             server_config_sha256,
         }
@@ -124,8 +120,6 @@ impl Served {
     fn json(&self) -> Value {
         json!({
             "session_socket": self.session_socket,
-            "credential_socket": self.credential_socket,
-            "cloud_token_file": self.cloud_token_file,
             "server_config": { "path": self.server_config, "sha256": self.server_config_sha256 },
         })
     }
@@ -138,10 +132,6 @@ impl Served {
             return true;
         }
         status["session_socket"] == json!(self.session_socket)
-            && status.get("credential_socket").unwrap_or(&Value::Null)
-                == &json!(self.credential_socket)
-            && status.get("cloud_token_file").unwrap_or(&Value::Null)
-                == &json!(self.cloud_token_file)
             && status["server_config"]["path"] == json!(self.server_config)
             && status["server_config"]["sha256"] == json!(self.server_config_sha256)
     }
@@ -412,8 +402,7 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     }
     let mut command = std::process::Command::new(std::env::current_exe()?);
     command.args(["link", "serve", "--state-dir"]).arg(state.dir());
-    for name in ["--session-socket", "--server-config", "--credential-socket", "--cloud-token-file"]
-    {
+    for name in ["--session-socket", "--server-config"] {
         if let Some(value) = flags.get(name) {
             command.arg(name).arg(value);
         }

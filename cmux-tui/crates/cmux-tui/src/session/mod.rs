@@ -465,12 +465,44 @@ pub(crate) struct ClientFocus {
     pub(crate) tab: usize,
 }
 
+/// What a daemon said when it shut down (`daemon-shutdown`'s `restart`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum DaemonShutdownNotice {
+    /// `server restart`: a replacement daemon takes over the same session.
+    Restart,
+    /// `server stop`: the session stops.
+    Stop,
+    /// An older daemon, or a caller that did not say (an app or update
+    /// handoff): a replacement may follow.
+    Unspecified,
+}
+
+impl DaemonShutdownNotice {
+    /// Reads the notice from a `daemon-shutdown` event.
+    pub(crate) fn from_event(event: &Value) -> Self {
+        match event.get("restart").and_then(Value::as_bool) {
+            Some(true) => Self::Restart,
+            Some(false) => Self::Stop,
+            None => Self::Unspecified,
+        }
+    }
+}
+
 impl Session {
     /// Returns the first reason recorded when a remote transport reader stops.
     pub(crate) fn transport_disconnect_reason(&self) -> Option<String> {
         match self {
             Session::Local(_) => None,
             Session::Remote(remote) => remote.transport_disconnect_reason(),
+        }
+    }
+
+    /// What the daemon's shutdown notice said; `None` for a local session
+    /// or when no notice came.
+    pub(crate) fn daemon_shutdown_notice(&self) -> Option<DaemonShutdownNotice> {
+        match self {
+            Session::Local(_) => None,
+            Session::Remote(remote) => remote.daemon_shutdown_notice(),
         }
     }
 
@@ -1047,10 +1079,12 @@ impl Session {
                 let notifications = mux.surface_notifications();
                 let presentation = mux.presentation_snapshot();
                 mux.with_state(|state| {
+                    let git_branches = mux.tab_git_branches_in_state(state);
                     tree::tree_from_state_with_notifications(
                         state,
                         &notifications,
                         &presentation.tab_attention,
+                        &git_branches,
                     )
                 })
             }

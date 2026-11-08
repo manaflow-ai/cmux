@@ -424,8 +424,11 @@ Params:
 | `force` | `boolean` | `false` | Requires `daemon-handoff-force-v1`; bypasses native-browser ownership only |
 | `end_terminals` | `boolean` | `false` | Requires `terminal-reap-v1`; ends every terminal and removes its tabs before the handoff |
 | `keep_layout` | `boolean` | `false` | Requires `end-terminals-keep-layout-v1` and `end_terminals`; placed terminals keep their tabs |
+| `restart` | `boolean\|null` | absent | `true` when a replacement daemon follows (`server restart`), `false` when the session stops (`server stop`); repeated on the `daemon-shutdown` event |
 
 Result: `object{accepted:true,pid:uint32,generation:string,ended_terminals?:uint64|null}`.
+
+`restart` tells attached clients what follows: the interactive TUI reconnects to the replacement and keeps its view after `restart:true`, and exits with a message after `restart:false`. An older daemon ignores the field. Only clients that negotiated `daemon-shutdown-restart-v1` get it on the event.
 
 A normal shutdown keeps terminal hosts alive for the next owner. With `end_terminals`, the daemon ends every terminal that has a live runtime in one commit (one projection; the terminal tombstones and the removal of their tabs in one transaction, as `close-tabs` with `end_terminals` does), ends a pending or exited terminal through the `close-terminal` path, waits for their hosts to exit, and reports the count in `ended_terminals`. The batch is one `terminals.end` resource record (not one `terminal.close` record per terminal), and its terminal events carry reason `topology-closed`. Each host's close deadline starts when the host is asked to exit; the call waits while hosts are still being signaled or keep exiting, at most 60 s, and stops waiting after a close deadline with no progress. A host still running after its close deadline (it ignored termination) is killed, and the call succeeds only once every terminal host of the session is provably dead; otherwise it fails and the daemon keeps serving. Test harnesses use it so a run leaves no terminal host or PTY behind. A failure to end a terminal cancels the handoff and the daemon keeps serving.
 
@@ -8656,47 +8659,21 @@ colors-changed | digest)* -> detached` instead of the replay stream:
   a later cut instead, as do attach, overflow and `snapshot-request`; so does
   every viewer when the host cannot compute the history check. A host replay
   replacement and a Kitty-limit resync also send a READY with history.
-- Servers that also advertise `terminal-snapshot-images-v1` accept
-  `snapshot_images: true` on a snapshot attach (ignored without `snapshot`).
-  Such a viewer gets, after the last history chunk of every READY that has
-  history (attach, overflow, `snapshot-request`, a grid change without a
-  local READY), `snapshot {surface, phase:"images", generation, offset,
-  version, data, done, skipped_images?}` chunks. Every images chunk has
-  exactly these fields: `event:"snapshot"`; `surface`; `phase:"images"`;
-  `generation`, `offset` and `version` (uint16), each equal to the READY it
-  follows (a decoder may require all three); `data` (base64 of at most
-  1048576 stream bytes); `done` (bool); and, on the last chunk only and only
-  when the cap left images out, `skipped_images` (uint64). It has no
-  `compression`, `raw_bytes`, `cols`, `rows` or `colors`.
+- Kitty images are part of the snapshot itself (GHOSTSNP version 1 since
+  the ghostty-next sync of #35478, upstream c7f68a7f4): a
+  `KITTY_IMAGE_STORAGE` record (tag 8) before READY names each screen's
+  stored images, and a `KITTY_IMAGE_PAYLOAD` record (tag 9) per image in the
+  history carries its pixels once; `KITTY_IMAGE_PAGE_PLACEMENTS` (tag 10)
+  holds the placements. A viewer that restores READY and its history with
+  libghostty's snapshot decoder restores the images and their placements;
+  there is no separate images phase. A local READY (`history:"local"`)
+  keeps the viewer's own images on a history match.
   `spec/fixtures/terminal-snapshot-dogfood-png.jsonl` holds the host's real
-  READY, history, images and local READY lines for one PNG image
-  (`surface` and `marker_epoch` set to 0). The chunks
-  concatenated are one libghostty-vt `ghostty_terminal_kitty_replay_encode`
-  stream encoded under the same terminal lock hold as the READY, at the same
-  cut: a per-screen reset, every stored image (pixels for the selected
-  ones, metadata only for the rest), the placements that show, and the
-  implicit image-ID cursor. Each chunk holds at most 1048576 bytes of the
-  stream; `data` is its base64 and there is no `compression` field (the
-  pixels are already zlib, Kitty `o=z`). `done` is true on the last chunk.
-  The viewer applies the complete stream with the trusted apply function
-  (`ghostty_terminal_kitty_replay_apply` or
-  `ghostty_surface_apply_kitty_replay`) after the READY and its history
-  (a placement above the active area needs its row), never as PTY output,
-  and drops images whose `generation` and `offset` differ from its last
-  READY. Images have the priority of history: `output` events may arrive
-  between chunks, and a newer READY ends the older READY's images. The host
-  selects at most 33554432 bytes (32 MiB) of decoded pixels per READY per
-  viewer, newest image first; when the cap leaves images out, the last
-  chunk carries `skipped_images` (their count) and the host logs one line.
-  A terminal without images (its image storage never changed, or no image
-  and no placement is left) sends no images phase, so a viewer clears its
-  images at every READY with history and keeps none when no images phase
-  follows. A viewer that did not opt in gets no images. A local READY
-  (`history:"local"`) is never followed by images: on a history match the
-  viewer keeps its own images; on a mismatch it sends `snapshot-request`
-  (`reason:"gap"`) and gets a READY with history and then images. A viewer
-  that is still owed the images of an older READY gets a READY with history
-  at a resize, not a local READY.
+  READY, history and local READY lines for one PNG image (`surface` and
+  `marker_epoch` set to 0). Servers no longer advertise
+  `terminal-snapshot-images-v1` (an images phase after the history that sent
+  every image a second time); they accept `snapshot_images` from older
+  viewers and ignore it.
 - `digest {surface, generation, offset, version, sha256}` follows 2 s after
   output goes idle, only when the viewer has every byte up to that offset.
   `sha256` (hex) covers, for each SCREEN, PAGE and CONTINUATION record of the
@@ -8711,9 +8688,8 @@ colors-changed | digest)* -> detached` instead of the replay stream:
 - When the host cannot encode a snapshot (an unfinished escape sequence over
   1 MiB), it retries at the next output; the viewer stays attached.
 
-Snapshot format version 1 carries no Kitty images (`terminal-snapshot-images-v1`
-sends them after the history). Another `snapshot_version`
-gets the replay stream above (capability fallback).
+Snapshot format version 1 carries the Kitty images (records 8 to 10, above).
+Another `snapshot_version` gets the replay stream above (capability fallback).
 
 Servers advertising `attach-replay-history-rows-v1` accept `replay_history_rows`
 (uint32) on a `mode:"bytes"` PTY attach that gets the replay stream (no
@@ -8740,7 +8716,7 @@ Params:
 | `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
 | `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
-| `snapshot_images` | `bool` | default false | `terminal-snapshot-images-v1`; only with `snapshot` |
+| `snapshot_images` | `bool` | default false | Ignored: the former `terminal-snapshot-images-v1`; GHOSTSNP carries the images |
 | `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
 
 Result:
@@ -9252,6 +9228,7 @@ object{
   agents: array<object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
+    status?: "working"|"blocked"|"done"|"idle"|"unknown"|null,
     source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
     agent?: string|null,
@@ -9281,6 +9258,15 @@ banner text the app shows per its Show Previews setting) and whole as `message`,
 prompt as `prompt`, the posting agent's harness session as `session` and the ledger row's id
 as `id` (for the phone's Feed). The daemon drops the message once that event is sent. The
 durable notification row never holds any of them.
+
+`state` is the roster state; `done` there is an agent session that ended.
+`status` is the one status vocabulary every client shows: `blocked`, `done`
+(the agent finished a turn and no client has shown its tab since: `state` is
+`idle` and the terminal still carries its unread marker), `working`, `idle`
+and `unknown`, ranked for attention in that order; null for an ended session.
+`list-agents` is a read and never clears `done`; `ack-tab-notifications`, which
+a frontend sends when it shows the tab to the person, makes it `idle`. Older
+daemons omit `status`; use `state` there.
 
 `since_ms` is when the agent entered `state` (Unix ms): a report that keeps
 the state keeps it, so a client can show how long an agent has worked or

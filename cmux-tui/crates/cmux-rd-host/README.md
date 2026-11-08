@@ -17,7 +17,7 @@ cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ## macOS host
 
 ```
-cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps 60] [--profile high|baseline]
+cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline]
 ```
 
 The codec is always `videotoolbox`, fed the captured IOSurface with no copy. The process, or
@@ -104,11 +104,9 @@ cmux-rd host --listen-systemd --peer-uid 1000 --display :99 --xauthority /run/cm
 ```
 
 This is the production mode on NEXT Cloud machines. The viewer is the machine owner's Mac app;
-its rd pane dials the owner's Native link with service `desktop`, and the machine's root link
-receiver (the session daemon's `__receive-vm`, running as the work user `cmux`, uid 1000) admits it
-exactly as it admits `ssh` and `daemon`: a platform-minted, one-time,
-owner-only link token naming service `desktop`, verified locally (`NativeTokenVerifier`, replay
-history, the receiving policy's peer services). Only then does the receiver connect to the host.
+its rd pane dials the machine over the carrier (`cmux carrier dial --service desktop`), and the
+machine's carrier server (`cmux carrier serve`, running as the work user `cmux`, uid 1000) admits
+it only on the owner's grant for service `desktop`. Only then does the server connect to the host.
 
 - No network listener. The host takes its one listening socket from systemd
   (`cmux-agent-rd.socket`: `/run/cmux-rd/desktop.sock`, `SocketUser=root`, `SocketGroup=cmux`,

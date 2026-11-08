@@ -49,6 +49,15 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
                 cliName: "apps unhide",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Runs the person's own views again (the customize folder and local apps) from their saved
+            // files: a section whose script failed to load mounts again, so a fix shows without a restart.
+            ActionDescriptor(
+                id: "app.reloadCustomViews", title: t("action.app.reloadCustomViews", "Reload Custom Views"),
+                keywords: ["apps", "reload", "customize", "custom views", "sidebar sections", "refresh", "script", "error"],
+                category: .settings, symbol: "arrow.clockwise", surfaces: [.palette, .keyboard],
+                cliName: "apps reload",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             // Install and remove behind the consent card (see the header). They wait for
             // the person's answer, so the CLI and MCP get the result of the click.
             {

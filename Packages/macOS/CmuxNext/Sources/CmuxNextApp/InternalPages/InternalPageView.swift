@@ -108,4 +108,4 @@ extension InternalPageView: ToolbarEdgeHosting {}
 
 /// A two-finger swipe over the page (PageSwipeForwarder) runs `navigate` too.
 extension InternalPageView: PageHistoryHosting {}
-extension InternalPageView: ChiefPanelContent { var chiefIsAnswering: Bool { (content as? any ChiefPanelContent)?.chiefIsAnswering == true } }
+extension InternalPageView: ChiefPanelContent { var chiefIsAnswering: Bool { (content as? any ChiefPanelContent)?.chiefIsAnswering == true }; var chiefShowsThrough: Bool { get { (content as? any ChiefPanelContent)?.chiefShowsThrough == true } set { (content as? any ChiefPanelContent)?.chiefShowsThrough = newValue } } }

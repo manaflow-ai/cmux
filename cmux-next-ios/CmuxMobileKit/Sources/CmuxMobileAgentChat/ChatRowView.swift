@@ -122,7 +122,7 @@ struct ChatRowView: View {
         case .permission(let record, let offersChoices):
             let surface = context.surface
             PermissionCard(record: record, agentName: store.summary.agentName,
-                           showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth) { surface.showPermissionChoices() } } : nil)
+                           showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() } } : nil)
         case .question(let question):
             VStack(alignment: .leading, spacing: 10) {
                 QuestionCard(question: question) { store.answer(question, with: $0) }

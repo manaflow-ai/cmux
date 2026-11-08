@@ -292,3 +292,35 @@ fn cloud_environment_accepts_declared_deployments_and_explicit_local_development
         assert_eq!(sent.bearer, "install.jwt");
     }
 }
+
+#[test]
+fn cloud_environment_create_posts_only_the_platform_create_fields() {
+    let (mux, app, plain, backend) = daemon();
+    assert_eq!(reply(&mux, app, set(APP_BASE, "app.jwt"))["ok"], true);
+    let record = json!({"id":"env_new","scope":"personal","name":"cmux","is_default":false,
+        "setup_script":null,"env_vars":[],"secrets":[{"name":"TOKEN","updated_at":"now","value":"never-return"}],
+        "network":{"mode":"full","package_managers":true,"domains":[]}});
+    backend.reply("/v1/cloud-environments", 200, record);
+    let body = json!({"name":"cmux","setup_script":null});
+    let created = reply(&mux, app, environment("create", json!({"environment":body})));
+    assert_eq!(created["ok"], true, "{created}");
+    assert_eq!(created["data"]["id"], "env_new", "{created}");
+    assert!(!created.to_string().contains("never-return"));
+    let posted = backend.posted();
+    assert_eq!(posted.len(), 1);
+    assert_eq!(posted[0].url, format!("{PLATFORM_BASE}/v1/cloud-environments"));
+    assert_eq!(posted[0].body, body);
+    for request in [
+        environment("create", json!({"environment":{"name":"  "}})),
+        environment("create", json!({"environment":{"name":"x","id":"env_other"}})),
+        environment("create", json!({"environment":{"name":"x"},"url":"https://elsewhere"})),
+        environment("create", json!({})),
+    ] {
+        assert_eq!(reply(&mux, app, request)["ok"], false);
+    }
+    assert_eq!(backend.posted().len(), 1, "a refused create sends nothing");
+    assert_forbidden(
+        &reply(&mux, plain, environment("create", json!({"environment":{"name":"x"}}))),
+        "environment create",
+    );
+}

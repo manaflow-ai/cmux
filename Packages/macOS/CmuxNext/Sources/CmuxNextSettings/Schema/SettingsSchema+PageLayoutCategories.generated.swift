@@ -145,7 +145,7 @@ extension SettingsPageLayout {
         id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
         groups: [
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
-            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
+            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
             GroupSpec(keys: ["agentPane.display.font.ui", "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale"], title: SettingsText.keyed("settings.pageGroup.chatText", "Chat Text")),
             GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
             GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
@@ -254,7 +254,7 @@ extension SettingsPageLayout {
     private static let serverCategory = CategorySpec(
         id: "server", title: SettingsText.keyed("settings.category.server", "Server"), symbol: "server.rack",
         groups: [],
-        lead: [.server]
+        lead: [.server, .tailnet]
     )
 
     /// Bring things over from other browsers, agents and terminals on this Mac.
@@ -278,7 +278,10 @@ extension SettingsPageLayout {
 
     private static let advancedCategory = CategorySpec(
         id: "advanced", title: section(.advanced), symbol: "curlybraces",
-        groups: [],
+        groups: [
+            // Inspect Element and developer tools for cmux's own pages.
+            GroupSpec(group: "settings.group.developerTools"),
+        ],
         lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]
     )
 

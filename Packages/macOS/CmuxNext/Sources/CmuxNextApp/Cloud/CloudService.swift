@@ -8,7 +8,6 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhoneAccess
-import CmuxNextRemoteLocalhost
 import Foundation
 import Observation
 import os
@@ -29,9 +28,6 @@ final class CloudService {
     var previewAPI: CloudAPIClient? {
         configuration.platformPreviewAPIBaseURL().map { machineAPI.previewClient(baseURL: $0) }
     }
-    /// The relay-first chat path (cmuxterm-hq#7086): a prompt over HTTPS to the platform, down the socket the
-    /// machine holds.
-    var relayChat: CloudRelayChat? { machineAPI.relayChat(baseURL: configuration.relayAPIBaseURL()) }
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
@@ -40,7 +36,6 @@ final class CloudService {
     /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
     @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored let work: BackgroundWork
-    @ObservationIgnored var hub: CloudTunnelHub?
     /// Sign-out's peer tail erase (an acpmux child, no deadline): it runs after the revokes.
     @ObservationIgnored var clearPeerTails: @MainActor (BuildIdentity?, BackgroundWork) async throws -> Void = AcpmuxEnvironment.clearPeerTails(build:work:)
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
@@ -48,17 +43,6 @@ final class CloudService {
     /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step
     /// (AppServices+PaidPlan.swift) watches for the plan turning paid after an upgrade.
     @ObservationIgnored var planObserved: @MainActor (String?) -> Void = { _ in }
-    /// The tunnel's SOCKS socket and client token, starting it when needed: how the browser
-    /// reaches a machine's localhost over this Mac's own WireGuard tunnel (RemoteLocalhostService).
-    /// Nil without the hub.
-    var tunnelSocket: HubLoopbackOpener.Hub? {
-        guard let hub else { return nil }
-        let endpoint: HubLoopbackOpener.Hub = {
-            let endpoint = try await hub.endpoint()
-            return HubLoopbackOpener.Endpoint(socket: endpoint.socket, token: endpoint.clientToken)
-        }
-        return endpoint
-    }
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
     @ObservationIgnored let installIdentity: MacInstallIdentity
@@ -72,12 +56,12 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits, makesRoom: true) }
-    /// The app's `cmux-tui` (the hub's, the moves' and `cloud enroll-machine`'s `wg dial`).
+    /// The app's `cmux-tui` (the moves', the carrier's) and its daemon's state directory (the carrier's `CMUX_TUI_STATE_DIR`).
     @ObservationIgnored let binary: URL?
+    @ObservationIgnored let tuiState: URL?
+    @ObservationIgnored let desktopStreams = CloudCarrierStreams() // The account's carriers (desktop dials, streams, serves); its end or Cloud turned off ends them.
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
-    /// The app server link's route as launched (`cloud.machines`' `link_route`): `legacy`, `link`, or the Native-first one's.
-    @ObservationIgnored let linkRoute: @MainActor () -> String
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private let refreshGate = CloudRefreshGate()
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
@@ -230,25 +214,15 @@ final class CloudService {
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)), cli: .cli(resources: Bundle.main.resourceURL, work: work))
         let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
-            signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
-            allowedOps: { await CloudCredentialRelay.bundledServedOps() })
+            signedIn: { [auth] in await MainActor.run { auth.isSignedIn } }, allowedOps: { await CloudCredentialRelay.bundledServedOps() },
+            carrierSocket: { @MainActor [weak machines] id in await CloudLinkSession.carrierAnswer(machines?.session(id)?.appLink, machine: id) })
         credentialProvider = CloudCredentialProvider(relay: relay)
-        // The app server link: the Native device route (#28947) with `cmux link` as its fallback when Native
-        // does not start, or with `CMUX_NEXT_CLOUD_NATIVE_LINK=0` this Mac's `cmux link` alone.
-        let appServerLink = CloudAppServerLink(appServer: true, link: CloudLinkLauncher.forApp(build: build, relay: relay),
-            native: { CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths, build: build, deviceName: Self.deviceName) }) { error in
-            Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
-                .error("cloud.link native route failed, using cmux link: \(String(describing: error), privacy: .public)")
-        }
-        linkRoute = appServerLink.route
-        link = CloudLinkLifecycle(launcher: appServerLink.launcher, installID: { [identity] in await identity.installID() },
+        // The app server link: this Mac's `cmux link`.
+        link = CloudLinkLifecycle(launcher: CloudLinkLauncher.forApp(build: build), installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
-        binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
+        (binary, tuiState) = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment), DaemonLauncher.appNames(build: build).stateDirectory)
         move.cli = binary
         move.ledger = .standard
-        if let binary {
-            hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
-        }
         movedChats.defaults = { [weak self] in self?.move.ledger }
         moveRetries.defaults = { [weak self] in self?.move.ledger }
         bringBackRetries.defaults = { [weak self] in self?.move.ledger }
@@ -328,15 +302,14 @@ final class CloudService {
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
-            // The account and selected team: a team switch stays signed in but
-            // must fence the old Native mesh, link and machine wire before reconnecting.
+            var scope: String?? // The account and team: a change fences the old link, machine wire and carriers before any await.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
+                if let previous = scope ?? nil, previous != accountScope { self.desktopStreams.endAll() }; scope = accountScope
                 if accountScope != nil {
                     self.machineWire.stop()
                     // mayCallCloud also fences a managed team that is missing: no socket without its team scope.
                     if self.mayCallCloud { self.machineWire.start { [weak self] change in self?.portChanged(change) } }
                     AgentPaneTailCache.shared.resume()
-                    await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
                     // Another account's machines, connections and share installs end first (its next share binds this one).
                     let switched = await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID)
                     if switched { self.dropAllMachines() }
@@ -396,21 +369,19 @@ final class CloudService {
         policyDisabled = disabled
         // Fence Codex broker requests synchronously with the policy flip. The
         // adapter tears down holders asynchronously and retains their private
-        // homes for a later confirmed run after policy is restored.
-        codexBroker.setAvailable(!disabled)
+        // homes for a later confirmed run after policy is restored. The credential relay refuses (no carrier socket).
+        codexBroker.setAvailable(!disabled); credentialProvider?.setTurnedOff(disabled)
         if disabled {
             // Policy disable fences Cloud event delivery synchronously; machines disconnect below.
             machineWire.stop()
             changes.stop()
             signedOutCreation.cancel()
+            desktopStreams.endAll()
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
                 session.disconnect()
             }
-            // The local tunnel hub stops too; nothing is revoked remotely.
-            // task-owner: one teardown hop; hub.stop() is idempotent
-            if let hub { Task { await hub.stop() } }
-            // So does this Mac's link (the session stays).
+            // This Mac's link stops too (the session stays).
             link.policyTurnedOff()
         } else {
             if auth.isSignedIn, mayCallCloud { machineWire.start { [weak self] change in self?.portChanged(change) } }
@@ -419,7 +390,6 @@ final class CloudService {
             // task-owner: one list fetch after the policy lifted
             Task { [weak self] in
                 guard let self, auth.isSignedIn else { return }
-                await hub?.resume()
                 await installSignedIn()
                 await refresh()
             }
@@ -439,8 +409,6 @@ final class CloudService {
         credentialEvents = nil
         credentialProvider?.stop()
         for session in machines.cloud { session.disconnect() }
-        // task-owner: teardown hop at quit; hub.stop() is idempotent
-        if let hub { Task { await hub.stop() } }
     }
 
     /// The quit coordinator awaits this before AppKit may terminate the
@@ -526,7 +494,6 @@ final class CloudService {
             loadedAccount = account
             listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
             listLoadedAt = .now; codexBroker.machinesListed(list)
-            await startHubForSSHRoutes()
             return true
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
@@ -659,9 +626,12 @@ final class CloudService {
     @discardableResult
     private func addSession(_ machine: CloudMachine) -> CloudMachineSession? {
         guard !policyDisabled else { return nil }
-        let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local) { [weak self] in
-            await self?.ensureLink()
-        })
+        // The carrier: one `cmux carrier serve` for the session; the record's creator is a platform user id (`user_…`).
+        let serve = CloudCarrierDial.Connector(machine: machine.id, service: .mux, cli: binary, auth: auth, platform: configuration.relayAPIBaseURL(),
+                                               team: machine.team, stateDirectory: tuiState, streams: desktopStreams).map { CloudCarrierServe(connector: $0, paths: paths) }
+        let resolver = CloudCarrierResolver(serve: serve) { @MainActor [weak self, id = machine.id] in
+            CloudCallerOwnership(creator: self?.machines.session(id)?.machine.createdBy, caller: self?.auth.platformUserID)
+        }
         let local = machines.local
         let session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
                                           localIdentity: { [weak local] in local?.identity }, mainWork: mainWork)
@@ -810,19 +780,6 @@ final class CloudService {
         logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
     }
 
-    /// Starts the WireGuard hub once signed in when `cloud enroll-machine` wrote ssh routes that
-    /// dial through it (``CloudPaths/sshRoutesMarker``); without the hub those routes fail.
-    /// Called after each machine list refresh (sign-in, Cloud re-enabled, the periodic list), so a hub
-    /// that failed to start (offline at launch) or to restart gets another try; a running hub
-    /// answers at once. Never while Cloud is unavailable (a team policy, a local backend).
-    func startHubForSSHRoutes() async {
-        guard unavailableReason == nil, auth.isSignedIn else { return }
-        guard let hub, (try? await work.run(.userVisible, mayBlock: .files) { [paths] in paths.hasSSHRoutes() }) == true else { return }
-        // Cloud may have been turned off while the check waited: then no hub starts.
-        guard unavailableReason == nil, auth.isSignedIn else { return }
-        do { _ = try await hub.linkedSocketPath() } catch { logger.error("wireguard hub for ssh routes: \(String(describing: error), privacy: .public)") }
-    }
-
     func renameMachine(_ machineID: String, to name: String) async throws {
         _ = try await appOps("cloud.machine.rename", .object([
             "machine": .string(machineID), "name": .string(name.isEmpty ? machineID : name),
@@ -846,7 +803,6 @@ final class CloudService {
         link.beginEnding()
         dropAllMachines()
         await link.endLink(final: false)
-        if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
             let auth = auth
@@ -862,15 +818,12 @@ final class CloudService {
     /// Starts this Mac's `cmux link` (``CloudLinkLifecycle/ensureLink()``).
     func ensureLink() async { await link.ensureLink() }
 
-    /// The running link's local socket as its last ensure answered (``CloudDesktopLinkDial``).
-    var linkSocket: String? { link.socket }
-
     /// ``CloudLinkLifecycle/ensureLinkReport()``, for the DEBUG socket method.
     func ensureLinkReport() async -> JSONValue { await link.ensureLinkReport() }
 
     /// Registers (or reuses) this Mac's install for the signed-in user and
     /// mints one token. A failure is logged: the relay mints again when it
-    /// needs a token, and the hub path does not depend on it.
+    /// needs a token.
     private func installSignedIn() async {
         guard let stackUser = auth.user?.id, mayCallCloud else { return }
         let auth = auth

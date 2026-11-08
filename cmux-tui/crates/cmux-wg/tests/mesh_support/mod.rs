@@ -55,8 +55,7 @@ pub async fn node_with_key(addresses: &[IpAddr], private: [u8; 32], public: [u8;
     node_with_mtu(addresses, private, public, 1380).await
 }
 
-/// A mesh with a given key and inner MTU (1200 for a mesh that may ride a
-/// gateway tunnel).
+/// A mesh with a given key and inner MTU.
 pub async fn node_with_mtu(
     addresses: &[IpAddr],
     private: [u8; 32],
