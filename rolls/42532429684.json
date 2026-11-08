@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42532429684",
+  "recorded_at": "2026-11-08T23:01:14Z",
+  "reason": "cmux-tui 85d6011e7b75 changes the image's cmux-tui (pinned 5cf84aa4d6bb)",
+  "dry_run": false,
+  "cmux_tui": "85d6011e7b757d7e18d651885a019f3e409492c1",
+  "fixes": [
+    {
+      "sha": "85d6011e7b757d7e18d651885a019f3e409492c1",
+      "mergedAt": "2026-11-08T14:37:41-08:00",
+      "subject": "cmux events and agents events: --until, --match and --timeout end a wait (exit 124 on timeout) (#38769)"
+    },
+    {
+      "sha": "5a9f2356d43faa3465cc84a97dd1397b6b620053",
+      "mergedAt": "2026-11-08T14:37:05-08:00",
+      "subject": "cmux-host: the carrier ticket threads' state is one core behind one lock, checked by a model test (#38754)"
+    },
+    {
+      "sha": "5bd1161eca376f391df2cbcf17c4aae8c0b0f387",
+      "mergedAt": "2026-11-08T14:32:12-08:00",
+      "subject": "cmux-tui: record the cause of indeterminate resource-router effects (port of main #38838) (#38842)"
+    },
+    {
+      "sha": "51d1f2af93bcf8f778f81709dfeac169abb27c9b",
+      "mergedAt": "2026-11-08T22:30:29Z",
+      "subject": "cmux NEXT CLI: the --jsonl retry command keeps a --json that is an option's value (#38916)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T23:01:14Z",
+    "snapshot_id": "sh-9955163160814a81b2bae934b83bde76",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42532429684): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7692936523a33e1abae153623685038a14d85952",
+    "image": "cloud-native-auto-85d6011e-42532429684-1",
+    "revision": "ci-42532429684-1",
+    "at": "2026-11-08T23:01:14Z"
+  },
+  "rolled_back": false
+}
