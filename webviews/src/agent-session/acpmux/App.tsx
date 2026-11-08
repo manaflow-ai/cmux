@@ -11479,6 +11479,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         if (cwd) setProjectDraft(cwd);
                         shellRuns.start(command, cwd ? { cwd } : {});
                       },
+                      clearError: () => setNewTabFixError(undefined),
                       showError: (error) => setNewTabFixError(errorMessage(error) || String(error)),
                     }),
                   )}

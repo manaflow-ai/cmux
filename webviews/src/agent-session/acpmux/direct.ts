@@ -10327,13 +10327,6 @@ export class AcpmuxDirectClient {
   setNewChatFolders(draft: ExtraFolderDraft | undefined): void {
     this.newChatFolders = draft?.folders.length ? draft : undefined;
   }
-  /// Starts a GitHub issue fix in a local worktree and returns the created chat.
-  async fixFromLink(url: string, cwd?: string): Promise<string | undefined> {
-    const result = await this.request("chat.fix_from_link", { url, ...(cwd ? { cwd } : {}) }, 70_000);
-    const sessionId = typeof result?.sessionId === "string" ? result.sessionId : undefined;
-    if (!sessionId) throw new Error("fix-from-link did not return a session");
-    return sessionId;
-  }
   /// `session/new` without showing it: a harness switch starts the session behind the pane's
   /// new chat and shows it once it is ready (harnessSwitch.ts).
   /// `again` re-runs the caller's step after a Trust answer (the trust route).
