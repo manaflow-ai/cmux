@@ -16,7 +16,9 @@ use crate::abuse::{
 };
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
-use crate::daemon::{current_registration, live_daemon, record_ping, replaced_by_register};
+use crate::daemon::{
+    current_registration, live_daemon, next_registration_number, record_ping, replaced_by_register,
+};
 use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
     connect_disposition, expired_while_parked, pairing_order, parked_and_live, parked_notice,
@@ -135,7 +137,9 @@ impl RelaySlot {
             .get_websockets_with_tag(CONTROL_TAG)
             .into_iter()
             .filter(|other| other != socket)
-            .filter_map(|other| Self::attachment(&other).ok());
+            .filter_map(|other| {
+                Some((other.as_ref().ready_state(), Self::attachment(&other).ok()?))
+            });
         current_registration(attachment, socket.as_ref().ready_state(), others)
     }
 
@@ -284,22 +288,22 @@ impl RelaySlot {
         // Each registration on the slot gets the next registration number
         // (kept in `generation`, which a daemon socket has no other use for),
         // so a replaced socket's late Ping knows it is no longer current.
-        let mut previous_registration = 0;
-        for existing in self.state.get_websockets_with_tag(CONTROL_TAG) {
-            let Ok(current) = Self::attachment(&existing) else {
-                continue;
-            };
-            if !replaced_by_register(&current, &slot) {
-                continue;
-            }
-            previous_registration = previous_registration.max(current.generation);
-            if existing != *socket {
-                Self::fail(&existing, "replaced", "daemon control connection was replaced", 4001);
+        let existing = self.state.get_websockets_with_tag(CONTROL_TAG);
+        let number = next_registration_number(
+            existing.iter().filter_map(|other| Self::attachment(other).ok()),
+            &slot,
+        );
+        for other in &existing {
+            if other != socket
+                && Self::attachment(other)
+                    .is_ok_and(|current| replaced_by_register(&current, &slot))
+            {
+                Self::fail(other, "replaced", "daemon control connection was replaced", 4001);
             }
         }
 
         attachment.phase = SlotPhase::Registered;
-        attachment.generation = previous_registration.saturating_add(1);
+        attachment.generation = number;
         attachment.last_seen_ms = now_ms;
         // The Register itself is handed the unjoined circuits.
         attachment.pending_handover = false;

@@ -68,9 +68,26 @@ pub(crate) fn replaced_by_register(attachment: &SlotAttachment, slot: &str) -> b
     attachment.phase == SlotPhase::Registered && attachment.relay.slot == slot
 }
 
+/// The registration number a daemon `Register` on `slot` gets: one more than
+/// the highest on the slot's control sockets (`existing`, including the one
+/// registering). Every registration it replaces is closed.
+pub(crate) fn next_registration_number(
+    existing: impl IntoIterator<Item = SlotAttachment>,
+    slot: &str,
+) -> u64 {
+    existing
+        .into_iter()
+        .filter(|attachment| replaced_by_register(attachment, slot))
+        .map(|attachment| attachment.generation)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1)
+}
+
 /// Whether `own`, a daemon registration whose socket is in `ready_state`,
 /// is still its slot's current one: open, registered, and not replaced by a
-/// newer Register on the slot (`others`: the slot's other control sockets).
+/// newer Register on the slot (`others`: the slot's other control sockets,
+/// each with its ready state).
 ///
 /// A registration number of 0 is one written before numbers existed. Two of
 /// those carry no order, so a legacy registration is current only while it
@@ -80,11 +97,11 @@ pub(crate) fn replaced_by_register(attachment: &SlotAttachment, slot: &str) -> b
 pub(crate) fn current_registration(
     own: &SlotAttachment,
     ready_state: u16,
-    others: impl IntoIterator<Item = SlotAttachment>,
+    others: impl IntoIterator<Item = (u16, SlotAttachment)>,
 ) -> bool {
     websocket_is_open(ready_state)
         && own.phase == SlotPhase::Registered
-        && !others.into_iter().any(|other| {
+        && !others.into_iter().any(|(_ready_state, other)| {
             replaced_by_register(&other, &own.relay.slot)
                 && (other.generation > own.generation || own.generation == 0)
         })
@@ -308,15 +325,15 @@ mod tests {
     fn replaced_registration_is_not_current() {
         let old = registration(1, T);
         let new = registration(2, T + 1_000);
-        assert!(!current_registration(&old, CLOSING, [new.clone()]));
-        assert!(!current_registration(&old, OPEN, [new.clone()]), "a newer one exists");
-        assert!(current_registration(&new, OPEN, [old.clone()]));
+        assert!(!current_registration(&old, CLOSING, [(OPEN, new.clone())]));
+        assert!(!current_registration(&old, OPEN, [(OPEN, new.clone())]), "a newer one exists");
+        assert!(current_registration(&new, OPEN, [(OPEN, old.clone())]));
         assert!(current_registration(&new, OPEN, []));
         let other_slot = SlotAttachment {
             relay: RelaySocketAttachment::control("other-slot".into()),
             ..registration(9, T)
         };
-        assert!(current_registration(&old, OPEN, [other_slot]));
+        assert!(current_registration(&old, OPEN, [(OPEN, other_slot)]));
         // Written before registration numbers: current until replaced.
         assert!(current_registration(&registration(0, T), OPEN, []));
     }
@@ -332,11 +349,15 @@ mod tests {
         let late_ping_ms = T + 2_000;
         let older_after_ping = SlotAttachment { last_seen_ms: late_ping_ms, ..older };
         assert!(
-            !current_registration(&older_after_ping, OPEN, [newer.clone()]),
+            !current_registration(&older_after_ping, OPEN, [(OPEN, newer.clone())]),
             "the older legacy registration's late Ping made it current"
         );
         // A numbered Register replaces every legacy registration.
-        assert!(current_registration(&registration(1, T + 3_000), OPEN, [older_after_ping, newer]));
+        assert!(current_registration(
+            &registration(1, T + 3_000),
+            OPEN,
+            [(OPEN, older_after_ping), (OPEN, newer)]
+        ));
     }
 
     /// A legacy registration that resumed while another one was on the slot
@@ -349,7 +370,7 @@ mod tests {
         let mut survivor = registration(0, T);
         let resumed_ms = T + DAEMON_LIVENESS_WINDOW_MS + 5_000;
         let other = registration(0, T + 1_000);
-        let current = current_registration(&survivor, OPEN, [other]);
+        let current = current_registration(&survivor, OPEN, [(OPEN, other)]);
         assert!(!current, "another legacy registration is on the slot");
         let suppressed = record_ping(&mut survivor, current, resumed_ms);
         assert_eq!(suppressed, PingHandover { unjoined: false, parked: false });
