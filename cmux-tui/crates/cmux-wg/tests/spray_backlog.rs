@@ -18,7 +18,11 @@ impl Underlay for Stub {
     fn backlogged(&self) -> bool {
         self.stuck.load(Ordering::Relaxed)
     }
-    fn poll_recv(&mut self, _cx: &mut Context<'_>, _buffer: &mut [u8]) -> Poll<io::Result<Received>> {
+    fn poll_recv(
+        &mut self,
+        _cx: &mut Context<'_>,
+        _buffer: &mut [u8],
+    ) -> Poll<io::Result<Received>> {
         Poll::Pending
     }
     fn has_peer(&self) -> bool {
@@ -28,11 +32,11 @@ impl Underlay for Stub {
 
 #[test]
 fn a_stuck_path_does_not_hold_back_a_spray() {
-    let (multipath, _control) = Multipath::new(SelectorConfig::default());
+    let (multipath, control) = Multipath::new(SelectorConfig::default());
     let lan = Arc::new(AtomicBool::new(false));
     let relay = Arc::new(AtomicBool::new(true));
-    multipath.add_path(PathKind::DirectLan, Stub { stuck: lan.clone() });
-    multipath.add_path(PathKind::ViaCloudRegion, Stub { stuck: relay.clone() });
+    control.add_path(PathKind::DirectLan, Stub { stuck: lan.clone() });
+    control.add_path(PathKind::ViaCloudRegion, Stub { stuck: relay.clone() });
     // No path has answered, so datagrams go on both.
     assert!(!multipath.backlogged(), "the LAN path still takes datagrams");
     lan.store(true, Ordering::Relaxed);
