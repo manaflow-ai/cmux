@@ -25,7 +25,8 @@ struct SidebarGroupLine: Equatable {
 extension SidebarListViewComponents {
     /// The list's lines. Rows a drag hides (`suppressed`) have none: a lifted
     /// group's line goes with its card (SidebarListLift). `current` places
-    /// each row where its view is now, the animation's start, so a new line
+    /// each row where its view is drawn now, the animation's start (mid-move
+    /// too: the model frame is already at the move's end), so a new line
     /// starts over its rows and moves with them (cx-ai79).
     ///
     /// Only the lines near the visible rows (`lineWindow`): a pass costs the rows on screen and the groups they sit in,
@@ -36,7 +37,7 @@ extension SidebarListViewComponents {
         let (rows, edge) = lineRows(layout, around: window)
         let background = model.groupHeaderDetails.background
         let lines = SidebarGroupLine.lines(rows.filter { !suppressed.contains($0.key) }, colors: lineColors, nested: !legacyNestedRails) { row in
-            current ? rowViews[row.key]?.frame ?? frame(for: row) : frame(for: row)
+            current ? rowViews[row.key]?.drawnFrame ?? frame(for: row) : frame(for: row)
         }.filter { $0.group != edge }.map { line in
             var line = line
             line.background = background

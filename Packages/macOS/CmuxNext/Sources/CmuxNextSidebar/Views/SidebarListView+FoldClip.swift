@@ -13,7 +13,7 @@ extension SidebarListViewComponents {
     /// bottom edge, list coordinates) down: `start` tall now, `end` tall when the fold ends (0 for a collapse, the members'
     /// height for an open). Only where the fold's springs run (movement on, in a window that draws); else the rows land
     /// as they do, with no mask.
-    func clipFold(_ rows: [SidebarRowView], under top: CGFloat, from start: CGFloat, to end: CGFloat) {
+    func clipFold(_ rows: [NSView], under top: CGFloat, from start: CGFloat, to end: CGFloat) {
         guard !rows.isEmpty, Motion.sidebar.animatesMovement, window != nil, Motion.canAnimate(in: self) else { return }
         // In the list's (flipped) coordinates: the slot starts at the header's bottom edge and grows down.
         func slot(_ height: CGFloat) -> NSRect { NSRect(x: bounds.minX, y: top, width: bounds.width, height: max(0, height)) }
@@ -41,8 +41,8 @@ extension SidebarListViewComponents {
     static var foldClipName: String { "cmux.foldClip" }
 }
 
-extension SidebarRowView {
-    /// Takes off a fold's mask (`clipFold`): the row's fold ended, or it leaves the list.
+extension NSView {
+    /// Takes off a fold's mask (`clipFold`): the row's (or line's) fold ended, or it leaves the list.
     func clearFoldClip() {
         guard let layer, layer.mask?.name == SidebarListView.foldClipName else { return }
         layer.mask = nil
