@@ -171,9 +171,11 @@ fn print(global: &GlobalArgs, outcome: Outcome) -> i32 {
     match outcome {
         Outcome::Output(out) if !out.is_error => {
             let mut body = out.body;
-            if out.png_base64.is_some() {
-                body["image"] =
-                    json!("png (use `cmux computer-use screenshot --out FILE` to save it)");
+            if let Some(image) = &out.image {
+                body["image"] = json!(format!(
+                    "{} (use `cmux computer-use screenshot --out FILE` to save it)",
+                    image.mime
+                ));
             }
             super::wire::print_local_success(&body, global.output)
         }
@@ -247,14 +249,14 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             print(global, caller(global).call(&tool, &args, &new_call_id()))
         }
         Request::Screenshot { out, window, machine } => {
-            let mut args = json!({"force": true});
+            let mut args = json!({"force": true, "lossless": true});
             if let Some(window) = window {
                 args["window_id"] = json!(window);
             }
             let args = with_machine(args, machine.as_deref());
             match caller(global).call("screenshot", &args, &new_call_id()) {
                 Outcome::Output(shot) if !shot.is_error => {
-                    let Some(png) = shot.png_base64.as_deref() else {
+                    let Some(png) = shot.image.as_ref().map(|i| i.base64.as_str()) else {
                         return super::wire::print_local_error(
                             &json!({"code": "no_image", "message": "the screenshot carried no image"}),
                             global.output,

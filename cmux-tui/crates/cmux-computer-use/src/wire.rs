@@ -8,7 +8,7 @@
 //! <- {"ok":true,"protocol":1,"capabilities":["cmux-computer-use-v1"]}
 //! -> {"id":1,"method":"tools/call","name":"click","arguments":{...},
 //!     "session":"<agent session key>","label":"Claude","call_id":"<uuid>"}
-//! <- {"id":1,"ok":true,"result":{"is_error":false,"code":null,"body":{...},"png":null}}
+//! <- {"id":1,"ok":true,"result":{"is_error":false,"code":null,"body":{...},"image":null,"mime":null}}
 //! -> {"id":2,"method":"session/end","session":"..."}
 //! -> {"id":3,"method":"status"}
 //! ```

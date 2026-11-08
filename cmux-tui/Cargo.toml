@@ -318,6 +318,8 @@ ip_network = "0.4"
 # any bottleneck; CUBIC is the controller cmux-wg selects.
 smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
+# Computer Use screenshots (cmux-computer-use frame.rs): pure Rust, no deps.
+jpeg-encoder = "0.6"
 libc = "0.2"
 memchr = "2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }

@@ -97,7 +97,7 @@ int32_t cmux_cu_engine_set_config(CmuxCuEngine *engine, const uint8_t *config_js
 
 // request_json: {"name","arguments","session","label","call_id","origin"}
 // (origin: {"kind":"local"} or {"kind":"remote","machine","same_account"}).
-// Returns a ToolOutput as JSON ({"is_error","code","body","png"}).
+// Returns a ToolOutput as JSON ({"is_error","code","body","image","mime"}).
 CmuxCuBuffer cmux_cu_engine_call(CmuxCuEngine *engine, const uint8_t *request_json,
                                  size_t request_len);
 
