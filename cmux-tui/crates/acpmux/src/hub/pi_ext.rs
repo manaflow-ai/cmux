@@ -108,8 +108,8 @@ fn annotate_tool_for_harness(harness: &str, kind: &str, msg: &mut Value) {
     // Shell calls already have a dedicated terminal row.  Pi custom tools
     // are `kind: other` and carry structured args/results.
     if update.get("kind").and_then(Value::as_str) == Some("execute")
-        || update.pointer("/rawInput/command").is_some()
-        || update.pointer("/_meta/terminal_info").is_some()
+        || update.get("rawInput").and_then(|value| value.pointer("/command")).is_some()
+        || update.get("_meta").and_then(|value| value.pointer("/terminal_info")).is_some()
     {
         return;
     }
