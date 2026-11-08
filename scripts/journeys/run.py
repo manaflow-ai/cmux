@@ -453,17 +453,19 @@ def start_vdisplay(host, work, mode, hold, out, timeout):
     """--vdisplay HZxSCALE (whole-host only): the lease's own virtual display at HZ, 1x or 2x, made the main display
     before the app launches (handoff resize-videos/KIT.md, recording precondition). Writes OUT/display.json with what
     a fresh process measures (CVDisplayLink median interval, mode, pixels); raises when it is not the main display."""
-    hz, scale = (int(v) for v in mode.lower().split("x"))
+    # HZxSCALE[xWIDTHxHEIGHT] (points): STRESS needs a visible frame of 1600 x 1000 pt, e.g. 120x2x1920x1200.
+    hz, scale, *size = (int(v) for v in mode.lower().split("x"))
+    width, height = size if len(size) == 2 else (0, 0)
     text = remote(host, f"set -e; cd {q(work)}; mkdir -p VD.app/Contents/MacOS; "
                         f"xcrun clang -fobjc-arc -O2 -Wno-deprecated-declarations -framework AppKit -framework CoreVideo "
                         f"kit/vdisplay120.m -o VD.app/Contents/MacOS/VD; printf '%s' {q(VDISPLAY_PLIST)} > VD.app/Contents/Info.plist; "
                         f"codesign -s - --force VD.app 2>/dev/null; rm -f vd.out vd.err; "
-                        f"open --stdout \"$PWD/vd.out\" --stderr \"$PWD/vd.err\" VD.app --args {hz} {scale} 0 0 {int(hold)}; "
+                        f"open --stdout \"$PWD/vd.out\" --stderr \"$PWD/vd.err\" VD.app --args {hz} {scale} {width} {height} {int(hold)}; "
                         f"for i in $(seq 25); do grep -q '^ready\\|^error' vd.out 2>/dev/null && break; sleep 1; done; "
                         f"cat vd.out; sleep 1; VD.app/Contents/MacOS/VD check", timeout=timeout).stdout.decode()
     ready = next((l.split() for l in text.splitlines() if l.startswith("ready ")), None)
     main = next((l.split() for l in text.splitlines() if l.startswith("main ")), None)
-    facts = {"asked": {"hz": hz, "scale": scale}, "raw": text.strip()[-600:]}
+    facts = {"asked": {"hz": hz, "scale": scale, "width": width, "height": height}, "raw": text.strip()[-600:]}
     if ready and main:
         facts.update({"display_id": int(ready[1]), "made_interval_ms": float(ready[2]), "main_id": int(main[1]),
                       "mode": main[3], "pixels": main[5], "refresh": float(main[7]), "main_interval_ms": float(main[9]),
@@ -805,7 +807,7 @@ def main(argv=None):
     ap.add_argument("--whole-host", action="store_true",
                     help="lease the whole mini (capture-host acquire without --slot) and launch the app active "
                          "(--activate): it gets a key window. Needs CuaDriver's grants on the mini")
-    ap.add_argument("--vdisplay", metavar="HZxSCALE",
+    ap.add_argument("--vdisplay", metavar="HZxSCALE[xWxH]",
                     help="whole-host only: make the lease's own virtual display at HZ, 1x or 2x (e.g. 120x1, 120x2) the "
                          "main display before the app launches; OUT/display.json has what was measured")
     ap.add_argument("--exclusive", action="store_true",
