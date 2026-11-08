@@ -88,6 +88,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["pane", "create", "--", "make", "watch"], "pane.create"),
         (vec!["screen", "create", "--shell", "make watch"], "screen.create"),
         (vec!["screen", "create", "--", "make", "watch"], "screen.create"),
+        (vec!["screen", "create", "--focus"], "screen.create"),
         (vec!["tab", "create", "terminal", "--shell", "make watch"], "tab.create_terminal"),
         (vec!["tab", "create", "terminal", "--", "make", "watch"], "tab.create_terminal"),
         (
