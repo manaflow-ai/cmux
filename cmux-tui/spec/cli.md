@@ -131,10 +131,14 @@ their policy allows it; paired installs do not serve it), `owner_session`
 (a paired server's owner session, its owner only), `desktop` (the Cloud
 machine's agent display as `cmux.rd/1`, its creator only, on a machine that
 serves it; refused with `desktop_unavailable` when it does not) or `acpmux`
-(a paired install's acpmux WebSocket listener on its loopback, as named by
-`websocket.listen` in its acpmux `config.json`; acpmux checks its own token on
-the upgrade, so pairing grants nothing more, and the stream closes when no
-listener is there). `--socket`
+(a paired install's acpmux WebSocket listener on its loopback: only the one
+its running acpmux daemon recorded in `listener.json` in its acpmux home, after
+the far link checked that the file is the same user's and that the listener
+answers a fresh challenge with an HMAC under the record's key, which only the
+daemon that wrote it holds; `config.json`'s `websocket.listen` is never used. acpmux
+checks its own token on the upgrade, so pairing grants nothing more. Without a
+proven listener the stream closes before any of its bytes are sent on).
+`--socket`
 dials exactly that link socket instead of looking up the running link (for a
 caller with a private `HOME`, or a tagged link); it must be an absolute path
 to a socket (otherwise exit 64), and a path that does not exist means the
