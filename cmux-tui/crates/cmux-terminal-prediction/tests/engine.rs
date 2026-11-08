@@ -1295,3 +1295,31 @@ fn a_rewind_past_the_echoed_text_does_not_re_arm_by_matching_new_keys() {
         session.status()
     );
 }
+
+#[test]
+fn a_redraw_with_only_held_confirmations_does_not_re_arm_by_matching_new_keys() {
+    // Output nobody typed while the queue holds only echoed glyphs waiting for
+    // their frame withdraws with no keys in flight. It is a redraw all the
+    // same, and its text must not confirm keys typed after it.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("q", ms(100));
+    session.remote_after("q", ms(150));
+    session.remote_after("Z", ms(5));
+    for key in ["y", "z"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(80));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("w", ms(50));
+    assert!(
+        !session.drawn().contains('w'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
