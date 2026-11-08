@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 609,
+  "count": 610,
   "sections": [
     {
       "id": "general",
@@ -3646,6 +3646,20 @@
           ]
         },
         {
+          "key": "sidebar.groupGradient",
+          "title": "Group Gradient",
+          "help": "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors.",
+          "kind": "choice",
+          "default": "sunset",
+          "group": "Sidebar",
+          "values": [
+            "sunset",
+            "aurora",
+            "lagoon",
+            "twoTone"
+          ]
+        },
+        {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
           "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
@@ -3677,7 +3691,7 @@
         {
           "key": "sidebar.groupPalette",
           "title": "Group Colors",
-          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient.",
           "kind": "choice",
           "default": "glass",
           "group": "Sidebar",
@@ -3686,7 +3700,8 @@
             "theme",
             "wallpaper",
             "grayscale",
-            "vibrant"
+            "vibrant",
+            "gradient"
           ]
         },
         {

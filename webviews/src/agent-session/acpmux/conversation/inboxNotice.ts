@@ -10,6 +10,7 @@
 import type { AcpmuxRow } from "../model";
 import { withoutRelayEnvelope, withoutRelayHead } from "./relayEnvelope";
 import { bareSender, senderRecord, senderUnverified, type SenderRecord } from "./senderIdentity";
+import type { SentFrom } from "./sentFromHarness";
 
 /// Who sent a message, as acpmux records it (`sender`, prompt_provenance.rs
 /// `sender_record_with_auth`): the sending chat's id when acpmux proved it, and the name it gave
@@ -60,6 +61,9 @@ export type InboxThread = {
   promptIds: string[];
   /// The messages whole, oldest first, when the notice holds them.
   messages?: InboxMessage[];
+  /// Where each message says it came from, by its prompt id (`sender_claim`, sentFromHarness.ts):
+  /// a sender chip under it.
+  sentFrom?: Record<string, SentFrom>;
 };
 
 export type InboxNotice = { threads: InboxThread[] };
@@ -220,6 +224,7 @@ export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice
       blocker: held.blocker || next.blocker,
       promptIds: [...held.promptIds, ...next.promptIds],
     };
+    if (held.sentFrom || next.sentFrom) joined.sentFrom = { ...held.sentFrom, ...next.sentFrom };
     // Whole only when both notices held their messages whole.
     delete joined.messages;
     if (held.messages && next.messages) joined.messages = [...held.messages, ...next.messages];

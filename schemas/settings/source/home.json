@@ -1,0 +1,653 @@
+{
+  "$comment": "HAND-EDITED source of the Home section's rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "messagesServer",
+      "section": "home",
+      "group": {
+        "key": "settings.group.messagesServer",
+        "text": "Messages Server"
+      },
+      "note": "Which server Home's direct messages and group chats use (dm-group-chat-DESIGN.md 4.5).",
+      "rows": [
+        {
+          "key": "home.server",
+          "title": {
+            "key": "settings.home.server",
+            "text": "Server"
+          },
+          "help": {
+            "key": "settings.home.server.help",
+            "text": "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login."
+          },
+          "kind": "choice_or_url",
+          "choices": [
+            {
+              "value": "hosted",
+              "title": {
+                "key": "settings.choice.homeServer.hosted",
+                "text": "cmux Cloud"
+              }
+            }
+          ],
+          "url_key": "selfHosted",
+          "default": "hosted",
+          "keywords": [
+            "server",
+            "self-hosted",
+            "tailscale",
+            "messages",
+            "chat",
+            "cloud",
+            "home"
+          ],
+          "swift_owner": "HomeServerSetting"
+        }
+      ]
+    },
+    {
+      "name": "chiefChat",
+      "section": "home",
+      "group": {
+        "key": "settings.group.chiefChat",
+        "text": "Chief Chat"
+      },
+      "note": "The Chief chat's look and what it shows.",
+      "rows": [
+        {
+          "key": "home.chiefBubbleStyle",
+          "note": "iMessage's look by default (the founders like its blue), the theme's on request (Leo 2026-10-19).",
+          "title": {
+            "key": "settings.home.chiefBubbleStyle",
+            "text": "Bubble Style"
+          },
+          "help": {
+            "key": "settings.home.chiefBubbleStyle.help",
+            "text": "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "imessage",
+              "title": {
+                "key": null,
+                "text": "iMessage"
+              }
+            },
+            {
+              "value": "theme",
+              "title": {
+                "key": "settings.choice.chiefBubbleStyle.theme",
+                "text": "Theme"
+              }
+            }
+          ],
+          "default": "imessage",
+          "keywords": [
+            "chief",
+            "imessage",
+            "messages",
+            "bubbles",
+            "blue",
+            "chat",
+            "theme",
+            "colors",
+            "home"
+          ],
+          "swift_owner": "HomeChiefBubbleStyleSetting",
+          "swift_enum": {
+            "name": "HomeChiefBubbleStyle"
+          }
+        },
+        {
+          "key": "home.feedInChief",
+          "note": "The Feed's notices among the main Chief's messages, for the person only (Leo 2026-10-20).",
+          "title": {
+            "key": "settings.home.feedInChief",
+            "text": "Show the Feed in Chief"
+          },
+          "help": {
+            "key": "settings.home.feedInChief.help",
+            "text": "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "chief",
+            "feed",
+            "notices",
+            "updates",
+            "pull requests",
+            "timeline",
+            "home"
+          ],
+          "swift_owner": "HomeFeedRowsSetting"
+        },
+        {
+          "key": "home.bubbleColors.sent",
+          "note": "The bubble colours every chat starts with (user 2026-10-28); a chat's Chat Colors go over them. Unset keeps the bubble style's colour.",
+          "title": {
+            "key": "settings.home.bubbleColors.sent",
+            "text": "My Bubble Color"
+          },
+          "help": {
+            "key": "settings.home.bubbleColors.help",
+            "text": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.home.bubbleColors.default",
+            "text": "Bubble Style"
+          },
+          "keywords": [
+            "bubble",
+            "color",
+            "text",
+            "imessage",
+            "chat",
+            "messages",
+            "background",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "HomeBubbleColorsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "home.bubbleColors.sentText",
+          "title": {
+            "key": "settings.home.bubbleColors.sentText",
+            "text": "My Text Color"
+          },
+          "help": {
+            "key": "settings.home.bubbleColors.help",
+            "text": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.home.bubbleColors.default",
+            "text": "Bubble Style"
+          },
+          "keywords": [
+            "bubble",
+            "color",
+            "text",
+            "imessage",
+            "chat",
+            "messages",
+            "background",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "HomeBubbleColorsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "home.bubbleColors.received",
+          "title": {
+            "key": "settings.home.bubbleColors.received",
+            "text": "Their Bubble Color"
+          },
+          "help": {
+            "key": "settings.home.bubbleColors.help",
+            "text": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.home.bubbleColors.default",
+            "text": "Bubble Style"
+          },
+          "keywords": [
+            "bubble",
+            "color",
+            "text",
+            "imessage",
+            "chat",
+            "messages",
+            "background",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "HomeBubbleColorsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "home.bubbleColors.receivedText",
+          "title": {
+            "key": "settings.home.bubbleColors.receivedText",
+            "text": "Their Text Color"
+          },
+          "help": {
+            "key": "settings.home.bubbleColors.help",
+            "text": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.home.bubbleColors.default",
+            "text": "Bubble Style"
+          },
+          "keywords": [
+            "bubble",
+            "color",
+            "text",
+            "imessage",
+            "chat",
+            "messages",
+            "background",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "HomeBubbleColorsSetting",
+            "prefixed": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "attachments",
+      "section": "home",
+      "group": {
+        "key": "settings.group.attachments",
+        "text": "Attachments"
+      },
+      "rows": [
+        {
+          "key": "home.attachments.keepLocation",
+          "title": {
+            "key": "settings.home.keepLocation",
+            "text": "Keep Location in Photos and Videos"
+          },
+          "help": {
+            "key": "settings.home.keepLocation.help",
+            "text": "When off, location data is removed from photos and videos before they are attached."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "gps",
+            "location",
+            "privacy",
+            "metadata",
+            "exif",
+            "attachments",
+            "photos"
+          ],
+          "swift_owner": "HomeKeepLocationSetting"
+        }
+      ]
+    },
+    {
+      "name": "sidebar",
+      "section": "home",
+      "group": {
+        "key": "settings.group.sidebar",
+        "text": "Sidebar"
+      },
+      "note": "The Channels entry after Home (cx-frn2y): section Home; the Settings page draws it in the Appearance category's Sidebar card (the card takes every row of the sidebar group).",
+      "rows": [
+        {
+          "key": "home.channelsEnabled",
+          "title": {
+            "key": "settings.home.channelsEnabled",
+            "text": "Channels"
+          },
+          "help": {
+            "key": "settings.home.channelsEnabled.help",
+            "text": "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "home",
+            "channels",
+            "slack",
+            "threads",
+            "sidebar",
+            "messages"
+          ],
+          "swift_owner": "HomeChannelsSetting"
+        }
+      ]
+    },
+    {
+      "name": "chiefPet",
+      "section": "home",
+      "group": {
+        "key": "settings.group.chiefPet",
+        "text": "Chief Pet"
+      },
+      "rows": [
+        {
+          "key": "home.chiefPetEnabled",
+          "title": {
+            "key": "settings.home.chiefPetEnabled",
+            "text": "Show Chief Pet"
+          },
+          "help": {
+            "key": "settings.home.chiefPetEnabled.help",
+            "text": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "chief",
+            "pet",
+            "mascot",
+            "floating",
+            "notifications",
+            "reply",
+            "dock"
+          ],
+          "swift_owner": "HomeChiefPetSetting"
+        },
+        {
+          "key": "home.chiefPetMascot",
+          "name": "mascot",
+          "note": "The characters' ids in the picker's order (ChiefPetMascot, webviews ChiefMascot): Series 1 without the orbs, the animated sets, Series 2, then the orbs. A pick is kept by id, so the order moves no one's character, and the default stays orb wherever it sits in the list.",
+          "title": {
+            "key": "settings.home.chiefPetMascot",
+            "text": "Character"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "fox",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.fox",
+                "text": "Fox"
+              }
+            },
+            {
+              "value": "machine",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.machine",
+                "text": "Machine"
+              }
+            },
+            {
+              "value": "machine-cyan",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.machine-cyan",
+                "text": "Cyan Machine"
+              }
+            },
+            {
+              "value": "machine-blue",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.machine-blue",
+                "text": "Blue Machine"
+              }
+            },
+            {
+              "value": "moon",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.moon",
+                "text": "Moon"
+              }
+            },
+            {
+              "value": "moon-blue",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.moon-blue",
+                "text": "Blue Moon"
+              }
+            },
+            {
+              "value": "mochi",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.mochi",
+                "text": "Mochi"
+              }
+            },
+            {
+              "value": "captain",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.captain",
+                "text": "Captain"
+              }
+            },
+            {
+              "value": "sprout",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.sprout",
+                "text": "Sprout"
+              }
+            },
+            {
+              "value": "bolt",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.bolt",
+                "text": "Bolt"
+              }
+            },
+            {
+              "value": "fox-arctic",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.fox-arctic",
+                "text": "Arctic Fox"
+              }
+            },
+            {
+              "value": "machine-violet",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.machine-violet",
+                "text": "Violet Machine"
+              }
+            },
+            {
+              "value": "machine-gold",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.machine-gold",
+                "text": "Gold Machine"
+              }
+            },
+            {
+              "value": "moon-rose",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.moon-rose",
+                "text": "Rose Moon"
+              }
+            },
+            {
+              "value": "orb",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.orb",
+                "text": "Orb"
+              }
+            },
+            {
+              "value": "orb-spark",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.orb-spark",
+                "text": "Orb Spark"
+              }
+            },
+            {
+              "value": "orb-hood",
+              "title": {
+                "key": "settings.choice.chiefPetMascot.orb-hood",
+                "text": "Hooded Orb"
+              }
+            }
+          ],
+          "default": "orb",
+          "keywords": [
+            "chief",
+            "pet",
+            "mascot",
+            "character",
+            "avatar",
+            "pixel"
+          ],
+          "swift_owner": {
+            "type": "HomeChiefPetSetting",
+            "prefixed": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "chiefDock",
+      "section": "home",
+      "group": {
+        "key": "settings.group.chiefDock",
+        "text": "Chief Dock"
+      },
+      "note": "The Chief panel (user 2026-11-06): the edge the Chief docks at when the person docks it, and whether a link clicked in the Chief opens its workspace with the Chief floating over it.",
+      "rows": [
+        {
+          "key": "home.chiefDock.edge",
+          "note": "Left: most people keep the Chief on the left.",
+          "title": {
+            "key": "settings.home.chiefDockEdge",
+            "text": "Dock Edge"
+          },
+          "help": {
+            "key": "settings.home.chiefDockEdge.help",
+            "text": "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "left",
+              "title": {
+                "key": "settings.choice.chiefDockEdge.left",
+                "text": "Left"
+              }
+            },
+            {
+              "value": "right",
+              "title": {
+                "key": "settings.choice.chiefDockEdge.right",
+                "text": "Right"
+              }
+            },
+            {
+              "value": "top",
+              "title": {
+                "key": "settings.choice.chiefDockEdge.top",
+                "text": "Top"
+              }
+            },
+            {
+              "value": "bottom",
+              "title": {
+                "key": "settings.choice.chiefDockEdge.bottom",
+                "text": "Bottom"
+              }
+            }
+          ],
+          "default": "left",
+          "keywords": [
+            "chief",
+            "dock",
+            "window",
+            "edge",
+            "left",
+            "right",
+            "top",
+            "bottom",
+            "side",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "ChiefDockSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "home.chiefDock.openBeside",
+          "note": "On: a link clicked in the Chief opens its workspace with the Chief floating over it.",
+          "title": {
+            "key": "settings.home.chiefDockOpenBeside",
+            "text": "Show Chief When Opening Workspaces"
+          },
+          "help": {
+            "key": "settings.home.chiefDockOpenBeside.help",
+            "text": "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "chief",
+            "dock",
+            "window",
+            "links",
+            "workspace",
+            "beside",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "ChiefDockSetting",
+            "prefixed": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "chiefEngine",
+      "section": "home",
+      "group": {
+        "key": "settings.group.chiefEngine",
+        "text": "Engine"
+      },
+      "note": "Settings > Chief's Chiefs card draws it as its Engine row (ChiefsCard.tsx).",
+      "rows": [
+        {
+          "key": "home.chiefEngine",
+          "note": "Which Chief Home opens. auto uses this Mac's Chief while it runs here, else the Hosted Chief.",
+          "title": {
+            "key": "settings.home.chiefEngine",
+            "text": "Engine"
+          },
+          "help": {
+            "key": "settings.home.chiefEngine.help",
+            "text": "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.chiefEngine.auto",
+                "text": "Auto"
+              }
+            },
+            {
+              "value": "local",
+              "title": {
+                "key": "settings.choice.chiefEngine.local",
+                "text": "This Mac"
+              }
+            },
+            {
+              "value": "hosted",
+              "title": {
+                "key": "settings.choice.chiefEngine.hosted",
+                "text": "Hosted"
+              }
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "chief",
+            "engine",
+            "backend",
+            "hosted",
+            "cloud",
+            "local",
+            "optchat"
+          ],
+          "swift_owner": "HomeChiefEngineSetting"
+        }
+      ]
+    }
+  ]
+}
