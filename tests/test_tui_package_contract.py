@@ -211,7 +211,7 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/cmux-tui", "bin/cmux-tui-hook", SSH_MANIFEST, NOTICE],
+                    "files": ["bin/cmux-tui", "bin/cmux-tui-hook", "bin/cmux-agent-screen-detection", SSH_MANIFEST, NOTICE],
                 }
             )
             + "\n"
@@ -223,6 +223,7 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
             tui_version_output or f"cmux {VERSION} ({BUILD_COMMIT}; {name})",
         )
         write_executable(package / "bin/cmux-tui-hook", "cmux-tui-hook 1.2.3")
+        write_executable(package / "bin/cmux-agent-screen-detection", "detector")
     write_ssh_manifests(root)
 
     for name, (os_name, cpu) in RELAY_TARGETS.items():
@@ -305,6 +306,7 @@ def make_pypi_wheels(tmp_path: Path) -> Path:
     ):
         write_executable(binaries / f"cmux-tui-{target}")
         write_executable(binaries / f"cmux-tui-hook-{target}", "hook")
+        write_executable(binaries / f"cmux-tui-agent-screen-detection-{target}", "detector")
 
     wheels = tmp_path / "wheels"
     result = subprocess.run(
@@ -431,6 +433,45 @@ def test_npm_contract_rejects_missing_hook(tmp_path: Path) -> None:
     assert "cmux-tui-hook" in result.stderr
 
 
+def test_npm_contract_rejects_a_unix_package_without_the_screen_detector(tmp_path: Path) -> None:
+    # The daemon runs bin/cmux-agent-screen-detection from beside its own executable.
+    packages = tmp_path / "npm-packages"
+    make_npm_packages(packages)
+    (packages / "cmux-tui-darwin-arm64/bin/cmux-agent-screen-detection").unlink()
+
+    result = run_validator("--npm-packages", str(packages), "--version", VERSION)
+
+    assert result.returncode != 0
+    assert "cmux-agent-screen-detection" in result.stderr, result.stderr
+
+
+def test_npm_builder_ships_the_screen_detector_beside_cmux_tui(tmp_path: Path) -> None:
+    binaries = tmp_path / "binaries"
+    for target in RUST_TARGETS.values():
+        write_executable(binaries / f"cmux-tui-{target}", f"cmux-tui {target}")
+        write_executable(binaries / f"cmux-tui-hook-{target}", "hook")
+        write_executable(binaries / f"cmux-tui-agent-screen-detection-{target}", f"detector {target}")
+        write_relay_binary_fixture(binaries / f"chatmux-relay-{target}")
+    command = [
+        sys.executable, str(NPM_BUILDER), "--binaries-dir", str(binaries), "--version", VERSION,
+        "--build-commit", BUILD_COMMIT, "--out", str(tmp_path / "npm-packages"),
+        "--notices-dir", str(write_notices(tmp_path / "notices")),
+    ]
+    built = subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
+    assert built.returncode == 0, built.stderr
+    for name, target in (("cmux-tui-linux-arm64", "aarch64-unknown-linux-musl"), ("cmux-tui-darwin-x64", "x86_64-apple-darwin")):
+        package = tmp_path / "npm-packages" / name
+        shipped = package / "bin/cmux-agent-screen-detection"
+        assert shipped.read_bytes() == (binaries / f"cmux-tui-agent-screen-detection-{target}").read_bytes()
+        assert shipped.stat().st_mode & stat.S_IXUSR
+        assert "bin/cmux-agent-screen-detection" in json.loads((package / "package.json").read_text())["files"]
+
+    (binaries / "cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl").unlink()
+    missing = subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
+    assert missing.returncode != 0
+    assert "cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl" in missing.stderr, missing.stderr
+
+
 def test_npm_contract_rejects_extra_file(tmp_path: Path) -> None:
     packages = tmp_path / "npm-packages"
     make_npm_packages(packages)
@@ -471,6 +512,7 @@ def test_npm_builder_pins_every_remote_binary_for_ssh_bootstrap(tmp_path: Path) 
     ):
         write_executable(binaries / f"cmux-tui-{target}", f"cmux-tui {target}")
         write_executable(binaries / f"cmux-tui-hook-{target}", "hook")
+        write_executable(binaries / f"cmux-tui-agent-screen-detection-{target}", "detector")
         write_relay_binary_fixture(binaries / f"chatmux-relay-{target}")
     packages = tmp_path / "npm-packages"
     built = subprocess.run(
@@ -541,6 +583,7 @@ def test_npm_builder_ships_the_notice_of_each_target(tmp_path: Path) -> None:
     for target in RUST_TARGETS.values():
         write_executable(binaries / f"cmux-tui-{target}", f"cmux-tui {target}")
         write_executable(binaries / f"cmux-tui-hook-{target}", "hook")
+        write_executable(binaries / f"cmux-tui-agent-screen-detection-{target}", "detector")
         write_relay_binary_fixture(binaries / f"chatmux-relay-{target}")
     notices = write_notices(tmp_path / "notices")
     (notices / "cmux-tui-x86_64-unknown-linux-musl.md").unlink()

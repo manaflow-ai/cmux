@@ -56,7 +56,9 @@ pub(super) const RECIPES: &[Recipe] = &[
         commands: &["cmux --json terminal <term> run --timeout 10m -- npm test"],
         read: "run types the command into the terminal's shell, waits for its next prompt, \
                prints the new `output` and `exit_status`, and exits with that status (124 \
-               when the time passed, 125 when the shell reported no status).",
+               when the time passed, 125 when the shell reported no status). The words after \
+               `--` reach the shell as the same words (`run -- sh -c 'exit 7'` exits 7); one \
+               quoted word is a shell line (`run -- 'make && make test'`).",
     },
     Recipe {
         ask: "Run this command and give me its exit code.",
@@ -138,6 +140,18 @@ pub(super) const RECIPES: &[Recipe] = &[
         ],
         read: "A screen is a tmux window: a full layout of panes in a workspace. A new \
                screen does not move the person's view.",
+    },
+    Recipe {
+        ask: "Move that pane to its own screen. / Put it next to my editor pane.",
+        commands: &[
+            "cmux --json pane <pane> move --new-screen --name logs",
+            "cmux --json pane <pane> move --to-pane <other-pane> --split right",
+            "cmux --json pane <pane> move --to-workspace <ws>",
+        ],
+        read: "move takes every tab of the pane, in order, and the emptied pane closes: \
+               `moved_tabs`, `destination.pane` (where they are now), `created` (the new \
+               screen or pane, else null). --to-tab <tab> puts them after that tab. The \
+               focus stays unless --focus.",
     },
     Recipe {
         ask: "Tell me when you need me.",
@@ -333,6 +347,8 @@ const WAITS_AND_ERRORS: &str = "
 
 `--wait prompt` and `wait --until` need shell integration (OSC 133), which cmux shells have.
 A timeout does not stop the command; read the screen before you send more.
+A `--pattern` RE is matched line by line: `^` and `$` match at the start and end of each line \
+(`--pattern '^BENCH_OK$'`), as in grep. Start it with `(?-m)` to match the whole text.
 
 ## Errors and exit codes
 
