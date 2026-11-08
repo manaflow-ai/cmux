@@ -2206,11 +2206,13 @@ def replay_log(charged, shared=(), base_timeouts=(), passed_alone=()):
 
 
 def web_job(job_id, run_id, sha, name, conclusion="failure"):
+    """A webview test job as the jobs API shows it: a continue-on-error step that failed reads as a success there."""
+    steps = (["Re-run the change's reds alone on the head", "Fail on the change's own reds"] if "base-check" in name
+             else ["Test webviews"])
     return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": name, "status": "completed",
             "conclusion": conclusion, "steps": [
                 {"name": "Set up runner", "status": "completed", "conclusion": "success"},
-                {"name": "Re-run the change's reds alone on the head" if "base-check" in name else "Run tests",
-                 "status": "completed", "conclusion": conclusion}]}
+                *({"name": step, "status": "completed", "conclusion": conclusion} for step in steps)]}
 
 
 class WebReplayGitHub(WebShardBaseGitHub):
@@ -2229,12 +2231,13 @@ class WebReplayGitHub(WebShardBaseGitHub):
                      6: web_job(6, 40, PUSHED_BASE_SHA, "web / react-apps-check (2)", "success")}
         self.logs = {1: replay_log([named]), 3: web_log((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)])),
                      5: web_log((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))}
+        self.per_test_only = True  # the per-test path never reads the cancelled run 41; the by-name path may
         self.pushed_runs = [run for run in self.pushed_runs if run["id"] in (40, 41)]
         for run in self.pushed_runs:
             run["updated_at"] = run["created_at"]
 
     def json(self, route, *, paginate=False):
-        if "/actions/runs/41/" in route:
+        if "/actions/runs/41/" in route and self.per_test_only:
             raise AssertionError(f"a cancelled coalesced base run is never read: {route}")
         return super().json(route, paginate=paginate)
 
@@ -2348,6 +2351,27 @@ class WebviewTestReplayPerTest(unittest.TestCase):
         gh.logs[1] = "2026-11-08T09:28:00Z ##[error]Process completed with exit code 1."
         with self.assertRaisesRegex(excuse.Refused, "its replay names no failing webview test"):
             self.judge(gh)
+
+    def test_a_replay_that_also_failed_outside_its_test_steps_is_never_judged_per_test(self):
+        # Review F1 on #38380: its tests match the base, but the head re-run's bundles did not build.
+        gh = WebReplayGitHub()
+        gh.jobs[1]["steps"].insert(1, {"name": "Build head web bundles", "status": "completed",
+                                       "conclusion": "failure"})
+        with self.assertRaisesRegex(excuse.Refused, "failed outside its webview test steps: Build head web bundles"):
+            self.judge(gh)
+
+    def test_a_head_shard_whose_gate_failed_keeps_its_failed_step_comparison(self):
+        # Review F1 on #38380: 'Build the web bundles' (continue-on-error) failed, so 'Fail on the gate checks' did;
+        # its Bun failure matching the base excuses nothing: it is judged by its name and failed steps, as before.
+        gh = WebReplayGitHub()
+        del gh.jobs[1]
+        gh.jobs[3].update(conclusion="failure")
+        gh.jobs[3]["steps"] += [{"name": "Fail on the gate checks", "status": "completed", "conclusion": "failure"}]
+        gh.logs[3] += "\n2026-11-08T09:40:00Z ##[error]Gate failed; see the step 'Build the web bundles'."
+        gh.per_test_only = False
+        with self.assertRaises(excuse.Refused) as refused:
+            self.judge(gh)
+        self.assertNotIn("judged per test", str(refused.exception))
 
     def test_a_head_shard_red_matches_the_base_in_another_shard(self):
         gh = WebReplayGitHub()

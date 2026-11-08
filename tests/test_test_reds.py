@@ -912,6 +912,20 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         self.assertEqual(reds.web_head_part("\n".join([merge_parent, replay(charged=[named])])), "")
         self.assertEqual(reds.web_failures("\n".join([merge_parent, replay(charged=[named])])).timed_out, set())
 
+    def test_a_replay_compares_only_what_its_final_verdict_charged_in_a_shared_file(self):
+        # Review F2 on #38380: the head failed A and B in one file; the final verdict charged A only (B passed alone).
+        # B is not compared, so the base failing A alone excuses the replay; an unnamed diagnostic there still counts.
+        a, b = f"{CAPSULES} > {CAPSULE_TEST}", f"{CAPSULES} > rests flat"
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87), ("rests flat", "boom", 9)]))
+        text = "\n".join([replay(charged=[a, b]), log("re-running alone on the head:"),
+                          web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)])), replay(charged=[a], shared=[b])])
+        base = [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]
+        self.assertFalse(reds.classify_web_window([text, head], iter([("run 1", base)])).own)
+        self.assertFalse(reds.classify_web([text, head], base).own)
+        unhandled = head.replace("### webviews tests:", f"##[group]FAIL {CAPSULES}\nerror: thrown outside a test\n"
+                                 "##[endgroup]\n### webviews tests:")
+        self.assertTrue(reds.classify_web_window([text, unhandled], iter([("run 1", base)])).own)
+
     def test_a_window_matches_each_test_on_any_one_run_and_reads_no_further(self):
         other = "test/composer-footer-plain.test.ts"
         head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]), (other, [("rests flat", "boom", 9)]))
