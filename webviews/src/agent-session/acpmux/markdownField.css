@@ -510,3 +510,22 @@
 .acpmux-composer-prompt.is-suggestion-italic .acpmux-md-placeholder {
   font-style: italic;
 }
+/* A cmux link the page knows draws as what it names (composer/deeplinkTitles.ts), in the sent
+   message's chip (chips/cmuxLinkChip.css): its title on the session chip's wash, never the link
+   blue. The link's own characters stay the draft's text at no width, so the line keeps its height
+   and the text sent is the link; the caret inside the link brings the text back to edit. */
+.acpmux-md .is-titled[data-title] {
+  padding-inline: var(--ds-space-1, 4px);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
+  color: transparent;
+  font-size: 0;
+  letter-spacing: 0;
+  text-decoration: none;
+}
+.acpmux-md .is-titled[data-title]::before {
+  content: attr(data-title);
+  color: var(--cv-text, var(--agent-text));
+  font-size: var(--text-content);
+  letter-spacing: var(--text-content--letter-spacing, normal);
+}

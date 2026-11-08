@@ -29,6 +29,9 @@ import { caretInView } from "./composer/caretInView";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
 import { composerDeeplinkLook } from "./composer/deeplinkLook.experiment";
+import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
+import { knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
+import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
 import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
@@ -56,6 +59,18 @@ import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/mod
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
+
+/// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
+/// look (chips/cmuxLinkLook.experiment.ts); none in its `link` arm.
+function draftLinkTitles(): DeeplinkTitles | undefined {
+  const look = experimentArm(cmuxLinkLook);
+  if (look === "link") return undefined;
+  return {
+    known: knownCmuxLink,
+    subscribe: subscribeCmuxLinks,
+    label: (info) => (look === "icon-title-host" && info.host ? `${info.title} · ${info.host}` : info.title),
+  };
+}
 
 /// What the composer drives the field with, in place of a textarea's DOM API.
 export type MarkdownFieldHandle = {
@@ -1220,6 +1235,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use($prose(() => slashTokensPlugin(() => slashNamesNow.current ?? NO_SLASH_NAMES)))
         // A cmux deeplink draws as a link, its text kept (composer/deeplinkTokens.ts).
         .use($prose(() => deeplinkTokensPlugin(experimentArm(composerDeeplinkLook))))
+        // One it knows draws as what it names, its text still the link (composer/deeplinkTitles.ts).
+        .use($prose(() => deeplinkTitlesPlugin(draftLinkTitles())))
         .create()
         .then((made) => {
           if (disposed) {
