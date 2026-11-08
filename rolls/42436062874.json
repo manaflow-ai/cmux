@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42436062874",
+  "recorded_at": "2026-11-08T01:58:33Z",
+  "reason": "cmux-tui b838bf55625d changes the image's cmux-tui (pinned 374815231677)",
+  "dry_run": false,
+  "cmux_tui": "b838bf55625db4e0c9ff524c2d8e1fe96e83c601",
+  "fixes": [
+    {
+      "sha": "b838bf55625db4e0c9ff524c2d8e1fe96e83c601",
+      "mergedAt": "2026-11-07T17:37:10-08:00",
+      "subject": "settings: an unset key follows its default; stored copies of defaults go once (#38119)"
+    },
+    {
+      "sha": "811e1fd4460f0f0eb79e5b3d5c103578b0220a72",
+      "mergedAt": "2026-11-07T17:33:37-08:00",
+      "subject": "acpmux: resolve takes a qualified id before a session named like it (#38112)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T01:58:33Z",
+    "snapshot_id": "sh-f952653a9c15492f82675213378cf2d3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42436062874): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b70b5996ca4e845f99514dd03ec820d7ba024803",
+    "image": "cloud-native-auto-b838bf55-42436062874-1",
+    "revision": "ci-42436062874-1",
+    "at": "2026-11-08T01:58:33Z"
+  },
+  "rolled_back": false
+}
