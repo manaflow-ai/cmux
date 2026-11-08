@@ -16,7 +16,7 @@ use crate::abuse::{
 };
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
-use crate::daemon::{current_registration, heard_within_window, live_daemon, replaced_by_register};
+use crate::daemon::{current_registration, live_daemon, record_ping, replaced_by_register};
 use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
     connect_disposition, expired_while_parked, pairing_order, parked_and_live, parked_notice,
@@ -301,6 +301,8 @@ impl RelaySlot {
         attachment.phase = SlotPhase::Registered;
         attachment.generation = previous_registration.saturating_add(1);
         attachment.last_seen_ms = now_ms;
+        // The Register itself is handed the unjoined circuits.
+        attachment.pending_handover = false;
         attachment.expires_at = claims.expires_at_unix;
         attachment.idle_deadline_ms = now_ms
             .saturating_add(DAEMON_CONTROL_IDLE_TIMEOUT_MS)
@@ -667,34 +669,30 @@ impl RelaySlot {
                     && attachment.expires_at > self.now() =>
             {
                 let now_ms = self.now_ms();
-                // Silent past the liveness window: it paused or lost its
-                // network and is back, so circuits sent to it meanwhile may
-                // never have arrived.
-                let resumed = !heard_within_window(&attachment, now_ms);
-                attachment.last_seen_ms = now_ms;
+                // A Ping from a registration a newer Register replaced (it
+                // was in flight when the replacement ran) hands nothing to
+                // this closing socket: the current registration owns the
+                // slot's parked Connects and unjoined circuits.
+                let current = self.is_current_registration(socket, &attachment);
+                let handover = record_ping(&mut attachment, current, now_ms);
                 attachment.idle_deadline_ms = now_ms
                     .saturating_add(DAEMON_CONTROL_IDLE_TIMEOUT_MS)
                     .min(attachment.expires_at.saturating_mul(1_000));
                 socket.serialize_attachment(&attachment)?;
                 self.ensure_cleanup_alarm(attachment.idle_deadline_ms).await?;
                 send_control(socket, &RelayControl::Pong { nonce })?;
-                // A Ping from a registration a newer Register replaced (it
-                // was in flight when the replacement ran) hands nothing to
-                // this closing socket: the current registration owns the
-                // slot's parked Connects and unjoined circuits.
-                if !self.is_current_registration(socket, &attachment) {
-                    return Ok(());
-                }
-                // A Connect parked while this daemon was past the liveness
-                // window (crate::daemon) is answered now that it spoke.
                 let slot = attachment.relay.slot.clone();
-                if resumed
+                if handover.unjoined
                     && let Err(error) =
                         self.hand_over_unjoined(&slot, socket, attachment.expires_at).await
                 {
                     worker::console_error!("RelaySlot circuit hand-over error: {error}");
                 }
-                if let Err(error) = self.pair_parked(&slot, socket, attachment.expires_at).await {
+                // A Connect parked while this daemon was past the liveness
+                // window (crate::daemon) is answered now that it spoke.
+                if handover.parked
+                    && let Err(error) = self.pair_parked(&slot, socket, attachment.expires_at).await
+                {
                     worker::console_error!("RelaySlot parked pairing error: {error}");
                 }
                 Ok(())
@@ -799,6 +797,7 @@ impl DurableObject for RelaySlot {
             idle_deadline_ms,
             parked: None,
             last_seen_ms: 0,
+            pending_handover: false,
         })?;
         self.state.accept_websocket_with_tags(&pair.server, &[tag]);
         if let Err(error) = self.ensure_cleanup_alarm(idle_deadline_ms).await {
