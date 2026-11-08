@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesignTokens
 import CmuxNextPages
 import CmuxNextWakeups
 
@@ -41,7 +42,7 @@ public final class AgentPageRetirer {
         view.topBar.discardUnsentChat()
         pruneParkings()
         // A page that is dictating is not kept: its microphone session belongs to the closed tab.
-        if let session, view.dictation.phase.isStartable, !ProcessInfo.processInfo.isLowPowerModeEnabled {
+        if let session, view.dictation.phase.isStartable, !LowPowerMode.system.isEnabled {
             view.quietForKeep()
             measure("agentPane.detach") { park(view) }
             if kept.keep(view, for: session) { return }

@@ -11458,9 +11458,9 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "max_length": 512
+            "max_length": 1024
           },
-          "description": "The row's title."
+          "description": "The row's title (1024 UTF-8 bytes hold a 200-character title and a channel's #)."
         },
         "keywords": {
           "required": false,
@@ -11471,12 +11471,12 @@
               "items": {
                 "kind": "primitive",
                 "name": "string",
-                "max_length": 256
+                "max_length": 400
               },
-              "max_items": 32
+              "max_items": 64
             }
           },
-          "description": "More words the row is found by."
+          "description": "More words the row is found by (64 of 400 UTF-8 bytes hold a conversation's participants' 100-character names)."
         },
         "subtitle": {
           "required": false,
@@ -11839,6 +11839,15 @@
             "max_items": 2048
           },
           "description": "The ranked sections in order."
+        },
+        "strictMatches": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int32",
+            "minimum": 0
+          },
+          "description": "Rows the strict pass matched at the substring tier or better (0 for the empty query): a page that ranks one catalog in several requests sums them to decide the typo pass."
         }
       },
       "extra": false
@@ -28919,12 +28928,24 @@
               }
             },
             "description": "Most rows given highlights."
+          },
+          "typoPass": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "boolean"
+              }
+            },
+            "description": "Whether a typed query also ranks one-edit typos: absent, only when the strict pass matched fewer than three rows; false never; true always."
           }
         },
         "extra": false,
         "constraints": [
           "Stateless: the request carries its own entries and history, and nothing is kept between calls.",
           "The catalog caps the entries (5000), their text, the query and every list; the daemon refuses more than 5000 history keys or 1000 aliased actions with validation.invalid, so one request does bounded work.",
+          "A catalog past one request's caps ranks in several requests, each with typoPass false and all again with typoPass true when their strictMatches sum to fewer than three; their rows merged by score, then catalog order, cut to rowLimit, are the one request's answer.",
           "The result is the shared palette ranker's answer (cmux-palette-ranker rank_request): the same sections and rows the app palette gets for the same request."
         ]
       },
@@ -30765,6 +30786,14 @@
               }
             },
             "description": "The project's worktree recipe (setup, teardown, run, include); null clears it. Commands are at most 64 KiB, include at most 1000 lines."
+          },
+          "keep_saved_worktree": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "When true, worktree only fills a project that has no saved recipe; a saved one is left as it is."
           }
         },
         "extra": false,

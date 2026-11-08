@@ -54,6 +54,7 @@ import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { useCountedRender } from "../perfRender";
+import { useStableProps } from "../stableProps";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing, type ChatColumn } from "../chatWidth";
 import { FIND_HIDE_EVENT, FIND_OPEN_EVENT } from "../conversation/chatFind";
 import { PanelToggle } from "../header/PanelToggle";
@@ -69,14 +70,15 @@ import { ContextSection } from "./ContextSection";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
 import { subagentsIn } from "../subagents/subagentRows";
-import { chatGallery } from "../summary/chatGallery";
+import { chatGallery, type GalleryItem } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
 import { waitingSubagents } from "../summary/subagentStatusListModel";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { StartedSession } from "../started/startedSessions";
-import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
+import { ChangesSection } from "./ChangesSection";
+import { headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./changesSectionModel";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { summarizeConnectors } from "./connectorState";
@@ -110,7 +112,8 @@ import {
   type SessionInfoSectionId,
   type SessionInfoSections,
 } from "./sessionInfoState";
-import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact } from "./OutputsSection";
+import { OutputsSection } from "./OutputsSection";
+import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./outputsSectionModel";
 import { sessionInfoLists, type SessionInfoProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
@@ -120,7 +123,7 @@ import { useAlsoHere } from "./alsoHereSectionModel";
 import { sessionStatus } from "./childSessionRowsModel";
 import { useChangeCounts, type ReadChanges } from "./changeCounts";
 import { useStepAside } from "./stepAside";
-import { chatOutputs } from "./chatOutputs";
+import { chatOutputs, type OutputFile } from "./chatOutputs";
 import { tryChipHost } from "../chips/host";
 import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
@@ -366,13 +369,17 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
   if (paneWidth - all <= 0 || pinnedColumnEnd(paneWidth - all, pinned, edge) > end) return all;
-  // Else the least room, in steps of 8, whose column still ends by `end`. At most about 70 steps, run once
-  // per layout of the panel.
-  let room = 8;
-  while (room < all && pinnedColumnEnd(paneWidth - room, pinned, edge) > end) room += 8;
+  // Else the least room, in steps of 2, whose column still ends by `end`. The column's inset is a whole
+  // pixel (model.ts transcriptColumn), so a coarser step lets a 1 px wider panel flip between push and
+  // overlay during a drag. At most about 300 steps, run once per layout of the panel.
+  let room = 2;
+  while (room < all && pinnedColumnEnd(paneWidth - room, pinned, edge) > end) room += 2;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
-  return room >= panel ? all : room;
+  // A room within the margin of the panel is the whole room too: the pinned column only clears the panel
+  // in less where it nearly fits beside the whole of it, and a chat a few pixels off center there is not
+  // the centered push (Lucas, 2026-11-06); the stage is the overlay instead, as at every narrower pane.
+  return room > panel - FLOAT_MARGIN ? all : room;
 };
 /// The chat's content Session Info must never float over: the transcript's rows and the composer.
 const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
@@ -734,6 +741,28 @@ export function useSessionInfo({
     if (!narrow && narrowWas) setSuppressed(false);
   }
   const shown = roomyShown && !(narrow && !asked);
+  // What the panel lists of the rows, read here as the pane renders, and what else it is handed,
+  // each the same value while it holds the same things: the panel (SessionInfoPresence, memoized)
+  // renders when what it shows changed, not on every pane render (bench/delta-renders.bench.ts).
+  const lists = useSessionInfoLists({
+    drawn: shown,
+    snapshot,
+    scope: subagent,
+    repository,
+    views: subagents?.views,
+    registry,
+    showsCalls: !!onShowCall,
+  });
+  const panelSnapshot = usePanelSnapshot(snapshot, lists.rows);
+  const steadyGrants = useStableProps({ grants }).grants;
+  const openSubagent = useStableCallback(subagents?.onOpen);
+  const subagentViews = subagents?.views;
+  const subagentAsks = subagents?.asks;
+  const steadySubagents = useMemo(
+    () =>
+      subagentAsks && openSubagent ? { views: subagentViews, asks: subagentAsks, onOpen: openSubagent } : undefined,
+    [subagentViews, subagentAsks, openSubagent],
+  );
   // The section a running line's count asked for, scrolled to once drawn.
   const [revealed, setRevealed] = useState<{ section: SessionInfoSectionId; at: number }>();
   const clearRevealed = useCallback(() => setRevealed(undefined), []);
@@ -841,13 +870,14 @@ export function useSessionInfo({
         key={paneSession ?? ""}
         chat={paneSession}
         shown={shown}
-        snapshot={snapshot}
+        snapshot={panelSnapshot}
+        lists={lists}
         pullRequest={pullRequest}
         machineName={machineName}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         shell={shell}
-        grants={grants}
+        grants={steadyGrants}
         beside={beside}
         wide={wide}
         openedOutputAt={openedOutputAt}
@@ -856,7 +886,7 @@ export function useSessionInfo({
         onStepAside={stepAside.step}
         onStepBack={backFromAside}
         registry={registry}
-        subagents={subagents}
+        subagents={steadySubagents}
         sessions={sessions}
         onSetRunningLimit={onSetRunningLimit}
         workflows={workflows}
@@ -886,6 +916,195 @@ export function useSessionInfo({
       />
     ),
   };
+}
+
+/// What Session Info lists of the rows, each kept while it holds the same things (sameValue.ts).
+/// Read as the pane renders (useSessionInfo), not in the panel: a snapshot is new objects on every
+/// update, a running command's output among them, and the panel (SessionInfoPresence, memoized)
+/// then renders only when one of these changed, not once per update. Read while the panel shows
+/// (`drawn`); hidden, the last reading stands, so a panel playing out keeps what it showed.
+export type SessionInfoLists = {
+  readonly summary: AcpmuxSnapshot["summary"];
+  readonly made: SessionSummary | undefined;
+  readonly links: readonly OutputLink[];
+  readonly outputFiles: OutputFile[];
+  readonly scopedPlan: SessionInfoPlan | undefined;
+  readonly artifacts: number;
+  readonly documents: readonly OutputArtifact[];
+  readonly agents: readonly Subagent[];
+  readonly transcriptTasks: ReturnType<typeof withChatEnds> | undefined;
+  readonly processes: readonly SessionInfoProcess[] | undefined;
+  readonly toolCalls: ReadonlySet<string> | undefined;
+  /// The rows the sections read for the chat's gallery (`SessionInfoSections` `rows`).
+  readonly rows: readonly AcpmuxRow[];
+  readonly rowCount: number;
+};
+
+function useSessionInfoLists({
+  drawn,
+  snapshot,
+  scope,
+  repository,
+  views,
+  registry,
+  showsCalls,
+}: {
+  drawn: boolean;
+  snapshot: AcpmuxSnapshot;
+  scope?: SubagentScope;
+  repository?: string;
+  views: Record<string, AcpmuxRow[]> | undefined;
+  registry?: ProcessRegistry;
+  /// A task row's Show call is offered (`onShowCall`).
+  showsCalls: boolean;
+}): SessionInfoLists {
+  const rows = scope?.rows ?? snapshot.rows;
+  const scopedAgent = scope?.agent;
+  const summary = useSameValue(
+    useMemo(
+      () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
+      [drawn, scopedAgent, snapshot.summary, rows],
+    ),
+  );
+  const made = useSameValue(
+    useMemo(
+      () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
+      [drawn, rows, repository, summary?.cwd],
+    ),
+  );
+  const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
+  // What the chat made for the person (chatOutputs.ts), read here beside `made` and kept while it is the
+  // same files, so the sections need not read the rows for it.
+  const outputFiles = useSameValue(
+    useMemo(() => (drawn ? chatOutputs(rows, summary?.cwd) : NO_OUTPUT_FILES), [drawn, rows, summary?.cwd]),
+  );
+  const scopedWorking = scopedAgent?.state === "running";
+  const scopedPlan = useSameValue(
+    useMemo(
+      () => (drawn && scopedAgent ? currentPlan(rows, scopedWorking) : undefined),
+      [drawn, scopedAgent, rows, scopedWorking],
+    ),
+  );
+  // The chat's gallery, kept while it holds the same items (sameValue: each item's kind, key, source and
+  // render call), so a replaced image or render with the same count is a new gallery, and a streamed
+  // token that changes none of it is the same one. Its pass is over the gallery's items, not the rows'
+  // text: chatGallery keeps each unchanged row's images and calls (its WeakMaps).
+  const gallery = useSameValue(useMemo(() => (drawn ? chatGallery(rows) : NO_GALLERY), [drawn, rows]));
+  const artifacts = gallery.length;
+  const documents = useSameValue(useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]));
+  const scopedAgents = scope?.agents;
+  const agents = useSameValue(
+    useMemo(
+      () => (drawn ? (scopedAgents ?? [...subagentsIn(rows, views).values()]) : []),
+      [drawn, scopedAgents, rows, views],
+    ),
+  );
+  const chatRows = snapshot.rows;
+  const transcriptTasks = useSameValue(
+    useMemo(
+      () => (scope && made ? withChatEnds(made.backgroundTasks, chatRows) : made?.backgroundTasks),
+      [scope, made, chatRows],
+    ),
+  );
+  const allProcesses = registry?.processes;
+  const processes = useSameValue(
+    useMemo(
+      () => (drawn && scope && allProcesses ? subagentProcesses(allProcesses, rows) : allProcesses),
+      [drawn, scope, allProcesses, rows],
+    ),
+  );
+  // The tool calls the loaded transcript holds, for a task row's Show call in a chat whose terminal
+  // cannot open here, and for a wakeup or cron job, which shows the call that made it on any chat:
+  // read here, so a call added to an existing row reaches the sections, and kept while it is the same
+  // set. A chat on this Mac with nothing scheduled opens its terminals instead and reads none.
+  const readsCalls = showsCalls && (!opensProcessTerminal(summary) || (made?.scheduled?.length ?? 0) > 0);
+  const toolCalls = useSameValue(
+    useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
+  );
+  // The rows the sections read for the chat's gallery (its items: `gallery`), whether it has any, and
+  // the tool calls they show where `toolCalls` is not read: the same rows until the chat has rows or
+  // none, any item of its gallery or what it made changes (a replaced image or render at the same count
+  // too: review of cmux#37907 at 6c29ca42, P1), a turn starts or ends, or the panel lists another agent.
+  // Not each streamed token's copy, and not each row added: a tool call that makes nothing the panel
+  // shows draws none of it (Outputs reads `outputFiles`, Tasks reads `toolCalls`). Another chat's
+  // rows are always new: the panel outlives a chat switch, and B must never show A's images.
+  const chat = snapshot.sessionId;
+  const listing = scope?.agent.id;
+  const working = snapshot.isWorking;
+  const any = rows.length > 0;
+  const galleryRows = useRef({ rows, chat, any, gallery, listing, working, outputFiles, toolCalls });
+  if (
+    galleryRows.current.chat !== chat ||
+    galleryRows.current.any !== any ||
+    galleryRows.current.gallery !== gallery ||
+    galleryRows.current.listing !== listing ||
+    galleryRows.current.working !== working ||
+    galleryRows.current.outputFiles !== outputFiles ||
+    galleryRows.current.toolCalls !== toolCalls
+  )
+    galleryRows.current = { rows, chat, any, gallery, listing, working, outputFiles, toolCalls };
+  const sectionRows = galleryRows.current.rows;
+  const rowCount = rows.length;
+  const lists = useMemo<SessionInfoLists>(
+    () => ({
+      summary,
+      made,
+      links,
+      outputFiles,
+      scopedPlan,
+      artifacts,
+      documents,
+      agents,
+      transcriptTasks,
+      processes,
+      toolCalls,
+      rows: sectionRows,
+      rowCount,
+    }),
+    [
+      summary,
+      made,
+      links,
+      outputFiles,
+      scopedPlan,
+      artifacts,
+      documents,
+      agents,
+      transcriptTasks,
+      processes,
+      toolCalls,
+      sectionRows,
+      rowCount,
+    ],
+  );
+  const held = useRef(lists);
+  if (drawn) held.current = lists;
+  return held.current;
+}
+
+/// The snapshot Session Info's panel reads: `rows` in place of its own (the sections' rows,
+/// useSessionInfoLists), and the one given last while every other field is the same object. The
+/// client keeps a field's object while it does not change (direct.ts), so a running command's output
+/// update, which changes only the rows, hands the panel the same snapshot.
+function usePanelSnapshot(snapshot: AcpmuxSnapshot, rows: readonly AcpmuxRow[]): AcpmuxSnapshot {
+  const held = useRef<{ source: AcpmuxSnapshot; value: AcpmuxSnapshot } | undefined>(undefined);
+  const before = held.current;
+  if (before && before.value.rows === rows && sameButRows(before.source, snapshot)) return before.value;
+  const value = rows === snapshot.rows ? snapshot : { ...snapshot, rows: rows as AcpmuxRow[] };
+  held.current = { source: snapshot, value };
+  return value;
+}
+
+/// Every own field of the two snapshots is the same object, except `rows`.
+function sameButRows(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean {
+  if (previous === next) return true;
+  const before = previous as unknown as Record<string, unknown>;
+  const after = next as unknown as Record<string, unknown>;
+  const keys = Object.keys(after);
+  return (
+    keys.length === Object.keys(before).length &&
+    keys.every((key) => key === "rows" || (key in before && Object.is(before[key], after[key])))
+  );
 }
 
 const SESSION_INFO_TOGGLE = "button.acpmux-session-info-toggle";
@@ -926,6 +1145,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   chat,
   shown,
   snapshot,
+  lists,
   pullRequest,
   machineName,
   repository,
@@ -970,7 +1190,11 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   /// The chat whose width and folds it draws (sessionInfoState.ts `useSessionInfoState`).
   chat: string | undefined;
   shown: boolean;
+  /// The chat's snapshot, its rows as the sections read them (`lists.rows`): the same object while
+  /// nothing else in it changed (useSessionInfo `panelSnapshot`).
   snapshot: AcpmuxSnapshot;
+  /// What it lists of the rows (useSessionInfoLists).
+  lists: SessionInfoLists;
   /// What the App read of the chat's pull requests (header state), which the hook already follows.
   pullRequest: HeaderPullRequest | undefined;
   machineName?: string;
@@ -1046,7 +1270,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // A column the display owns (its own width) or a zoomed page's is a new object on every call: kept
   // while its numbers are the same, so the placement effect below (the shell's column pin and its
   // CHAT_LAYOUT_EVENT) runs only when the column changes, never once per streamed token.
-  const column = useSameValue(chatColumnOf(sizing.width, display, sizing.scale));
+  const column = useSameValue(chatColumnOf(display, sizing.scale));
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
   // while it leaves.
   const presence = usePresence(shown && !native, "right");
@@ -1212,8 +1436,23 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // A card under the panel (the computer use live preview) reads where it goes from the shell.
   // The web panel floats at the pane's right, pushing or not; the native one's room is in the chat's row.
   useUnderSessionInfo(shell, drawn, push && native, FLOAT_MARGIN, sessionInfoTop, push && native ? room : undefined);
-  // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
-  const rows = scope?.rows ?? snapshot.rows;
+  // What the sections list of the rows (useSessionInfoLists, read as the pane renders): a subagent's
+  // panel reads its own rows only.
+  const {
+    summary,
+    made,
+    links,
+    outputFiles,
+    scopedPlan,
+    artifacts,
+    documents,
+    agents,
+    transcriptTasks,
+    processes,
+    toolCalls,
+    rows: sectionRows,
+    rowCount,
+  } = lists;
   // Measured before paint, so a panel that would cover the chat never draws a frame over it. Again
   // as the pane, the panel or the rows change while it floats or pushes by less than its full room
   // (the chat's width is the pane less that room).
@@ -1245,79 +1484,27 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     // Only a larger reading sets it: an unchanged one would still draw the panel once (React runs the
     // component before it bails out), once per streamed row while it pushes.
     if (next > overflow) setOverflow((current) => (next > current ? next : current));
-  }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rows.length, push, overflow, native]);
-  const scopedAgent = scope?.agent;
-  // What the sections list keeps its identity while it holds the same things (sameValue.ts): a snapshot
-  // is new objects on every streamed token, and the sections (SessionInfoSections, memoized) then skip it.
-  const summary = useSameValue(
-    useMemo(
-      () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
-      [drawn, scopedAgent, snapshot.summary, rows],
-    ),
-  );
+  }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rowCount, push, overflow, native]);
   // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
-  const made = useSameValue(
-    useMemo(
-      () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
-      [drawn, rows, repository, summary?.cwd],
-    ),
-  );
-  const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
-  // What the chat made for the person (chatOutputs.ts), read here beside `made` and kept while it is the
-  // same files, so the sections need not read the rows for it.
-  const outputFiles = useSameValue(
-    useMemo(() => (drawn ? chatOutputs(rows, summary?.cwd) : NO_OUTPUT_FILES), [drawn, rows, summary?.cwd]),
-  );
   // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
   // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
   // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
   // subagent's panel gets the parent's snapshot, so it never reads that one: its plan comes from its
-  // own live rows (not `sectionRows`, which keep their identity until a row is added), so a step ticked
-  // in place shows here at once.
+  // own live rows (useSessionInfoLists `scopedPlan`), so a step ticked in place shows here at once.
   const live = snapshot.progress;
   const livePlan = useMemo<SessionInfoPlan | undefined>(
     () => (live ? { entries: live.plan, ended: Boolean(live.ended), done: live.completed } : undefined),
     [live],
   );
-  const scopedWorking = scopedAgent?.state === "running";
-  const scopedPlan = useSameValue(
-    useMemo(
-      () => (drawn && scopedAgent ? currentPlan(rows, scopedWorking) : undefined),
-      [drawn, scopedAgent, rows, scopedWorking],
-    ),
-  );
-  const plan = scopedAgent ? scopedPlan : drawn ? livePlan : undefined;
-  const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
-  const documents = useSameValue(useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]));
+  const plan = scope?.agent ? scopedPlan : drawn ? livePlan : undefined;
   const views = subagents?.views;
   const asks = subagents?.asks;
-  const scopedAgents = scope?.agents;
-  const agents = useSameValue(
-    useMemo(
-      () => (drawn ? (scopedAgents ?? [...subagentsIn(rows, views).values()]) : []),
-      [drawn, scopedAgents, rows, views],
-    ),
-  );
   // Environment's Changes: the folder's git changes, read as the panel shows and at each turn's end.
   const edits = useChangeCounts(
     readChanges,
     drawn,
     `${snapshot.sessionId ?? ""}\u0000${snapshot.isWorking ? "working" : "idle"}`,
-  );
-  const chatRows = snapshot.rows;
-  const transcriptTasks = useSameValue(
-    useMemo(
-      () => (scope && made ? withChatEnds(made.backgroundTasks, chatRows) : made?.backgroundTasks),
-      [scope, made, chatRows],
-    ),
-  );
-  const allProcesses = registry?.processes;
-  const processes = useSameValue(
-    useMemo(
-      () => (drawn && scope && allProcesses ? subagentProcesses(allProcesses, rows) : allProcesses),
-      [drawn, scope, allProcesses, rows],
-    ),
   );
   const waiting = useSameValue(
     useMemo(() => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()), [drawn, asks, views]),
@@ -1371,33 +1558,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   );
   const onStopWorkflow = useStableCallback(workflows?.onStop);
   const setRunningLimit = useStableCallback(onSetRunningLimit);
-  // The tool calls the loaded transcript holds, for a task row's Show call in a chat whose terminal
-  // cannot open here, and for a wakeup or cron job, which shows the call that made it on any chat:
-  // read here, so a call added to an existing row reaches the sections, and kept while it is the same
-  // set. A chat on this Mac with nothing scheduled opens its terminals instead and reads none.
-  const readsCalls = !!onShowCall && (!opensProcessTerminal(summary) || (made?.scheduled?.length ?? 0) > 0);
-  const toolCalls = useSameValue(
-    useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
-  );
-  // The rows the sections read for the chat's gallery (its images: `artifacts`), whether it has any, and
-  // the tool calls they show where `toolCalls` is not read: the same rows until the chat has rows or
-  // none, its gallery or what it made changes, a turn starts or ends, or the panel lists another agent.
-  // Not each streamed token's copy, and not each row added: a tool call that makes nothing the panel
-  // shows draws none of it (Outputs reads `outputFiles`, Tasks reads `toolCalls`).
-  const listing = scope?.agent.id;
-  const working = snapshot.isWorking;
-  const any = rows.length > 0;
-  const galleryRows = useRef({ rows, any, artifacts, listing, working, outputFiles, toolCalls });
-  if (
-    galleryRows.current.any !== any ||
-    galleryRows.current.artifacts !== artifacts ||
-    galleryRows.current.listing !== listing ||
-    galleryRows.current.working !== working ||
-    galleryRows.current.outputFiles !== outputFiles ||
-    galleryRows.current.toolCalls !== toolCalls
-  )
-    galleryRows.current = { rows, any, artifacts, listing, working, outputFiles, toolCalls };
-  const sectionRows = galleryRows.current.rows;
   const banner = useMemo(
     () =>
       scope && SUBAGENT_HEADER !== "title" ? <SubagentBanner scope={scope} variant={SUBAGENT_HEADER} /> : undefined,
@@ -1494,7 +1654,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           links={links}
           artifacts={artifacts}
           documents={documents}
-          rows={rows}
+          rows={sectionRows}
           agents={agents}
           waiting={waiting}
           statuses={statuses}
@@ -1517,7 +1677,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onOpenSourceFile={onOpenSourceFile}
           onOpenUrl={onOpenUrl}
           onOpenDocument={onOpenDocument}
-          onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
+          onOpenArtifacts={rowCount > 0 ? () => setGallery(true) : undefined}
           onReconnectMcp={onReconnectMcp}
           remoteControl={scope ? undefined : remoteControl}
           onCompact={scope ? undefined : onCompact}
@@ -1529,7 +1689,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         />
         {gallery && (
           <GalleryDialog
-            rows={rows}
+            rows={sectionRows}
             onClose={() => setGallery(false)}
             onOpenImage={
               onOpenImage &&
@@ -1833,6 +1993,8 @@ export const RAIL_LAYOUT: RailLayout = "glance";
 
 /// No files made (a stable value, so the sections' memo holds).
 const NO_OUTPUT_FILES: ReturnType<typeof chatOutputs> = [];
+/// No gallery items (a stable value, so the gallery rows hold while the panel is hidden).
+const NO_GALLERY: readonly GalleryItem[] = [];
 
 /// The tool calls in `rows`, by id.
 const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>

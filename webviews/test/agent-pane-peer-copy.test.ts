@@ -802,6 +802,26 @@ test("a row naming a recreated session the Mac has a copy of draws that copy, of
   expect(tab.last()!.peerCopy).toBeUndefined();
 });
 
+test("a copy redrawn for a session recreated as its machine returns never draws as read from it", async () => {
+  const daemon = new Daemon();
+  daemon.copy = { events: turn(1, 4, "old"), generation: 100, lastSeq: 4 };
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  const from = tab.drawn.length;
+  // Recreated, and its row says the machine is back: the Mac's copy of the new session is drawn
+  // offline, then the machine is read.
+  daemon.createdAt = 200;
+  daemon.copy = { events: turn(1, 2, "fresh"), generation: 200, lastSeq: 2 };
+  daemon.log = turn(1, 3, "fresh");
+  daemon.comeBack();
+  await flush();
+  expect(text(tab.last())).toContain("fresh 3.");
+  // A copy on screen is offline until the machine's page replaces it: never a frame of the copy
+  // marked as if it were read from the machine.
+  expect(tab.drawn.slice(from).filter((snapshot) => snapshot.peerCopy?.offline === false)).toEqual([]);
+});
+
 test("a machine whose page was read before its newest records replaces a copy past it", async () => {
   const daemon = new Daemon();
   daemon.copy = { events: turn(1, 10, "kept"), generation: 100, lastSeq: 10 };

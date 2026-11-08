@@ -26,13 +26,13 @@ struct GroupEditorSession {
     /// The name the person typed this open; nil while the field is untouched.
     var draft: String?
 
-    /// The event the page gets; `themed` takes the theme's group colors (`sidebar.groupColors`).
-    func event(themed: Bool, icons: GroupEditorIcons) -> JSONValue {
+    /// The event the page gets; its dots draw in `palette`'s colors (`sidebar.groupPalette`).
+    func event(palette: GroupPalette, icons: GroupEditorIcons) -> JSONValue {
         let dots: [JSONValue] = GroupColor.editorOrder.map { color in
             .object([
                 "id": .string(color.rawValue),
                 "label": .string(GroupEditorStrings.colorName(color)),
-                "css": .string(Self.css(GroupTint.palette(color).lineRGB(themed: themed))),
+                "css": .string(Self.css(GroupTint.palette(color).lineRGB(palette: palette))),
                 "chosen": .bool(group.tint == .palette(color) || (group.tint.isNone && color == .grey)),
                 "outlined": .bool(color == .grey),
             ])

@@ -64,9 +64,9 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     /// The Rust target of every Cloud machine (images/cmux-vm: x86_64).
     static let cloudTarget = "x86_64-unknown-linux-gnu"
 
-    /// The machine's build while its daemon is connected, also one that serves everything this app
-    /// uses; nil while it is not, and while the toggles are off (``CloudTunables``). The policy
-    /// then leaves the machine alone, also one it queued before.
+    /// The machine's build while its daemon is connected, whatever it serves, also one read as refused
+    /// (an update to the build it names changes nothing: 2026-11-07, one per reconnect, each under a start);
+    /// nil while no handshake is live (a dropped link's last one is not it), and while the toggles are off: left alone.
     ///
     /// Never a move back: a Cloud daemon's build string carries no date, so the policy cannot tell
     /// an older build from a newer one (another app, a newer nightly, moved the machine forward).
@@ -76,8 +76,7 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     /// capability this app uses was never updated automatically, so it stayed on its image's
     /// build after every app update (a VM on 8b3b1891 under an app on 52b77ef2f).
     func currentBuild() async -> String? {
-        guard enabled(), let daemon = await source.daemon(), daemon.level != .incompatible,
-              let build = daemon.build, !build.isEmpty else { return nil }
+        guard enabled(), let build = await source.daemon()?.build, !build.isEmpty else { return nil }
         return build
     }
 

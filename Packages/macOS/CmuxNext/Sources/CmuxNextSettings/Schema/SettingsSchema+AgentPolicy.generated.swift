@@ -38,8 +38,8 @@ extension SettingsSchema {
         // Sidebar control visibility (looks only)
         "sidebar.controlsOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
-        "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps", "sidebar.side",
-        "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility", "tabs.newTabTemplate",
+        "sidebar.groupPalette", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
+        "sidebar.side", "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility", "tabs.newTabTemplate",
         // Which New Tab page draws; a look switch, ends no work.
         "tabs.nativeNewTabPage",
         "tabs.newTabPosition",

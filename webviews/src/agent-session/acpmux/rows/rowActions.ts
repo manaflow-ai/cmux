@@ -1,6 +1,6 @@
 import { type QueueEdit } from "../model";
 import type { IncomingMessage } from "../conversation/incomingMessage";
-import { markSentNow } from "../conversation/PendingSteer";
+import { markSentNow } from "../conversation/pendingSteerModel";
 import { callNative } from "../callNative";
 
 /// Resumes the chat's paused messages with another agent (conversation/AgentPairNote.tsx).

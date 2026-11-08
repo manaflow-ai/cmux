@@ -28,17 +28,9 @@ import { experimentArm } from "../../../experiments/experiment";
 import { setTrayTucked, type TrayHandleSide } from "../chatDisplay";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { subagentStatus } from "../summary/subagentStatusListModel";
-import type { TrayItem } from "./runningTray";
 import { composerHatLook } from "./composerHat.experiment";
-import { asksPerson } from "./trayAttention";
 import { rememberTrayOpen } from "./trayFoldMemory";
-
-/// The hat's own chevron (SubagentTray.tsx `onTuck`): one function, so the memoized tray keeps its props.
-export const tuckTray = () => setTrayTucked(true);
-
-/// The tab's count as it reads: its control is sized for two digits, so a hundred or more reads "99+".
-export const pullTabCountText = (running: number): string => (running > 99 ? "99+" : String(running));
+import { pullTabCountText } from "./trayPullTabModel";
 
 /// What the hat shows past its chevron: the needs-you dot or the running count.
 type PullMark = { kind: "dot" } | { kind: "count"; text: string };
@@ -50,24 +42,6 @@ const sameMark = (a: PullMark | undefined, b: PullMark | undefined) =>
 /// font, subagents.css) per character, so a tick from 3 to 4 keeps the width and 9 to 10 eases it.
 const markWidth = (mark: PullMark | undefined): string | undefined =>
   mark === undefined ? undefined : mark.kind === "dot" ? "var(--acpmux-tray-pull-dot)" : `${mark.text.length}ch`;
-
-/// What the tucked tab flags: the lines that wait on the person (counted as the hat's header counts
-/// them, trayHeadKinds.ts) and the ones that run. A chat queued for a run slot waits on cmux, not on
-/// the person: it counts with what runs, never as a dot (trayAttention.ts asksPerson).
-export function pullTabCounts(
-  items: readonly TrayItem[],
-  waiting: ReadonlySet<string>,
-): { waiting: number; running: number } {
-  let waits = 0;
-  for (const item of items)
-    if (
-      item.kind === "agent"
-        ? subagentStatus(item.agent, waiting) === "waiting"
-        : item.kind === "session" && asksPerson(item.session)
-    )
-      waits += 1;
-  return { waiting: waits, running: items.length - waits };
-}
 
 export function TrayPullTab({
   chat,

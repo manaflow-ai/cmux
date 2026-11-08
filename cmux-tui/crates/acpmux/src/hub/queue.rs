@@ -42,7 +42,7 @@ pub enum Withdrawn {
     /// Not in the queue: it started, ended or was already removed.
     NotWaiting,
     /// Kept: asked for another agent's message only, and it is not one (the person's own, or
-    /// an agent's message the person edited, which makes it theirs).
+    /// an agent's message the person edited, which keeps its sender but is no longer only theirs).
     NotFromAgent,
 }
 
@@ -131,7 +131,8 @@ pub(super) struct PromptRun {
     pub(super) control: Control,
     pub(super) cloud_mobile: bool,
     pub(super) trust_gate: bool,
-    /// Who sent it (`prompt_provenance.rs`); an edit drops it.
+    /// Who sent it (`prompt_provenance.rs`); an edit keeps it and adds its editor
+    /// (`prompt_provenance::edited_by`).
     pub(super) provenance: Option<Value>,
     /// Another agent's name when it is that agent's message, `None` when it is the person's
     /// (`digest.rs`); an edit makes it the person's.
@@ -1374,9 +1375,8 @@ impl Hub {
                             approved.insert(turn.to_owned(), e.msg.clone());
                         }
                     }
-                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
-                    // and it has no `_meta.provenance` (the person rewrote it), unless the edit
-                    // kept a person's own (`author.rs`).
+                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones;
+                    // its `_meta.provenance` keeps its sender and names its editor (`editedBy`).
                     "queue_updated" => {
                         // A revision never goes back: a log from before edits were logged under
                         // the queue lock may hold an older edit after a newer one, and the newer

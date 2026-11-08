@@ -165,6 +165,10 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
   },
   "src/agent-session/acpmux/CloudResumeDesigns.tsx": { count: 1, what: "the gallery's slow-resume note designs" },
   "src/agent-session/acpmux/ComposerQueue.tsx": { count: 1, what: "the held prompt's waking line" },
+  "src/agent-session/acpmux/DictationListening.tsx": {
+    count: 1,
+    what: "the dictation waveform's pill beside the mic, from the right",
+  },
   "src/agent-session/acpmux/Inspector.tsx": { count: 1, what: "the event inspector side panel, from the right" },
   "src/agent-session/acpmux/LiveChatChoice.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/MissingChat.tsx": { count: 1, what: "a banner at the top of the chat" },
@@ -188,8 +192,12 @@ const entranceCalls = (source: string) => source.match(/\bdata-enter\b["']?\s*[=
 /// keyframes are built.
 const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/VirtualTranscript.tsx": {
-    count: 4,
-    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943)",
+    count: 5,
+    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943); the rows ride the composer field's growth spring",
+  },
+  "src/agent-session/acpmux/composer/fieldGrowth.ts": {
+    count: 2,
+    what: "the composer field grows and shrinks on one spring as a draft gains or loses lines; the field, never a menu",
   },
   "src/agent-session/acpmux/chatSwitch.ts": {
     count: 1,

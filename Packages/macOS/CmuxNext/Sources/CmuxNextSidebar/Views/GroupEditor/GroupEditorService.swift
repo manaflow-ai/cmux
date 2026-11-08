@@ -138,9 +138,9 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
     // MARK: The page
 
     private func push(_ open: Open) {
-        let themed = SidebarGroupPalette.tunable.value == .theme
+        let palette = DesignSettings.shared.sidebarSections.groupPalette
         let session = GroupEditorSession(id: open.session, revision: open.revision, group: open.group, items: open.items, draft: open.draft)
-        let build = { session.event(themed: themed, icons: self.icons) }
+        let build = { session.event(palette: palette, icons: self.icons) }
         warm?.provider.push(open.themeAnchor.map { $0.performWithTheme(build) } ?? build())
     }
 
