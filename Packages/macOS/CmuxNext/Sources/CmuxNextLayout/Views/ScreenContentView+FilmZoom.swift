@@ -14,6 +14,7 @@ import CmuxNextDesign
 extension ScreenContentView {
     func prepareFilmZoom(_ film: FilmZoomVariant, zooming: Bool, before: ScreenGeometry, after: ScreenGeometry) {
         frameInput.filmZoomPending = nil
+        layer?.sublayers?.filter { $0.name?.hasPrefix("film-zoom-pictures-") == true }.forEach { $0.removeFromSuperlayer() }
         guard film.kind != .z1, Motion.panes.animatesMovement, let root = layer else { return }
         let zoomed = zooming ? after.panes.keys.first : before.panes.keys.first { after.panes[$0] != nil }
         guard let zoomed, let zoomedHost = context.hosts[zoomed] else { return }
@@ -30,23 +31,38 @@ extension ScreenContentView {
             pictures.append((zoomed, Self.filmZoomCopy(source), oldZoomedFrame))
         }
         guard !pictures.isEmpty else { return }
+        // The copies go on the root now, hidden, and show with the presentation of the final layout. The pending closure
+        // finds them by name (no layer captured in it: it is main-actor code stored on the frame input).
+        let tag = "film-zoom-pictures-\(UInt64.random(in: 0 ... UInt64.max))"
+        let frames = pictures.map(\.frame)
         let container = CALayer()
         container.frame = bounds
         container.bounds = bounds // the view's coordinates inside it, as the hosts' frames are
-        container.name = "film-zoom-pictures"
+        container.name = tag
+        container.isHidden = true
+        container.zPosition = film.kind == .z3 && !zooming ? -1 : 10_000
         for picture in pictures {
             picture.layer.anchorPoint = .zero
             picture.layer.position = picture.frame.origin
             picture.layer.transform = CATransform3DIdentity
             container.addSublayer(picture.layer)
         }
-        frameInput.filmZoomPending = { [weak self, weak zoomedHost] in
-            guard let self, let zoomedHost else { return }
-            let finish: @MainActor () -> Void = { [weak container] in container?.removeFromSuperlayer() }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        root.addSublayer(container)
+        CATransaction.commit()
+        frameInput.filmZoomPending = { [weak self] in
+            guard let self, let root = self.layer, let container = root.sublayers?.first(where: { $0.name == tag }) else { return }
+            guard let zoomedHost = self.context.hosts[zoomed] else {
+                container.removeFromSuperlayer()
+                return
+            }
+            let finish: @MainActor () -> Void = { [weak self] in
+                self?.layer?.sublayers?.first { $0.name == tag }?.removeFromSuperlayer()
+            }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            container.zPosition = film.kind == .z3 && !zooming ? -1 : 10_000
-            root.addSublayer(container)
+            container.isHidden = false
             CATransaction.commit()
             switch (film.kind, zooming) {
             case (.z2, true):
@@ -63,12 +79,13 @@ extension ScreenContentView {
                              to: Self.filmRing(outer: place, inner: place), completion: finish)
             case (.z3, true):
                 let nothing: @MainActor () -> Void = {}
-                for (index, picture) in pictures.enumerated() {
-                    let last = index == pictures.count - 1
-                    let exit = Self.filmSlide(picture.frame, from: oldZoomedFrame, bounds: bounds)
-                    film.animate(picture.layer, "transform", from: NSValue(caTransform3D: CATransform3DIdentity),
+                let layers = container.sublayers ?? []
+                for (index, layer) in layers.enumerated() where index < frames.count {
+                    let last = index == min(layers.count, frames.count) - 1
+                    let exit = Self.filmSlide(frames[index], from: oldZoomedFrame, bounds: bounds)
+                    film.animate(layer, "transform", from: NSValue(caTransform3D: CATransform3DIdentity),
                                  to: NSValue(caTransform3D: exit), completion: nothing)
-                    film.animate(picture.layer, "opacity", from: NSNumber(value: Float(1)), to: NSNumber(value: Float(0)),
+                    film.animate(layer, "opacity", from: NSNumber(value: Float(1)), to: NSNumber(value: Float(0)),
                                  completion: last ? finish : nothing)
                 }
             case (.z3, false):
