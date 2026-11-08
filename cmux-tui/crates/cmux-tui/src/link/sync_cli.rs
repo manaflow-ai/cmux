@@ -599,7 +599,11 @@ pub(super) fn copy_folder_with_progress(
     let git = set.git;
     let before = set.files.len();
     set.files.retain(|relative, _| keep(relative, git));
-    let mut skipped = set.skipped + (before - set.files.len()) as u64 + set.links.len() as u64;
+    let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+    let mut skipped = set
+        .skipped
+        .saturating_add(count(before.saturating_sub(set.files.len())))
+        .saturating_add(count(set.links.len()));
     let mut remote = Remote::connect_negotiated(socket)?;
     remote.mkdir_all(target)?;
     let (mut made, mut seen) = (BTreeSet::new(), BTreeMap::new());
@@ -618,13 +622,13 @@ pub(super) fn copy_folder_with_progress(
             || !path.starts_with(local)
             || !std::fs::canonicalize(&path).is_ok_and(|real| real == path)
         {
-            skipped += 1;
+            skipped = skipped.saturating_add(1);
             continue;
         }
         let at = format!("{target}/{relative}");
         let (parent, _) = remote::split(&at)?;
         if through_link(&mut remote, target, parent, &mut seen)? {
-            skipped += 1;
+            skipped = skipped.saturating_add(1);
             continue;
         }
         if made.insert(parent.to_string()) {
@@ -637,8 +641,8 @@ pub(super) fn copy_folder_with_progress(
     let mut written = 0u64;
     let mut landed = |result: anyhow::Result<String>| -> anyhow::Result<()> {
         match result {
-            Ok(_) => written += 1,
-            Err(error) if error.is::<LinkInTheWay>() => skipped += 1,
+            Ok(_) => written = written.saturating_add(1),
+            Err(error) if error.is::<LinkInTheWay>() => skipped = skipped.saturating_add(1),
             Err(error) => return Err(error),
         }
         Ok(())

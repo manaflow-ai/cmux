@@ -131,11 +131,13 @@ pub(super) fn cancel(socket: &Path, root: &str, id: &str) -> Result<Value, Failu
     Ok(json!({}))
 }
 
-/// The canonical file or folder at `path`, its name, and whether it is a
-/// folder, when it may be uploaded.
-/// The canonical path, its name, and for a folder the device and inode it
-/// had when checked, so a folder swapped in later is refused.
-fn uploadable(path: &Path) -> Result<(PathBuf, String, Option<(u64, u64)>), Failure> {
+/// A checked upload: the canonical path, its name, and for a folder the
+/// device and inode it had when checked, so a folder swapped in later is
+/// refused.
+type Checked = (PathBuf, String, Option<(u64, u64)>);
+
+/// The canonical file or folder at `path`, when it may be uploaded.
+fn uploadable(path: &Path) -> Result<Checked, Failure> {
     let refused = |why: &str| {
         Failure::new("upload_refused", format!("{} cannot be uploaded: {why}", path.display()))
     };

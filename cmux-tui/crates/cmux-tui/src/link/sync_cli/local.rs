@@ -220,15 +220,15 @@ pub(super) fn collect_files(folder: &Path) -> anyhow::Result<LocalSet> {
         bail!("{} is in a git repository's own folder", folder.display());
     }
     let mut set = listed_files(folder)?;
-    let mut fenced: BTreeMap<String, bool> = BTreeMap::new();
+    let mut fenced: BTreeMap<PathBuf, bool> = BTreeMap::new();
     let before = set.files.len();
     set.files.retain(|relative, _| {
-        !relative.match_indices('/').any(|(end, _)| {
-            let dir = &relative[..end];
-            *fenced.entry(dir.to_string()).or_insert_with(|| fenced_dir(&folder.join(dir)))
-        })
+        !Path::new(relative).ancestors().skip(1).filter(|dir| !dir.as_os_str().is_empty()).any(
+            |dir| *fenced.entry(dir.to_path_buf()).or_insert_with(|| fenced_dir(&folder.join(dir))),
+        )
     });
-    set.skipped += (before - set.files.len()) as u64;
+    let left = u64::try_from(before.saturating_sub(set.files.len())).unwrap_or(u64::MAX);
+    set.skipped = set.skipped.saturating_add(left);
     Ok(set)
 }
 
@@ -305,7 +305,7 @@ fn listed_files(folder: &Path) -> anyhow::Result<LocalSet> {
         if !below(&path)
             || untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env"))
         {
-            set.skipped += 1;
+            set.skipped = set.skipped.saturating_add(1);
             continue;
         }
         add(&mut set, path.clone(), &folder.join(&path))?;
