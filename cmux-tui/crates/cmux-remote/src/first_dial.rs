@@ -48,6 +48,28 @@ pub enum DialOutcome<T, E> {
     Fatal(E),
 }
 
+/// Why the first dial stopped without an attempt's own error. The caller's error type converts
+/// from it ([`LinkCell::dial`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DialStop {
+    /// A network change abandoned the attempt in flight.
+    NetworkChanged,
+    /// `ReconnectPolicy::maximum_duration` passed after `attempts` attempts.
+    DeadlineExceeded { attempts: u32 },
+}
+
+impl fmt::Display for DialStop {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NetworkChanged => formatter.write_str(NETWORK_CHANGED),
+            Self::DeadlineExceeded { attempts } => write!(
+                formatter,
+                "the first connect did not succeed within its maximum duration ({attempts} attempts)"
+            ),
+        }
+    }
+}
+
 /// Why [`LinkCell::wait_connected`] did not return a connection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotConnected {
@@ -152,7 +174,7 @@ impl LinkCell {
         mut attempt: F,
     ) -> Result<T, E>
     where
-        E: fmt::Display,
+        E: fmt::Display + From<DialStop>,
         F: FnMut() -> Fut,
         Fut: Future<Output = DialOutcome<T, E>>,
     {
