@@ -509,6 +509,22 @@ async fn a_send_deadline_holds_while_another_send_owns_the_lane() {
     assert!(Instant::now() <= deadline, "the answer came {:?} late", Instant::now() - deadline);
 }
 
+/// A send whose deadline has already passed is refused even when the lane and the session are
+/// free at once: the deadline wins over a wait that is ready, so nothing is sent late. The old
+/// code polled the wait first and sent.
+#[tokio::test(start_paused = true)]
+async fn an_expired_deadline_wins_over_a_free_lane() {
+    let h = harness(policy()).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let deadline = Instant::now();
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    let result = h
+        .client
+        .send_by(deadline, Lane::Interactive, 1, Bytes::from_static(b"late"), FrameFlags::empty())
+        .await;
+    assert!(matches!(result, Err(ConnectionError::ReconnectDeadlineExceeded { .. })), "{result:?}");
+}
+
 /// `await_ready` answers by its deadline while a recovery is replaying: replay holds the
 /// session lock (here until a send stuck on the old route lets go). The old code waited for
 /// that lock first, past the deadline.
