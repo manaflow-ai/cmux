@@ -992,10 +992,7 @@ mod tests {
         assert_eq!(UltraMode::resolve_with(Some(""), on), UltraMode::SETTING);
         assert_eq!(UltraMode::resolve_with(Some("  "), None), UltraMode::Off);
         assert_eq!(UltraMode::resolve_with(Some("off"), on), UltraMode::Off);
-        assert_eq!(
-            UltraMode::resolve_with(Some("dup"), on),
-            UltraMode::Duplicate { copies: 2 }
-        );
+        assert_eq!(UltraMode::resolve_with(Some("dup"), on), UltraMode::Duplicate { copies: 2 });
         assert_eq!(
             UltraMode::resolve_with(Some("fec:8:2"), None),
             UltraMode::Fec { group: 8, parity: 2 }

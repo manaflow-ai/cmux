@@ -1836,7 +1836,7 @@ mod tests {
         assert_eq!(ultra_for_dial(true, false), None, "Wi-Fi keeps its bytes");
         assert_eq!(ultra_for_dial(false, true), None, "off by default");
         assert_eq!(ultra_for_dial(false, false), None);
-        assert_eq!(DialOptions::default().ultra_on_cellular, false);
+        assert!(!DialOptions::default().ultra_on_cellular);
     }
 
     /// The app's last path report is what the next dial reads.
