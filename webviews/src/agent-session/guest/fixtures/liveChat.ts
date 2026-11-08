@@ -4,6 +4,7 @@
 // the agent's reasoning, a test run with its output, and a second run, either still going or
 // waiting on the owner's answer. `fakeRoom` plays frames to the page as the room would.
 import type { EventRecord } from "../../acpmux/direct";
+import { AVATAR_PNG, GUEST_INITIALS, GUEST_WITH_AVATAR } from "../../acpmux/multiplayer/people.fixtures";
 import type { GuestPrompt } from "../guestPrompts";
 import type { ShareSocketLike } from "../shareSocket";
 
@@ -88,6 +89,38 @@ export const askingRecords = (): EventRecord[] =>
     ...WORKING,
     [20_000, "in", "tool_call", update("tool_call", { ...ASK.toolCall, status: "pending" })],
     [19_000, "mux", "permission_request", { permissionId: "perm-1", request: ASK }],
+  ]);
+
+/** A guest's prompt the owner approved (`person_message` provenance), with their picture if any. */
+const guestPrompt = (text: string, person: { id: string; name: string; avatar?: string }) => ({
+  text,
+  _meta: {
+    provenance: {
+      kind: "person_message",
+      from: person.id,
+      fromName: person.name,
+      ...(person.avatar && { fromAvatar: person.avatar }),
+    },
+  },
+});
+const reply = (text: string) => update("agent_message_chunk", { content: { type: "text", text } });
+
+/** Two signed-in guests' approved messages and the agent's replies: one with a picture, one without. */
+export const guestMessageRecords = (): EventRecord[] =>
+  records([
+    [
+      4 * MINUTE,
+      "mux",
+      "user_message",
+      guestPrompt("How does the uploader retry today?", { ...GUEST_WITH_AVATAR, avatar: AVATAR_PNG }),
+    ],
+    [4 * MINUTE - 500, "mux", "turn_started", {}],
+    [4 * MINUTE - 4_000, "in", "agent_message_chunk", reply("Three tries, doubling from 200 ms, on 5xx and timeouts.")],
+    [4 * MINUTE - 4_500, "mux", "turn_result", { status: "completed" }],
+    [MINUTE, "mux", "user_message", guestPrompt("What happens on a 429?", GUEST_INITIALS)],
+    [MINUTE - 500, "mux", "turn_started", {}],
+    [MINUTE - 4_000, "in", "agent_message_chunk", reply("A 429 is not retried; it fails at once.")],
+    [MINUTE - 4_500, "mux", "turn_result", { status: "completed" }],
   ]);
 
 function records(steps: Step[]): EventRecord[] {
