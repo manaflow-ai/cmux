@@ -112,4 +112,71 @@ extension ScreenContentView {
         return copy
     }
 }
+/// A V0/V2 close on a CURVE SET curve (``FilmCloseVariant/frameCurve``; never ships): each pane and divider frame moves from
+/// where it showed when the close began to its target by the curve's progress at the time the motion has run (the springs'
+/// frame clock: each step's `dt`), and lands when the curve ends (a spring once it stays within 0.5 pt of rest).
+struct FilmCurveRun {
+    var elapsed: Double = 0
+    let shape: FilmCloseVariant.Shape
+    let end: Double
+    let panes: [PaneID: (from: CGRect, to: CGRect)]
+    let dividers: [DividerHandleView.Kind: (from: CGRect, to: CGRect)]
+}
+
+extension ScreenContentView {
+    /// A close's frames start moving (`reconcile`): on the selected curve, if one is named; a run already going to the same
+    /// targets keeps going (the close's later passes, its daemon echo, retarget nothing).
+    func startFilmCurve() {
+        guard let shape = DesignSettings.shared.filmClose.frameCurve else {
+            filmCurveRun = nil
+            return
+        }
+        if let run = filmCurveRun, run.panes.allSatisfy({ paneFrames[$0.key]?.targetRect == $0.value.to }),
+           run.dividers.allSatisfy({ dividerFrames[$0.key]?.targetRect == $0.value.to }) { return }
+        var travel: CGFloat = 0
+        func path(_ frame: AnimatedFrame) -> (from: CGRect, to: CGRect) {
+            let (a, b) = (frame.rect, frame.targetRect)
+            travel = max(travel, abs(a.minX - b.minX), abs(a.minY - b.minY), abs(a.maxX - b.maxX), abs(a.maxY - b.maxY))
+            return (a, b)
+        }
+        let panes = paneFrames.mapValues(path), dividers = dividerFrames.mapValues(path)
+        filmCurveRun = FilmCurveRun(shape: shape, end: shape.endSeconds(travel: Double(travel) * scale), panes: panes, dividers: dividers)
+        FilmCloseVariant.counters["curve_runs", default: 0] += 1
+    }
+
+    /// One frame of the curve run: nil when none runs (or a later change retargeted a frame: the springs take over from
+    /// where it shows), else whether it still moves.
+    func advanceFilmCurve(_ dt: Double) -> Bool? {
+        guard var run = filmCurveRun else { return nil }
+        guard run.panes.allSatisfy({ paneFrames[$0.key]?.targetRect == $0.value.to }),
+              run.dividers.allSatisfy({ dividerFrames[$0.key]?.targetRect == $0.value.to }) else {
+            filmCurveRun = nil
+            return nil
+        }
+        run.elapsed += dt
+        let done = run.elapsed >= run.end
+        let p = CGFloat(done ? 1 : run.shape.progress(run.elapsed))
+        func place(_ frame: inout AnimatedFrame, _ path: (from: CGRect, to: CGRect)) {
+            func lerp(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * p }
+            let minX = lerp(path.from.minX, path.to.minX), minY = lerp(path.from.minY, path.to.minY)
+            let maxX = lerp(path.from.maxX, path.to.maxX), maxY = lerp(path.from.maxY, path.to.maxY)
+            (frame.x.value, frame.y.value, frame.width.value, frame.height.value) = (minX, minY, max(0, maxX - minX), max(0, maxY - minY))
+            (frame.x.velocity, frame.y.velocity, frame.width.velocity, frame.height.velocity) = (0, 0, 0, 0)
+            frame.alpha.snap()
+            if done { frame.snapGeometry() }
+        }
+        for key in Array(paneFrames.keys) {
+            guard var frame = paneFrames[key] else { continue }
+            if let path = run.panes[key] { place(&frame, path) } else { frame.snap() }
+            paneFrames[key] = frame
+        }
+        for key in Array(dividerFrames.keys) {
+            guard var frame = dividerFrames[key] else { continue }
+            if let path = run.dividers[key] { place(&frame, path) } else { frame.snap() }
+            dividerFrames[key] = frame
+        }
+        filmCurveRun = done ? nil : run
+        return !done
+    }
+}
 #endif

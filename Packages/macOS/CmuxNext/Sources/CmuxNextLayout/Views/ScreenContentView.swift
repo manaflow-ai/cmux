@@ -44,6 +44,10 @@ final class ScreenContentView: NSView {
     var holdsContentForKeyResize = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// CLOSE VARIANTS film selector (never ships): a V0/V2 close moving its frames on a CURVE SET curve (``FilmCurveRun``).
+    var filmCurveRun: FilmCurveRun?
+    #endif
     /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
     /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
     /// A press during the motion (rapid Cmd-D) keeps the hold, so the grids go once for the whole chain.
@@ -468,6 +472,9 @@ final class ScreenContentView: NSView {
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
         // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
         leadsFrame = departing && animateFrames && !covering && !wasMoving
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if departing, animateFrames, !covering { startFilmCurve() }
+        #endif
         // A split's or a close's terminals no longer keep their grids until the spring lands (Lawrence
         // 2026-10-23: they resize at the start): each resized pane hears its final size in the step that
         // starts or retargets its spring (`PaneHostView.announceRest`, `PaneMotionTargeting`).
