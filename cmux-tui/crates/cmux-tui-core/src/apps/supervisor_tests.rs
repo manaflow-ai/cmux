@@ -49,7 +49,7 @@ fn scripted_app_host() {
             ToHost::Init { main, .. } if main.contains("THROW_AT_INIT") => {
                 send(FromHost::InitFailed {
                     error: "SyntaxError: expecting ';' at main.js:2:12".into(),
-                })
+                });
             }
             ToHost::Init { .. } => send(FromHost::Ready { runtime: "scripted".into() }),
             ToHost::Mount { mount, export, .. } => {

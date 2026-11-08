@@ -129,8 +129,7 @@ fn a_save_that_does_not_load_keeps_the_last_good_mount() {
     save_spy_script(&f.state, "var __cmuxAppExports = {};");
     f.supervisor.reload_local_apps(&prints);
     let scene = f.wait("the good save's scene", |e| {
-        e["event"] == "apps-scene" && e["mount_id"] == "m1"
-            || (e["event"] == "apps-mount-failed" && e["mount_id"] == "m1")
+        e["mount_id"] == "m1" && (e["event"] == "apps-scene" || e["event"] == "apps-mount-failed")
     });
     assert_eq!(scene["event"], "apps-scene", "{scene}");
     assert_eq!(scene["ops"][0]["op"], "create", "{scene}");
