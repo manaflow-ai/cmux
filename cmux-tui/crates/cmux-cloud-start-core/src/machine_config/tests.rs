@@ -192,7 +192,8 @@ fn an_apply_waits_for_a_checkout_still_filling() {
     use std::os::unix::fs::PermissionsExt as _;
     for name in ["bin/cmux", "bin/cmux-tui"] {
         let cmux = root.path().join(name);
-        std::fs::write(&cmux, "#!/bin/sh\necho \"$@\" > \"$HOME/waited\"\nexit \"$CODE\"\n").unwrap();
+        std::fs::write(&cmux, "#!/bin/sh\necho \"$@\" > \"$HOME/waited\"\nexit \"$CODE\"\n")
+            .unwrap();
         std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
     let call = "import importlib.util, sys\n\
