@@ -556,6 +556,7 @@ pub mod method {
     pub const MUX_STASH_PUSH: &str = "_acpmux/stash_push";
     pub const MUX_STASH_GET: &str = "_acpmux/stash_get";
     pub const MUX_STASH_DROP: &str = "_acpmux/stash_drop";
+    pub const MUX_STASH_MOVE: &str = "_acpmux/stash_move";
     /// The person's Accept or Dismiss on a chat's memory offer (`server/memory_inbox.rs`).
     pub const MUX_MEMORY_RESOLVE: &str = "_acpmux/memory_resolve";
     pub const MUX_ASK: &str = "_acpmux/ask";

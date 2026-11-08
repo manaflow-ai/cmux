@@ -4917,6 +4917,11 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/stash_drop", { chat, id });
   }
 
+  /// Moves `chat`'s stashed drafts onto `to`'s stack in one write (a new chat's, once it has a session).
+  moveStash(chat: string, to: string): Promise<unknown> {
+    return this.request("_acpmux/stash_move", { chat, to });
+  }
+
   /// Files under `path` (else the selected session's folder) whose path matches `query`, best
   /// first (fileSearchModel.ts). acpmux serves no file search: the native host runs it on the
   /// session host as `git.files.search`, and mock mode's in-page daemon answers it.

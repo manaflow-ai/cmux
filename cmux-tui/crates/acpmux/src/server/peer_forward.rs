@@ -114,6 +114,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_STASH_PUSH,
     method::MUX_STASH_GET,
     method::MUX_STASH_DROP,
+    method::MUX_STASH_MOVE,
 ];
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
@@ -1097,6 +1098,7 @@ mod tests {
             method::MUX_STASH_PUSH,
             method::MUX_STASH_GET,
             method::MUX_STASH_DROP,
+            method::MUX_STASH_MOVE,
         ] {
             assert!(!names_a_session(m), "{m}");
         }

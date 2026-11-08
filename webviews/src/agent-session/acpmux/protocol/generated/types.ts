@@ -1941,6 +1941,12 @@ export interface StashListParams {
   chat?: unknown;
 }
 
+export interface StashMoveParams {
+  _meta?: RequestMeta;
+  chat?: unknown;
+  to?: unknown;
+}
+
 export interface StashPushParams {
   _meta?: RequestMeta;
   attachments?: unknown;

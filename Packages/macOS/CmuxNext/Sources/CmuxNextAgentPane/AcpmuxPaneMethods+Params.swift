@@ -100,6 +100,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/stash_push": (["chat", "text", "attachments", "replaces"], []),
         "_acpmux/stash_get": (["chat", "id"], []),
         "_acpmux/stash_drop": (["chat", "id"], []),
+        "_acpmux/stash_move": (["chat", "to"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
         // `queue.stale` on another one; direct.ts answerHeld names both).

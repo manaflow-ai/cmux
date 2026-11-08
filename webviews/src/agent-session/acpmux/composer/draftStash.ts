@@ -17,12 +17,14 @@ export type StashedDraft = {
   at: number;
 };
 
-/// How the page reaches acpmux's stash (direct.ts listStash, pushStash, getStash, dropStash).
+/// How the page reaches acpmux's stash (direct.ts listStash, pushStash, getStash, dropStash, moveStash).
 export type StashTransport = {
   list(chat: string): Promise<unknown>;
   push(chat: string, text: string, attachments: readonly ComposerAttachment[], replaces?: string): Promise<unknown>;
   get(chat: string, id: string): Promise<unknown>;
   drop(chat: string, id: string): Promise<unknown>;
+  /// Moves `chat`'s whole stack onto `to`'s in one write (`stash_move`).
+  move(chat: string, to: string): Promise<unknown>;
 };
 
 const NONE: readonly StashedDraft[] = [];
@@ -163,14 +165,14 @@ export async function dropStashed(chat: string, id: string): Promise<boolean> {
   return dropped;
 }
 
-/// Moves not yet whole, by the chat they go to: tried again when that chat shows or acpmux
-/// connects again, so a push that failed midway leaves no draft where no composer looks.
+/// Moves not yet done, by the chat they go to: tried again when that chat shows or acpmux
+/// connects again, so a move that failed leaves no draft where no composer looks.
 const moves = new Map<string, Set<string>>();
 const moving = new Set<string>();
 
-/// A new chat's stack follows it once it has a session. Every draft is read whole first, so a push
-/// under the session that lets acpmux trim old chats (the new chat's own file among them) loses
-/// none; each leaves the new chat's stack only once it is stashed under the session.
+/// A new chat's stack follows it once it has a session. acpmux moves it in one write under its
+/// lock (`stash_move`): no failure midway and no trimming of old chats loses a draft, and a move
+/// tried again adds none twice.
 export async function moveStash(from: string, to: string): Promise<void> {
   if (from === to) return;
   moves.set(to, (moves.get(to) ?? new Set()).add(from));
@@ -178,27 +180,27 @@ export async function moveStash(from: string, to: string): Promise<void> {
 }
 
 async function moveNow(from: string, to: string): Promise<void> {
-  if (!transport || moving.has(from)) return;
+  const link = transport;
+  if (!link || moving.has(from)) return;
   moving.add(from);
+  changed(from);
+  changed(to);
   try {
-    let whole = await refreshStash(from);
-    const read: StashedDraft[] = [];
-    for (const row of [...(stacks.get(from) ?? NONE)].reverse()) {
-      const entry = await readStashed(from, row.id);
-      if (entry) read.push(entry);
-      else whole = false;
-    }
-    for (const entry of read) {
-      if (!(await stashDraft(to, entry.text, entry.attachments)) || !(await dropStashed(from, entry.id))) whole = false;
-    }
-    if (whole) {
+    const done = await link.move(from, to).then(
+      () => true,
+      () => false,
+    );
+    if (done && link === transport) {
       const sources = moves.get(to);
       sources?.delete(from);
       if (!sources?.size) moves.delete(to);
     }
   } finally {
     moving.delete(from);
+    changed(from);
+    changed(to);
   }
+  await Promise.all([refreshStash(from), refreshStash(to)]);
 }
 
 /// The moves into `chat` a failure left unfinished, tried again (as `chat` shows, and as acpmux

@@ -266,6 +266,7 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_STASH_PUSH,
             method::MUX_STASH_GET,
             method::MUX_STASH_DROP,
+            method::MUX_STASH_MOVE,
         ],
     },
     // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).

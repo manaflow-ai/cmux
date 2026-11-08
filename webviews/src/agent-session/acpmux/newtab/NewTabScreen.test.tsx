@@ -1204,6 +1204,8 @@ function stashDaemon() {
       );
       return { removed: true };
     },
+    // New Tab's stack never moves.
+    move: async () => ({ moved: 0 }),
   };
   return { daemon, fake };
 }

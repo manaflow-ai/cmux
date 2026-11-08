@@ -593,6 +593,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/stash_move",
+      "params": {
+        "$ref": "#/types/StashMoveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/memory_resolve",
       "params": {
         "$ref": "#/types/MemoryResolveParams"
@@ -6724,6 +6732,17 @@
           "$ref": "#/types/RequestMeta"
         },
         "chat": true
+      },
+      "type": "object"
+    },
+    "StashMoveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "to": true
       },
       "type": "object"
     },

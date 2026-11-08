@@ -63,6 +63,7 @@ nonisolated enum AcpmuxPaneMethods {
         // stash.rs): the person's own unsent text and chips, by the composer's chat key, kept in
         // acpmux so they outlive the page. Not a session's: no scope; acpmux serves the person only.
         "_acpmux/stash_list", "_acpmux/stash_push", "_acpmux/stash_get", "_acpmux/stash_drop",
+        "_acpmux/stash_move",
         // Withdraw or change a queued prompt of a session in the pane's scope (direct.ts
         // removeQueued, editQueued).
         "_acpmux/queue_remove", "_acpmux/queue_edit",

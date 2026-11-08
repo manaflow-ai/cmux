@@ -47,6 +47,14 @@ const fake: StashTransport = {
     );
     return { removed: true };
   },
+  // One write under acpmux's lock: newest first, none twice, at most five; then the source goes.
+  move: async (chat, to) => {
+    const kept = daemon.get(to) ?? [];
+    const moving = (daemon.get(chat) ?? []).filter((row) => !kept.some((own) => own.id === row.id));
+    daemon.set(to, [...kept, ...moving].sort((a, b) => b.at - a.at).slice(0, 5));
+    daemon.delete(chat);
+    return { moved: moving.length };
+  },
 };
 
 beforeEach(() => {
@@ -142,20 +150,20 @@ describe("draft stash", () => {
     expect(texts("new-b")).toEqual(["another new chat's"]);
   });
 
-  test("a move loses no draft when the first push trims the new chat's file", async () => {
+  test("a move is one request, so the page never pushes or drops a draft of it itself", async () => {
     await stashDraft("new-a", "older", []);
     await stashDraft("new-a", "newer", []);
-    // acpmux at its chat limit: the session's first push lets the new chat's file go.
+    const calls: string[] = [];
     setStashTransport({
       ...fake,
-      push: async (chat, text, attachments, replaces) => {
-        const answer = await fake.push(chat, text, attachments, replaces);
-        if (chat === "session-1") daemon.delete("new-a");
-        return answer;
-      },
+      push: (...args) => (calls.push("push"), fake.push(...args)),
+      drop: (...args) => (calls.push("drop"), fake.drop(...args)),
+      move: (...args) => (calls.push("move"), fake.move(...args)),
     });
     await moveStash("new-a", "session-1");
+    expect(calls).toEqual(["move"]);
     expect(texts("session-1")).toEqual(["newer", "older"]);
+    expect(texts("new-a")).toEqual([]);
   });
 
   test("a list read while a stash was out never takes the stash back; the stack is read again", async () => {
@@ -171,22 +179,27 @@ describe("draft stash", () => {
     expect(texts("chat")).toEqual(["fresh"]);
   });
 
-  test("a move a failed push left midway is tried again, and a failed drop shows the draft again", async () => {
+  test("a move acpmux does not take is tried again, and a failed drop shows the draft again", async () => {
     await stashDraft("new-a", "kept", []);
     let failing = true;
     setStashTransport({
       ...fake,
-      push: async (chat, text, attachments, replaces) => {
-        if (failing && chat === "session-1") throw new Error("lost the connection");
-        return fake.push(chat, text, attachments, replaces);
+      move: async (chat, to) => {
+        if (failing) throw new Error("lost the connection");
+        return fake.move(chat, to);
       },
     });
     await moveStash("new-a", "session-1");
     expect(daemon.get("new-a")?.map((row) => row.text)).toEqual(["kept"]);
+    expect(texts("new-a")).toEqual(["kept"]);
     failing = false;
     await retryMoves("session-1");
     expect(texts("session-1")).toEqual(["kept"]);
-    expect(daemon.get("new-a")).toEqual([]);
+    expect(daemon.get("new-a")).toBeUndefined();
+    // Done: shown again, the chat tries no move.
+    failing = true;
+    await retryMoves("session-1");
+    expect(texts("session-1")).toEqual(["kept"]);
     // A drop acpmux does not take: the page reads the stack again and shows the draft.
     setStashTransport({
       ...fake,

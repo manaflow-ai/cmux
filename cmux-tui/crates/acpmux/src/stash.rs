@@ -1,5 +1,5 @@
 //! The composer's stashed drafts (`_acpmux/stash_list`, `_acpmux/stash_push`, `_acpmux/stash_get`,
-//! `_acpmux/stash_drop`): a draft put aside with ⌃S and brought back later, a short stack per chat.
+//! `_acpmux/stash_drop`, `_acpmux/stash_move`): a draft put aside with ⌃S and brought back later, a short stack per chat.
 //!
 //! The pane's own storage does not outlive its page (its web views use a store that is not kept),
 //! so the stacks live here, in acpmux's home: `stash/<sha256 of the chat>.json`, one file per chat
@@ -7,9 +7,13 @@
 //! session id, or a new chat's own key until it has one. A draft is its text and its chips as the
 //! page sent them (contents included), so a reload, a new page or a relaunch brings it back whole.
 //!
-//! A list answers the chips without their contents (`data`, `text`) and the start of the text
+//! A list answers the chips without their contents (`data`, `text`, anything nested) and the start of the text
 //! ([`ROW_TEXT_CHARS`]): the row needs only a preview and the chips' count. A take is two steps: `stash_get` reads the whole draft, and `stash_drop` removes it once
 //! the composer holds it, so a page that goes away in between loses nothing.
+//!
+//! A new chat's stack follows it once it has a session: `stash_move` merges it into the session's
+//! in one write under the lock, then removes the new chat's file, so no failure midway and no
+//! trimming of old chats loses a draft, and a move tried again changes nothing more.
 //!
 //! A push may name the draft it `replaces` (a restore that puts the prompt's own draft on the stack
 //! in its place): one write takes that one out and puts the new one on top, so a full stack lets no
@@ -63,7 +67,8 @@ pub struct Draft {
 }
 
 impl Draft {
-    /// The draft as a list shows it: its chips without their contents, and at most
+    /// The draft as a list shows it: its chips' plain fields only (no contents, nothing nested such
+    /// as a video's frames), and at most
     /// [`ROW_TEXT_CHARS`] of its text, so a full stack of large drafts still lists in one message.
     pub fn row(&self) -> Value {
         let chips: Vec<Value> = self
@@ -71,9 +76,15 @@ impl Draft {
             .iter()
             .map(|chip| match chip {
                 Value::Object(map) => {
-                    let mut light: Map<String, Value> = map.clone();
-                    light.remove("data");
-                    light.remove("text");
+                    let light: Map<String, Value> = map
+                        .iter()
+                        .filter(|(key, value)| {
+                            !matches!(key.as_str(), "data" | "text")
+                                && !value.is_object()
+                                && !value.is_array()
+                        })
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect();
                     Value::Object(light)
                 }
                 other => other.clone(),
@@ -101,7 +112,7 @@ pub fn chat_path(dir: &Path, chat: &str) -> PathBuf {
     dir.join(format!("{}.json", crate::sha256::sha256_hex(chat.as_bytes())))
 }
 
-/// Serves the four methods, with the stash in [`dir`].
+/// Serves the five methods, with the stash in [`dir`].
 pub fn handle(m: &str, params: &Value) -> Result<Value, RpcError> {
     let dir = dir();
     let chat = chat_param(params)?;
@@ -133,6 +144,17 @@ pub fn handle(m: &str, params: &Value) -> Result<Value, RpcError> {
             Ok(json!({"draft": draft}))
         }
         method::MUX_STASH_DROP => Ok(json!({"removed": remove(&dir, chat, id_param(params)?)?})),
+        method::MUX_STASH_MOVE => {
+            let to = params
+                .get("to")
+                .and_then(Value::as_str)
+                .filter(|to| !to.is_empty() && to.chars().count() <= MAX_CHAT_CHARS)
+                .ok_or_else(|| {
+                    RpcError::invalid_params(format!("to must be 1 to {MAX_CHAT_CHARS} characters"))
+                })?;
+            let moved = move_stack(&dir, chat, to)?;
+            Ok(json!({"moved": moved}))
+        }
         _ => Err(RpcError::method_not_found(m)),
     }
 }
@@ -200,6 +222,41 @@ pub fn remove(dir: &Path, chat: &str, id: &str) -> Result<bool, RpcError> {
         write(&path, chat, &drafts).map_err(not_saved)?;
     }
     Ok(true)
+}
+
+/// Moves `from`'s stack onto `to`'s: one write of `to` with both, newest first and the oldest past
+/// [`STASH_LIMIT`] let go, then `from`'s file removed. A draft `to` already holds (a move a failed
+/// removal left behind) is not added again. How many drafts moved.
+pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<usize, RpcError> {
+    if from == to {
+        return Ok(0);
+    }
+    let _held = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let from_path = chat_path(dir, from);
+    let moving = load(&from_path).map_err(unreadable)?;
+    if moving.is_empty() {
+        return Ok(0);
+    }
+    let to_path = chat_path(dir, to);
+    let mut drafts = load(&to_path).map_err(unreadable)?;
+    let mut moved = 0;
+    for draft in moving {
+        if !drafts.iter().any(|d| d.id == draft.id) {
+            drafts.push(draft);
+            moved += 1;
+        }
+    }
+    drafts.sort_by(|a, b| b.at.cmp(&a.at));
+    drafts.truncate(STASH_LIMIT);
+    write(&to_path, to, &drafts).map_err(not_saved)?;
+    crate::config::refuse_lost_home(&from_path).map_err(io::Error::other).map_err(not_saved)?;
+    match fs::remove_file(&from_path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(not_saved(e)),
+    }
+    trim_chats(dir, &to_path);
+    Ok(moved)
 }
 
 /// Lets the chats written longest ago go once more than [`STASH_CHATS`] have a stack; never `keep`.
@@ -426,5 +483,70 @@ mod tests {
         let draft = push(&dir, "chat", &long, Vec::new(), None, 1).unwrap();
         assert_eq!(draft.row()["text"].as_str().unwrap().chars().count(), ROW_TEXT_CHARS);
         assert_eq!(load(&chat_path(&dir, "chat")).unwrap()[0].text, long);
+    }
+
+    #[test]
+    fn a_move_takes_the_whole_stack_newest_first_and_removes_the_source() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        push(&dir, "session", "the session's own", Vec::new(), None, 2).unwrap();
+        push(&dir, "new", "older", vec![chip("a")], None, 1).unwrap();
+        push(&dir, "new", "newer", Vec::new(), None, 3).unwrap();
+        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 2);
+        let kept = load(&chat_path(&dir, "session")).unwrap();
+        let texts: Vec<&str> = kept.iter().map(|d| d.text.as_str()).collect();
+        assert_eq!(texts, ["newer", "the session's own", "older"]);
+        assert_eq!(kept[2].attachments[0]["data"], "AAA");
+        assert!(!chat_path(&dir, "new").exists());
+        // Nothing left to move: tried again, it changes nothing.
+        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 0);
+        assert_eq!(load(&chat_path(&dir, "session")).unwrap(), kept);
+    }
+
+    #[test]
+    fn a_move_tried_again_after_a_failed_removal_adds_no_draft_twice() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        for at in 0..STASH_LIMIT as u64 {
+            push(&dir, "new", &format!("draft {at}"), Vec::new(), None, at).unwrap();
+        }
+        // The move wrote the session's stack but its source stayed (a removal that failed).
+        let source = fs::read(chat_path(&dir, "new")).unwrap();
+        move_stack(&dir, "new", "session").unwrap();
+        fs::write(chat_path(&dir, "new"), source).unwrap();
+        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 0);
+        let texts: Vec<String> =
+            load(&chat_path(&dir, "session")).unwrap().into_iter().map(|d| d.text).collect();
+        assert_eq!(texts, ["draft 4", "draft 3", "draft 2", "draft 1", "draft 0"]);
+    }
+
+    #[test]
+    fn a_move_at_the_chat_limit_loses_no_draft_of_the_new_chat() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        push(&dir, "new", "first", Vec::new(), None, 1).unwrap();
+        push(&dir, "new", "second", Vec::new(), None, 2).unwrap();
+        for at in 0..STASH_CHATS as u64 - 1 {
+            push(&dir, &format!("other {at}"), "kept", Vec::new(), None, 10 + at).unwrap();
+        }
+        // The session's stack is one chat more: the trim may let an old chat go, never the move's.
+        move_stack(&dir, "new", "session").unwrap();
+        let texts: Vec<String> =
+            load(&chat_path(&dir, "session")).unwrap().into_iter().map(|d| d.text).collect();
+        assert_eq!(texts, ["second", "first"]);
+    }
+
+    #[test]
+    fn a_list_row_holds_no_nested_media() {
+        let draft = Draft {
+            id: "d".into(),
+            text: "t".into(),
+            attachments: vec![json!({"id": "v", "kind": "video", "name": "a.mov", "frames": [{"data": "AAA"}], "poster": {"data": "BBB"}})],
+            at: 1,
+        };
+        let row = draft.row();
+        let chip = &row["attachments"][0];
+        assert_eq!(chip["name"], "a.mov");
+        assert!(chip.get("frames").is_none() && chip.get("poster").is_none());
     }
 }

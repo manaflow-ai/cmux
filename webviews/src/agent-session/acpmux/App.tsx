@@ -7189,6 +7189,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           push: (chat, text, attachments, replaces) => client.pushStash(chat, text, attachments, replaces),
           get: (chat, id) => client.getStash(chat, id),
           drop: (chat, id) => client.dropStash(chat, id),
+          move: (chat, to) => client.moveStash(chat, to),
         });
         // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).

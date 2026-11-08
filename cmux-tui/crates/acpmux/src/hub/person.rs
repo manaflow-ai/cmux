@@ -1014,7 +1014,8 @@ impl Hub {
             method::MUX_STASH_LIST
             | method::MUX_STASH_PUSH
             | method::MUX_STASH_GET
-            | method::MUX_STASH_DROP => Err(person_required("the composer's stashed drafts")),
+            | method::MUX_STASH_DROP
+            | method::MUX_STASH_MOVE => Err(person_required("the composer's stashed drafts")),
             method::MUX_PERMISSION_RESPOND => {
                 // Answered already: `respond_permission` tells this one who answered first
                 // (`permission_settled.rs`), and it changes nothing.

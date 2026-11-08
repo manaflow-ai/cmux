@@ -280,6 +280,8 @@ keyed! {
     StashGetParams: ["chat", "id"];
     /// `_acpmux/stash_list`.
     StashListParams: ["chat"];
+    /// `_acpmux/stash_move`.
+    StashMoveParams: ["chat", "to"];
     /// `_acpmux/stash_push`.
     StashPushParams: ["chat", "text", "attachments", "replaces"];
     /// `_acpmux/start_mode`.
