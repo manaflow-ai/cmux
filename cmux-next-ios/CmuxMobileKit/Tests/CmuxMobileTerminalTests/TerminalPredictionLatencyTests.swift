@@ -112,7 +112,7 @@ import UIKit
         window.addSubview(surface)
         try #require(surface.surface != nil, "libghostty created no surface")
         let prediction = try #require(surface.prediction)
-        _ = prediction.engine.prediction.set(enabled: predict, remote: true)
+        _ = prediction.engine.set(enabled: predict, remote: true)
         let remote = Remote(surface: surface, roundTrip: .milliseconds(roundTripMs), loss: loss, seed: seed)
         surface.onInput = { remote.receive($0) }
         // An echo is on screen with the first Ghostty frame presented after it was parsed.
