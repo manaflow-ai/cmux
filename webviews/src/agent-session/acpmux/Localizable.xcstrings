@@ -197280,127 +197280,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Inter (default)"
+            "value": "cmux Inter"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (افتراضي)"
+            "value": "cmux Inter"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Zadano)"
+            "value": "cmux Inter"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Predeterminado)"
+            "value": "cmux Inter"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Par défaut)"
+            "value": "cmux Inter"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Predefinito)"
+            "value": "cmux Inter"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (デフォルト)"
+            "value": "cmux Inter"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (លំនាំដើម)"
+            "value": "cmux Inter"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (기본값)"
+            "value": "cmux Inter"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Domyślny)"
+            "value": "cmux Inter"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Padrão)"
+            "value": "cmux Inter"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (По умолчанию)"
+            "value": "cmux Inter"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (ค่าเริ่มต้น)"
+            "value": "cmux Inter"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Varsayılan)"
+            "value": "cmux Inter"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (За замовчуванням)"
+            "value": "cmux Inter"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Mặc định)"
+            "value": "cmux Inter"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (默认)"
+            "value": "cmux Inter"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (預設)"
+            "value": "cmux Inter"
           }
         }
       }
@@ -198600,127 +198600,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "System (default)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "النظام"
+            "value": "النظام (افتراضي)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistemski"
+            "value": "Sistemski (Zadano)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Predeterminado)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Système"
+            "value": "Système (Par défaut)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Predefinito)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "システム"
+            "value": "システム (デフォルト)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប្រព័ន្ធ"
+            "value": "ប្រព័ន្ធ (លំនាំដើម)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "시스템"
+            "value": "시스템 (기본값)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Systemowa"
+            "value": "Systemowa (domyślna)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Padrão)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Системный"
+            "value": "Системный (По умолчанию)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ระบบ"
+            "value": "ระบบ (ค่าเริ่มต้น)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistem"
+            "value": "Sistem (Varsayılan)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Системний"
+            "value": "Системний (За замовчуванням)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hệ thống"
+            "value": "Hệ thống (Mặc định)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "系统"
+            "value": "系统 (默认)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "系統"
+            "value": "系統 (預設)"
           }
         }
       }
@@ -208570,6 +208570,13 @@
     "sessionInfo.subagent.backPlain": {"comment":"Agent pane: the Inspector's back button on a subagent's panel when what spawned it has no readable name (never its raw session id)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Back"}},"ar":{"stringUnit":{"state":"needs_review","value":"رجوع"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nazad"}},"da":{"stringUnit":{"state":"needs_review","value":"Tilbage"}},"de":{"stringUnit":{"state":"needs_review","value":"Zurück"}},"es":{"stringUnit":{"state":"needs_review","value":"Atrás"}},"fr":{"stringUnit":{"state":"needs_review","value":"Retour"}},"it":{"stringUnit":{"state":"needs_review","value":"Indietro"}},"ja":{"stringUnit":{"state":"needs_review","value":"戻る"}},"km":{"stringUnit":{"state":"needs_review","value":"ថយក្រោយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"뒤로"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tilbake"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wstecz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Voltar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Назад"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้อนกลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Geri"}},"uk":{"stringUnit":{"state":"needs_review","value":"Назад"}},"vi":{"stringUnit":{"state":"needs_review","value":"Quay lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"返回"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"返回"}}}},
     "awayRecap.label": {"comment":"Agent pane: muted lead-in of the session recap row, shown when the person comes back to a chat after 5+ minutes away; the recap text follows it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أثناء غيابك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dok niste bili tu"}},"da":{"stringUnit":{"state":"needs_review","value":"Mens du var væk"}},"de":{"stringUnit":{"state":"needs_review","value":"Während du weg warst"}},"en":{"stringUnit":{"state":"translated","value":"While you were away"}},"es":{"stringUnit":{"state":"needs_review","value":"Mientras no estabas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Pendant votre absence"}},"it":{"stringUnit":{"state":"needs_review","value":"Mentre eri via"}},"ja":{"stringUnit":{"state":"needs_review","value":"離席中のまとめ"}},"km":{"stringUnit":{"state":"needs_review","value":"ពេលអ្នកមិននៅ"}},"ko":{"stringUnit":{"state":"needs_review","value":"자리를 비운 동안"}},"nb":{"stringUnit":{"state":"needs_review","value":"Mens du var borte"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podczas Twojej nieobecności"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enquanto você esteve fora"}},"ru":{"stringUnit":{"state":"needs_review","value":"Пока вас не было"}},"th":{"stringUnit":{"state":"needs_review","value":"ระหว่างที่คุณไม่อยู่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Siz yokken"}},"uk":{"stringUnit":{"state":"needs_review","value":"Поки вас не було"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trong lúc bạn vắng mặt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你离开期间"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你離開期間"}}}},
     "awayRecap.dismiss": {"comment":"Agent pane: accessibility label and tooltip of the × button that hides the session recap row","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء الملخص"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbaci sažetak"}},"da":{"stringUnit":{"state":"needs_review","value":"Luk opsummering"}},"de":{"stringUnit":{"state":"needs_review","value":"Zusammenfassung ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Dismiss recap"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartar resumen"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer le récapitulatif"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiudi riepilogo"}},"ja":{"stringUnit":{"state":"needs_review","value":"まとめを閉じる"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទសេចក្ដីសង្ខេប"}},"ko":{"stringUnit":{"state":"needs_review","value":"요약 닫기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lukk sammendrag"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zamknij podsumowanie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Dispensar resumo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть сводку"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดสรุป"}},"tr":{"stringUnit":{"state":"needs_review","value":"Özeti kapat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати підсумок"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đóng tóm tắt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"关闭回顾"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"關閉回顧"}}}},
+    "memoryInbox.label": {"comment":"Agent pane: accessibility label of the memory inbox card, which offers facts to add to the project's instructions file. {file} is the file name, e.g. CLAUDE.md","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ملاحظات لـ {file}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Bilješke za {file}"}},"da":{"stringUnit":{"state":"needs_review","value":"Noter til {file}"}},"de":{"stringUnit":{"state":"needs_review","value":"Notizen für {file}"}},"en":{"stringUnit":{"state":"translated","value":"Notes for {file}"}},"es":{"stringUnit":{"state":"needs_review","value":"Notas para {file}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Notes pour {file}"}},"it":{"stringUnit":{"state":"needs_review","value":"Note per {file}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{file} へのメモ"}},"km":{"stringUnit":{"state":"needs_review","value":"កំណត់ចំណាំសម្រាប់ {file}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{file}에 추가할 메모"}},"nb":{"stringUnit":{"state":"needs_review","value":"Notater for {file}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Notatki do {file}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Notas para {file}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Заметки для {file}"}},"th":{"stringUnit":{"state":"needs_review","value":"บันทึกสำหรับ {file}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{file} için notlar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Нотатки для {file}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ghi chú cho {file}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{file} 的笔记"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{file} 的筆記"}}}},
+    "memoryInbox.newFile": {"comment":"Agent pane: muted tag beside the file name on the memory inbox card when the instructions file does not exist yet and Accept creates it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ملف جديد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nova datoteka"}},"da":{"stringUnit":{"state":"needs_review","value":"Ny fil"}},"de":{"stringUnit":{"state":"needs_review","value":"Neue Datei"}},"en":{"stringUnit":{"state":"translated","value":"New file"}},"es":{"stringUnit":{"state":"needs_review","value":"Archivo nuevo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouveau fichier"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuovo file"}},"ja":{"stringUnit":{"state":"needs_review","value":"新規ファイル"}},"km":{"stringUnit":{"state":"needs_review","value":"ឯកសារថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 파일"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ny fil"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nowy plik"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Novo arquivo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Новый файл"}},"th":{"stringUnit":{"state":"needs_review","value":"ไฟล์ใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni dosya"}},"uk":{"stringUnit":{"state":"needs_review","value":"Новий файл"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tệp mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"新文件"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新檔案"}}}},
+    "memoryInbox.accept": {"comment":"Agent pane: button on one fact of the memory inbox card that writes it into the project's instructions file","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبول"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prihvati"}},"da":{"stringUnit":{"state":"needs_review","value":"Accepter"}},"de":{"stringUnit":{"state":"needs_review","value":"Annehmen"}},"en":{"stringUnit":{"state":"translated","value":"Accept"}},"es":{"stringUnit":{"state":"needs_review","value":"Aceptar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Accepter"}},"it":{"stringUnit":{"state":"needs_review","value":"Accetta"}},"ja":{"stringUnit":{"state":"needs_review","value":"追加"}},"km":{"stringUnit":{"state":"needs_review","value":"ទទួលយក"}},"ko":{"stringUnit":{"state":"needs_review","value":"수락"}},"nb":{"stringUnit":{"state":"needs_review","value":"Godta"}},"pl":{"stringUnit":{"state":"needs_review","value":"Akceptuj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aceitar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Принять"}},"th":{"stringUnit":{"state":"needs_review","value":"ยอมรับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kabul et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Прийняти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chấp nhận"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"接受"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"接受"}}}},
+    "memoryInbox.dismiss": {"comment":"Agent pane: button on one fact of the memory inbox card that drops it without writing it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تجاهل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbaci"}},"da":{"stringUnit":{"state":"needs_review","value":"Afvis"}},"de":{"stringUnit":{"state":"needs_review","value":"Verwerfen"}},"en":{"stringUnit":{"state":"translated","value":"Dismiss"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ignorer"}},"it":{"stringUnit":{"state":"needs_review","value":"Ignora"}},"ja":{"stringUnit":{"state":"needs_review","value":"却下"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់"}},"ko":{"stringUnit":{"state":"needs_review","value":"무시"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avvis"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odrzuć"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Dispensar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отклонить"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yoksay"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відхилити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bỏ qua"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"忽略"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"略過"}}}},
+    "memoryInbox.acceptAll": {"comment":"Agent pane: button on the memory inbox card that writes every remaining fact into the instructions file","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبول الكل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prihvati sve"}},"da":{"stringUnit":{"state":"needs_review","value":"Accepter alle"}},"de":{"stringUnit":{"state":"needs_review","value":"Alle annehmen"}},"en":{"stringUnit":{"state":"translated","value":"Accept all"}},"es":{"stringUnit":{"state":"needs_review","value":"Aceptar todo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Tout accepter"}},"it":{"stringUnit":{"state":"needs_review","value":"Accetta tutto"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべて追加"}},"km":{"stringUnit":{"state":"needs_review","value":"ទទួលយកទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모두 수락"}},"nb":{"stringUnit":{"state":"needs_review","value":"Godta alle"}},"pl":{"stringUnit":{"state":"needs_review","value":"Akceptuj wszystkie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aceitar tudo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Принять все"}},"th":{"stringUnit":{"state":"needs_review","value":"ยอมรับทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tümünü kabul et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Прийняти всі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chấp nhận tất cả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"全部接受"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"全部接受"}}}},
+    "memoryInbox.dismissed": {"comment":"Agent pane: the memory inbox card's one-line note once every offered fact was dismissed","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تم التجاهل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbačeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Afvist"}},"de":{"stringUnit":{"state":"needs_review","value":"Verworfen"}},"en":{"stringUnit":{"state":"translated","value":"Dismissed"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ignoré"}},"it":{"stringUnit":{"state":"needs_review","value":"Ignorato"}},"ja":{"stringUnit":{"state":"needs_review","value":"却下済み"}},"km":{"stringUnit":{"state":"needs_review","value":"បានបោះបង់"}},"ko":{"stringUnit":{"state":"needs_review","value":"무시함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avvist"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odrzucono"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Dispensado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отклонено"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yoksayıldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відхилено"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã bỏ qua"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已忽略"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已略過"}}}},
+    "memoryInbox.added": {"comment":"Agent pane: the memory inbox card's one-line note once every offered fact was settled. {n} is how many were written, {file} the instructions file (CLAUDE.md)","extractionState":"manual","localizations":{"ar":{"variations":{"plural":{"zero":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}},"one":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}},"two":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}},"few":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}}}}},"bs":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Dodana {n} bilješka u {file}"}},"few":{"stringUnit":{"state":"needs_review","value":"Dodane {n} bilješke u {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Dodano {n} bilješki u {file}"}}}}},"da":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Tilføjede {n} note til {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Tilføjede {n} noter til {file}"}}}}},"de":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} Notiz zu {file} hinzugefügt"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} Notizen zu {file} hinzugefügt"}}}}},"en":{"variations":{"plural":{"one":{"stringUnit":{"state":"translated","value":"Added {n} note to {file}"}},"other":{"stringUnit":{"state":"translated","value":"Added {n} notes to {file}"}}}}},"es":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Se añadió {n} nota a {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"Se añadieron {n} notas a {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Se añadieron {n} notas a {file}"}}}}},"fr":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} note ajoutée à {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} notes ajoutées à {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} notes ajoutées à {file}"}}}}},"it":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Aggiunta {n} nota a {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"Aggiunte {n} note a {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Aggiunte {n} note a {file}"}}}}},"ja":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"{file} に {n} 件のメモを追加しました"}}}}},"km":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"បានបន្ថែមកំណត់ចំណាំ {n} ទៅ {file}"}}}}},"ko":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"{file}에 메모 {n}개를 추가했습니다"}}}}},"nb":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"La til {n} notat i {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"La til {n} notater i {file}"}}}}},"pl":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Dodano {n} notatkę do {file}"}},"few":{"stringUnit":{"state":"needs_review","value":"Dodano {n} notatki do {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"Dodano {n} notatek do {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Dodano {n} notatki do {file}"}}}}},"pt-BR":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} nota adicionada a {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} notas adicionadas a {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} notas adicionadas a {file}"}}}}},"ru":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Добавлена {n} заметка в {file}"}},"few":{"stringUnit":{"state":"needs_review","value":"Добавлены {n} заметки в {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"Добавлено {n} заметок в {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Добавлено {n} заметки в {file}"}}}}},"th":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"เพิ่มบันทึก {n} รายการใน {file} แล้ว"}}}}},"tr":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{file} dosyasına {n} not eklendi"}},"other":{"stringUnit":{"state":"needs_review","value":"{file} dosyasına {n} not eklendi"}}}}},"uk":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Додано {n} нотатку до {file}"}},"few":{"stringUnit":{"state":"needs_review","value":"Додано {n} нотатки до {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"Додано {n} нотаток до {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Додано {n} нотатки до {file}"}}}}},"vi":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"Đã thêm {n} ghi chú vào {file}"}}}}},"zh-Hans":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"已向 {file} 添加 {n} 条笔记"}}}}},"zh-Hant":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"已向 {file} 新增 {n} 則筆記"}}}}}}},
     "sessionInfo.subagent.back": {
       "comment": "Agent pane: the Inspector's back button on a subagent's panel, to what spawned it (the chat, or its parent subagent)",
       "extractionState": "manual",
