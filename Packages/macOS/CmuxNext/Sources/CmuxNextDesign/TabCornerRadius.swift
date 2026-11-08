@@ -1,4 +1,5 @@
 public import CoreGraphics
+public import Foundation
 
 /// The one tab shape: every tab pill, the strip's + and a tab's hover card share
 /// `tabCornerRadius`, concentric with the card the strip sits in, in every window style
@@ -10,12 +11,25 @@ public import CoreGraphics
 /// `tabStripCardInset` points in from the card's top and leading edges (the same gap on both,
 /// `PaneChromeMetrics`), so its radius is the card's less that inset.
 extension Metrics {
-    /// The macOS 26 titled-window corner radius: what `NSWindow.frameCornerRadius` returns when
-    /// AppKit reports none, and the window corner the curved main pane, and so the tabs, are
-    /// concentric with. A fullscreen window has square corners and a main pane of
-    /// `mainPaneCornerRadius`; the tabs keep the windowed radius there, so a fullscreen toggle
+    /// This Mac's titled-window corner radius (``standardWindowCornerRadius(macOSMajor:)``): what
+    /// `NSWindow.frameCornerRadius` returns when AppKit reports none, and the window corner the
+    /// curved main pane, and so the tabs, are concentric with. A fullscreen window has square
+    /// corners; the main pane and the tabs keep the windowed radius there, so a fullscreen toggle
     /// never reshapes every tab.
-    public static let standardWindowCornerRadius: CGFloat = 16
+    public static var standardWindowCornerRadius: CGFloat {
+        standardWindowCornerRadius(macOSMajor: runningMacOSMajor)
+    }
+
+    /// The running macOS major version, read once (it cannot change while the app runs).
+    private static let runningMacOSMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+
+    /// The corner radius of a titled window on macOS `macOSMajor`, as AppKit draws it: 16 pt from
+    /// macOS 26 on (measured on 27: titled, full-size content and every toolbar style alike),
+    /// 10 pt on macOS 11 through 15. Lawrence 2026-11-07: "we are not concentric with macos window
+    /// ... make it all concentric with macos windows by default".
+    public static func standardWindowCornerRadius(macOSMajor: Int) -> CGFloat {
+        16
+    }
 
     /// The radius of the rounded card whose top-leading corner a top-row pane's tab strip sits
     /// in: the pane's own card under Floating Panes, else the curved main pane's card when no

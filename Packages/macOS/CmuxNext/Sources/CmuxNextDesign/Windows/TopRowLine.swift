@@ -6,7 +6,13 @@ public import CmuxNextDesignTokens
 /// Forward), the sidebar's + and the top row's tab pills all center on it, at every density.
 /// Debug Settings `chrome.topRowLine` keeps the variants measured for the change:
 public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The default: everything centers on the traffic lights' line, the one line the window cannot
+    /// The default: the main pane's card keeps the gutter at the top as at the sides, so its corner
+    /// is concentric with the window's (Lawrence 2026-11-07: "concentricity padding on top of tabbar
+    /// is bad", "make it all concentric with macos windows by default"). The top row's pills sit in
+    /// their strip as in every other row, and the toolbar band, the sidebar's + and the pane's
+    /// buttons center on the pills' line; only the traffic lights, which macOS draws, keep their own.
+    case concentric
+    /// Everything centers on the traffic lights' line, the one line the window cannot
     /// move; the main pane's card moves down to bring the top row's pills to it, and the pills keep
     /// equal gaps above and below them (#38054). Where the card cannot reach it, the line is the pills'.
     case lights
@@ -23,7 +29,8 @@ public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable
 
     public var tunableTitle: String {
         switch self {
-        case .lights: "Traffic lights' line (default)"
+        case .concentric: "Even inset, concentric with the window (default)"
+        case .lights: "Traffic lights' line"
         case .tabs: "The tabs' line"
         case .titlebar: "Middle of the titlebar row"
         case .off: "Off (pills on their strip's padding)"
@@ -45,13 +52,14 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
     public init(centerY: CGFloat) { self.centerY = centerY }
 
     /// The line for `look`: the lights' center (`lights`, `off`), the pill center the top row's tabs
-    /// keep on their own padding (`tabs`, ``tabsCenterY(_:scale:)``), or the titlebar row's middle
-    /// (`titlebar`).
+    /// keep on their own padding (`tabs`, ``tabsCenterY(_:scale:)``), that center below a card
+    /// `concentricCardTop` down (`concentric`, the gutter), or the titlebar row's middle (`titlebar`).
     public static func resolve(_ look: TopRowLineLook, lightsCenterY: CGFloat, tabsCenterY: CGFloat,
-                               titlebarHeight: CGFloat) -> TopRowLine {
+                               titlebarHeight: CGFloat, concentricCardTop: CGFloat = 0) -> TopRowLine {
         switch look {
         case .lights, .off: TopRowLine(centerY: lightsCenterY)
         case .tabs: TopRowLine(centerY: tabsCenterY)
+        case .concentric: TopRowLine(centerY: lightsCenterY)
         case .titlebar: TopRowLine(centerY: titlebarHeight / 2)
         }
     }
@@ -117,7 +125,8 @@ extension WindowTitlebar {
         let lightsCenter = content.bounds.maxY - content.convert(lights, from: nil).midY
         return TopRowLine.resolve(look, lightsCenterY: lightsCenter,
                                   tabsCenterY: TopRowLine.tabsCenterY(.current, scale: window.backingScaleFactor),
-                                  titlebarHeight: Metrics.titlebarHeight)
+                                  titlebarHeight: Metrics.titlebarHeight,
+                                  concentricCardTop: Metrics.floatingPanes ? Metrics.mainPaneGutter : Metrics.windowEdgeInset(Metrics.mainPaneGutter, in: window))
     }
 
     /// The live pane chrome with the strip as tall as panes lay it out (`resolvedStripHeight`, a device
@@ -135,6 +144,7 @@ extension WindowTitlebar {
     public static func topRowCardTop(centeringPillOn centerY: CGFloat, gutter: CGFloat, in window: NSWindow,
                                      look: TopRowLineLook = TopRowLineLook.tunable.value) -> CGFloat {
         guard !Metrics.floatingPanes else { return gutter }
+        // Concentric: the gutter on top as at the sides, so the card's corner shares the window's center.
         let scale = window.backingScaleFactor
         guard look != .off else {
             return Metrics.windowEdgeInset(min(gutter, PaneChromeMetrics.current.cardTopKeepingStripCentering(centeringPillOn: centerY, scale: scale)), in: window)

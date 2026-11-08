@@ -449,6 +449,7 @@ public final class PaneToolbarView: NSView {
         let y = buttonTop
         appliedButtonTop = y
         moreButton.frame = moreFrame()
+        moreButton.plateCornerRadius = Self.moreCornerRadius(inset: Self.trailingGap)
         let allButtons = buttons + nativeButtons
         let trailingSlot = hasMore || reservedCount > allButtons.count ? 1 : 0
         let widths = allButtons.map(\.preferredWidth)
@@ -480,6 +481,14 @@ public final class PaneToolbarView: NSView {
     func moreFrame() -> NSRect {
         let side = TitlebarBandButton.side
         return NSRect(x: max(0, bounds.width - Self.trailingGap - side), y: buttonTop, width: side, height: side)
+    }
+
+    /// The ⋮ plate's radius `inset` points inside the card's top-trailing corner the bar rests in:
+    /// concentric with it (the card's radius, `Metrics.tabStripCardRadius`, else the one outer
+    /// radius, less the inset), as the first tab is with the top-leading corner. Lawrence 2026-11-07
+    /// on the window's top-right ⋮: "needs to be concentric (related to window concentricity)".
+    static func moreCornerRadius(inset: CGFloat) -> CGFloat {
+        Metrics.itemCornerRadius
     }
 
     /// The last button's gap to the trailing edge: its center on the pane's trailing control column,
