@@ -100,7 +100,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextIcons/Icon.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconCanvas.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/View+Icon.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextResources/TaskManager/TaskManagerView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/AddedServerBlock.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ChiefPlacementRow.swift
