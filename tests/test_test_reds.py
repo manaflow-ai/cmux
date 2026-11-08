@@ -892,6 +892,62 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         verdict = reds.classify_web([replay(charged=[f"{CAPSULES} > {CAPSULE_TEST}"]), head], [head])
         self.assertTrue(verdict.own)
 
+    def test_a_replay_names_only_its_head_rerun_and_final_verdict(self):
+        # cmux#34111's replay (2): the merge parent timed out a file; the head re-run then passed one charged test.
+        named, again = f"{CAPSULES} > {CAPSULE_TEST}", "test/composer-footer-plain.test.ts > rests flat"
+        merge_parent = log("##[group]TIMEOUT test/transcript-toggle.test.ts", "##[endgroup]",
+                           "### webviews tests: 1 files", "TIMEOUT test/transcript-toggle.test.ts (limit 120s)")
+        text = "\n".join([merge_parent, replay(charged=[named, again]), log("re-running alone on the head:"),
+                          web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)])),
+                          replay(charged=[named], shared=[again])])
+        found = reds.web_failures(text)
+        self.assertEqual(found.charged, {named})
+        self.assertEqual(found.timed_out, set())
+        self.assertNotIn("transcript-toggle", "".join(reds.read(reds.web_head_part(text)).truncated))
+        self.assertIn("transcript-toggle", "".join(reds.read(text).truncated))
+        self.assertFalse(reds.classify_web_window(
+            [text, web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))],
+            iter([("base run 1", [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))])])).own)
+        # A replay with no head re-run holds no run of the head.
+        self.assertEqual(reds.web_head_part("\n".join([merge_parent, replay(charged=[named])])), "")
+        self.assertEqual(reds.web_failures("\n".join([merge_parent, replay(charged=[named])])).timed_out, set())
+
+    def test_a_replay_compares_only_what_its_final_verdict_charged_in_a_shared_file(self):
+        # Review F2 on #38380: the head failed A and B in one file; the final verdict charged A only (B passed alone).
+        # B is not compared, so the base failing A alone excuses the replay; an unnamed diagnostic there still counts.
+        a, b = f"{CAPSULES} > {CAPSULE_TEST}", f"{CAPSULES} > rests flat"
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87), ("rests flat", "boom", 9)]))
+        text = "\n".join([replay(charged=[a, b]), log("re-running alone on the head:"),
+                          web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)])), replay(charged=[a], shared=[b])])
+        base = [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]
+        self.assertFalse(reds.classify_web_window([text, head], iter([("run 1", base)])).own)
+        self.assertFalse(reds.classify_web([text, head], base).own)
+        unhandled = head.replace("### webviews tests:", f"##[group]FAIL {CAPSULES}\nerror: thrown outside a test\n"
+                                 "##[endgroup]\n### webviews tests:")
+        self.assertTrue(reds.classify_web_window([text, unhandled], iter([("run 1", base)])).own)
+
+    def test_a_window_matches_each_test_on_any_one_run_and_reads_no_further(self):
+        other = "test/composer-footer-plain.test.ts"
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]), (other, [("rests flat", "boom", 9)]))
+        read = []
+
+        def windows():
+            for label, logs in (("run 3", [web_job((CAPSULES, [(CAPSULE_TEST, "other error", 87)]))]),
+                                ("run 2", [web_job((other, [("rests flat", "boom", 9)]))]),
+                                ("run 1", [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]),
+                                ("run 0", [None])):
+                read.append(label)
+                yield label, logs
+        verdict = reds.classify_web_window([head], windows())
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(read, ["run 3", "run 2", "run 1"])
+        verdict = reds.classify_web_window([head], iter([("run 3", [web_job((CAPSULES, [(CAPSULE_TEST, "x", 87)]))])]))
+        self.assertTrue(verdict.own)
+        self.assertIn("1 failing test(s) pass or do not run on run 3: test/composer-footer-plain.test.ts > rests flat",
+                      verdict.reasons)
+        self.assertTrue(any("fail on none of run 3 the same way" in reason for reason in verdict.reasons))
+        self.assertTrue(reds.classify_web_window([head], iter([])).own)
+
     def test_retry_only_failure_cannot_be_excused_by_the_first_attempt(self):
         head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
         head = head.replace("##[endgroup]", "--- retry, alone ---\nerror: new retry failure\n(fail) " + CAPSULE_TEST + "\n##[endgroup]")

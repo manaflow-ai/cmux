@@ -5229,6 +5229,16 @@
      "presence": "required",
      "nullable": false
     },
+    "status": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentState"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`."
+    },
     "source": {
      "type": {
       "kind": "ref",

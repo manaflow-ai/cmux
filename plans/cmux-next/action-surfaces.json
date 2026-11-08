@@ -43123,13 +43123,25 @@
             }
           ],
           "when" : "surfaceKind != page && !codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "-",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != terminal"
         }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "-",
+        "key" : ",",
         "modifiers" : [
-          "ctrl"
+          "opt",
+          "cmd"
         ]
       },
       "id" : "focusHistoryBack",
@@ -43169,14 +43181,26 @@
             }
           ],
           "when" : "surfaceKind != page && !codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "-",
+              "modifiers" : [
+                "ctrl",
+                "shift"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != terminal"
         }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "-",
+        "key" : ".",
         "modifiers" : [
-          "ctrl",
-          "shift"
+          "opt",
+          "cmd"
         ]
       },
       "id" : "focusHistoryForward",

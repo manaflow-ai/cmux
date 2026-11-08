@@ -42,6 +42,15 @@ public final class OverflowButton: ClickableButton {
     public var showsMenu = false {
         didSet { if showsMenu != oldValue { changeHover { $0.pressed = showsMenu } } }
     }
+    /// The hover look (``ChromeHoverStyle``): a rounded plate by default; the pane tab bar's ⋮ takes the tab bar's
+    /// style so it matches the + and chevron beside it.
+    public var hoverStyle: ChromeHoverStyle = .plate {
+        didSet {
+            guard hoverStyle != oldValue else { return }
+            hover.paintsFill = hoverStyle.paintsFill
+            needsDisplay = true
+        }
+    }
     private var renderedSize: CGFloat = 0
 
     public init(label: String) {
@@ -106,9 +115,11 @@ public final class OverflowButton: ClickableButton {
     nonisolated override public var wantsUpdateLayer: Bool { true }
 
     override public func updateLayer() {
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        layer?.cornerRadius = hoverStyle == .circle ? min(bounds.width, bounds.height) / 2 : Metrics.itemCornerRadius
         performWithTheme {
-            contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
+            // Without a fill, a press or an open menu shows in the glyph's own ink, as the tab bar's + does.
+            let pressedInk = hoverStyle == .glyph ? Palette.litGlyph : Palette.textPrimary
+            contentTintColor = tintOverride ?? (hover.state.pressed ? pressedInk : hover.state.hovering ? Palette.textPrimary : Palette.textSecondary)
         }
         hover.refresh(animated: false)
     }

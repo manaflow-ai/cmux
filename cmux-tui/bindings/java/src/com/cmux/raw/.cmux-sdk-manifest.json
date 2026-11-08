@@ -57,8 +57,8 @@
     },
     {
       "path": "AgentRecord.java",
-      "sha256": "6b92f6f86a3e23879109db7f03ba27df6dd5ddda1312fc0afb97547c901b143d",
-      "size": 8266
+      "sha256": "832f6d3cbca97bf64f6901090730ab32c08bc7ad4964efbe4a833d2165162a90",
+      "size": 9217
     },
     {
       "path": "AgentReportSource.java",
@@ -2192,7 +2192,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9509934b5736a0d09cc8e5a140e0707bd9bc0821a97e2dc37016f40c50732a8c",
+      "sha256": "1612cf060f2713a05177d6d05b1b35c703dc16229ed625d09353989c59578a39",
       "size": 8000
     },
     {
@@ -3592,7 +3592,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "ee4b3937d97da28c53db379446b34c56136f210d18a45700fd142ed157b7f47b",
+  "ir_sha256": "58e8230ddaafa705143a7635243743758363e04cf41a15d084c13111a198065f",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
