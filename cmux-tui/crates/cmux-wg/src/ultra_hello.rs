@@ -148,10 +148,9 @@ impl Negotiation {
     /// The hello to send now, if one is due; the caller sends it (once a
     /// session exists) and reports it with [`Negotiation::sent`].
     pub(crate) fn due(&self, now: Instant) -> Option<Hello> {
-        let retry = !self.acknowledged
-            && self.sent < TRIES
-            && self.next.is_none_or(|at| now >= at);
-        (self.answer || retry).then_some(Hello { mode: self.configured, heard: self.peer.is_some() })
+        let retry = !self.acknowledged && self.sent < TRIES && self.next.is_none_or(|at| now >= at);
+        (self.answer || retry)
+            .then_some(Hello { mode: self.configured, heard: self.peer.is_some() })
     }
 
     pub(crate) fn sent(&mut self, now: Instant) {
@@ -181,7 +180,8 @@ mod tests {
 
     #[test]
     fn a_hello_round_trips_through_its_packet() {
-        let (a, b) = (IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
+        let (a, b) =
+            (IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
         for mode in [UltraMode::Off, UltraMode::Duplicate { copies: 3 }, FEC, RS] {
             for heard in [false, true] {
                 let hello = Hello { mode, heard };

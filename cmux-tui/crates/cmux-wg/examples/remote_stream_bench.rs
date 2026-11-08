@@ -521,7 +521,11 @@ async fn start_wg(args: &Args) -> io::Result<(WgNet, WgNet, SocketAddr, SocketAd
     let viewer = WgNet::start(pair.client, client_socket).await.map_err(err)?;
     // `CMUX_WG_ULTRA_HOST` starts the host in its own mode (`off`: only the
     // viewer turned ultra mode on, as with an app setting).
-    let host = match std::env::var("CMUX_WG_ULTRA_HOST").ok().filter(|v| !v.trim().is_empty()).and_then(|v| cmux_wg::UltraMode::parse(&v)) {
+    let host = match std::env::var("CMUX_WG_ULTRA_HOST")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .and_then(|v| cmux_wg::UltraMode::parse(&v))
+    {
         Some(mode) => {
             WgNet::start_with_ultra(pair.server, SocketPath::new(server_socket, None), mode)
                 .map_err(err)?

@@ -400,11 +400,16 @@ impl Driver {
             };
             let watchdog = self.watchdog.deadline(self.pacer.srtt());
             let hello = self.negotiation.deadline();
-            let next_tick =
-                [self.schedule.next_tick(), self.probe_deadline, self.pace_deadline, watchdog, hello]
-                    .into_iter()
-                    .flatten()
-                    .min();
+            let next_tick = [
+                self.schedule.next_tick(),
+                self.probe_deadline,
+                self.pace_deadline,
+                watchdog,
+                hello,
+            ]
+            .into_iter()
+            .flatten()
+            .min();
             let timers = async {
                 match next_tick {
                     Some(at) => tokio::time::sleep_until(at).await,

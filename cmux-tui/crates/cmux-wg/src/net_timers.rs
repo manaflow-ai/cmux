@@ -9,8 +9,8 @@ use tokio::time::Instant;
 
 use super::Driver;
 use crate::probing;
-use crate::ultra_hello;
 use crate::timers::SESSION_FRESH;
+use crate::ultra_hello;
 use crate::underlay::Underlay as _;
 
 /// Waits before each repeat of the shutdown resets: 0.2, 0.4, 0.8 and 1.6 s
