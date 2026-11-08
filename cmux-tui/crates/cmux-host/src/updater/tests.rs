@@ -869,3 +869,21 @@ fn a_rollback_refused_by_a_bind_in_flight_stops_new_binds() {
     let lapsed = T0_MS + gate::BIND_IN_FLIGHT_FOR.as_millis() as u64;
     assert!(cli.run_test(lapsed, false, |_| ()).is_ok(), "a dead bind's mark outlived its bound");
 }
+
+/// Review of #38731: repairing an unparsable gate state keeps the bind
+/// barrier. The bind that was in flight when the file broke may still be,
+/// so a rollback waits for a fresh in-flight bound before it flips.
+#[test]
+fn a_repaired_gate_state_keeps_a_bind_in_flight() {
+    let (dir, _service, cli) = gate_handles();
+    let paths = Paths::new(dir.path());
+    std::fs::create_dir_all(paths.at(gate::GATE_FILE).parent().unwrap()).unwrap();
+    std::fs::write(paths.at(gate::GATE_FILE), b"{not json").unwrap();
+    let mut ran = false;
+    let refused = cli.run_test(T0_MS, false, |_| ran = true);
+    assert!(matches!(refused, Err(gate::Refused::BindInFlight(_))), "{refused:?}");
+    assert!(!ran, "a rollback flipped over a repaired gate state");
+    let lapsed = T0_MS + gate::BIND_IN_FLIGHT_FOR.as_millis() as u64;
+    assert!(cli.run_test(lapsed, false, |_| ran = true).is_ok());
+    assert!(ran, "the repaired barrier outlived its bound");
+}
