@@ -170,9 +170,12 @@ public struct CloudCarrierDial: Equatable, Sendable {
             let (generation, account) = (streams?.generation ?? 0, auth.accountKey)
             (self.cli, self.dial, self.streams, self.generation) = (cli, dial, streams, generation)
             environment = {
-                let access = try await auth.tokens().access
-                // Checked after the token is read: a switch during the read hands it to no one.
-                guard await auth.accountKey == account, (streams?.generation ?? 0) == generation else { throw Self.fenced }
+                let current: @Sendable () async -> Bool = { await auth.accountKey == account && (streams?.generation ?? 0) == generation }
+                guard await current() else { throw Self.fenced }
+                let access: String
+                do { access = try await auth.tokens().access } catch { if await current() { throw error }; throw Self.fenced }
+                // Checked again after the read: a switch during it hands the token to no one.
+                guard await current() else { throw Self.fenced }
                 return CloudCarrierDial.environment(platform: platform, accessToken: access, team: team, stateDirectory: stateDirectory)
             }
         }

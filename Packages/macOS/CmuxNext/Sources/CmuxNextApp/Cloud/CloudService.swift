@@ -304,7 +304,7 @@ final class CloudService {
             await auth.awaitRestored()
             var scope: String?? // The account and team: a change fences the old link, machine wire and carriers before any await.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
-                if let scope, scope != accountScope { self.desktopStreams.endAll() }; scope = accountScope
+                if let previous = scope ?? nil, previous != accountScope { self.desktopStreams.endAll() }; scope = accountScope
                 if accountScope != nil {
                     self.machineWire.stop()
                     // mayCallCloud also fences a managed team that is missing: no socket without its team scope.

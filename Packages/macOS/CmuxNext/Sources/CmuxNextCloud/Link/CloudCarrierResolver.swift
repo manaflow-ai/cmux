@@ -125,7 +125,7 @@ public actor CloudCarrierServe {
                 // Another account is signed in now: the old account's socket is handed to no one.
                 throw Self.stopped
             } catch {}
-            guard mine == generation else { throw Self.stopped }
+            guard mine == generation, !connector.isFenced else { throw Self.stopped }
             if ready, child === self.child, child.isRunning {
                 // A token lookup that failed keeps the healthy child on its last token (as refreshToken does).
                 guard let token else { return socket }
@@ -224,14 +224,17 @@ public actor CloudCarrierServe {
         }
         do {
             try child.startHoldingInput()
-            // It carries this account's token: an account end (``CloudCarrierStreams/endAll()``) closes it,
-            // and one that came first closes it now (its ready wait then fails).
-            release()
-            held = connector.streams?.hold(generation: connector.generation) { [child] in child.closeInput() }
         } catch {
             // It never ran (ChildProcess recorded its exit): keep no child for the next launch to wait on.
             if self.child === child { self.child = nil }
             throw CloudLinkError.disconnected(reason: "cmux carrier serve did not start: \(error.localizedDescription)")
+        }
+        // It carries this account's token: an account end (``CloudCarrierStreams/endAll()``) closes it; one
+        // that came first closed it already, and its socket goes to no one.
+        release()
+        if let streams = connector.streams {
+            guard let id = streams.hold(generation: connector.generation, stop: { [child] in child.closeInput() }) else { throw Self.stopped }
+            held = id
         }
         do {
             let first = try await withDeadline(Self.readyDeadline, label: "cmux carrier serve") { () -> CloudCarrierDial.ServeLine? in
@@ -255,7 +258,7 @@ public actor CloudCarrierServe {
             throw mine == generation ? (error as? CloudLinkError) ?? CloudLinkError.helperNotRunning(reason: String(describing: error)) : Self.stopped
         }
         // Stopped while it got ready: stop() closed its stdin; it exits and is reaped (ChildProcess waits on it).
-        guard mine == generation else { child.closeInput(); throw Self.stopped }
+        guard mine == generation, !connector.isFenced else { child.closeInput(); throw Self.stopped }
         ready = true
         scheduleRefresh(child)
         // task-owner: ends when the child exits

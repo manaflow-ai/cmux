@@ -617,7 +617,7 @@ extension CloudHandlers {
         if let used = stats.diskUsedMb { fields["disk_used_mb"] = .double(used) }
         if let total = stats.diskTotalMb { fields["disk_total_mb"] = .double(total) }
         if let address = session.machine.address?.ipv4 { fields["address"] = .string(address) }
-        fields["desktop"] = .bool(session.machine.capabilities.desktop)
+        fields["desktop"] = .bool(session.machine.opensCarrierDesktop)
         fields.merge(costFields(session.machine, now: now)) { _, new in new }
         if let idlePause = session.machine.idlePause { fields["idle_pause"] = .object(idlePauseFields(idlePause)) }
         if let failure = session.machine.lastChangeFailure { fields["error"] = .object(["code": .string(failure.code), "message": .string(failure.message)]) }
