@@ -3826,7 +3826,9 @@ esac
             with self.subTest(**extra):
                 context = {**base, **extra}
                 self.assertEqual(evaluate(tier["runs-on"], context), "blacksmith-6vcpu-macos-26")
-                self.assertEqual(evaluate(tier["timeout-minutes"], context), 20)
+                # Above the cold Blacksmith 6 vCPU fast-tier p90 (19.8 min, #38181) with room: this run
+                # is its own job, so the client's queue wait does not eat into it.
+                self.assertEqual(evaluate(tier["timeout-minutes"], context), 35)
                 self.assertEqual(evaluate(tier["env"]["CMUX_FAST_TIER_FLEET"], context), "")
         # A verdict, or no verdict for any other reason, is still only reported.
         for verdict in ("pass", "fail", "unavailable", ""):
