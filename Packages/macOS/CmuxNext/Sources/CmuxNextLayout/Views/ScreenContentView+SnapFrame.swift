@@ -46,11 +46,16 @@ extension ScreenContentView {
         releaseUntakenAhead()
     }
 
-    /// Each host of this screen lets a size drawn ahead go that no placement took (``PaneHostView/snapDidShow()``): the
-    /// held snap showed, or a key press was taken back in its own turn (no motion, no held snap, no hold that ends).
-    /// A host with no such size does nothing.
-    func releaseUntakenAhead() {
-        for host in context.hosts.values where host.superview === self { host.snapDidShow() }
+    /// Each pane host of this screen lets a size drawn ahead go that no placement took (``PaneHostView/snapDidShow()``):
+    /// the held snap showed, or a key press was taken back in its own turn. `restingOnly`: only the panes no spring moves
+    /// (the key's turn while other panes or the camera still move: no hold begins or ends for a pane at rest, so nothing
+    /// else lets its size go; a pane on a spring keeps its size for its hold). A host with no such size does nothing.
+    /// O(panes of the screen).
+    func releaseUntakenAhead(restingOnly: Bool = false) {
+        for (pane, frame) in paneFrames where !restingOnly || frame.rect == frame.targetRect {
+            guard let host = context.hosts[pane], host.superview === self else { continue }
+            host.snapDidShow()
+        }
     }
 
     /// In the presentation that shows the held snap: the panes it took out go, unless a later change took them back.
