@@ -15,13 +15,16 @@
 .cloud-environment-sheet.ui-glass { background: var(--glass-tint); }
 /* The heading and the Cancel/Save row stay put; only the fields scroll between them, so a long list of
    secrets (each unfolding its delivery) never pushes the actions out of the sheet. */
-.cloud-environment-sheet.ui-sheet { display: flex; flex-direction: column; overflow: hidden; }
-.cloud-environment-sheet > form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+/* `clip`, not `hidden`: a hidden box can still be scrolled by script (a scrollIntoView, a focus), which
+   slid the whole form, heading and actions too, out of the sheet. Only .env-scroll scrolls. */
+.cloud-environment-sheet.ui-sheet { display: flex; flex-direction: column; overflow: clip; }
+.cloud-environment-sheet > form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: clip; }
 .env-heading, .env-actions { flex: none; }
+.env-scroll { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .env-heading { display: flex; align-items: center; gap: 12px; padding: 24px; }
 .env-heading h2 { margin: 0; font-size: var(--text-heading); font-weight: 600; line-height: var(--text-heading--line-height); }
 .env-close { margin-inline-start: auto; }
-.env-body { border: 0; margin: 0; padding: 8px 24px 24px; min-width: 0; min-height: 0; flex: 0 1 auto; overflow: auto; overscroll-behavior: contain; }
+.env-body { border: 0; margin: 0; padding: 8px 24px 24px; min-width: 0; }
 .env-fields { display: flex; flex-direction: column; gap: 16px; }
 .env-field { display: flex; flex-direction: column; gap: 12px; }
 .env-field small, .env-note, .env-row-detail, .env-editor-foot { color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 65%, transparent)); font-family: var(--font-ui, system-ui);

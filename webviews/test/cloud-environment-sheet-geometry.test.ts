@@ -84,7 +84,7 @@ await requireBrowserLane("cloud-environment-sheet-geometry.test.ts", async () =>
           while ((await closed.count()) > 0) await closed.first().click({ timeout: 10_000 });
           await settled(page);
           await page.evaluate(() => {
-            const body = document.querySelector<HTMLElement>(".cloud-environment-sheet .env-body")!;
+            const body = document.querySelector<HTMLElement>(".cloud-environment-sheet .env-scroll")!;
             body.scrollTop = body.scrollHeight;
           });
 
@@ -113,7 +113,7 @@ await requireBrowserLane("cloud-environment-sheet-geometry.test.ts", async () =>
             };
             const sheet = document.querySelector(".cloud-environment-sheet")!;
             const footer = box(sheet.querySelector(".env-actions")!);
-            const body = sheet.querySelector<HTMLElement>(".env-body")!;
+            const body = sheet.querySelector<HTMLElement>(".env-scroll")!;
             /** What of `element` paints: its box cut by every ancestor up to the sheet that clips. */
             const painted = (element: Element): Box | undefined => {
               let shown: Box | undefined = box(element);
@@ -139,6 +139,7 @@ await requireBrowserLane("cloud-environment-sheet-geometry.test.ts", async () =>
             return {
               problems,
               footer,
+              heading: box(sheet.querySelector(".env-heading")!),
               sheet: box(sheet),
               body: { ...box(body), overflowY: getComputedStyle(body).overflowY },
               scrolls: body.scrollHeight > body.clientHeight,
@@ -148,6 +149,9 @@ await requireBrowserLane("cloud-environment-sheet-geometry.test.ts", async () =>
           console.log(`${variant} ${height}px: ${JSON.stringify(measured)}`);
           expect(measured.problems).toEqual([]);
           expect(measured.body.bottom).toBeLessThanOrEqual(measured.footer.top + TOLERANCE);
+          // The heading and the actions stay in the sheet: nothing scrolls them away.
+          expect(measured.heading.top).toBeGreaterThanOrEqual(measured.sheet.top - TOLERANCE);
+          expect(measured.footer.top).toBeGreaterThanOrEqual(measured.heading.bottom - TOLERANCE);
           expect(measured.footer.bottom).toBeLessThanOrEqual(measured.sheet.bottom + TOLERANCE);
           expect(measured.sheet.bottom).toBeLessThanOrEqual(measured.viewport + TOLERANCE);
 
