@@ -201,3 +201,17 @@ void test("synthetic retained bytes survive scratch destruction and another proc
     await rm(root, { recursive: true, force: true });
   }
 });
+
+void test("a non-finite clock or retention time never yields an actionable saved result", () => {
+  const cases = [
+    { ...base(), now: Number.NaN, artifact: artifact() },
+    { ...base(), now: Number.POSITIVE_INFINITY, artifact: artifact() },
+    { ...base(), artifact: { ...artifact(), expiresAt: Number.NaN } },
+    { ...base(), artifact: { ...artifact(), expiresAt: Number.POSITIVE_INFINITY } },
+  ];
+  for (const input of cases) {
+    const saved = item(input, "artifact");
+    assert.notEqual(saved.level, "verified");
+    assert.equal(saved.action, undefined);
+  }
+});
