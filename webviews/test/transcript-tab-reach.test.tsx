@@ -99,7 +99,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
-const { keepTabOnScreen } = await import("../src/ui/tabReach");
+const { keepTabOnScreen, tabStops } = await import("../src/ui/tabReach");
 
 afterEach(() => {
   win.document.getElementById("root")!.replaceChildren();
@@ -239,4 +239,44 @@ test("Tab still reaches a control in view inside text that opens on focus", () =
   } finally {
     stop();
   }
+});
+
+test("the stops are every control the browser tabs to, and only those", () => {
+  // Players with controls (a reply's audio or video, ReplyMedia.tsx), a details' own summary, a
+  // frame, an editable box and anything with a tabindex of 0 or more are stops; a player without
+  // controls, a second summary, a box marked not editable, a negative tabindex and a disabled,
+  // inert or hidden control are not (#38230 review F1).
+  const host = win.document.getElementById("root")!;
+  host.innerHTML = [
+    '<audio id="audio" controls></audio>',
+    '<audio id="audio-bare"></audio>',
+    '<video id="video" controls></video>',
+    '<video id="video-bare"></video>',
+    '<details><summary id="summary">More</summary><summary id="summary-second">Not this</summary>x</details>',
+    '<summary id="summary-loose">Loose</summary>',
+    '<iframe id="frame" title="Frame"></iframe>',
+    '<div id="editable" contenteditable="true"></div>',
+    '<div id="plain-editable" contenteditable></div>',
+    '<div id="not-editable" contenteditable="false"></div>',
+    '<div id="tabbable" tabindex="0"></div>',
+    '<div id="later" tabindex="2"></div>',
+    '<div id="skipped" tabindex="-1"></div>',
+    '<button id="button-skipped" tabindex="-1">x</button>',
+    '<button id="disabled" disabled>x</button>',
+    '<div inert><button id="inert">x</button></div>',
+    '<input id="hidden-input" type="hidden" />',
+    '<a id="link" href="#x">x</a>',
+    '<a id="anchor">x</a>',
+  ].join("");
+  expect(tabStops(host).map((stop) => stop.id)).toEqual([
+    "audio",
+    "video",
+    "summary",
+    "frame",
+    "editable",
+    "plain-editable",
+    "tabbable",
+    "later",
+    "link",
+  ]);
 });

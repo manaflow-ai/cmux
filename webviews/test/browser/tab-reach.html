@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>tab reach harness</title>
+    <style>
+      body {
+        margin: 0;
+        font: 14px sans-serif;
+      }
+      #region {
+        height: 400px;
+        overflow: auto;
+        border: 1px solid #888;
+      }
+      .tall {
+        height: 1200px;
+      }
+      audio,
+      video {
+        display: block;
+        width: 300px;
+      }
+      video {
+        height: 60px;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="header" type="button">Header</button>
+    <!-- A transcript-like scroller: on each side of a control in view, a player in view and past it
+         a control scrolled out of view. -->
+    <div id="region">
+      <button id="above" type="button">Above</button>
+      <div class="tall"></div>
+      <video id="video" controls></video>
+      <button id="mid" type="button">Mid</button>
+      <audio id="audio" controls></audio>
+      <div class="tall"></div>
+      <button id="below" type="button">Below</button>
+    </div>
+    <textarea id="composer" aria-label="Message"></textarea>
+    <script type="module" src="./tab-reach.harness.ts"></script>
+  </body>
+</html>
