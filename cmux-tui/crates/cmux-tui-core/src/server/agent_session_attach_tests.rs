@@ -29,7 +29,7 @@ pub(super) const SESSION: &str = "acp_session_1";
 pub(super) struct FakeAcpmux {
     directory: PathBuf,
     pub(super) socket: PathBuf,
-    frames: Receiver<Value>,
+    pub(super) frames: Receiver<Value>,
     connections: Receiver<UnixStream>,
     current: Option<UnixStream>,
     transfer_blocked: Arc<Mutex<HashSet<String>>>,
@@ -170,6 +170,30 @@ pub(super) struct Fixture {
     /// most [`WAIT`], or until its sender is gone).
     pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
+    pub(super) phone: Option<PhoneFloor>,
+}
+
+/// The fake's Cloud mobile floor: whether it reports one, the family a new session runs, and
+/// the session's mode (`session/set_mode` changes it, unless `stuck`).
+#[derive(Clone)]
+pub(super) struct PhoneFloor {
+    pub(super) strict: bool,
+    pub(super) family: &'static str,
+    pub(super) mode: Arc<Mutex<String>>,
+    pub(super) stuck: bool,
+}
+
+impl PhoneFloor {
+    /// acpmux's `Hub::cloud_mobile_mode_asks` for a Claude or Codex bridge session.
+    fn asks(&self) -> bool {
+        let mode = self.mode.lock().unwrap();
+        match self.family {
+            "claude" => matches!(mode.as_str(), "default" | "plan"),
+            "codex" => mode.as_str() == "ask",
+            _ => false,
+        }
+    }
 }
 
 fn serve(
@@ -188,6 +212,34 @@ fn serve(
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
+            "_acpmux/web_modes" if fixture.phone.is_some() => {
+                let phone = fixture.phone.as_ref().unwrap();
+                let mut table = json!({
+                    "families": {"claude": ["default", "acceptEdits"], "codex": ["ask"]},
+                    "refusedFamilies": [],
+                    "session": {"family": phone.family, "mode": phone.mode.lock().unwrap().clone(),
+                                "cloudMobileAsks": phone.asks()},
+                });
+                if phone.strict {
+                    table["cloudMobileStrictFloor"] = json!(1);
+                } else {
+                    table["session"].as_object_mut().unwrap().remove("cloudMobileAsks");
+                }
+                Some(table)
+            }
+            "_acpmux/harnesses" if fixture.phone.is_some() => Some(json!({
+                "defaultHarness": fixture.phone.as_ref().unwrap().family, "families": {"claude": {}, "codex": {}},
+                "harnesses": {},
+            })),
+            "session/set_mode" if fixture.phone.is_some() => {
+                let phone = fixture.phone.as_ref().unwrap();
+                if !phone.stuck {
+                    *phone.mode.lock().unwrap() =
+                        params["modeId"].as_str().unwrap_or_default().to_owned();
+                }
+                Some(json!({}))
+            }
+            "_acpmux/kill" => Some(json!({})),
             "_acpmux/web_modes" if fixture.start_folder_trusted.is_some() => Some(json!({
                 "families": {"claude": ["default"]}, "refusedFamilies": [],
                 "session": {"family": "claude", "mode": "default"},

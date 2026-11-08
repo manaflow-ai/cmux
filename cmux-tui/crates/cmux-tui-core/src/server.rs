@@ -3012,6 +3012,10 @@ mod loopback_forward_tests;
 mod agent_session_attach_tests;
 
 #[cfg(all(test, unix))]
+#[path = "server/agent_session_start_phone_tests.rs"]
+mod agent_session_start_phone_tests;
+
+#[cfg(all(test, unix))]
 #[path = "server/agent_inventory_tests.rs"]
 mod agent_inventory_tests;
 

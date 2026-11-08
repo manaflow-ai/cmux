@@ -500,14 +500,24 @@ fn start_and_bind(
         .agent_sessions
         .starts
         .owner_cloud(vm_word(&params.vm_kind) == Some("owner"));
+    // A phone's start (the Cloud mobile carrier, `cloud-mobile-chat-v1`) gets the phone's
+    // floor, also on the caller's own Cloud VM: an acpmux that holds Cloud mobile prompts to it,
+    // a family the floor has a mode for, and that mode before the start answers.
+    let phone = mux.control_clients.supports_capability(client, super::CLOUD_MOBILE_CHAT_CAPABILITY);
     let table = link.call("_acpmux/web_modes", json!({}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
+        return Err(Refusal::NotAsking);
+    }
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
     let catalog =
         link.call("_acpmux/harnesses", json!({"cwd": cwd}), CALL_TIMEOUT).map_err(Refusal::of)?;
     let family = catalog_family(&catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
-    if !owner_cloud && refused_family(&table, &family) {
+    if (!owner_cloud || phone) && refused_family(&table, &family) {
+        return Err(Refusal::NotAsking);
+    }
+    if phone && phone_modes(&family).is_empty() {
         return Err(Refusal::NotAsking);
     }
     // The folder must be trusted before an agent starts there (an agent can
@@ -552,7 +562,9 @@ fn start_and_bind(
             link.call("_acpmux/kill", json!({"sessionId": session, "purge": true}), CALL_TIMEOUT);
         refusal
     };
-    let family = if owner_cloud {
+    let family = if phone {
+        settle_phone_mode(link, &session).map_err(end)?
+    } else if owner_cloud {
         session_family(link, &session).map_err(end)?
     } else {
         settle_asking_mode(link, &session).map_err(end)?
@@ -679,6 +691,50 @@ fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusa
             if asks(&read()?).0 { Ok(family) } else { Err(Refusal::NotAsking) }
         }
     }
+}
+
+/// The modes a phone's chat may run in, by family, in the order a start tries them: acpmux's
+/// Cloud mobile floor (`Hub::cloud_mobile_mode_asks`), which has the last word on each.
+fn phone_modes(family: &str) -> &'static [&'static str] {
+    match family {
+        "claude" => &["default", "plan"],
+        "codex" => &["ask"],
+        _ => &[],
+    }
+}
+
+/// A phone's new session: acpmux says its mode holds to the Cloud mobile floor
+/// (`cloudMobileAsks`, which reads the harness profile the session actually runs), else it moves
+/// to the family's phone modes in turn until acpmux says so; anything else is refused (the caller
+/// ends the session). Returns the session's family.
+fn settle_phone_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
+    let read = || -> Result<(String, bool), Refusal> {
+        let table = link
+            .call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
+            .map_err(Refusal::of)?;
+        let family =
+            table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let asks = table.pointer("/session/cloudMobileAsks").and_then(Value::as_bool) == Some(true);
+        Ok((family, asks))
+    };
+    let (family, asks) = read()?;
+    if family.is_empty() {
+        return Err(Refusal::NotAsking);
+    }
+    if asks {
+        return Ok(family);
+    }
+    for mode in phone_modes(&family) {
+        let set = link.call(
+            "session/set_mode",
+            json!({"sessionId": session, "modeId": mode}),
+            CALL_TIMEOUT,
+        );
+        if set.is_ok() && read()? == (family.clone(), true) {
+            return Ok(family);
+        }
+    }
+    Err(Refusal::NotAsking)
 }
 
 /// A call's `vm_kind` (decoded with `present_nullable`) as the gate reads it:
