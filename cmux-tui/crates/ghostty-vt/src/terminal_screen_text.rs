@@ -5,15 +5,21 @@
 //!
 //! The libghostty-vt pin on this branch has no search API, so the search is
 //! a Rust scan (feat-cmux-next calls `ghostty_search_*` instead; a later
-//! promotion of feat's engine replaces this file). One formatter pass reads
-//! the whole screen as one line per logical line, and one read of each row's
-//! first cell finds the logical lines and checks that the formatter lines
-//! line up with them. Only the logical lines whose text can hold the needle
-//! are then read cell by cell to place the matches, so the cost per search is
-//! one formatter pass, one cell per row, and the lines that match.
+//! promotion of feat's engine replaces this file). One read of each row's
+//! first cell finds the logical lines. The formatter then reads them in
+//! chunks of [`CHUNK_LINES`], one text line per logical line. A chunk whose
+//! text cannot hold the needle is skipped. In the other chunks only the
+//! lines whose text can hold it are read cell by cell to place the matches;
+//! when a chunk's formatter lines do not line up with its logical lines,
+//! that chunk alone is read cell by cell. The cost per search is one cell per
+//! row, one formatter pass, and the lines (at worst the chunks) that match.
 
 use super::*;
 use crate::screen_text::{ScreenRowText, ScreenSearch, ScreenTextCell};
+
+/// Logical lines per formatter read; also the most lines one misaligned
+/// read can cost.
+const CHUNK_LINES: usize = 64;
 
 /// One character of a logical line and the cell that holds it.
 #[derive(Debug, Clone, Copy)]
@@ -29,7 +35,7 @@ struct LogicalLine {
     top: u32,
     bottom: u32,
     /// The first character of the line's first cell; `None` when that cell
-    /// is blank.
+    /// is blank or holds whitespace.
     lead: Option<char>,
 }
 
@@ -39,9 +45,9 @@ struct LogicalLine {
 struct ScanStats {
     /// Logical lines read cell by cell.
     precise_lines: usize,
-    /// The formatter's lines did not line up with the screen's logical
-    /// lines, so every logical line was read cell by cell.
-    fallback: bool,
+    /// Chunks whose formatter lines did not line up with their logical
+    /// lines, so each was read cell by cell.
+    fallback_chunks: usize,
 }
 
 impl Terminal {
@@ -120,37 +126,60 @@ impl Terminal {
         }
         let total = self.scrollbar().map_or(u64::from(self.rows()), |scrollbar| scrollbar.total);
         let lines = self.logical_lines(total);
-        let texts = self.formatter_lines().filter(|texts| lines_align(&lines, texts));
-        if let Some(texts) = texts.as_deref()
-            && let Some(result) = self.scan_lines(&lines, Some(texts), &query, &mut stats)
-        {
-            return (result, stats);
+        let mut result = ScreenSearch::default();
+        let mut codepoints = Vec::new();
+        // Newest chunk first, so a full result keeps the newest matches.
+        for chunk in lines.chunks(CHUNK_LINES).rev() {
+            let texts = self.chunk_texts(chunk);
+            if let Some(texts) = &texts
+                && !query.may_match(&texts.join("\n"))
+            {
+                continue;
+            }
+            let aligned = texts.filter(|texts| lines_align(chunk, texts));
+            let mut found = Vec::new();
+            let read = aligned.as_deref().and_then(|texts| {
+                self.scan_chunk(chunk, Some(texts), &query, &mut found, &mut stats, &mut codepoints)
+            });
+            if read.is_none() {
+                stats.fallback_chunks += 1;
+                found.clear();
+                self.scan_chunk(chunk, None, &query, &mut found, &mut stats, &mut codepoints);
+            }
+            // `found` is newest first; keep the newest up to the limit.
+            for range in found {
+                if result.matches.len() == query.limit {
+                    result.truncated = true;
+                    break;
+                }
+                result.matches.push(range);
+            }
+            if result.truncated {
+                break;
+            }
         }
-        // The formatter lines do not line up with the screen: read every
-        // line cell by cell. Correct, and still stops at the limit.
-        stats.fallback = true;
-        stats.precise_lines = 0;
-        let result = self.scan_lines(&lines, None, &query, &mut stats).unwrap_or_default();
+        result.matches.sort_by_key(|range| (range.start.row, range.start.column));
         (result, stats)
     }
 
-    /// Read the candidate logical lines newest first and place their
-    /// matches. With `texts`, a line is a candidate only when its formatter
-    /// text can hold the needle; the formatter's last line and every line
-    /// past it are always read, and every line read is checked against its
-    /// formatter text. `None` means the two disagree and the caller must read
-    /// every line instead.
-    fn scan_lines(
+    /// Read a chunk's candidate lines newest first and push their matches,
+    /// newest first, onto `found`. With `texts`, a line is a candidate only
+    /// when its formatter text can hold the needle; the chunk's last
+    /// formatter line and every line past it are always read, and every
+    /// line read must equal its formatter text. `None` means the two
+    /// disagree and the caller must read the whole chunk instead. Without
+    /// `texts`, every line is read.
+    fn scan_chunk(
         &self,
-        lines: &[LogicalLine],
+        chunk: &[LogicalLine],
         texts: Option<&[String]>,
         query: &Query,
+        found: &mut Vec<SelectionRange>,
         stats: &mut ScanStats,
-    ) -> Option<ScreenSearch> {
-        let mut result = ScreenSearch::default();
-        let mut codepoints = Vec::new();
+        codepoints: &mut Vec<u32>,
+    ) -> Option<()> {
         let anchor = texts.map_or(0, |texts| texts.len().saturating_sub(1));
-        'lines: for (index, line) in lines.iter().enumerate().rev() {
+        for (index, line) in chunk.iter().enumerate().rev() {
             let expected = texts.map(|texts| texts.get(index));
             if let Some(Some(text)) = expected
                 && index != anchor
@@ -159,7 +188,7 @@ impl Terminal {
                 continue;
             }
             stats.precise_lines += 1;
-            let placed = self.logical_line_chars(line.top, line.bottom, &mut codepoints);
+            let placed = self.logical_line_chars(line.top, line.bottom, codepoints);
             if let Some(expected) = expected {
                 // A line past the formatter's last line must be blank.
                 let formatter = expected.map_or(String::new(), |text| fold(text.chars(), true));
@@ -167,16 +196,9 @@ impl Terminal {
                     return None;
                 }
             }
-            for range in query.find_in(&placed).into_iter().rev() {
-                if result.matches.len() == query.limit {
-                    result.truncated = true;
-                    break 'lines;
-                }
-                result.matches.push(range);
-            }
+            found.extend(query.find_in(&placed).into_iter().rev());
         }
-        result.matches.sort_by_key(|range| (range.start.row, range.start.column));
-        Some(result)
+        Some(())
     }
 
     /// Every soft-wrapped logical line, top to bottom.
@@ -197,10 +219,19 @@ impl Terminal {
         lines
     }
 
-    /// The formatter's plain text of every logical line, top to bottom,
-    /// with trailing blanks trimmed. Trailing blank lines are left out.
-    fn formatter_lines(&mut self) -> Option<Vec<String>> {
-        let bytes = self.format(plain_text_options(ptr::null(), true, true)).ok()?;
+    /// The formatter's plain text of each logical line of a chunk, top to
+    /// bottom, with trailing blanks trimmed. Trailing blank lines are left
+    /// out. `None` when the formatter cannot read the chunk.
+    fn chunk_texts(&mut self, chunk: &[LogicalLine]) -> Option<Vec<String>> {
+        let (first, last) = (chunk.first()?, chunk.last()?);
+        let tag = sys::GHOSTTY_POINT_TAG_SCREEN;
+        let selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            start: self.grid_ref(tag, 0, u64::from(first.top))?,
+            end: self.grid_ref(tag, self.cols().saturating_sub(1), u64::from(last.bottom))?,
+            rectangle: false,
+        };
+        let bytes = self.format(plain_text_options(&selection, true, true)).ok()?;
         let text = String::from_utf8_lossy(&bytes);
         let mut texts: Vec<String> = text.split('\n').map(str::to_owned).collect();
         while texts.last().is_some_and(|text| text.chars().all(char::is_whitespace)) {
@@ -252,7 +283,8 @@ impl Terminal {
     }
 
     /// A row's soft-wrap flag and the first character of its first cell
-    /// (`Some(None)` for a blank cell), from one grid reference.
+    /// (`Some(None)` for a blank or whitespace cell), from one grid
+    /// reference.
     fn row_head(
         &self,
         row: u64,
@@ -261,7 +293,8 @@ impl Terminal {
         let Some(grid_ref) = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, 0, row) else {
             return (None, None);
         };
-        let lead = grid_ref_text(&grid_ref, codepoints).map(|text| text.chars().next());
+        let lead = grid_ref_text(&grid_ref, codepoints)
+            .map(|text| text.chars().next().filter(|ch| !ch.is_whitespace()));
         (grid_ref_wraps(&grid_ref), lead)
     }
 
@@ -293,18 +326,15 @@ fn grid_ref_wraps(grid_ref: &sys::GhosttyGridRef) -> Option<bool> {
 }
 
 /// Whether the formatter lines can belong to the logical lines one to one:
-/// no more formatter lines than logical lines, and each line's first cell
-/// agrees with its formatter line's first character. A blank first cell
-/// shows as a leading space or an empty line.
+/// no more formatter lines than logical lines, and each line whose first
+/// cell holds a character has a formatter line that starts with it. A line
+/// whose first cell is blank or whitespace may start with anything, because
+/// the formatter may or may not write leading blanks.
 fn lines_align(lines: &[LogicalLine], texts: &[String]) -> bool {
     texts.len() <= lines.len()
         && lines.iter().enumerate().all(|(index, line)| {
             let first = texts.get(index).and_then(|text| text.chars().next());
-            match (line.lead, first) {
-                (Some(lead), Some(first)) => lead == first,
-                (Some(_), None) => false,
-                (None, first) => first.is_none_or(char::is_whitespace),
-            }
+            line.lead.is_none_or(|lead| first == Some(lead))
         })
 }
 
@@ -481,7 +511,7 @@ mod tests {
         // must leave the formatter lines aligned with the logical lines.
         let mut term = terminal(6, 4, "one\r\n\r\n\r\n橋 two\r\nabcdefghij\r\nx  needle\r\n");
         let (found, stats) = term.search_screen_scan("needle", false, 10);
-        assert!(!stats.fallback, "the formatter lines must line up: {stats:?}");
+        assert_eq!(stats.fallback_chunks, 0, "the formatter lines must line up: {stats:?}");
         assert_eq!(found.matches.len(), 1);
         let range = found.matches[0];
         let first = term.screen_row_text(u64::from(range.start.row)).unwrap();
@@ -490,7 +520,7 @@ mod tests {
         assert_eq!(last.cells[usize::from(range.end.column)].text, "e");
 
         let (wide, stats) = term.search_screen_scan("橋 TWO", false, 10);
-        assert!(!stats.fallback);
+        assert_eq!(stats.fallback_chunks, 0, "{stats:?}");
         assert_eq!(wide.matches.len(), 1);
         assert_eq!(wide.matches[0].start.column, 0);
         assert_eq!(wide.matches[0].end.column, 5, "the match ends on the `o` after the wide cell");
@@ -507,27 +537,25 @@ mod tests {
         term.vt_write(lines.as_bytes());
         assert!(term.history_rows() > 19_000, "the fixture must fill a large scrollback");
 
-        // The matching line, the last printed line (the alignment anchor),
-        // and the blank rows below the output are read cell by cell.
-        let bound = 2 + usize::from(term.rows());
+        // Only the matching line and its chunk's last line (the alignment
+        // anchor) are read cell by cell; every other chunk is skipped.
         let (found, stats) = term.search_screen_scan("row 12345", false, 10_000);
         assert_eq!(found.matches.len(), 1);
-        assert!(!stats.fallback, "{stats:?}");
-        assert!(stats.precise_lines <= bound, "{stats:?}");
+        assert_eq!(stats.fallback_chunks, 0, "{stats:?}");
+        assert!(stats.precise_lines <= 2, "{stats:?}");
 
         let (none, stats) = term.search_screen_scan("absent needle", false, 10_000);
         assert!(none.matches.is_empty());
-        assert!(!stats.fallback, "{stats:?}");
-        assert!(stats.precise_lines <= bound, "{stats:?}");
+        assert_eq!(stats, ScanStats::default(), "no line is read cell by cell");
     }
 
     #[test]
-    fn copy_mode_search_screen_keeps_alignment_over_leading_blank_rows_and_indents() {
-        // Blank rows above the first output and an indented, soft-wrapped
-        // line keep the cheap path.
+    fn copy_mode_search_screen_finds_matches_below_leading_blank_rows() {
+        // Whether the formatter keeps blank rows above the first output
+        // decides the path; a misaligned chunk costs at most CHUNK_LINES.
         let mut term = terminal(10, 6, "\x1b[3;1H   indented foo\r\nbar\r\n");
         let (found, stats) = term.search_screen_scan("foo", false, 10);
-        assert!(!stats.fallback, "{stats:?}");
+        assert!(stats.precise_lines <= CHUNK_LINES, "{stats:?}");
         assert_eq!(found.matches.len(), 1);
         let range = found.matches[0];
         assert_eq!((range.start.row, range.start.column), (3, 2));
@@ -535,10 +563,30 @@ mod tests {
     }
 
     #[test]
+    fn copy_mode_search_screen_keeps_alignment_over_space_lines_and_indents() {
+        for text in ["a\r\n    \r\nb\r\n", "a\r\n    "] {
+            let mut term = terminal(20, 4, text);
+            let (found, stats) = term.search_screen_scan("a", false, 10);
+            assert_eq!(stats.fallback_chunks, 0, "{text:?}: {stats:?}");
+            assert_eq!(found.matches.len(), 1, "{text:?}");
+        }
+        // Blank cells that hold no text: a tab stop and a cursor move.
+        for (text, column) in [("\tfoo\r\n", 8), ("\x1b[5Gfoo\r\n", 4)] {
+            let mut term = terminal(20, 4, text);
+            let (found, stats) = term.search_screen_scan("foo", false, 10);
+            assert_eq!(stats.fallback_chunks, 0, "{text:?}: {stats:?}");
+            assert_eq!(found.matches.len(), 1, "{text:?}");
+            let range = found.matches[0];
+            assert_eq!((range.start.row, range.start.column), (0, column), "{text:?}");
+            assert_eq!((range.end.row, range.end.column), (0, column + 2), "{text:?}");
+        }
+    }
+
+    #[test]
     fn copy_mode_search_screen_finds_a_whitespace_needle_without_reading_every_line() {
         let mut term = terminal(20, 4, "a  b\r\ncd\r\n");
         let (found, stats) = term.search_screen_scan("  ", false, 10);
-        assert!(!stats.fallback, "{stats:?}");
+        assert_eq!(stats.fallback_chunks, 0, "{stats:?}");
         assert_eq!(found.matches.len(), 1);
         let range = found.matches[0];
         assert_eq!((range.start.row, range.start.column), (0, 1));
@@ -548,6 +596,8 @@ mod tests {
     #[test]
     fn copy_mode_search_screen_handles_an_erased_row_after_a_soft_wrap() {
         // Row 0 keeps its wrap flag while the row it wrapped into is erased.
+        // The test checks the matches, not the path: if the formatter splits
+        // this logical line, the chunk is read cell by cell.
         let mut term = terminal(4, 4, "abcdefgh\x1b[2K\r\nxyz");
         let found = term.search_screen("abcd", false, 10).unwrap();
         assert_eq!(found.matches.len(), 1);
