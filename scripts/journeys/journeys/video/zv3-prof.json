@@ -250,11 +250,12 @@
     {
       "do": "zv_xctrace_zooms",
       "label": "z4-k6",
-      "runs": 12,
+      "runs": 16,
       "gap": 1.0,
       "window_ms": 40,
       "title": "12 real Cmd-Shift-Enter zooms (Z4 K6) under xctrace",
-      "top": 400
+      "top": 400,
+      "keep_raw_ms": 16
     }
   ],
   "finally": [

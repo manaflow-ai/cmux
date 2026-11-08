@@ -79,8 +79,15 @@ def step_zv_xctrace_zooms(j, step):
     xml.unlink(missing_ok=True)
     shutil.rmtree(trace, ignore_errors=True)
     (j.out / f"diag-zoomprofile-{label}.json").write_text(json.dumps(result))  # with the raw samples
+    keep = float(step.get("keep_raw_ms", 0))
     for row in result.get("rows") or []:
-        row.pop("raw", None)
+        raw = row.pop("raw", None)
+        if keep and raw:  # ZOOM VARIANTS 3: the key turn's own samples (0 .. keep ms), for turn-only attribution
+            samples = [x for x in raw.get("samples") or [] if -1 <= x[0] <= keep]
+            used = sorted({i for x in samples for i in x[2]})
+            remap = {old: new for new, old in enumerate(used)}
+            row["turn_raw"] = {"names": [raw["names"][i] for i in used],
+                               "samples": [[x[0], x[1], [remap[i] for i in x[2]]] for x in samples]}
     return result
 
 
