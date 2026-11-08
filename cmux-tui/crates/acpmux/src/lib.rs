@@ -121,6 +121,7 @@ pub mod peer_states;
 pub mod placement;
 #[cfg(not(unix))]
 mod platform;
+pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;
 pub mod prompt_cache_env;
