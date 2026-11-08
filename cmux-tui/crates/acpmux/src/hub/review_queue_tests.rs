@@ -212,6 +212,57 @@ async fn a_restored_pull_request_keeps_the_time_it_was_opened() {
 }
 
 #[tokio::test]
+async fn a_queue_read_between_the_answer_and_its_record_keeps_the_audit_entry() {
+    let hub = hub();
+    let s = hub.insert_test_session(meta("s1", "ready", &[], 2));
+    let _rx = ask(&hub, &s, "p1", tool_request("Run ls"));
+    // `respond_permission` takes the pending entry first...
+    s.permissions.lock().unwrap().pending.remove("p1");
+    // ...a read lands before its decision record...
+    assert!(hub.review_queue_local(now_ms()).0.is_empty());
+    assert_eq!(hub.review_index.settling(), 1);
+    // ...and the record still finds the ask.
+    hub.append(
+        &s,
+        "mux",
+        "permission_decision",
+        json!({"permissionId": "p1", "outcome": {"outcome": "selected", "optionId": "ok"}}),
+    );
+    let all = hub.audit.all().unwrap();
+    assert_eq!(all.len(), 1, "{all:?}");
+    assert_eq!(all[0]["permissionId"], "p1");
+    assert_eq!(all[0]["decision"]["kind"], "allow");
+    assert_eq!(hub.review_index.settling(), 0);
+    // An ask set aside that no record settles goes after SETTLE_MS.
+    let _rx = ask(&hub, &s, "p2", tool_request("Run pwd"));
+    s.permissions.lock().unwrap().pending.remove("p2");
+    hub.review_queue_local(now_ms());
+    assert_eq!(hub.review_index.settling(), 1);
+    hub.review_queue_local(now_ms() + super::review_queue::SETTLE_MS);
+    assert_eq!(hub.review_index.settling(), 0);
+}
+
+#[tokio::test]
+async fn a_purged_chat_leaves_no_audit_entry() {
+    let hub = hub();
+    let gone = hub.insert_test_session(meta("incognito", "ready", &[], 2));
+    let kept = hub.insert_test_session(meta("kept", "ready", &[], 2));
+    let _a = ask(&hub, &gone, "p1", tool_request("Run cat private-plans.txt"));
+    answer(&hub, &gone, "p1", "ok");
+    let _b = ask(&hub, &kept, "p2", tool_request("Run ls"));
+    answer(&hub, &kept, "p2", "ok");
+    assert_eq!(hub.audit.all().unwrap().len(), 2);
+    hub.kill(&gone, true).await.unwrap();
+    let all = hub.audit.all().unwrap();
+    let sessions: Vec<_> = all.iter().map(|e| e["sessionId"].clone()).collect();
+    assert_eq!(sessions, vec![json!("kept")]);
+    assert_eq!(super::audit_log::verify(&all)["ok"], true);
+    // A decision recorded for it after the purge began writes nothing.
+    answer(&hub, &gone, "p3", "ok");
+    assert_eq!(hub.audit.all().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn a_queue_read_does_not_grow_with_idle_sessions() {
     let hub = hub();
     for i in 0..2000 {

@@ -28,6 +28,12 @@
 //!   chain) and the pull requests that already have a verdict, by session and URL, so the first
 //!   queue read already leaves them out. At shutdown (`Hub::flush`) [`AuditLog::close`] ends the
 //!   channel and waits, bounded, for the writer to write what was sent and exit.
+//! - Purge: a purged chat (`Hub::kill` with purge, which `_acpmux/workspace_purge` sends for
+//!   each chat of an incognito space) leaves no history. [`AuditLog::purge`] rewrites the file
+//!   without that session's entries (a new file synced, then renamed over the old one, mode
+//!   0600) and chains the rest again from [`GENESIS`], so `verify` still passes and nothing of the
+//!   chat, not even its id, survives a restart. The hub writes nothing more for a chat once its
+//!   purge began. The chain proves the file was not edited by anything but this daemon.
 //! - A memory store (tests) keeps the entries in memory, chained the same way.
 
 use std::collections::HashSet;
@@ -61,6 +67,8 @@ enum Msg {
     Entry(Value, Option<mpsc::Sender<Result<Value, String>>>),
     /// Answered once every entry sent before it is written.
     Flush(mpsc::Sender<()>),
+    /// Removes a purged session's entries: answered with how many.
+    Purge(String, tokio::sync::oneshot::Sender<Result<usize, String>>),
 }
 
 /// The chain's head: the last entry's `seq` and `hash`.
@@ -175,6 +183,16 @@ impl AuditLog {
     /// Entries that could not be written since this daemon started.
     pub(crate) fn write_errors(&self) -> u64 {
         self.write_errors.load(Ordering::Relaxed)
+    }
+
+    /// Removes every entry of session `session_id` from the log, after the entries sent before.
+    /// The answer comes once the rewritten file is on disk (None: the writer is gone).
+    pub(crate) fn purge(
+        &self,
+        session_id: &str,
+    ) -> Option<tokio::sync::oneshot::Receiver<Result<usize, String>>> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.send(Msg::Purge(session_id.to_owned(), tx)).ok().map(|()| rx)
     }
 
     /// Whether the pull request at `url`, opened by session `session_id`, has a written verdict.
@@ -315,6 +333,13 @@ impl Writer {
                 Msg::Flush(done) => {
                     let _ = done.send(());
                 }
+                Msg::Purge(sid, done) => {
+                    let purged = self.purge(&sid);
+                    if let Err(why) = &purged {
+                        tracing::warn!("audit: a purged chat's entries were not removed: {why}");
+                    }
+                    let _ = done.send(purged);
+                }
             }
         }
     }
@@ -339,17 +364,11 @@ impl Writer {
     }
 
     /// Numbers, chains and writes `entry`: the entry as written, or why it was not.
-    fn write(&mut self, mut entry: Value) -> Result<Value, String> {
-        let Some(o) = entry.as_object_mut() else { return Err("not an object".into()) };
-        o.remove("hash");
-        o.insert("v".into(), json!(VERSION));
-        o.insert("seq".into(), json!(self.head.seq + 1));
-        o.insert("prevHash".into(), json!(self.head.hash));
-        let hash = entry_hash(&self.head.hash, &entry);
-        entry["hash"] = json!(hash);
+    fn write(&mut self, entry: Value) -> Result<Value, String> {
+        let (entry, head) = seal(&self.head, entry).ok_or("not an object")?;
         if let Some(m) = &self.memory {
             m.lock().unwrap_or_else(|e| e.into_inner()).push(entry.clone());
-            self.head = Head { seq: self.head.seq + 1, hash };
+            self.head = head;
             return Ok(entry);
         }
         let Some(path) = self.path.clone() else { return Err("no audit file".into()) };
@@ -357,7 +376,7 @@ impl Writer {
         line.push('\n');
         match self.append(&path, line.as_bytes()) {
             Ok(()) => {
-                self.head = Head { seq: self.head.seq + 1, hash };
+                self.head = head;
                 Ok(entry)
             }
             Err(e) => {
@@ -366,6 +385,43 @@ impl Writer {
                 Err(format!("append to {} failed: {e}", path.display()))
             }
         }
+    }
+
+    /// Drops session `sid`'s entries and chains the rest again: how many went.
+    fn purge(&mut self, sid: &str) -> Result<usize, String> {
+        self.reviewed.lock().unwrap_or_else(|e| e.into_inner()).retain(|(s, _)| s != sid);
+        let old = if let Some(m) = &self.memory {
+            m.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        } else if let Some(path) = &self.path {
+            read_lines(path).map_err(|e| format!("read {}: {e}", path.display()))?
+        } else {
+            return Ok(0);
+        };
+        let of = |e: &Value| e.get("sessionId").and_then(Value::as_str) == Some(sid);
+        let removed = old.iter().filter(|e| of(e)).count();
+        if removed == 0 {
+            return Ok(0);
+        }
+        let mut head = Head::default();
+        let mut kept = Vec::with_capacity(old.len() - removed);
+        for e in old.into_iter().filter(|e| !of(e)) {
+            // A line that was not JSON stays as it was, for `verify` to name.
+            match seal(&head, e.clone()) {
+                Some((sealed, next)) => {
+                    head = next;
+                    kept.push(sealed);
+                }
+                None => kept.push(e),
+            }
+        }
+        if let Some(m) = &self.memory {
+            *m.lock().unwrap_or_else(|e| e.into_inner()) = kept;
+        } else if let Some(path) = self.path.clone() {
+            self.file = None;
+            replace(&path, &kept).map_err(|e| format!("rewrite {}: {e}", path.display()))?;
+        }
+        self.head = head;
+        Ok(removed)
     }
 
     fn append(&mut self, path: &Path, line: &[u8]) -> std::io::Result<()> {
@@ -387,6 +443,48 @@ impl Writer {
         file.flush()?;
         file.sync_data()
     }
+}
+
+/// `entry` numbered and chained after `head` (without its old `v`, `seq`, `prevHash`, `hash`),
+/// and the head after it; None for a value that is not an object.
+fn seal(head: &Head, mut entry: Value) -> Option<(Value, Head)> {
+    let o = entry.as_object_mut()?;
+    o.remove("hash");
+    o.insert("v".into(), json!(VERSION));
+    o.insert("seq".into(), json!(head.seq + 1));
+    o.insert("prevHash".into(), json!(head.hash));
+    let hash = entry_hash(&head.hash, &entry);
+    entry["hash"] = json!(hash);
+    Some((entry, Head { seq: head.seq + 1, hash }))
+}
+
+/// Writes `entries` to `path` whole: a new file beside it, synced, renamed over it.
+fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
+    let tmp = path.with_extension("jsonl.tmp");
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut file = opts.open(&tmp)?;
+    for e in entries {
+        let line = match e {
+            Value::String(raw) => raw.clone(),
+            e => e.to_string(),
+        };
+        file.write_all(line.as_bytes())?;
+        file.write_all(b"\n")?;
+    }
+    file.sync_all()?;
+    std::fs::rename(&tmp, path)?;
+    if let Some(dir) = path.parent()
+        && let Ok(d) = std::fs::File::open(dir)
+    {
+        let _ = d.sync_all();
+    }
+    Ok(())
 }
 
 fn read_lines(path: &Path) -> std::io::Result<Vec<Value>> {
@@ -619,6 +717,54 @@ mod tests {
         log.flush();
         assert_eq!(log.write_errors(), 2);
         let _ = std::fs::remove_file(&d);
+    }
+
+    #[tokio::test]
+    async fn a_purge_leaves_nothing_of_the_session_and_a_chain_that_verifies() {
+        let d = dir("purge");
+        let url = "https://github.com/o/r/pull/4";
+        {
+            let log = AuditLog::open(Some(d.clone()));
+            log.record(entry("keep", 1));
+            let mut secret = entry("gone-incognito", 2);
+            secret["ask"] = json!("Run: cat private-plans.txt");
+            log.record(secret);
+            log.record_durable(json!({"at": 3, "sessionId": "gone-incognito", "kind": "review",
+                                      "prUrl": url, "ask": "Review", "decision": {"kind": "accept"},
+                                      "answeredBy": {"person": true}}))
+                .unwrap();
+            log.record(entry("keep", 4));
+            assert_eq!(log.purge("gone-incognito").unwrap().await.unwrap(), Ok(2));
+            assert!(!log.reviewed("gone-incognito", url));
+            // The chain goes on from the rewritten head.
+            log.record(entry("keep", 5));
+            log.flush();
+        }
+        let text = std::fs::read_to_string(d.join(FILE)).unwrap();
+        for needle in ["gone-incognito", "private-plans", url] {
+            assert!(!text.contains(needle), "{needle} survived the purge");
+        }
+        // After a restart: nothing of it, and the chain verifies.
+        let log = AuditLog::open(Some(d.clone()));
+        let all = log.all().unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[2]["seq"], 3);
+        assert_eq!(verify(&all)["ok"], true, "{}", verify(&all));
+        let page = log
+            .page(&Query {
+                session_id: Some("gone-incognito".into()),
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(page["entries"], json!([]));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(d.join(FILE)).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
