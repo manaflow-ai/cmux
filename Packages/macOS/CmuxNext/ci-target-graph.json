@@ -1334,6 +1334,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextDictation",
         "CmuxNextHomeModel",
         "CmuxNextIcons",
@@ -2090,6 +2091,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextIcons",
         "CmuxNextResources",
         "CmuxNextWakeups"

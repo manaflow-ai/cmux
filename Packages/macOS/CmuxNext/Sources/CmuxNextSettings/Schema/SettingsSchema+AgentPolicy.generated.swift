@@ -46,7 +46,7 @@ extension SettingsSchema {
         "tabs.newTabPosition",
         // Where the + puts a tab; looks only, ends no work.
         "tabs.newTabButtonPosition",
-        "newTerminal.opensWorkspace", "tabs.cmdWClosesPinnedTabs",
+        "newTerminal.opensWorkspace",
         // Dock icon and Cmd-Tab entry with no window open; ends no work.
         "app.hideDockIconWithoutWindows",
         // The menu bar item; looks only, ends no work.

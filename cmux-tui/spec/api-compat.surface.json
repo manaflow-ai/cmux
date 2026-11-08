@@ -17342,6 +17342,17 @@
           "working"
         ]
       },
+      "/data/agents/*/status": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "blocked",
+          "done",
+          "idle",
+          "unknown",
+          "working"
+        ]
+      },
       "/data/agents/*/surface": {
         "ty": "uint64",
         "required": true

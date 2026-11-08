@@ -11,6 +11,17 @@ extension ChatController {
 
     @MainActor func menu(at p: CGPoint) -> NSMenu? {
         guard let hit = demo?.hit(p) else { return previewMenu(at: p) }
+        // cmux: an agent's pill has the host's menu for that agent (Start now on a queued one).
+        if let agentPillMenu, case let .custom(custom) = hit.row.part,
+           let pill = HomeAgentFoldRowProvider.pill(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY),
+                                                    width: hit.body.width) {
+            let items = agentPillMenu(pill.peer)
+            if !items.isEmpty {
+                let menu = NSMenu()
+                items.forEach(menu.addItem)
+                return menu
+            }
+        }
         let ref = hit.row.ref
         let content = contentMenu
         let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
