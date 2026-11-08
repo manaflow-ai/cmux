@@ -235,7 +235,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             do {
                 try engine.core.push(streamBytes: segment.bytes, nowMicros: nowMicros())
             } catch {
-                // The stream broke or the host flooded the queues: end the session.
+                // The stream broke, the host flooded the queues or sent a non-frame refusal line: log it, end the session.
+                Self.logger.error("rd stream bytes rejected: \(String(describing: error), privacy: .public)")
                 closed()
                 return
             }

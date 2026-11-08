@@ -178,15 +178,17 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let screen = frame.area();
     let theme = app.config.theme;
     let buf = frame.buffer_mut();
-    let notification = app
-        .tree
-        .pane(area.pane)
-        .and_then(|pane| pane.tabs.get(pane.active_tab))
-        .and_then(|tab| tab.notification)
-        .filter(|notification| notification.unread);
-    let style = notification
-        .map(|notification| Style::default().fg(notification_color(&theme, notification)))
-        .unwrap_or_else(|| border_style(app, focused));
+    let active_tab = app.tree.pane(area.pane).and_then(|pane| pane.tabs.get(pane.active_tab));
+    let marked = active_tab.is_some_and(|tab| tab.attention.is_some());
+    let notification =
+        active_tab.and_then(|tab| tab.notification).filter(|notification| notification.unread);
+    let style = if marked {
+        Style::default().fg(theme.notification_warning)
+    } else {
+        notification
+            .map(|notification| Style::default().fg(notification_color(&theme, notification)))
+            .unwrap_or_else(|| border_style(app, focused))
+    };
     let glyphs = theme.border_style.glyphs();
     let (x0, y0) = (rect.x, rect.y);
     let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
@@ -284,7 +286,15 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             if t.notification.is_some_and(|notification| notification.unread) {
                 label.push_str(" •");
             }
-            (label, t.program_status.and_then(program_status_mark))
+            // An agent's `cmux attention request` mark reads like a program
+            // that waits on the user.
+            let mark = t.program_status.and_then(program_status_mark);
+            let mark = if t.attention.is_some() && mark.as_deref() != Some("!") {
+                Some(mark.map_or_else(|| "!".to_owned(), |mark| format!("{mark} !")))
+            } else {
+                mark
+            };
+            (label, mark)
         })
         .collect();
     let active_tab = pane.active_tab;
@@ -430,7 +440,9 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         }
         let is_active = i == active_tab;
         let mut style = if is_active { active_style } else { base };
-        if let Some(notification) =
+        if pane.tabs.get(i).is_some_and(|tab| tab.attention.is_some()) {
+            style = style.fg(theme.notification_warning);
+        } else if let Some(notification) =
             pane.tabs[i].notification.filter(|notification| notification.unread)
         {
             style = style.fg(notification_color(&theme, notification));
@@ -531,7 +543,19 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let selection_visible = app.selection_is_visible(area.surface);
     let selection: Option<Selection> =
         app.selection.filter(|s| s.surface == area.surface && selection_visible);
-    let selection_offset = selection.map(|_| app.surface_scroll_offset(area.surface)).unwrap_or(0);
+    // Copy mode replaces the mouse selection on its pane; outside copy mode
+    // this costs one branch per frame.
+    let copy_active = app.copy_mode_active();
+    let selection_offset = if selection.is_some() || copy_active {
+        app.surface_scroll_offset(area.surface)
+    } else {
+        0
+    };
+    let copy = if copy_active {
+        app.copy_overlay(area.surface, selection_offset, rect.height)
+    } else {
+        None
+    };
     let theme = app.config.theme;
 
     let rs = app
@@ -576,8 +600,19 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         &render,
         &theme,
         &app.chrome,
-        |col, row| selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
+        |col, row| match &copy {
+            Some(copy) => copy.selected(col, row),
+            None => selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
+        },
     );
+    let cursor = match &copy {
+        Some(copy) => {
+            let rows = render.frame.styled_rows();
+            super::copy_mode::paint_overlay(frame, live, source_x, rows, &theme, copy);
+            None
+        }
+        None => cursor,
+    };
     if !focused && theme.dim_inactive {
         let screen = frame.area();
         let max_x = rect.x.saturating_add(rect.width).min(screen.width);

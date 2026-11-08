@@ -7,7 +7,9 @@ import Observation
 extension HomeNativeTranscriptView {
     /// Opens agent `peer`'s chat (a click on its pill) as its `aN` link opens (user 2026-11-04, msg 21663: "just
     /// open it as pane to right side"): the Chief's link to its session goes to the host (``onAppLink``), which
-    /// opens a real chat tab right of Home. With no link or no host, the agent pane here shows it.
+    /// opens a real chat tab right of Home. With no link or no host, the agent pane here shows it: a queued
+    /// agent (no workspace yet) shows its place in line and Start now, and moves to its workspace once it
+    /// starts (user 2026-11-07, msg 23835: its pill "failed to open in workspace").
     func openAgent(_ peer: String) {
         guard !stopped else { return }
         if let onAppLink {
@@ -19,6 +21,13 @@ extension HomeNativeTranscriptView {
         if agentPaneView == nil {
             let view = HomeAgentPaneView(pane: agentPane)
             view.onGoToWorkspace = { [weak self] url in self?.onAppLink?(url) }
+            view.onStartAgent = onStartAgent
+            // A queued agent opened here that starts becomes its workspace beside Home (user 2026-11-07, msg 23835).
+            view.onHandOff = { [weak self] url in
+                guard let open = self?.onAppLink else { return false }
+                open(url)
+                return true
+            }
             addSubview(view)
             agentPaneView = view
             followAgentPane()

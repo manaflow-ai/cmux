@@ -327,6 +327,21 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_agent_chat_list_admits_only_the_agent_chat_read_grant() {
+        let table = ScopeTable::get();
+        assert_eq!(
+            table.check("agent_chat.list", &json!({}), &grant(&["agent_chat:read"])),
+            Decision::Allow(OpClass::Read),
+        );
+        for scopes in [vec![], vec!["agent:read"], vec!["agent_cli:read"], vec!["workspace:read"]] {
+            assert!(matches!(
+                table.check("agent_chat.list", &json!({}), &grant(&scopes)),
+                Decision::ScopeMissing(_),
+            ));
+        }
+    }
+
+    #[test]
     fn cmux_next_memory_search_admits_only_the_memory_read_grant() {
         let table = ScopeTable::get();
         let params = json!({"roots":[],"query":"deploy"});
