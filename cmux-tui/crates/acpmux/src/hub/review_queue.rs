@@ -136,10 +136,14 @@ impl Index {
         let mut inner = self.lock();
         inner.noted += 1;
         let noted = inner.noted;
-        let turn_id = msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
         let request = msg.get("request").cloned().unwrap_or(Value::Null);
         let asks = inner.asks.entry(session.to_owned()).or_default();
-        // A reissue keeps when it was first asked.
+        // A reissue (which names no turn) keeps when it was first asked, and its turn.
+        let turn_id = msg
+            .get("turnId")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| asks.get(id).and_then(|a| a.turn_id.clone()));
         let at = asks.get(id).map_or(at, |a| a.at);
         let settled_by = asks.get(id).and_then(|a| a.settled_by);
         asks.insert(id.to_owned(), Ask { settled_by, at, turn_id, request, noted });

@@ -131,14 +131,9 @@ impl Hub {
             tracing::warn!(session = %session_id, "audit: purge failed: {why}");
             Err(RpcError::internal(format!("audit: the chat's entries were not removed: {why}")))
         };
-        let Some(done) = self.audit.purge(session_id) else {
-            return fail("the audit writer is gone");
-        };
-        match tokio::time::timeout(AUDIT_PURGE_WAIT, done).await {
-            Ok(Ok(Ok(_))) => Ok(()),
-            Ok(Ok(Err(why))) => fail(&why),
-            Ok(Err(_)) => fail("the audit writer is gone"),
-            Err(_) => fail("the rewrite did not finish in time"),
+        match self.audit.purge_within(session_id, AUDIT_PURGE_WAIT).await {
+            Ok(_) => Ok(()),
+            Err(why) => fail(&why),
         }
     }
 

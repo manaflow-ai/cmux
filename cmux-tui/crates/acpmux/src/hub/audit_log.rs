@@ -39,7 +39,7 @@
 //!   0600) and chains the rest again from [`GENESIS`], so `verify` still passes and nothing of the
 //!   chat, not even its id, survives a restart. From the purge on, the writer itself refuses
 //!   every entry of that session (a verdict checked before the purge and sent after it too), and
-//!   the hub writes none. A purge that fails fails the chat's deletion (`Hub::kill`).
+//!   the hub writes none. The purge runs first in `Hub::kill`, before anything of the chat stops: one that fails or times out fails the deletion, lifts the writer's fence and leaves the chat as it was. The audit folder must be a real owner-only directory (no link).
 //! - Torn writes: a line that fails to write or sync is cut off again (the file goes back to its
 //!   length before it), and the chain's head moves only after a line is on disk. A tail without
 //!   its newline (a crash mid-write) is cut off when the log opens. A purge drops lines that are
@@ -49,7 +49,7 @@
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, mpsc};
 use std::time::Duration;
 
@@ -90,8 +90,9 @@ enum Msg {
     Entry(Value, Option<Durable>),
     /// Answered once every entry sent before it is written.
     Flush(mpsc::Sender<()>),
-    /// Removes a purged session's entries: answered with how many.
-    Purge(String, tokio::sync::oneshot::Sender<Result<usize, String>>),
+    /// Removes a purged session's entries: answered with how many, unless its caller withdrew
+    /// it first ([`Durable::state`]). One that fails leaves the session unfenced.
+    Purge(String, tokio::sync::oneshot::Sender<Result<usize, String>>, Arc<AtomicU8>),
 }
 
 /// The chain's head: the last entry's `seq` and `hash`.
@@ -119,6 +120,8 @@ pub(crate) struct AuditLog {
     path: Option<PathBuf>,
     /// The entries of a log kept in memory (no state folder).
     memory: Option<Arc<StdMutex<Vec<Value>>>>,
+    /// Tests: every purge fails, after its fence went up.
+    fail_purges: Arc<AtomicBool>,
 }
 
 impl AuditLog {
@@ -129,7 +132,9 @@ impl AuditLog {
         let path = dir.map(|d| d.join(FILE));
         let memory = path.is_none().then(|| Arc::new(StdMutex::new(Vec::new())));
         let write_errors = Arc::new(AtomicU64::new(0));
+        let fail_purges = Arc::new(AtomicBool::new(false));
         let mut writer = Writer {
+            fail_purges: fail_purges.clone(),
             purged: HashSet::new(),
             needs_repair: false,
             path: path.clone(),
@@ -154,7 +159,14 @@ impl AuditLog {
             write_errors,
             path,
             memory,
+            fail_purges,
         }
+    }
+
+    /// Tests: makes every purge from now on fail (`fail`) or work again.
+    #[cfg(test)]
+    pub(crate) fn fail_purges(&self, fail: bool) {
+        self.fail_purges.store(fail, Ordering::SeqCst);
     }
 
     /// Sends `entry` (without `v`, `seq`, `prevHash` and `hash`) to the writer: never blocks. A
@@ -229,8 +241,42 @@ impl AuditLog {
         &self,
         session_id: &str,
     ) -> Option<tokio::sync::oneshot::Receiver<Result<usize, String>>> {
+        self.send_purge(session_id).map(|(rx, _)| rx)
+    }
+
+    fn send_purge(
+        &self,
+        session_id: &str,
+    ) -> Option<(tokio::sync::oneshot::Receiver<Result<usize, String>>, Arc<AtomicU8>)> {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        self.send(Msg::Purge(session_id.to_owned(), tx)).ok().map(|()| rx)
+        let state = Arc::new(AtomicU8::new(QUEUED));
+        self.send(Msg::Purge(session_id.to_owned(), tx, state.clone())).ok().map(|()| (rx, state))
+    }
+
+    /// Removes session `session_id`'s entries, waiting up to `wait` for the writer to take the
+    /// purge: one it has not taken by then is withdrawn and never runs, one it has taken is
+    /// waited for to the end. A purge that fails or is withdrawn leaves the log and the session
+    /// as they were: its entries keep being written.
+    pub(crate) async fn purge_within(
+        &self,
+        session_id: &str,
+        wait: Duration,
+    ) -> Result<usize, String> {
+        let Some((mut rx, state)) = self.send_purge(session_id) else {
+            return Err("the audit writer is gone".into());
+        };
+        match tokio::time::timeout(wait, &mut rx).await {
+            Ok(r) => r.unwrap_or_else(|_| Err("the audit writer is gone".into())),
+            Err(_) => {
+                if state
+                    .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    return Err("the audit writer did not take the purge in time".into());
+                }
+                rx.await.unwrap_or_else(|_| Err("the audit writer is gone".into()))
+            }
+        }
     }
 
     /// Whether the pull request at `url`, opened by session `session_id`, has a written verdict.
@@ -339,6 +385,7 @@ fn review_key(entry: &Value) -> Option<(String, String)> {
 }
 
 struct Writer {
+    fail_purges: Arc<AtomicBool>,
     /// Sessions purged since start: their entries are refused.
     purged: HashSet<String>,
     /// A failed write left bytes this writer could not cut: read the file again first.
@@ -393,7 +440,14 @@ impl Writer {
                 Msg::Flush(done) => {
                     let _ = done.send(());
                 }
-                Msg::Purge(sid, done) => {
+                Msg::Purge(sid, done, state) => {
+                    if state
+                        .compare_exchange(QUEUED, STARTED, Ordering::AcqRel, Ordering::Acquire)
+                        .is_err()
+                    {
+                        // Withdrawn: the chat stays, and so do its entries.
+                        continue;
+                    }
                     let purged = self.purge(&sid);
                     if let Err(why) = &purged {
                         tracing::warn!("audit: a purged chat's entries were not removed: {why}");
@@ -456,11 +510,27 @@ impl Writer {
         }
     }
 
-    /// Drops session `sid`'s entries and chains the rest again: how many went.
+    /// Drops session `sid`'s entries and chains the rest again: how many went. On a failure the
+    /// session is unfenced again: the chat stays, and its entries keep being written.
     fn purge(&mut self, sid: &str) -> Result<usize, String> {
         // Before the rewrite: an entry of it sent from here on is refused.
         self.purged.insert(sid.to_owned());
-        self.reviewed.lock().unwrap_or_else(|e| e.into_inner()).retain(|(s, _)| s != sid);
+        let purged = self.purge_fenced(sid);
+        match &purged {
+            Ok(_) => {
+                self.reviewed.lock().unwrap_or_else(|e| e.into_inner()).retain(|(s, _)| s != sid);
+            }
+            Err(_) => {
+                self.purged.remove(sid);
+            }
+        }
+        purged
+    }
+
+    fn purge_fenced(&mut self, sid: &str) -> Result<usize, String> {
+        if self.fail_purges.load(Ordering::SeqCst) {
+            return Err("purges fail in this test".into());
+        }
         let old = if let Some(m) = &self.memory {
             m.lock().unwrap_or_else(|e| e.into_inner()).clone()
         } else if let Some(path) = &self.path {
@@ -494,9 +564,7 @@ impl Writer {
 
     fn append(&mut self, path: &Path, line: &[u8]) -> std::io::Result<()> {
         if self.file.is_none() {
-            if let Some(dir) = path.parent() {
-                crate::config::private_state_dir(dir).map_err(std::io::Error::other)?;
-            }
+            private_dir_of(path)?;
             self.file =
                 Some(crate::config::private_state_append(path).map_err(std::io::Error::other)?);
         }
@@ -530,8 +598,22 @@ fn seal(head: &Head, mut entry: Value) -> Option<(Value, Head)> {
     Some((entry, Head { seq: head.seq + 1, hash }))
 }
 
+/// The folder of `path`, made (or checked) a private state folder before anything in it is
+/// opened: a real directory this user owns, mode 0700, reached through no link. A link planted
+/// at the folder is refused, so no repair, read or rewrite reaches what it names.
+fn private_dir_of(path: &Path) -> std::io::Result<()> {
+    let Some(dir) = path.parent() else { return Ok(()) };
+    crate::config::private_state_dir(dir).map_err(std::io::Error::other)?;
+    let meta = std::fs::symlink_metadata(dir)?;
+    if !meta.file_type().is_dir() {
+        return Err(std::io::Error::other(format!("{} is not a directory", dir.display())));
+    }
+    Ok(())
+}
+
 /// Cuts what follows the last newline of `path` (a line a crash left half written).
 fn cut_torn_tail(path: &Path) -> std::io::Result<()> {
+    private_dir_of(path)?;
     if !exists(path)? {
         return Ok(());
     }
@@ -548,6 +630,7 @@ fn cut_torn_tail(path: &Path) -> std::io::Result<()> {
 
 /// Writes `entries` to `path` whole: a new file beside it, synced, renamed over it.
 fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
+    private_dir_of(path)?;
     let tmp = path.with_extension("jsonl.tmp");
     // A leftover (or planted) tmp goes first: removing a link never touches what it names.
     match std::fs::remove_file(&tmp) {
@@ -581,6 +664,7 @@ fn exists(path: &Path) -> std::io::Result<bool> {
 /// Every line of `path`, opened as private state: a link, a file that is not regular or one
 /// another user owns is refused, and a wider mode is narrowed to 0600.
 fn read_lines(path: &Path) -> std::io::Result<Vec<Value>> {
+    private_dir_of(path)?;
     if !exists(path)? {
         return Ok(vec![]);
     }
@@ -991,6 +1075,40 @@ mod tests {
         let meta = std::fs::symlink_metadata(d.join(FILE)).unwrap();
         assert!(meta.file_type().is_file());
         assert_eq!(log.all().unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_audit_folder_is_refused_and_its_target_left_alone() {
+        let d = dir("dirlink");
+        let target = d.join("elsewhere");
+        std::fs::create_dir_all(&target).unwrap();
+        // A torn tail in the folder the link names: a repair through the link would cut it.
+        std::fs::write(target.join(FILE), b"{\"seq\":1}\ntorn").unwrap();
+        let linked = d.join("audit");
+        std::os::unix::fs::symlink(&target, &linked).unwrap();
+        let log = AuditLog::open(Some(linked.clone()));
+        assert!(log.all().is_err(), "a linked folder is not read");
+        log.record(entry("s1", 1));
+        log.flush();
+        assert_eq!(log.write_errors(), 1, "nothing is written through the link");
+        assert_eq!(std::fs::read(target.join(FILE)).unwrap(), b"{\"seq\":1}\ntorn");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[tokio::test]
+    async fn a_failed_purge_unfences_the_session_and_keeps_its_entries() {
+        let d = dir("failpurge");
+        let log = AuditLog::open(Some(d.clone()));
+        log.record(entry("s1", 1));
+        log.flush();
+        log.fail_purges(true);
+        assert!(log.purge_within("s1", Duration::from_secs(5)).await.is_err());
+        log.record(entry("s1", 2));
+        let all = log.all().unwrap();
+        assert_eq!(all.len(), 2, "the chat's entries stay and it still records: {all:?}");
+        assert_eq!(verify(&all)["ok"], true);
         let _ = std::fs::remove_dir_all(&d);
     }
 

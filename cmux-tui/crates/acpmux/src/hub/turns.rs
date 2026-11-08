@@ -2327,6 +2327,12 @@ impl Hub {
         } else {
             None
         };
+        // Its approvals audit entries go first (`audit_log.rs`), before anything of the chat is
+        // stopped or marked purged: a purge that fails or times out fails the delete with the
+        // chat as it was, still recording (the writer lifts its own fence again).
+        if purge {
+            self.audit_purge(&session.id).await?;
+        }
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
@@ -2381,8 +2387,6 @@ impl Hub {
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
             session.purged.store(true, Ordering::SeqCst);
-            // Its approvals audit entries go too (`audit_log.rs`): an incognito chat keeps none.
-            self.audit_purge(&session.id).await?;
             self.remove_cached_closed_summary(&session.id);
             let replaced = session.replaced.load(Ordering::SeqCst);
             if !self

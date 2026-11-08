@@ -278,6 +278,55 @@ async fn a_dismissal_and_an_automatic_allow_are_recorded_as_such() {
 }
 
 #[tokio::test]
+async fn a_failed_audit_purge_fails_the_delete_and_the_chat_still_records() {
+    let hub = hub();
+    let s = hub.insert_test_session(meta("s1", "ready", &[], 2));
+    let _a = ask(&hub, &s, "p1", tool_request("Run ls"));
+    answer(&hub, &s, "p1", "ok");
+    hub.audit.fail_purges(true);
+    assert!(hub.kill(&s, true).await.is_err());
+    assert!(!s.purged.load(Ordering::SeqCst));
+    assert!(!s.closing.load(Ordering::SeqCst), "nothing of the chat was stopped");
+    assert!(hub.sessions.lock().unwrap().contains_key("s1"));
+    let _b = ask(&hub, &s, "p2", tool_request("Run pwd"));
+    answer(&hub, &s, "p2", "ok");
+    let all = hub.audit.all().unwrap();
+    assert_eq!(all.len(), 2, "{all:?}");
+    assert_eq!(all[1]["permissionId"], "p2");
+}
+
+#[tokio::test]
+async fn a_reissued_ask_keeps_the_time_and_turn_it_was_first_asked() {
+    let hub = hub();
+    let s = hub.insert_test_session(meta("s1", "waiting", &[], 2));
+    let request = tool_request("Run ls");
+    // A restart: the index learns the ask as first recorded, then its reissue is appended.
+    hub.review_index.note_ask(
+        &s.id,
+        &json!({"permissionId": "p1", "turnId": "turn-7", "request": request.clone()}),
+        1_000,
+    );
+    let (reply, _rx) = oneshot::channel();
+    s.permissions.lock().unwrap().pending.insert(
+        "p1".to_owned(),
+        PendingPermission {
+            request: request.clone(),
+            reply,
+            decision_nonce: super::person::new_nonce(),
+            ancestor_may_answer: false,
+            prev_status: SessionStatus::Waiting,
+            agent_request: None,
+            agent_host_incarnation: None,
+        },
+    );
+    hub.append(&s, "mux", "permission_reissued", json!({"permissionId": "p1", "request": request}));
+    let (items, _) = hub.review_queue_local(now_ms());
+    let item = items.iter().find(|i| i["permissionId"] == "p1").unwrap();
+    assert_eq!(item["at"], 1_000);
+    assert_eq!(item["turnId"], "turn-7");
+}
+
+#[tokio::test]
 async fn a_purged_chat_leaves_no_audit_entry() {
     let hub = hub();
     let gone = hub.insert_test_session(meta("incognito", "ready", &[], 2));
