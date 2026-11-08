@@ -220,3 +220,41 @@ test("the runs card: Keep this one removes the others' worktrees", async () => {
   expect(host.querySelector('[data-outcome="kept"]')).not.toBeNull();
   act(() => root.unmount());
 });
+
+test("the runs card: a worktree Keep could not remove is shown as staying, never as removed", async () => {
+  const build: PlanBuild = {
+    buildId: "r2",
+    target: "prompt",
+    builds: [
+      { sessionId: "a", harness: "claude", state: "done" },
+      { sessionId: "b", harness: "codex", state: "done" },
+    ],
+    archived: [],
+    turnsEnded: 2,
+  };
+  const diffs = {
+    buildId: "r2",
+    builds: build.builds.map((b) => ({ sessionId: b.sessionId, added: 1, removed: 0, files: [] })),
+  };
+  const { host, root } = await mount(
+    <PlanBuildCard
+      build={build}
+      sessionId="parent"
+      onOpen={() => undefined}
+      compare={async () => diffs}
+      keep={async (_s, _b, keep) => ({
+        ...diffs,
+        keptSessionId: keep,
+        removed: [{ sessionId: "a", removed: false, error: "a process works in it" }],
+      })}
+    />,
+  );
+  await click(host.querySelectorAll<HTMLButtonElement>(".acpmux-plan-builds-keep")[1]!);
+  expect(host.querySelector('[data-outcome="removed"]')).toBeNull();
+  const stayed = host.querySelector('[data-outcome="stayed"]');
+  expect(stayed?.textContent).toContain("Worktree stayed");
+  expect(stayed?.querySelector(".acpmux-plan-builds-state")?.getAttribute("title")).toBe("a process works in it");
+  expect(host.textContent).toContain("not every worktree was removed: a process works in it");
+  expect(host.textContent).not.toContain("archived and removed");
+  act(() => root.unmount());
+});

@@ -177,6 +177,7 @@ test("a prompt's runs: three columns, each with its model, and a Keep that remov
   const kept = rows.get(planBuildRowId("r1"))!.planBuild!;
   expect(kept.keptSessionId).toBe("b");
   expect(kept.removed).toEqual(["a"]);
+  expect(kept.stayed).toEqual([{ sessionId: "c", error: "a process works in it" }]);
 });
 
 test("three and four runs keep a fixed height: side by side, two by two, or stacked", () => {

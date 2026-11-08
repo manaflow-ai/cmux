@@ -148,6 +148,23 @@ nonisolated enum AcpmuxPaneMethods {
         // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
         // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
         "_acpmux/subsession/limits",
+        // The plan approval card's Build menu (direct.ts planBuild, planCompare, planKeep; acpmux
+        // server/plan_build.rs) for a chat in the pane's scope. Build answers the chat's pending plan
+        // approval (here) or starts the plan as sub-sessions in new worktrees under the chat's own
+        // policy, so it needs the person's fresh click (``gestureRules``, ``answerAllowed``) and
+        // names no harness, folder or command. Compare reads the builds' diffs; Keep archives the
+        // other builds' chats, never their worktrees. acpmux takes all three only from a
+        // connection that proved the person key, never a remote device or a peer.
+        "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
+        // The composer's Run on N agents (direct.ts planFanout, runOnAgents/; acpmux
+        // server/plan_build.rs): the typed prompt started as 2 to 4 sub-sessions of a chat in the
+        // pane's scope, each in a new worktree under the chat's own policy, so it needs the
+        // person's gesture as a send does (``gestureRules``), with a ticket bound to that exact
+        // prompt and those agents (``AgentPaneGestureIntent``). Each variant names only a harness,
+        // a model and an effort, never a folder or a command. Keep's `removeOthers` closes the
+        // other runs and removes only the worktrees acpmux made for them, each archived first, with
+        // its branch kept. acpmux takes it only from a connection that proved the person key.
+        "_acpmux/plan/fanout",
         // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp,
         // Session Info's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
         // already lists, on its running process; it starts nothing and refuses other harnesses.
@@ -272,6 +289,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
+        "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep", "_acpmux/plan/fanout",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -369,6 +387,11 @@ nonisolated enum AcpmuxPaneMethods {
         // for the failed prompt's resend. Cancel stops work: none.
         "_acpmux/agent_login/start": .always,
         "_acpmux/agent_login/api_key": .always,
+        // Build answers the plan approval or starts the plan in new worktrees. Compare and Keep
+        // need none: Keep only archives chats the person's Build started.
+        "_acpmux/plan/build": .always,
+        // Run on N agents starts sub-sessions that run the prompt: a send's gesture.
+        "_acpmux/plan/fanout": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
@@ -383,6 +406,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// the person's fresh click or permission shortcut, never a typing gesture (cx-ocdz).
     @MainActor static func answerAllowed(_ method: String?, _ gestures: AgentPaneUserGestures) -> Bool {
         let answers = method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond"
+            || method == "_acpmux/plan/build"
         return !answers || gestures.hasFreshAnswerGesture
     }
 

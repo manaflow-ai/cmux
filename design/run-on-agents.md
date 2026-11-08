@@ -42,7 +42,11 @@ to this, I'm out." Row #8 of the agent-workflow gaps (cmuxterm-hq
   worktrees at once. Worktree care runs with no quiet time and still leaves a worktree that a
   process works in. A worktree goes only once care has archived it (its manifest, and a bundle of
   any work found only there), and its branch stays, so each removed run can be restored. Those
-  columns say **Removed**.
+  columns say **Removed**. A worktree that could not go (a process works in it, or care left it)
+  is never called removed: its column says **Worktree stayed** in the warning colour with
+  acpmux's reason on hover, and the heading says not every worktree was removed.
+- Only what the daemon recorded at the start counts: the runs it started as this build and the
+  worktree it made for each, kept in each run's lineage, never the tags, which an agent can write.
   The plan approval's own compare keeps its old Keep, where the others are archived and their
   worktrees stay until worktree care's quiet time.
 

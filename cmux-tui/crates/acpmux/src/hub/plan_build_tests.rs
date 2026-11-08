@@ -68,9 +68,6 @@ fn numstat_counts_and_caps_the_list() {
         many.push(format!("f{i}"), 1, 0);
     }
     assert_eq!((many.files.len(), many.more, many.added), (MAX_FILES, 5, (MAX_FILES + 5) as u64));
-    assert_eq!(bytecount_lines(b"a\nb"), 2);
-    assert_eq!(bytecount_lines(b"a\n"), 1);
-    assert_eq!(bytecount_lines(b""), 0);
 }
 
 #[test]

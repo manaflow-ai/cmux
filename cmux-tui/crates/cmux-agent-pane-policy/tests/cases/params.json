@@ -2037,5 +2037,154 @@
   },
   "mode_fields": null,
   "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/build with its ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/plan/build _meta with more than the ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {}
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/build names harnesses",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "harnesses": [
+     "claude",
+     "codex"
+    ]
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/fanout with its ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "claude",
+      "model": "claude-opus-5-5"
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/plan/fanout _meta with more than the ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "claude",
+      "model": "claude-opus-5-5"
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {}
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/fanout names a folder",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "claude",
+      "model": "claude-opus-5-5"
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "cwd": "/"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/keep removing the others",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/keep",
+   "params": {
+    "sessionId": "s",
+    "buildId": "b",
+    "keep": "c",
+    "removeOthers": true
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
  }
 ]

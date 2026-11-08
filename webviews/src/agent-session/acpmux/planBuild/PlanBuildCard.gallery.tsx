@@ -109,6 +109,11 @@ const runsKept: PlanBuild = {
   archived: [claude.sessionId, sonnet.sessionId],
   removed: [claude.sessionId, sonnet.sessionId],
 };
+const runsStayed: PlanBuild = {
+  ...runsKept,
+  removed: [claude.sessionId],
+  stayed: [{ sessionId: sonnet.sessionId, error: "a process still works in it" }],
+};
 const worktree: PlanBuild = {
   buildId: "b2",
   target: "worktree",
@@ -177,6 +182,10 @@ export default componentEntry<Props>({
     "runs-kept": {
       note: "Codex's run kept: the other two say Removed (closed, worktrees archived and removed), the heading says so. Same height as before.",
       props: { build: runsKept, diffs: runDiffs },
+    },
+    "runs-stayed": {
+      note: "Codex kept, but Sonnet's worktree could not go (a process works in it): that column says Worktree stayed in the warning colour with acpmux's reason on hover, and the heading says not every worktree was removed.",
+      props: { build: runsStayed, diffs: runDiffs },
     },
     worktree: {
       note: "Build in a new worktree: one column with Open, no Keep.",

@@ -87,7 +87,10 @@ const harness = (id: string, name: string): PickerHarness => ({
   pickable: true,
   models: [],
 });
-const catalog: PickerCatalog = { provisional: false, harnesses: [harness("claude", "Claude"), harness("codex", "Codex")] };
+const catalog: PickerCatalog = {
+  provisional: false,
+  harnesses: [harness("claude", "Claude"), harness("codex", "Codex")],
+};
 
 const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
 async function until(ready: () => boolean, what: string) {

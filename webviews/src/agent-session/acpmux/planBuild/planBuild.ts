@@ -38,6 +38,8 @@ export type PlanBuild = {
   archived: string[];
   /// The builds a Keep closed and whose worktrees it removed (a prompt's runs).
   removed?: string[];
+  /// The builds a Keep closed whose worktrees stayed (in use, or not archived), with acpmux's reason.
+  stayed?: PlanBuildStayed[];
   /// Harnesses whose build was refused at the start, with acpmux's reason.
   failed?: { harness: string; error?: string }[];
   /// Bumped on every build's turn end: the card refetches its diffs when it changes.
@@ -64,7 +66,26 @@ export type PlanBuildReply = {
   builds: PlanBuildDiff[];
   /// Keep with removeOthers: the builds whose worktrees went.
   removed?: string[];
+  /// Keep with removeOthers: the builds whose worktrees stayed.
+  stayed?: PlanBuildStayed[];
 };
+
+/// A run Keep closed whose worktree stayed, and why.
+export type PlanBuildStayed = { sessionId: string; error?: string };
+
+/// Keep's `removed` rows (`{sessionId, removed, error?}`): the ones gone, and the ones that stayed.
+function removals(value: unknown): { removed?: string[]; stayed?: PlanBuildStayed[] } {
+  const removed: string[] = [];
+  const stayed: PlanBuildStayed[] = [];
+  for (const raw of Array.isArray(value) ? value : []) {
+    const row = object(raw);
+    const id = text(row?.sessionId);
+    if (!id) continue;
+    if (row?.removed === true) removed.push(id);
+    else stayed.push({ sessionId: id, error: text(row?.error) });
+  }
+  return { ...(removed.length ? { removed } : {}), ...(stayed.length ? { stayed } : {}) };
+}
 
 const text = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -112,14 +133,7 @@ export function planBuildStarted(msg: Record<string, unknown>): PlanBuild | unde
 export function planBuildKept(build: PlanBuild, msg: Record<string, unknown>): PlanBuild {
   const kept = text(msg.keptSessionId);
   const archived = Array.isArray(msg.archived) ? msg.archived.filter((id): id is string => typeof id === "string") : [];
-  const removed = Array.isArray(msg.removed)
-    ? msg.removed.flatMap((raw) => {
-        const row = object(raw);
-        const id = text(row?.sessionId);
-        return id && row?.removed === true ? [id] : [];
-      })
-    : [];
-  return { ...build, keptSessionId: kept ?? build.keptSessionId, archived, ...(removed.length ? { removed } : {}) };
+  return { ...build, keptSessionId: kept ?? build.keptSessionId, archived, ...removals(msg.removed) };
 }
 
 /// `build` after a sub-session record of one of its builds (`subsession` `turn_ended`, or `closed`:
@@ -182,14 +196,7 @@ export function planBuildReply(value: unknown): PlanBuildReply | undefined {
       error: text(build.error),
     });
   }
-  const removed = Array.isArray(reply.removed)
-    ? reply.removed.flatMap((raw) => {
-        const row = object(raw);
-        const id = text(row?.sessionId);
-        return id && row?.removed === true ? [id] : [];
-      })
-    : [];
-  return { buildId, keptSessionId: text(reply.keptSessionId), builds, ...(removed.length ? { removed } : {}) };
+  return { buildId, keptSessionId: text(reply.keptSessionId), builds, ...removals(reply.removed) };
 }
 
 /// How many files a column lists before "N more": the card's height never depends on a diff.

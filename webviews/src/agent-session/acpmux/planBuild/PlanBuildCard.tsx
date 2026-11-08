@@ -75,6 +75,9 @@ export function PlanBuildCard({
   const prompted = build.target === "prompt";
   const compared = build.target === "compare" || prompted;
   const removed = new Set([...(build.removed ?? []), ...(read?.removed ?? [])]);
+  // A worktree Keep could not remove is never announced as gone: its column and the note say so.
+  const stayed = new Map([...(build.stayed ?? []), ...(read?.stayed ?? [])].map((s) => [s.sessionId, s.error]));
+  const stayedWhy = [...stayed.values()].find(Boolean) ?? "";
   const title = prompted
     ? t("planBuild.title.prompt", { n: build.builds.length })
     : t(compared ? "planBuild.title.compare" : "planBuild.title.worktree");
@@ -96,6 +99,18 @@ export function PlanBuildCard({
       },
     );
   };
+  // Cut to one line in a narrow chat: the whole note on hover.
+  const note = error
+    ? t("planBuild.keepFailed", { error })
+    : kept
+      ? stayed.size
+        ? t("planBuild.keptNoteStayed", { error: stayedWhy })
+        : removed.size
+          ? t("planBuild.keptNoteRemoved")
+          : t("planBuild.keptNote")
+      : notStarted.length
+        ? notStarted.map((f) => t("planBuild.notStarted", { harness: f.harness, error: f.error ?? "" })).join(" ")
+        : "";
   return (
     <section
       className="acpmux-plan-builds"
@@ -105,16 +120,8 @@ export function PlanBuildCard({
     >
       <header className="acpmux-plan-builds-head">
         <span className="acpmux-plan-builds-title">{title}</span>
-        <span className="acpmux-plan-builds-note" role={error ? "alert" : undefined}>
-          {error
-            ? t("planBuild.keepFailed", { error })
-            : kept
-              ? t(prompted ? "planBuild.keptNoteRemoved" : "planBuild.keptNote")
-              : notStarted.length
-                ? notStarted
-                    .map((f) => t("planBuild.notStarted", { harness: f.harness, error: f.error ?? "" }))
-                    .join(" ")
-                : ""}
+        <span className="acpmux-plan-builds-note" role={error ? "alert" : undefined} title={note || undefined}>
+          {note}
         </span>
       </header>
       <div className="acpmux-plan-builds-columns" data-count={build.builds.length}>
@@ -132,10 +139,13 @@ export function PlanBuildCard({
                   ? "kept"
                   : removed.has(child.sessionId)
                     ? "removed"
-                    : build.archived.includes(child.sessionId) || compared
-                      ? "archived"
-                      : undefined
+                    : stayed.has(child.sessionId)
+                      ? "stayed"
+                      : build.archived.includes(child.sessionId) || compared
+                        ? "archived"
+                        : undefined
             }
+            why={stayed.get(child.sessionId)}
             canKeep={compared && build.builds.length > 1 && !kept && Boolean(sessionId)}
             keeping={keeping === child.sessionId}
             busy={keeping !== undefined}
@@ -198,6 +208,7 @@ function PlanBuildColumn({
   label,
   diff,
   outcome,
+  why,
   canKeep,
   keeping,
   busy,
@@ -209,7 +220,9 @@ function PlanBuildColumn({
   /// The column's name, over the chat's own.
   label?: string;
   diff?: PlanBuildDiff;
-  outcome?: "kept" | "archived" | "removed";
+  outcome?: "kept" | "archived" | "removed" | "stayed";
+  /// Why a closed run's worktree stayed (acpmux's reason).
+  why?: string | undefined;
   canKeep: boolean;
   keeping: boolean;
   busy: boolean;
@@ -229,7 +242,7 @@ function PlanBuildColumn({
           <SenderIcon harness={child.harness} tone={agentTone(child.sessionId)} size={14} fallback="agent.chat" />
         </span>
         <span className="acpmux-plan-builds-name">{label ?? child.name ?? child.harness ?? child.sessionId}</span>
-        <span className="acpmux-plan-builds-state">
+        <span className="acpmux-plan-builds-state" title={outcome === "stayed" ? why : undefined}>
           <span className="acpmux-plan-builds-dot" aria-hidden />
           {outcome === "kept"
             ? t("planBuild.kept")
@@ -237,7 +250,9 @@ function PlanBuildColumn({
               ? t("planBuild.archived")
               : outcome === "removed"
                 ? t("planBuild.removed")
-                : statusText(t, child, diff)}
+                : outcome === "stayed"
+                  ? t("planBuild.stayed")
+                  : statusText(t, child, diff)}
         </span>
       </div>
       <div className="acpmux-plan-builds-branch" title={branch}>

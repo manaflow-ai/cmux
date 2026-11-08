@@ -99,6 +99,16 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "images", "index"], []),
         // `_meta`: only the gesture ticket of the person's pick (cx-0q7o), never anything else.
         "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers", "annotations", "_meta"], []),
+        // `_meta`: only the gesture ticket of the person's Build pick, as an answer's. No
+        // `harnesses`: the pane builds with the chat's own harness, or it and the other of Claude
+        // and Codex for a compare.
+        "_acpmux/plan/build": (["sessionId", "permissionId", "target", "_meta"], []),
+        "_acpmux/plan/compare": (["sessionId", "buildId"], []),
+        // `removeOthers`: Run on N agents' Keep removes the other runs' worktrees (acpmux archives
+        // each first and keeps its branch).
+        "_acpmux/plan/keep": (["sessionId", "buildId", "keep", "removeOthers"], []),
+        // `variants`: 2 to 4 of `{harness, model?, effort?}`; `_meta`: only the run's ticket.
+        "_acpmux/plan/fanout": (["sessionId", "prompt", "variants", "_meta"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
         "_acpmux/handoff_get": (["sessionId", "handoffId"], []),
         "_acpmux/handoff_draft": (["handoffId", "revision", "draftKey", "capsule", "checkpoint"], []),
@@ -176,8 +186,11 @@ nonisolated extension AcpmuxPaneMethods {
         guard let meta = rawMeta as? [String: Any] else { return true }
         // A redeeming frame: R1 first (nothing but the ticket in _meta), then the gesture rule.
         if setting, meta["cmuxGesture"] != nil { return meta.keys.contains { $0 != "cmuxGesture" } }
-        // A permission answer's `_meta` holds the pick's ticket and nothing else.
-        if method == "_acpmux/permission_respond" { return Set(meta.keys) != [gestureTicketKey] }
+        // A permission answer's `_meta` holds the pick's ticket and nothing else, as does a plan
+        // build's (it answers the plan approval) and a run's.
+        if method == "_acpmux/permission_respond" || method == "_acpmux/plan/build" || method == "_acpmux/plan/fanout" {
+            return Set(meta.keys) != [gestureTicketKey]
+        }
         // A prompt held for the folder trust answer redeems its ticket beside its acpmux.promptId.
         if meta.keys.contains(where: { $0 != "acpmux" && !(method == "session/prompt" && $0 == gestureTicketKey) }) { return true }
         guard let rawAcpmux = meta["acpmux"] else { return false }

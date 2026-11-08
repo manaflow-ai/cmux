@@ -329,6 +329,61 @@ fn check_out_without_config(
     result
 }
 
+/// `git diff --numstat` of the work tree at `root` against `from`: its commits, its uncommitted
+/// changes and its untracked files, as `git add -A` would stage them. Read in a throwaway git
+/// directory that borrows the repository's objects and a copy of the worktree's index and nothing
+/// else: no config of the repository's, the user's or the system's is read, so no filter,
+/// textconv, hook or helper the repository names can run (an agent writes both the worktree's
+/// `.gitattributes` and, from it, the repository's config). Each git call ends at `by`.
+pub(crate) fn numstat_without_config(root: &Path, from: &str, by: Instant) -> Result<String, String> {
+    let at = |args: &[&str]| run_by(hardened(root.into()), args, Some(by));
+    let absolute = |p: String| {
+        let p = PathBuf::from(p);
+        if p.is_absolute() { p } else { root.join(p) }
+    };
+    let objects = absolute(at(&["rev-parse", "--git-path", "objects"])?);
+    let index = absolute(at(&["rev-parse", "--git-path", "index"])?);
+    let format = at(&["rev-parse", "--show-object-format"])?;
+    let scratch = std::env::temp_dir().join(format!("acpmux-diff-{}", uuid::Uuid::now_v7()));
+    let result: Result<String, String> = (|| {
+        let info = scratch.join("objects/info");
+        std::fs::create_dir_all(&info).map_err(|e| format!("{}: {e}", info.display()))?;
+        std::fs::create_dir_all(scratch.join("refs")).map_err(|e| e.to_string())?;
+        std::fs::write(scratch.join("HEAD"), format!("{from}\n")).map_err(|e| e.to_string())?;
+        let config = if format == "sha1" {
+            "[core]\n\trepositoryformatversion = 0\n".to_owned()
+        } else {
+            format!(
+                "[core]\n\trepositoryformatversion = 1\n[extensions]\n\tobjectFormat = {format}\n"
+            )
+        };
+        std::fs::write(scratch.join("config"), config).map_err(|e| e.to_string())?;
+        std::fs::write(info.join("alternates"), format!("{}\n", objects.display()))
+            .map_err(|e| e.to_string())?;
+        let scratch_index = scratch.join("index");
+        let isolated = || {
+            let mut cmd = hardened(root.into());
+            cmd.env("GIT_DIR", &scratch)
+                .env("GIT_WORK_TREE", root)
+                .env("GIT_INDEX_FILE", &scratch_index)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null");
+            cmd
+        };
+        // The worktree's index spares hashing every file again (its stat data); one this git
+        // cannot use alone (a split index) is replaced by `from`'s tree.
+        let copied = std::fs::copy(&index, &scratch_index).is_ok();
+        let staged = copied && run_by(isolated(), &["add", "-A"], Some(by)).is_ok();
+        if !staged {
+            let _ = std::fs::remove_file(&scratch_index);
+            run_by(isolated(), &["read-tree", from], Some(by))?;
+            run_by(isolated(), &["add", "-A"], Some(by))?;
+        }
+        run_by(isolated(), &["diff", "--cached", "--numstat", "--no-renames", from, "--"], Some(by))
+    })();
+    let _ = std::fs::remove_dir_all(&scratch);
+    result
+}
+
 /// The objects of `commit`'s tree that the repository's object store
 /// (`objects`) lacks, as a partial clone can.
 fn missing_objects(

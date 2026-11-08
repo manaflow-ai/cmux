@@ -242,6 +242,14 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     git(Path::new(&roots[1]), &["add", "."]);
     git(Path::new(&roots[1]), &["commit", "-q", "-m", "license"]);
 
+    // What an agent can write: a filter in the worktree's attributes, and its command in the
+    // repository's config. Reading a build's change runs neither.
+    let marker = root.join("filter-ran");
+    std::fs::write(Path::new(&roots[0]).join(".gitattributes"), "* filter=pwn\n").unwrap();
+    let clean = format!("touch {} && cat", marker.display());
+    git(&repo, &["config", "filter.pwn.clean", &clean]);
+    git(&repo, &["config", "diff.pwn.textconv", &clean]);
+
     let first = builds[0]["sessionId"].as_str().unwrap().to_owned();
     let second = builds[1]["sessionId"].as_str().unwrap().to_owned();
     let compared =
@@ -256,7 +264,9 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
             .unwrap()
     };
     let (a, b) = (row(&first), row(&second));
-    assert_eq!((a["added"].as_u64(), a["removed"].as_u64()), (Some(3), Some(0)), "{compared}");
+    assert!(!marker.exists(), "comparing ran the repository's filter");
+    // LICENSE (2), README.md (+1) and .gitattributes (1).
+    assert_eq!((a["added"].as_u64(), a["removed"].as_u64()), (Some(4), Some(0)), "{compared}");
     assert_eq!(b["added"].as_u64(), Some(1), "a committed change counts: {compared}");
     let paths: Vec<&str> =
         a["files"].as_array().unwrap().iter().filter_map(|f| f["path"].as_str()).collect();

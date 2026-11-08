@@ -60,8 +60,6 @@ const DISCARD_RETRY: Duration = Duration::from_secs(2);
 const MAX_FILES: usize = 200;
 /// The longest one build's git read takes before it is given up.
 const GIT_LIMIT: Duration = Duration::from_secs(10);
-/// An untracked file larger than this counts as one line: its lines are not read.
-const MAX_UNTRACKED_BYTES: u64 = 1 << 20;
 
 /// Where an approved plan is built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -232,8 +230,9 @@ pub(crate) fn parse_numstat(text: &str, change: &mut Change) {
     }
 }
 
-/// The change in the worktree at `root` since it left `base`: committed and uncommitted
-/// against their merge base, then each untracked file's lines.
+/// The change in the worktree at `root` since it left `base`: committed, uncommitted and
+/// untracked, against their merge base, read with none of the repository's config
+/// (`subsession_worktree::numstat_without_config`).
 fn read_change(root: &Path, base: &str) -> Result<Change, String> {
     use crate::subsession_worktree::git_by;
     let by = Instant::now() + GIT_LIMIT;
@@ -243,27 +242,9 @@ fn read_change(root: &Path, base: &str) -> Result<Change, String> {
         return Err("no commit to compare against".into());
     }
     let mut change = Change::default();
-    let numstat = git_by(root, &["diff", "--numstat", "--no-renames", &from, "--"], by)?;
+    let numstat = crate::subsession_worktree::numstat_without_config(root, &from, by)?;
     parse_numstat(&numstat, &mut change);
-    let untracked = git_by(root, &["ls-files", "--others", "--exclude-standard", "-z"], by)?;
-    for path in untracked.split('\0').filter(|p| !p.is_empty()) {
-        let full = root.join(path);
-        let lines = match std::fs::symlink_metadata(&full) {
-            Ok(meta) if meta.is_file() && meta.len() <= MAX_UNTRACKED_BYTES => {
-                std::fs::read(&full).map(|bytes| bytecount_lines(&bytes)).unwrap_or(0)
-            }
-            Ok(_) => 1,
-            Err(_) => 0,
-        };
-        change.push(path.to_owned(), lines, 0);
-    }
     Ok(change)
-}
-
-/// Lines in a file: newlines, and one more when the last line has none.
-fn bytecount_lines(bytes: &[u8]) -> u64 {
-    let newlines = bytes.iter().filter(|b| **b == b'\n').count() as u64;
-    newlines + u64::from(bytes.last().is_some_and(|b| *b != b'\n'))
 }
 
 /// The status a build shows: working while its harness runs a turn or waits on an answer, and

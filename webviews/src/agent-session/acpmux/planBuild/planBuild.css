@@ -154,6 +154,10 @@
 .acpmux-plan-builds-column[data-outcome="removed"] .acpmux-plan-builds-state {
   color: var(--plan-build-muted);
 }
+/* Closed, but its worktree stayed: not dimmed, since its folder is still on disk. */
+.acpmux-plan-builds-column[data-outcome="stayed"] .acpmux-plan-builds-state {
+  color: var(--agent-status-warning);
+}
 .acpmux-plan-builds-branch,
 .acpmux-plan-builds-stats {
   height: var(--plan-builds-line);
