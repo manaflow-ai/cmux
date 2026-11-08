@@ -31,14 +31,16 @@ export function ManagedBannerDesigns({ design, manager, rows, now = Date.now() }
   if (design === "sending") return <ManagedBanner manager={manager} onHide={noop} onOpenManager={noop} />;
   if (design === "driving")
     return (
-      <output className="acpmux-managed-banner" data-design="driving">
-        <span className="acpmux-managed-text">
-          <strong className="acpmux-managed-name">{name}</strong> is driving this chat
-        </span>
-        <button type="button" className="acpmux-managed-take-over">
-          Hide
-        </button>
-      </output>
+      <div className="acpmux-managed-row">
+        <output className="acpmux-managed-banner" data-design="driving">
+          <span className="acpmux-managed-text">
+            <strong className="acpmux-managed-name">{name}</strong> is driving this chat
+          </span>
+          <button type="button" className="acpmux-managed-take-over">
+            Hide
+          </button>
+        </output>
+      </div>
     );
   return (
     <div className="acpmux-composer" data-design="placeholder">

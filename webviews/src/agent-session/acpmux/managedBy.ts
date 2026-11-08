@@ -16,8 +16,9 @@ import type { AcpmuxRow } from "./model";
 import type { AcpmuxSessionEntry } from "./sessionList";
 
 export type ManagedBy =
-  /** A Chief started it. */
-  | { kind: "chief" }
+  /** A Chief started it; `sessionId` is the Chief's own session that started it, when that
+   *  session is listed (its sub-session messages carry that id, not the Chief's stamp). */
+  | { kind: "chief"; sessionId?: string }
   /** Another chat's agent started it: that chat, by its title. */
   | { kind: "agent"; name: string; sessionId: string; signs?: readonly string[] };
 
@@ -56,7 +57,7 @@ export function managedBy(sessionId: string | undefined, sessions: readonly Entr
   const parent = sessions.find((entry) => entry.sessionId === parentId);
   // A chat the Chief's own turn started is the Chief's: its session name is a raw
   // `optchat-<home>-…` id, never a name to show (#32745).
-  if (parent?.chief || parent?.chiefTurn) return { kind: "chief" };
+  if (parent?.chief || parent?.chiefTurn) return { kind: "chief", sessionId: parentId };
   const name = parent?.displayTitle?.trim() || parent?.name?.trim();
   if (!name) return undefined;
   // The names its messages sign with (incomingMessage.ts reads the sender by its chat's name).
@@ -79,7 +80,10 @@ const isPrompt = (row: PromptRow): boolean =>
 
 function messageFromManager(message: IncomingMessage, manager: ManagedBy): boolean {
   if (message.fromPerson) return false;
-  if (manager.kind === "chief") return !!message.chief;
+  // A Chief turn's sub-session send is not stamped as the Chief's (acpmux hub/subsessions.rs); it
+  // names the turn's session, which is the manager here.
+  if (manager.kind === "chief")
+    return !!message.chief || (!!manager.sessionId && message.sessionId === manager.sessionId);
   if (message.sessionId) return message.sessionId === manager.sessionId;
   // A Chief's message names no session; it is never another agent chat's.
   if (message.chief) return false;
