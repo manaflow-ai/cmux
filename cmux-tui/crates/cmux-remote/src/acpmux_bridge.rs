@@ -174,6 +174,9 @@ where
                         "acpmux sent a binary frame",
                     ));
                 }
+                // tungstenite answers a Ping as it reads: the Pong goes out
+                // before the next frame is read, so an idle bridge keeps
+                // acpmux's keepalive. A Pong needs nothing.
                 _ => {}
             }
         }

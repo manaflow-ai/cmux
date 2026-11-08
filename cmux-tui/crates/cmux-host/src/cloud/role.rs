@@ -288,6 +288,10 @@ impl Http for PosterHttp {
         #[cfg(test)]
         let _ = test_route("/", |poster, _| poster.reset());
     }
+
+    fn fresh(&self) -> Option<Self> {
+        self.0.twin().ok().map(PosterHttp)
+    }
 }
 
 /// One `identify` on the daemon's control socket. `timeout` bounds the whole
@@ -997,6 +1001,10 @@ impl Worker {
         match result {
             BindResult::Bound(bound) => {
                 self.bind_backoff.reset();
+                // A person's machine from here: its first link comes up now, so
+                // the updater holds its flip (the supervisor's `Bound` is an
+                // instance id change, which a bind of the same machine is not).
+                crate::updater::role::hold_connects();
                 if let Err(e) = super::client::record_owner_kind(&mut self.store) {
                     log(&format!("vm-kind write: {e}"));
                 }
