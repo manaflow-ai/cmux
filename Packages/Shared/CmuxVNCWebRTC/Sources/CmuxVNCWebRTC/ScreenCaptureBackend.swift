@@ -31,8 +31,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var frameRate = ScreenQuality.baselineFrameRate
     /// The cursor is drawn into the picture (``setDrawsCursor(_:)``).
     private var drawsCursor = true
-    /// The processes whose windows are left out of the picture, as last applied.
-    private var excludedApplied: Set<pid_t> = []
+    /// The processes and windows left out of the picture, as last applied.
+    private var excludedApplied = Exclusion()
     /// Processes whose windows stay out of the picture while the cursor does
     /// (``setDrawsCursor(_:)`` false): the Computer Use agent's cursor
     /// overlay, which a viewer that draws pointers shows itself. A viewer
@@ -43,6 +43,16 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         set { lock.withLock { excludedSource = newValue } }
     }
     private var excludedSource: (@Sendable () -> [pid_t])?
+    /// SECURITY: windows that stay out of the picture always, whatever the cursor: a prompt only the
+    /// person at this Mac may see (the join consent ask, a revealed password). Their `sharingType = .none`
+    /// is not enough: since macOS 15.4 a ScreenCaptureKit capture may still show such a window, so this
+    /// capture leaves them out by id. Read when a capture starts, every 2 s and at once on
+    /// ``exclusionsChanged()``. Set by the app; nil by default (nothing left out).
+    public var excludedWindowIDs: (@Sendable () -> Set<CGWindowID>)? {
+        get { lock.withLock { excludedWindowSource } }
+        set { lock.withLock { excludedWindowSource = newValue } }
+    }
+    private var excludedWindowSource: (@Sendable () -> Set<CGWindowID>)?
     /// The most pixels on the captured picture's long edge (``setMaximumLongEdge(_:)``; nil: the display's size).
     private var longEdgeCap: Int?
     /// The last reconfiguration failed: the running capture may not be at
@@ -261,13 +271,15 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     }
 
     private func capture(_ display: SCDisplay) async throws {
-        let (rate, cursor, cap, excluded) = lock.withLock { (frameRate, drawsCursor, longEdgeCap, excludedSource) }
+        let (rate, cursor, cap, excluded, windows) = lock.withLock {
+            (frameRate, drawsCursor, longEdgeCap, excludedSource, excludedWindowSource)
+        }
         let configuration = configuration(for: display, frameRate: rate, cursor: cursor, cap: cap)
         let size = CGSize(width: configuration.width, height: configuration.height)
-        let pids = Self.excluded(excluded, drawsCursor: cursor)
-        let (filter, applied) = await Self.filter(display: display, excluding: pids)
+        let exclusion = Exclusion(pids: Self.excluded(excluded, drawsCursor: cursor), windows: windows?() ?? [])
+        let (filter, applied) = await Self.filter(display: display, excluding: exclusion)
         // Not applied (the window list failed): the watcher tries again.
-        lock.withLock { excludedApplied = applied ? pids : [] }
+        lock.withLock { excludedApplied = applied ? exclusion : Exclusion() }
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
@@ -300,47 +312,78 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         drawsCursor ? [] : Set(source?() ?? [])
     }
 
-    /// The display, without the windows of `pids` (none: the whole display),
-    /// and whether `pids` are left out (false when the window list failed:
+    /// What the picture leaves out: every window of `pids` and the windows `windows` names.
+    struct Exclusion: Equatable, Sendable {
+        var pids: Set<pid_t> = []
+        var windows: Set<CGWindowID> = []
+        var isEmpty: Bool { pids.isEmpty && windows.isEmpty }
+    }
+
+    /// The display, without what `exclusion` names (nothing: the whole display),
+    /// and whether it is left out (false when the window list failed:
     /// the whole display, until the next try).
-    private static func filter(display: SCDisplay, excluding pids: Set<pid_t>) async -> (SCContentFilter, Bool) {
-        guard !pids.isEmpty else { return (SCContentFilter(display: display, excludingWindows: []), true) }
+    private static func filter(display: SCDisplay, excluding exclusion: Exclusion) async -> (SCContentFilter, Bool) {
+        guard !exclusion.isEmpty else { return (SCContentFilter(display: display, excludingWindows: []), true) }
         guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else {
             return (SCContentFilter(display: display, excludingWindows: []), false)
         }
-        let apps = content.applications.filter { pids.contains($0.processID) }
-        return (SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: []), true)
+        guard !exclusion.windows.isEmpty else {
+            let apps = content.applications.filter { exclusion.pids.contains($0.processID) }
+            return (SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: []), true)
+        }
+        // By window: a process's windows as listed now (the watcher follows new ones) and the named windows.
+        let left = Set(excludedWindows(content.windows.map { ($0.windowID, $0.owningApplication?.processID) }, excluding: exclusion))
+        return (SCContentFilter(display: display, excludingWindows: content.windows.filter { left.contains($0.windowID) }), true)
     }
 
-    /// Every 2 s: when the processes to leave out changed (the agent's helper
-    /// started or restarted), the running capture's filter follows.
+    /// The ids of `windows` (id, owning process) that `exclusion` leaves out.
+    static func excludedWindows(_ windows: [(id: CGWindowID, pid: pid_t?)], excluding exclusion: Exclusion) -> [CGWindowID] {
+        windows.filter { window in
+            exclusion.windows.contains(window.id) || window.pid.map { exclusion.pids.contains($0) } == true
+        }.map(\.id)
+    }
+
+    /// The app's windows to leave out changed (a prompt showed or hid): the running capture's filter
+    /// follows now, not at the watcher's next pass.
+    public func exclusionsChanged() {
+        Task { [weak self] in await self?.refreshExclusions(force: true) }
+    }
+
+    /// Every 2 s: when the processes or windows to leave out changed (the agent's helper
+    /// started or restarted, a prompt showed), the running capture's filter follows.
     private func watchExclusions() {
         Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2)) // exclusion refresh period
-                guard let self else { return }
-                let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, cursor: Bool, applied: Set<pid_t>, generation: Int) in
-                    (stopped, excludedSource, drawsCursor, excludedApplied, streamGeneration)
-                }
-                if state.stopped { return }
-                let pids = Self.excluded(state.source, drawsCursor: state.cursor)
-                guard pids != state.applied else { continue }
-                let running = lock.withLock { () -> (SCStream, SCDisplay)? in
-                    guard streamGeneration == state.generation, let stream, let streamDisplay else { return nil }
-                    return (stream, streamDisplay)
-                }
-                guard let running else { continue }
-                let (filter, applied) = await Self.filter(display: running.1, excluding: pids)
-                guard applied else { continue }
-                do {
-                    try await running.0.updateContentFilter(filter)
-                    lock.withLock { excludedApplied = pids }
-                    log("capture leaves out \(pids.count) process(es)")
-                } catch {
-                    log("capture filter not applied: \(error.localizedDescription)")
-                }
+                guard let self, await refreshExclusions(force: false) else { return }
             }
         }
+    }
+
+    /// Applies the current exclusion to the running capture when it changed, or always with `force`
+    /// (a window left out by id may have moved to the display since). False once the backend stopped.
+    private func refreshExclusions(force: Bool) async -> Bool {
+        let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, windows: (@Sendable () -> Set<CGWindowID>)?, cursor: Bool, applied: Exclusion, generation: Int) in
+            (stopped, excludedSource, excludedWindowSource, drawsCursor, excludedApplied, streamGeneration)
+        }
+        if state.stopped { return false }
+        let exclusion = Exclusion(pids: Self.excluded(state.source, drawsCursor: state.cursor), windows: state.windows?() ?? [])
+        guard force || exclusion != state.applied else { return true }
+        let running = lock.withLock { () -> (SCStream, SCDisplay)? in
+            guard streamGeneration == state.generation, let stream, let streamDisplay else { return nil }
+            return (stream, streamDisplay)
+        }
+        guard let running else { return true }
+        let (filter, applied) = await Self.filter(display: running.1, excluding: exclusion)
+        guard applied else { return true }
+        do {
+            try await running.0.updateContentFilter(filter)
+            lock.withLock { excludedApplied = exclusion }
+            log("capture leaves out \(exclusion.pids.count) process(es), \(exclusion.windows.count) window(s)")
+        } catch {
+            log("capture filter not applied: \(error.localizedDescription)")
+        }
+        return true
     }
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {

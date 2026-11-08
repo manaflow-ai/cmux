@@ -7,7 +7,9 @@
 //!   {"session":"<hub session id>","peer_key":"<viewer session key, 64 hex>",
 //!    "viewer":{"user":"..","install":".."},"scope":"view"|"control",
 //!    "stun":["host:port",..],"display":"main","max_fps":60,"max_width":null}
-//! stdin, later: {"candidate":"host 192.168.1.4:51000"} or {"stop":true}
+//! stdin, later: {"candidate":"host 192.168.1.4:51000"} or {"stop":true}, and
+//!   {"exclude_windows":[123,456]}: the app's window ids (CGWindowID) the capture leaves out,
+//!   the whole list each time, sent before the capture starts and on every change (macOS)
 //! stdout: {"key":"<this side's session key>"} first (the app signs it for the
 //!   viewer), then {"candidate":".."}, {"candidates_done":true},
 //!   {"connected":true}, {"path":{"kind":"direct_wan","rtt_ms":3.2}},
@@ -74,6 +76,11 @@ struct Later {
     candidate: Option<String>,
     #[serde(default)]
     stop: bool,
+    /// SECURITY: the app windows only the person at this Mac may see (the join consent ask, a
+    /// revealed password), which the capture must leave out; the whole list, replacing the last.
+    #[serde(default)]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    exclude_windows: Option<Vec<u32>>,
 }
 
 /// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
@@ -141,6 +148,10 @@ impl ServeCarrier {
             }
             if let Some(c) = later.candidate.as_deref().and_then(Candidate::from_wire) {
                 self.link.net.add_remote_candidate(c);
+            }
+            #[cfg(target_os = "macos")]
+            if let Some(ids) = later.exclude_windows {
+                crate::mac::capture::set_excluded_windows(ids);
             }
         }
         Ok(())
@@ -391,4 +402,20 @@ fn serve_session(
     media.close_upstreams();
     let _ = table.stop(session, &Actor::Remote(Some(principal.clone())));
     Ok(reason)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn later_lines_carry_the_excluded_windows() {
+        let later: Later = serde_json::from_str(r#"{"exclude_windows":[123,456]}"#).unwrap();
+        assert_eq!(later.exclude_windows, Some(vec![123, 456]));
+        assert!(!later.stop && later.candidate.is_none());
+        let emptied: Later = serde_json::from_str(r#"{"exclude_windows":[]}"#).unwrap();
+        assert_eq!(emptied.exclude_windows, Some(Vec::new()));
+        let stop: Later = serde_json::from_str(r#"{"stop":true}"#).unwrap();
+        assert_eq!(stop.exclude_windows, None);
+    }
 }

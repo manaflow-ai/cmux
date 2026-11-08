@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -59,9 +60,13 @@ public final class WebCardPanel: NSPanel {
     }
     /// Whether the panel is key for the person's click (tests stand in for a key panel).
     var isKeyForPerson: @MainActor (WebCardPanel) -> Bool = { $0.isKeyWindow }
-    /// Where a card shows, from its size, the parent window's frame and the screen's visible frame;
-    /// by default ``placement(size:over:in:)`` (top center). The join consent ask sets the top right.
-    public var place: @MainActor (CGSize, NSRect?, NSRect) -> NSRect = { WebCardPanel.placement(size: $0, over: $1, in: $2) }
+    /// Where a card shows, from its size, the parent window's frame and the screen's visible frame, at
+    /// its opening and at every later size the page reports; nil: ``placement(size:over:in:)`` (top
+    /// center) when it opens, then growing and shrinking from the top center. The join consent ask
+    /// sets the top right, so a wider card never runs off the screen's edge.
+    public var place: (@MainActor (CGSize, NSRect?, NSRect) -> NSRect)?
+    /// The parent frame and visible frame the card last opened in (``place`` reads them again on resize).
+    private var placedIn: (parent: NSRect?, visible: NSRect)?
     /// Orders in over every app without activating cmux or taking the keys (an ask that shows while
     /// another app is in front), in place of ``WindowActivation``'s plan.
     public var ordersFrontRegardless = false
@@ -282,6 +287,7 @@ public final class WebCardPanel: NSPanel {
         pending = nil
         pendingTimeout.cancel()
         super.orderOut(sender)
+        CaptureExcludedWindows.shared.remove(CGWindowID(windowNumber))
         if let shown { finish(shown) }
     }
 
@@ -309,18 +315,26 @@ public final class WebCardPanel: NSPanel {
     private func show(size: NSSize, parent: NSRect?, visible: NSRect, intent: WindowActivation.Intent) {
         pending = nil
         pendingTimeout.cancel()
-        setFrame(place(size, parent, visible), display: false)
+        placedIn = (parent, visible)
+        setFrame(place?(size, parent, visible) ?? Self.placement(size: size, over: parent, in: visible), display: false)
         if ordersFrontRegardless { orderFrontRegardless() } else { WindowActivation.show(self, intent) }
+        // Once it has a window number: cmux's own screen captures leave a capture-excluded card out.
+        if sharingType == .none { CaptureExcludedWindows.shared.insert(CGWindowID(windowNumber)) }
         if intent == .raise { page.focusPage() }
         placePersonControl()
         frameChanged()
     }
 
-    /// Grows or shrinks downward, keeping the top edge where the person saw it.
+    /// Grows or shrinks downward, keeping the top edge where the person saw it (where ``place`` puts it,
+    /// when set).
     private func fit(_ size: NSSize) {
         guard abs(size.height - frame.height) > 0.5 || abs(size.width - frame.width) > 0.5 else { return }
-        let top = frame.maxY
-        setFrame(NSRect(x: frame.midX - size.width / 2, y: top - size.height, width: size.width, height: size.height), display: true)
+        if let place, let placedIn {
+            setFrame(place(size, placedIn.parent, placedIn.visible), display: true)
+        } else {
+            let top = frame.maxY
+            setFrame(NSRect(x: frame.midX - size.width / 2, y: top - size.height, width: size.width, height: size.height), display: true)
+        }
         // Confirm moved on screen with the panel.
         frameChanged()
     }

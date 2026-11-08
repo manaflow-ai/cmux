@@ -118,8 +118,10 @@ The ask has a panel of its own, never the shared card panel:
 - at the status bar level, on every Space and over full screen, stationary, never moved by its
   background;
 - it orders in over every app without activating cmux (a click on Allow makes the panel key);
-- out of screen capture and screen sharing (`sharingType = .none`), so no screenshot, recording or
-  agent's capture shows Allow, and Computer Use refuses the window.
+- left out of every capture cmux makes by its window id (screen sharing, `cmux rd serve`, the
+  recorders), and Computer Use refuses the window. It also sets `sharingType = .none`, but since
+  macOS 15.4 another app's capture may still show it, so the ask never relies on being unseen: only
+  the person's own click answers Allow.
 
 ### What answers
 

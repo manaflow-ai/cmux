@@ -19,8 +19,8 @@ public import Foundation
 /// the button; no key, script, Accessibility press, posted event or Computer Use click). The model then
 /// asks the device owner (Touch ID or the login password) before it sends.
 ///
-/// Its panel is its own (``WebCardPanel/joinConsent(model:isPersonEvent:)``): out of screen capture and screen sharing, so
-/// no screenshot or agent's capture ever shows Allow and Computer Use refuses it.
+/// Its panel is its own (``WebCardPanel/joinConsent(model:isPersonEvent:)``): cmux's own screen sharing and recorders
+/// leave it out and Computer Use refuses it; another app's capture is not guaranteed to miss it (macOS 15.4+).
 @MainActor
 public final class JoinConsentCardProvider: WebCard {
     public static let route = "join-consent"
@@ -113,10 +113,12 @@ public final class JoinConsentCardProvider: WebCard {
 extension WebCardPanel {
     /// The join consent ask's own card panel: the server card page on `#/join-consent`, at the top right
     /// of the main screen over every app and full screen, never activating cmux or taking the keys.
-    /// SECURITY (cmux#33066, HQ#5121): out of screen capture and screen sharing (`sharingType = .none`),
-    /// so no screenshot, recording or agent's capture shows Allow and Computer Use refuses the window
-    /// (MacCuaTargetResolver); Allow is the panel's native click-only button and takes only the person's
-    /// own click on it, read from the HID system (``WebCard/personPressed()``).
+    /// SECURITY (cmux#33066, HQ#5121): every capture cmux makes leaves the panel out by its window id
+    /// (``CaptureExcludedWindows``: screen sharing, `cmux rd serve`, the recorders), and Computer Use
+    /// refuses the window (MacCuaTargetResolver) and captures only its own target window. `sharingType = .none`
+    /// asks every other capture to skip it too, but since macOS 15.4 another app's ScreenCaptureKit capture
+    /// may still show it: what keeps Allow the person's is that it takes only the person's own click on it,
+    /// read from the HID system (``WebCard/personPressed()``), never a capture's absence.
     /// `isPersonEvent` is the person check (the app's strict HID-source `PersonInputCheck`).
     @MainActor
     public static func joinConsent(model: JoinConsentModel, isPersonEvent: @escaping @MainActor (NSEvent) -> Bool) -> WebCardPanel? {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 @testable import CmuxNextPages
 @testable import CmuxNextServer
 import CmuxNextSettings
@@ -12,8 +13,8 @@ import Testing
 /// click-only button, not a page control, and it answers only the person's own click on it, read by
 /// the panel from the click's own events: never a page call, a click the strict check refuses (an
 /// Accessibility press, a posted or programmatic click), a click elsewhere on the card, a click begun
-/// before the card last drew, or a click while a write is in flight. The panel stays out of screen
-/// capture, so Computer Use refuses it and no capture shows Allow.
+/// before the card last drew, or a click while a write is in flight. cmux's own captures leave the
+/// panel out by id and Computer Use refuses it.
 @MainActor @Suite(.serialized) struct JoinConsentCardTests {
     typealias Fake = JoinConsentTests.Fake
 
@@ -186,8 +187,8 @@ import Testing
         #expect(ask.model.ask == nil && ask.fake.writes.isEmpty)
     }
 
-    /// SECURITY: the ask's panel is its own, out of screen capture and screen sharing (Computer Use refuses
-    /// a window with `sharingType` none, MacCuaTargetResolver), over every app at the top right of the main
+    /// SECURITY: the ask's panel is its own, asking every capture to skip it (Computer Use refuses a window
+    /// with `sharingType` none, MacCuaTargetResolver; cmux's own captures, the next test), over every app at the top right of the main
     /// screen, never moved by its background, and Escape or the page's cancel never denies or hides it.
     @Test func theAsksPanelStaysOutOfCaptureAtTheTopRight() async throws {
         let ask = try await ask()
@@ -209,6 +210,35 @@ import Testing
         await ask.settle()
         #expect(ask.model.ask != nil && ask.fake.writes.isEmpty, "Escape denies nothing")
         #expect(panel.isVisible == shown, "Escape never hides the ask, even with no page listening")
+    }
+
+    /// SECURITY (cmux#37286): macOS 15.4+ may capture a window with `sharingType` none, so every capture cmux
+    /// makes leaves the ask out by its window id (screen sharing, `cmux rd serve`, the recorders read
+    /// ``CaptureExcludedWindows``) for as long as it shows, and lets the window number go once it hides.
+    @Test func cmuxsOwnCapturesLeaveTheAskOutWhileItShows() async throws {
+        let ask = try await ask()
+        let panel = ask.panel!
+        let id = CGWindowID(panel.windowNumber)
+        #expect(panel.isVisible && id > 0)
+        #expect(CaptureExcludedWindows.shared.windowIDs.contains(id), "shown: left out of cmux's captures")
+        panel.orderOut(nil)
+        #expect(!CaptureExcludedWindows.shared.windowIDs.contains(id), "hidden: the number may be reused")
+    }
+
+    /// A page size reported after the panel showed (the first one late, after the fallback size, or one
+    /// at a larger Interface Scale) keeps the ask at the top right, inside the screen, never re-centered
+    /// past its right edge where Allow would be cut off.
+    @Test func aLaterWiderSizeKeepsTheAskAtTheTopRight() async throws {
+        let ask = try await ask()
+        let panel = ask.panel!
+        let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+        #expect(panel.frame == WebCardPanel.joinConsentPlacement(size: panel.frame.size, in: visible))
+        panel.pageResized(card: JoinConsentCardProvider.route, width: 570, height: 240)
+        #expect(panel.frame.width >= 570)
+        #expect(panel.frame == WebCardPanel.joinConsentPlacement(size: panel.frame.size, in: visible))
+        if let visible {
+            #expect(panel.frame.maxX == visible.maxX - WebCardPanel.joinConsentInset, "Allow stays on screen")
+        }
     }
 
     /// SECURITY (cmux#37286): the card page lays out the ask around the native Allow, so it runs only
