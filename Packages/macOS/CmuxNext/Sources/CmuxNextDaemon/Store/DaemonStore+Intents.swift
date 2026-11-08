@@ -128,8 +128,9 @@ extension DaemonStore {
         releaseStandInTargets()
         releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
+        let orphaned = closedTabs.filter { pane($0.pane.handle) !== $0.pane } // the daemon closed it: read before an overlay hides a pane again
         restoreOverlay()
-        TabCloseOverlay(store: self).dropFromClosedPanes(closedTabs)
+        TabCloseOverlay(store: self).dropFromClosedPanes(orphaned)
         overlayLifted = false
         publishOverlayNetChange(held)
         recomputeSidebarIfNeeded()

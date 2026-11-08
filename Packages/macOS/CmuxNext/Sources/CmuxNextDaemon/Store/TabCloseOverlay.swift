@@ -33,9 +33,10 @@ import Foundation
     /// which then names no pane) stays in that pane's record, which no store list holds any more, so the overlay's restore
     /// cannot hide it again. The pane's controller still observes that record while its pane leaves, and showed the closed
     /// tab again until the landing (CLOSE VARIANTS 3, P0 late start Cost 2). It leaves that record now. A tab still listed
-    /// (the restore hid it, or the daemon kept it) is not touched.
-    func dropFromClosedPanes(_ lifted: [(tab: TabModel, pane: PaneModel)]) {
-        for (tab, pane) in lifted where store.index.pane(holding: tab) == nil && store.pane(pane.handle) !== pane {
+    /// (the restore hid it, or the daemon kept it) is not touched. `orphaned` holds only panes the confirmed records no
+    /// longer list (read before the restore): a pane that a pending intent hides again (a stand-in pane close) keeps its tab.
+    func dropFromClosedPanes(_ orphaned: [(tab: TabModel, pane: PaneModel)]) {
+        for (tab, pane) in orphaned where store.index.pane(holding: tab) == nil && store.pane(pane.handle) !== pane {
             if pane.tabs.contains(where: { $0 === tab }) { pane.removeTab(tab) } // its own record, not another of the surface
         }
     }
