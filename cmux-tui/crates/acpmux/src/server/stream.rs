@@ -62,6 +62,7 @@ pub(super) async fn serve_stream(
         socket_peer,
         None,
         None,
+        None,
     )
     .await;
 }
