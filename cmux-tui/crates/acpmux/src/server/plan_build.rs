@@ -120,13 +120,16 @@ async fn handle(
             let harnesses = harnesses(params, target, &session.meta().harness)?;
             let build_id = format!("build-{}", uuid::Uuid::new_v4().simple());
             let local = control != crate::hub::Control::Web;
-            let (builds, failed) = hub
-                .start_plan_builds(&session, &plan, target, &harnesses, &build_id, local)
-                .await;
+            let (builds, failed) =
+                hub.start_plan_builds(&session, &plan, target, &harnesses, &build_id, local).await;
             if builds.is_empty() {
                 // Nothing started: the card stays up, and says why.
                 let first = failed.first().cloned().unwrap_or(Value::Null);
-                let message = first.get("error").and_then(Value::as_str).unwrap_or("no build started").to_owned();
+                let message = first
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("no build started")
+                    .to_owned();
                 return Err(RpcError::invalid_params(message).with_data(json!({
                     "reason": first.get("reason").cloned().unwrap_or(Value::Null),
                     "failed": failed,
@@ -147,29 +150,29 @@ async fn handle(
             // meanwhile) is the reply's error, so the card stays and says so; the builds run on
             // and the record above shows them.
             hub.respond_permission_annotated(
-                    &session,
-                    permission_id,
-                    Some(reject),
-                    None,
-                    None,
-                    None,
-                    answerer,
-                    control,
-                )
-                .await
-                .map_err(|e| {
-                    let data = json!({
-                        "reason": "plan_build.answer_refused",
-                        "buildId": build_id,
-                        "builds": builds,
-                        "answerReason": e.data.as_ref().and_then(|d| d.get("reason")).cloned(),
-                    });
-                    RpcError::invalid_params(format!(
-                        "the plan's builds started, but its approval was not answered: {}",
-                        e.message
-                    ))
-                    .with_data(data)
-                })?;
+                &session,
+                permission_id,
+                Some(reject),
+                None,
+                None,
+                None,
+                answerer,
+                control,
+            )
+            .await
+            .map_err(|e| {
+                let data = json!({
+                    "reason": "plan_build.answer_refused",
+                    "buildId": build_id,
+                    "builds": builds,
+                    "answerReason": e.data.as_ref().and_then(|d| d.get("reason")).cloned(),
+                });
+                RpcError::invalid_params(format!(
+                    "the plan's builds started, but its approval was not answered: {}",
+                    e.message
+                ))
+                .with_data(data)
+            })?;
             Ok(json!({
                 "target": target.as_str(),
                 "buildId": build_id,
@@ -180,16 +183,27 @@ async fn handle(
         method::MUX_PLAN_COMPARE => hub.plan_compare(&session, required(params, "buildId")?).await,
         _ => {
             let build_id = required(params, "buildId")?;
-            let (kept, others) = hub.plan_keep_others(&session, build_id, required(params, "keep")?)?;
+            let (kept, others) =
+                hub.plan_keep_others(&session, build_id, required(params, "keep")?)?;
             let now = crate::store::now_ms().to_string();
             let mut keep = serde_json::Map::new();
             keep.insert(plan_build::KEPT_TAG.into(), Value::String(now.clone()));
-            hub.set_tags_answered(&kept, Some(&keep), &[plan_build::ARCHIVED_TAG.to_owned()], None)?;
+            hub.set_tags_answered(
+                &kept,
+                Some(&keep),
+                &[plan_build::ARCHIVED_TAG.to_owned()],
+                None,
+            )?;
             let mut archive = serde_json::Map::new();
             archive.insert(plan_build::ARCHIVED_TAG.into(), Value::String(now));
             let mut archived = Vec::new();
             for other in &others {
-                hub.set_tags_answered(other, Some(&archive), &[plan_build::KEPT_TAG.to_owned()], None)?;
+                hub.set_tags_answered(
+                    other,
+                    Some(&archive),
+                    &[plan_build::KEPT_TAG.to_owned()],
+                    None,
+                )?;
                 archived.push(other.id.clone());
             }
             hub.record_plan_build(

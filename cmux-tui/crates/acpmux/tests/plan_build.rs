@@ -185,8 +185,11 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         )
         .await;
     assert_eq!(reason(&r), "plan_build.not_plan", "{r}");
-    app.ok("_acpmux/permission_respond", json!({"sessionId": chat, "permissionId": pid, "optionId": "no"}))
-        .await;
+    app.ok(
+        "_acpmux/permission_respond",
+        json!({"sessionId": chat, "permissionId": pid, "optionId": "no"}),
+    )
+    .await;
     app.said(rid).await;
 
     // Build here: the approval's allow, as Approve plan.
@@ -214,7 +217,10 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         builds.iter().map(|b| b["worktree"]["root"].as_str().unwrap().to_owned()).collect();
     assert_ne!(roots[0], roots[1], "{built}");
     for b in builds {
-        assert!(b["branch"].as_str().is_some_and(|s| !s.is_empty()), "the record names the branch: {b}");
+        assert!(
+            b["branch"].as_str().is_some_and(|s| !s.is_empty()),
+            "the record names the branch: {b}"
+        );
     }
     for r in &roots {
         assert!(r.starts_with(&*worktrees.to_string_lossy()), "{built}");
@@ -249,14 +255,21 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     let compared =
         app.ok("_acpmux/plan/compare", json!({"sessionId": chat, "buildId": build_id})).await;
     let row = |id: &str| {
-        compared["builds"].as_array().unwrap().iter().find(|b| b["sessionId"] == id).cloned().unwrap()
+        compared["builds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["sessionId"] == id)
+            .cloned()
+            .unwrap()
     };
     let (a, b) = (row(&first), row(&second));
     assert!(!marker.exists(), "comparing ran the repository's filter");
     // LICENSE (2), README.md (+1) and .gitattributes (1).
     assert_eq!((a["added"].as_u64(), a["removed"].as_u64()), (Some(4), Some(0)), "{compared}");
     assert_eq!(b["added"].as_u64(), Some(1), "a committed change counts: {compared}");
-    let paths: Vec<&str> = a["files"].as_array().unwrap().iter().filter_map(|f| f["path"].as_str()).collect();
+    let paths: Vec<&str> =
+        a["files"].as_array().unwrap().iter().filter_map(|f| f["path"].as_str()).collect();
     assert!(paths.contains(&"LICENSE") && paths.contains(&"README.md"), "{compared}");
     assert_eq!(compared["keptSessionId"], Value::Null);
 

@@ -335,7 +335,11 @@ fn check_out_without_config(
 /// else: no config of the repository's, the user's or the system's is read, so no filter,
 /// textconv, hook or helper the repository names can run (an agent writes both the worktree's
 /// `.gitattributes` and, from it, the repository's config). Each git call ends at `by`.
-pub(crate) fn numstat_without_config(root: &Path, from: &str, by: Instant) -> Result<String, String> {
+pub(crate) fn numstat_without_config(
+    root: &Path,
+    from: &str,
+    by: Instant,
+) -> Result<String, String> {
     let at = |args: &[&str]| run_by(hardened(root.into()), args, Some(by));
     let absolute = |p: String| {
         let p = PathBuf::from(p);

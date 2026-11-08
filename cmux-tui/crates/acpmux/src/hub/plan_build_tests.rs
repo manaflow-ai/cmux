@@ -12,7 +12,8 @@ fn the_plan_is_read_as_the_card_reads_it() {
     let exit_plan = ask(json!({"kind": "switch_mode", "rawInput": {"plan": "  Step one  "},
         "_meta": {"claude": {"tool": "ExitPlanMode"}}}));
     assert_eq!(plan_of(&exit_plan).as_deref(), Some("Step one"));
-    let attached = ask(json!({"kind": "other", "_meta": {"acpmux": {"plan": {"markdown": "From file"}}}}));
+    let attached =
+        ask(json!({"kind": "other", "_meta": {"acpmux": {"plan": {"markdown": "From file"}}}}));
     assert_eq!(plan_of(&attached).as_deref(), Some("From file"));
     let from_text = ask(json!({"kind": "switch_mode", "content": [
         {"type": "content", "content": {"type": "text", "text": "A"}},

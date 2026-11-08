@@ -93,7 +93,8 @@ pub(crate) fn plan_of(request: &Value) -> Option<String> {
     if let Some(attached) = text(tool.pointer("/_meta/acpmux/plan/markdown")) {
         return Some(attached);
     }
-    let exit_plan = tool.pointer("/_meta/claude/tool").and_then(Value::as_str) == Some("ExitPlanMode");
+    let exit_plan =
+        tool.pointer("/_meta/claude/tool").and_then(Value::as_str) == Some("ExitPlanMode");
     if !exit_plan && tool.get("kind").and_then(Value::as_str) != Some("switch_mode") {
         return None;
     }
@@ -203,7 +204,11 @@ fn read_change(root: &Path, base: &str) -> Result<Change, String> {
 
 /// The status a build shows: working while its harness runs a turn or waits on an answer, and
 /// before its first turn ended (its first prompt may wait for a run slot of the parent).
-pub(crate) fn build_status(status: SessionStatus, turn_ended: bool, waits_for_slot: bool) -> &'static str {
+pub(crate) fn build_status(
+    status: SessionStatus,
+    turn_ended: bool,
+    waits_for_slot: bool,
+) -> &'static str {
     match status {
         SessionStatus::Running | SessionStatus::Waiting => "working",
         SessionStatus::Disconnected => "failed",
@@ -222,7 +227,10 @@ impl Hub {
     ) -> Result<(String, Value), RpcError> {
         let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
         let pending = state.pending.get(permission_id).ok_or_else(|| {
-            refused("plan_build.not_pending", "that plan approval is no longer waiting for an answer")
+            refused(
+                "plan_build.not_pending",
+                "that plan approval is no longer waiting for an answer",
+            )
         })?;
         let plan = plan_of(&pending.request)
             .ok_or_else(|| refused("plan_build.not_plan", "that ask is not a plan approval"))?;
@@ -281,11 +289,17 @@ impl Hub {
             };
             match self.start_subsession(parent, req).await {
                 Ok(reply) => {
-                    let id = reply.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+                    let id = reply
+                        .get("sessionId")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
                     if let Ok(child) = self.resolve(&id) {
                         let mut set = serde_json::Map::new();
                         set.insert(BUILD_TAG.into(), Value::String(build_id.to_owned()));
-                        for (tag, field) in [(BASE_TAG, "/worktree/base"), (ROOT_TAG, "/worktree/root")] {
+                        for (tag, field) in
+                            [(BASE_TAG, "/worktree/base"), (ROOT_TAG, "/worktree/root")]
+                        {
                             if let Some(v) = reply.pointer(field).and_then(Value::as_str) {
                                 set.insert(tag.into(), Value::String(v.to_owned()));
                             }
@@ -392,11 +406,9 @@ impl Hub {
         keep: &str,
     ) -> Result<(Arc<Session>, Vec<Arc<Session>>), RpcError> {
         let builds = self.plan_builds(&parent.id, build_id);
-        let kept = builds
-            .iter()
-            .find(|s| s.id == keep)
-            .cloned()
-            .ok_or_else(|| RpcError::invalid_params("keep must be one of this plan build's chats"))?;
+        let kept = builds.iter().find(|s| s.id == keep).cloned().ok_or_else(|| {
+            RpcError::invalid_params("keep must be one of this plan build's chats")
+        })?;
         Ok((kept, builds.into_iter().filter(|s| s.id != keep).collect()))
     }
 }
