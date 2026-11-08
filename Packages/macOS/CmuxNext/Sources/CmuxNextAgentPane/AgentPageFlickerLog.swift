@@ -14,7 +14,9 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
 /// - `window-occlusion`: a window became visible or occluded.
 /// - From the page (`diag.flicker`, webviews `acpmux/flickerLog.ts`): `page-load` (its navigation
 ///   type), `visibility` (the document's visibility), `transcript-mount` (the transcript's root
-///   mounted; `n` over 1 is a remount) and `long-frame` (a frame over 100 ms while visible).
+///   mounted; `n` over 1 is a remount), `long-frame` (a frame over 100 ms while visible) and `frames`
+///   (at most once a second while the page changes: its frame intervals' `p50`, `p95` and `max`, and
+///   `miss120` and `miss60`, the frames a 120 Hz or a 60 Hz display would miss; `cmux perf record` reads them).
 ///
 /// The file is a two-file ring under the app's state root:
 /// `<Application Support>/<bundle id>/diagnostics/agent-page-flicker.ndjson`, which becomes
@@ -31,7 +33,7 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
     /// The page's method; answered in ``AgentPaneBridge`` before ``AgentPaneRequest``, never logged.
     nonisolated static let method = "diag.flicker"
     /// The kinds a page may write, and the most events one call carries.
-    nonisolated static let pageKinds: Set<String> = ["page-load", "visibility", "transcript-mount", "long-frame"]
+    nonisolated static let pageKinds: Set<String> = ["page-load", "visibility", "transcript-mount", "long-frame", "frames"]
     nonisolated static let maximumPageEvents = 32
 
     /// The app run's ring, for the composition root to make once; nil outside an app bundle

@@ -9,27 +9,12 @@
 /// One entry per host, whatever user or port a later link names: a host is the machine the
 /// person said they trust. The link gate compares entries by `SSHLinkTarget.trustKey`.
 public nonisolated struct SSHLinkHostsSetting: Sendable {
-    public static let configPath = ["ssh", "linkAllowedHosts"]
-
     public init() {}
 
     /// The entries in `root` as written; a value that is not a list of strings allows none.
     public func hosts(in root: JSONValue) -> [String] {
-        guard case .array(let entries)? = root.value(at: Self.configPath) else { return [] }
+        guard case .array(let entries)? = root.value(at: Self.configPath) else { return Self.fallback }
         return entries.compactMap(\.stringValue)
-    }
-
-    static var descriptor: SettingDescriptor {
-        SettingDescriptor(
-            configPath, section: .machines,
-            group: SettingsText.keyed("settings.group.sshLinks", "SSH Links"),
-            title: SettingsText.keyed("settings.machines.sshLinkHosts", "Always Allowed SSH Link Hosts"),
-            help: SettingsText.keyed("settings.machines.sshLinkHosts.help",
-                                     "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."),
-            kind: .stringList, default: .array([]),
-            keywords: ["ssh", "link", "url", "host", "trust", "allow", "always", "machine", "security"],
-            placeholder: SettingText(key: nil, text: "devbox.local")
-        )
     }
 }
 

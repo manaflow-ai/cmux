@@ -85,8 +85,8 @@ async fn the_agent_reads_who_wrote_each_part_of_a_prompt() {
 
 /// A send from a Codex shell outside acpmux goes through this daemon's outbox
 /// (`_acpmux/send_queue`, client `acpmux-outbox#…`) naming its harness (`cli/sender.rs`
-/// `harness_sender`): it is recorded as that agent's message, never the person's "you", and the
-/// agent reads it as that agent's. Leo saw such sends as his own (ask-03a81c42d5).
+/// `implicit`, `harness_name`): it is recorded as that agent's message, never the person's "you",
+/// and the agent reads it as that agent's. Leo saw such sends as his own (ask-03a81c42d5).
 #[tokio::test]
 async fn an_outbox_send_from_an_agent_shell_is_that_agents() {
     let hub = hub_env(json!({"FAKE_ECHO_ATTRIBUTION": "1"}));

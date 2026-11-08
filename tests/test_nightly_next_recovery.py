@@ -464,13 +464,14 @@ class FailureIssueTests(unittest.TestCase):
 
     OUTPUTS = {"decide": {"should_publish": "true", "track": "nightly-next"}, "publish-nightly": {"tag_status": "updated"}}
 
-    # The run that published builds, signs and publishes the feed; the jobs after the feed run in the dispatched
-    # post-publish run (dispatch-published-in), which reads the published build from published-build. Each run
-    # has its own report and close jobs: the issue opens if either reports and closes if either closes.
+    # The loop run builds, signs and publishes the feed and the GitHub release, then dispatch-published-in asks for
+    # a run-scoped run of the rest of the tail (nightly_next_post_publish), which reads the published build from
+    # published-build (cross_run, run_tail). Each run has its own report and close jobs: the issue opens if either
+    # reports and closes if either closes.
     PUSH_JOBS = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "build-nightly-remote-daemon",
                  "resolve-nightly-cmux-tui-client", "prepare-nightly-variant", "build-sign-notarize-nightly",
                  "verify-signed-nightly", "verify-final-dmg-nightly", "verify-recovered-nightly-next",
-                 "republish-nightly-next", "publish-nightly", "dispatch-published-in")
+                 "republish-nightly-next", "publish-nightly", "publish-nightly-next-github", "dispatch-published-in")
     TAIL_JOBS = ("published-build", "generate-nightly-deltas", "republish-nightly-deltas", "sign-release-notes",
                  "publish-release-notes")
 
@@ -484,23 +485,39 @@ class FailureIssueTests(unittest.TestCase):
         outcome.update(results)
         decide = self.OUTPUTS["decide"]
         published = dict(self.OUTPUTS["publish-nightly"], source=source)
-        push_outputs = {"decide": decide, "publish-nightly": published}
+        publish_outputs = {f"publish_{key}": value for key, value in published.items()}
+        # The loop run: published-build passes its own jobs through (run_tail false), and the rest of the tail skips.
         push = {name: outcome[name] for name in self.PUSH_JOBS}
-        push.update(dict.fromkeys(self.TAIL_JOBS, "skipped"))  # published-build skips in a nightly-next build run
+        push.update(dict.fromkeys(self.TAIL_JOBS, "skipped"))
+        if decide.get("should_publish") == "true" and push["publish-nightly"] == "success":
+            push["published-build"] = outcome["published-build"]
+        own = dict(decide, cross_run="", run_tail="false", publish_result=push["publish-nightly"], **publish_outputs) \
+            if push["published-build"] == "success" else {}
+        push_outputs = {"decide": decide, "publish-nightly": published, "published-build": own}
+        if not own:
+            push["publish-nightly-next-github"] = "skipped"
         if not job_runs("dispatch-published-in", push, push_outputs):
             push["dispatch-published-in"] = "skipped"
         reports = job_runs("report-nightly-failure", push, push_outputs)
         closes = job_runs("close-nightly-failure-issue", push, push_outputs)
         if push["dispatch-published-in"] == "success":
             dispatch_needs = workflow()["jobs"]["dispatch-published-in"]["needs"]
-            record = dict(decide, cross_run="true", publish_result=push["publish-nightly"],
+            record = dict(decide, cross_run="true", run_tail="true", publish_result=push["publish-nightly"],
                           push_clean="false" if any(push[n] in ("failure", "cancelled") for n in dispatch_needs) else "true",
-                          **{f"publish_{key}": value for key, value in published.items()})
+                          **publish_outputs)
             tail = dict.fromkeys(self.PUSH_JOBS, "skipped")
             tail.update({name: outcome[name] for name in self.TAIL_JOBS})
             reports |= job_runs("report-nightly-failure", tail, {"published-build": record})
             closes |= job_runs("close-nightly-failure-issue", tail, {"published-build": record})
         return reports, closes
+
+    def test_a_loop_run_dispatches_its_tail_and_closes_only_there(self):
+        # The loop run never closes the issue itself: its notes and deltas run in the dispatched run.
+        self.assertIn("dispatch-published-in", workflow()["jobs"]["report-nightly-failure"]["needs"])
+        self.assertEqual(self.publication("own"), (False, True))
+        self.assertEqual(self.publication("own", **{"dispatch-published-in": "failure"}), (True, False))
+        # A failed GitHub release in the loop run keeps the tail run from closing the issue (push_clean).
+        self.assertEqual(self.publication("own", **{"publish-nightly-next-github": "failure"})[1], False)
 
     def test_a_recovered_publication_closes_the_issue(self):
         self.assertEqual(self.publication("recovered"), (False, True))
@@ -722,7 +739,8 @@ class RecheckTests(unittest.TestCase):
                 outcome = dict.fromkeys(workflow()["jobs"][name]["needs"], "success")
                 # The notes jobs read the published build from published-build (scripts/ci/nightly_published_build.py).
                 outputs = {"published-build": {"should_publish": "true", "track": "nightly-next", "publish_result": "success",
-                                               "publish_source": "own", "publish_already_published": "true"},
+                                               "publish_source": "own", "publish_already_published": "true",
+                                               "run_tail": "true"},
                            "sign-release-notes": {}}
                 self.assertFalse(job_runs(name, outcome, outputs))
                 outputs["published-build"]["publish_already_published"] = ""

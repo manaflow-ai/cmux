@@ -10,7 +10,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
 import { THINKING, trayWaitAgents, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import longWait from "../src/agent-session/acpmux/conversation/LongSubagentWait.gallery";
@@ -47,7 +47,7 @@ const agent = (id: string, state: string, extra: Partial<Subagent> = {}): Subage
   startedAt: at,
   ...extra,
 });
-const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true });
+const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true });
 const words = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")
@@ -109,8 +109,6 @@ test("with the running tray the line still says it waits on the subagents the tr
   expect(trayWaitAgents(rows)).toBe(2);
   const line = turnView(shown as AcpmuxRow[], new Set(), {
     working: true,
-    liveRuns: true,
-    lineBelow: true,
     trayAgents: trayWaitAgents(rows),
   }).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 2 });
@@ -130,8 +128,6 @@ test("with the tray a shell call's agent counts once, and a queued prompt keeps 
   expect(trayWaitAgents(rows)).toBe(1);
   const line = turnView(withSubagentLines(rows) as AcpmuxRow[], new Set(), {
     working: true,
-    liveRuns: true,
-    lineBelow: true,
     trayAgents: trayWaitAgents(rows),
   }).find((shaped) => shaped.kind === THINKING)!;
   expect(line).toMatchObject({ liveState: "subagents", liveAgents: 2 });
@@ -162,7 +158,7 @@ test("a call in flight still names the call, over any subagent wait", () => {
   expect(line.liveState).toBeUndefined();
 });
 
-test("a finished step reads its own time, not the turn's", () => {
+test("a finished step gives the line back to Thinking, with the turn's clock named after a dot", () => {
   const user = row("u", "user");
   const started = user.at + 4_950_000;
   const line = codex([
@@ -179,8 +175,9 @@ test("a finished step reads its own time, not the turn's", () => {
       ],
     }),
   ]).at(-1)!;
-  expect(line).toMatchObject({ doing: "Opened 1 agent session", doingDone: true, doingForMs: 207_000 });
-  expect(drawn(line, user.at + 4_951_000)).toBe("Opened 1 agent session 3m 27s · 1h 22m 31s");
+  // Leo, 2026-11-07: "Why don't we just immediately switch to the thinking?"
+  expect(line.doing).toBeUndefined();
+  expect(drawn(line, user.at + 4_951_000)).toBe("Thinking · turn 1h 22m 31s");
 });
 
 test("an answer paused mid-stream reads Writing, not Thinking", () => {
@@ -216,7 +213,7 @@ test("the long-wait gallery entry's live line names its subagents and the turn's
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 3 });
   expect(drawn(line, GALLERY_NOW)).toBe("Waiting on 3 subagents 1h 24m 7s");
   const step = codex(longWait.variants["finished-step"]!.snapshot.rows).at(-1)!;
-  expect(drawn(step, GALLERY_NOW)).toBe("Opened 1 agent session 3m 27s · 1h 24m 7s");
+  expect(drawn(step, GALLERY_NOW)).toBe("Thinking · turn 1h 24m 7s");
 });
 
 test("a running call reads the turn's clock as its total, never a clock that starts at the call", () => {
@@ -259,5 +256,5 @@ test("Thinking past the first step shows only the thoughts' streamed time, the w
   ]).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, thoughtMs: 8_000, turnTotal: true });
   expect(line.doing).toBeUndefined();
-  expect(drawn(line, t0 + 454_000)).toBe("Thinking 8s · 7m 34s");
+  expect(drawn(line, t0 + 454_000)).toBe("Thinking 8s · turn 7m 34s");
 });
