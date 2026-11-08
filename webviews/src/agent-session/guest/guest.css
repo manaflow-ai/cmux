@@ -24,12 +24,12 @@
 .guest-join__edit:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* Open in cmux (OpenInApp.tsx): a banner floating over the guest page, which is already there beneath it,
    so it takes no space and nothing moves when it goes. The app link reads as a link, the browser as a quiet button. */
-.guest-app{position:fixed;z-index:10;top:12px;left:50%;transform:translateX(-50%);box-sizing:border-box;max-width:calc(100% - 24px);display:flex;align-items:center;gap:12px;padding:6px 6px 6px 12px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-bg, Canvas);color:var(--agent-text);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-app{position:fixed;z-index:var(--layer-toast);top:var(--ds-space-3, 12px);left:50%;transform:translateX(-50%);box-sizing:border-box;max-width:calc(100% - 24px);display:flex;align-items:center;gap:var(--ds-space-3, 12px);padding:var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-3, 12px);border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-bg, Canvas);color:var(--agent-text);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .guest-app__title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .guest-app__open{flex:none;color:var(--agent-text);font-weight:600;text-decoration:none}
 .guest-app__open:hover{text-decoration:underline}
 .guest-app__open:focus-visible,.guest-app__browser:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-.guest-app__browser{flex:none;height:28px;padding:0 10px;border:1px solid var(--agent-border);border-radius:6px;background:transparent;color:var(--agent-text);font:inherit}
+.guest-app__browser{flex:none;height:28px;padding:0 var(--ds-space-2, 8px);border:1px solid var(--agent-border);border-radius:6px;background:transparent;color:var(--agent-text);font:inherit}
 /* The transcript's column: 760px wide, 16px from the edges on a phone. */
 .guest-live{--guest-inset:max(16px, calc((100% - 760px) / 2));height:100%;display:flex;flex-direction:column}
 .guest-live__header{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--guest-inset);border-bottom:1px solid var(--agent-border)}
