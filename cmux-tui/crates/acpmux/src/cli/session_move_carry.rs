@@ -82,7 +82,7 @@ GIT_INDEX_FILE="$s/index"; export GIT_INDEX_FILE
 # read as deleted: that is refused (exit 5).
 if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2
 elif [ "$(git config --type=bool core.sparseCheckout)" = true ]; then
-  echo "it is a sparse checkout with no index: run git status there first" >&2; exit 5
+  echo "it is a sparse checkout with no index: rebuild it there with git reset -q && git sparse-checkout reapply (edits stay), then move again" >&2; exit 5
 else git read-tree HEAD || exit 3; fi
 # Every path is a file name, never pathspec magic: `:(glob)**` must not add the secrets left out.
 GIT_LITERAL_PATHSPECS=1; export GIT_LITERAL_PATHSPECS
