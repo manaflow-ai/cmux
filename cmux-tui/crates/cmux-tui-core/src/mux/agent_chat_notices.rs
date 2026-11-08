@@ -883,6 +883,8 @@ struct Chat {
     /// Work it started runs past its turn (a background subagent, a working sub-session;
     /// acpmux's `subagentsWorkingSince`): the task is not done yet.
     works_below: bool,
+    /// A turn runs (acpmux's `turn`): a newer one than `last_turn` once that ended.
+    in_turn: bool,
     /// The ended turn already notified (or passed over), so it notifies once.
     notified_turn: Option<String>,
     last_message: String,
@@ -940,6 +942,7 @@ impl Chat {
             last_turn,
             last_error,
             works_below: summary["subagentsWorkingSince"].is_u64(),
+            in_turn: summary["turn"].is_object(),
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
@@ -1003,7 +1006,7 @@ impl Chat {
         // does supersedes the old turn's finish, and its own end notifies.
         let below_ended = before.is_some_and(|chat| chat.works_below)
             && !self.works_below
-            && self.indicator != "working";
+            && !self.in_turn;
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
             && (self.unread || below_ended || ended_now(turn))
@@ -1527,15 +1530,36 @@ mod tests {
     fn work_that_outlives_its_turn_into_a_newer_turn_posts_only_the_newer_finish() {
         // T1 ends with work below it, T2 starts, that work ends while T2 runs, then T2 ends: the
         // person hears T2 finish once, not T1 "finished" while the chat works again.
+        let t2_runs = |mut change: Value| {
+            change["turn"] = json!({"turnId": "t2"});
+            change
+        };
         let changes = [
             summary("working", 8, true, None, false),
             summary("done", 9, true, Some(("t1", "completed")), true),
-            summary("working", 10, true, Some(("t1", "completed")), true),
-            summary("working", 11, true, Some(("t1", "completed")), false),
+            t2_runs(summary("working", 10, true, Some(("t1", "completed")), true)),
+            t2_runs(summary("working", 11, true, Some(("t1", "completed")), false)),
             summary("done", 12, true, Some(("t2", "completed")), false),
         ];
         let keys: Vec<_> = posted(&changes).into_iter().map(|notice| notice.key).collect();
         assert_eq!(keys, ["done-t2"]);
+    }
+
+    #[test]
+    fn work_that_outlives_its_turn_posts_its_finish_while_a_background_command_still_runs() {
+        // A background shell keeps the dot working (acpmux `commandsRunning`), but no turn runs:
+        // the end notice waits only for the work below the turn.
+        let command_runs = |mut change: Value| {
+            change["commandsRunning"] = json!(1);
+            change
+        };
+        let changes = [
+            summary("working", 8, true, None, false),
+            command_runs(summary("working", 9, true, Some(("t1", "completed")), true)),
+            command_runs(summary("working", 10, true, Some(("t1", "completed")), false)),
+        ];
+        let keys: Vec<_> = posted(&changes).into_iter().map(|notice| notice.key).collect();
+        assert_eq!(keys, ["done-t1"]);
     }
 
     #[test]
