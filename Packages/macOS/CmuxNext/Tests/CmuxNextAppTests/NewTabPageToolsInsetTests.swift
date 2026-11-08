@@ -87,4 +87,22 @@ import Testing
                 "the chat's tools would draw left of an empty \"…\" slot: inset \(inset), expected \(PaneToolbarView.trailingGap)")
         _ = pane
     }
+
+    /// The page's first prompt: its tools arrive, and the same layout pass drops the page's "…" (the tab store still
+    /// calls it a New Tab page until the chat's session lands); the inset the tools drew at does not change.
+    @Test func thePagesToolsArriveBesideTheirFinalBar() throws {
+        let window = window()
+        defer { window.orderOut(nil); window.close() }
+        let (pane, toolbar, page) = newTabPane(in: window)
+        // What the pane wires (`PaneToolbar.init(pane:)`): the selected page's tools in the row make its tab a chat.
+        toolbar.view.pageToolsShown = { [weak page] in (page?.shared ?? 0) > 0 }
+        toolbar.view.onPageToolsShown = { [weak toolbar] in toolbar?.update(target: "t0", kind: nil, paneKinds: [.newTab]) }
+        let before = try #require(page.insets.last)
+        page.leaveNewTab()
+        pane.layoutSubtreeIfNeeded() // the one pass the tools' report asks for
+        #expect(!toolbar.view.hasMore, "the page's \"…\" left with the New Tab screen")
+        #expect(toolbar.view.frame.width == PaneToolbarView.trailingGap, "the bar beside the tools is its trailing gap")
+        #expect(page.insets == [before], "the tools moved: offered insets \(page.insets)")
+        #expect(pane.stripView.frame.maxX + page.need + before == pane.bounds.width, "the strip ends where the tools begin")
+    }
 }
