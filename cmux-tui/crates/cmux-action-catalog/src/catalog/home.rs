@@ -596,6 +596,19 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "home.startQueuedAgent",
+        group: GROUP,
+        title: t("HomeActions", "action.home.startQueuedAgent", "Start Queued Agent Now"),
+        keywords: &["chief", "home", "agent", "subagent", "queue", "queued", "waiting", "start", "now", "cap"],
+        category: "agents",
+        symbol: "play.circle",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::AGENT, args::CONVERSATION.optional()],
+        cli_name: "home start-agent",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "home.saveFlightRecording",
         group: GROUP,
         title: t("HomeActions", "action.home.saveFlightRecording", "Save Last 10 Seconds"),

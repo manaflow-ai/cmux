@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextActions
 @testable import CmuxNextHome
 import CmuxNextTestSupport
 import Foundation
@@ -91,20 +92,32 @@ import Testing
         #expect(card.startNowButton == nil)
     }
 
+    /// The menu's Start now is the registry's `home.startQueuedAgent` row (check-menu-actions.py: no inline
+    /// selector), so a click on it runs the action the palette and `cmux home start-agent` run, on this agent.
     @Test func aQueuedPillsContextMenuHasStartNow() async throws {
         let home = try await home()
         defer { close(home) }
+        home.view.onStartAgent = { _ in true }
+        let registry = ActionRegistry(catalog: ActionCatalog.all.filter { $0.id == "home.startQueuedAgent" })
         var started: [String] = []
-        home.view.onStartAgent = { peer in started.append(peer); return true }
+        registry.bindEffect("home.startQueuedAgent", effect: { invocation in
+            started.append(invocation["agent"]?.stringValue ?? "")
+            return .done
+        })
+        let conversation = home.conversation.rawValue
+        home.view.startAgentMenuItem = { peer in
+            registry.makeContextMenuItem(for: "home.startQueuedAgent", in: .agentChat,
+                                         arguments: ["agent": .string(peer), "conversation": .string(conversation)])
+        }
         let menu = try #require(home.view.transcript.agentPillMenu)
         let items = menu("a7")
         let index = try #require(items.firstIndex { $0.title == "Start now" }, "no Start now in \(items.map(\.title))")
+        #expect(items[index].identifier?.rawValue == "cmux.action.home.startQueuedAgent")
         #expect(menu("a5").contains { $0.title == "Start now" } == false)
         // The item runs as a click on it does: through the menu.
         let shown = NSMenu()
         items.forEach(shown.addItem)
         shown.performActionForItem(at: index)
-        await home.view.pendingAgentStart?.value
         #expect(started == ["a7"])
     }
 }
