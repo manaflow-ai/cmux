@@ -6,9 +6,9 @@
 
 /* The moments' lengths (finishMoments.ts FINISH_MS) and marks' sizes, defined once. */
 :root {
-  --cmux-finish-short: 700ms;
-  --cmux-finish-merged: 950ms;
-  --cmux-finish-burst: 900ms;
+  --cmux-finish-short: 700ms; /* motion-allow: a whole one-shot moment (FINISH_MS): its draw runs about the settle, the rest is a still hold, then it fades back */
+  --cmux-finish-merged: 950ms; /* motion-allow: a whole one-shot moment (FINISH_MS): its draw runs about the settle, the rest is a still hold, then it fades back */
+  --cmux-finish-burst: 900ms; /* motion-allow: a whole one-shot moment (FINISH_MS): its draw runs about the settle, the rest is a still hold, then it fades back */
   --cmux-finish-check: 14px;
   --cmux-finish-dot: 4px;
 }

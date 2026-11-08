@@ -137,7 +137,7 @@ export default componentEntry<Props>({
     },
     "merged-glow": {
       props: { kind: "merged", look: "glow" },
-      note: "A purple glow and the rise: calm, but no bigger than green checks.",
+      note: "A purple ring and the rise: calm, but no bigger than green checks.",
     },
     "merged-stamp": {
       props: { kind: "merged", look: "stamp" },

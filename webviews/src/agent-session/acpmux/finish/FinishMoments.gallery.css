@@ -76,7 +76,7 @@
   display: none;
 }
 [data-finish-look="glow"] .acpmux-header-pr[data-finish="merged"] {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-status-merged) 40%, transparent), 0 0 12px color-mix(in srgb, var(--agent-status-merged) 35%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-status-merged) 55%, transparent);
   border-radius: 6px;
 }
 [data-finish-look="stamp"] .acpmux-header-pr[data-finish="merged"] {
