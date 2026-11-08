@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "build": "4249125334601",
+  "notes": "notes/4249125334601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 38514,
+      "title": "ci(cmux-tui): test (linux) gets 90 min; the full suite outgrew 55 on the 16 vCPU pool",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38566,
+      "title": "cu-bench: exit 4 when no call succeeds; flag an ax_tree row that includes a screenshot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38609,
+      "title": "ci(cmux-next): the fast tier takes an idle light side runner before the std side queue",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38383,
+      "title": "acpmux session move: carry uncommitted changes (--carry-changes), and a moved chat runs on its new machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38520,
+      "title": "measure: still-frame codec study (JPEG, PNG, WebP, AVIF, JPEG XL, HEIC)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38549,
+      "title": "bench: RAM baseline across idle, light, medium and extreme workloads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38539,
+      "title": "Theme files: fonts, the sidebar's shape, pictures beside the file, and a shipped Harbor example",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38430,
+      "title": "Splits, closes and right-side opens land in 113 ms instead of 235 ms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38427,
+      "title": "Remote view: Take over stays reachable by Accessibility while a Cloud desktop streams",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37653,
+      "title": "Agent chat: one message row for sent, received and subagent reports; received messages show their sender and full text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38580,
+      "title": "ci(cmux-tui): give each shared-HOME runner instance its own CARGO_HOME",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38599,
+      "title": "test(cmux-next): Show Import Cookies Banner expects the default's key removed, not a stored true",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38429,
+      "title": "Agent pane: y / a / n approve a tool call on the card, the group panel and Needs you",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38579,
+      "title": "cmux NEXT guards: baseline the queued pill's menu row; failure lines are error lines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38301,
+      "title": "Cloud app server: machine, snapshot, plan and connect_info records are the generated cmux.wire types",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38330,
+      "title": "cmux-tui: cmux git comments list|save|delete reach the diff page's review comments",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28058,
+      "title": "Keep attachment-only prompt feedback and actions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38531,
+      "title": "palette coverage: a script lists the CLI and menu actions the command palette lacks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38524,
+      "title": "split-scale-bench: fail the run when the window can't be placed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38493,
+      "title": "carrier: a failed attempt's route line names why, as a detail code after ms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38446,
+      "title": "cmux NEXT: Cloud chats take files on the first send and in folderless chats",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
