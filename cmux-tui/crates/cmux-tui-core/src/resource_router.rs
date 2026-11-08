@@ -15,9 +15,12 @@ mod effects;
 mod mouse;
 mod open_url;
 mod owner;
+pub(crate) mod palette_rank;
 mod revision_conflict;
 mod session;
 mod topology;
+mod wait_text;
+pub(crate) use wait_text::WaitText;
 
 pub(crate) use open_url::CAPABILITY as OPEN_URL_CAPABILITY;
 pub(crate) use open_url::is_web_url;
@@ -274,6 +277,7 @@ fn dispatch_resource_request(
         OperationOwner::ConductorImport => {
             crate::state::conductor_import_router::dispatch(mux, request)
         }
+        OperationOwner::PaletteRank => palette_rank::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,

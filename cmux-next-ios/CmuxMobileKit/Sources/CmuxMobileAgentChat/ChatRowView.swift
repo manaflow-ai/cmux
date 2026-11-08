@@ -100,8 +100,8 @@ struct ChatRowView: View {
                        editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil,
                        polish: ChatPolishMenuButtons(store: context.store, turnID: turnID, prompt: text))
                 .frame(maxWidth: .infinity, alignment: .trailing)
-        case .incoming(let incoming, let at):
-            AgentIncomingCard(incoming: incoming, at: at)
+        case .incoming(let incoming, let attachments, let at):
+            AgentIncomingCard(incoming: incoming, attachments: attachments, at: at)
         case .block(let messageID, let block):
             MarkdownBlockRow(block: block) { context.messageText(messageID) }
         case .thought(let text, let isLive):
@@ -122,7 +122,7 @@ struct ChatRowView: View {
         case .permission(let record, let offersChoices):
             let surface = context.surface
             PermissionCard(record: record, agentName: store.summary.agentName,
-                           showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth) { surface.showPermissionChoices() } } : nil)
+                           showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() } } : nil)
         case .question(let question):
             VStack(alignment: .leading, spacing: 10) {
                 QuestionCard(question: question) { store.answer(question, with: $0) }

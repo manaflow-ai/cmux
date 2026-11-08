@@ -75,12 +75,16 @@ mod goal;
 mod pr;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
+#[path = "acpmux_mcp_send_status.rs"]
+mod send_status;
 #[path = "acpmux_mcp_watch.rs"]
 mod watch;
 #[path = "acpmux_mcp_who_else.rs"]
 mod who_else;
 #[path = "acpmux_mcp_wrap_up.rs"]
 mod wrap_up;
+/// The most facts a wrap-up offers, and the longest one (`memory_inbox.rs`).
+pub(crate) use wrap_up::{MAX_FACT as WRAP_UP_MAX_FACT, MAX_LEARNED as WRAP_UP_MAX_LEARNED};
 
 fn tools() -> Value {
     let mut all = base_tools();
@@ -91,6 +95,7 @@ fn tools() -> Value {
         list.push(who_else::tool());
         list.extend(goal::tools());
         list.extend(watch::tools());
+        list.push(send_status::tool());
     }
     all
 }
@@ -158,6 +163,14 @@ fn base_tools() -> Value {
                 "type": "object",
                 "properties": {"name": {"type": "string", "description": "The session's name, id, or host/name."}},
                 "required": ["name"]
+            }
+        },
+        {
+            "name": "machine_info",
+            "description": "Report what this machine can do from acpmux's current state: machine and workspace identity, repository, running background work, ports and previews, browser/display support, the environment's verify command, and secret names with status. Secret values are never returned; unavailable capabilities include the next action to take.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
             }
         },
         {
@@ -305,6 +318,9 @@ pub async fn run() -> Result<()> {
                 if name == wrap_up::NAME {
                     return wrap_up::call(&args);
                 }
+                if name == send_status::NAME {
+                    return send_status::call(&daemon, &session, &args).await;
+                }
                 if name == who_else::NAME {
                     return who_else::call(&daemon, &session, &args).await;
                 }
@@ -322,11 +338,23 @@ pub async fn run() -> Result<()> {
                 if name == "search" {
                     return search_tool(&daemon, &session, &args).await;
                 }
+                if name == "machine_info" {
+                    return machine_info(&daemon, &session).await;
+                }
                 call(&daemon, &params).await
             }
         },
     )
     .await
+}
+
+async fn machine_info(daemon: &Arc<Client>, session: &str) -> Value {
+    match daemon.request(method::MUX_MACHINE_INFO, json!({"sessionId": session})).await {
+        Ok(result) => {
+            ok(serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()), result)
+        }
+        Err(error) => refusal(error),
+    }
 }
 
 fn ok(text: String, structured: Value) -> Value {

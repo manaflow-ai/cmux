@@ -1,5 +1,4 @@
 public import CmuxNextDaemon
-public import CmuxNextSettings
 
 /// The answer to "Some sessions did not end" (`QuitFailureAlert`).
 public enum QuitFailureAnswer: Equatable, Sendable {
@@ -8,7 +7,7 @@ public enum QuitFailureAnswer: Equatable, Sendable {
 }
 
 /// The work between the quit decision and AppKit's reply, in order:
-/// remember the choice ("Don't ask again"), save and close windows
+/// save and close windows
 /// (incognito workspaces close here), then, for an End choice, end the
 /// local acpmux agents (except the Home Chief's), then the local terminals,
 /// and stop the local daemon (End Everything deletes the local workspaces
@@ -28,8 +27,6 @@ public enum QuitFailureAnswer: Equatable, Sendable {
 /// credential cleanup, a save the engine reserve cut short), for what is
 /// left of the deadline less the reply margin.
 public struct QuitSteps {
-    /// Writes "Don't ask again"'s setting; run under ``QuitSaveSteps/rememberLimit``.
-    public var remember: @MainActor (QuitBehavior) async -> Void
     public var prepareWindows: @MainActor () async -> Void
     /// Ends the local sessions as the quit's choice says; returns every step that failed.
     public var endLocalSessions: @MainActor () async -> [EndSessionsFailure]
@@ -51,15 +48,13 @@ public struct QuitSteps {
     /// still lands before the daemon stops.
     public static let endQuitSaveWait: Duration = .seconds(2)
 
-    public init(remember: @escaping @MainActor (QuitBehavior) async -> Void,
-                prepareWindows: @escaping @MainActor () async -> Void,
+    public init(prepareWindows: @escaping @MainActor () async -> Void,
                 endLocalSessions: @escaping @MainActor () async -> [EndSessionsFailure],
                 confirmFailures: @escaping @MainActor ([EndSessionsFailure]) async -> QuitFailureAnswer,
                 endLocalAgents: @escaping @MainActor () async -> [EndSessionsFailure],
                 stopBrowserEngines: @escaping @MainActor () async -> Void,
                 limiter: QuitStepLimiter,
                 timeLeft: @escaping @MainActor () -> Duration?) {
-        self.remember = remember
         self.prepareWindows = prepareWindows
         self.endLocalSessions = endLocalSessions
         self.confirmFailures = confirmFailures
@@ -70,11 +65,9 @@ public struct QuitSteps {
     }
 
     /// Runs the steps for a quit that `ends` the local sessions (End
-    /// Sessions, End Everything) or keeps them; `remember` is the setting
-    /// "Don't ask again" writes, nil when it was not asked for.
+    /// Sessions, End Everything) or keeps them.
     @MainActor
-    public func run(ends: Bool, remember remembered: QuitBehavior?) async {
-        if let remembered { await limiter.run("remember", limit: QuitSaveSteps.rememberLimit) { await remember(remembered) } }
+    public func run(ends: Bool) async {
         await prepareWindows()
         if ends {
             // A late save to the daemon lands before the daemon stops (Cloud's step ends no local data).

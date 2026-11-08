@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "c126d5e424dd12a25dbd183631f6be0fcfbb9d2a896562e41607cca107f049c5",
+  "catalog_sha256": "154a7c364bd86de362350a59cedc5c9409f419b62b27631210e856399d1b3b3d",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -169,6 +169,108 @@
     "closed.reopen": {
       "class": "mutation"
     },
+    "cloud.machine.io": {
+      "class": "mutation"
+    },
+    "cloud.owner.acpmux_keyed_start": {
+      "class": "mutation"
+    },
+    "cloud.owner.acpmux_person_holds": {
+      "class": "mutation"
+    },
+    "cloud.owner.fork_run": {
+      "class": "mutation"
+    },
+    "cloud.owner.github_app": {
+      "class": "read"
+    },
+    "cloud.owner.handoff_begin_turn": {
+      "class": "mutation"
+    },
+    "cloud.owner.handoff_open": {
+      "class": "mutation"
+    },
+    "cloud.owner.handoff_wait": {
+      "class": "read"
+    },
+    "cloud.owner.handoffs": {
+      "class": "read"
+    },
+    "cloud.owner.harness_login_copy": {
+      "class": "read"
+    },
+    "cloud.previews.create_link": {
+      "class": "mutation"
+    },
+    "cloud.previews.refresh": {
+      "class": "mutation"
+    },
+    "cloud.previews.revoke_link": {
+      "class": "mutation"
+    },
+    "cloud.runs.cancel": {
+      "class": "mutation"
+    },
+    "cloud.runs.create": {
+      "class": "mutation"
+    },
+    "cloud.runs.sandbox": {
+      "class": "mutation"
+    },
+    "cloud.runs.start": {
+      "class": "mutation"
+    },
+    "cloud.runs.wait": {
+      "class": "read"
+    },
+    "cloud.vm.domains": {
+      "class": "read"
+    },
+    "cloud.vm.firewall_create": {
+      "class": "mutation"
+    },
+    "cloud.vm.firewall_delete": {
+      "class": "mutation"
+    },
+    "cloud.vm.firewall_get": {
+      "class": "read"
+    },
+    "cloud.vm.firewall_list": {
+      "class": "read"
+    },
+    "cloud.vm.networks": {
+      "class": "read"
+    },
+    "cloud.vm.provision_api": {
+      "class": "mutation"
+    },
+    "cloud.vm.publication_api_keys": {
+      "class": "read"
+    },
+    "cloud.vm.publications": {
+      "class": "read"
+    },
+    "cloud.vm.revoke_publication_api_key": {
+      "class": "mutation"
+    },
+    "cloud.vm.scp_endpoint": {
+      "class": "mutation"
+    },
+    "cloud.vm.tunnel_attach": {
+      "class": "mutation"
+    },
+    "cloud.vm.tunnel_detach": {
+      "class": "mutation"
+    },
+    "cloud.vm.tunnel_enroll": {
+      "class": "mutation"
+    },
+    "cloud.vm.tunnel_revoke": {
+      "class": "mutation"
+    },
+    "cloud.vm.tunnel_rotate_key": {
+      "class": "mutation"
+    },
     "column.update": {
       "class": "mutation"
     },
@@ -210,6 +312,15 @@
     },
     "credential.verify": {
       "class": "read"
+    },
+    "diff.comments.delete": {
+      "class": "mutation"
+    },
+    "diff.comments.list": {
+      "class": "read"
+    },
+    "diff.comments.save": {
+      "class": "mutation"
     },
     "frontend_projection.get": {
       "class": "read"
@@ -264,6 +375,9 @@
     },
     "git.worktree.remove": {
       "class": "mutation"
+    },
+    "git.worktree.setup": {
+      "class": "read"
     },
     "history.backups.purge": {
       "class": "mutation"
@@ -342,6 +456,9 @@
     },
     "pairing_request.resolve": {
       "class": "mutation"
+    },
+    "palette.rank": {
+      "class": "read"
     },
     "palette_usage.forget": {
       "class": "mutation"

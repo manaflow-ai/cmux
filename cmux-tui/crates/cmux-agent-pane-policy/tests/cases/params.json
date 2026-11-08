@@ -568,7 +568,8 @@
     "limit": 1,
     "maxBytes": 1,
     "kinds": 1,
-    "promptIndex": 1
+    "promptIndex": 1,
+    "subagent": 1
    }
   },
   "mode_fields": null,
@@ -627,7 +628,9 @@
    "method": "_acpmux/kill",
    "params": {
     "sessionId": 1,
-    "purge": 1
+    "purge": 1,
+    "cancelFork": 1,
+    "cancelToken": 1
    }
   },
   "mode_fields": null,
@@ -874,7 +877,8 @@
    "params": {
     "sessionId": 1,
     "throughSeq": 1,
-    "live": true
+    "live": true,
+    "cancelToken": "t-1"
    }
   },
   "mode_fields": null,

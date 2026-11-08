@@ -50,11 +50,13 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     // Agent work yields CPU and disk to the app (`qos.rs`): before any thread
     // starts, since on macOS this re-executes the host in place under a clamp.
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
+        crate::oom_rank::raise_agent();
         crate::qos::enter(crate::qos::Role::AgentHost);
         return crate::agent_host::host::main();
     }
     // A background task's runner (`bg_run.rs`): one task, no CLI.
     if args.first().is_some_and(|a| a == crate::bg_run::RUN_ARG) {
+        crate::oom_rank::raise_agent();
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
@@ -252,6 +254,10 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             // throttles 15-30x under another app's disk work (STATUS 11554): the daemon stays at
             // the default tier, and only its background threads yield.
             crate::qos::enter_daemon();
+            // Agents before the daemon for the OOM killer and earlyoom (`oom_rank.rs`).
+            if let Some(p) = crate::oom_rank::protect_daemon() {
+                tracing::info!("{}", crate::oom_rank::describe(p));
+            }
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
@@ -332,6 +338,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
+        Some(Command::Race(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::race::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Task(cmd)) => {
             let json_out = cli.json;
             match crate::cli::task::run(cmd, json_out).await {
@@ -349,6 +362,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::WhoElse(args)) => {
             let json_out = cli.json;
             match crate::cli::who_else::run(args, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Ledger(args)) => {
+            let json_out = cli.json;
+            match crate::cli::ledger::run(args, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }

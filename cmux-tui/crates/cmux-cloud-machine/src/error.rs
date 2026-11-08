@@ -106,17 +106,22 @@ fn lifting_plan(object: &Map<String, Value>, code: Option<&str>) -> Option<Strin
     matches!(plan, "pro" | "max").then(|| plan.to_owned())
 }
 
-/// The refusal's `upgradeUrl`, only an https cmux.com link.
+/// The refusal's `upgradeUrl`, only an https cmux.com link. Strict, as a browser reads it: no
+/// backslash (a browser reads `\\` as `/`, so `https://evil.com\\@cmux.com` is evil.com's), no
+/// user info, a host of letters, digits, dots and dashes, and a port only of digits.
 fn upgrade_url(object: &Map<String, Value>) -> Option<String> {
     let text = object.get("upgradeUrl")?.as_str()?;
-    if text.chars().any(|c| c.is_whitespace() || c.is_control()) {
+    if text.chars().any(|c| c.is_whitespace() || c.is_control() || c == '\\') {
         return None;
     }
     let rest = text.strip_prefix("https://")?;
     let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
-    let host_port = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
-    let host = host_port.split_once(':').map_or(host_port, |(host, _)| host);
-    (host == "cmux.com" || host.ends_with(".cmux.com")).then(|| text.to_owned())
+    let (host, port) = authority.split_once(':').unwrap_or((authority, "0"));
+    let host = host.to_ascii_lowercase();
+    let host_ok = host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
+    let port_ok = !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit());
+    (host_ok && port_ok && (host == "cmux.com" || host.ends_with(".cmux.com")))
+        .then(|| text.to_owned())
 }
 
 /// The text a person reads. An HTTP failure reads as the server's message, then its next step,

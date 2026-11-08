@@ -8,6 +8,8 @@
 //! workspace lands),
 //! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
 //! and when to look again),
+//! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
+//! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
@@ -28,6 +30,8 @@
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
 //! `cloud_create_*`, `cloud_power_retries`),
+//! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
+//! and whether it earns an undo toast),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -71,6 +75,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 pub mod tab_drag;
 pub mod typed;
+mod window_rules;
 use sidebar_mirror::Mirror;
 
 pub const ABI_VERSION: u32 = 1;
@@ -190,11 +195,23 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_layout_plan" => {
+                let request: cmux_layout_reducer::sidebar_layout_plan::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_layout_reducer::sidebar_layout_plan::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"auto_archive_plan" => {
                 use cmux_layout_reducer::auto_archive;
                 let request: auto_archive::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"keep_awake_plan" => {
+                use cmux_layout_reducer::keep_awake;
+                let request: keep_awake::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&keep_awake::plan(&request)).map_err(|_| ERR_INVALID)?
             }
             b"sidebar_edits" => {
                 let request: sidebar_edits::Request =
@@ -211,6 +228,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_layout_reducer::group_hover_summary::summarize(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            b"new_placement" => {
+                use cmux_layout_reducer::new_placement;
+                let request: new_placement::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&new_placement::plan(&request)).map_err(|_| ERR_INVALID)?
             }
             b"optimistic" => {
                 let request: cmux_layout_reducer::optimistic::Request =
@@ -425,6 +448,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
+            }
+            operation if window_rules::handles(operation) => {
+                window_rules::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };

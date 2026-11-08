@@ -7,6 +7,7 @@ import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHistoryPages
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
 import CmuxNextPages
@@ -25,14 +26,30 @@ import CmuxNextWebUpdates
 struct PageFactory {
     unowned let services: AppServices
 
-    /// The React History page when Debug Settings `history.surface` is `web`, else nil (the
-    /// Swift page). The tunable goes when the React page becomes the default (react-pages.md H3).
+    /// The History page (react-pages.md 2): ``HistoryCookieBackupsPageProvider`` takes `cmux.history.` (the app's
+    /// cookie backups, a remove or clear only on a click) and relays the rest. Nil only when the resources are missing.
     func historyWebPage() -> PageWebView? {
-        guard PageTunables.history.value == .web else { return nil }
-        let routes = pageRoutes(for: .history)
+        let backups = HistoryCookieBackupsPageProvider { [weak services] in services?.browserHost?.driver.cookieBackups }
+        backups.relay = DaemonPageRelay(services: services)
+        backups.history = services.history
+        services.history.pages.add(backups)
+        let routes = [PageRoute(prefix: "cmux.history.", provider: backups)] + pageRoutes(for: .history)
         guard let page = services.pageHostPool.claim(.history, routes: routes,
                                                       window: services.windows.active?.window, focus: false)
             ?? PageWebView(descriptor: .history, routes: routes) else { return nil }
+        backups.anchor = { [weak page] in page }
+        PageConnectionWatch(page: page, store: services.machines.local.store).start()
+        return page
+    }
+
+    /// The Stashed Tabs page (``StashPageProvider``): the daemon's `stash.list` and `stash.import`
+    /// through the relay, restore and delete in the app. `route` `#/import` opens its OneTab box.
+    func stashWebPage(route: String?) -> PageWebView? {
+        let relay = DaemonPageRelay(services: services)
+        let stash = StashPageProvider(stash: services.historyPage.stash, relay: relay)
+        let routes = [PageRoute(prefix: "cmux.stash.", provider: stash)]
+        guard let page = PageWebView(descriptor: .stash, routes: routes, route: route) else { return nil }
+        stash.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
         return page
     }
@@ -209,6 +226,8 @@ struct PageFactory {
             let result = await devices.run(run)
             return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
         }
+        provider.sharesList = { [weak services] in try await SettingsSharedLinks.list(services) }
+        provider.sharesRevoke = { [weak services] id in try await SettingsSharedLinks.revoke(services, shareID: id) }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
@@ -219,8 +238,8 @@ struct PageFactory {
             .array(SettingsSchema.actions(in: section).compactMap { id in
                 // An action a setting turns off (Import from Browser with `browser.import.enabled` off) leaves the page.
                 guard let descriptor = registry.descriptor(for: id), registry.settingOffReason(id) == nil else { return nil }
-                return ["id": .string(id.rawValue), "title": .string(descriptor.title),
-                        "enabled": .bool(registry.isAvailable(id))]
+                return ["id": .string(id.rawValue), "title": .string(descriptor.title), "enabled": .bool(registry.isAvailable(id)),
+                        "hint": descriptor.hint.map(JSONValue.string) ?? .null]
             })
         }
         provider.pickFolders = { [weak services] in
@@ -290,6 +309,8 @@ struct PageFactory {
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).
                       PageRoute(prefix: ContextMenusPageProvider.prefix, provider: services.settingsWindow.contextMenusRoute),
+                      // Settings > Server > This Mac on Your Tailnet: sign in and out on the app's person connection to acpmux.
+                      PageRoute(prefix: SettingsTailnet.prefix, provider: SettingsTailnet { [weak services] in services.flatMap(QuitAgents.environment) }),
                       // Settings > Server: Restart… (the toast's confirm) and Pair (the Server panel).
                       PageRoute(prefix: ServerSettingsPageRoute.prefix, provider: ServerSettingsPageRoute(
                           confirmRestart: { [weak services] in services?.serverUpdates.confirmRestart(kind: $0, host: $1) },
@@ -335,3 +356,5 @@ struct PageFactory {
                                              updateLabel: DaemonUpdateBoard.updateLabel)
     }
 }
+
+extension HistoryService: HistoryPageEditing {}

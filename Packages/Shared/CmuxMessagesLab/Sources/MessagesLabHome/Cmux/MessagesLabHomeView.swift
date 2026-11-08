@@ -176,6 +176,16 @@ public final class MessagesLabHomeView: NSView {
         set { projection.liveLine.style = newValue }
     }
 
+    /// The folders a Chief chat's `/` menu lists skills from (``SlashSkillCatalog``); nil: no menu
+    /// (a channel, a DM, a Chief whose host runs elsewhere).
+    public var slashSkillCatalog: SlashSkillCatalog? {
+        get { controller.slashSkills?.catalog }
+        set {
+            guard newValue != controller.slashSkills?.catalog else { return }
+            controller.slashSkills = newValue.map(SlashSkillSource.init(catalog:))
+        }
+    }
+
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
     public var isWorking: Bool {
         get { controller.isWorking }
@@ -268,11 +278,24 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onAppLink = newValue }
     }
 
-    /// cmux: a click on an agent's pill in an agents row: the host opens that agent's chat (the agent's
-    /// id, `a12`). Nil: a click on the row opens and closes its messages.
-    public var onAgentPill: ((String) -> Void)? {
+    /// cmux: a click on an agent's pill in an agents row: the host opens that agent (the agent's id, `a12`,
+    /// and the pill's frame in window coordinates, for a card over it). Nil: a click on the row opens and
+    /// closes its messages.
+    public var onAgentPill: ((String, CGRect) -> Void)? {
         get { controller.onAgentPill }
         set { controller.onAgentPill = newValue }
+    }
+
+    #if DEBUG
+    /// cmux: agent `peer`'s drawn pill in window coordinates, nil when none shows (`debug.home.drive`).
+    public func debugAgentPillFrame(_ peer: String) -> CGRect? { controller.debugAgentPillFrame(peer) }
+    #endif
+
+    /// cmux: the context menu of an agent's pill (its id): the host's items for that agent, such as Start now
+    /// on a queued one. None or nil: the message's own menu.
+    public var agentPillMenu: ((String) -> [NSMenuItem])? {
+        get { controller.agentPillMenu }
+        set { controller.agentPillMenu = newValue }
     }
 
     /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The
@@ -764,8 +787,9 @@ public final class MessagesLabHomeView: NSView {
 
     /// Automation (DEBUG socket): opens picture `index` of the newest table card in the large picture viewer
     /// through the click's path (``ChatController/openTablePicture(_:at:width:)``); `compare` shows its row's
-    /// Before and After; `mark` draws a box, an arrow and a word on it. False when no table has a loaded picture.
-    public func debugOpenTablePicture(index: Int, compare: Bool, mark: Bool) -> Bool {
+    /// Before and After; `mark` draws a box, an arrow and a word on it; `style` and `show` (``HomePictureViewer/Key/before``
+    /// or `after`) set the comparison. False when no table has a loaded picture.
+    func debugOpenTablePicture(index: Int, compare: Bool, mark: Bool, style: HomePictureCompare.Style? = nil, show: HomePictureViewer.Key? = nil) -> Bool {
         guard let store = controller.store else { return false }
         for m in store.state.conversation.messages.reversed() {
             for part in m.parts {
@@ -781,6 +805,8 @@ public final class MessagesLabHomeView: NSView {
                     guard let viewer else { return }
                     await viewer.loaded()
                     if compare { viewer.handle(.compare) }
+                    if let style { viewer.showCompareStyle(style) }
+                    if let show { viewer.handle(show) }
                     if mark, let size = viewer.markedImage().map({ CGSize(width: $0.width, height: $0.height) }) {
                         viewer.addMark(.box(CGRect(x: size.width * 0.18, y: size.height * 0.2, width: size.width * 0.42, height: size.height * 0.36)))
                         viewer.addMark(.arrow(from: CGPoint(x: size.width * 0.86, y: size.height * 0.84), to: CGPoint(x: size.width * 0.62, y: size.height * 0.58)))

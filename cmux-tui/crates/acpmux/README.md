@@ -376,8 +376,17 @@ acpmux ls --since 24h --limit 100 --json                     # sessions changed 
 acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
+# Race CLI commands run inside an authenticated acpmux agent session:
+acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "task"
+acpmux race show RACE                                          # candidate replies, worktrees and reviewer choice
+acpmux race stats                                              # each model's wins / completed races
+acpmux race stop RACE                                          # cancel this race's work, retain its record
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
 ```
+
+Race commands default to the authenticated calling agent's own chat. `--parent CHAT` may
+name that chat or a descendant it can manage; it does not authenticate an ordinary terminal.
+Use the chat's **menu → Tools → Race models** control in cmux NEXT from an ordinary terminal.
 
 Waits run in the daemon: a per-session `stateSeq` bumps on every status, permission and
 turn change and the wait subscribes to hub events, so nothing is missed between the check
@@ -1323,7 +1332,8 @@ returns once the message is on disk here, and the daemon delivers it when the pe
    a direct send did.
 5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it;
    `acpmux send --status` with no id (`{list: true, caller?, limit?}`) lists every message, newest
-   first. `acpmux session inbox SESSION` ends with the messages that session sent and their
+   first. The `acpmux` MCP server's `send_status` tool is the same for an agent: a `deliveryId`
+   from `send`, or none for the messages its chat sent. `acpmux session inbox SESSION` ends with the messages that session sent and their
    state, and `acpmux ls` ends with how many still wait (`outboxPending` in `_acpmux/status`).
    Delivered, held and failed deliveries are kept for a day.
 
@@ -1471,7 +1481,9 @@ Harnesses found on PATH join the configured ones at every start: `claude`, `code
 When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude`, `claude-cr` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude` or `sr` is on PATH (or a CodeRouter route is configured), an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
-  `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with
+  `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), `deny-all`, and `review`
+  (a reviewer's read-only shell: reads, searches and read-only shell commands such as `git log/diff/show`, `grep`,
+  `rg`, `ls`, `cat`, `sed -n` run unasked; every write or other command is denied at once) answer locally. Per-session override with
   `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`acpmux new|run`,
   `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
   (`defaultPermissionMode`, the daemon policy), as a start with no proven session does; a starter in full access passes

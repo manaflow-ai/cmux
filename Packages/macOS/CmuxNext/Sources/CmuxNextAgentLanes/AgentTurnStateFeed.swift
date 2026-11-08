@@ -48,8 +48,9 @@ public final class AgentTurnStateFeed {
     /// arrives (the page would replace them), whether the page did, and the pages it read.
     private var usageRead: (numbers: [String: AgentChatDetail], paged: Bool, pages: Int) = ([:], false, 0)
     /// A watch result whose later pages are still being read (``AgentWatchPage``): the pages so far,
-    /// the sessions a push changed meanwhile (newer than the pages, so kept) and the cursors asked.
-    private var paging: (page: AgentWatchPage, changed: Set<String>, cursors: Set<String>)?
+    /// what a push changed meanwhile (newer than the pages, so kept: this Mac's sessions by id, a
+    /// peer's rows by session id and peer) and the cursors asked.
+    private var paging: (page: AgentWatchPage, changed: Set<String>, changedPeers: [String: Set<String>], cursors: Set<String>)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
     /// - Parameters:
@@ -166,11 +167,12 @@ public final class AgentTurnStateFeed {
         /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged), last
         /// message and mute, the session that started it (nil for a root, or purged), whether this
         /// acpmux deleted it (``deletesSession(_:)``), and for a session of an acpmux peer, that
-        /// peer and whether its row went stale (the peer dropped); nil for a purged one.
+        /// peer and whether its row went stale (the peer dropped); nil for a purged one. `peerRow` is
+        /// that peer's row of the session, nil when the peer purged it.
         case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
                     generatedTitle: String?, detail: AgentChatDetail?, lane: AgentActivityLane?, startedBy: String?,
                     deleted: Bool = false, peer: (name: String, stale: Bool)? = nil, sessionName: String? = nil,
-                    peerRow: AgentPeerRow? = nil)
+                    peerRow: (name: String, row: AgentPeerRow?)? = nil)
         /// A page of the usage read (id 3): each listed chat's usage numbers that acpmux read, and
         /// the cursor of the next page (nil: the last).
         case usage([String: AgentChatDetail], next: String?)
@@ -199,9 +201,11 @@ public final class AgentTurnStateFeed {
                                peer: (params["peer"] as? String).flatMap { name in
                                    summary.map { (name: name, stale: $0["stale"] as? Bool == true) }
                                }, sessionName: change.sessionName,
-                               // A purged peer row says so: that peer's session id left (`peer` with no summary).
-                               peerRow: (params["peer"] as? String).map { name in
-                                   summary.flatMap(AgentPeerRow.of(summary:)) ?? AgentPeerRow(name: name, stale: false)
+                               // Only a purge removes a peer row (that peer's session id left); any other
+                               // change of the peer's session is its row, named by the push's `peer`.
+                               peerRow: (params["peer"] as? String).flatMap { name -> (name: String, row: AgentPeerRow?)? in
+                                   purged ? (name: name, row: nil)
+                                       : summary.map { (name: name, row: AgentPeerRow.of(summary: $0, peer: name)) }
                                })
             } else if message["method"] as? String == "_acpmux/peer_state_changed", let params = message["params"] as? [String: Any],
                       let peer = params["peer"] as? String, !peer.isEmpty, let state = params["state"] as? String {
@@ -223,15 +227,17 @@ public final class AgentTurnStateFeed {
 
     /// Lays a whole watch result over the store: every session of this watch is the result's, but the
     /// `keeping` ones, which a push changed while its later pages were read.
-    private func applyPage(_ page: AgentWatchPage, keeping: Set<String>) {
+    private func applyPage(_ page: AgentWatchPage, keeping: Set<String>, keepingPeers: [String: Set<String>]) {
         backoff.reset()
         if !isMirror, !turns.watching { turns.watching = true }
         turns.replace(states: page.states, lastMessages: page.lastMessages, muted: page.muted, titles: page.titles,
                       generatedTitles: page.generatedTitles, sessionNames: page.sessionNames, details: page.details, source: source,
-                      peers: page.peers, keeping: keeping)
+                      peers: page.peers, keeping: keeping, keepingPeers: keepingPeers)
         turns.replaceStartedBy(page.startedBy, source: source, keeping: keeping)
+        // A session's lane is one per id, whichever row pushed it last: a push of this Mac's
+        // session or of a peer's row is newer than the page, a purge's missing lane included.
         var lanes = page.lanes
-        for id in keeping { lanes[id] = self.lanes.lanes[id] }
+        for id in keeping.union(keepingPeers.keys) { lanes[id] = self.lanes.lanes[id] }
         if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
     }
 
@@ -242,7 +248,7 @@ public final class AgentTurnStateFeed {
                 guard paging != nil else { return }
                 paging?.page.merge(page)
             } else {
-                paging = (page, [], [])
+                paging = (page, [], [:], [])
             }
             guard var held = paging else { return }
             // The rest of a list too large for one message: ask for its next page (a cursor
@@ -253,7 +259,7 @@ public final class AgentTurnStateFeed {
                 return
             }
             paging = nil
-            applyPage(held.page, keeping: held.changed)
+            applyPage(held.page, keeping: held.changed, keepingPeers: held.changedPeers)
             if !self.lanes.live { self.lanes.live = true }
             // A fresh page (the first, or after a reconnect): the peer list is read again.
             if !isMirror { peerStateChanged?(nil, nil) }
@@ -262,11 +268,12 @@ public final class AgentTurnStateFeed {
             if !usageRead.numbers.isEmpty { turns.applyUsage(usageRead.numbers, source: source) }
         case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane,
                      let startedBy, let deleted, let peer, let sessionName, let peerRow):
-            paging?.changed.insert(session)
+            if let peerRow { paging?.changedPeers[session, default: []].insert(peerRow.name) } else { paging?.changed.insert(session) }
             // Most session records leave the indicator as it was: the store writes (and so
             // redraws the tabs and rows that read this session) only what differs.
             turns.apply(session: session, sessionName: sessionName, state: state, lastMessage: lastMessage, muted: muted, title: title,
-                        generatedTitle: generatedTitle, detail: detail, source: source, peer: peerRow)
+                        generatedTitle: generatedTitle, detail: detail, source: source, peer: peerRow?.row)
+            if let peerRow, peerRow.row == nil { turns.removePeerRow(peerRow.name, session: session) }
             turns.setStartedBy(startedBy, session: session, source: source)
             if lanes.lanes[session] != lane { lanes.set(session, lane) }
             if deleted, !isMirror { Self.purged?(session) }
@@ -289,8 +296,8 @@ public final class AgentTurnStateFeed {
         if !isMirror { turns.watching = false }
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.
         turns.clearLive(source: source)
+        lanes.live = false // first: the store keeps the sessions it listed for the gap (`AgentLaneStore.beforeGap`)
         lanes.lanes = [:]
-        lanes.live = false
         logger.info("agent turn states: watch closed")
         reconnect?.cancel()
         reconnect = Task { [weak self] in

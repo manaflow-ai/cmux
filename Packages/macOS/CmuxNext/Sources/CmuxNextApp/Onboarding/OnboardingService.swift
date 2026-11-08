@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextOnboarding
@@ -52,19 +53,23 @@ final class OnboardingService {
     var classicMigrationSupport: URL?
     /// Whether launch runs the classic migration; nil decides by build (shipping builds only).
     var classicMigrationAtLaunch: Bool?
-    /// Whether a classic cmux app is running; nil reads it from how recently classic saved.
+    /// Whether a classic cmux app is running; nil checks classic's socket lock and reads its launch sentinel.
     var classicRunning: (@MainActor () -> Bool)?
+    /// Whether the classic socket lock at a path is held; nil asks `flock` (tests answer free).
+    var classicLockHeld: (@MainActor (String) -> Bool)?
     /// Classic's state folder, where its launch sentinel says it runs; nil is this Mac's
     /// (`~/.local/state/cmux`); tests use a scratch folder.
     var classicStateRoot: URL?
     /// Answers the migration preview; nil presents the native cmux dialog.
     /// Tests inject an answer without creating UI.
-    var classicMigrationConfirmation: (@MainActor (ClassicImportPlan) async -> Bool)?
+    var classicMigrationConfirmation: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)?
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
-    /// Keep in Sync's watches; `start` also seeds each profile's omnibar with its imported pages.
-    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, deliver: SavingImportDestination.omnibar(services.cache))
+    /// Keep in Sync's watches (imported cookies' too); `start` also seeds each profile's omnibar with its imported pages.
+    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, cookies: ChromiumCookieDestination { [cef = services.cache.cef] in try await cef.importCookies($0, into: $1) },
+        stopped: { [weak services] name in if let services { BrowserFileImport.toast(services, id: "cookie-sync-stopped", BrowserImportOfferStrings.syncStopped(name)) } },
+        deliver: SavingImportDestination.omnibar(services.cache))
 
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)

@@ -114,7 +114,7 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_workspace_select,agents_terminal_split,agents_terminal_focus,agents_tab_select,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,\
     agents_terminal_list,agents_terminal_send,agents_chat_send,agents_chat_read,\
-    agents_chat_state,acpmux_send,acpmux_ls,acpmux_last,acpmux_info,\
+    agents_chat_state,acpmux_send,acpmux_send_status,acpmux_ls,acpmux_last,acpmux_info,\
     acpmux_inbox_read,acpmux_inbox_reply";
 /// What every agent chat is told about asking the person, in the cmux MCP
 /// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
@@ -228,6 +228,8 @@ const SKILL_FILES: &[(&str, &str)] = &[
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
     // How the chat draws a plan, sub-sessions, links and a recap (`agent_guidance.rs`).
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
+    // When and how to ask for one root command (`request_elevation`, `hub/elevation.rs`).
+    ("cmux-sudo/SKILL.md", include_str!("../skills/cmux-sudo/SKILL.md")),
 ];
 
 /// One stdio MCP server.
@@ -1100,7 +1102,8 @@ fn materialize(state_dir: &Path, chat_skill: bool) -> anyhow::Result<PathBuf> {
     }
 }
 
-/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, run by this binary
+/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before and after every `Bash` call and as a
+/// subagent stops (the notices left for a subagent, `subagent_notice.rs`), run by this binary
 /// with this daemon's home as its argument: the harness's env carries no `ACPMUX_HOME`
 /// (`agent::harness_command` removes every `ACPMUX_` name it inherits), so a tagged build or a
 /// daemon with its own home still finds its chats' MCP configs. The plugin's folder is named by
@@ -1112,8 +1115,12 @@ fn bg_hooks() -> String {
     let mut words = vec![this.exe.to_string_lossy().into_owned()];
     let home = crate::config::home().to_string_lossy().into_owned();
     words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
-    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
-        "hooks": [{"type": "command", "command": hook_command(&words), "timeout": 10}]}]}})
+    let hook = json!([{"type": "command", "command": hook_command(&words), "timeout": 10}]);
+    json!({"hooks": {
+        "PreToolUse": [{"matcher": "Bash", "hooks": hook}],
+        "PostToolUse": [{"matcher": "Bash", "hooks": hook}],
+        "SubagentStop": [{"hooks": hook}],
+    }})
     .to_string()
 }
 

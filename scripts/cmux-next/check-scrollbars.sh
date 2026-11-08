@@ -60,12 +60,23 @@ ALLOWED_RULES = {
     # overflow. Hidden the same way as the rail list; the gallery's comparison frame draws the old thumb.
     "webviews/src/agent-session/acpmux/session-info/sessionInfo.css": {"custom": "Session Info body scrollbar hidden"},
     "webviews/src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx": {"custom": "gallery comparison frame with the old thumb"},
+    # The updated card's preview list shows the card scroller's thumb while more rows than fit,
+    # in place of the edge fade that dimmed its last row; it colours the thumb only, with the
+    # shared `--cmux-scroller-thumb` token.
+    "webviews/src/pages/changelog/updateSurfaces.css": {"custom": "updated card list shows the shared thumb"},
     # `overflow: "scroll"` here is the @pierre/diffs option for unwrapped code rows, not CSS; the
     # rows' scroller follows the host through PIERRE_DIFFS_SCROLLER_CSS.
     # EditDiffHunks and HighlightedCode load after the first frame (#19974); EditDiff and CodeBlock
     # no longer set the option.
+    # The model picker's Model column is a card scroller (CARD_SCROLLER_CSS: a custom scroller on
+    # no track, its thumb drawn only while it scrolls). Under `auto` WebKit adds that scroller's
+    # lane over rows laid out without it, so a row's trailing 8 px took no press (cmuxterm-hq#7707);
+    # `scroll` keeps the lane, as MINIMAL_SCROLLER_CSS does, and draws nothing at rest.
+    "webviews/src/agent-session/acpmux/quickModelColumns.css": {"overflow": "card scroller keeps its lane"},
     "webviews/src/agent-session/acpmux/conversation/EditDiffHunks.tsx": {"overflow-style": "@pierre/diffs option"},
-    "webviews/src/agent-session/acpmux/conversation/HighlightedCode.tsx": {"overflow-style": "@pierre/diffs option"},
+    "webviews/src/agent-session/acpmux/conversation/usePierreCode.ts": {"overflow-style": "@pierre/diffs option"},
+    "webviews/src/agent-session/acpmux/conversation/CodeToolbarButtons.gallery.tsx": {"overflow-style": "@pierre/diffs option"},
+    "webviews/src/pages/github/GitHubFileDiff.tsx": {"overflow-style": "@pierre/diffs option"},
     # The vendored MessagesLab compose box, overlay as SCROLLBARS-THIN asks (as NativeScroll.swift).
     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift": {"style": "Home compose, vendored"},
     # Gallery only (PathPicker parity, #19533): a fixed gutter keeps the field's width the same

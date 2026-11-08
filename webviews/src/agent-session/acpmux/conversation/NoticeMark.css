@@ -22,6 +22,34 @@
 .cv-received.cv-notice .cv-notice__title {
   color: var(--cv-activity-text);
 }
+/* The title on one line: what it is about cut first, the outcome that ends it (`(exit 2)`) and the
+   count of notices that went in with it never cut (IncomingMessageCard.tsx `NoticeTitle`). */
+.cv-received.cv-notice .cv-notice__title {
+  display: flex;
+  align-items: baseline;
+}
+.cv-notice__tag {
+  flex: none;
+}
+.cv-notice__lead {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The end's text starts with its space, kept (`pre`), so the title reads and finds as one line. */
+.cv-notice__end {
+  flex: none;
+  white-space: pre;
+}
+.cv-notice__more {
+  flex: none;
+  margin-inline-start: 0.3em;
+  white-space: nowrap;
+}
+.cv-notice__more {
+  color: var(--cv-text-muted);
+}
 /* `tint` look: a fire's or warning's title in its colour. */
 .cv-received.cv-notice.look-tint.is-fire .cv-notice__title {
   color: var(--agent-status-failure);

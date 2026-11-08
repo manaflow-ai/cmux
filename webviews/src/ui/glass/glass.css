@@ -30,6 +30,9 @@
   --glass-frost: 6px;
   /* How far the rim bends the wallpaper, CSS px (the lens's displacement at the edge). */
   --glass-refraction: 22px;
+  /* --glass-refract (unset here: rimRefraction.ts's default, ios): how a floating glass's rim
+     bends the page under it where the page blurs itself (seeThroughBlur.ts): none, subtle, ios
+     or strong. A surface sets it on itself. */
   /* The specular rim's strength, 0 to 1. */
   --glass-rim: 1;
   /* The chromatic split of the bend (Spectrum only): blue bends 1 + 2x as far as red. */
@@ -295,6 +298,31 @@
     :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) .ui-glass[data-glass-over] {
       --glass-underlay: 0%;
     }
+    /* HOST GLASS (hostGlass.ts; Leo 2026-11-06: "why the f*** is this not glass? Like the way the
+       native menus are"). A surface marked data-host-glass has the App's own glass under the page:
+       the native popover material with its tint, edge and shadow (AgentPaneView+HostGlass.swift). It
+       draws nothing until the App has drawn that glass, so it never shows as a clear box first, and
+       then draws only its content: no tint, blur, rim or shadow of its own, as on a native popover.
+       A surface the App does not draw (data-host-glass-drawn="0": past the deadline, an older App)
+       keeps the page's glass above, as does one over the composer (data-glass-keeps-underlay,
+       seeThroughBlur.ts): no filter may blur the composer, so its underlay hides it there. A cover
+       surface (data-host-glass-cover: menus, popovers) goes clear only where the page under it blurs
+       in place (data-glass-over), so no text reads crisp through it. --host-glass-fill and
+       --host-glass-edge are the gallery's knobs (HostGlass.gallery.tsx); the shipped look is none of
+       either. */
+    :root[data-host-glass-on] [data-host-glass]:not([data-host-glass-drawn]) {
+      filter: opacity(0);
+    }
+    :root[data-host-glass-on][data-cmux-see-through]
+      [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay]):is(
+        :not([data-host-glass-cover]),
+        [data-glass-over]
+      ).ui-glass.ui-glass {
+      background: var(--host-glass-fill, transparent);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      box-shadow: var(--host-glass-edge, none);
+    }
   }
 }
 
@@ -396,7 +424,7 @@
   --surface-group-rim-top: light-dark(rgb(255 255 255 / 75%), rgb(255 255 255 / 24%));
   --surface-group-rim-bottom: light-dark(rgb(0 0 0 / 8%), rgb(255 255 255 / 4%));
   --surface-toast-radius: 9px; /* toasts: a rounded rect, never a capsule, even on one line */
-  --surface-toast-veil: light-dark(rgb(252 252 252 / 55%), rgb(28 28 28 / 42%));
+  --surface-toast-veil: light-dark(color-mix(in srgb, var(--glass-surface) 55%, transparent), color-mix(in srgb, var(--glass-surface) 42%, transparent));
   --surface-toast-rim-top: light-dark(rgb(255 255 255 / 85%), rgb(255 255 255 / 30%));
   --surface-toast-rim-bottom: light-dark(rgb(0 0 0 / 10%), rgb(255 255 255 / 6%));
   --surface-sheet-radius: 14px; /* dialogs, confirms, prompt bars and sheets: a little denser veil for longer text */

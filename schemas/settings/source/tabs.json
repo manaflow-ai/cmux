@@ -1,0 +1,965 @@
+{
+  "$comment": "HAND-EDITED source of the General section's Tabs rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the full format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here. Lists: {name (the Swift static var's list in SECTIONS), section, group {key, text}, note, rows}; SettingsSchema.all concatenates lists, so rows keep the export's order. Row fields: key (dotted cmux.json path); name (identifier for prefixed constants, default the last path part); note (developer note, not shown); title, help, summary, default_label, placeholder: {key, text}, key null for text that is not translated (placeholder: what an empty list field shows); kind: toggle | number | choice | choice_or_number | choice_or_url | color | sound | url | host_list | folder_list | time_range | theme | font_family | text | number_list | string_map | sound_rules | string_list | ordered_choices | choice_set; choices [{value, title, note, swift_case}] on the five choice kinds; range {min, max, step, unit, placeholder (default min)} on number, choice_or_number, number_list; url_key on choice_or_url; default (required; null when derived at run time, named by default_label); aliases {old value: value} (generated enums only); keywords; consumers (default [\"cmux-next\"]); page_hidden: reason (off the Settings page and the palette); palette_shown: true beside page_hidden (off the page only); palette_hidden: reason (off the palette only); swift_enum {name, generated (default true), module}: the choice row's Swift enum, written by the generator, or hand-written when generated is false (descriptor names its cases; module: the module that declares it when not CmuxNextSettings, imported by the generated file); absent: plain string values; swift_owner: absent = the list's owner type in SECTIONS with prefixed constants (<name>Path, <name>Default, <name>Range, <name>Placeholder, <name>Values); \"Type\" = that type with plain constants (configPath, fallback, range, placeholder, values); {\"type\": \"Type\", \"prefixed\": true} = that type with prefixed constants.",
+  "lists": [
+    {
+      "name": "tabs",
+      "section": "general",
+      "group": {
+        "key": "settings.group.tabs",
+        "text": "Tabs"
+      },
+      "note": "The Tabs rows of the General section, between the Window and Quitting groups.",
+      "rows": [
+        {
+          "key": "tabs.newTabTemplate",
+          "note": "Which New Tab page template shows (the page's dots also set it). NewTabTemplate is hand-written: it keeps the legacy composer case, which loads as Minimal.",
+          "title": {
+            "key": "settings.tabs.newTabTemplate",
+            "text": "New Tab Template"
+          },
+          "help": {
+            "key": "settings.tabs.newTabTemplate.help",
+            "text": "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."
+          },
+          "kind": "choice",
+          "swift_owner": "NewTabTemplate",
+          "swift_enum": {
+            "name": "NewTabTemplate",
+            "generated": false
+          },
+          "choices": [
+            {
+              "value": "minimal",
+              "title": {
+                "key": "settings.choice.newTabTemplateMinimal",
+                "text": "Minimal"
+              }
+            },
+            {
+              "value": "cards",
+              "title": {
+                "key": "settings.choice.newTabTemplateCards",
+                "text": "Cards"
+              }
+            },
+            {
+              "value": "default",
+              "title": {
+                "key": "settings.choice.newTabTemplateDefault",
+                "text": "Default"
+              }
+            },
+            {
+              "value": "threads",
+              "title": {
+                "key": "settings.choice.newTabTemplateThreads",
+                "text": "Threads"
+              }
+            },
+            {
+              "value": "console",
+              "title": {
+                "key": "settings.choice.newTabTemplateConsole",
+                "text": "Console"
+              }
+            },
+            {
+              "value": "classic",
+              "title": {
+                "key": "settings.choice.newTabTemplateClassic",
+                "text": "Classic"
+              }
+            },
+            {
+              "value": "terminal",
+              "title": {
+                "key": "settings.choice.newTabTemplateTerminal",
+                "text": "Terminal"
+              }
+            }
+          ],
+          "default": "minimal",
+          "keywords": [
+            "new tab",
+            "template",
+            "layout",
+            "page",
+            "minimal",
+            "greeting",
+            "terminal",
+            "classic",
+            "threads",
+            "console",
+            "cards",
+            "search",
+            "ask"
+          ]
+        },
+        {
+          "key": "tabs.nativeNewTabPage",
+          "note": "The native New Tab page, an alternative to the web one (off by default).",
+          "title": {
+            "key": "settings.tabs.nativeNewTabPage",
+            "text": "Native New Tab Page"
+          },
+          "help": {
+            "key": "settings.tabs.nativeNewTabPage.help",
+            "text": "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now."
+          },
+          "kind": "toggle",
+          "swift_owner": "NativeNewTabPageSetting",
+          "default": false,
+          "keywords": [
+            "new tab",
+            "native",
+            "swift",
+            "page",
+            "cmd-t",
+            "fast",
+            "web",
+            "alternative",
+            "command palette",
+            "actions"
+          ]
+        },
+        {
+          "key": "tabs.newTabPosition",
+          "note": "Where Cmd-T (tabs.newTabPosition) and the strip's + (tabs.newTabButtonPosition) put a new tab (cx-d0d.58). Cmd-T: right after the current tab by default (Lawrence 2026-10-20); the +: at the end, after the last tab, by default (Lucas 2026-11-07). New Tab After Current Tab, New Tab at Start and New Tab at End (and the tab menu's New Tab to the Right) ignore both settings.",
+          "title": {
+            "key": "settings.tabs.newTabPosition",
+            "text": "New Tab Position (Cmd-T)"
+          },
+          "help": {
+            "key": "settings.tabs.newTabPosition.help",
+            "text": "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
+          },
+          "kind": "choice",
+          "swift_owner": "NewTabPosition",
+          "swift_enum": {
+            "name": "NewTabPosition"
+          },
+          "choices": [
+            {
+              "value": "afterCurrent",
+              "title": {
+                "key": "settings.choice.newTabPositionAfterCurrent",
+                "text": "After the Current Tab"
+              },
+              "note": "Right after the selected tab (after its tab group), the default."
+            },
+            {
+              "value": "end",
+              "title": {
+                "key": "settings.choice.newTabPositionEnd",
+                "text": "At the End"
+              },
+              "note": "At the end of the pane's tabs."
+            },
+            {
+              "value": "start",
+              "title": {
+                "key": "settings.choice.newTabPositionStart",
+                "text": "At the Start"
+              },
+              "note": "First, right after the pinned tabs."
+            }
+          ],
+          "default": "afterCurrent",
+          "keywords": [
+            "new tab",
+            "cmd-t",
+            "position",
+            "order",
+            "right",
+            "end",
+            "after",
+            "start",
+            "first",
+            "beginning",
+            "insert"
+          ]
+        },
+        {
+          "key": "tabs.newTabButtonPosition",
+          "name": "button",
+          "note": "Where the strip's + (and the vertical list's New Tab row) puts the new tab.",
+          "title": {
+            "key": "settings.tabs.newTabButtonPosition",
+            "text": "New Tab Position (+ Button)"
+          },
+          "help": {
+            "key": "settings.tabs.newTabButtonPosition.help",
+            "text": "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T)."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "NewTabPosition",
+            "generated": false
+          },
+          "swift_owner": {
+            "type": "NewTabPosition",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "afterCurrent",
+              "title": {
+                "key": "settings.choice.newTabPositionAfterCurrent",
+                "text": "After the Current Tab"
+              }
+            },
+            {
+              "value": "end",
+              "title": {
+                "key": "settings.choice.newTabPositionEnd",
+                "text": "At the End"
+              }
+            },
+            {
+              "value": "start",
+              "title": {
+                "key": "settings.choice.newTabPositionStart",
+                "text": "At the Start"
+              }
+            }
+          ],
+          "default": "end",
+          "keywords": [
+            "new tab",
+            "plus",
+            "+",
+            "button",
+            "position",
+            "order",
+            "right",
+            "end",
+            "after",
+            "start",
+            "first",
+            "last",
+            "insert"
+          ]
+        },
+        {
+          "key": "tabs.plusButton",
+          "note": "R120: whether each tab bar's + shows only on hover.",
+          "title": {
+            "key": "settings.tabs.plusButton",
+            "text": "+ Button Visibility"
+          },
+          "help": {
+            "key": "settings.tabs.plusButton.help",
+            "text": "On Hover shows each tab bar's + only while the pointer is over that tab bar."
+          },
+          "kind": "choice",
+          "swift_owner": "PlusButtonSetting",
+          "swift_enum": {
+            "name": "PlusButtonMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "hover",
+              "title": {
+                "key": "settings.choice.onHover",
+                "text": "On Hover"
+              }
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.always",
+                "text": "Always"
+              }
+            }
+          ],
+          "default": "hover",
+          "keywords": [
+            "plus",
+            "+",
+            "new tab",
+            "button",
+            "hover",
+            "tab bar"
+          ]
+        },
+        {
+          "key": "tabs.barPosition",
+          "name": "tabBarPosition",
+          "note": "R109: where each pane's tab bar sits.",
+          "title": {
+            "key": "settings.tabs.barPosition",
+            "text": "Tab Bar Position"
+          },
+          "help": {
+            "key": "settings.tabs.barPosition.help",
+            "text": "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane."
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "ChromePlacementSetting",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "TabBarPosition",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "top",
+              "title": {
+                "key": "settings.choice.top",
+                "text": "Top"
+              }
+            },
+            {
+              "value": "bottom",
+              "title": {
+                "key": "settings.choice.bottom",
+                "text": "Bottom"
+              }
+            }
+          ],
+          "default": "top",
+          "keywords": [
+            "tab bar",
+            "tabs",
+            "strip",
+            "top",
+            "bottom",
+            "position",
+            "layout",
+            "pane"
+          ]
+        },
+        {
+          "key": "browser.toolbarPosition",
+          "name": "browserToolbarPosition",
+          "note": "R109: where the browser and Markdown panes' address bar row sits.",
+          "title": {
+            "key": "settings.browser.toolbarPosition",
+            "text": "Browser Toolbar Position"
+          },
+          "help": {
+            "key": "settings.browser.toolbarPosition.help",
+            "text": "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "ChromePlacementSetting",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "ToolbarPosition",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "top",
+              "title": {
+                "key": "settings.choice.top",
+                "text": "Top"
+              }
+            },
+            {
+              "value": "bottom",
+              "title": {
+                "key": "settings.choice.bottom",
+                "text": "Bottom"
+              }
+            }
+          ],
+          "default": "top",
+          "keywords": [
+            "omnibar",
+            "address bar",
+            "toolbar",
+            "url bar",
+            "browser",
+            "markdown",
+            "top",
+            "bottom",
+            "position",
+            "layout"
+          ]
+        },
+        {
+          "key": "tabs.barOrder",
+          "name": "tabBarOrder",
+          "note": "R109: the tab bar above or below the address bar when both sit on one edge.",
+          "title": {
+            "key": "settings.tabs.barOrder",
+            "text": "Tab Bar and Browser Toolbar"
+          },
+          "help": {
+            "key": "settings.tabs.barOrder.help",
+            "text": "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."
+          },
+          "summary": {
+            "key": "settings.tabs.barOrder.summary",
+            "text": "Which sits on top in a browser pane"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "ChromePlacementSetting",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "TabBarOrder",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "aboveToolbar",
+              "title": {
+                "key": "settings.choice.tabsAboveToolbar",
+                "text": "Tab Bar Above"
+              }
+            },
+            {
+              "value": "belowToolbar",
+              "title": {
+                "key": "settings.choice.tabsBelowToolbar",
+                "text": "Tab Bar Below"
+              }
+            }
+          ],
+          "default": "aboveToolbar",
+          "keywords": [
+            "tab bar",
+            "tabs",
+            "toolbar",
+            "omnibar",
+            "address bar",
+            "order",
+            "browser",
+            "layout"
+          ]
+        },
+        {
+          "key": "tabs.toolbarButtons",
+          "note": "The actions pinned as buttons next to a pane's tab bar \"...\", in tab bar order (catalog action ids).",
+          "title": {
+            "key": "settings.tabs.toolbarButtons",
+            "text": "Tab Bar Buttons"
+          },
+          "help": {
+            "key": "settings.tabs.toolbarButtons.help",
+            "text": "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
+          },
+          "kind": "ordered_choices",
+          "swift_owner": "PaneToolbarButtonsSetting",
+          "choices": [
+            {
+              "value": "splitRight",
+              "title": {
+                "key": "settings.tabs.toolbarButtons.splitRight",
+                "text": "Split Right"
+              }
+            },
+            {
+              "value": "splitDown",
+              "title": {
+                "key": "settings.tabs.toolbarButtons.splitDown",
+                "text": "Split Down"
+              }
+            },
+            {
+              "value": "openDiffViewer",
+              "title": {
+                "key": "settings.tabs.toolbarButtons.diffViewer",
+                "text": "Diff Viewer"
+              }
+            },
+            {
+              "value": "file.open",
+              "title": {
+                "key": "settings.tabs.toolbarButtons.openFile",
+                "text": "Open File"
+              }
+            },
+            {
+              "value": "agentPane.searchChats",
+              "title": {
+                "key": "settings.tabs.toolbarButtons.searchChats",
+                "text": "Search Agent Chats"
+              }
+            },
+            {
+              "value": "toggleSplitZoom",
+              "title": {
+                "key": "settings.tabs.toolbarButtons.paneZoom",
+                "text": "Pane Zoom"
+              }
+            }
+          ],
+          "default": [],
+          "keywords": [
+            "toolbar",
+            "split",
+            "buttons",
+            "pin",
+            "more"
+          ],
+          "page_hidden": "action ids; toggled from the tab bar's More menu (Show in Tab Bar)"
+        },
+        {
+          "key": "appearance.metrics.tabFontSize",
+          "note": "Unset, tab titles follow the interface size; the placeholder is the compact density's body size (https://github.com/manaflow-ai/cmux/issues/26493).",
+          "title": {
+            "key": "settings.tabs.tabFontSize",
+            "text": "Tab Text Size"
+          },
+          "help": {
+            "key": "settings.tabs.tabFontSize.help",
+            "text": "Text size of tab titles. Unset, tabs follow the interface size."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 10,
+            "max": 18,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 12
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.tabs.tabFontSize.default",
+            "text": "Interface size"
+          },
+          "keywords": [
+            "tab",
+            "tabs",
+            "font",
+            "text",
+            "size",
+            "title",
+            "bigger",
+            "smaller",
+            "readable",
+            "tabFontSize"
+          ]
+        },
+        {
+          "key": "appearance.metrics.tabStripHeight",
+          "note": "Unset is the density's value; the placeholder is the compact density's.",
+          "title": {
+            "key": "settings.tabs.tabStripHeight",
+            "text": "Tab Bar Height"
+          },
+          "help": {
+            "key": "settings.tabs.tabStripHeight.help",
+            "text": "Height of a pane's tab bar. Its tabs grow and shrink with it."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 22,
+            "max": 44,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 28
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "tab",
+            "tabs",
+            "bar",
+            "strip",
+            "height",
+            "size",
+            "taller",
+            "tabStripHeight"
+          ]
+        },
+        {
+          "key": "tabs.overflow",
+          "note": "Shrink (Chrome's) or Scroll (cx-kp9b4); the palette's Tabs: Use Scrolling Tabs and Tabs: Use Shrinking Tabs write it. Either way a crowded strip scrolls; it never asks.",
+          "title": {
+            "key": "settings.tabs.overflow",
+            "text": "Tab Overflow"
+          },
+          "help": {
+            "key": "settings.tabs.overflow.help",
+            "text": "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner."
+          },
+          "kind": "choice",
+          "swift_owner": "TabOverflowSetting",
+          "swift_enum": {
+            "name": "TabOverflow",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "shrink",
+              "title": {
+                "key": "settings.choice.tabOverflowShrink",
+                "text": "Shrink"
+              }
+            },
+            {
+              "value": "scroll",
+              "title": {
+                "key": "settings.choice.tabOverflowScroll",
+                "text": "Scroll"
+              }
+            }
+          ],
+          "default": "shrink",
+          "keywords": [
+            "tab",
+            "tabs",
+            "overflow",
+            "scroll",
+            "scrolling",
+            "shrink",
+            "crowded",
+            "width",
+            "many"
+          ]
+        },
+        {
+          "key": "appearance.metrics.tabMaxWidth",
+          "note": "Unset is the density's value; the placeholder is the compact density's.",
+          "title": {
+            "key": "settings.tabs.tabMaxWidth",
+            "text": "Maximum Tab Width"
+          },
+          "help": {
+            "key": "settings.tabs.tabMaxWidth.help",
+            "text": "Widest a tab gets when the strip has room."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 120,
+            "max": 320,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 200
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "tab",
+            "width",
+            "max",
+            "maximum",
+            "wide",
+            "tabMaxWidth"
+          ]
+        },
+        {
+          "key": "appearance.metrics.tabMinActiveWidth",
+          "note": "Unset is the density's value; the placeholder is the compact density's.",
+          "title": {
+            "key": "settings.tabs.tabMinActiveWidth",
+            "text": "Minimum Selected Tab Width"
+          },
+          "help": {
+            "key": "settings.tabs.tabMinActiveWidth.help",
+            "text": "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 32,
+            "max": 320,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 56
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "tab",
+            "width",
+            "min",
+            "minimum",
+            "selected",
+            "active",
+            "crowded",
+            "narrow",
+            "tabMinActiveWidth"
+          ]
+        },
+        {
+          "key": "appearance.metrics.tabMinInactiveWidth",
+          "note": "Unset is the density's value; the placeholder is the compact density's.",
+          "title": {
+            "key": "settings.tabs.tabMinInactiveWidth",
+            "text": "Minimum Tab Width"
+          },
+          "help": {
+            "key": "settings.tabs.tabMinInactiveWidth.help",
+            "text": "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 16,
+            "max": 320,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 72
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "tab",
+            "width",
+            "min",
+            "minimum",
+            "inactive",
+            "crowded",
+            "narrow",
+            "scroll",
+            "tabMinInactiveWidth"
+          ]
+        },
+        {
+          "key": "appearance.metrics.tabPinnedWidth",
+          "note": "Unset is the density's value; the placeholder is the compact density's.",
+          "title": {
+            "key": "settings.tabs.tabPinnedWidth",
+            "text": "Pinned Tab Width"
+          },
+          "help": {
+            "key": "settings.tabs.tabPinnedWidth.help",
+            "text": "Width of a pinned tab."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 24,
+            "max": 120,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 36
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "tab",
+            "width",
+            "pinned",
+            "pin",
+            "tabPinnedWidth"
+          ]
+        },
+        {
+          "key": "newTerminal.opensWorkspace",
+          "note": "Whether New Terminal creates a workspace in the current space instead of a tab in the focused workspace.",
+          "title": {
+            "key": "settings.newTerminal.opensWorkspace",
+            "text": "New Terminal Opens a Workspace"
+          },
+          "help": {
+            "key": "settings.newTerminal.opensWorkspace.help",
+            "text": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          },
+          "kind": "toggle",
+          "swift_owner": "NewTerminalWorkspaceSetting",
+          "default": false,
+          "keywords": [
+            "new terminal",
+            "workspace",
+            "space",
+            "tab",
+            "option"
+          ]
+        },
+        {
+          "key": "tabs.verticalTabs",
+          "note": "Tabs as a vertical list in every workspace; a workspace's own choice, from the tab list's menu, wins.",
+          "title": {
+            "key": "settings.tabs.verticalTabs",
+            "text": "Use Vertical Tabs for All Workspaces"
+          },
+          "help": {
+            "key": "settings.tabs.verticalTabs.help",
+            "text": "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu."
+          },
+          "kind": "toggle",
+          "swift_owner": "VerticalTabsSetting",
+          "default": false,
+          "keywords": [
+            "vertical",
+            "tabs",
+            "list",
+            "side",
+            "sidebar",
+            "edge",
+            "chrome",
+            "horizontal",
+            "strip",
+            "workspace"
+          ]
+        },
+        {
+          "key": "tabs.verticalTabsExpandOnHover",
+          "name": "expandOnHover",
+          "note": "A collapsed vertical tab list widens to show titles on hover.",
+          "title": {
+            "key": "settings.tabs.verticalTabsExpandOnHover",
+            "text": "Expand Collapsed Vertical Tabs on Hover"
+          },
+          "help": {
+            "key": "settings.tabs.verticalTabsExpandOnHover.help",
+            "text": "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "VerticalTabsSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "vertical",
+            "tabs",
+            "collapse",
+            "collapsed",
+            "expand",
+            "hover",
+            "icons",
+            "auto"
+          ]
+        },
+        {
+          "key": "tabs.hideLoneChatTab",
+          "note": "A chat alone in its pane hides its one tab (off by default).",
+          "title": {
+            "key": "settings.tabs.hideLoneChatTab",
+            "text": "Hide the Tab of a Chat Alone in Its Pane"
+          },
+          "help": {
+            "key": "settings.tabs.hideLoneChatTab.help",
+            "text": "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back."
+          },
+          "kind": "toggle",
+          "swift_owner": "LoneChatTabSetting",
+          "default": false,
+          "keywords": [
+            "tab",
+            "tabs",
+            "bar",
+            "strip",
+            "hide",
+            "lone",
+            "single",
+            "one",
+            "chat",
+            "top",
+            "row",
+            "minimal"
+          ]
+        },
+        {
+          "key": "tabs.swapCmdTAndCmdN",
+          "note": "Cmd-T opens a workspace and Cmd-N a tab.",
+          "title": {
+            "key": "settings.tabs.swapCmdTAndCmdN",
+            "text": "Swap Cmd-T and Cmd-N"
+          },
+          "help": {
+            "key": "settings.tabs.swapCmdTAndCmdN.help",
+            "text": "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."
+          },
+          "kind": "toggle",
+          "swift_owner": "SwapCmdTAndCmdNSetting",
+          "default": false,
+          "keywords": [
+            "cmd-t",
+            "cmd-n",
+            "swap",
+            "new tab",
+            "new workspace",
+            "shortcut",
+            "keyboard"
+          ]
+        },
+        {
+          "key": "app.warnBeforeClosingTab",
+          "note": "Side by side with app.warnBeforeClosingAgentSession, as in classic (#17430).",
+          "title": {
+            "key": "settings.app.warnBeforeClosingTab",
+            "text": "Warn Before Closing a Running Program"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "close",
+            "confirm",
+            "warn",
+            "tab",
+            "workspace",
+            "running",
+            "process",
+            "cmd-w"
+          ]
+        },
+        {
+          "key": "app.warnBeforeClosingAgentSession",
+          "note": "An agent at work in a terminal gets its own question and toggle.",
+          "title": {
+            "key": "settings.app.warnBeforeClosingAgentSession",
+            "text": "Warn Before Closing a Working Agent"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "close",
+            "confirm",
+            "warn",
+            "agent",
+            "claude",
+            "codex",
+            "session",
+            "working",
+            "cmd-w"
+          ]
+        }
+      ]
+    }
+  ]
+}

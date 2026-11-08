@@ -92,7 +92,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,
-                                                    images: Self.attachImages,
                                                     device: await Self.sizingDevice.value)
             },
             onFailure: { error in
@@ -193,7 +192,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     /// Takes the view's grid in the caller's turn (`TerminalIO.resizeOnMain`) and sends it now
     /// (`ResizeCoordinator.submitNow`): the view's `TerminalGridReporter` already let at most one grid
-    /// per 25 ms window go, and a second wait for the coordinator's next frame added one refresh to every
+    /// per display refresh go, and a second wait for the coordinator's next frame added one refresh to every
     /// grid of a key resize (T-KEYS 4). The echo rule and a full screen transition's hold still apply.
     @MainActor func resizeOnMain(cols: Int, rows: Int, window: NSWindow?) -> Bool {
         guard cols > 0, rows > 0 else { return true }
@@ -271,8 +270,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     static let attachSnapshotVersion: UInt16? = TerminalSession.snapshotVersion == 0 ? nil : TerminalSession.snapshotVersion
     /// The surface restores local-history READYs (S2c).
     static let attachLocalHistory = TerminalSession.restoresLocalHistory
-    /// The surface applies Kitty image replays (S3k).
-    static let attachImages = TerminalSession.appliesKittyReplay
 
     static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent {
         switch step {
@@ -320,7 +317,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     private static func snapshotPhase(_ frame: TerminalSnapshotFrame) -> TerminalSnapshotPhase {
-        if frame.phase == .images { return .images(skipped: frame.skippedImages ?? 0) }
         guard frame.phase == .ready else { return .history }
         guard let check = frame.localHistory, let cols = frame.cols, let rows = frame.rows else { return .ready }
         return .readyLocalHistory(TerminalLocalHistory(columns: cols, rows: rows, historyRows: check.rows, digest: check.digest))

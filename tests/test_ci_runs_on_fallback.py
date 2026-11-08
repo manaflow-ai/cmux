@@ -616,6 +616,26 @@ def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key
     return failures
 
 
+# Side-workflow Mac jobs whose runs-on may take the owned Mac their placing job picked:
+# (workflow, job) -> the placing job. A re-run of failed jobs keeps the placing job's outputs from the
+# attempt that ran it, so the owned read must hold only on that attempt; a later attempt would wait on
+# a Mac that may be gone or busy (main's cmux#27704).
+OWNED_PICKED = {("nightly-next-launch-smoke.yml", "smoke"): "pick",
+                ("nightly-next-cua-signed-host.yml", "signed-host"): "pick"}
+
+
+def owned_pick_failures(name: str, job_id: str, jobs: dict, placer: str) -> list[str]:
+    """The runs-on alternatives of `job_id` that read the picked owned Mac on any attempt."""
+    fresh = {f"needs.{placer}.outputs.placed_attempt == format('{{0}}', github.run_attempt)", "github.run_attempt == 1"}
+    failures = []
+    for expression in EXPRESSION.findall(runs_on_text(jobs[job_id])):
+        for alternative in split_top(unwrap(expression), "||"):
+            if f"needs.{placer}.outputs.runner" in alternative and not fresh & {
+                    term.strip() for term in conjuncts(alternative)}:
+                failures.append(f"{name} {job_id}: {alternative.strip()}")
+    return failures
+
+
 def smoke_tooling():
     path = ROOT / "scripts" / "ci" / "nightly_next_launch_smoke.py"
     spec = importlib.util.spec_from_file_location("_runs_on_fallback_launch_smoke", path)
@@ -650,6 +670,25 @@ class CascadePlacedSideJobs(unittest.TestCase):
         env = {"JOBS": "launch-smoke", "CASCADE_RUNS": " launch-smoke ", "CASCADE_JOBS": "launch-smoke"}
         self.assertEqual(module.candidates(env, ()), ["launch-smoke"])
         self.assertEqual(module.candidates({**env, "CASCADE_JOBS": ""}, ()), [])
+
+
+class OwnedPickedSideJobs(unittest.TestCase):
+    def test_a_picked_owned_mac_is_read_only_on_the_attempt_that_picked_it(self) -> None:
+        failures = []
+        for (name, job_id), placer in OWNED_PICKED.items():
+            jobs = load(WORKFLOWS / name)["jobs"]
+            self.assertIn(f"needs.{placer}.outputs.runner", runs_on_text(jobs[job_id]), f"{name} {job_id}")
+            failures += owned_pick_failures(name, job_id, jobs, placer)
+        self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
+
+    def test_the_rule_catches_an_owned_read_on_any_attempt(self) -> None:
+        stale = {"smoke": {"runs-on": "${{ needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+                                      "contains(needs.pick.outputs.blacksmith_6_jobs, ' smoke ') && "
+                                      "fromJSON(vars.RUNNER_POOLS).macos_26 || "
+                                      "needs.pick.outputs.owned_jobs != '' && needs.pick.outputs.runner || "
+                                      "fromJSON(vars.RUNNER_POOLS).macos_26 }}"}}
+        self.assertEqual(owned_pick_failures("x.yml", "smoke", stale, "pick"),
+                         ["x.yml smoke: needs.pick.outputs.owned_jobs != '' && needs.pick.outputs.runner"])
 
 
 class OneLaunchSmokePerBuild(unittest.TestCase):

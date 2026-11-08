@@ -3,7 +3,8 @@
 // page's All chats list (cx-n0i9), not a copy: the same paged chat index (`chats.page`) and the
 // same Open Chat path. Here its rows also select (Cmd/Ctrl-click, Shift-click), and Enter or the
 // row menu's Bring into Active Sessions opens each picked chat in the current space.
-import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
+import { AllChatsList } from "./AllChatsList";
+import { type LoadChatsPage } from "./allChatsListModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { useNt } from "./strings";
 

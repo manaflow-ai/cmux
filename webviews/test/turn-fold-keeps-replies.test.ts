@@ -7,7 +7,7 @@
 // each reply folds into its own line before and after it, and no count reads a reply as a call.
 // Gallery: agent-pane.turn-fold-replies.
 import { afterEach, expect, test } from "bun:test";
-import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { MESSAGE_RUN, type AcpmuxActivity, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { incomingPrompt } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 
@@ -95,14 +95,17 @@ afterEach(() => {
 });
 
 /// The rows of `view` that draw a reply or a run of calls, in order: a reply by its id, a run as
-/// "run:<its calls>".
+/// "run:<its calls>". A run folded with the notice or message beside it (messageRuns.ts) counts its
+/// calls too: the notice stays in sight with the work around it.
 const outline = (view: AcpmuxRow[]) =>
   view.flatMap((shown) =>
     shown.kind === "assistant"
       ? [shown.id]
       : shown.kind === "activity"
         ? [`run:${(shown.items ?? []).filter((item) => item.tool).length}`]
-        : [],
+        : shown.kind === MESSAGE_RUN
+          ? [`run:${(shown.messageRun?.work ?? []).filter((item) => item.tool).length}`]
+          : [],
   );
 
 for (const family of FAMILIES)
@@ -123,9 +126,12 @@ for (const family of FAMILIES)
 test("no count reads a reply as a call: the fold's lines count calls, the header counts no reply", () => {
   for (const family of FAMILIES) {
     const view = closed(family);
-    const runs = view.filter((shown) => shown.kind === "activity");
-    for (const run of runs) expect(run.items?.every((item) => item.tool || item.kind === "note")).toBe(true);
-    expect(runs.reduce((n, run) => n + (run.items?.filter((item) => item.tool).length ?? 0), 0)).toBe(8);
+    // A run folded with the notice beside it (messageRuns.ts) counts its calls as the run would.
+    const runs = view.flatMap((shown) =>
+      shown.kind === "activity" ? [shown.items ?? []] : shown.kind === MESSAGE_RUN ? [shown.messageRun!.work] : [],
+    );
+    for (const items of runs) expect(items.every((item) => item.tool || item.kind === "note")).toBe(true);
+    expect(runs.reduce((n, items) => n + items.filter((item) => item.tool).length, 0)).toBe(8);
     // The header's "N previous messages" counts what the fold hides; every reply is in sight, so it
     // reads "Worked for".
     expect(view.find((shown) => shown.kind === WORKED)!.previous).toBeUndefined();
@@ -212,4 +218,27 @@ test("a closed fold's line around a reply never shows a draft call as a finished
     const tools = view.flatMap((shown) => (shown.items ?? []).flatMap((item) => (item.tool ? [item.tool.id] : [])));
     expect(tools).not.toContain("draft-0");
   }
+});
+
+test("the runs arm splits the work after a reply where the open fold does, a draft call between them", () => {
+  // A short note joins the runs on either side of it (mergeShortNotes); a draft-only row beside it still
+  // ends a run there, as the opened fold draws it, so closing the fold never redraws its runs.
+  const draft = row("t-draft", "activity", 27, {
+    items: [{ kind: "tool", text: "", tool: { id: "draft-0", title: "Bash", kind: "execute", status: "in_progress" } }],
+  });
+  const rows: AcpmuxRow[] = [
+    row("u-0", "user", 0, { text: "Group them" }),
+    calls("t-1", 1, 1),
+    row("a-middle", "assistant", 20, { text: REPLIES.middle }),
+    calls("t-2", 21, 2),
+    row("note", "assistant", 25, { text: "Checking the log next." }),
+    draft,
+    calls("t-3", 30, 3),
+    row("a-final", "assistant", 40, { text: REPLIES.final }),
+    row("s-0", "turnSummary", 41, { status: "completed", durationMs: 41_000, toolCount: 6 }),
+  ];
+  globalThis.cmuxExperiments = { "turn-fold-replies": "runs" };
+  const opened = turnView(rows, new Set([`${WORKED}-u-0`]), { agentFamily: "claude", now: START + 60_000 });
+  const after = (view: AcpmuxRow[]) => outline(view).slice(outline(view).indexOf("a-middle") + 1, -1);
+  expect(after(closed("claude", rows))).toEqual(after(opened));
 });

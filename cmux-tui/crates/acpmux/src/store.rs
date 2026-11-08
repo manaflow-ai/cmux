@@ -24,6 +24,11 @@ mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
 pub use kind_index::INDEXED_KINDS;
+mod fork_view;
+pub use fork_view::{
+    ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
+    folder_to_replace,
+};
 mod shared_value;
 mod text_index;
 pub use shared_value::SharedValue;
@@ -203,6 +208,16 @@ pub struct SessionMeta {
     pub fork_seq: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fork_before: Option<ForkBefore>,
+    /// A fork's history, read from the chat it came from until written into its own log
+    /// (`store/fork_view.rs`). None: its log holds all it shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_from: Option<HistoryRef>,
+    /// The seq through which this log holds a chat's history under that chat's own seqs, so it
+    /// skips seqs there: a fork by reference whose history was written into it
+    /// (`store/fork_view.rs` `materialize`, `transfer.rs` `export`). Edit and resend's proof of
+    /// the log allows those skips (`hub/fork_before.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_kept_through: Option<u64>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub fork_requests: std::collections::BTreeMap<String, ForkRequest>,
     /// Whether this daemon verified the local parent link when the fork was made. Imported
@@ -317,6 +332,12 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
+    /// Its creator asked every start of its agent to wait on the harness rather than a wall
+    /// clock (`_meta.acpmux.waitStart`, `Session::wait_start`; the Chief's own sessions). Kept on
+    /// disk, so a wake after hibernation or a daemon restart waits as its first start did: on
+    /// 2026-11-04 a kept Chief session that woke after a restart died at the 90 s deadline again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wait_start: bool,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.
@@ -424,6 +445,11 @@ pub struct SessionMeta {
     /// once each, oldest first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pull_requests: Vec<String>,
+    /// When each of `pull_requests` was opened (Unix ms), by URL: the review queue's window
+    /// counts from it (`hub/review_queue.rs`). One without a time (a meta written before this
+    /// field) counts from the session's creation. A fork starts with none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pull_request_times: BTreeMap<String, u64>,
     /// The files this session's tool calls read and edited, by repository and path there
     /// (`touched_files.rs`, `hub/touched.rs`): at most `touched_files::MAX_FILES`, the least
     /// recently touched dropped first. A fork starts with none.
@@ -438,6 +464,9 @@ pub struct SessionMeta {
     /// or by an ancestor within its budget; unset fields inherit.
     #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
     pub subsession_limits: SubsessionLimits,
+    /// Model races owned by this parent. Shared so per-token metadata copies stay constant-time.
+    #[serde(default)]
+    pub races: std::sync::Arc<Vec<crate::hub::races::Race>>,
     /// The session whose agent started this one, recorded once at creation from
     /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
     /// shell, or its `start_session` tool. `None` for a session a person or
@@ -445,6 +474,11 @@ pub struct SessionMeta {
     /// Never copied to a fork or a moved-in session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lineage: Option<Lineage>,
+    /// Who created it (`hub/created_by.rs`): the person, an agent session or a script,
+    /// decided by the daemon at creation from the connection, never from a request
+    /// value. `None` for a fork, a moved-in session, and one saved before this existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<CreatedBy>,
     /// The log holds a subagent entry with a retry waiting or in flight that no later entry
     /// cleared yet (`hub/subagent_retry.rs`): the next load clears it, as the restart dropped
     /// that retry. Never copied to a fork.
@@ -489,6 +523,32 @@ pub struct Lineage {
     /// The parent's tool call that started it, when acpmux could tell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+}
+
+/// Who created a session (`hub/created_by.rs`), the shape cmux-tui's
+/// `workspace.create {created_by}` takes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+pub struct CreatedBy {
+    pub kind: CreatorKind,
+    /// The cmux workspace it was created from (lowercase UUID): the agent session's
+    /// workspace for an agent, else the one the create named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    /// The acpmux session whose agent created it; only for `agent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum CreatorKind {
+    /// This host's app, or a connection that proved it is the person.
+    Person,
+    /// An agent session: its shell's `acpmux new` (a proven caller token) or its
+    /// `start_session` tool.
+    Agent,
+    /// Any other client: a script or the CLI outside a chat.
+    Script,
 }
 
 /// A sub-session's place in its family (`hub/subsessions.rs`).
@@ -619,6 +679,41 @@ pub struct ToolRow {
 pub const RETIRED_AGENT_SESSION_IDS: usize = 32;
 
 impl SessionMeta {
+    /// Whether its harness counts a turn's input apart from the prompt cache, as Anthropic's
+    /// usage does, told from what this record knows of how the chat ran (a daemon that has its
+    /// config asks the profile's kind first, `Hub::input_excludes_cache`):
+    /// - Claude Code over its stream (claude-stdio, whatever its profile is named: the `cmux`
+    ///   model router's too), which starts a Claude conversation (`claude_profile`, a Claude
+    ///   `agent_session_family`);
+    /// - the Claude ACP adapter (`@agentclientprotocol/claude-agent-acp`, formerly
+    ///   `claude-code-acp`), which sums `usage.input_tokens` into its ACP `inputTokens`, the
+    ///   cache's reads and writes apart, `totalTokens` all four.
+    ///
+    /// Another ACP harness's input (Codex's, Gemini's) counts the cache's reads in it. A record
+    /// that never started its agent says nothing of either, and is read by its names: a harness
+    /// named `claude…`, a Claude leaf family (`claude-sr2`), or the `cmux` router's profile
+    /// (family `claude`). Plain family `claude` alone is not one, as opencode on a Claude model
+    /// is filed under it with its own usage.
+    pub fn input_excludes_cache(&self) -> bool {
+        if self.claude_profile.is_some()
+            || self.agent_session_family.as_deref().is_some_and(|f| f.starts_with("claude"))
+        {
+            return true;
+        }
+        let argv = self.spawn_argv.as_ref().unwrap_or(&self.harness_argv);
+        if argv
+            .iter()
+            .any(|arg| arg.contains("claude-agent-acp") || arg.contains("claude-code-acp"))
+        {
+            return true;
+        }
+        let harness = self.harness.trim().to_ascii_lowercase();
+        let family = self.family.as_deref().unwrap_or("").trim().to_ascii_lowercase();
+        harness.starts_with("claude")
+            || family.starts_with("claude-")
+            || (harness == "cmux" && family == "claude")
+    }
+
     /// Replace the native id, retaining only prior Claude ids as transcript authority.
     /// Explicit provenance prevents a non-Claude id entering history after a profile switch.
     pub fn set_agent_session_id(&mut self, next: Option<String>, family: &str) {
@@ -743,6 +838,12 @@ pub fn now_ms() -> u64 {
 
 pub trait Store: Send + Sync {
     fn list(&self) -> Result<Vec<SessionMeta>>;
+    /// The chats whose metadata the last `list` found and could not read, so left out. A caller
+    /// that must know every chat (a delete that writes each fork's history in first) reads these
+    /// again. None for a store that leaves none out.
+    fn unlisted(&self) -> Vec<String> {
+        Vec::new()
+    }
     fn load(&self, id: &str) -> Result<Option<SessionMeta>>;
     /// One startup entry, with the same visibility rules as `list`. Raw `load` may still
     /// return a purged chat's late metadata save for recovery/maintenance callers.
@@ -952,6 +1053,37 @@ pub trait Store: Send + Sync {
     fn briefs_path(&self) -> Option<PathBuf> {
         None
     }
+    /// Whether [`Store::history_writer`] can write a fork's history into its log
+    /// (`store/fork_view.rs`). False: forks copy their history as records.
+    fn writes_history(&self) -> bool {
+        false
+    }
+    /// Names `fork` a fork of `reference` before its meta is saved, so a delete or compaction of
+    /// the chat from now on writes the history into it first (`store/fork_view.rs`). An error:
+    /// the chat is gone.
+    fn reserve_reference(&self, _fork: &str, _reference: &HistoryRef) -> Result<()> {
+        Ok(())
+    }
+    /// Takes back a [`Store::reserve_reference`] of a fork that was not made.
+    fn forget_reference(&self, _fork: &str) {}
+    /// Before `id`'s folder is replaced whole (a chat moved back here) or removed: every fork that
+    /// references its history holds that history itself first, and no new fork references it
+    /// until [`Store::end_release`] (review of #37020). Use [`fence_history`].
+    fn release_history(&self, _id: &str) -> Result<()> {
+        Ok(())
+    }
+    /// Ends one [`Store::release_history`].
+    fn end_release(&self, _id: &str) {}
+    /// A writer of the history a fork referenced, as its log's first segment. None: this store
+    /// writes none ([`Store::writes_history`]).
+    fn history_writer(&self, _id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        Ok(None)
+    }
+    /// Where the approvals audit trail is kept (`hub/audit_log.rs`): `audit/` beside
+    /// `sessions/`, or none (in memory) for the memory store.
+    fn audit_dir(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// One record as [`Store::scan_heads`] passes it: the fields a log line holds before its `msg`,
@@ -1093,6 +1225,8 @@ pub struct LocalStore {
     /// A log's sync on its close failed (`SegmentWriter::close`): its lines may be lost on the
     /// disk. The journal store then keeps every line in its journal (`store/journal_store.rs`).
     sync_failed: std::sync::atomic::AtomicBool,
+    /// [`Store::unlisted`]: folders whose `session.json` is there and did not read.
+    unlisted: Mutex<std::collections::BTreeSet<String>>,
 }
 
 /// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
@@ -1141,6 +1275,7 @@ impl LocalStore {
             writers: Mutex::new(Writers::default()),
             sealed: Default::default(),
             sync_failed: Default::default(),
+            unlisted: Default::default(),
         })
     }
 
@@ -1185,7 +1320,13 @@ impl LocalStore {
         let session = entry.path();
         self.validate_session_dir(&session)?;
         let path = session.join("session.json");
-        let Ok(file) = crate::config::private_state_file(&path) else { return Ok(None) };
+        let id = entry.file_name().to_string_lossy().into_owned();
+        let Ok(file) = crate::config::private_state_file(&path) else {
+            if path.exists() {
+                self.mark_unlisted(&id, true);
+            }
+            return Ok(None);
+        };
         let mut text = String::new();
         BufReader::new(file).read_to_string(&mut text)?;
         // Only a closed chat can be a purged chat revived by a late save. Open chats need
@@ -1196,11 +1337,24 @@ impl LocalStore {
             return Ok(None);
         }
         match serde_json::from_str::<SessionMeta>(&text) {
-            Ok(meta) => Ok(Some(meta)),
+            Ok(meta) => {
+                self.mark_unlisted(&id, false);
+                Ok(Some(meta))
+            }
             Err(e) => {
                 tracing::warn!("skip {}: {e}", path.display());
+                self.mark_unlisted(&id, true);
                 Ok(None)
             }
+        }
+    }
+
+    fn mark_unlisted(&self, id: &str, unread: bool) {
+        let mut unlisted = self.unlisted.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if unread {
+            unlisted.insert(id.to_owned());
+        } else {
+            unlisted.remove(id);
         }
     }
 
@@ -1245,7 +1399,10 @@ impl LocalStore {
         crate::config::private_state_dir(&self.dir(id))?;
         crate::config::private_state_dir(&dir)?;
         let segs = self.segments(id)?;
-        let (index, path) = match segs.last() {
+        // Never segment `000000`: it holds only a fork's history, written whole and renamed in
+        // place (`history_writer`), which would replace a record appended to it (review of
+        // #37020). A log whose only segment it is goes on in `000001`.
+        let (index, path) = match segs.last().filter(|(i, _)| *i > 0) {
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
         };
@@ -1508,6 +1665,45 @@ impl LocalStore {
     }
 }
 
+/// [`LocalStore::history_writer`]'s segment `000000`.
+struct SegmentZero {
+    /// Taken by `commit`.
+    file: Option<std::io::BufWriter<File>>,
+    tmp: PathBuf,
+    path: PathBuf,
+    dir: PathBuf,
+}
+
+impl HistoryWriter for SegmentZero {
+    fn write(&mut self, record: &EventRecord) -> Result<()> {
+        let Some(file) = self.file.as_mut() else { anyhow::bail!("history segment committed") };
+        serde_json::to_writer(&mut *file, record)?;
+        file.write_all(b"\n")?;
+        Ok(())
+    }
+    fn commit(mut self: Box<Self>) -> Result<()> {
+        let Some(file) = self.file.take() else { anyhow::bail!("history segment committed") };
+        let file = file.into_inner().map_err(|e| anyhow::anyhow!("{e}"))?;
+        file.sync_all()?;
+        std::fs::rename(&self.tmp, &self.path)?;
+        sync_directory(&self.dir)?;
+        // `events/`, and the chat's folder, may be new (a fork with no record of its own yet): the
+        // folders that name them are synced too, or a power loss could keep the meta that drops the
+        // reference and lose the history it now stands for (review of #37020).
+        for made in self.dir.ancestors().skip(1).take(2) {
+            sync_directory(made)?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for SegmentZero {
+    /// One never committed leaves nothing; a committed one was renamed away.
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.tmp);
+    }
+}
+
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let Ok(rd) = std::fs::read_dir(&self.root) else {
@@ -1543,6 +1739,11 @@ impl Store for LocalStore {
             }
             Ok(metas)
         })
+    }
+
+    fn unlisted(&self) -> Vec<String> {
+        let unlisted = self.unlisted.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        unlisted.iter().cloned().collect()
     }
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
@@ -1592,6 +1793,23 @@ impl Store for LocalStore {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
         self.append_line(id, line.as_bytes())
+    }
+
+    fn writes_history(&self) -> bool {
+        true
+    }
+
+    /// Segment `000000`, written beside the log under a temporary name and renamed in whole.
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        let _open = self.writable()?;
+        let dir = self.dir(id).join("events");
+        crate::config::private_state_dir(&self.dir(id))?;
+        crate::config::private_state_dir(&dir)?;
+        let path = dir.join("000000.ndjson");
+        let tmp = dir.join("000000.ndjson.history");
+        let _ = std::fs::remove_file(&tmp);
+        let file = std::io::BufWriter::with_capacity(256 * 1024, open_private_append(&tmp)?);
+        Ok(Some(Box::new(SegmentZero { file: Some(file), tmp, path, dir })))
     }
 
     /// Reads only past `after`: a segment whose successor starts at or before `after + 1`
@@ -1831,6 +2049,10 @@ impl Store for LocalStore {
 
     fn briefs_path(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("briefs.json"))
+    }
+
+    fn audit_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("audit"))
     }
 }
 

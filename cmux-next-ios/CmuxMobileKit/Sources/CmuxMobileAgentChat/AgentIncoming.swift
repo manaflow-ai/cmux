@@ -13,11 +13,22 @@ public struct AgentIncoming: Hashable, Sendable, Codable {
         public var sender: String
         /// What the sender wrote (Markdown).
         public var text: String
+        /// The sender's session id when it is a chat (`acp:<id>`, an inbox message's `sender.session`):
+        /// what its icon's tone hashes, as the Mac's `agentTone(sessionId ?? name)`. Nil in older payloads.
+        public var senderID: String?
 
-        public init(sender: String, text: String) {
+        public init(sender: String, text: String, senderID: String? = nil) {
             self.sender = sender
             self.text = text
+            self.senderID = senderID
         }
+
+        /// The tone the chat assigned the sender's session (`AgentTones`, set by the transcript), else
+        /// nil: its icon then takes `toneKey`'s hash.
+        public var tone: Int?
+
+        /// The key the sender's icon tone comes from: its session id, else (an older payload) its name.
+        public var toneKey: String { senderID ?? sender }
     }
 
     /// One message, or several that went in as one turn (a digest, an inbox notice), oldest first.
@@ -28,12 +39,20 @@ public struct AgentIncoming: Hashable, Sendable, Codable {
     public var messageID: String?
     /// The prompt as the agent got it.
     public var raw: String
+    /// acpmux could not verify who sent it (provenance kind `unverified`): never the person's, and a
+    /// name it gives is only its claim. With no name the card says "Unverified sender".
+    public var unverified: Bool
+    /// A person edited it while it waited (acpmux `editedBy`): still the sender's message.
+    public var edited: Bool
 
-    public init(messages: [Message], harness: String? = nil, messageID: String? = nil, raw: String) {
+    public init(messages: [Message], harness: String? = nil, messageID: String? = nil, raw: String,
+                unverified: Bool = false, edited: Bool = false) {
         self.messages = messages
         self.harness = harness
         self.messageID = messageID
         self.raw = raw
+        self.unverified = unverified
+        self.edited = edited
     }
 
     /// The card's title: its one sender, or the first three and a count.
@@ -41,6 +60,13 @@ public struct AgentIncoming: Hashable, Sendable, Codable {
         var seen: [String] = []
         for message in messages where !seen.contains(message.sender) { seen.append(message.sender) }
         return seen.count > 3 ? "\(seen.prefix(3).joined(separator: ", ")) +\(seen.count - 3)" : seen.joined(separator: ", ")
+    }
+
+    /// The one sender every message is from, by its tone key, or nil when two sessions sent them
+    /// (even under one name).
+    public var oneSenderKey: String? {
+        guard let first = messages.first?.toneKey, messages.allSatisfy({ $0.toneKey == first }) else { return nil }
+        return first
     }
 
     /// Every message's text, for Copy and Find.
@@ -53,40 +79,71 @@ extension AgentIncoming {
     /// The card a recorded `user_message` draws (its `text`, `_meta.provenance` and `client`), or nil
     /// for the person's own prompt and anything not recognized, which then draws as written.
     public static func parse(text: String, provenance: JSONValue?, client: String? = nil, fromHarness: String? = nil) -> AgentIncoming? {
+        var incoming = card(text: text, provenance: provenance, client: client, fromHarness: fromHarness)
+        if provenance?["editedBy"] != nil { incoming?.edited = true }
+        return incoming
+    }
+
+    private static func card(text: String, provenance: JSONValue?, client: String?, fromHarness: String?) -> AgentIncoming? {
         // Only a record acpmux keeps as another agent's has its broker label read: anyone can type
         // one, and the person's own prompt stays theirs.
         let relay = fromAgent(provenance: provenance, client: client) ? RelayEnvelope(text) : nil
         let body = relay?.body ?? text
-        let harness = provenance?["fromHarness"]?.nonEmpty ?? fromHarness
+        // A local sender's own word for its harness is only its claim (`claimed.fromHarness`), still its mark.
+        let harness = provenance?["fromHarness"]?.nonEmpty ?? provenance?["claimed"]?["fromHarness"]?.nonEmpty ?? fromHarness
         let kind = provenance?["kind"]?.stringValue
+        let senderID = senderSession(provenance)
         func one(_ name: String, _ words: String, id: String? = nil) -> AgentIncoming {
             // A message that signs itself (`[land-and-ci-c9] …`, `From lane-a: …`) names its sender
             // better than its envelope, unless the signature only repeats it (as the Mac's `agentSigned`).
+            // The tone stays the sending chat's: the signature renames the line, not the session.
             let signed = signature(words.trimmed, sender: name)
-            return AgentIncoming(messages: [Message(sender: signed?.name ?? name, text: signed?.text ?? words.trimmed)],
+            return AgentIncoming(messages: [Message(sender: signed?.name ?? name, text: signed?.text ?? words.trimmed, senderID: senderID)],
                                  harness: harness, messageID: id ?? relay?.id, raw: text)
         }
         switch kind {
+        case "unverified":
+            // No proof names its sender (a plain `acpmux send` at a shell, a script): never the
+            // person's. A name it signs first is its claim (the Mac's `namedFirst`).
+            var card = one("", body)
+            card.unverified = true
+            return card
         case "inbox_notice":
             let messages = (provenance?["threads"]?.arrayValue ?? []).flatMap { thread -> [Message] in
-                let from = thread["from"]?.arrayValue?.compactMap(\.nonEmpty).joined(separator: ", ") ?? ""
+                let names = thread["from"]?.arrayValue?.compactMap(\.nonEmpty) ?? []
+                let from = names.joined(separator: ", ")
+                // The thread's newest sender's session (`fromSession`): every message's when the thread
+                // has one sender, as the Mac tones the thread's line.
+                let threadID = names.count <= 1 ? thread["fromSession"]?.nonEmpty : nil
                 if let recorded = thread["messages"]?.arrayValue, !recorded.isEmpty {
                     return recorded.compactMap { m in
                         guard let words = m["text"]?.stringValue else { return nil }
                         let sender = m["from"]?.nonEmpty ?? from
-                        return signedMessage(sender, RelayEnvelope.without(words))
+                        var message = signedMessage(sender, RelayEnvelope.without(words))
+                        message.senderID = m["sender"]?["session"]?.nonEmpty ?? threadID
+                        return message
                     }
                 }
                 // The thread's preview, or (a notice logged before the provenance carried one) its line in the notice's text.
                 let preview = [thread["preview"]?.nonEmpty, thread["threadId"]?.nonEmpty.flatMap { previewLine(text, threadID: $0) }]
                     .compactMap { $0.map(RelayEnvelope.withoutHead) }.first { !$0.isEmpty }
                 guard let preview else { return [] }
-                return [Message(sender: from, text: preview)]
+                return [Message(sender: from, text: preview, senderID: threadID)]
             }
             // A notice that names no thread is bookkeeping: hidden, never the person's bubble.
             return AgentIncoming(messages: messages, raw: text)
         case "agent_digest":
-            let messages = digest(body)
+            var messages = digest(body)
+            // Each part's sending chat, from the provenance's list in the same order, when they line up:
+            // its own provenance's sender (hub/digest.rs `digest_provenance`; the part's `from` is its
+            // name), else a `from` that is a chat's address.
+            let sent = provenance?["messages"]?.arrayValue ?? []
+            if sent.count == messages.count {
+                for index in messages.indices {
+                    messages[index].senderID = senderSession(sent[index]["provenance"])
+                        ?? sent[index]["from"]?.nonEmpty.flatMap(Self.sessionID)
+                }
+            }
             if !messages.isEmpty { return AgentIncoming(messages: messages, harness: harness, raw: text) }
             // A digest whose parts don't read: one card from its senders, its text as sent (as the Mac).
             let senders = (provenance?["messages"]?.arrayValue ?? []).compactMap { $0["from"]?.nonEmpty }
@@ -126,7 +183,7 @@ extension AgentIncoming {
     private static let knownKinds: Set<String> = agentKinds.union(["inbox_notice", "agent_digest", "person_message", "auto_resume"])
 
     /// Provenance kinds acpmux gives only another agent's message (or a tool's notice).
-    private static let agentKinds: Set<String> = ["agent_message", "session_message", "subsession_message", "task_result", "lane_report", "notice"]
+    private static let agentKinds: Set<String> = ["unverified", "agent_message", "session_message", "subsession_message", "task_result", "lane_report", "notice"]
 
     /// Whether acpmux recorded the message as another agent's: its provenance says so, or (an older
     /// acpmux with none) it came by `acpmux send` at a shell, a peer or the outbox.
@@ -196,6 +253,29 @@ extension AgentIncoming {
     static func signedMessage(_ sender: String, _ text: String) -> Message {
         let signed = signature(text.trimmed, sender: sender)
         return Message(sender: signed?.name ?? sender, text: signed?.text ?? text.trimmed)
+    }
+
+    /// The sending chat's session id in a provenance, only where the Mac reads one (incomingMessage.ts):
+    /// a session kind's `from` is always one, an `agent_message`'s only as `acp:<id>`. Any other kind
+    /// (unknown, unverified, a notice) names no session, even from an `acp:` address. A Chief's turn is
+    /// no chat.
+    static func senderSession(_ provenance: JSONValue?) -> String? {
+        guard let from = provenance?["from"]?.nonEmpty else { return nil }
+        if let chief = provenance?["fromChief"]?.nonEmpty, match(chief, #"^agent_[A-Za-z0-9_-]{1,58}$"#) { return nil }
+        switch provenance?["kind"]?.stringValue {
+        case "subsession_message", "session_message", "task_result", "lane_report":
+            return from.hasPrefix("acp:") ? sessionID(from) : from
+        case "agent_message":
+            return sessionID(from)
+        default:
+            return nil
+        }
+    }
+
+    /// The session id in a chat's address (`acp:<id>`), else nil (a named sender, a terminal agent, `cli`).
+    static func sessionID(_ address: String) -> String? {
+        guard address.hasPrefix("acp:"), address.count > 4 else { return nil }
+        return String(address.dropFirst(4))
     }
 
     /// Whether a provenance's sender is an agent's address: another chat (`acp:<id>`) or a sender

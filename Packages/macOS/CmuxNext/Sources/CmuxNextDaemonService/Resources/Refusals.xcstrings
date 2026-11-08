@@ -661,6 +661,138 @@
         }
       }
     },
+    "handlers.refusal.chiefNotDocked": {
+      "comment": "Refusal: Undock Chief while this window's Chief panel is not docked.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief is not docked."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief غير مُرسى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief nije usidren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief er ikke docket."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ist nicht angedockt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief no está acoplado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief n’est pas ancré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief non è agganciato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief はドッキングされていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief មិនបានចតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief가 도킹되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief er ikke festet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief nie jest przypięty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief não está encaixado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief не закреплён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ไม่ได้ยึดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief yerleştirilmiş değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief не закріплено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief chưa được neo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 未停靠。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 未停靠。"
+          }
+        }
+      }
+    },
     "handlers.refusal.noNewMessage": {
       "comment": "Refusal of Close New Message when no New Message draft is open.",
       "extractionState": "manual",
@@ -21890,137 +22022,6 @@
         }
       }
     },
-    "handlers.refusal.pinnedTabKept": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ピン留めしたタブは開いたままになります。閉じるには、タブを右クリックして「タブを閉じる」を選択してください。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تبقى علامات التبويب المثبتة مفتوحة. انقر بزر الماوس الأيمن على علامة التبويب واختر إغلاق علامة التبويب لإغلاقها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikačene kartice ostaju otvorene. Desnom tipkom kliknite karticu i odaberite Zatvori karticu da je zatvorite."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fastgjorte faner forbliver åbne. Højreklik på fanen, og vælg Luk fane for at lukke den."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Angeheftete Tabs bleiben offen. Klicke mit der rechten Maustaste auf den Tab und wähle „Tab schließen“, um ihn zu schließen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las pestañas fijadas permanecen abiertas. Haz clic derecho en la pestaña y elige Cerrar pestaña para cerrarla."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les onglets épinglés restent ouverts. Cliquez avec le bouton droit sur l’onglet et choisissez Fermer l’onglet pour le fermer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le schede fissate restano aperte. Fai clic con il tasto destro sulla scheda e scegli Chiudi scheda per chiuderla."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំងដែលបានខ្ទាស់នៅតែបើក។ ចុចខាងស្តាំលើផ្ទាំង ហើយជ្រើសរើស បិទផ្ទាំង ដើម្បីបិទវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "고정된 탭은 열린 상태로 유지됩니다. 닫으려면 탭을 마우스 오른쪽 버튼으로 클릭하고 탭 닫기를 선택하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Festede faner forblir åpne. Høyreklikk på fanen og velg Lukk fane for å lukke den."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przypięte karty pozostają otwarte. Kliknij kartę prawym przyciskiem i wybierz Zamknij kartę, aby ją zamknąć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abas fixadas permanecem abertas. Clique com o botão direito na aba e escolha Fechar aba para fechá-la."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закреплённые вкладки остаются открытыми. Чтобы закрыть вкладку, щёлкните её правой кнопкой и выберите «Закрыть вкладку»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แท็บที่ปักหมุดจะยังคงเปิดอยู่ คลิกขวาที่แท็บแล้วเลือก ปิดแท็บ เพื่อปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sabitlenmiş sekmeler açık kalır. Kapatmak için sekmeye sağ tıklayıp Sekmeyi Kapat'ı seçin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закріплені вкладки залишаються відкритими. Щоб закрити вкладку, клацніть її правою кнопкою і виберіть «Закрити вкладку»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thẻ đã ghim vẫn mở. Nhấp chuột phải vào thẻ và chọn Đóng thẻ để đóng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "固定的标签页会保持打开。要关闭它，请右键点按标签页并选择“关闭标签页”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已固定的分頁會保持開啟。若要關閉，請在分頁上按右鍵並選擇「關閉分頁」。"
-          }
-        }
-      }
-    },
     "handlers.refusal.homeNeedsFocus": {
       "extractionState": "manual",
       "localizations": {
@@ -33819,6 +33820,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法撤銷存取權限：%@"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noTabGroupToJoin": {
+      "comment": "Add Tab to Group… on a tab whose machine has no other open tab group.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no other tab group to add this tab to."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブを追加できるほかのタブグループがありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد مجموعة علامات تبويب أخرى لإضافة علامة التبويب هذه إليها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema druge grupe tabova u koju bi se ovaj tab mogao dodati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der er ingen anden fanegruppe at føje denne fane til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es gibt keine andere Tab-Gruppe, zu der dieser Tab hinzugefügt werden kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay otro grupo de pestañas al que añadir esta pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il n’y a aucun autre groupe d’onglets auquel ajouter cet onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non c’è un altro gruppo di schede a cui aggiungere questa scheda."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនមានក្រុមថេបផ្សេងទៀតសម្រាប់បន្ថែមថេបនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭을 추가할 다른 탭 그룹이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det finnes ingen annen fanegruppe å legge denne fanen til i."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie ma innej grupy kart, do której można dodać tę kartę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não há outro grupo de abas ao qual adicionar esta aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет другой группы вкладок, в которую можно добавить эту вкладку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีกลุ่มแท็บอื่นให้เพิ่มแท็บนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekmenin ekleneceği başka bir sekme grubu yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає іншої групи вкладок, до якої можна додати цю вкладку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có nhóm tab nào khác để thêm tab này vào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有其他可添加此标签页的标签页组。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有其他可加入此標籤頁的標籤頁群組。"
           }
         }
       }

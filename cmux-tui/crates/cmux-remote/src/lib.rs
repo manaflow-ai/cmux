@@ -1,5 +1,6 @@
 //! Native remote runtime for cmux-tui.
 
+pub mod acpmux_bridge;
 #[cfg(unix)]
 pub mod admin;
 pub mod bridge;
@@ -11,6 +12,7 @@ pub mod grant;
 pub mod http;
 pub mod identity;
 pub mod link;
+pub mod network_watch;
 pub use mux_client::MuxLineClient;
 mod mux_client;
 mod mux_codec;
@@ -21,6 +23,7 @@ mod owner_lock;
 mod per_lane;
 pub mod provider;
 pub mod secret_file;
+pub mod secrets;
 pub mod secure_directory;
 pub mod service;
 pub mod services;
@@ -34,7 +37,7 @@ mod ssh_artifacts;
 pub mod ssh_bootstrap;
 mod ssh_payload_proxy;
 #[cfg(unix)]
-mod unix_socket;
+pub mod unix_socket;
 pub mod update_need;
 #[cfg(feature = "wireguard-transport")]
 pub mod wireguard_hub;

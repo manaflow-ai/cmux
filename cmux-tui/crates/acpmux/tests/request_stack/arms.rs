@@ -45,6 +45,8 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_REPORT, Run(json!({"briefId": "brief-t1", "summary": "done"}))),
         (method::MUX_TASK_NEW, Run(json!({"sessionId": "$S", "title": "t"}))),
         (method::MUX_TASKS, Run(json!({"all": true}))),
+        // A topic passes the query check for any caller; `peers: false` asks no peer (network).
+        (method::MUX_WHO_ELSE, Run(json!({"topic": "lso", "peers": false}))),
         (method::MUX_RESOLVE, Run(json!({"query": "$S"}))),
         (method::INITIALIZE, Run(json!({"protocolVersion": 1}))),
         (method::AUTHENTICATE, Run(json!({}))),
@@ -168,6 +170,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_DEFAULTS, Run(json!({"family": "fake", "set": {"model": "m1"}}))),
         (method::MUX_PRESETS, Run(json!({"name": "p1", "set": {"harness": "fake"}}))),
         (method::MUX_INFO, Run(json!({"sessionId": "$S"}))),
+        (
+            method::MUX_MACHINE_INFO,
+            Any(json!({"sessionId": "$S"}), "only the chat's own agent or the person reads it"),
+        ),
         (method::MUX_SESSION_FILES, Run(json!({"sessionId": "$S"}))),
         (method::MUX_CONTEXT, Run(json!({"sessionId": "$S"}))),
         // The test config has no file (`Config.path` is not read from JSON), so the save writes nothing.
@@ -454,6 +460,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "needs an upload id from file_put_begin (invalid params)",
             ),
         ),
+        (method::MUX_UPLOADS_KEEP, Run(json!({"sessionId": "$S", "keep": true}))),
         (method::MUX_WORKFLOWS, Run(json!({}))),
         (
             method::MUX_MEDIA_OPEN,

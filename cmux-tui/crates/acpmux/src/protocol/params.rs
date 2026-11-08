@@ -90,6 +90,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "cliHost",
     "compression",
     "context",
+    "createdBy",
     "cwd",
     "decisionNonce",
     "disallowedTools",
@@ -135,6 +136,8 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requireFullAccess",
     "resend",
     "route",
+    "senderHarness",
+    "senderHarnessChecked",
     "spawnToolCallId",
     "startLater",
     "steer",
@@ -177,6 +180,8 @@ keyed! {
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
+    /// `_acpmux/memory_resolve`.
+    MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
     /// `_acpmux/btw`.
     BtwParams: ["sessionId", "question", "model", "inline"];
     /// `_acpmux/chat/route.set`.

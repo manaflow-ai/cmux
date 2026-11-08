@@ -29,7 +29,7 @@ export function useRailPlacement(
 ) {
   const display = useChatDisplay();
   const chatMinimap = useChatMinimap();
-  const { width: chatWidth, scale } = useChatSizing();
+  const { scale } = useChatSizing();
   /// How the rail fits a narrow gutter (gutter.experiment.ts), read once per pane: `tight` lets its
   /// inset shrink to the smallest spacing step before it overlaps any text.
   const [gutterArm] = useState(() => experimentArm(threadMinimapGutter));
@@ -49,7 +49,7 @@ export function useRailPlacement(
       // pinned at its whole-pane width, centers in what the panel leaves (session-info/sessionInfo.css
       // --acpmux-session-info-room and --acpmux-session-info-column, set on the shell before its
       // CHAT_LAYOUT_EVENT), so the gutter on the rail's side is that centered column's.
-      const column = chatColumnOf(chatWidth, display, scale);
+      const column = chatColumnOf(display, scale);
       const own = transcriptColumn(columnWidth, column);
       let inset = own.inset;
       if (shell?.dataset.sessionInfoChatPlacement === "push") {
@@ -81,7 +81,7 @@ export function useRailPlacement(
     };
     update();
     return { shell, update };
-  }, [scroller, paneWidth, columnWidth, chatWidth, display, scale, side, chatMinimap, gutterArm]);
+  }, [scroller, paneWidth, columnWidth, display, scale, side, chatMinimap, gutterArm]);
   useLayoutEffect(() => {
     measure();
   }, [measure]);

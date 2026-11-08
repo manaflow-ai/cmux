@@ -23,7 +23,7 @@ nonisolated extension ActionSurfaceCatalog {
         .noObject: [
             "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop", "window.toggleDockBottom",
             "window.toggleDockOrientation",
-            "home.openChiefDock", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
+            "home.openChiefDock", "home.undockChief", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
             "window.dockEdgeLeft", "window.dockEdgeRight", "window.dockEdgeTop", "window.dockEdgeBottom",
             "palette.openFilesPane", "palette.openFindPane",
             "sidebar.profileMenu", "browser.downloads.showFolder",
@@ -36,7 +36,7 @@ nonisolated extension ActionSurfaceCatalog {
             "workspace.importClassic", "session.moveFromBuild", "fileEditor.importEditorSettings", "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
             "switchRightSidebarToFind", "switchRightSidebarToSessions", "switchRightSidebarToFeed",
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
-            "showNotifications", "feed.show", "markAllNotificationsRead",
+            "showNotifications", "markAllNotificationsRead",
             "clearAllNotifications", "notifications.toggleBanners", "notifications.dismissal.keystroke",
             "notifications.setAgentSound", "notifications.setEventSound", "notifications.importSound",
             "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",

@@ -724,7 +724,9 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
     let commit = git(folder, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])?;
     let base = current_base(folder, &commit);
     let name = Some(slug(title)).filter(|n| !n.is_empty()).unwrap_or_else(|| "task".into());
-    let free = |candidate: &str| !parent.join(candidate).exists() && !has_branch(folder, candidate);
+    let free = |candidate: &str| {
+        !parent.join(candidate).exists() && !has_branch_ref(folder, &format!("cmux/{candidate}"))
+    };
     std::fs::create_dir_all(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     // Another start may take a free name before this one adds it: git then
     // says it already exists, and the next name is tried.
@@ -946,8 +948,8 @@ fn current_base(folder: Dir<'_>, commit: &str) -> String {
         .unwrap_or_else(|| commit.to_owned())
 }
 
-fn has_branch(folder: Dir<'_>, name: &str) -> bool {
-    git(folder, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/cmux/{name}")]).is_ok()
+fn has_branch_ref(folder: Dir<'_>, branch: &str) -> bool {
+    git(folder, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).is_ok()
 }
 
 /// Git refused an add because another start took that path or branch first.
@@ -975,7 +977,20 @@ pub struct Ensured {
 /// Running it again with the same name gives the same worktree, so a
 /// launcher that runs twice does not make two.
 pub fn ensure_worktree(folder: &Path, name: &str, base: Option<&str>) -> Result<Ensured, String> {
-    ensure_worktree_under(folder, name, base, &home()?)
+    ensure_worktree_under(folder, name, base, &home()?, None)
+}
+
+/// Ensure a worktree while preserving a caller-provided branch name.
+pub fn ensure_worktree_with_branch(
+    folder: &Path,
+    name: &str,
+    base: Option<&str>,
+    branch: &str,
+) -> Result<Ensured, String> {
+    if branch.is_empty() || branch.starts_with('-') || branch.ends_with('/') {
+        return Err("the branch must be a non-empty git branch name".into());
+    }
+    ensure_worktree_under(folder, name, base, &home()?, Some(branch))
 }
 
 type Lock = std::sync::Arc<std::sync::Mutex<()>>;
@@ -995,6 +1010,7 @@ fn ensure_worktree_under(
     name: &str,
     base: Option<&str>,
     home: &Path,
+    explicit_branch: Option<&str>,
 ) -> Result<Ensured, String> {
     let chosen = slug(name);
     if chosen.is_empty() {
@@ -1005,7 +1021,7 @@ fn ensure_worktree_under(
     }
     let layout = layout(folder.into(), home)?;
     let root = layout.parent.join(&chosen);
-    let branch = format!("cmux/{chosen}");
+    let branch = explicit_branch.map(str::to_owned).unwrap_or_else(|| format!("cmux/{chosen}"));
     let lock = name_lock(&root);
     let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
     // A second pass covers another process adding it meanwhile.
@@ -1014,6 +1030,16 @@ fn ensure_worktree_under(
             let listed = listed_worktree(folder, &root).ok_or_else(|| {
                 format!("{} exists but is not a worktree of this repository", root.display())
             })?;
+            if let Some(requested) = explicit_branch
+                && listed.as_deref() != Some(requested)
+            {
+                return Err(format!(
+                    "{} already uses branch {:?}, not requested {:?}",
+                    root.display(),
+                    listed.as_deref().unwrap_or("(detached)"),
+                    requested
+                ));
+            }
             let branch = listed.unwrap_or_else(|| branch.clone());
             let base =
                 git(folder, &["config", &format!("branch.{branch}.cmuxBase")]).unwrap_or_default();
@@ -1027,7 +1053,7 @@ fn ensure_worktree_under(
         std::fs::create_dir_all(&layout.parent)
             .map_err(|e| format!("{}: {e}", layout.parent.display()))?;
         let path = root.to_string_lossy().into_owned();
-        let (added, commit, base, reused) = if has_branch(folder.into(), &chosen) {
+        let (added, commit, base, reused) = if has_branch_ref(folder.into(), &branch) {
             let commit = git(
                 folder,
                 &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}^{{commit}}")],
@@ -1516,7 +1542,7 @@ mod tests {
     #[test]
     fn a_named_worktree_is_made_once_and_then_found() {
         let (_scratch, repo, home) = repo();
-        let made = ensure_worktree_under(&repo, "Lane One", Some("next"), &home).unwrap();
+        let made = ensure_worktree_under(&repo, "Lane One", Some("next"), &home, None).unwrap();
         assert_eq!(made.reused, None);
         let w = &made.worktree;
         assert_eq!(w.root, home.join(".cmux/worktrees/proj/lane-one"));
@@ -1527,8 +1553,8 @@ mod tests {
 
         // Again, from a subfolder and with another base: the same worktree, untouched.
         std::fs::write(w.root.join("sub/a.txt"), "edited\n").unwrap();
-        let again =
-            ensure_worktree_under(&repo.join("sub"), "Lane One", Some("main"), &home).unwrap();
+        let again = ensure_worktree_under(&repo.join("sub"), "Lane One", Some("main"), &home, None)
+            .unwrap();
         assert_eq!(again.reused, Some("worktree"));
         assert_eq!(again.worktree.root, w.root);
         assert_eq!(again.worktree.cwd, w.root.join("sub"));
@@ -1537,7 +1563,7 @@ mod tests {
 
         // Its folder gone, its branch kept: a new folder on that branch.
         sh(&repo, &["worktree", "remove", "--force", &w.root.to_string_lossy()]);
-        let back = ensure_worktree_under(&repo, "Lane One", None, &home).unwrap();
+        let back = ensure_worktree_under(&repo, "Lane One", None, &home, None).unwrap();
         assert_eq!(back.reused, Some("branch"));
         assert_eq!(back.worktree.branch, "cmux/lane-one");
         assert_eq!(std::fs::read_to_string(w.root.join("sub/a.txt")).unwrap(), "second\n");
@@ -1548,17 +1574,17 @@ mod tests {
         let (_scratch, repo, home) = repo();
         let squatter = home.join(".cmux/worktrees/proj/taken");
         std::fs::create_dir_all(&squatter).unwrap();
-        let e = ensure_worktree_under(&repo, "taken", None, &home).err().unwrap();
+        let e = ensure_worktree_under(&repo, "taken", None, &home, None).err().unwrap();
         assert!(e.contains("is not a worktree of this repository"), "{e}");
-        let e = ensure_worktree_under(&repo, "x", Some("no-such-ref"), &home).err().unwrap();
+        let e = ensure_worktree_under(&repo, "x", Some("no-such-ref"), &home, None).err().unwrap();
         assert!(e.contains("no commit"), "{e}");
-        let e = ensure_worktree_under(&repo, "x", Some("--orphan"), &home).err().unwrap();
+        let e = ensure_worktree_under(&repo, "x", Some("--orphan"), &home, None).err().unwrap();
         assert!(e.contains("not an option"), "{e}");
         // Its branch checked out in another folder: said once, with that folder.
         let elsewhere = home.join("elsewhere");
         sh(&repo, &["worktree", "add", "-q", "-b", "cmux/y", &elsewhere.to_string_lossy()]);
-        let e = ensure_worktree_under(&repo, "y", None, &home).err().unwrap();
+        let e = ensure_worktree_under(&repo, "y", None, &home, None).err().unwrap();
         assert!(e.contains("checked out in another worktree") && e.contains("elsewhere"), "{e}");
-        assert!(ensure_worktree_under(&repo, "//", None, &home).is_err());
+        assert!(ensure_worktree_under(&repo, "//", None, &home, None).is_err());
     }
 }

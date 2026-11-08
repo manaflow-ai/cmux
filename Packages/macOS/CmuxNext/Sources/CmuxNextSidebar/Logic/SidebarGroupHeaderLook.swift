@@ -29,28 +29,6 @@ public nonisolated enum SidebarGroupHeaderStyle: String, Sendable, CaseIterable,
         default: .band, code: "SidebarGroupHeaderStyle.tunable")
 }
 
-/// Where sidebar group colors come from (`sidebar.groupColors`, cx-7yywz). Leo: group colors come
-/// from the theme. Lawrence 2026-10-13 put the fixed palette back as the default (familiar group
-/// colors first), so the theme's colors are a choice until they decide.
-public nonisolated enum SidebarGroupPalette: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The fixed group palette (`GroupColor.rgb(_:dark:)`), the same in every theme.
-    case fixed
-    /// The theme's own color for each group color (its terminal palette, `GroupColor.themeRGB`).
-    case theme
-
-    public var tunableTitle: String {
-        switch self {
-        case .fixed: "Fixed palette"
-        case .theme: "From the theme"
-        }
-    }
-
-    public static let tunable = Tunable<SidebarGroupPalette>.choice(
-        "sidebar.groupColors", .sidebar, "Group colors",
-        help: "Where sidebar group colors come from: the fixed group palette, the same in every theme, or the theme's own colors.",
-        default: .fixed, code: "SidebarGroupPalette.tunable")
-}
-
 /// Where a sidebar group's members' line sits against its header (`sidebar.groupLineLayout`, Debug). Leo
 /// 2026-10-23, on the line: "THE FUCKING THHIN PURPLE LIINE IS THE GROUP!!!! THE POINT IS WHY DID IT GET SO OVFF
 /// FUCKING CENTER ... PLUS THE SHAPING ON IT... WTF HAPPENED TO IT BEING PUSHED TO THE LEFT!?" Every layout keeps

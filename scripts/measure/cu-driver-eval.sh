@@ -16,8 +16,14 @@
 # bench=preflight|run (with a model route, cu-driver-bench.sh suite=bench-v2) runs Cua Driver Bench v2
 # with the drivers instead of the A/B (bench_v2.py): condition=background|foreground, reps= runs per
 # task, tasks=A,B, waive=REGEX[;REGEX] for preflight checks that only fit the bench's own builds.
+# arena=run (cu-driver-bench.sh suite=arena) runs the computer-use arena instead (arena/README.md):
+# arms=a,b engines (each built or fetched as its PR or release runs it; engines=DIR holds the ones
+# build-engines.sh built), harness=claude:MODEL,codex:MODEL, arena_tasks=a,b, reps= runs per task.
+# arena=latency (cu-driver-bench.sh suite=latency) assembles the same arms and runs the per-call
+# latency bench on them instead (../cu-bench/README.md), reps= rounds, no model.
 set -uo pipefail
 reps=3 drivers="cmux-cua,cua-driver-0.38.0" electron=1 bench="" condition=background tasks="" waive=""
+arena="" arms="" harness="" arena_tasks="" engines="" arena_budget=0
 for arg in "$@"; do
   case "$arg" in
     reps=*) reps="${arg#reps=}" ;;
@@ -27,6 +33,12 @@ for arg in "$@"; do
     condition=*) condition="${arg#condition=}" ;;
     tasks=*) tasks="${arg#tasks=}" ;;
     waive=*) waive="${arg#waive=}" ;;
+    arena=*) arena="${arg#arena=}" ;;
+    arms=*) arms="${arg#arms=}" ;;
+    harness=*) harness="${arg#harness=}" ;;
+    arena_tasks=*) arena_tasks="${arg#arena_tasks=}" ;;
+    engines=*) engines="${arg#engines=}" ;;
+    arena_budget=*) arena_budget="${arg#arena_budget=}" ;;
     *) echo "cu-driver-eval.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -35,6 +47,10 @@ done
 [[ -z "$bench" || "$bench" == preflight || "$bench" == run ]] || { echo "cu-driver-eval.sh: bench= is preflight or run" >&2; exit 2; }
 [[ "$condition" == background || "$condition" == foreground ]] || { echo "cu-driver-eval.sh: condition= is background or foreground" >&2; exit 2; }
 [[ "$tasks" =~ ^[A-Z0-9,-]*$ ]] || { echo "cu-driver-eval.sh: tasks= is a comma list of task ids" >&2; exit 2; }
+[[ -z "$arena" || "$arena" == run || "$arena" == latency ]] || { echo "cu-driver-eval.sh: arena= is run or latency" >&2; exit 2; }
+[[ "$arms" =~ ^[a-z0-9.,-]*$ && "$arena_tasks" =~ ^[a-z0-9,-]*$ ]] || { echo "cu-driver-eval.sh: arms= and arena_tasks= are comma lists of names" >&2; exit 2; }
+[[ "$arena_budget" =~ ^-?[0-9]+$ ]] || { echo "cu-driver-eval.sh: arena_budget= is seconds" >&2; exit 2; }
+[[ "$harness" =~ ^[a-z0-9.,:-]*$ ]] || { echo "cu-driver-eval.sh: harness= is a comma list of claude:MODEL or codex:MODEL" >&2; exit 2; }
 root="${CU_DRIVER_EVAL_ROOT:-$(git rev-parse --show-toplevel)}"
 cd "$root"
 here="$root/scripts/measure/cu-driver-eval"
@@ -242,6 +258,23 @@ if [[ -n "$bench" ]]; then
   [[ ${#bench_args[@]} -gt 0 ]] || bench_fail "no driver to run"
 fi
 
+if [[ -n "$arena" ]]; then
+  # The arena's apps and engines (arena/prepare.py), and the Cua Driver release's skill for its arm.
+  echo "CU-DRIVER-EVAL-STAGE arena setup"
+  mkdir -p "$out/arena" "$work/arena"
+  skills_dir="$work/arena/cua-skills"
+  if [[ ",$arms," == *,cua-driver-* ]] && file=$(fetch skills "$(pin bench_v2 cua_driver_skills url)" "$(pin bench_v2 cua_driver_skills sha256)"); then
+    mkdir -p "$skills_dir" && tar -xzf "$file" -C "$skills_dir"
+  fi
+  prepare_args=()
+  for pair in ${driver_pairs[@]+"${driver_pairs[@]}"}; do prepare_args+=(--driver "$pair"); done
+  python3 -I "$here/arena/prepare.py" --work "$work/arena" --engines "${engines:-$root/engines}" --arms "$arms" \
+    --skills "$skills_dir" ${prepare_args[@]+"${prepare_args[@]}"} 2>&1 | tee "$out/arena/prepare.log"
+  [[ -s "$work/arena/arms.json" ]] || { finish "the arena's setup wrote no arms.json (arena/prepare.log)"; exit 4; }
+  cp "$work/arena/arms.json" "$out/arena/arms.json"
+  while IFS= read -r path; do [[ -n "$path" ]] && driver_bins+=("$path"); done <"$work/arena/grant.txt"
+fi
+
 grant() {
   $CU_DRIVER_EVAL_GRANT "$work/bin/cu-eval-inject" "$work/bin/cu-eval-app" \
     $(python3 -I -c 'import os, sys
@@ -271,6 +304,31 @@ if ! granted; then
   [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]] && $CU_DRIVER_EVAL_GRANT --diagnose >"$out/tcc-diagnose.txt" 2>&1 && cat "$out/tcc-diagnose.txt"
   finish "the step's processes lack Accessibility or event posting on this worker ($grants)"
   exit 3
+fi
+
+if [[ "$arena" == latency ]]; then
+  echo "CU-DRIVER-EVAL-STAGE latency"
+  budget_args=()
+  (( arena_budget > 0 )) && budget_args=(--budget "$arena_budget")
+  python3 -I "$here/../cu-bench/cu_bench.py" run --arms "$work/arena/arms.json" --out "$out/cu-bench" --rounds "$reps" \
+    ${budget_args[@]+"${budget_args[@]}"}
+  status=$?
+  finish
+  exit "$status"
+fi
+
+if [[ -n "$arena" ]]; then
+  echo "CU-DRIVER-EVAL-STAGE arena"
+  harness_args=()
+  IFS=',' read -r -a harnesses <<<"$harness"
+  for h in ${harnesses[@]+"${harnesses[@]}"}; do [[ -n "$h" ]] && harness_args+=(--harness "$h"); done
+  [[ ${#harness_args[@]} -gt 0 ]] || { finish "arena: no harness= given"; exit 4; }
+  PATH="/opt/homebrew/bin:$PATH" python3 -I "$here/arena/arena.py" run --arms "$work/arena/arms.json" "${harness_args[@]}" \
+    --app "$work/arena/Arena.app" --probe "$work/arena/bin/arena-probe" --out "$out/arena" --reps "$reps" \
+    --budget "$arena_budget" ${arena_tasks:+--tasks "$arena_tasks"}
+  status=$?
+  finish
+  exit "$status"
 fi
 
 if [[ -n "$bench" ]]; then

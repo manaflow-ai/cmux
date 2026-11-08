@@ -4,8 +4,8 @@
 // then cmux's Edit; under the answer Claude's Copy, Fork, Pin, Read aloud and its age. Each age shows
 // its exact date and time above it on hover (the *-time-tooltip plays). Edit shows on a Claude
 // chat's prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons
-// name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first ten
-// lines, fading out, with Show more; a pasted block is a chip that opens in place (PromptText.tsx).
+// name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first twenty
+// lines, fading out, with Show more; a pasted block is the bubble's own text (PromptText.tsx).
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -203,7 +203,7 @@ export default agentPaneEntry({
       play: hoverTime("time.cv-user__time"),
     },
     "answer-time-tooltip": {
-      note: "Play: point at an answer's footer; its exact date and time shows at the row's end, after the buttons (hidden at rest, as ChatGPT's: #31609), its tooltip the turn's time and tokens.",
+      note: "Play: point at an answer's footer; its age (15 hours ago) shows at the row's end, after the buttons (hidden at rest: #31609), as a prompt's does; its tooltip the exact date and time, the turn's time and tokens under it.",
       snapshot: yesterday(),
       play: async (ctx) => {
         const selector = "time.cv-turn-time";
@@ -213,7 +213,7 @@ export default agentPaneEntry({
           const time = ctx.document.querySelector<HTMLElement>(selector);
           return (
             time !== null &&
-            /\d:\d\d/.test(time.textContent ?? "") &&
+            (time.textContent ?? "").endsWith(" ago") &&
             ctx.document.defaultView!.getComputedStyle(time).opacity === "1"
           );
         });
@@ -235,7 +235,7 @@ export default agentPaneEntry({
       play: hoverTooltip("Copy"),
     },
     "long-collapsed": {
-      note: "A 60-line prompt opens on its first ten lines, the last ones fading out, with Show more under them.",
+      note: "A 60-line prompt opens on its first twenty lines, the last ones fading out, with Show more under them.",
       snapshot: longPrompt(),
     },
     "long-expanded": {
@@ -299,27 +299,27 @@ export default agentPaneEntry({
       ),
     },
     "pasted-chip": {
-      note: "A pasted 2,300-line stack trace is a card under the typed question: its first three lines, the last fading, over 'Pasted text', its line count and its characters.",
+      note: "A pasted 2,300-line stack trace under the typed question: its own lines as the bubble's text, folded under the prompt's Show more (the card is gallery agent-pane.sent-bubble-size, arm card).",
       snapshot: pastedPrompt(),
     },
     "pasted-chip-open": {
-      note: "Play: the card opens in place, the same text growing to the whole paste, its label under it to close it, with Show less to fold the prompt again.",
+      note: "Play: Show more opens the whole paste in place, with Show less to fold the prompt again.",
       snapshot: pastedPrompt(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-user__paste" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
+        await ctx.click({ selector: ".cv-user__more" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__more[aria-expanded='true']"));
       },
     },
     "pasted-paragraph": {
-      note: "One pasted paragraph of 1,100 words: its first three lines wrapped at the bubble's width, and its size in characters, never '1 line'.",
+      note: "One pasted paragraph of 1,100 words: its words wrapped at the bubble's width as its own text, folded under Show more.",
       snapshot: pastedParagraph(),
     },
     "pasted-paragraph-open": {
-      note: "Play: the paragraph's card opens in place to the whole paragraph.",
+      note: "Play: Show more opens the whole paragraph in place.",
       snapshot: pastedParagraph(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-user__paste" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
+        await ctx.click({ selector: ".cv-user__more" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__more[aria-expanded='true']"));
       },
     },
     editing: {
