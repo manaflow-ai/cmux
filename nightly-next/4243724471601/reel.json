@@ -1,0 +1,323 @@
+{
+  "version": 1,
+  "build": "4243724471601",
+  "notes": "notes/4243724471601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 38138,
+      "title": "Toasts: Tab out of the deck skips controls in a disabled fieldset",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37963,
+      "title": "agent pane: palette, home lists, plus menu, environment picker, floating chat and notices export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37420,
+      "title": "Right sidebar: the Dock section follows the shown workspace (#37374)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38067,
+      "title": "fix(webviews): subagent finished line spacing and click",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38125,
+      "title": "cmux next: a key spring's grid reaches the PTY before its frame shows (RESIZE P0 11, cause E)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37497,
+      "title": "acpmux: a prompt no proof attributes is an unverified sender's, never the person's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38136,
+      "title": "Agent chat folder actions say a chat has no project folder; agent-chat strings ship translated",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36318,
+      "title": "cmux NEXT: Cmd-D / Cmd-Shift-D from the Chief pane open a GUI agent chat (#36300)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38109,
+      "title": "cmux NEXT: Bring your history zooms with the Chief chat; Cmd-= / Cmd-- / Cmd-0 work on it",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38144,
+      "title": "Revert \"Inset the chat header's ••• from the pane's top-right corner (#37412)…\"",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37599,
+      "title": "Agent chat: destructive commands never read as benign; live commands read as written",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38123,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-f1ebca568c5dd8c1337f5ab80e9728919c63a202",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37473,
+      "title": "cmux NEXT: only a split's own panes light its line beside an unframed pane (#37425 follow-up)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38072,
+      "title": "Guest page: the composer is at the bottom from the first frame, and the page loads 3x faster",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37710,
+      "title": "Agent chat: a steered turn has one fold; its run lines sit inside Worked for and open with it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38058,
+      "title": "acpmux: refresh a stale Codex model list after an update and follow its upgrade targets",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37426,
+      "title": "Inset the chat header's ••• from the pane's top-right corner (#37412)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38122,
+      "title": "debug.mouse: a synthesized press holds its button until its release",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37853,
+      "title": "settings: the General section's own rows move to schemas/settings/source/general.json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37997,
+      "title": "agent pane: icons, empty state, presence, run board, backdrop, rules, shell row and browse modules export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38126,
+      "title": "Agent pane toasts: Shift-Tab walks every toast in the deck, and leaving it lands on a control in view",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38119,
+      "title": "settings: an unset key follows its default; stored copies of defaults go once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38080,
+      "title": "cmux NEXT browser: hide the empty bookmarks bar; Show/Hide Bookmarks Bar toggle title",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38112,
+      "title": "acpmux: resolve takes a qualified id before a session named like it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38089,
+      "title": "Sidebar: the pin on pinned rows lines up under Home's icon (#38061)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34443,
+      "title": "Agent pane: a failed turn's Retry says Retrying… and never settles as sent when nothing was sent",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38078,
+      "title": "Fix NEXT tab-strip hover crash after closing a tab",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38132,
+      "title": "cmux NEXT composer hat: appears on the house settle (265 ms, no overshoot)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37521,
+      "title": "Agent chat: code, diff, output and table corner buttons are bare glyphs, like a reply's Copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38118,
+      "title": "Remote chat resync: continue a restored copy from how far it covers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38127,
+      "title": "no-swiftui: the allowlist records the 23 SwiftUI files that landed past the gate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38094,
+      "title": "Sidebar: finished agent chats' workspaces stay hidden while the acpmux watch reconnects",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38030,
+      "title": "agent pane: Markdown exports only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37908,
+      "title": "Sidebar: a collapsed group never reorders its rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38111,
+      "title": "Notice gallery: the popover tint variant reads the popovers' own tint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38108,
+      "title": "cmux next: a closed new-tab placeholder hands its cell and selection only to the tab it became",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38052,
+      "title": "cmux NEXT chat: /side forks the chat into a side chat split right, /side <prompt> prompts it",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38088,
+      "title": "webviews: react-apps-check's last three base-red browser files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38120,
+      "title": "Agent chat actions say why they can't run in their own words",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37593,
+      "title": "Agent chat: toasts move above the composer when a hidden chat shows again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38114,
+      "title": "fix(cmux-next browser): tab and sidebar speaker hear detached, shadow-DOM and Web Audio sound",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38077,
+      "title": "Guest page: a signed-in link guest joins as their cmux account; a guest's message shows their picture",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34747,
+      "title": "Agent chat: the default column is exactly its width again",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37986,
+      "title": "agent pane: changes, outputs, context and subagent limit sections export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38076,
+      "title": "gallery health: pages.diff#many-files stops shifting on load (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38060,
+      "title": "Share dialog and in-page dialogs: the sheet role's glass, corners and shared controls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38107,
+      "title": "Sidebar: the Updated card resizes on a live interface scale change",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38097,
+      "title": "palette: delete the dead TypeScript ranker source",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37545,
+      "title": "Agent chat: a toast never moves the composer; toasts lift above it instead",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37577,
+      "title": "Agent chat: a command row says what its command did",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38070,
+      "title": "Sidebar: collapsing a group shown as its one workspace folds that row under the header",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38110,
+      "title": "cmux-tui: daemon restart returns when every kept terminal runs again",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
