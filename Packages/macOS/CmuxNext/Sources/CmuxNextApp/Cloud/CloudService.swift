@@ -107,11 +107,11 @@ final class CloudService {
     @ObservationIgnored let changes = CloudMachineChanges()
     /// The names app server creates in flight asked for, typed or default: a default picked meanwhile skips them.
     @ObservationIgnored private var machineNamesInFlight: [String] = []
-    /// New Cloud Workspace runs from the click to the open terminal: each window's progress view and sidebar row (cx-lu8f).
+    /// New Cloud Workspace runs from the click to the open terminal: each
+    /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
     /// Move to Cloud's CLI and machine folders.
     @ObservationIgnored var move = CloudMoveSetup()
-    @ObservationIgnored let spareWarms = CloudSpareWarms() // the spare warms in flight and their login copies (CloudStartChat+WarmSpare)
     /// What Retry does for each chat whose move stopped.
     @ObservationIgnored let moveRetries = CloudMoveRetries(key: "cmux.cloud.moveRetries")
     /// What Retry does for each machine chat whose Bring Back Local stopped, by its tab there.
