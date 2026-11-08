@@ -63,7 +63,7 @@ import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
 import { answerClaim, askKey, CLAIM_SLACK_MS } from "./waitingAskStore";
 import { canonicalCall } from "../toolNames";
 import { currentLanguage, translatorFor } from "../i18n";
-import { writeCall } from "./WriteLabel";
+import { writeCall } from "./writeLabelModel";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.

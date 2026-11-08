@@ -6,7 +6,7 @@
 // those are pages it read or cited, not things it made (Lucas, 2026-11-05: "outputs should be images,
 // files, ect generate directly through that chat"). Five rows show, then a whole-row Show more
 // (SessionInfoFold), as under Changes and Subagents.
-import { type Artifact } from "../conversation/artifactPreview";
+import type { Artifact } from "../conversation/artifactPreview";
 import type { OutputFile } from "./chatOutputs";
 import { FileKindIcon } from "../chips/FileKindIcon";
 import { useT } from "../i18n";

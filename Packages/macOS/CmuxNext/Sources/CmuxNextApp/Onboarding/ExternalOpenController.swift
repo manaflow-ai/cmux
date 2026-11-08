@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextDaemonService
 import CmuxNextOnboarding
 import CmuxNextSettings
 
@@ -181,28 +182,9 @@ final class ExternalOpenController {
             }
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
+        case .shareLink(let url): AgentShareLinks(host: services).open(url) { [weak pane] in pane?.newBrowserTab(url: $0) }
         case .deepLink, .unsupported: return
         }
-    }
-}
-
-/// Where `AppDelegate` sends a URL macOS hands cmux: the sign-in callback
-/// goes to Cloud auth first (`<scheme>://auth-callback` and the path forms
-/// auth accepts), so it never reaches `link.open`; everything else goes to
-/// `ExternalOpenController`, which refuses what it does not open.
-enum OpenedURLRouting {
-    enum Destination: Equatable {
-        /// Cloud auth's `handleCallback`.
-        case auth
-        /// `ExternalOpenController` opened it (a tab, or `link.open`).
-        case opened
-        /// Nothing cmux opens.
-        case ignored
-    }
-
-    static func route(_ url: URL, isAuthCallback: (URL) -> Bool, open: (URL) -> Bool) -> Destination {
-        if isAuthCallback(url) { return .auth }
-        return open(url) ? .opened : .ignored
     }
 }
 
