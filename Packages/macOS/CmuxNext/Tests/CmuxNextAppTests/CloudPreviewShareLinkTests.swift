@@ -31,7 +31,7 @@ import Testing
         #expect(create.field("api") == "https://platform.invalid")
         #expect(create.field("access_token") == "session-access")
         #expect(create.field("team") == "team_cmux")
-        #expect(create.args == ["machine": .string("vm_abc"), "port": JSONValue(3000)])
+        #expect(create.args == ["machine": .string("vm_abc"), "port": .number(3000)])
         let revoke = try #require(fake.seen.last)
         #expect(revoke.args["linkId"]?.stringValue == "link_123")
         #expect(revoke.args["port"]?.intValue == 3000)

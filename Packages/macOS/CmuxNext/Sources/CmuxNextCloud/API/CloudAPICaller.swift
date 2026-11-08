@@ -79,7 +79,7 @@ public struct CloudAPICaller: Sendable {
     /// object: `timed_out`, `transport`, `no_backend`, `http`, `plan_required` or `decoding`).
     static func failure(_ error: DaemonError, call: String, api: URL) -> CloudAPIError {
         guard case let .command(_, message, _, details, _) = error,
-              let failure = details?["extra"]?["failure"]?.objectValue else {
+              case let .object(failure)? = details?["extra"]?["failure"] else {
             if case .timedOut = error { return .timedOut(call) }
             return .transport(error.description)
         }
@@ -88,7 +88,7 @@ public struct CloudAPICaller: Sendable {
         case "timed_out": return .timedOut(text("path") ?? call)
         case "no_backend": return .noBackend(api)
         case "http":
-            return .http(status: failure["status"]?.intValue ?? 0, code: text("code"), message: text("message"),
+            return .http(status: failure["status"]?.doubleValue.flatMap { Int(exactly: $0) } ?? 0, code: text("code"), message: text("message"),
                          action: text("action"), traceId: text("trace_id"))
         case "plan_required":
             return .planRequired(message: text("message"), upgradeURL: text("upgrade_url").flatMap(URL.init(string:)),

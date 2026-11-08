@@ -77,16 +77,16 @@ extension CloudAPIClient {
     /// Creates a one-day anonymous preview link by default. The platform caps
     /// custom expiries at seven days and validates the port and ownership.
     public func createPreviewShareLink(_ id: String, port: Int, expiresAt: Int? = nil, maxUses: Int? = nil) async throws -> CloudPreviewShareLinkCreated {
-        var args: [String: JSONValue] = ["machine": .string(id), "port": JSONValue(port)]
-        if let expiresAt { args["expiresAt"] = JSONValue(expiresAt) }
-        if let maxUses { args["maxUses"] = JSONValue(maxUses) }
+        var args: [String: JSONValue] = ["machine": .string(id), "port": .number(Double(port))]
+        if let expiresAt { args["expiresAt"] = .number(Double(expiresAt)) }
+        if let maxUses { args["maxUses"] = .number(Double(maxUses)) }
         return try await call("previews.create_link", args, timeout: .seconds(30), as: CloudPreviewShareLinkCreated.self)
     }
 
     /// Revokes one anonymous preview link. Existing preview cookies are
     /// rejected by the platform on their next request.
     public func revokePreviewShareLink(_ id: String, port: Int, linkID: String) async throws -> CloudPreviewShareLinkRevocation {
-        try await call("previews.revoke_link", ["machine": .string(id), "port": JSONValue(port), "linkId": .string(linkID)],
+        try await call("previews.revoke_link", ["machine": .string(id), "port": .number(Double(port)), "linkId": .string(linkID)],
                        timeout: .seconds(30), as: CloudPreviewShareLinkRevocation.self)
     }
 }

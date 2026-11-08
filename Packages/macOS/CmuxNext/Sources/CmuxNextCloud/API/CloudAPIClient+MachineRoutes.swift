@@ -35,7 +35,7 @@ extension CloudAPIClient {
     /// Runs `command` in the machine's shell. The route caps `timeoutMs` at 15 minutes (5 on a
     /// Worker machine).
     public func exec(_ id: String, command: String, timeoutMs: Int = 30_000) async throws -> CloudExecResult {
-        try await machine("exec", id, ["command": .string(command), "timeout_ms": JSONValue(timeoutMs)],
+        try await machine("exec", id, ["command": .string(command), "timeout_ms": .number(Double(timeoutMs))],
                           timeout: .milliseconds(timeoutMs) + .seconds(5), as: CloudExecResult.self)
     }
 
@@ -57,7 +57,7 @@ extension CloudAPIClient {
     /// Writes a guest file atomically through the backend wrapper.
     public func writeFile(_ id: String, path: String, data: Data, mode: Int? = nil) async throws {
         var request: [String: JSONValue] = ["path": .string(path), "data_base64": .string(data.base64EncodedString())]
-        if let mode { request["mode"] = JSONValue(mode) }
+        if let mode { request["mode"] = .number(Double(mode)) }
         _ = try await machine("write", id, request, timeout: .seconds(120), as: Ignored.self)
     }
 
@@ -97,7 +97,7 @@ extension CloudAPIClient {
         }
         guard let machineIO, !sendsStackSession else { return try await viaDaemon() }
         let credentials = try await credentials()
-        var request: [String: any Sendable] = args.mapValues { $0.foundationObject }
+        var request: [String: any Sendable] = args.compactMapValues(\.machineIOValue)
         request["api"] = baseURL.absoluteString
         request["credential"] = credentials.access
         request["app_version"] = appVersion
@@ -122,6 +122,18 @@ extension CloudAPIClient {
             return try CloudMachineRules().answer(answer.body, as: T.self, context: path)
         default:
             throw CloudAPIError.from(status: answer.status, data: answer.body, headerCode: answer.code)
+        }
+    }
+}
+
+private extension JSONValue {
+    /// A scalar field as `cmux cloud machine-io`'s stdin JSON takes it (the machine calls send no other kind).
+    var machineIOValue: (any Sendable)? {
+        switch self {
+        case let .string(text): text
+        case let .bool(flag): flag
+        case let .number(number): number.rounded() == number && abs(number) < 1e15 ? Int(number) : number
+        default: nil
         }
     }
 }

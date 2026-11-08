@@ -56,3 +56,12 @@ nonisolated final class FakeCloudAPI: Sendable {
                                       teamID: { "team_cmux" }, caller: caller, machineIO: machineIO)
     }
 }
+
+extension JSONValue {
+    /// A whole number field, as the daemon reads it.
+    var intValue: Int? { doubleValue.flatMap { Int(exactly: $0) } }
+    var objectValue: [String: JSONValue]? {
+        if case let .object(members) = self { return members }
+        return nil
+    }
+}

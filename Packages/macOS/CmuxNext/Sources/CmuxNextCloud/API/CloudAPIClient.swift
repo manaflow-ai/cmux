@@ -75,9 +75,9 @@ public struct CloudAPIClient: Sendable {
     /// 256 GiB (grow-only). Only the given dimensions are sent; the server checks them.
     public func resize(_ id: String, cpu: Int? = nil, memoryMb: Int? = nil, storageMb: Int? = nil) async throws {
         var args: [String: JSONValue] = ["id": .string(id)]
-        if let cpu { args["cpu"] = JSONValue(cpu) }
-        if let memoryMb { args["memoryMb"] = JSONValue(memoryMb) }
-        if let storageMb { args["storageMb"] = JSONValue(storageMb) }
+        if let cpu { args["cpu"] = .number(Double(cpu)) }
+        if let memoryMb { args["memoryMb"] = .number(Double(memoryMb)) }
+        if let storageMb { args["storageMb"] = .number(Double(storageMb)) }
         _ = try await call("vm.resize", args, timeout: .seconds(120))
     }
 
@@ -170,7 +170,7 @@ public struct CloudAPIClient: Sendable {
         if let value = endpoint.tunnelId { body["tunnelId"] = .string(value) }
         if let value = endpoint.cidr { body["cidr"] = .string(value) }
         if let value = endpoint.isPublic { body["public"] = .bool(value) }
-        if let value = endpoint.port { body["port"] = JSONValue(value) }
+        if let value = endpoint.port { body["port"] = .number(Double(value)) }
         if let value = endpoint.protocolName { body["protocol"] = .string(value) }
         return .object(body)
     }
@@ -196,7 +196,7 @@ public struct CloudAPIClient: Sendable {
     /// API key for it in one call. Calling it again for the same port reuses the publication
     /// and mints another key.
     public func provisionAPI(machineID: String, port: Int, accessMode: String? = nil, keyName: String? = nil) async throws -> CloudProvisionedAPI {
-        var args: [String: JSONValue] = ["vmId": .string(machineID), "port": JSONValue(port)]
+        var args: [String: JSONValue] = ["vmId": .string(machineID), "port": .number(Double(port))]
         if let accessMode { args["accessMode"] = .string(accessMode) }
         if let keyName { args["keyName"] = .string(keyName) }
         return try await call("vm.provision_api", args, timeout: .seconds(120), as: CloudProvisionedAPI.self)
@@ -227,7 +227,7 @@ public struct CloudAPIClient: Sendable {
     /// at 10 s), with its receipt when it has one.
     public func waitRun(_ id: String, timeoutMs: Int) async throws -> Data {
         let wait = max(0, min(timeoutMs, 10_000))
-        return try await callData("runs.wait", ["id": .string(id), "timeoutMs": JSONValue(wait)], timeout: .milliseconds(wait + 10_000))
+        return try await callData("runs.wait", ["id": .string(id), "timeoutMs": .number(Double(wait))], timeout: .milliseconds(wait + 10_000))
     }
 
     /// One sandboxed Run to its end (`runs.sandbox`: create it, then long-poll it until the snapshot
@@ -242,8 +242,8 @@ public struct CloudAPIClient: Sendable {
                            follow: (@Sendable (_ id: String) async throws -> Data)? = nil) async throws -> [String: Any] {
         let bound = Duration.milliseconds(timeoutMs) + teardown + callsMargin
         let args = runArgs(task: task, agent: agent, image: nil, timeoutMs: timeoutMs, key: idempotencyKey)
-        let whole = args.merging(["teardownMs": JSONValue(Self.millis(teardown)),
-                                  "callsMarginMs": JSONValue(Self.millis(callsMargin))]) { _, new in new }
+        let whole = args.merging(["teardownMs": .number(Double(Self.millis(teardown))),
+                                  "callsMarginMs": .number(Double(Self.millis(callsMargin)))]) { _, new in new }
         let data = try await SandboxDeadline.race(bound) {
             guard let follow else { return try await self.callData("runs.sandbox", whole, timeout: bound) }
             let created = try JSONSerialization.jsonObject(with: try await self.callData("runs.start", args, timeout: .seconds(45)))
@@ -262,7 +262,7 @@ public struct CloudAPIClient: Sendable {
         var args: [String: JSONValue] = ["task": .string(task), "idempotencyKey": .string(key)]
         if let agent, !agent.isEmpty { args["agent"] = .string(agent) }
         if let image, !image.isEmpty { args["image"] = .string(image) }
-        if let timeoutMs { args["timeoutMs"] = JSONValue(timeoutMs) }
+        if let timeoutMs { args["timeoutMs"] = .number(Double(timeoutMs)) }
         return args
     }
 

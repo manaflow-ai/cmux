@@ -20,7 +20,7 @@ extension CloudOwnerAPIClient {
     /// (a repeat answers the same turn).
     public func handoffBeginTurn(_ id: String, after: Int) async throws -> CloudHandoffTurn {
         guard Self.isHandoffID(id) else { throw CloudAPIError.transport("not a hand-off id") }
-        return try await handoffTurn("owner.handoff_begin_turn", ["id": .string(id), "after": JSONValue(max(0, after))])
+        return try await handoffTurn("owner.handoff_begin_turn", ["id": .string(id), "after": .number(Double(max(0, after)))])
     }
 
     /// The store's session ids (`SESSION` in routes.ts).
@@ -31,7 +31,8 @@ extension CloudOwnerAPIClient {
     /// ``CloudHandoffTurn/refusal`` (cmux-cloud-api `owner.rs` reads which). Any other answer throws.
     func handoffTurn(_ name: String, _ args: [String: JSONValue]) async throws -> CloudHandoffTurn {
         let answer = try await caller.call(name, as: try await credentials(), args: args, timeout: .seconds(20))
-        guard let object = answer.foundationObject as? [String: Any], var turn = CloudHandoffTurn(json: object) else {
+        let object = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(answer))) as? [String: Any]
+        guard let object, var turn = CloudHandoffTurn(json: object) else {
             throw CloudAPIError.decoding("/v1/handoffs: not a hand-off")
         }
         turn.refusal = object["refusal"] as? String
