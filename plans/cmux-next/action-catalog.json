@@ -30724,7 +30724,14 @@
           "isTargetName" : false,
           "kind" : "string",
           "name" : "chief",
-          "suggestions" : null,
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "homeChiefs"
+          },
           "title" : "Chief"
         }
       ],
@@ -30736,7 +30743,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -30774,9 +30781,7 @@
 
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "noTargetSurface"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
         "keyboard"
@@ -30799,7 +30804,14 @@
           "isTargetName" : false,
           "kind" : "string",
           "name" : "chief",
-          "suggestions" : null,
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "homeChiefs"
+          },
           "title" : "Chief"
         }
       ],
@@ -30811,7 +30823,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -30851,9 +30863,7 @@
 
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "noTargetSurface"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
         "keyboard"
@@ -30876,7 +30886,14 @@
           "isTargetName" : false,
           "kind" : "string",
           "name" : "chief",
-          "suggestions" : null,
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "homeChiefs"
+          },
           "title" : "Chief"
         },
         {
@@ -30898,7 +30915,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -30936,9 +30953,7 @@
 
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "noTargetSurface"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
         "keyboard"
@@ -32849,6 +32864,95 @@
 
       ],
       "title" : "Stop All Agents",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "agent",
+          "suggestions" : null,
+          "title" : "Agent"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "conversation",
+          "suggestions" : null,
+          "title" : "Conversation"
+        }
+      ],
+      "category" : "agents",
+      "cliName" : "home start-agent",
+      "computed" : {
+        "canonical_action_id" : "home.startQueuedAgent",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "HomeActionCatalog",
+      "hint" : null,
+      "id" : "home.startQueuedAgent",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "chief",
+        "home",
+        "agent",
+        "subagent",
+        "queue",
+        "queued",
+        "waiting",
+        "start",
+        "now",
+        "cap"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "play.circle",
+      "targets" : [
+
+      ],
+      "title" : "Start Queued Agent Now",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -105105,6 +105209,74 @@
 
       ],
       "title" : "Show Hidden App…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "apps reload",
+      "computed" : {
+        "canonical_action_id" : "app.reloadCustomViews",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AppStoreActionCatalog",
+      "hint" : null,
+      "id" : "app.reloadCustomViews",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "apps",
+        "reload",
+        "customize",
+        "custom views",
+        "sidebar sections",
+        "refresh",
+        "script",
+        "error"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.clockwise",
+      "targets" : [
+
+      ],
+      "title" : "Reload Custom Views",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

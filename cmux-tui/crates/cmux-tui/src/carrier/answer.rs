@@ -274,11 +274,22 @@ impl HttpSource {
 /// The `sub` claim of a JWT credential, read without checking its
 /// signature (the platform checks the credential; this only tells whether a
 /// refreshed credential is the same person's). `None` for anything that is
-/// not a JWT with a string `sub`.
+/// not a JWT with a string `sub`: a JWT has exactly three segments and its
+/// first is a JSON header naming an `alg`, so an opaque dotted credential
+/// whose middle segment happens to decode never borrows a `sub`.
 pub(super) fn token_subject(token: &str) -> Option<String> {
-    let payload = token.split('.').nth(1)?;
-    let bytes = Zeroizing::new(URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?);
-    let claims: Value = serde_json::from_slice(&bytes).ok()?;
+    let mut segments = token.split('.');
+    let (Some(header), Some(payload), Some(_), None) =
+        (segments.next(), segments.next(), segments.next(), segments.next())
+    else {
+        return None;
+    };
+    let decode = |segment: &str| -> Option<Value> {
+        let bytes = Zeroizing::new(URL_SAFE_NO_PAD.decode(segment.trim_end_matches('=')).ok()?);
+        serde_json::from_slice(&bytes).ok()
+    };
+    decode(header)?.get("alg")?.as_str()?;
+    let claims = decode(payload)?;
     claims.get("sub")?.as_str().filter(|sub| !sub.is_empty()).map(str::to_owned)
 }
 
