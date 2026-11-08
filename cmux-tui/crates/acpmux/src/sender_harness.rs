@@ -96,6 +96,25 @@ pub fn of_this_process() -> Option<Value> {
     detect(&env, || chain(lookup, std::process::id()))
 }
 
+/// [`of_send`] for this process.
+pub fn of_this_send(named: Option<String>) -> (Option<String>, Option<Value>) {
+    let env = |key: &str| std::env::var(key).ok();
+    of_send(named, &env, crate::host_pressure::host_name, || chain(lookup, std::process::id()))
+}
+
+/// What an `acpmux send` names: its sender (`cli::sender::implicit` when `named` is none) and the
+/// claim it carries.
+pub fn of_send(
+    named: Option<String>,
+    env: &impl Fn(&str) -> Option<String>,
+    host: impl FnOnce() -> String,
+    walk: impl FnOnce() -> Chain,
+) -> (Option<String>, Option<Value>) {
+    let from = named.or_else(|| crate::cli::sender::implicit(env, host));
+    let claim = if from.is_none() { detect(env, walk) } else { None };
+    (from, claim)
+}
+
 /// [`of_this_process`] over `env`, with `walk` read only when needed.
 pub fn detect(
     env: &impl Fn(&str) -> Option<String>,

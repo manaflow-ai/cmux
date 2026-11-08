@@ -256,3 +256,21 @@ fn only_the_outbox_and_a_proven_peer_carry_the_daemons_check() {
     // A pid never comes from off the unix socket; if one did, it is not walked.
     assert_eq!(check_trust(SocketPeer::Pid(50), false, false), (None, false));
 }
+
+#[test]
+fn a_harness_shell_that_names_its_sender_still_says_where_it_came_from() {
+    // Base names a Claude desktop shell's sender itself (`cli::sender::implicit`); the claim rides
+    // along, so the receiver draws the chip.
+    let (from, claim) = of_send(None, &env(DESKTOP), || "mac".into(), no_walk);
+    assert_eq!(from.as_deref(), Some("Claude Code desktop on mac · 8f0c2b7e"));
+    assert_eq!(claim.unwrap()["entrypoint"], "claude-desktop");
+    // A sender named on purpose (--from, ACPMUX_FROM) speaks for itself: no claim.
+    let (from, claim) = of_send(Some("lane-a".into()), &env(DESKTOP), || "mac".into(), no_walk);
+    assert_eq!((from.as_deref(), claim), (Some("lane-a"), None));
+    let named = [DESKTOP, &[("ACPMUX_FROM", "lane-b")]].concat();
+    let (from, claim) = of_send(None, &env(&named), || "mac".into(), no_walk);
+    assert_eq!((from.as_deref(), claim), (Some("lane-b"), None));
+    // The person's own shell names nothing and claims nothing.
+    let (from, claim) = of_send(None, &env(&[]), || "mac".into(), Chain::default);
+    assert_eq!((from, claim), (None, None));
+}

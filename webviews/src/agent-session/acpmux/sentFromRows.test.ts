@@ -89,3 +89,32 @@ test("a live sender_claim draws on the prompt that follows it", async () => {
     io.close();
   }
 });
+
+test("a send its harness shell named (fromAgent) draws its sender_claim on the incoming message", async () => {
+  const named = {
+    mux: "user_message",
+    // As acpmux records it (prompt_provenance.rs `named_sender`).
+    msg: {
+      promptId: "p-named",
+      text: "from the desktop",
+      fromAgent: "Claude Code desktop on mac · cc-1",
+      _meta: {
+        provenance: {
+          kind: "agent_message",
+          from: "fromAgent",
+          fromName: "Claude Code desktop on mac · cc-1",
+          to: "x",
+        },
+      },
+    },
+  };
+  const io = await connect([claim("p-named"), named]);
+  try {
+    await settle(() => row(io.snapshot(), "p-named") !== undefined);
+    const shown = row(io.snapshot(), "p-named");
+    expect(shown?.incoming?.kind).toBe("message");
+    expect(shown?.sentFrom).toMatchObject({ label: "Claude desktop", confirmed: true });
+  } finally {
+    io.close();
+  }
+});
