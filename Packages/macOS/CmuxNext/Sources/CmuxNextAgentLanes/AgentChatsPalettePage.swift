@@ -104,12 +104,8 @@ public struct AgentChatsPalettePage {
         let spec = AcpmuxChatWindows.Spec(window: window, limit: pageLimit, topLevel: true, query: text.isEmpty ? nil : text,
                                           untitled: AgentChatsPaletteStrings.untitled, history: text.isEmpty ? nil : history,
                                           count: true)
-        // The follower lives as long as this query's stream: ending it releases the token. The handler is set
-        // before anything can end the stream: one set after the stream ended is never called, and it would hold
-        // the token (and this query's follower) for as long as the window lives, so every later message of the
-        // window ran every query answered at once (the same query again, no connection) ever made.
+        // The follower lives as long as this query's stream: ending it releases the token.
         let token = FollowToken()
-        continuation.onTermination = { _ in withExtendedLifetime(token) {} }
         let answer = { (rows: [AcpmuxChat]) in
             var shown = items(rows, windows: windows, open: open)
             // More chats than one page holds: say so, and how to reach the rest (R-L5: a limit
@@ -138,6 +134,7 @@ public struct AgentChatsPalettePage {
         } else if !windows.isConnected || windows.isRefused(window) {
             none()
         }
+        continuation.onTermination = { _ in withExtendedLifetime(token) {} }
         return stream
     }
 

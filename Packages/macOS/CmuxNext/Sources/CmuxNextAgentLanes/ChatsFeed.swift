@@ -148,15 +148,27 @@ public final class ChatsFeed {
         let started = ContinuousClock.now
         defer { drained(drain.values.count, ContinuousClock.now - started) }
         var changed = false
+        // A drain's window messages in a row go to the windows together, before the next other message.
+        var updates: [AcpmuxChatWindows.Update] = []
+        func applyUpdates() {
+            guard !updates.isEmpty else { return }
+            windows.apply(contentsOf: updates)
+            updates.removeAll(keepingCapacity: true)
+        }
         for message in drain.values {
+            if case .window(let update) = message {
+                updates.append(update)
+                continue
+            }
+            applyUpdates()
             switch message {
             case .watching:
                 backoff.reset()
                 changed = true
             case .indexChanged:
                 changed = true
-            case .window(let update):
-                windows.apply(update)
+            case .window:
+                break
             case .answered(let id, let failed, let notReady):
                 guard let request = windowRequests.removeValue(forKey: id) else { break }
                 if failed {
@@ -169,6 +181,7 @@ public final class ChatsFeed {
                 changed = true
             }
         }
+        applyUpdates()
         // Dropped lines (a full batch): every window and observer again.
         if drain.overflowed, !drain.closed {
             windows.resync()

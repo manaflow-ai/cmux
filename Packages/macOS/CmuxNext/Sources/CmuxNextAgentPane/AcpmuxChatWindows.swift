@@ -284,6 +284,11 @@ public final class AcpmuxChatWindows {
         for id in retry.sorted() { if let spec = specs[id] { ask(spec) } }
     }
 
+    /// Applies one drain's window messages, in order.
+    public func apply(contentsOf updates: [Update]) {
+        for update in updates { apply(update) }
+    }
+
     /// Applies one window message: O(keys + changed rows). A message for an older spec is dropped;
     /// a diff that does not follow the last revision, or names a row this window never got, asks
     /// for the window again.
