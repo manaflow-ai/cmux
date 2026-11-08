@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextLayout
 @testable import CmuxNextTerminal
+import CmuxNextTerminalGeometry
 import CmuxNextTestSupport
 import Foundation
 import GhosttyNextKit
@@ -83,6 +84,52 @@ struct ReduceMotionKeyResizeGridTests {
         for (index, frame) in zip(resized, shown) {
             #expect(abs(frame.layer.width - frame.area.width) * frame.scale <= 1 && abs(frame.layer.height - frame.area.height) * frame.scale <= 1,
                     "the first frame showed \(panes[index].rawValue)'s terminal layer at \(frame.layer) in a \(frame.area) area")
+        }
+    }
+
+    /// Review of b8085fe5bf1 (P1 1 and 2): a Reduce Motion press taken back by a second press before the frame tick
+    /// shows each terminal at its old size, so no placement takes or drops the size drawn ahead for the first press.
+    /// The tick shows the held snap through the frame input (`LayoutFrameInput.presentWaiting`), which must release
+    /// each size drawn ahead that its placement did not take, as a settle's `presentHeldSnap` does. Before, it skipped
+    /// that, and Ghostty and the PTY kept the first press's size and grid until the pane moved again (a scripted resize
+    /// burst can do this). Ctrl-Shift-L then Ctrl-Shift-H on p2 in one turn; then frame ticks to rest.
+    @Test func aReduceMotionPressTakenBackBeforeTheTickLeavesNoSizeDrawnAhead() async throws {
+        let screen = try await Screen()
+        defer { screen.close() }
+        let panes: [PaneID] = ["p1", "p2", "p3"]
+        let hosts = try panes.map { try #require(screen.root.context.hosts[$0], "no host for \($0.rawValue)") }
+        let frames = hosts.map(\.frame)
+
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
+        let drewAhead = screen.sessions.indices.filter { screen.sessions[$0].surfaceView.frameOwnership.pendingAhead != nil
+            || screen.sessions[$0].surfaceView.frameOwnership.ahead != nil }
+        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
+        await TerminalKeyResizeFrameTests.commit() // the keys' turn, its presenter pass and its commit
+        try #require(!drewAhead.isEmpty, "SETUP: the first press drew no terminal's size ahead")
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
+        for _ in 0..<12 {
+            _ = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+            await TerminalKeyResizeFrameTests.commit()
+        }
+        _ = await ReduceMotionPaneCloseFrameTests.commits(screen, seconds: 1) { screen in
+            !screen.sessions.contains { presenter.isWaiting($0.surfaceView) }
+        }
+        try #require(panes.indices.allSatisfy { hosts[$0].frame == frames[$0] },
+                     "SETUP: the second press did not take the first back (\(panes.indices.map { "\(frames[$0]) -> \(hosts[$0].frame)" }))")
+
+        for index in drewAhead {
+            let session = screen.sessions[index], view = session.surfaceView
+            let name = panes[index].rawValue
+            let surface = try #require(view.surface)
+            let size = ghostty_surface_size(surface), pixels = view.convertToBacking(view.bounds.size)
+            #expect(view.frameOwnership.ahead == nil && view.frameOwnership.pendingAhead == nil,
+                    "\(name) still has the taken-back press's size drawn ahead (ahead \(String(describing: view.frameOwnership.ahead)))")
+            #expect(Int(size.width_px) == Int(pixels.width.rounded()) && Int(size.height_px) == Int(pixels.height.rounded()),
+                    "\(name): Ghostty kept \(size.width_px)x\(size.height_px) px for a \(pixels) px view")
+            let last = screen.ios[index].resizes.last.map { TerminalGridSize(columns: $0.columns, rows: $0.rows) }
+            #expect(last == view.fittedGrid,
+                    "\(name): the PTY kept the grid \(String(describing: last)), the view fits \(String(describing: view.fittedGrid))")
         }
     }
 }
