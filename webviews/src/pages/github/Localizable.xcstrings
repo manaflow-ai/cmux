@@ -11352,6 +11352,402 @@
           }
         }
       }
+    },
+    "github.ready.behind": {
+      "comment": "Merge readiness blocker: the pull request is behind its base branch, so GitHub will not merge it until it is updated",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behind its base branch"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متأخر عن الفرع الأساسي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaostaje za osnovnom granom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bagud i forhold til basisgrenen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinter dem Basis-Branch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por detrás de la rama base"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En retard sur la branche de base"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indietro rispetto al branch base"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベースブランチより古い"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពីក្រោយសាខាមូលដ្ឋាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기준 브랜치보다 뒤처짐"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bak basisgrenen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Za gałęzią bazową"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atrás do branch base"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отстаёт от базовой ветки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตามหลังสาขาหลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temel dalın gerisinde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відстає від базової гілки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chậm hơn nhánh gốc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "落后于基础分支"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "落後於基礎分支"
+          }
+        }
+      }
+    },
+    "github.ready.ruleBlocked": {
+      "comment": "Merge readiness blocker: a GitHub branch rule refuses the merge (GitHub merge state \"blocked\")",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked by a GitHub branch rule"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محظور بقاعدة فرع في GitHub"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blokirano pravilom grane na GitHubu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blokeret af en GitHub-grenregel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durch eine GitHub-Branch-Regel blockiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloqueado por una regla de rama de GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloqué par une règle de branche GitHub"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloccato da una regola di branch di GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub のブランチルールでブロック中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវបានរារាំងដោយច្បាប់សាខា GitHub"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 브랜치 규칙에 의해 차단됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blokkert av en GitHub-grenregel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zablokowane przez regułę gałęzi GitHub"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloqueado por uma regra de branch do GitHub"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировано правилом ветки GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถูกบล็อกโดยกฎสาขาของ GitHub"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir GitHub dal kuralı tarafından engellendi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблоковано правилом гілки GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bị chặn bởi quy tắc nhánh của GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "被 GitHub 分支规则阻止"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "被 GitHub 分支規則阻擋"
+          }
+        }
+      }
+    },
+    "github.ready.history": {
+      "comment": "Merge readiness blocker: only part of the conversation was read, so a BLOCK review in older comments cannot be ruled out. The first %@ is how many entries were read, the second how many there are",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read %1$@ of %2$@ comments: an older BLOCK may be unread"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت قراءة %1$@ من %2$@ تعليقًا: قد يكون هناك BLOCK أقدم غير مقروء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pročitano %1$@ od %2$@ komentara: stariji BLOCK možda nije pročitan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Læst %1$@ af %2$@ kommentarer: en ældre BLOCK kan være ulæst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ von %2$@ Kommentaren gelesen: ein älterer BLOCK ist evtl. ungelesen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leídos %1$@ de %2$@ comentarios: puede haber un BLOCK anterior sin leer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ commentaires lus sur %2$@ : un BLOCK plus ancien peut être non lu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letti %1$@ di %2$@ commenti: un BLOCK precedente potrebbe non essere letto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 件中 %1$@ 件のコメントを読み込み: 古い BLOCK が未読の可能性"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានអាន %1$@ ក្នុងចំណោម %2$@ មតិ៖ BLOCK ចាស់ៗអាចមិនទាន់អាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "댓글 %2$@개 중 %1$@개 읽음: 이전 BLOCK을 못 읽었을 수 있음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lest %1$@ av %2$@ kommentarer: en eldre BLOCK kan være ulest"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odczytano %1$@ z %2$@ komentarzy: starszy BLOCK może być nieodczytany"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lidos %1$@ de %2$@ comentários: um BLOCK mais antigo pode não ter sido lido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитано %1$@ из %2$@ комментариев: более ранний BLOCK мог остаться непрочитанным"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านแล้ว %1$@ จาก %2$@ ความคิดเห็น: อาจมี BLOCK เก่าที่ยังไม่ได้อ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ yorumdan %1$@ tanesi okundu: daha eski bir BLOCK okunmamış olabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитано %1$@ з %2$@ коментарів: старіший BLOCK міг лишитися непрочитаним"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã đọc %1$@ trên %2$@ bình luận: có thể còn BLOCK cũ chưa đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已读取 %2$@ 条评论中的 %1$@ 条：较早的 BLOCK 可能未读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已讀取 %2$@ 則留言中的 %1$@ 則：較早的 BLOCK 可能未讀"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

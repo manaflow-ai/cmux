@@ -950,6 +950,9 @@ impl Store for JournalStore {
     fn briefs_path(&self) -> Option<PathBuf> {
         Store::briefs_path(&self.inner.local)
     }
+    fn audit_dir(&self) -> Option<PathBuf> {
+        Store::audit_dir(&self.inner.local)
+    }
 }
 
 impl Drop for JournalStore {

@@ -54,11 +54,10 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
 }
 
 fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) -> i32 {
-    if plan.stream && global.output == OutputMode::Json {
-        return usage_failure(
-            global.output,
-            "cmux: streams require --jsonl, --quiet, or human output",
-        );
+    if plan.stream
+        && let Some(code) = super::stream_output::refuse_json(global.output)
+    {
+        return code;
     }
     if let Err(error) = super::resolve::apply_global_route(global, &mut plan) {
         return usage_failure(global.output, &format!("cmux: {error}"));
@@ -626,6 +625,7 @@ fn run_response(
                     #[cfg(unix)]
                     if let Some(listed) = super::cloud_workspaces::for_machine(global, plan, &error)
                     {
+                        let listed = listed.and_then(|rows| list_filter::apply_listed(plan, rows));
                         return match listed {
                             Ok(result) => {
                                 key_report.succeeded();
@@ -684,6 +684,10 @@ fn run_response(
                             cmux_tui_core::resource::ResourceOperation::WorkspaceList,
                         ) => super::cloud_workspaces::merge(global, result),
                         _ => result,
+                    };
+                    let result = match list_filter::apply(reader, plan, result) {
+                        Ok(result) => result,
+                        Err(error) => return print_operation_error(&error, global.output),
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
                     return super::agent_input_hint::print_result(global, plan, reader, result);
@@ -1190,6 +1194,7 @@ mod agent_roster;
 mod closed_view;
 mod hints;
 mod human;
+mod list_filter;
 mod list_order;
 mod notify_desktop;
 mod retry;

@@ -1098,7 +1098,7 @@ impl Hub {
             return Err(e);
         }
         // Its stalled count starts once its prompt is written (`stalled_turn.rs`).
-        Self::hold_stalled_count(session);
+        self.hold_stalled_count(session);
         // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
         if !trigger {
             self.clear_deferred_unread(session);
@@ -1210,7 +1210,7 @@ impl Hub {
                 );
                 // The turn goes on, on the fallback. A new agent: the old one's silence and
                 // tools are not its own, and its count starts once the prompt is written to it.
-                Self::hold_stalled_count(session);
+                self.hold_stalled_count(session);
                 // The conversation the chat's own profile resumes, if the fallback cannot start.
                 let kept = super::fallback_start::ConversationMark::of(session);
                 let turn = session.turn();
@@ -2327,6 +2327,12 @@ impl Hub {
         } else {
             None
         };
+        // Its approvals audit entries go first (`audit_log.rs`), before anything of the chat is
+        // stopped or marked purged: a purge that fails or times out fails the delete with the
+        // chat as it was, still recording (the writer lifts its own fence again).
+        if purge {
+            self.audit_purge(&session.id).await?;
+        }
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);

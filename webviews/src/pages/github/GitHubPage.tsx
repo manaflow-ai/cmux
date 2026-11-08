@@ -491,7 +491,9 @@ function Conversation({
           </button>
         </div>
       )}
-      {details.conversationTotal > details.conversation.length && (
+      {/* Counted as the host counts the total (review of #38263, F1): an empty review wrapper the
+          host left out is not a comment GitHub has that the page lacks. */}
+      {details.conversationTotal > details.conversationRead && (
         <button type="button" className="gh-more" onClick={more}>
           {t("github.conversation.more")}
         </button>

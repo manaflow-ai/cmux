@@ -1,5 +1,5 @@
-//! Ultra mode over a link that loses datagrams: FEC rebuilds them below
-//! WireGuard in both directions when both ends turn it on, a peer that did not
+//! Ultra mode over a link that loses datagrams: FEC (XOR or Reed-Solomon)
+//! rebuilds them below WireGuard in both directions when both ends turn it on, a peer that did not
 //! turn it on never sends parity, and duplication needs no peer support.
 
 use std::io;
@@ -117,6 +117,19 @@ async fn fec_on_both_ends_rebuilds_lost_datagrams_both_ways() {
     assert!(client.parity_sent > 0, "client sends parity: {client:?}");
     assert!(server.recovered > 0, "server rebuilds what the link dropped: {server:?}");
     assert!(server.parity_sent > 0, "server sends parity: {server:?}");
+    assert!(client.recovered > 0, "client rebuilds the echo's losses: {client:?}");
+}
+
+#[tokio::test]
+async fn reed_solomon_rebuilds_a_fifth_of_the_datagrams_lost_both_ways() {
+    // Every 5th data datagram is lost each way: more than XOR parity's one
+    // loss per subgroup can be counted on to cover.
+    let rs = UltraMode::Rs { group: 8, parity: 4 };
+    let (client, server, target) = pair((rs, 5), (rs, 5)).await;
+    echo(&client, &server, target, 512 * 1024).await;
+    let (client, server) = (client.ultra_stats(), server.ultra_stats());
+    assert!(client.parity_sent > 0 && server.parity_sent > 0, "{client:?} {server:?}");
+    assert!(server.recovered > 0, "server rebuilds what the link dropped: {server:?}");
     assert!(client.recovered > 0, "client rebuilds the echo's losses: {client:?}");
 }
 

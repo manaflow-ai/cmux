@@ -204,6 +204,11 @@ fn each_verb_carries_its_arguments() {
             .timeout_seconds,
         Some(125)
     );
+    let warm = call(json!({"verb": "start-chat-warm-spare", "request": "{}"}));
+    assert_eq!(
+        (&warm.args[..3], warm.timeout_seconds),
+        (&["link".to_string(), "start-chat".into(), "warm-spare".into()][..], Some(95))
+    );
     let copy = call(
         json!({"verb": "start-chat-copy", "key": "k", "account": "u/", "machine": "m", "socket": "/s", "local": "/l", "subpath": "",
         "workRoots": ["/home/cmux/work", "/root/work"], "acpmuxHome": "/h", "store": true}),

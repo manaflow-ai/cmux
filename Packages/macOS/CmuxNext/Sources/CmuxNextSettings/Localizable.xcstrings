@@ -185377,6 +185377,268 @@
         }
       }
     },
+    "settings.agents.promptSuggestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggest Next Prompt"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اقتراح الطلب التالي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predlaži sljedeći upit"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå næste prompt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächsten Prompt vorschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir la siguiente instrucción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggérer la prochaine instruction"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggerisci il prossimo prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のプロンプトを提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ណែនាំសំណើបន្ទាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 프롬프트 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå neste ledetekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponuj następny prompt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir o próximo prompt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предлагать следующий запрос"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แนะนำพรอมต์ถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki istemi öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропонувати наступний запит"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gợi ý lời nhắc tiếp theo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建议下一条提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建議下一則提示"
+          }
+        }
+      }
+    },
+    "settings.agents.promptSuggestions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد كل دور، يقترح Claude أو Codex طلبك التالي كنص رمادي في محرر فارغ؛ يقبله Tab أو السهم الأيمن. كل اقتراح هو استدعاء إضافي للنموذج يُحتسب ضمن الاستخدام. ينطبق على المحادثات التي تبدأ أو يُعاد تشغيلها بعد التغيير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon poteza, Claude ili Codex predlaže vaš sljedeći upit kao sivi tekst u praznom polju za pisanje; Tab ili strelica desno ga prihvata. Svaki prijedlog je jedan dodatni poziv modela koji se računa u potrošnju. Važi za razgovore pokrenute ili ponovo pokrenute nakon promjene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter en tur foreslår Claude eller Codex din næste prompt som grå tekst i et tomt skrivefelt; Tab eller højre pil tager den. Hvert forslag er ét ekstra modelkald, der tæller med i forbruget. Gælder for chats, der startes eller genstartes efter ændringen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach einem Zug schlägt Claude oder Codex deinen nächsten Prompt als graue Schrift in einem leeren Eingabefeld vor; Tab oder Pfeil nach rechts übernimmt ihn. Jeder Vorschlag ist ein zusätzlicher Modellaufruf, der zur Nutzung zählt. Gilt für Chats, die nach der Änderung gestartet oder neu gestartet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras cada turno, Claude o Codex sugiere tu siguiente instrucción como texto gris en un editor vacío; Tab o la flecha derecha la acepta. Cada sugerencia es una llamada adicional al modelo que cuenta para el uso. Se aplica a los chats iniciados o reiniciados después del cambio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après chaque tour, Claude ou Codex suggère votre prochaine instruction en texte gris dans un champ de saisie vide ; Tab ou la flèche droite l’accepte. Chaque suggestion est un appel supplémentaire au modèle, compté dans l’utilisation. S’applique aux chats lancés ou relancés après le changement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo un turno, Claude o Codex suggerisce il tuo prossimo prompt come testo grigio in un compositore vuoto; Tab o la freccia destra lo accetta. Ogni suggerimento è una chiamata in più al modello che conta nell’utilizzo. Vale per le chat avviate o riavviate dopo la modifica."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターンの後、Claude または Codex が次のプロンプトを空の入力欄にグレーの文字で提案します。Tab または右矢印キーで採用できます。提案ごとにモデル呼び出しが 1 回追加され、使用量に含まれます。変更後に開始または再起動したチャットに適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពីវេនមួយ Claude ឬ Codex ណែនាំសំណើបន្ទាប់របស់អ្នកជាអក្សរពណ៌ប្រផេះក្នុងប្រអប់សរសេរទទេ ហើយ Tab ឬព្រួញស្ដាំទទួលយកវា។ ការណែនាំនីមួយៗគឺជាការហៅម៉ូដែលបន្ថែមមួយដងដែលរាប់ក្នុងការប្រើប្រាស់។ អនុវត្តចំពោះការជជែកដែលចាប់ផ្ដើម ឬចាប់ផ្ដើមឡើងវិញក្រោយការផ្លាស់ប្ដូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "턴이 끝나면 Claude 또는 Codex가 빈 입력창에 다음 프롬프트를 회색 텍스트로 제안합니다. Tab 또는 오른쪽 화살표로 받아들일 수 있습니다. 제안마다 모델 호출이 한 번 더 발생하며 사용량에 포함됩니다. 변경 후 시작하거나 다시 시작한 채팅에 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter en tur foreslår Claude eller Codex din neste ledetekst som grå tekst i et tomt skrivefelt; Tab eller høyre pil tar den. Hvert forslag er ett ekstra modellkall som teller mot forbruket. Gjelder chatter som startes eller startes på nytt etter endringen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po każdej turze Claude lub Codex proponuje Twój następny prompt jako szary tekst w pustym polu edycji; Tab lub strzałka w prawo go przyjmuje. Każda propozycja to jedno dodatkowe wywołanie modelu, które wlicza się do użycia. Dotyczy czatów uruchomionych lub uruchomionych ponownie po zmianie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após cada turno, o Claude ou o Codex sugere seu próximo prompt como texto cinza no editor vazio; Tab ou a seta para a direita o aceita. Cada sugestão é uma chamada extra ao modelo que conta no uso. Vale para chats iniciados ou reiniciados depois da mudança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После хода Claude или Codex предлагает ваш следующий запрос серым текстом в пустом поле ввода; Tab или стрелка вправо принимает его. Каждое предложение — это ещё один вызов модели, который учитывается в использовании. Действует для чатов, запущенных или перезапущенных после изменения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจบแต่ละรอบ Claude หรือ Codex จะแนะนำพรอมต์ถัดไปของคุณเป็นข้อความสีเทาในช่องเขียนที่ว่างอยู่ กด Tab หรือลูกศรขวาเพื่อใช้ การแนะนำแต่ละครั้งคือการเรียกโมเดลเพิ่มหนึ่งครั้งที่นับรวมในการใช้งาน มีผลกับแชทที่เริ่มหรือเริ่มใหม่หลังการเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her turdan sonra Claude veya Codex, boş yazma alanında bir sonraki isteminizi gri metin olarak önerir; Tab veya sağ ok tuşu onu alır. Her öneri, kullanıma sayılan fazladan bir model çağrısıdır. Değişiklikten sonra başlatılan veya yeniden başlatılan sohbetler için geçerlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після ходу Claude або Codex пропонує ваш наступний запит сірим текстом у порожньому полі введення; Tab або стрілка праворуч приймає його. Кожна пропозиція — це ще один виклик моделі, що враховується у використанні. Діє для чатів, запущених або перезапущених після зміни."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau mỗi lượt, Claude hoặc Codex gợi ý lời nhắc tiếp theo của bạn dưới dạng chữ xám trong ô soạn thảo trống; nhấn Tab hoặc mũi tên phải để dùng. Mỗi gợi ý là một lần gọi mô hình thêm và được tính vào mức sử dụng. Áp dụng cho các cuộc trò chuyện bắt đầu hoặc khởi động lại sau thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每轮结束后，Claude 或 Codex 会在空白输入框中以灰色文字建议你的下一条提示；按 Tab 或右箭头即可采用。每条建议都是一次额外的模型调用，会计入用量。适用于更改后开始或重新开始的聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每輪結束後，Claude 或 Codex 會在空白輸入框中以灰色文字建議你的下一則提示；按 Tab 或向右鍵即可採用。每則建議都是一次額外的模型呼叫，會計入用量。適用於變更後開始或重新開始的聊天。"
+          }
+        }
+      }
+    },
     "settings.attention.flash": {
       "extractionState": "manual",
       "localizations": {
