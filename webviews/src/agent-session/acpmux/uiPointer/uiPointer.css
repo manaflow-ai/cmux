@@ -1,6 +1,6 @@
 /* The UI inspector's overlay (uiPointer/overlay.ts): the outline, the label beside it and the hint.
    One fixed host over the page with no pointer events, so nothing under it reflows or loses a hover.
-   The label and the hint wear the tooltip surface (desktop.css TOOLTIP SURFACE); the outline and the
+   The label and the hint wear the tooltip's tint and rim on an opaque page background; the outline and the
    label's name are the pane accent. */
 .cmux-ui-pointer {
   position: fixed;
@@ -34,9 +34,10 @@
   border: var(--tooltip-rim-width, 1px) solid
     var(--cmux-separator, color-mix(in srgb, var(--agent-text) 12%, transparent));
   border-radius: 6px;
-  background: var(--tooltip-tint, var(--agent-page-bg));
-  -webkit-backdrop-filter: var(--tooltip-blur);
-  backdrop-filter: var(--tooltip-blur);
+  /* Opaque: the label sits over any page content, which must never show through its text. The
+     tooltip's tint is laid over the page background instead of over a blur. */
+  background:
+    linear-gradient(var(--tooltip-tint, transparent), var(--tooltip-tint, transparent)), var(--agent-page-bg);
   box-shadow: var(--tooltip-shadow);
   color: var(--cmux-tooltip-ink, var(--agent-text));
   font-family: var(--font-ui);
