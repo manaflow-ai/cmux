@@ -32,6 +32,25 @@ struct GhosttyRuntimeFontTests {
         #expect(lines.contains("font-family = \"Quote \\\"Mono\\\"\""))
     }
 
+    @Test func finalizedLoadedFilesIncludeThemeFallbackFamilies() throws {
+        _ = GhosttyRuntime.shared
+        let directory = FileManager.default.temporaryDirectory.appending(path: "font-theme-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let theme = directory.appending(path: "theme")
+        let config = directory.appending(path: "config")
+        try "font-family = \"Theme Mono\"\n".write(to: theme, atomically: true, encoding: .utf8)
+        try "theme = \(theme.path)\n".write(to: config, atomically: true, encoding: .utf8)
+
+        let loaded = try #require(ghostty_config_new())
+        defer { ghostty_config_free(loaded) }
+        ghostty_config_load_file(loaded, config.path)
+        ghostty_config_load_recursive_files(loaded)
+        let files = GhosttyRuntime.finalizedLoadedFiles(of: loaded)
+        #expect(files.contains(theme.path))
+        #expect(GhosttyConfigFontFamily.families(inFiles: files) == ["Theme Mono"])
+    }
+
     @Test func glyphProbeReportsTheFixedPromptSamples() {
         let probe = GhosttyGlyphWidthProbe(family: "Menlo", size: 13, fallbackFamilies: ["Symbols Nerd Font Mono", "Noto Sans Mono CJK JP"])
         #expect(probe.measurements.map(\.sample.name) == ["ASCII", "CJK", "Nerd Font", "Emoji"])
