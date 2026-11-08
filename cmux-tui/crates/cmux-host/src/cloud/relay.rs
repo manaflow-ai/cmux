@@ -16,8 +16,10 @@
 //! on stdin (`acp send --wait --json --prompt-id`), so a resend with the same
 //! prompt id never runs twice. Nothing here logs a prompt or a reply.
 //!
-//! The thread reconnects with backoff (1 s doubling to 30 s), minting a fresh
-//! bearer each time, and pings every 20 s; a socket with no answer for 60 s
+//! The thread reconnects with backoff (250 ms doubling to 30 s), minting a
+//! fresh bearer each time, and pings every 20 s; a dial the machine's address
+//! change caught (a fresh machine's late network attach) is dropped at the
+//! change and dialed again at once, not left to its 20 s connect timeout; a socket with no answer for 60 s
 //! is dropped and dialed again. A wake from a pause ([`Relay::resumed`], or
 //! the wall clock leaping between pings) drops the socket and dials again at
 //! once, on a fresh HTTPS connection: the thread's own clock stood still
@@ -57,6 +59,10 @@ const DEAD_AFTER: Duration = Duration::from_secs(60);
 /// `cloud.relay.host_gone` (cmuxterm-hq cloud chaos, token-rejected, run 42135490481).
 const PING: &str = r#"{"v":1,"t":"ping"}"#;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// The first wait after a failed dial, doubling to [`MAX_BACKOFF`]: a fresh machine's first dial that fails costs it
+/// a quarter second, not two.
+const FIRST_BACKOFF: Duration = Duration::from_millis(250);
+const MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// Chats run at once; the platform holds at most 8 per machine.
 const MAX_CHATS: usize = 8;
 const MAX_PROMPT_BYTES: usize = 256 * 1024;
@@ -522,6 +528,8 @@ struct Platform<H: Http> {
     url: String,
     runner: Runner,
     now_wall_ms: fn() -> u64,
+    /// The machine's address changes ([`cmux_server::cloud_http::network_watch`]): one during a dial ends it.
+    network: watch::Receiver<u64>,
 }
 
 impl<H: Http> Dial for Platform<H> {
@@ -537,10 +545,12 @@ impl<H: Http> Dial for Platform<H> {
         resumes: &mut watch::Receiver<u64>,
         seen: u64,
     ) -> Option<Result<Ended, String>> {
+        let changes = *self.network.borrow();
         match self.client.token((self.now_wall_ms)()) {
             Ok(token) => {
-                let serving =
-                    serve(&self.url, &token, &self.runner, link, resumes, seen, self.now_wall_ms);
+                let dial =
+                    Dialing { url: &self.url, token: &token, network: &mut self.network, changes };
+                let serving = serve(dial, &self.runner, link, resumes, seen, self.now_wall_ms);
                 rt.block_on(or_stop(stop, serving))
             }
             Err(e) => Some(Err(format!("token: {e}"))),
@@ -570,8 +580,8 @@ fn run<H: Http>(
     let Some(url) = relay_url(bound.env.platform_origin(), &bound.machine) else {
         return log("relay: no relay URL for this machine");
     };
-    let mut platform = Platform { client, url, runner, now_wall_ms };
     let network = cmux_server::cloud_http::network_watch();
+    let mut platform = Platform { client, url, runner, now_wall_ms, network: network.clone() };
     relay_loop(&rt, &mut platform, log, &mut stop, &mut resumes, &network, detached);
     // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
 }
@@ -586,7 +596,7 @@ fn relay_loop(
     network: &watch::Receiver<u64>,
     detached: Arc<AtomicBool>,
 ) {
-    let mut backoff = Duration::from_secs(1);
+    let mut backoff = FIRST_BACKOFF;
     let mut last_error = String::new();
     let mut seen = *resumes.borrow();
     // The chats outlive every socket: each end leaves them running, and the next socket carries their events.
@@ -604,11 +614,11 @@ fn relay_loop(
                 log("relay: the machine resumed; dialing again");
                 seen = *resumes.borrow();
                 dial.reset_transport();
-                backoff = Duration::from_secs(1);
+                backoff = FIRST_BACKOFF;
                 continue;
             }
             // A socket that was up resets the backoff.
-            Ok(Ended::Dropped) => backoff = Duration::from_secs(1),
+            Ok(Ended::Dropped) => backoff = FIRST_BACKOFF,
             Err(e) => {
                 if e != last_error {
                     log(&format!("relay: {e}"));
@@ -617,10 +627,12 @@ fn relay_loop(
                 // The machine's addresses changed during the attempt (a fresh machine's network attach lands about
                 // a second after its bind) and failed it: the next one goes at once, on a fresh connection.
                 if *network.borrow() != changes {
-                    backoff = Duration::from_secs(1);
+                    backoff = FIRST_BACKOFF;
                     continue;
                 }
-                backoff = (backoff * 2).min(Duration::from_secs(30));
+                pause(rt, stop, resumes, seen, backoff);
+                backoff = (backoff * 2).min(MAX_BACKOFF);
+                continue;
             }
         }
         pause(rt, stop, resumes, seen, backoff);
@@ -700,29 +712,43 @@ fn slept_through(last_wall_ms: u64, now_wall_ms: u64) -> bool {
     now_wall_ms.saturating_sub(last_wall_ms) > DEAD_AFTER.as_millis() as u64
 }
 
-/// One connection, until it drops, the machine resumes (a resume past `seen`) or `link` ends.
+/// Where and how one connection dials: the relay URL, the bearer, and the address-change count it started at.
+struct Dialing<'a> {
+    url: &'a str,
+    token: &'a str,
+    network: &'a mut watch::Receiver<u64>,
+    changes: u64,
+}
+
+/// One connection, until it drops, the machine resumes (a resume past `seen`) or `link` ends. A change of the
+/// machine's addresses during the dial ends it at once: the connection was opened on the old ones and would hang to
+/// [`CONNECT_TIMEOUT`] (the caller dials again at once when the count moved).
 async fn serve(
-    url: &str,
-    token: &str,
+    dial: Dialing<'_>,
     runner: &Runner,
     link: &mut Link,
     resumes: &mut watch::Receiver<u64>,
     seen: u64,
     now_wall_ms: fn() -> u64,
 ) -> Result<Ended, String> {
+    let Dialing { url, token, network, changes } = dial;
     let mut request = url.into_client_request().map_err(|e| format!("request: {e}"))?;
     let bearer =
         HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| "bearer".to_owned())?;
     request.headers_mut().insert("authorization", bearer);
-    let (ws, _) = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(request))
-        .await
-        .map_err(|_| "connect timed out".to_owned())?
-        .map_err(|e| match e {
-            tokio_tungstenite::tungstenite::Error::Http(r) => {
-                format!("refused: HTTP {}", r.status())
-            }
-            e => format!("connect: {e}"),
-        })?;
+    let connect = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(request));
+    let connected = tokio::select! {
+        connected = connect => connected,
+        Ok(_) = network.wait_for(|n| *n != changes) => {
+            return Err("connect: the machine's addresses changed".to_owned());
+        }
+    };
+    let (ws, _) = connected.map_err(|_| "connect timed out".to_owned())?.map_err(|e| match e {
+        tokio_tungstenite::tungstenite::Error::Http(r) => {
+            format!("refused: HTTP {}", r.status())
+        }
+        e => format!("connect: {e}"),
+    })?;
     let (mut sink, mut stream) = ws.split();
     let Link { chats, tx, rx, detached } = link;
     let mut ping = tokio::time::interval(PING_EVERY);

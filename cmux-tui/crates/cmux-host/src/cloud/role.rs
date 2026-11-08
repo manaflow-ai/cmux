@@ -26,6 +26,7 @@ use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContext};
 use serde_json::{Value, json};
 
+use super::agent_socket::listen;
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
@@ -527,6 +528,8 @@ struct Worker {
     live: Option<Live>,
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
     github: Minter<PosterHttp>,
+    /// The session host's relay Register tickets, on their own socket and thread (`carrier_server.rs`).
+    carrier: Option<super::carrier_server::CarrierServer<PosterHttp>>,
     /// The carrier grant keyset's own fetch (`carrier_keyset.rs`).
     keyset: super::carrier_keyset::Refresher<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
@@ -590,6 +593,7 @@ impl Worker {
             },
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
+            carrier: None,
             keyset,
             trajectories,
             relay: None,
@@ -610,7 +614,15 @@ impl Worker {
     }
 
     fn run(&mut self) -> io::Result<()> {
-        self.listener = self.serve_socket().map_err(|e| log(&format!("agent socket: {e}"))).ok();
+        self.listener =
+            listen(&self.paths, AGENT_SOCKET).map_err(|e| log(&format!("agent socket: {e}"))).ok();
+        // Before the bind: a ticket asked meanwhile waits for it there, not in this loop.
+        self.carrier = listen(&self.paths, super::carrier_server::CARRIER_SOCKET)
+            .and_then(|listener| {
+                super::carrier_server::CarrierServer::spawn(listener, wall_ms, log)
+            })
+            .map_err(|e| log(&format!("carrier socket: {e}")))
+            .ok();
         if self.store.read(BIND_FILE).is_some() {
             self.bind_now();
         } else if let Some(saved) = self.store.read(BOUND_FILE) {
@@ -750,24 +762,6 @@ impl Worker {
             }
         }
         Ok(false)
-    }
-
-    fn serve_socket(&self) -> io::Result<UnixListener> {
-        let path = self.paths.at(AGENT_SOCKET);
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir)?;
-            fs::set_permissions(dir, fs::Permissions::from_mode(0o755))?;
-        }
-        let _ = fs::remove_file(&path);
-        let listener = UnixListener::bind(&path)?;
-        listener.set_nonblocking(true)?;
-        if self.paths.is_system_root()
-            && let Some(gid) = group_id("cmux")
-        {
-            std::os::unix::fs::chown(&path, Some(0), Some(gid))?;
-        }
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o660))?;
-        Ok(listener)
     }
 
     fn accept(&mut self) {
@@ -1084,6 +1078,12 @@ impl Worker {
         match github_client(&bound, &key) {
             Ok(client) => self.github.bound(client),
             Err(e) => log(&format!("github minter: {e}")),
+        }
+        if let Some(carrier) = self.carrier.as_ref() {
+            match github_client(&bound, &key) {
+                Ok(client) => carrier.bound(client),
+                Err(e) => log(&format!("carrier ticket: {e}")),
+            }
         }
         match github_client(&bound, &key) {
             Ok(client) => self.keyset.bound(client),
@@ -1448,17 +1448,6 @@ fn take_lines(buf: &mut Vec<u8>) -> Vec<String> {
         out.push(String::from_utf8_lossy(&line).into_owned());
     }
     out
-}
-
-fn group_id(name: &str) -> Option<u32> {
-    let cname = std::ffi::CString::new(name).ok()?;
-    // SAFETY: getgrnam returns a pointer to static storage or null.
-    let group = unsafe { libc::getgrnam(cname.as_ptr()) };
-    if group.is_null() {
-        return None;
-    }
-    // SAFETY: non-null result from getgrnam.
-    Some(unsafe { (*group).gr_gid })
 }
 
 /// `cmux host cloud probe-activity`: the daemon advertises vm-activity-v1

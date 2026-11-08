@@ -105,7 +105,9 @@ impl Dial for Local {
             rt.block_on(or_stop(stop, std::future::pending::<()>()));
             return None;
         };
-        rt.block_on(or_stop(stop, serve(&url, "t", &self.runner, link, resumes, seen, wall)))
+        let (_network, mut network) = watch::channel(0u64);
+        let dial = Dialing { url: &url, token: "t", network: &mut network, changes: 0 };
+        rt.block_on(or_stop(stop, serve(dial, &self.runner, link, resumes, seen, wall)))
     }
 }
 

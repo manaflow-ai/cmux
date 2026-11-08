@@ -41,7 +41,9 @@ fn a_resume_drops_the_socket_at_once_and_keeps_its_chats() {
         };
         let runner = runner();
         let started = std::time::Instant::now();
-        let serving = serve(&url, "t", &runner, &mut link, &mut resumes, 0, wall);
+        let (_network, mut network) = watch::channel(0u64);
+        let dial = Dialing { url: &url, token: "t", network: &mut network, changes: 0 };
+        let serving = serve(dial, &runner, &mut link, &mut resumes, 0, wall);
         let (ended, gone) =
             tokio::join!(tokio::time::timeout(Duration::from_secs(5), serving), endpoint);
         let ended = ended.map_err(|_| "still serving the old socket 5 s after the resume");
@@ -51,6 +53,35 @@ fn a_resume_drops_the_socket_at_once_and_keeps_its_chats() {
         tokio::task::yield_now().await;
         assert!(!chat.is_finished(), "a running chat goes on to the next socket");
         assert!(link.chats.0.contains_key("c1"));
+    });
+}
+
+#[test]
+fn a_dial_the_address_change_caught_ends_at_the_change_not_the_connect_timeout() {
+    // A fresh machine's network attach lands about a second after its bind: the relay's first dial, opened on the
+    // old addresses, hung to its 20 s connect timeout (cloud-chat-replies-production 2026-11-07T23:55Z:
+    // `relay: connect timed out`). The platform's end here accepts the TCP connection and never answers the upgrade.
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/relay", listener.local_addr().unwrap());
+        let (changed, mut network) = watch::channel(0u64);
+        let (_resume, mut resumes) = watch::channel(0u64);
+        let mut link = Link::default();
+        let runner = runner();
+        let endpoint = async {
+            let (tcp, _) = listener.accept().await.unwrap();
+            changed.send_modify(|n| *n += 1);
+            tcp
+        };
+        let started = std::time::Instant::now();
+        let dial = Dialing { url: &url, token: "t", network: &mut network, changes: 0 };
+        let serving = serve(dial, &runner, &mut link, &mut resumes, 0, wall);
+        let (ended, _tcp) =
+            tokio::join!(tokio::time::timeout(Duration::from_secs(5), serving), endpoint);
+        let ended = ended.map_err(|_| "the dial waited past the address change");
+        assert_eq!(ended, Ok(Err("connect: the machine's addresses changed".to_owned())));
+        assert!(started.elapsed() < Duration::from_secs(2));
     });
 }
 
@@ -127,6 +158,8 @@ fn a_token_the_network_change_failed_is_retried_at_once() {
 }
 
 #[test]
-fn an_ordinary_token_failure_still_backs_off() {
-    assert!(retry_gap(false) >= Duration::from_secs(1));
+fn an_ordinary_failure_backs_off_a_quarter_second_first_not_two() {
+    let gap = retry_gap(false);
+    assert!(gap >= FIRST_BACKOFF, "retried after {gap:?}");
+    assert!(gap < Duration::from_secs(1), "the first retry waited {gap:?}");
 }
