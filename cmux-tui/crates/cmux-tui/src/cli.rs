@@ -137,10 +137,14 @@ pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
 mod mcp;
 mod older_daemon;
+mod pane_context;
+#[cfg(unix)]
+mod pane_identify;
 mod raw;
 #[cfg(unix)]
 mod remote_host;
 mod resolve;
+mod root_help;
 mod scope_help;
 mod screen_help;
 #[cfg(unix)]
@@ -152,6 +156,7 @@ mod share_cli;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
+mod skill;
 #[cfg(unix)]
 mod status;
 mod surface;
@@ -206,7 +211,7 @@ const PUBLIC_SCOPES: &[&str] = &[
 /// (`raw command`, `session current snapshot`), the app's daemon launcher and
 /// SSH remotes run the binary as `cmux-tui`, so these keep working there.
 const CMUX_TUI_ONLY_SCOPES: &[&str] =
-    &["session", "client", "sidebar", "pairing", "projection", "provider", "raw", "conversation"];
+    &["sidebar", "pairing", "projection", "provider", "raw", "conversation"];
 
 const REMOTE_COMMANDS: &[&str] = &[
     "remote",
@@ -650,6 +655,14 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| attention::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {
+        return code;
+    }
+    // `cmux identify` in a cmux-tui pane answers for the pane's own session.
+    #[cfg(unix)]
+    if let Some(code) = pane_identify::run_if_requested(args) {
+        return code;
+    }
+    if let Some(code) = skill::run_if_requested(args) {
         return code;
     }
     #[cfg(unix)]
@@ -1251,7 +1264,13 @@ fn print_scope_help(scope: Option<&str>, surface: Surface) {
         }
         (Some(scope), _) => scope_help(scope),
         // The root help lists `vm` itself, with `cloud` as its old name, in each language.
-        (None, Surface::Cmux) => Cow::Borrowed(catalog.local_server.cmux_root_help),
+        // Without the app (or in a cmux-tui pane the app does not own), the
+        // app's scopes move under one heading that says they need it.
+        (None, Surface::Cmux) => root_help::render(
+            catalog.local_server.cmux_root_help,
+            root_help::app_place(None),
+            &catalog.pane_cli,
+        ),
         (None, Surface::CmuxTui) => Cow::Owned(root_help(&catalog.local_server)),
     };
     let mut stdout = io::stdout().lock();

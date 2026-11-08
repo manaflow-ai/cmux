@@ -255,3 +255,11 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
 extension String {
     var nonEmpty: String? { isEmpty ? nil : self }
 }
+
+public extension CloudMachine {
+    /// Whether Open Desktop can show this machine: only over the carrier's `desktop` service (`cmux-rd`),
+    /// so only a cmux-next machine that serves its desktop. A classic machine has no carrier route. Who may
+    /// watch it is the carrier's call: it refuses anyone but the creator (`service_refused`, exit 6).
+    /// The record's own `desktop` gates it, never a promoted capability (`provider_operations` may list it).
+    var opensCarrierDesktop: Bool { provider == "cmux-next" && servesDesktop }
+}
