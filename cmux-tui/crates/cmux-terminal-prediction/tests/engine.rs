@@ -1160,3 +1160,56 @@ fn output_after_a_contradicted_prediction_does_not_re_arm_by_matching_new_keys()
         session.status()
     );
 }
+
+#[test]
+fn an_echo_sooner_than_half_the_round_trip_does_not_misalign_the_queue() {
+    // Half the measured round trip is typical, not a floor. When the link
+    // speeds up, a tracked key's echo can come sooner; taking it for an older
+    // key's echo would match every later echo to the wrong key and draw the
+    // next glyph cells away from the cursor.
+    let mut session = Session::new();
+    for key in ["l", "s", "q", "r"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("\x7f", ms(100));
+    session.type_key_after("a", ms(100));
+    for (echoed, next) in [("a", "b"), ("b", "c"), ("c", "a"), ("a", "b")] {
+        session.remote_after(echoed, ms(40));
+        session.type_key_after(next, ms(60));
+    }
+    session.remote_after("b", ms(40));
+    session.type_key_after("z", ms(10));
+    assert!(
+        !session.drawn().contains('z'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn output_before_an_opaque_period_ends_is_not_taken_for_echo_when_the_window_would_close() {
+    // A contradicted guess keeps output opaque for a settle period from the
+    // contradiction, which can end after the untracked window from the key
+    // itself. Redraw text in between must not confirm keys typed since.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("q", ms(100));
+    session.remote_after("Z", ms(120));
+    session.type_key_after("y", ms(80));
+    session.type_key_after("z", ms(100));
+    session.remote_after("yz", ms(60));
+    session.type_key_after("w", ms(20));
+    assert!(
+        !session.drawn().contains('w'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}

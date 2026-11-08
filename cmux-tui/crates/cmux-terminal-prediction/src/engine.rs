@@ -945,6 +945,7 @@ impl TerminalPredictionEngine {
             let deadline = newest + self.untracked_echo_settle();
             self.untracked_echo_deadline =
                 Some(self.untracked_echo_deadline.map_or(deadline, |d| d.max(deadline)));
+            self.keep_window_open_while_opaque();
         }
         self.entries.clear();
         self.end_run();
@@ -1042,12 +1043,12 @@ impl TerminalPredictionEngine {
         }
     }
 
-    /// Whose output this is, inside the untracked window. The oldest key
-    /// tracked since echoes the character it expects, no sooner than half a
-    /// measured round trip after it was sent; an older key's echo comes first
-    /// and was sent at least that much earlier. Output that fits both is
-    /// ambiguous when an untracked key had the same byte, or one whose effect
-    /// is unknown may still be printing.
+    /// Whose output this is, inside the untracked window. Output other than
+    /// the character the oldest key tracked since expects is an older key's
+    /// echo. The expected character is that key's echo only when it comes at
+    /// least half a measured round trip after the key, no untracked key had
+    /// the same byte, and no output whose extent is unknown may still be
+    /// printing; otherwise it is ambiguous.
     fn classify_untracked_output(&self, signal: OutputSignal, now: Duration) -> UntrackedOutput {
         let OutputSignal::Printable(byte) = signal else {
             return UntrackedOutput::Older;
@@ -1055,12 +1056,16 @@ impl TerminalPredictionEngine {
         let Some((_, entry)) = self.first_speculative_entry() else {
             return UntrackedOutput::Older;
         };
-        let earliest = entry.typed_at
-            + self.smoothed_echo_latency.map_or(Duration::ZERO, |latency| latency / 2);
-        if entry.keystroke != Keystroke::Glyph(byte) || now < earliest {
+        if entry.keystroke != Keystroke::Glyph(byte) {
             return UntrackedOutput::Older;
         }
-        let opaque = self.opaque_echo_until.is_some_and(|until| now < until);
+        // Half the smoothed round trip is typical, not a floor: the link can
+        // speed up, so a matching byte that comes sooner may still be this
+        // key's echo, and taking it for an older one would leave every later
+        // echo matched to the wrong key.
+        let earliest = entry.typed_at
+            + self.smoothed_echo_latency.map_or(Duration::ZERO, |latency| latency / 2);
+        let opaque = now < earliest || self.opaque_echo_until.is_some_and(|until| now < until);
         let settle = self.untracked_echo_settle();
         let same_byte_in_flight = self
             .untracked_bytes
@@ -1088,6 +1093,17 @@ impl TerminalPredictionEngine {
         let until = now + self.untracked_echo_settle();
         self.opaque_echo_until =
             Some(self.opaque_echo_until.map_or(until, |known| known.max(until)));
+        self.keep_window_open_while_opaque();
+    }
+
+    /// Closing the window ends opacity too, so an open window lasts at least
+    /// until the opaque output it covers has settled.
+    fn keep_window_open_while_opaque(&mut self) {
+        if let (Some(deadline), Some(until)) =
+            (self.untracked_echo_deadline, self.opaque_echo_until)
+        {
+            self.untracked_echo_deadline = Some(deadline.max(until));
+        }
     }
 
     fn close_untracked_window(&mut self) {
