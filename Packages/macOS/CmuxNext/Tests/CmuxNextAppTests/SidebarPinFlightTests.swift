@@ -276,6 +276,33 @@ struct SidebarPinFlightTests {
 
     @Test func anUnpinMovesTheItemBackToItsRow() throws { try move(pin: false) }
 
+    /// The app's pin reaches the list in two updates: the rows (the workspace leaves the list), then a frame later the
+    /// blocks (the Pinned item). The row stays where it is drawn until the item takes over its frame, then moves.
+    @Test func aPinWhoseBlockComesLaterStartsOnTheRow() throws {
+        let (list, window) = Self.list(pins: [])
+        defer { window.close() }
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        list.model.workspacePin = (isPinned: { $0 == Self.moved }, toggle: { _ in })
+        let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
+        let startFrame = list.convert(start.bounds, from: start)
+        let (sections, blocks) = Self.state([Self.moved])
+        list.model.sections = sections
+        list.reload(animated: true)
+        CATransaction.flush()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        list.blocks = blocks
+        list.reload(animated: true)
+        let now = CACurrentMediaTime()
+        let probes = Self.probes(Self.moved, list, now: now)
+        let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
+        var failures: [String] = []
+        Self.checkPath("pinned d (rows first)", probes: probes, now: now, start: startFrame,
+                       end: list.convert(arrived.bounds, from: arrived), failures: &failures)
+        #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
+        #expect(list.pinHolds.isEmpty, "the row still waits after its block came")
+    }
+
     /// Pin, then unpin 60 ms later: the unpin starts where the pin has the workspace drawn (no jump), with one copy on
     /// every tick, and moves to its row from rest (no velocity carried: it never passes the row).
     @Test func aRetargetStartsWhereTheMoveIs() throws {
