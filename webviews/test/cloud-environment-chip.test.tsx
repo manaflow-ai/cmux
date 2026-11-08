@@ -1,10 +1,13 @@
 // The composer's Cloud Environment chip (CloudEnvironmentChip.tsx), behind the launch flag
-// CLOUD_ENVIRONMENTS_ENABLED. Leo, 2026-11-07: "you pick the cloud thing, and then you have another
+// CLOUD_ENVIRONMENTS_ENABLED (on by default; `0` or `false` turns it off). Leo, 2026-11-07: "you pick the cloud thing, and then you have another
 // thing, drop down, or, you know, drop up, that is, because you don't want to hide the composer. So
 // the drop up, it goes, like, it's auto by default, but then you can also say create environment."
 // And: "maybe we should just name it remote instead of, like, add on another machine."
 //   - Where's third row reads Remote;
-//   - the chip shows only while Cloud is the pick, and only with the flag on;
+//   - the chip shows only while Cloud is the pick, and only with the flag on, which an absent
+//     value is;
+//   - an account whose environments cannot be read (production's 404 for /v1/cloud-environments,
+//     signed out, offline) still shows the chip on Auto, quietly, and starts chats as before;
 //   - its drop-up opens up (never over the composer; the geometry is the gallery's,
 //     cloud-environment-chip-geometry.test.ts) and lists Auto, the project's recent environments,
 //     New environment…, Edit <current>…, then New Cloud machine…;
@@ -127,7 +130,8 @@ afterEach(async () => {
   root = undefined;
   host.replaceChildren();
   (await import("../src/agent-session/acpmux/native")).setNativeHost(undefined);
-  (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({ cloudEnvironments: false });
+  const settings = await import("../src/agent-session/acpmux/composerSettings");
+  settings.setComposerSettings(settings.DEFAULT_COMPOSER);
 });
 
 afterAll(async () => {
@@ -144,7 +148,8 @@ const flush = () => act(async () => await new Promise((done) => setTimeout(done,
 /// App.tsx's hold of a new chat's pick (useChatCloudEnvironment): the harness's chat and its send.
 let chatSend: ((explicit?: string) => string | undefined) | undefined;
 
-async function mount({ flag, mode, chat: firstChat }: { flag: boolean; mode: "persistent" | "cloud"; chat?: string }) {
+/// `flag` undefined is a page the host has told nothing: the default.
+async function mount({ flag, mode, chat: firstChat }: { flag?: boolean; mode: "persistent" | "cloud"; chat?: string }) {
   let chat = firstChat;
   const { createRoot } = await import("react-dom/client");
   const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
@@ -156,7 +161,8 @@ async function mount({ flag, mode, chat: firstChat }: { flag: boolean; mode: "pe
     chatSend = (explicit) => held.forSend(explicit);
     return <ComposerContext {...rest} runMode={{ ...rest.runMode!, environment: held.pick }} />;
   }
-  (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({ cloudEnvironments: flag });
+  const settings = await import("../src/agent-session/acpmux/composerSettings");
+  settings.setComposerSettings(flag === undefined ? settings.DEFAULT_COMPOSER : { cloudEnvironments: flag });
   const props = {
     environments: true,
     stripLayout: "where-machine",
@@ -215,6 +221,91 @@ test("Where's third row reads Remote, not Another machine", async () => {
   expect(labels).toContain("Remote");
   expect(labels).not.toContain("Another machine");
 });
+
+/// What App.tsx sendToCloud hands startCloudChat for the harness's chat, as `cloud.startChat` reaches
+/// the host.
+async function sendFromChat(): Promise<[string, Record<string, unknown>][]> {
+  const { startCloudChat } = await import("../src/agent-session/acpmux/cloudRun");
+  const sent: [string, Record<string, unknown>][] = [];
+  let environment: string | undefined;
+  act(() => void (environment = chatSend!(undefined)));
+  await startCloudChat(
+    async (method, params) => void sent.push([method, params]),
+    { task: "Fix the build", cwd: "/Users/you/src/cmux", harness: "claude", ...(environment ? { environment } : {}) },
+    "send-1",
+  );
+  await flush();
+  return sent;
+}
+const autoStart: [string, Record<string, unknown>][] = [
+  ["cloud.startChat", { task: "Fix the build", cwd: "/Users/you/src/cmux", harness: "claude", key: "send-1" }],
+];
+
+test("on by default: an absent flag reads on, and only false turns it off", async () => {
+  const { DEFAULT_COMPOSER, readComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  expect(DEFAULT_COMPOSER.cloudEnvironments).toBe(true);
+  expect(readComposerSettings({}).cloudEnvironments).toBe(true);
+  expect(readComposerSettings({ cloudEnvironments: "0" }).cloudEnvironments).toBe(true);
+  expect(readComposerSettings({ cloudEnvironments: false }).cloudEnvironments).toBe(false);
+});
+
+test("the flag absent: Cloud shows the chip on Auto, Auto is checked, and startChat names no environment", async () => {
+  await mount({ mode: "cloud", chat: "new-1" });
+  expect(slot()?.dataset.shown).toBe("true");
+  expect(chipButton()?.getAttribute("aria-label")).toBe(`${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`);
+  await openChip();
+  expect(row(t("composer.envAuto"))?.getAttribute("aria-checked")).toBe("true");
+  dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await flush();
+  const sent = await sendFromChat();
+  expect(sent).toEqual(autoStart);
+  expect("environment" in sent[0]![1]).toBe(false);
+});
+
+for (const [name, answer] of [
+  ["rejects (production's 404 for /v1/cloud-environments)", () => Promise.reject(new Error("HTTP 404: Not Found"))],
+  ["answers no list", () => Promise.resolve({ error: "not_found", status: 404 })],
+] as const) {
+  test(`cloud.environment.list ${name}: the chip still reads Auto, quietly, and the chat starts with no environment`, async () => {
+    (await import("../src/agent-session/acpmux/native")).setNativeHost(async (method, params) => {
+      native.push([method, params]);
+      if (method === "cloud.environment.list") return answer();
+      return {};
+    });
+    const errors: unknown[] = [];
+    const quiet = { error: console.error, warn: console.warn };
+    console.error = (...args: unknown[]) => void errors.push(args);
+    console.warn = (...args: unknown[]) => void errors.push(args);
+    const unhandled = (event: unknown) => void errors.push(event);
+    process.on("unhandledRejection", unhandled);
+    try {
+      await mount({ mode: "cloud", chat: "new-1" });
+      expect(slot()?.dataset.shown).toBe("true");
+      expect(chipButton()?.getAttribute("aria-label")).toBe(`${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`);
+      // Opening reads again (and fails again): Auto, New, Edit Auto's, New Cloud machine, Auto checked.
+      await openChip();
+      expect(rowLabels()).toEqual([
+        t("composer.envAuto"),
+        t("composer.envNew"),
+        t("composer.envEdit", { name: t("composer.envAuto") }),
+        t("composer.envNewMachine"),
+      ]);
+      expect(row(t("composer.envAuto"))?.getAttribute("aria-checked")).toBe("true");
+      expect(native.filter(([method]) => method === "cloud.environment.list").length).toBe(2);
+      // Nothing about the failure shows: no alert or error row in the strip or the drop-up.
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+      expect(menu()?.querySelector('[role="alert"]') ?? null).toBeNull();
+      dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await flush();
+      expect(await sendFromChat()).toEqual(autoStart);
+      expect(errors).toEqual([]);
+    } finally {
+      console.error = quiet.error;
+      console.warn = quiet.warn;
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+}
 
 test("the flag off: no Environment chip, with Cloud picked or not, and nothing is read", async () => {
   const render = await mount({ flag: false, mode: "cloud" });

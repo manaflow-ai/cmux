@@ -258,8 +258,8 @@ export function ComposerContext({
   /// chooser; another machine's folders are its listed ones or a typed path.
   extraFolders?: ExtraFolderControl;
   /// Gallery and test seam: the Environment chip's control (CloudEnvironmentChip.tsx). Omitted, a new
-  /// chat's strip reads the account's environments itself while CLOUD_ENVIRONMENTS_ENABLED is on
-  /// (composerSettings.ts `cloudEnvironments`); off, there is no chip.
+  /// chat's strip reads the account's environments itself while CLOUD_ENVIRONMENTS_ENABLED is on (the
+  /// default; composerSettings.ts `cloudEnvironments`); off, there is no chip.
   cloudEnvironment?: CloudEnvironmentControl;
   /// Gallery seam: how the Environment chip's drop-up draws its rows (`list` ships).
   cloudEnvironmentDropUp?: CloudEnvironmentDropUp;

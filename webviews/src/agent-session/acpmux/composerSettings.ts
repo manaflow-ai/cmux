@@ -41,7 +41,8 @@
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
 // AgentPaneTunables.cloudEnvironmentsEnabled, read from the bundle's LSEnvironment or the launch
 // environment as CMUX_NEXT_CLOUD_NATIVE_LINK is; no cmux.json key): on, picking Cloud in a new
-// chat's strip adds the Environment chip (CloudEnvironmentChip.tsx). Off unless the host says true.
+// chat's strip adds the Environment chip (CloudEnvironmentChip.tsx), on Auto. On by default, as the
+// host's flag is: only the host's `false` (CLOUD_ENVIRONMENTS_ENABLED=0 or false) hides it.
 import { useSyncExternalStore } from "react";
 
 // `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
@@ -90,7 +91,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   showMachineLoadWarnings: true,
   newChatsIn: "local",
   composerRing: "context",
-  cloudEnvironments: false,
+  cloudEnvironments: true,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
