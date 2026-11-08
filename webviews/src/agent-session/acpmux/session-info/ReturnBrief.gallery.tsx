@@ -46,8 +46,11 @@ const base: ReturnBriefInput = {
     expiresAt: NOW + 100_000,
   },
   approval: {
-    ownerRead: true, sessionId: "session-synthetic-17", turnId: "turn-4",
-    authority: "acpmux", state: "approved",
+    ownerRead: true,
+    sessionId: "session-synthetic-17",
+    turnId: "turn-4",
+    authority: "acpmux",
+    state: "approved",
   },
   pullRequest: { ownerRead: true, repository: "example/atlas", number: 17, headCommit: COMMIT, state: "open" },
   risks: ["Network interruption retry awaits an exact-build runtime test"],
@@ -87,9 +90,11 @@ function GalleryReturnBrief({ caseName }: Props) {
           <ReturnBrief
             input={cases[caseName]}
             onReviewChanges={() => setAction("Review diff requested · production host would open existing Changes")}
-            onOpenArtifact={(id, revision) => setAction("Open " + id + " @ " + revision.slice(0, 12) + " requested · production host must reauthorize")}
+            onOpenArtifact={(id, revision) =>
+              setAction("Open " + id + " @ " + revision.slice(0, 12) + " requested · production host must reauthorize")
+            }
           />
-          {action && <p className="acpmux-return-brief__fixture" role="status">{action}</p>}
+          {action && <output className="acpmux-return-brief__fixture">{action}</output>}
         </div>
       </SessionInfoPanel>
     </div>

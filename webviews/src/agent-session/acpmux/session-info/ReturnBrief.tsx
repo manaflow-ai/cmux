@@ -26,14 +26,24 @@ function EvidenceRow({ item, action }: { item: ReviewItem; action?: () => void }
   const heading = (
     <>
       <span className="acpmux-return-brief__item-title">{item.label}</span>
-      <span className="acpmux-return-brief__level" data-level={item.level}>{levelName[item.level]}</span>
+      <span className="acpmux-return-brief__level" data-level={item.level}>
+        {levelName[item.level]}
+      </span>
     </>
   );
   let control: ReactNode;
   if (action) {
-    control = <button type="button" className="acpmux-return-brief__go" onClick={action}>Review</button>;
+    control = (
+      <button type="button" className="acpmux-return-brief__go" onClick={action}>
+        Review
+      </button>
+    );
   } else if (item.href) {
-    control = <a className="acpmux-return-brief__go" href={item.href} target="_blank" rel="noopener noreferrer">Open</a>;
+    control = (
+      <a className="acpmux-return-brief__go" href={item.href} target="_blank" rel="noopener noreferrer">
+        Open
+      </a>
+    );
   }
   return (
     <li className="acpmux-return-brief__item" data-evidence={item.level}>
@@ -50,7 +60,7 @@ export function ReturnBrief({ input, onReviewChanges, onOpenArtifact }: ReturnBr
   const report = returnBrief(input);
   const artifact = input.artifact;
   return (
-    <div className="acpmux-return-brief" role="region" aria-label="Return brief">
+    <section className="acpmux-return-brief" aria-label="Return brief">
       <div className="acpmux-return-brief__heading">
         <h2>Return brief</h2>
         <p>Review what the chat produced, then open the original evidence.</p>
@@ -58,27 +68,40 @@ export function ReturnBrief({ input, onReviewChanges, onOpenArtifact }: ReturnBr
       <div className="acpmux-return-brief__source">
         <span>Source revision</span>
         <code title={input.commit}>{report.source}</code>
-        <span>Session {input.sessionId} · turn {input.turnId}</span>
+        <span>
+          Session {input.sessionId} · turn {input.turnId}
+        </span>
       </div>
       <ul className="acpmux-return-brief__items">
         {report.items.map((item) => (
           <EvidenceRow
             key={item.id}
             item={item}
-            action={item.action === "changes" ? onReviewChanges
-              : item.action === "artifact" && artifact && onOpenArtifact
-                ? () => onOpenArtifact(artifact.id, artifact.revision, artifact.path)
-                : undefined}
+            action={
+              item.action === "changes"
+                ? onReviewChanges
+                : item.action === "artifact" && artifact && onOpenArtifact
+                  ? () => onOpenArtifact(artifact.id, artifact.revision, artifact.path)
+                  : undefined
+            }
           />
         ))}
       </ul>
       <section className="acpmux-return-brief__risks" aria-label="Reported residual risks">
         <h3>Residual risks</h3>
         {report.risks.length ? (
-          <ul>{report.risks.map((risk, index) => <li key={index}>{risk}</li>)}</ul>
-        ) : <p>Risks unreported. Inspect the original task and owner logs.</p>}
-        <p className="acpmux-return-brief__disclaimer">Risk notes are reported claims. Evidence levels come from the identified owners.</p>
+          <ul>
+            {report.risks.map((risk, index) => (
+              <li key={index}>{risk}</li>
+            ))}
+          </ul>
+        ) : (
+          <p>Risks unreported. Inspect the original task and owner logs.</p>
+        )}
+        <p className="acpmux-return-brief__disclaimer">
+          Risk notes are reported claims. Evidence levels come from the identified owners.
+        </p>
       </section>
-    </div>
+    </section>
   );
 }
