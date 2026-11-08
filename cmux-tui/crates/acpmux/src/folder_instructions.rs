@@ -276,15 +276,36 @@ pub(crate) fn replace_beneath(
         })
         .and_then(|()| file.sync_all());
     let dirfd = dir.as_raw_fd();
-    // SAFETY: as above; whichever file is left under the temporary name is ours to remove.
+    // SAFETY: as above; only ever called while the temporary name holds our own copy.
     let drop_tmp = || unsafe { libc::unlinkat(dirfd, tmp.as_ptr(), 0) };
     if let Err(e) = written {
         drop_tmp();
         return Err(format!("{rel}: {e}"));
     }
+    // Our copy as written: after a swap back, the temporary name is removed only while it
+    // still holds exactly this.
+    // SAFETY: `file` is open and `st` is writable.
+    if unsafe { libc::fstat(file.as_raw_fd(), &mut st) } != 0 {
+        let e = std::io::Error::last_os_error();
+        drop_tmp();
+        return Err(format!("{rel}: {e}"));
+    }
+    let ours = Stamp::of(&st);
     #[cfg(test)]
-    before_swap(&name);
+    swap_hook(&name, "before");
     let changed = || format!("{rel} changed while it was being edited; try again");
+    // A version someone saved meanwhile, left under the temporary name rather than removed.
+    let kept = || {
+        format!(
+            "{rel} changed while it was being edited; the other version is kept as {}",
+            tmp.to_string_lossy()
+        )
+    };
+    let at_tmp = |st: &mut libc::stat| {
+        // SAFETY: as above.
+        (unsafe { libc::fstatat(dirfd, tmp.as_ptr(), st, libc::AT_SYMLINK_NOFOLLOW) } == 0)
+            .then(|| Stamp::of(st))
+    };
     match read {
         // No file was read: made only while there is still none.
         None => match rename(dirfd, &tmp, &name, Rename::NoReplace) {
@@ -299,21 +320,24 @@ pub(crate) fn replace_beneath(
             }
         },
         // The two swap at once; when the one swapped out is not the file read (an editor saved
-        // or appended meanwhile), they swap back and it is left as it is.
+        // or appended meanwhile), they swap back. Nothing but our own copy is ever removed: a
+        // version saved over ours between the two swaps stays under the temporary name.
         Some(read) => match rename(dirfd, &tmp, &name, Rename::Exchange) {
             Ok(()) => {
-                // SAFETY: as above.
-                let out = unsafe {
-                    libc::fstatat(dirfd, tmp.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW)
-                } == 0;
-                if out && Stamp::of(&st) == read {
+                if at_tmp(&mut st) == Some(read) {
                     drop_tmp();
                     return Ok(());
                 }
-                if rename(dirfd, &tmp, &name, Rename::Exchange).is_ok() {
-                    drop_tmp();
+                #[cfg(test)]
+                swap_hook(&name, "after");
+                if rename(dirfd, &tmp, &name, Rename::Exchange).is_err() {
+                    return Err(kept());
                 }
-                Err(changed())
+                if at_tmp(&mut st) == Some(ours) {
+                    drop_tmp();
+                    return Err(changed());
+                }
+                Err(kept())
             }
             Err(e) => {
                 drop_tmp();
@@ -374,15 +398,16 @@ fn rename(
     if done { Ok(()) } else { Err(std::io::Error::last_os_error()) }
 }
 
-/// A test's write into the window between the checks and the swap, given the file's name.
+/// A test's write into the windows of a replace: `before` the swap, and `after` a swap that
+/// found a change, before the swap back. Given the file's name and the window.
 #[cfg(test)]
-pub(crate) static BEFORE_SWAP: std::sync::Mutex<Option<Box<dyn Fn(&str) + Send>>> =
+pub(crate) static SWAP_HOOK: std::sync::Mutex<Option<Box<dyn Fn(&str, &str) + Send>>> =
     std::sync::Mutex::new(None);
 
 #[cfg(test)]
-fn before_swap(name: &std::ffi::CStr) {
-    if let Some(hook) = BEFORE_SWAP.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        hook(&name.to_string_lossy());
+fn swap_hook(name: &std::ffi::CStr, window: &str) {
+    if let Some(hook) = SWAP_HOOK.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        hook(&name.to_string_lossy(), window);
     }
 }
 
