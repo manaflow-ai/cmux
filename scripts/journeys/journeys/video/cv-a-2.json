@@ -1,0 +1,696 @@
+{
+ "id": "cv-a-2",
+ "priority": "P1",
+ "title": "CLOSE VARIANTS: cv-s3-mix-v0-150, cv-s3-mix-v1-150, cv-s3-mix-v3-150, cv-s6-cef-v0-150, cv-s6-cef-v1-150, cv-s6-cef-v3-150",
+ "why": "cmux-ad m57/m58 (Lawrence 2026-11-07): films of close-motion variants to pick from.",
+ "source": "close-perf task kit (video-cases/gen_closevariants.py)",
+ "budget_seconds": 148,
+ "recordings": [
+  "cv-s3-mix-v0-150",
+  "cv-s3-mix-v1-150",
+  "cv-s3-mix-v3-150",
+  "cv-s6-cef-v0-150",
+  "cv-s6-cef-v1-150",
+  "cv-s6-cef-v3-150"
+ ],
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "cv-a-2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo cv-ready-${nonce}",
+   "enter": true,
+   "mark": "ready"
+  },
+  {
+   "do": "expect",
+   "title": "set-up check: the app types",
+   "since": "ready",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "cv-ready-${nonce}"
+    },
+    {
+     "app_text_line": "cv-ready-${nonce}"
+    },
+    {
+     "frame_text": "cv-ready-${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, tab strips #000000, agent ground #0000FF, no close warning, new columns share the strip, no hover cards",
+   "set": {
+    "sidebar": {
+     "hoverCards": {
+      "enabled": false
+     }
+    },
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "Nord",
+     "themeEdits": {
+      "Nord/background": "#FF00FF",
+      "Builtin Dark/background": "#00FFFF"
+     },
+     "surfaces": {
+      "terminal": {
+       "color": "#00FFFF",
+       "opacity": 1
+      },
+      "tabBar": {
+       "color": "#000000",
+       "opacity": 1
+      },
+      "agentPane": {
+       "color": "#0000FF",
+       "opacity": 1
+      },
+      "newTabPage": {
+       "color": "#0000FF",
+       "opacity": 1
+      }
+     }
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "layout": {
+     "newColumnWidth": "fitScreen"
+    }
+   }
+  },
+  {
+   "do": "file",
+   "path": "/tmp/cv-lines.sh",
+   "text": "#!/bin/sh\ni=1\nwhile [ $i -le 80 ]; do\n  echo \"line $i: the quick brown fox jumps over the lazy dog; this long line wraps at the pane edge, so a resize re-wraps it (close-variants film, non-private text) $i\"\n  i=$((i+1))\ndone\n",
+   "title": "set-up: the long-lines script"
+  },
+  {
+   "do": "file",
+   "path": "/tmp/cv-long.txt",
+   "text": "001 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n002 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n003 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n004 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n005 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n006 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n007 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n008 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n009 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n010 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n011 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n012 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n013 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n014 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n015 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n016 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n017 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n018 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n019 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n020 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n021 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n022 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n023 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n024 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n025 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n026 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n027 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n028 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n029 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n030 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n031 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n032 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n033 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n034 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n035 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n036 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n037 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n038 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n039 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n040 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n041 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n042 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n043 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n044 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n045 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n046 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n047 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n048 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n049 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n050 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n051 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n052 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n053 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n054 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n055 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n056 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n057 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n058 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n059 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n060 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n061 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n062 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n063 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n064 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n065 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n066 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n067 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n068 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n069 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n070 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n071 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n072 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n073 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n074 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n075 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n076 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n077 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n078 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n079 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n080 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n081 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n082 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n083 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n084 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n085 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n086 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n087 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n088 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n089 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n090 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n091 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n092 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n093 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n094 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n095 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n096 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n097 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n098 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n099 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n100 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n101 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n102 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n103 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n104 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n105 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n106 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n107 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n108 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n109 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n110 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n111 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n112 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n113 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n114 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n115 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n116 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n117 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n118 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n119 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n120 nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. nvim long line with wrap on: the quick brown fox jumps over the lazy dog. \n",
+   "title": "set-up: the nvim long-lines file"
+  },
+  {
+   "do": "file",
+   "path": "/tmp/cv-claude.sh",
+   "text": "#!/bin/sh\ncd /tmp/cv-repo || exit 1\nexport CLAUDE_CONFIG_DIR=/tmp/cv-claude ANTHROPIC_BASE_URL=http://100.89.225.106:31415 ANTHROPIC_AUTH_TOKEN=film-dummy DISABLE_AUTOUPDATER=1 PATH=/opt/homebrew/bin:$PATH\nexec claude\n",
+   "title": "set-up: Claude Code launcher (subrouter, per-process env)"
+  },
+  {
+   "do": "file",
+   "path": "/tmp/cv-claude/.claude.json",
+   "text": "{\"hasCompletedOnboarding\": true, \"theme\": \"dark\", \"numStartups\": 5, \"projects\": {\"/tmp/cv-repo\": {\"hasTrustDialogAccepted\": true, \"hasCompletedProjectOnboarding\": true}, \"/private/tmp/cv-repo\": {\"hasTrustDialogAccepted\": true, \"hasCompletedProjectOnboarding\": true}}}",
+   "title": "set-up: Claude Code temp config (no onboarding)"
+  },
+  {
+   "do": "file",
+   "path": "/tmp/cv-repo/README.md",
+   "text": "# throwaway repo for close-variants films\n",
+   "title": "set-up: throwaway repo"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (S3)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "s3-nvim"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/cv-long.txt",
+   "enter": true,
+   "title": "set-up: run `PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/cv-long.txt`"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s3-nvim",
+   "title": "set-up: focus s3-nvim (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (S3 right)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "s3-zsh"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "sh /tmp/cv-lines.sh",
+   "enter": true,
+   "title": "set-up: run `sh /tmp/cv-lines.sh`"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s3-nvim",
+   "title": "set-up: focus s3-nvim (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (s3-mV0, the middle)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "s3-mV0"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s3-mV0",
+   "title": "set-up: focus s3-mV0 (cmux pane focus)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.close_variant",
+   "params": {
+    "variant": "V0",
+    "ms": 150,
+    "curve": "bezier"
+   },
+   "title": "film selector: V0 150 ms bezier"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "cv-s3-mix-v0-150",
+   "seconds": 5.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.8,
+   "title": "start the 120 Hz movie cv-s3-mix-v0-150"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cv-s3-mix-v0-150",
+   "i": 0,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.4,
+   "title": "Cmd-W (cv-s3-mix-v0-150)"
+  },
+  {
+   "do": "video_stop",
+   "name": "cv-s3-mix-v0-150",
+   "tail": 0.3,
+   "title": "the motion ends; stop the recording (cv-s3-mix-v0-150)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s3-nvim",
+   "title": "set-up: focus s3-nvim (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (s3-mV1, the middle)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "s3-mV1"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s3-mV1",
+   "title": "set-up: focus s3-mV1 (cmux pane focus)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.close_variant",
+   "params": {
+    "variant": "V1",
+    "ms": 150,
+    "curve": "bezier"
+   },
+   "title": "film selector: V1 150 ms bezier"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "cv-s3-mix-v1-150",
+   "seconds": 5.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.8,
+   "title": "start the 120 Hz movie cv-s3-mix-v1-150"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cv-s3-mix-v1-150",
+   "i": 0,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.4,
+   "title": "Cmd-W (cv-s3-mix-v1-150)"
+  },
+  {
+   "do": "video_stop",
+   "name": "cv-s3-mix-v1-150",
+   "tail": 0.3,
+   "title": "the motion ends; stop the recording (cv-s3-mix-v1-150)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s3-nvim",
+   "title": "set-up: focus s3-nvim (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (s3-mV3, the middle)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "s3-mV3"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s3-mV3",
+   "title": "set-up: focus s3-mV3 (cmux pane focus)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.close_variant",
+   "params": {
+    "variant": "V3",
+    "ms": 150,
+    "curve": "bezier"
+   },
+   "title": "film selector: V3 150 ms bezier"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "cv-s3-mix-v3-150",
+   "seconds": 5.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.8,
+   "title": "start the 120 Hz movie cv-s3-mix-v3-150"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cv-s3-mix-v3-150",
+   "i": 0,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.4,
+   "title": "Cmd-W (cv-s3-mix-v3-150)"
+  },
+  {
+   "do": "video_stop",
+   "name": "cv-s3-mix-v3-150",
+   "tail": 0.3,
+   "title": "the motion ends; stop the recording (cv-s3-mix-v3-150)"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (S6)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "s6-page"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "s6-page",
+   "engine": "cef",
+   "bg": "#FFFF00",
+   "settle": 1.0
+  },
+  {
+   "do": "cm_close_tab",
+   "pane": "s6-page",
+   "which": "first",
+   "title": "set-up: the terminal tab closed (the page stays)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s6-page",
+   "title": "set-up: focus s6-page (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitLeft",
+   "title": "set-up: splitLeft (s6-lV0)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "s6-lV0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s6-lV0",
+   "title": "set-up: focus s6-lV0 (cmux pane focus)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.close_variant",
+   "params": {
+    "variant": "V0",
+    "ms": 150,
+    "curve": "bezier"
+   },
+   "title": "film selector: V0 150 ms bezier"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "cv-s6-cef-v0-150",
+   "seconds": 5.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.8,
+   "title": "start the 120 Hz movie cv-s6-cef-v0-150"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cv-s6-cef-v0-150",
+   "i": 0,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.4,
+   "title": "Cmd-W (cv-s6-cef-v0-150)"
+  },
+  {
+   "do": "video_stop",
+   "name": "cv-s6-cef-v0-150",
+   "tail": 0.3,
+   "title": "the motion ends; stop the recording (cv-s6-cef-v0-150)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s6-page",
+   "title": "set-up: focus s6-page (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitLeft",
+   "title": "set-up: splitLeft (s6-lV1)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "s6-lV1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s6-lV1",
+   "title": "set-up: focus s6-lV1 (cmux pane focus)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.close_variant",
+   "params": {
+    "variant": "V1",
+    "ms": 150,
+    "curve": "bezier"
+   },
+   "title": "film selector: V1 150 ms bezier"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "cv-s6-cef-v1-150",
+   "seconds": 5.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.8,
+   "title": "start the 120 Hz movie cv-s6-cef-v1-150"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cv-s6-cef-v1-150",
+   "i": 0,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.4,
+   "title": "Cmd-W (cv-s6-cef-v1-150)"
+  },
+  {
+   "do": "video_stop",
+   "name": "cv-s6-cef-v1-150",
+   "tail": 0.3,
+   "title": "the motion ends; stop the recording (cv-s6-cef-v1-150)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s6-page",
+   "title": "set-up: focus s6-page (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitLeft",
+   "title": "set-up: splitLeft (s6-lV3)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "s6-lV3"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "s6-lV3",
+   "title": "set-up: focus s6-lV3 (cmux pane focus)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.close_variant",
+   "params": {
+    "variant": "V3",
+    "ms": 150,
+    "curve": "bezier"
+   },
+   "title": "film selector: V3 150 ms bezier"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "cv-s6-cef-v3-150",
+   "seconds": 5.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.8,
+   "title": "start the 120 Hz movie cv-s6-cef-v3-150"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cv-s6-cef-v3-150",
+   "i": 0,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.4,
+   "title": "Cmd-W (cv-s6-cef-v3-150)"
+  },
+  {
+   "do": "video_stop",
+   "name": "cv-s6-cef-v3-150",
+   "tail": 0.3,
+   "title": "the motion ends; stop the recording (cv-s6-cef-v3-150)"
+  }
+ ],
+ "finally": [
+  {
+   "do": "settings_file",
+   "title": "clean-up: the fixture colors off (the next journey's theme is its own)",
+   "set": {
+    "appearance": {
+     "appTheme": "followTerminal"
+    }
+   },
+   "unset": [
+    "appearance.themeEdits",
+    "appearance.surfaces",
+    "sidebar.hoverCards"
+   ]
+  }
+ ]
+}
