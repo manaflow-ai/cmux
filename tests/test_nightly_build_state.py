@@ -195,6 +195,38 @@ class DedicatedBuilder(unittest.TestCase):
         self.commit({'Prototypes/Lab/Package.swift': '// removed\n', 'Sources/a.swift': 'import Foundation\n'})
         self.assertEqual(self.build()[0], 'mode=clean')
 
+    def test_a_package_tests_import_or_structure_change_stays_incremental(self):
+        self.build()
+        self.commit({'Packages/Shared/Lab/Tests/LabTests/a.swift': 'import Testing\n#if DEBUG\n#endif\n',
+                     'Packages/macOS/App/Tests/Support/module.modulemap': 'module X {}\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        self.commit({'Packages/Shared/Lab/Sources/Lab/a.swift': 'import Foundation\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+
+    def test_package_tests_trees_feed_only_test_targets(self):
+        """PACKAGE_TESTS skips Packages/*/*/Tests/: no product and no non-test target outside Tests/ may
+        depend on a target whose sources live there, or a change there would reach the app."""
+        import re
+        for package in sorted(ROOT.glob('Packages/*/*/Package.swift')):
+            text = package.read_text()
+            pieces = re.split(r'\.(target|testTarget|executableTarget|binaryTarget|plugin|library|executable)\(', text)
+            in_tests, others = set(), []
+            for kind, body in zip(pieces[1::2], pieces[2::2]):
+                name = re.search(r'name:\s*"([^"]+)"', body)
+                path = re.search(r'path:\s*"([^"]+)"', body)
+                if name is None:
+                    continue
+                if kind in ('library', 'executable'):
+                    others.append((kind, name.group(1), body.split(')', 1)[0]))
+                elif path and re.match(r'(\./)?Tests(/|$)', path.group(1)):
+                    in_tests.add(name.group(1))
+                elif kind != 'testTarget':
+                    others.append((kind, name.group(1), body.split('swiftSettings')[0]))
+            for kind, name, body in others:
+                for target in in_tests:
+                    with self.subTest(package=str(package.relative_to(ROOT)), target=name, depends_on=target):
+                        self.assertNotRegex(body, rf'"{re.escape(target)}"')
+
     def test_an_import_change_makes_it_clean(self):
         for name, text in (('Sources/a.swift', 'import Foundation\nlet a = 1\n'),
                            ('Sources/b.swift', '@_exported import Bar\n'),
@@ -509,6 +541,49 @@ class HostBuildRoot(unittest.TestCase):
         out = self.build('1')
         self.assertIn('root=\n', out)
         self.assertTrue((self.slots['1'] / 'build-universal').is_symlink())
+
+    def test_the_job_summary_says_the_host_roots_decision(self):
+        """The slot's own prepare line always read "no earlier build on this builder" after a host-root
+        build (runs 42033609306, 42018687632), though the host root decided; the summary names that one."""
+        summary = self.root / 'summary.md'
+        self.env['GITHUB_STEP_SUMMARY'] = str(summary)
+        self.build('1')
+        self.assertIn('- DerivedData: clean (no earlier build on this builder), host build root', summary.read_text())
+        self.commit({'Sources/a.swift': 'let a = 2\n'})
+        self.build('2')
+        self.assertIn('- DerivedData: incremental (1 since the last clean build), host build root', summary.read_text())
+
+    def test_the_release_summary_reports_cache_hits_and_the_fallback(self):
+        log = self.root / 'build.log'
+        log.write_text('note: 311 hits / 391 cacheable tasks (80%)\nnote: 435 hits / 517 cacheable tasks (84%)\n')
+        summary = self.root / 'summary.md'
+        env = {**self.env, 'GITHUB_STEP_SUMMARY': str(summary)}
+        script = ROOT / 'scripts/ci/nightly-steps/release-build-summary.sh'
+        # The cache the build really used: fleet-compilation-cache.sh stays local when the fleet socket is
+        # missing or decide asked for a cold cache, and the retry runs local after the fleet cache failed.
+        for cache, said in (('fleet', 'fleet cache'),
+                            ('unavailable', 'local cache (the fleet cache was unavailable)'),
+                            ('cold', 'local cache (a cold-cache run)'),
+                            ('fallback', 'local cache after the fleet cache failed')):
+            summary.write_text('')
+            subprocess.run(['bash', str(script), str(log), cache], env=env, check=True)
+            text = summary.read_text()
+            self.assertIn('- compile cache: 435 hits / 517 cacheable tasks (84%), 82 missed', text)
+            self.assertIn(f'- cache: {said}', text)
+        # Xcode 26.6's compact line for a build with no hits (tests/test_build_metrics.py XCODE_26_6_COMPACT).
+        log.write_text('note: 0/316 cacheable tasks\n')
+        summary.write_text('')
+        subprocess.run(['bash', str(script), str(log), 'fleet'], env=env, check=True)
+        self.assertIn('- compile cache: 0 hits / 316 cacheable tasks (0%), 316 missed', summary.read_text())
+
+    def test_the_release_build_never_depends_on_the_summary_helper(self):
+        """The summary never fails the build, so its absence must not either: every harness that runs the Release
+        step (tests/test_nightly_next_arm64_only.py and others) copies only the helpers it knows about."""
+        text = (ROOT / 'scripts/ci/nightly-steps/app-build-release.sh').read_text()
+        runs = [line.strip() for line in text.splitlines()
+                if 'bash ' in line and 'release-build-summary.sh' in line and not line.lstrip().startswith('#')]
+        self.assertEqual(runs, ['[[ -f scripts/ci/nightly-steps/release-build-summary.sh ]] '
+                                '&& bash scripts/ci/nightly-steps/release-build-summary.sh "$@" || true'])
 
     def test_off_unless_the_slot_keeps_build_state(self):
         self.env['CMUX_NIGHTLY_HOST_BUILD_ROOT'] = ''

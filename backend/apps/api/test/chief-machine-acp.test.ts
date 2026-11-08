@@ -156,6 +156,30 @@ describe("durable default-machine ACP adapter", () => {
     expect((await machineAgentEvents(f.rpc, started.session, 3, 0)).events[0]?.event).toEqual({ kind: "error", message: "The machine agent failed.", code: -32000 })
   })
 
+  it("waits past unbound turn_error for the exact prompt's authoritative auth refusal", async () => {
+    for (const kind of ["auth.signed_out", "auth.expired"]) {
+      const f = fixture()
+      const started = await startMachineAgent(f.rpc, args)
+      f.page([event(1, "turn_error", { code: -32603, errorKind: kind })])
+      expect((await machineAgentEvents(f.rpc, started.session, 0, 0)).events).toEqual([])
+      f.page([event(2, "turn_result", { promptId: "some-other-prompt", status: "failed", code: -32603, errorKind: kind })])
+      expect((await machineAgentEvents(f.rpc, started.session, 1, 0)).events).toEqual([])
+      f.page([event(3, "turn_result", { promptId: f.prompt(), status: "failed", code: -32603, errorKind: kind })])
+      f.outcomeError(Object.assign(new Error("provider refused the original prompt"), { code: -32603 }))
+      expect((await machineAgentEvents(f.rpc, started.session, 2, 0)).events[0]?.event).toEqual({ kind: "error", message: "The machine agent failed.", code: -32603, error_kind: kind })
+    }
+  })
+
+  it("does not infer auth from error text, unrelated kinds or an inconsistent prompt outcome", async () => {
+    for (const [kind, code] of [["agent.exited", -32603], ["auth.signed_out", -32000], [undefined, -32603]] as const) {
+      const f = fixture()
+      const started = await startMachineAgent(f.rpc, args)
+      f.page([event(1, "turn_result", { promptId: f.prompt(), status: "failed", code: -32603, errorKind: kind, errorText: "Not logged in" })])
+      f.outcomeError(Object.assign(new Error("Not logged in"), { code }))
+      expect((await machineAgentEvents(f.rpc, started.session, 0, 0)).events[0]?.event).toEqual({ kind: "error", message: "The machine agent failed.", code })
+    }
+  })
+
   it("uses one bounded condition wait and preserves the journal on stop", async () => {
     const f = fixture()
     const started = await startMachineAgent(f.rpc, args)

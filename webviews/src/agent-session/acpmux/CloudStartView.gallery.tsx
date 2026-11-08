@@ -34,11 +34,15 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
   styles: () => Promise.all([import("./styles.css"), import("./conversation/conversation.css")]),
   load: () => import("./CloudStartView").then((module) => module.CloudStartView),
   widths: { narrow: 400, normal: 620, wide: 760 },
-  height: 300,
+  height: 380,
   variants: {
     sent: {
-      note: "Just sent, before the host says anything: the message, a spinner, and the folder it copies.",
+      note: "Just sent: the message is already in the chat shell with one compact Preparing machine line.",
       props: { start: begun },
+    },
+    preparing: {
+      note: "The shell remains stable while the machine is being prepared; startup details stay behind the disclosure.",
+      props: { start: { ...begun, step: "machine", machine: known.machine, size: known.size } },
     },
     machine: {
       note: "The host is getting a machine: the step and the machine with its size.",
@@ -62,6 +66,46 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           state: "failed",
           message: "Couldn't copy paint to paint-dev: the machine stopped answering.",
         },
+      },
+    },
+    "failed-open": {
+      note: "A failed step opens the startup disclosure so the failed row and host details are immediately visible.",
+      props: {
+        start: {
+          ...begun,
+          step: "folder",
+          ...known,
+          state: "failed",
+          message: "Couldn't copy paint to paint-dev: the machine stopped answering.",
+        },
+      },
+    },
+    "signed-out": {
+      note: "The first Cloud send is kept in the composer while the inline sign-in action opens the browser callback.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "not_signed_in",
+          message: "Sign in to use Cloud.",
+        },
+        onSignIn: async () => undefined,
+      },
+    },
+    "signing-in": {
+      note: "The person clicked Sign in to continue: the card waits on the browser sign-in, not on Cloud.",
+      props: { start: { ...begun, signingIn: true } },
+    },
+    "sign-in-timed-out": {
+      note: "The browser sign-in never came back within its limit: the card offers sign in again.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "not_signed_in",
+          message: "Sign-in timed out. Sign in again to continue.",
+        },
+        onSignIn: async () => undefined,
       },
     },
     "checklist-machine": {
@@ -175,6 +219,18 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
     },
     initialized: {
       note: "Once the harness starts, the checklist folds to one quiet line.",
+      props: {
+        start: {
+          ...begun,
+          initialized: true,
+          agent: "Claude Code",
+          harnessStartedAt: 12_400,
+          harnessFinishedAt: 12_900,
+        },
+      },
+    },
+    ready: {
+      note: "The remote harness is ready: the same shell shows a ready line before the live transcript takes over.",
       props: {
         start: {
           ...begun,

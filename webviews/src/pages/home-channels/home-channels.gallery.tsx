@@ -4,10 +4,12 @@
 // composer, thread panel and the Cmd-K switcher show without the app.
 import { useState, type CSSProperties } from "react";
 import { componentEntry } from "../../gallery/format";
+import type { PlayContext } from "../../gallery/play";
 import { UiProvider } from "../../ui/UiProvider";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
-import { HomeChannelsPage } from "./HomeChannelsPage";
+import { APP_ACTION_RUN, HomeChannelsPage, NEW_CLOUD_MACHINE } from "./HomeChannelsPage";
+import type { CloudEntryLook } from "./ConversationList";
 import { BridgePageClient } from "../shared/pageClient";
 import { CURRENT_SELECTION_OP, type HomeSelection } from "./hostSelection";
 import { ana, MockHomeProvider, sam, type MockDraft, type MockRuns } from "./mockProvider";
@@ -51,16 +53,25 @@ type Props = {
   hostBridge?: boolean;
   /** A cmux link the page opens (as the Messages view's switch does through the hash). */
   link?: string;
+  /** Where the list shows New Cloud Machine (needs `hostBridge`: only the app host runs it). */
+  cloudEntry?: CloudEntryLook;
+  /** The app does not run the action (turned off): its `cmux.app.action.run` answers `ran: false`. */
+  cloudNotRun?: boolean;
 };
 
 /** The app's side of the page bridge, in the gallery frame. The page's own calls and subscribes
- * answer `cmux.protocol.unknown_op` (this host serves no ops); the host's calls go in through the
+ * answer `cmux.protocol.unknown_op` (this host serves no ops) except `cmux.app.action.run`, which it
+ * records in `actions` and answers as run; the host's calls go in through the
  * client's receive (what `window.__cmuxPageReceive` calls in the app) and resolve with the reply
  * envelope the page posts back. */
 class GalleryBridgeHost {
   private nextCall = 1_000_000;
   private readonly waiting = new Map<number, (reply: unknown) => void>();
   readonly client: BridgePageClient;
+  /** The app actions the page asked to run, oldest first. */
+  readonly actions: unknown[] = [];
+  /** Whether the app runs the actions the page asks for (`ran` in the reply). */
+  ran = true;
 
   constructor() {
     // A private target: the frame's own `__cmuxPageReceive` global stays untouched.
@@ -68,7 +79,11 @@ class GalleryBridgeHost {
   }
 
   private post(body: unknown): unknown {
-    const envelope = body as { t?: string; id?: number; op?: string; stream?: string };
+    const envelope = body as { t?: string; id?: number; op?: string; stream?: string; params?: unknown };
+    if (envelope.t === "call" && envelope.op === APP_ACTION_RUN) {
+      this.actions.push(envelope.params);
+      return { t: "ok", id: envelope.id, value: { ran: this.ran } };
+    }
     if ((envelope.t === "ok" || envelope.t === "err") && typeof envelope.id === "number") {
       this.waiting.get(envelope.id)?.(envelope);
       this.waiting.delete(envelope.id);
@@ -114,6 +129,8 @@ function HomeChannelsGallery({
   pane,
   hostBridge = false,
   link,
+  cloudEntry,
+  cloudNotRun = false,
 }: Props) {
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
@@ -122,6 +139,7 @@ function HomeChannelsGallery({
     let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
     if (hostBridge) {
       const bridge = new GalleryBridgeHost();
+      bridge.ran = !cloudNotRun;
       (window as GalleryHostWindow).cmuxGalleryHost = bridge;
       host = bridge.client;
     }
@@ -149,7 +167,7 @@ function HomeChannelsGallery({
     >
       {root ? (
         <UiProvider container={root}>
-          <HomeChannelsPage store={store} strings={strings} pane={width ? pane : undefined} />
+          <HomeChannelsPage store={store} strings={strings} pane={width ? pane : undefined} cloudEntry={cloudEntry} />
         </UiProvider>
       ) : null}
     </div>
@@ -176,6 +194,17 @@ async function askSelection(document: Document): Promise<unknown> {
   const host = (document.defaultView as GalleryHostWindow | null)?.cmuxGalleryHost;
   if (!host) throw new Error("no gallery bridge host");
   return host.callPage(CURRENT_SELECTION_OP);
+}
+
+// Clicks New Cloud Machine and checks the page asked the app to run its action, once.
+async function expectCloudMachineRun(ctx: PlayContext): Promise<void> {
+  const host = (ctx.document.defaultView as GalleryHostWindow | null)?.cmuxGalleryHost;
+  if (!host) throw new Error("no gallery bridge host");
+  await ctx.waitFor(() => ctx.document.querySelector("[data-new-cloud-machine]"));
+  await ctx.click({ selector: "[data-new-cloud-machine]" });
+  await ctx.waitFor(() => host.actions.length > 0);
+  if (JSON.stringify(host.actions) !== JSON.stringify([{ action: NEW_CLOUD_MACHINE }]))
+    throw new Error(`cmux.app.action.run: ${JSON.stringify(host.actions)}`);
 }
 
 function expectSelection(reply: unknown, expected: HomeSelection | null): void {
@@ -231,6 +260,40 @@ export default componentEntry<Props>({
     await import("./ledger.css");
   },
   variants: {
+    "cloud-entry-row": {
+      note: "New Cloud Machine as a labeled row under the search field (the page's): a click runs the app's newCloudMachine action.",
+      props: { select: "c-release", hostBridge: true, cloudEntry: "row" },
+      play: expectCloudMachineRun,
+    },
+    "cloud-entry-header": {
+      note: "New Cloud Machine as a cloud icon in the list header beside New Message and New Chief.",
+      props: { select: "c-release", hostBridge: true, cloudEntry: "header" },
+      play: expectCloudMachineRun,
+    },
+    "cloud-entry-footer": {
+      note: "New Cloud Machine as a labeled row at the foot of the list.",
+      props: { select: "c-release", hostBridge: true, cloudEntry: "footer" },
+      play: expectCloudMachineRun,
+    },
+    "cloud-entry-not-run": {
+      note: "The app does not run New Cloud Machine (turned off): the click says so in the page's short notice.",
+      props: { select: "c-release", hostBridge: true, cloudNotRun: true },
+      play: async (ctx) => {
+        await expectCloudMachineRun(ctx);
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".lg-notice")?.textContent?.includes("Couldn't open New Cloud Machine"),
+        );
+      },
+    },
+    "cloud-entry-browser": {
+      note: "No app host (a browser on the daemon's listener): no New Cloud Machine entry.",
+      props: { select: "c-release" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-list [data-list-row]"));
+        if (ctx.document.querySelector("[data-new-cloud-machine]"))
+          throw new Error("New Cloud Machine shows without a host");
+      },
+    },
     "stable-thread-counts": {
       note: "Thread metadata keeps equal-width digits as reply and participant totals change.",
       props: { select: "c-incident", thread: "c-incident-m1", longThread: true },
@@ -283,7 +346,9 @@ export default componentEntry<Props>({
       },
     },
     "switcher-filtered": {
-      note: "The palette ranks conversations, threads and actions with the palette ranker as you type.",
+      // The mock provider answers `cmux.home.paletteRank` with the fixture ranker (paletteRank.ts: a
+      // case-insensitive substring filter in row order); in the app the daemon's palette.rank ranks.
+      note: "The palette filters conversations, threads and actions as you type (the fixture ranker here; the daemon ranks in the app).",
       props: { select: "c-release" },
       checks: {
         longFrameFailMs: openFrame,
@@ -725,6 +790,10 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done"));
       },
+    },
+    "run-phone": {
+      note: "The Chief conversation on a phone, including its Work control.",
+      props: { width: 390, pane: "conversation", select: "c-chief", runs: "done" },
     },
     "run-messages": {
       note: "Chief's tell and an agent report remain visible with the finished run folded.",

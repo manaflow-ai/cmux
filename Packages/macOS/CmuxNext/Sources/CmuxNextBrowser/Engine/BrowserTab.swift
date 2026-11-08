@@ -22,6 +22,11 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     var favicon: NSImage? { get }
     /// Unanswered permission requests and JavaScript dialogs, oldest first.
     var pendingPrompts: [BrowserPrompt] { get }
+    /// What the page shows for the link under the pointer (Chrome's status
+    /// bubble text), observable; nil when the pointer is over no link. The
+    /// chrome draws it at the bottom left of this tab's page area. Engines
+    /// that report none keep the default, nil.
+    var linkStatus: String? { get }
 
     var delegate: (any BrowserTabDelegate)? { get set }
     var keyRouter: (any BrowserKeyRouting)? { get set }
@@ -110,6 +115,10 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// The zoom per site this tab's chrome follows (its engine's ``BrowserSharedStores``). The
     /// default is nil: the chrome keeps the tab's own zoom.
     var siteZoomLevels: SiteZoomLevels? { get }
+
+    /// The shown page's own background, as the engine read it from the document (`pageBackdropARGB`): the ground its
+    /// pane shows when it closes (``BrowserChromeView`` as `PaneGroundReporting`). The default is nil: the chrome's.
+    var pageGround: CGColor? { get }
 }
 
 extension BrowserTab {
@@ -127,6 +136,7 @@ extension BrowserTab {
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
     public var siteZoomLevels: SiteZoomLevels? { nil }
+    public var pageGround: CGColor? { nil }
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
 
     public func zoomIn() { setZoom(BrowserZoom.zoomIn(from: state.zoom)) }

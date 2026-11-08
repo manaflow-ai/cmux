@@ -3,7 +3,7 @@ import type { OwnerFrame, Principal } from "@cmux/ownership"
 import { authorizeDefaultMachine, defaultHandId, ensureDefaultHand, type DefaultChiefMachine, type DefaultHandScope } from "../chief-default-hand.ts"
 import { asDaemonUser, layoutSelector } from "../cloud-acpmux-guest.ts"
 import { handStub } from "../hand-api.ts"
-import type { HandReply, HandSummary, StoredEvent } from "../hand-wire.ts"
+import type { HandReply, StoredEvent } from "../hand-wire.ts"
 import type { ChiefBrainDO } from "./brain-do.ts"
 import { chiefRecord, chiefPrincipal, postText, typing } from "./brain-io.ts"
 import { writeConfig } from "./brain-store.ts"
@@ -11,6 +11,7 @@ import { clip, upsertStep } from "./brain-runs.ts"
 import { OWNER_APPROVAL_REQUIRED } from "./effect-policy.ts"
 import type { ChiefProfile } from "./prompts.ts"
 import { startMachineAgent, machineAgentEvents, stopMachineAgent } from "./brain-machine-acp.ts"
+import { declared } from "../do-stub.ts"
 
 export type MachineHarness = "claude" | "codex"
 export interface MachineRoute { binding: DefaultChiefMachine; harness: MachineHarness }
@@ -23,6 +24,9 @@ export type MachineState = {
   after: number
   text: string
   reason?: string
+  /** A fresh attempt is allowed only after confirmed auth refusal before any output/tools. */
+  authRetrySafe?: boolean
+  attempt?: number
 }
 export type MachineOutcome = { ok: true; text: string } | { ok: false; reason: string } | { pending: "auth" | "provisioning" }
 export type LoginStart = { loginId: string; url: string; userCode?: string; needsCode: boolean; expiresAtMs?: number }
@@ -31,15 +35,16 @@ const MACHINE_STATE = (id: string) => `machine:${id}`
 const TRANSIENT = new Set(["chief.machine.transport_unavailable", "chief.machine.owner_unavailable", "chief.machine.hand_offline", "chief.machine.carrier_unavailable", "chief.machine.start_unavailable", "chief.machine.not_running", "chief.hand.offline", "owner.unreachable", "provisioning_pending"])
 export const machineRetryable = (error: unknown): boolean => !(error instanceof Error) || TRANSIENT.has(error.message) || !/^(chief\.machine\.|hand\.|revoked$|disabled$|other_chief$|chief_archived$|chief_placed$)/.test(error.message)
 export const authorizeMachineHand = async (env: Env, scope: DefaultHandScope, cwd?: string): Promise<void> => {
-  const hand = handStub(env, defaultHandId(scope)) as unknown as { info(c: { kind: "chief"; user: string; agent: string }): Promise<HandReply<HandSummary & { hello: { profile?: string; roots?: Array<string> } | null }>> }
+  const hand = declared(handStub(env, defaultHandId(scope)))
   const info = await hand.info({ kind: "chief", user: scope.owner, agent: scope.chief })
   if (!info.ok) throw new Error(info.error.code)
   // info() also returns a revoked hand for owner UI display. Its success is not authorization.
   if (info.value.revoked_at !== null || info.value.paired_at === null) throw new Error("hand.revoked")
   if (info.value.level !== "full") throw new Error("chief.machine.permission_required")
   if (!info.value.online) throw new Error("chief.machine.hand_offline")
-  if (info.value.profile !== "sandbox" || info.value.hello?.profile !== "sandbox") throw new Error("chief.machine.permission_required")
-  if (cwd && !info.value.hello.roots?.includes(cwd)) throw new Error("chief.machine.cwd_changed")
+  const hello = info.value.hello as { profile?: string; roots?: Array<string> } | null
+  if (info.value.profile !== "sandbox" || hello?.profile !== "sandbox") throw new Error("chief.machine.permission_required")
+  if (cwd && !hello.roots?.includes(cwd)) throw new Error("chief.machine.cwd_changed")
 }
 export const machineSignInURL = (raw: unknown, harness: MachineHarness): string | null => {
   if (typeof raw !== "string" || raw.length > 4096 || /[^\x21-\x7e]/.test(raw)) return null
@@ -47,7 +52,9 @@ export const machineSignInURL = (raw: unknown, harness: MachineHarness): string 
     const url = new URL(raw)
     if (url.protocol !== "https:" || url.username || url.password || url.port || !SIGN_IN_HOSTS.has(url.hostname.toLowerCase())) return null
     const path = url.pathname.replace(/\/$/, "")
-    if (harness === "codex" ? url.hostname !== "auth.openai.com" || !["/codex/device", "/deviceauth", "/device"].includes(path) : url.hostname === "auth.openai.com" || path !== "/oauth/authorize") return null
+    if (harness === "codex") {
+      if (url.hostname !== "auth.openai.com" || !["/codex/device", "/deviceauth", "/device"].includes(path)) return null
+    } else if (url.hostname === "auth.openai.com" || !(path === "/oauth/authorize" || (url.hostname === "claude.com" && path === "/cai/oauth/authorize"))) return null
     return url.toString()
   } catch { return null }
 }
@@ -155,7 +162,7 @@ export const machineLogin = async (b: ChiefBrainDO, owner: string, run: string, 
   const cfg = b.config(), route = b.machineRoute(), state = readMachineState(b.sql, run)
   const resumedKey = `machine-login-resumed:${run}`
   if (cfg.owner !== owner || !cfg.agent || !route) throw new Error("chief.machine.login_not_pending")
-  if ((action === "status" || action === "finish") && b.sql.exec(`SELECT 1 FROM cb_config WHERE name = ?`, resumedKey).toArray().length) return { signedIn: true, resumed: true }
+  if (state?.phase !== "waiting_auth" && (action === "status" || action === "finish") && b.sql.exec(`SELECT 1 FROM cb_config WHERE name = ?`, resumedKey).toArray().length) return { signedIn: true, resumed: true }
   if (state?.phase !== "waiting_auth") throw new Error("chief.machine.login_not_pending")
   const turn = b.sql.exec<{ status: string; effect_authorized: number }>(`SELECT status, effect_authorized FROM cb_turn WHERE id = ?`, run).toArray()[0]
   if (turn?.status !== "running" || turn.effect_authorized !== 1) throw new Error("chief.machine.login_not_pending")
@@ -194,14 +201,17 @@ export const machineLogin = async (b: ChiefBrainDO, owner: string, run: string, 
     const latest = await b.admitted(cfg.agent!, owner, false)
     if (!latest.ok || !latest.machine || defaultHandId({ ...latest.machine.binding, owner, chief: cfg.agent! }) !== state.hand) throw new Error("chief.machine.login_refused")
     const kicked = b.doCtx.storage.transactionSync(() => {
-      if (b.sql.exec(`SELECT 1 FROM cb_config WHERE name = ?`, resumedKey).toArray().length) return false
+      if (b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, resumedKey).toArray()[0]?.value === current.loginId) return false
       const still = readMachineState(b.sql, run)
       const active = b.sql.exec<{ status: string; effect_authorized: number }>(`SELECT status, effect_authorized FROM cb_turn WHERE id = ?`, run).toArray()[0]
-      if (still?.phase !== "waiting_auth" || still.hand !== state.hand || still.operation !== state.operation || active?.status !== "running" || active.effect_authorized !== 1) throw new Error("chief.machine.login_changed")
+      if (still?.phase !== "waiting_auth" || still.hand !== state.hand || still.operation !== state.operation || still.attempt !== state.attempt || active?.status !== "running" || active.effect_authorized !== 1) throw new Error("chief.machine.login_changed")
       const storedLogin = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, loginKey).toArray()[0]?.value
       if (!storedLogin || (JSON.parse(storedLogin) as LoginStart).loginId !== current.loginId) throw new Error("chief.machine.login_changed")
-      writeConfig(b.sql, { [resumedKey]: "1" })
-      b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?)`, MACHINE_STATE(run), loginKey)
+      // The rejected guest prompt has a settled failed ledger entry: reusing its ID
+      // replays that failure. Persist the new discriminator atomically before kicking.
+      save(b, run, { phase: "dispatching", operation: still.operation, attempt: (still.attempt ?? 0) + 1, hand: still.hand, cwd: still.cwd, after: 0, text: "", authRetrySafe: true })
+      writeConfig(b.sql, { [resumedKey]: current.loginId })
+      b.sql.exec(`DELETE FROM cb_config WHERE name = ?`, loginKey)
       b.sql.exec(`UPDATE cb_turn SET started = ? WHERE id = ?`, Date.now(), run)
       return true
     })
@@ -246,7 +256,7 @@ export const runMachineAgent = async (ports: MachineAgentPorts, hand: string, cw
     return { ok: false, reason: "chief.machine.timeout" }
   }
   if (!state) {
-    state = { phase: "waiting_auth", operation, hand, cwd, after: 0, text: "" }
+    state = { phase: "waiting_auth", operation, hand, cwd, after: 0, text: "", authRetrySafe: true }
     if (await ports.auth() === "signed_out") { ports.save(state); return { pending: "auth" } }
     // A revocation may have committed while the provider auth probe was in flight.
     if (!await authorized()) return { pending: "provisioning" }
@@ -254,7 +264,7 @@ export const runMachineAgent = async (ports: MachineAgentPorts, hand: string, cw
     ports.save(state)
   }
   if (state.phase === "dispatching") {
-    const started = await ports.start({ operation: state.operation, harness, cwd, prompt }).catch((error: unknown) => { if (!machineRetryable(error)) throw error; return null })
+    const started = await ports.start({ operation: state.attempt ? `${state.operation}/auth/${state.attempt}` : state.operation, harness, cwd, prompt }).catch((error: unknown) => { if (!machineRetryable(error)) throw error; return null })
     // The guest's durable send queue owns the outcome. A lost reply retries the same operation.
     if (!started) return { pending: "provisioning" }
     if (!started.ok) {
@@ -280,7 +290,18 @@ export const runMachineAgent = async (ports: MachineAgentPorts, hand: string, cw
       const event = stored.event
       state.after = stored.seq
       if (event.kind === "text") state.text += event.text
-      if (event.kind === "error") { state.phase = "failed"; state.reason = "chief.machine.agent_error" }
+      if (event.kind === "text" || event.kind === "tool") state.authRetrySafe = false
+      if (event.kind === "error") {
+        // Never repeat a build that may have made progress. Legacy state without this
+        // journal-derived proof also fails closed; its absent flag is not a clean attempt.
+        if (event.error_kind && state.authRetrySafe === true) {
+          state.phase = "waiting_auth"
+          ports.save(state)
+          await ports.stop(state.session).catch(() => undefined)
+          return { pending: "auth" }
+        }
+        state.phase = "failed"; state.reason = "chief.machine.agent_error"
+      }
       if (event.kind === "session_end") { state.phase = "failed"; state.reason = "chief.machine.session_ended" }
       if (event.kind === "permission") { state.phase = "failed"; state.reason = "chief.machine.permission_required" }
       if (event.kind === "turn_end" && state.phase !== "failed") state.phase = "done"

@@ -43,6 +43,8 @@ struct CmuxMobileApp: App {
             #if DEBUG
             if BrowserEventsDemoRoot.isRequested {
                 BrowserEventsDemoRoot()
+            } else if RecoveryGalleryRoot.isRequested {
+                RecoveryGalleryRoot()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {

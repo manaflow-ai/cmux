@@ -18,11 +18,10 @@ import MessagesLabSidebar
 /// search field spans the list on the row under them. In the avatar-only list the circles, and an
 /// open search, sit under the lights too.
 public struct HomeSidebarHeaderLayout: Equatable, Sendable {
-    /// The band the row sits in; the list starts under it.
+    /// The band the row sits in; the list starts under it. One height at every density and text
+    /// size: it lines up with the chat's header beside it (`HomeChatColumnView`), and it holds the
+    /// biggest filter circle (``HomeSidebarHeaderMetrics/side``, 39 pt at Comfortable, Larger text).
     static let band: CGFloat = 52
-    /// The filter circle's diameter and the search capsule's height, as in Messages (its glass
-    /// filter and search field are one height).
-    static let side: CGFloat = 30
     /// The filter circle's least room above it under the traffic lights: cmux's lights sit higher
     /// than Messages', so on their line the circle shrinks rather than run off the window's top.
     static let topMargin: CGFloat = 1
@@ -52,6 +51,26 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// The search row's distance under the traffic lights (and the filter circle on their line)
     /// and the list's under the search field.
     static let rowGap: CGFloat = 10
+    /// The on filter's chip row (Unread ×) under the search row, while a filter is on (the user,
+    /// 2026-11-03, msg 20156: the list said No Results with nothing to show the filter was on);
+    /// zero-sized while no filter is on or an open search covers the band. The chip is as wide
+    /// as its text, at most this row; its height is ``HomeSidebarHeaderMetrics/chipHeight``.
+    public private(set) var filterChip: CGRect = .zero
+
+    /// - Parameters:
+    ///   - width: The list's width.
+    ///   - searchOpen: The search field edits or holds a query.
+    ///   - windowControls: The traffic lights over the band (see the other initializer).
+    ///   - filterOn: A filter is on (Unread): its chip row goes under the search row and the list under it.
+    ///   - metrics: The header's sizes at the sidebar's density and text size.
+    init(width: CGFloat, searchOpen: Bool, windowControls: CGRect? = nil, filterOn: Bool,
+         metrics: HomeSidebarHeaderMetrics = .standard) {
+        self.init(width: width, searchOpen: searchOpen, windowControls: windowControls, metrics: metrics)
+        guard filterOn, !buttonsCovered else { return }
+        let inset = compact ? Self.edge : Self.inset
+        filterChip = CGRect(x: inset, y: listTop, width: max(0, max(0, width) - 2 * inset), height: metrics.chipHeight)
+        listTop = filterChip.maxY + metrics.chipGap
+    }
 
     /// The list at `width` shows avatars only, and so circles for its header row.
     public static func isCompact(width: CGFloat) -> Bool { width < CmuxSidebarView.compactBelow }
@@ -61,9 +80,12 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     ///   - searchOpen: The search field edits or holds a query.
     ///   - windowControls: The traffic lights (and the titlebar accessory after them) where they
     ///     lie over the header's band, in its flipped coordinates; nil when the list is clear of them.
-    init(width: CGFloat, searchOpen: Bool, windowControls: CGRect? = nil) {
+    ///   - metrics: The header's sizes at the sidebar's density and text size.
+    init(width: CGFloat, searchOpen: Bool, windowControls: CGRect? = nil, metrics: HomeSidebarHeaderMetrics = .standard) {
         let width = max(0, width)
-        let y = ((Self.band - Self.side) / 2).rounded()
+        // The filter circle's diameter and the search capsule's height (``HomeSidebarHeaderMetrics/side``).
+        let side = metrics.side
+        let y = ((Self.band - side) / 2).rounded()
         compact = Self.isCompact(width: width)
         // Messages' header under the lights: the search field on its own row below them.
         let underLights = windowControls.map { ($0.maxY + Self.rowGap).rounded(.up) }
@@ -72,43 +94,43 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
             let rowY = underLights ?? y
             if searchOpen {
                 filter = .zero
-                search = CGRect(x: Self.inset, y: rowY, width: max(0, width - 2 * Self.inset), height: Self.side)
+                search = CGRect(x: Self.inset, y: rowY, width: max(0, width - 2 * Self.inset), height: side)
                 if underLights != nil { listTop = max(Self.band, search.maxY + Self.rowGap) }
                 return
             }
             search = CGRect(x: Self.inset, y: y, width: 0, height: 0)
-            let pair = 2 * Self.side + Self.gap
+            let pair = 2 * side + Self.gap
             if width >= pair + 2 * Self.edge {
                 let x = ((width - pair) / 2).rounded()
-                searchIcon = CGRect(x: x, y: rowY, width: Self.side, height: Self.side)
-                filter = CGRect(x: searchIcon.maxX + Self.gap, y: rowY, width: Self.side, height: Self.side)
+                searchIcon = CGRect(x: x, y: rowY, width: side, height: side)
+                filter = CGRect(x: searchIcon.maxX + Self.gap, y: rowY, width: side, height: side)
             } else {
-                filter = CGRect(x: ((width - Self.side) / 2).rounded(), y: rowY, width: Self.side, height: Self.side)
+                filter = CGRect(x: ((width - side) / 2).rounded(), y: rowY, width: side, height: side)
             }
             if underLights != nil { listTop = max(Self.band, filter.maxY + Self.rowGap) }
             return
         }
         buttonsCovered = false
         if let controls = windowControls, let searchY = underLights {
-            let filterX = width - Self.inset - Self.side
+            let filterX = width - Self.inset - side
             // The toggle at the top row's right end, on the lights' line, when it clears them
             // (a list narrower than the lights and the toggle keeps it on the search row).
             if filterX >= controls.maxX + Self.gap {
                 // A circle centred on the lights' line, as tall as fits under the window's top.
-                let d = (min(Self.side, 2 * (controls.midY - Self.topMargin)) / 2).rounded(.down) * 2
+                let d = (min(side, 2 * (controls.midY - Self.topMargin)) / 2).rounded(.down) * 2
                 filter = CGRect(x: width - Self.inset - d, y: (controls.midY - d / 2).rounded(), width: d, height: d)
                 let rowY = max(searchY, (filter.maxY + Self.rowGap).rounded(.up))
-                search = CGRect(x: Self.inset, y: rowY, width: max(0, width - 2 * Self.inset), height: Self.side)
+                search = CGRect(x: Self.inset, y: rowY, width: max(0, width - 2 * Self.inset), height: side)
             } else {
-                let field = max(Self.minimumField, width - 2 * Self.inset - (Self.side + Self.gap))
-                search = CGRect(x: Self.inset, y: searchY, width: field, height: Self.side)
-                filter = CGRect(x: search.maxX + Self.gap, y: searchY, width: Self.side, height: Self.side)
+                let field = max(Self.minimumField, width - 2 * Self.inset - (side + Self.gap))
+                search = CGRect(x: Self.inset, y: searchY, width: field, height: side)
+                filter = CGRect(x: search.maxX + Self.gap, y: searchY, width: side, height: side)
             }
             listTop = max(Self.band, search.maxY + Self.rowGap)
             return
         }
-        let field = max(Self.minimumField, width - 2 * Self.inset - (Self.side + Self.gap))
-        search = CGRect(x: Self.inset, y: y, width: field, height: Self.side)
-        filter = CGRect(x: search.maxX + Self.gap, y: y, width: Self.side, height: Self.side)
+        let field = max(Self.minimumField, width - 2 * Self.inset - (side + Self.gap))
+        search = CGRect(x: Self.inset, y: y, width: field, height: side)
+        filter = CGRect(x: search.maxX + Self.gap, y: y, width: side, height: side)
     }
 }

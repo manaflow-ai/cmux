@@ -50,6 +50,11 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
                        "plus.rectangle.on.rectangle", "new-workspace", extra: ["workspace"], arguments: [profile], targets: []),
             descriptor("browserProfile.openLink", text("action.browserProfile.openLink", "Open Link in Browser Profile…"), "link",
                        "open-link", extra: ["link", "url"], arguments: [profile, CatalogArgument.urlString], targets: [.pane]),
+            // The New Tab page's Open in New Profile (Lawrence 2026-11-05): a profile made for the link,
+            // named `name` or "Profile N", the link opened in it.
+            descriptor("browserProfile.openLinkInNew", text("action.browserProfile.openLinkInNew", "Open Link in New Browser Profile…"),
+                       "person.crop.circle.badge.plus", "open-link-in-new", extra: ["link", "url", "new", "create", "add"],
+                       arguments: [CatalogArgument.urlString, CatalogArgument.nameString.optional], targets: [.pane]),
             descriptor("browserProfile.setWorkspaceDefault", text("action.browserProfile.setWorkspaceDefault", "Set Workspace Browser Profile…"),
                        "person.crop.rectangle", "set-workspace-default", extra: ["workspace", "default"], arguments: [profile],
                        targets: [.workspace]),

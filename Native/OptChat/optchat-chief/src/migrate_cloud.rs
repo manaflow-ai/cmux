@@ -169,7 +169,11 @@ impl Api {
             Err(e) => return Err(format!("{method} {path}: {}", transport_text(&e))),
         };
         let status = response.status();
-        let text = response.into_string().unwrap_or_default();
+        // Not `into_string`: it refuses a body over 10 MB, and a Chief's first memory export page
+        // is larger (16 MB for 20391 messages).
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut response.into_reader(), &mut text)
+            .map_err(|e| format!("{method} {path}: reading the answer: {e}"))?;
         let value = serde_json::from_str(&text).unwrap_or(Value::Null);
         Ok((status, value))
     }
@@ -237,7 +241,7 @@ impl Api {
         self.put_brain(chief, &json!({"model": model}), "brain model")
     }
 
-    fn put_brain(&self, chief: &str, body: &Value, what: &str) -> Result<(), String> {
+    pub(crate) fn put_brain(&self, chief: &str, body: &Value, what: &str) -> Result<(), String> {
         let (status, value) = self.call("PUT", &format!("/v1/chiefs/{chief}/brain"), Some(body))?;
         if (200..300).contains(&status) && value["ok"] != false {
             return Ok(());

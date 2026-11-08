@@ -311,3 +311,29 @@ async fn replay_during_handshake(late_attach: bool, rollback: bool) {
     peer.stop();
     tokio::time::timeout(Duration::from_secs(2), serving).await.unwrap().unwrap().unwrap();
 }
+
+#[tokio::test(start_paused = true)]
+async fn durable_dispatch_waits_on_turn_past_the_link_request_deadline() {
+    let (notices, _keep) = mpsc::channel(16);
+    let mut peer = Peer::new("box", "ws://127.0.0.1:9", None, None, notices);
+    Arc::get_mut(&mut peer).unwrap().timings.request = Duration::from_secs(1);
+    let mut outbound = peer.out_rx.lock().await.take().unwrap();
+    let caller = peer.clone();
+    let ask = tokio::spawn(async move {
+        caller
+            .link_request_on(method::MUX_DISPATCH, json!({"durable":true,"wait":true}), None)
+            .await
+    });
+    let sent = outbound.recv().await.unwrap();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(!ask.is_finished(), "a durable agent turn timed out on the link deadline");
+    peer.pending
+        .lock()
+        .await
+        .remove(&sent.key.unwrap())
+        .unwrap()
+        .send(Ok(json!({"brief":{"outcome":{"Ok":{"finalReply":"late answer"}}}})))
+        .unwrap();
+    assert_eq!(ask.await.unwrap().unwrap()["brief"]["outcome"]["Ok"]["finalReply"], "late answer");
+    assert_eq!(peer.pending_requests().await, 0);
+}

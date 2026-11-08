@@ -6,6 +6,7 @@ import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -51,6 +52,19 @@ public final class AgentChatSurface {
     public var showArtifacts = false
     /// `/status`'s sheet while it is up.
     var showStatus = false
+    /// The Copy rows' sheet (the Mac's AgentChatCopyActionCatalog).
+    public var showCopyChoices = false
+    /// Text and Width's sheet.
+    public var showDisplaySettings = false
+    /// The turn bar (Previous/Next Turn and bookmarked prompts) while it is up.
+    public var turnNavigator: ChatTurnNavigator?
+
+    /// Jump to Turn: opens the turn bar (Find in Chat's bar closes: they share the place).
+    public func openTurnNavigator() {
+        closeFind()
+        if turnNavigator == nil { turnNavigator = ChatTurnNavigator() }
+        composerFocused = false
+    }
     /// The earlier prompt in Edit and Resend's sheet (nil: closed).
     var editingEarlier: EarlierPromptEdit?
     /// What the chat's workspace tab does with it (fork into a new tab); nil for a chat
@@ -102,6 +116,7 @@ public final class AgentChatSurface {
 
     /// Find in Chat: opens the bar with its field focused (the composer gives the keyboard up).
     public func openFind() {
+        turnNavigator = nil
         if find == nil { find = AgentChatFind() }
         composerFocused = false
         findFieldFocused = true
@@ -351,9 +366,13 @@ public struct AgentChatScreen: View {
                 Button("Agent Edits", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) }
                     .disabled(!AgentChatSurface.hasAgentEdits(store))
                 AgentParityMenuItems(store: store, surface: surface)
-                Button("Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
+                Button("Session Info", systemImage: "info.circle") { surface.parityRoute = .sessionInfo }
+                Button("Copy…", systemImage: "doc.on.doc") { surface.showCopyChoices = true }
                 Button("Find in Chat…", systemImage: "magnifyingglass") { surface.openFind() }
                     .disabled(store.turns.isEmpty)
+                Button("Jump to Turn…", systemImage: "arrow.up.arrow.down") { surface.openTurnNavigator() }
+                    .disabled(store.turns.isEmpty)
+                Button("Text and Width…", systemImage: "textformat.size") { surface.showDisplaySettings = true }
                 if !store.modes.isEmpty {
                     Section("Mode") {
                         Picker("Mode", selection: Binding(get: { store.currentModeID ?? "" }, set: { store.setMode($0) })) {
@@ -476,6 +495,10 @@ public struct AgentChatTranscript: View {
                 AgentChatFindBar(find: find, surface: surface, store: store)
                     .padding(.top, (topInset ?? 0) + 4)
                     .transition(.opacity)
+            } else if let navigator = surface.turnNavigator {
+                ChatTurnBar(navigator: navigator, store: store, surface: surface)
+                    .padding(.top, (topInset ?? 0) + 4)
+                    .transition(.opacity)
             }
         }
         // UIKit owns the native top edge and the workspace's iOS 26 gradient fallback.
@@ -499,6 +522,17 @@ public struct AgentChatTranscript: View {
         .sheet(isPresented: $surface.showStatus) {
             SessionStatusSheet(store: store)
         }
+        .sheet(isPresented: $surface.showCopyChoices) {
+            ChatCopyChoicesSheet(store: store)
+        }
+        .sheet(isPresented: $surface.showDisplaySettings) {
+            ChatDisplaySettingsSheet(summary: store.summary)
+        }
+        // The chat's bookmarks and pins, read once it shows; a chat that closes stops reading aloud.
+        .task { store.showBookmarks() }
+        // The chat left the screen (not a page pushed over it, such as Session Info): what it
+        // was reading stops.
+        .onDisappear { if surface.parityRoute == nil { ChatReadAloud.shared.stopIfReading(chat: store.summary.id) } }
         .sheet(item: $surface.editingEarlier) { edit in
             if let actions = surface.tabActions {
                 EarlierPromptEditSheet(edit: edit, actions: actions)
@@ -576,9 +610,8 @@ struct AgentChatJumpButton: View {
                         .frame(width: metrics.glassButton, height: metrics.glassButton)
                         .overlay(alignment: .topTrailing) {
                             if store.isRunning {
-                                ProgressView()
+                                CmuxSpinner(tint: .primary)
                                     .controlSize(.mini)
-                                    .tint(.primary)
                                     .frame(width: metrics.workingIndicatorBadge, height: metrics.workingIndicatorBadge)
                                     .background(Color.cmuxMobileBackground, in: .circle)
                                     .allowsHitTesting(false)
@@ -676,7 +709,18 @@ public struct AgentChatBottomStack: View {
                     QueuedPromptsView(store: store, text: $surface.text)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
-                if let permission = store.pendingPermission, !surface.permissionBarHidden {
+                if let ask = store.pendingElevation {
+                    // The sudo card (acpmux hub/elevation.rs) takes the composer's place until answered.
+                    ElevationCard(ask: ask, agentName: store.summary.agentName, sending: store.sendingElevation) { password in
+                        withAnimation(.cmuxMobileSmooth) { store.answerElevation(ask, password: password) }
+                    }
+                    // A new card is a new view: a password typed for one command never stays for the next.
+                    .id(ask.id)
+                    .padding(16)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+                    .padding(.horizontal, 12)
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
+                } else if let permission = store.pendingPermission, !surface.permissionBarHidden {
                     PermissionActionBar(request: permission.request, approvingOptionID: store.approvingOptionID) { option in
                         withAnimation(.cmuxMobileSmooth) { store.respond(to: permission.request, option: option) }
                     } replyInstead: {
@@ -859,6 +903,8 @@ struct UserBubble: View {
     let editAndResend: () -> Void
     /// Edit and Resend of an earlier prompt (a fork before it), when the chat offers it.
     var editEarlier: (() -> Void)?
+    /// Bookmark and Read Aloud.
+    var polish: ChatPolishMenuButtons?
     @State private var selecting = false
 
     var body: some View {
@@ -883,6 +929,7 @@ struct UserBubble: View {
                             Button("Edit and Resend", systemImage: "pencil") { editEarlier() }
                         }
                         ShareLink(item: prompt) { Label("Share", systemImage: "square.and.arrow.up") }
+                        polish
                     }
                 }
         }
@@ -1086,6 +1133,8 @@ struct AnswerActionRow: View {
     /// cell places the row with that gap itself.
     var insetsTargets = true
     var retryWith: RetryModelChoice?
+    /// Pin and Read Aloud.
+    var polish: ChatPolishMenuButtons?
     let retry: () -> Void
     @State private var copied = false
 
@@ -1114,13 +1163,14 @@ struct AnswerActionRow: View {
                     Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
                     Button("Retry", systemImage: "arrow.clockwise", action: retry)
                     retryWith?.menu
+                    polish
                 }
             } label: {
                 IconActionLabel("ellipsis")
             }
             .accessibilityLabel("More")
             Spacer()
-            if let duration = turn.duration {
+            if let duration = ToolWording().shown(turn.duration) {
                 Text(ToolWording().duration(duration)).font(.footnote.monospacedDigit()).foregroundStyle(.tertiary)
                     .lineLimit(1).fixedSize()
             }

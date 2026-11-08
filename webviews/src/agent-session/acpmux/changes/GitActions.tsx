@@ -5,6 +5,7 @@
 import React, { useId, useRef, useState, type KeyboardEvent } from "react";
 import { ChoiceGroup } from "../../../ui/ChoiceGroup";
 import { KeyboardScope } from "../../../ui/KeyboardScope";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { useT } from "../i18n";
 import { canPush, messageTooLong, sameNewFiles, type CommitScope, type NewFiles } from "./gitWrite";
 import type { GitWrite } from "./useGitWrite";
@@ -236,24 +237,26 @@ function CommitForm({
           {t("git.commit.submit")}
         </button>
       </div>
-      {/* What the scope commits, then All's Include new files, on their own line: picking a scope changes
-          only this line, so Cancel and Commit never move or wrap (agent-pane.changes-git-actions). */}
+      {/* Keep the scope hint and Include new files below the scope and action buttons. Reserve both
+          translations and the checkbox so switching scope never moves or wraps either row. */}
       <div className="acpmux-git-form-row acpmux-git-scope-line">
         <span className="acpmux-git-scope-hint">
-          {t(scope === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
+          {options.map(({ value }) => (
+            <span key={value} data-visible={scope === value} aria-hidden={scope !== value}>
+              {t(value === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
+            </span>
+          ))}
         </span>
-        {scope === "all" && (
-          <label className="acpmux-git-include-new">
-            <input
-              type="checkbox"
-              aria-labelledby={`${scopeName}-new`}
-              checked={includeNew}
-              disabled={busy}
-              onChange={(event) => toggleNew(event.target.checked)}
-            />
-            <span id={`${scopeName}-new`}>{t("git.commit.includeNew")}</span>
-          </label>
-        )}
+        <label className="acpmux-git-include-new" data-visible={scope === "all"}>
+          <input
+            type="checkbox"
+            aria-labelledby={`${scopeName}-new`}
+            checked={includeNew}
+            disabled={busy || scope !== "all"}
+            onChange={(event) => toggleNew(event.target.checked)}
+          />
+          <span id={`${scopeName}-new`}>{t("git.commit.includeNew")}</span>
+        </label>
       </div>
       {withNew && listChanged && (
         <span className="acpmux-git-form-note" role="alert">
@@ -270,6 +273,7 @@ type NewFilesLoad = { state: "loading" } | { state: "failed" } | { state: "loade
 /// The new files a commit with "Include new files" adds, as the Uncommitted diff lists them.
 function NewFileList({ files }: { files?: NewFilesLoad }) {
   const t = useT();
+  const listEdges = useScrollEdges();
   if (!files || files.state === "loading")
     return <span className="acpmux-git-form-note">{t("git.commit.newFilesLoading")}</span>;
   if (files.state === "failed") return <span className="acpmux-git-form-note">{t("git.commit.newFilesFailed")}</span>;
@@ -280,7 +284,7 @@ function NewFileList({ files }: { files?: NewFilesLoad }) {
         {paths.length ? t("git.commit.newFiles") : t("git.commit.newFilesNone")}
       </span>
       {paths.length > 0 && (
-        <ul aria-label={t("git.commit.newFiles")}>
+        <ul ref={listEdges} className="ui-scroll-edge-fade" aria-label={t("git.commit.newFiles")}>
           {paths.map((path) => (
             <li key={path}>{path}</li>
           ))}

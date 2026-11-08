@@ -15,14 +15,13 @@ import Testing
     /// A chat that draws `need` points of tools in the row whenever the pane offers it, as the page does.
     final class RowChat: NSView, PaneTabRowSharing {
         let need: CGFloat
-        let tabRowTakesLoneTab: Bool
+        var tabRowTakesLoneTab = false
         private(set) var shared: CGFloat = 0
         private(set) var tabsShown = true
         var onTabRowToolsChange: (() -> Void)?
         var tabRowHoleFill: CGColor?
-        init(need: CGFloat, takesLoneTab: Bool = false) {
+        init(need: CGFloat) {
             self.need = need
-            tabRowTakesLoneTab = takesLoneTab
             super.init(frame: .zero)
         }
 
@@ -70,21 +69,21 @@ import Testing
         #expect(chatUnderRow == (CGFloat(width) - pane.toolbarWidth(shown: strip.height) >= chat.need * 2))
     }
 
-    /// Leo (2026-11-03), on the tab row over a chat alone in its pane: "have even more of that area be not
-    /// some row blocking it? cuz isn't it kinda arbitrary anyway if you literally only have one tab there?"
-    /// A chat that shares the row hides its pane's one tab (the page shows through); a second tab brings
-    /// the strip back. A view that does not take the lone tab (Home's tools) keeps it.
-    @Test(arguments: [true, false])
-    func aLoneChatTabGivesTheChatTheRow(takesLoneTab: Bool) {
+    /// Leo (2026-11-03), on a chat alone in its pane, whose tab #33132 hid: "i think you guys are currently hiding
+    /// it completely when there's only the one tab... but i think that's just too alien of a look", and "there is
+    /// nothinig at the top until you make a tab ... i also can't drag from this top area at all?". The strip shows
+    /// at the same height and place with no tab, one tab or several, while a chat shares the row, so nothing moves
+    /// when the first or second tab arrives; its empty space past + is the window's titlebar, and a tab or + is not.
+    @Test func theStripShowsAtOneHeightWhateverItsTabCount() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil); window.close() }
-        let model = TabStripModel(tabs: [TabItem(id: TabID("t0"), title: "Chat")])
+        let model = TabStripModel(tabs: [])
         let pane = PaneContentView(stripModel: model, reveal: LaunchReveal(deadline: .zero))
         pane.frame = window.contentLayoutRect
         window.contentView = pane
-        let chat = RowChat(need: 220, takesLoneTab: takesLoneTab)
+        let chat = RowChat(need: 220)
         _ = pane.show(chat)
         let settle = {
             for _ in 0..<4 {
@@ -92,6 +91,57 @@ import Testing
                 pane.layoutSubtreeIfNeeded()
             }
         }
+        var frames: [Int: NSRect] = [:]
+        for count in [0, 1, 2] {
+            model.tabs = (0..<count).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
+            settle()
+            pane.stripView.syncFromModel()
+            pane.stripView.layoutSubtreeIfNeeded()
+            let strip = pane.stripView
+            #expect(!strip.isHidden, "\(count) tab(s): the strip hid")
+            #expect(strip.frame.height > 0, "\(count) tab(s): the strip has no height")
+            #expect(chat.tabsShown, "\(count) tab(s): the chat was told the pane draws no tabs")
+            #expect(pane.contentHost.frame.minY < strip.frame.maxY, "\(count) tab(s): the chat shares the row")
+            frames[count] = strip.frame
+            // The empty space at the strip's trailing end moves the window; a tab and + take their own press.
+            #expect(strip.titlebarHit(at: CGPoint(x: strip.bounds.maxX - 2, y: strip.bounds.midY)) == .empty,
+                    "\(count) tab(s): the strip's empty space is no titlebar")
+            for rect in strip.mouseRects() {
+                #expect(strip.titlebarHit(at: CGPoint(x: rect.midX, y: strip.bounds.midY)) == .strip)
+            }
+        }
+        #expect(frames[0] == frames[1] && frames[1] == frames[2], "the strip moved with its tab count: \(frames)")
+    }
+
+    /// Leo (2026-11-03), after #34327 brought the strip back at one tab: "maybe you can leave it as an optional
+    /// toggle feature for now". With `tabs.hideLoneChatTab` on, a chat alone in its pane hides that tab (the page
+    /// shows through the row, #33132); a second tab, or the setting off, brings the strip back. A view that does not
+    /// take the lone tab (Home's tools) keeps it either way.
+    @Test(arguments: [true, false])
+    func theLoneTabHidesOnlyWithTheSettingOn(takesLoneTab: Bool) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let saved = DesignSettings.shared.hideLoneChatTab
+        defer { DesignSettings.shared.hideLoneChatTab = saved; window.orderOut(nil); window.close() }
+        let model = TabStripModel(tabs: [TabItem(id: TabID("t0"), title: "Chat")])
+        let pane = PaneContentView(stripModel: model, reveal: LaunchReveal(deadline: .zero))
+        pane.frame = window.contentLayoutRect
+        window.contentView = pane
+        let chat = RowChat(need: 220)
+        chat.tabRowTakesLoneTab = takesLoneTab
+        _ = pane.show(chat)
+        let settle = {
+            for _ in 0..<4 {
+                pane.needsLayout = true
+                pane.layoutSubtreeIfNeeded()
+            }
+        }
+        DesignSettings.shared.hideLoneChatTab = false
+        settle()
+        #expect(!pane.stripView.isHidden && chat.tabsShown, "the setting off: the lone tab shows")
+
+        DesignSettings.shared.hideLoneChatTab = true
         settle()
         #expect(pane.contentHost.frame.minY < pane.stripView.frame.maxY, "the chat shares the row")
         #expect(pane.stripView.isHidden == takesLoneTab)
@@ -99,8 +149,7 @@ import Testing
 
         model.tabs.append(TabItem(id: TabID("t1"), title: "Terminal"))
         settle()
-        #expect(!pane.stripView.isHidden, "a second tab shows the strip again")
-        #expect(chat.tabsShown)
+        #expect(!pane.stripView.isHidden && chat.tabsShown, "a second tab shows the strip again")
     }
 
     /// Leo (2026-11-03), on the chat's own color (`appearance.surfaces.agentPane`) drawn as a rectangle
@@ -148,7 +197,7 @@ import Testing
         pane.frame = window.contentLayoutRect
         window.contentView = pane
         pane.toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
-        let chat = RowChat(need: 220, takesLoneTab: true)
+        let chat = RowChat(need: 220)
         let fill = ThemeRGB(hex: 0x282938).cgColor
         chat.tabRowHoleFill = fill
         _ = pane.show(chat)

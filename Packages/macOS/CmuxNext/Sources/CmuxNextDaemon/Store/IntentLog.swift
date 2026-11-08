@@ -40,6 +40,10 @@ enum IntentUndo: Equatable {
     case createdWorkspace(key: WorkspaceKey, inserted: Bool)
     /// What a dock's overlay changed (``ProvisionalDock``).
     case dockTab(ProvisionalDock.Undo)
+    /// A creation whose stand-in tab the person closed while the creation goes on (a dock's fresh tab,
+    /// ``CancelledCreation/closeStandIn(_:in:)``): its overlay without the stand-in, then the daemon's fresh tab
+    /// hidden once the records hold it.
+    indirect case closedStandIn(overlay: IntentUndo?, hidden: HiddenTab?)
 }
 
 struct PendingIntent {
@@ -71,6 +75,10 @@ struct PendingIntent {
     /// The person closed what it creates before the daemon made it (``CancelledCreation``): it
     /// shows nothing, hides the daemon's tab or pane, and leaves once the records drop it.
     var closeWhenCreated = false
+    /// The person closed the stand-in tab this creation shows while the rest of it goes on (a dock's fresh tab:
+    /// the chat still docks). The stand-in shows no more, and the daemon's fresh tab is hidden and closed once the
+    /// records hold it; it leaves once they drop it (``CancelledCreation/closeStandIn(_:in:)``).
+    var standInClosed = false
     /// The daemon's surface was handed to the close (``DaemonCreations/onClose(_:)``).
     var closeRequested = false
     /// The surface the creation's reply named (a split's; a create's is `createdSurface`).
@@ -171,7 +179,7 @@ struct IntentLog {
                 continue
             }
             // A cancelled creation stays while the records hold what it made, snapshot or not.
-            if !snapshot || entry.closeWhenCreated, awaiting(entry) {
+            if !snapshot || entry.closeWhenCreated || entry.standInClosed, awaiting(entry) {
                 entry.awaitsRecords = true
                 kept.append(entry)
             } else {
@@ -187,7 +195,7 @@ struct IntentLog {
     /// sequence from the previous one no longer compares: an intent whose
     /// reply came settles with the new connection's first snapshot.
     mutating func connectionReplaced() {
-        replacedStandIns.removeAll() // another daemon may reuse their surfaces
+        replacedStandIns.removeAll(); closedTabs.removeAll() // another daemon may reuse their surfaces
         entries = entries.map { entry in
             var entry = entry
             if entry.settleSequence != nil {
@@ -226,12 +234,50 @@ struct IntentLog {
 
     func replacement(ofStandIn id: String) -> SurfaceID? { replacedStandIns.last { $0.standIn == id }?.surface }
 
+    /// The daemon tabs the person closed lately (bounded, newest last), still known after their close settled: a new
+    /// tab's move that waits for its tab to be listed stops waiting for one already closed (``DaemonStore/closedLately(_:)``).
+    private(set) var closedTabs: [(id: String, surface: SurfaceID)] = []
+
+    /// Notes `tabs` closed; the overlay applies a close again on every restore, so each is listed once.
+    mutating func noteClosed(_ tabs: [(id: String, surface: SurfaceID)]) {
+        for tab in tabs where !closedTabs.contains(where: { $0.id == tab.id }) { closedTabs.append(tab) }
+        if closedTabs.count > Self.replacedStandInLimit { closedTabs.removeFirst(closedTabs.count - Self.replacedStandInLimit) }
+    }
+
+    /// The tabs on `surfaces` are not closed after all (their close was rejected).
+    mutating func forgetClosed(_ surfaces: Set<SurfaceID>) {
+        closedTabs.removeAll { surfaces.contains($0.surface) }
+    }
+
+    /// Whether daemon surface `surface` took a recently created stand-in's place.
+    func replacedAStandIn(_ surface: SurfaceID) -> Bool { replacedStandIns.contains { $0.surface == surface } }
+
+    /// The terminal host id each recently settled stand-in tab minted (bounded), by the stand-in's tab id: a dock's fresh
+    /// tab, which no reply names, is still known as its stand-in's after the dock left the log in the step before a strip
+    /// shows it (review F1 on #38108).
+    private var settledTerminals: [(standIn: String, terminal: TerminalID)] = []
+
+    func settled(standIn id: String, minted terminal: TerminalID) -> Bool { settledTerminals.contains { $0.standIn == id && $0.terminal == terminal } }
+
+    /// `entry` left the log unrefused: a terminal stand-in the person kept is remembered by the host id it minted.
+    mutating func noteStandInSettled(_ entry: PendingIntent) {
+        guard !entry.closeWhenCreated, !entry.standInClosed, let tab = entry.kind.standInTab,
+              let id = tab.tabResourceID?.rawValue, let terminal = tab.terminalID else { return }
+        settledTerminals.append((id, terminal))
+        if settledTerminals.count > Self.replacedStandInLimit { settledTerminals.removeFirst(settledTerminals.count - Self.replacedStandInLimit) }
+    }
+
     /// False when `transaction` is not pending.
     mutating func markCloseWhenCreated(_ transaction: ClientTransactionID) -> Bool {
         guard entries.modifyFirst(where: { $0.transaction == transaction }, { $0.closeWhenCreated = true }) else { return false }
         cancelled.append(transaction)
         if cancelled.count > settledLimit { cancelled.removeFirst(cancelled.count - settledLimit) }
         return true
+    }
+
+    /// False when `transaction` is not pending or its stand-in was closed already.
+    mutating func markStandInClosed(_ transaction: ClientTransactionID) -> Bool {
+        entries.modifyFirst(where: { $0.transaction == transaction && !$0.standInClosed }, { $0.standInClosed = true })
     }
 
     mutating func noteCloseRequested(_ transaction: ClientTransactionID) {
@@ -266,8 +312,9 @@ struct IntentLog {
             if confirmed { $0.createdConfirmed = true }
         }
         guard confirmed else { return }
-        if case .createTab(_, let provisional)? = entries.first(where: { $0.transaction == transaction })?.kind,
-           let standIn = provisional.tabResourceID?.rawValue {
+        // A closed stand-in became nothing the person sees: its daemon tab is hidden and closed (``CancelledCreation``).
+        if let entry = entries.first(where: { $0.transaction == transaction }), !entry.closeWhenCreated, !entry.standInClosed,
+           let standIn = entry.kind.standInTab?.tabResourceID?.rawValue {
             replacedStandIns.removeAll { $0.standIn == standIn }
             replacedStandIns.append((standIn, surface))
             if replacedStandIns.count > Self.replacedStandInLimit { replacedStandIns.removeFirst(replacedStandIns.count - Self.replacedStandInLimit) }

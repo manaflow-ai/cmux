@@ -24,11 +24,25 @@
 // acpmux TUI, so it is a message only when its sender is a listed chat, or its receiver is this
 // chat and its sender reads as an agent's name (`IncomingContext`). A watched chat (`client: "watch"`, hub/watch.rs) records its
 // prompts from the transcript as an adopted one does, Claude Code's envelopes in them.
+// A prompt acpmux could not attribute (kind `unverified`, prompt_provenance.rs: a plain `acpmux
+// send` at a shell, a script, an agent outside acpmux) is no one's for sure and never the person's:
+// a card from the name it puts first, else from an unverified sender, marked unverified either way.
+// A record with no provenance and no `_meta.origin` (acpmux's mark of the proven person's prompt)
+// predates both: it keeps its bubble as it was, with no mark, since every person's prompt before
+// that mark was recorded so (only the explicit `unverified` kind marks a prompt).
 // acpmux's inbox notice (hub/inbox.rs, kind `inbox_notice`) is no prompt to draw as written: its
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
-import { legacyNotice, noticeBody, provenanceNotice, renderedNotice, type AgentNotice } from "./agentNotice";
+import { relayEnvelope, withoutRelayEnvelope } from "./relayEnvelope";
+import {
+  legacyNotice,
+  noticeBody,
+  noticeRowText,
+  provenanceNotice,
+  renderedNotice,
+  type AgentNotice,
+} from "./agentNotice";
 
 /// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
 /// `family_role`): the chat that started it, one it started, one further up, or another below or
@@ -49,6 +63,10 @@ export type IncomingMessage = {
   fromPerson?: true;
   /// The sending chat, when it is one here that can be opened.
   sessionId?: string;
+  /// What the sender's chat is asked for by when there is no `sessionId` (inboxNotice.ts
+  /// `senderKey`): acpmux's record of who sent it, never `name`, which may carry a note for the
+  /// reader. Absent: `name`.
+  lookup?: string;
   /// Who the sender is to this chat, for a sub-session family's message.
   relation?: IncomingRelation;
   /// The Chief whose turn sent it (acpmux `fromChief`, its participant id): the line shows that
@@ -61,6 +79,11 @@ export type IncomingMessage = {
   /// Relayed from an acpmux on another machine (`acpmux send` there): the paths it names are
   /// that machine's, not this Mac's.
   remote?: true;
+  /// The app or bot and the persona inside it that the sender named itself as (`[from APP ›
+  /// PERSONA] …`, cmux chat send --from; u20190): the line names it "APP › PERSONA" and draws the
+  /// app's mark, else its monogram.
+  app?: string;
+  persona?: string;
   /// The sender's harness when the message names it (`fromHarness`: a peer's relayed message, whose
   /// chat is not listed here), for its mark.
   harness?: string;
@@ -68,6 +91,11 @@ export type IncomingMessage = {
   /// `fromEffort`), for its line's hover; a listed chat's own come first.
   model?: string;
   effort?: string;
+  /// acpmux could not verify who sent it (provenance kind `unverified`): the line says so, and
+  /// names an unverified sender when the message names no one.
+  unverified?: true;
+  /// A person edited it while it waited (acpmux `editedBy`): still the sender's message.
+  edited?: true;
   /// What the sender wrote.
   text: string;
   /// The prompt as the agent got it.
@@ -79,6 +107,10 @@ export type IncomingMessage = {
   /// A tool's or reconciler's notice (agentNotice.ts): its severity, title, machine and links. The
   /// line draws the title, never the message's first line; `text` is the body alone.
   notice?: AgentNotice;
+  /// The line's words when the text's first line is not them: a digest of several messages, whose
+  /// text opens with its first sender's name (incomingMessage.ts `digestBody`), reads its first
+  /// message's first line, never that name beside the senders the line already names.
+  preview?: string;
 };
 
 /// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
@@ -271,8 +303,51 @@ export function cliHost(client: unknown): string | undefined {
   return /^acpmux-(?:cli|peer|outbox)#[^@\s]*@([A-Za-z0-9._-]{1,64})$/.exec(String(client ?? ""))?.[1];
 }
 
+/// A `user_message`'s `agentText` (acpmux hub/session.rs `typed_agent_text`): part of the person's
+/// typed text reads as another agent's output, `{from?, signals}`. Anything else is none.
+export function recordedAgentText(value: unknown): { from?: string } | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const from = (value as { from?: unknown }).from;
+  return typeof from === "string" && from.trim() ? { from: from.trim().slice(0, 64) } : {};
+}
+
+/// Provenance kinds acpmux gives only another agent's message (or a tool's notice).
+const AGENT_KINDS = new Set([
+  "unverified",
+  "agent_message",
+  "session_message",
+  "subsession_message",
+  "task_result",
+  "lane_report",
+  "notice",
+]);
+
+/// Whether acpmux recorded the message as another agent's: its provenance says so, or (an older
+/// acpmux with none) it came by `acpmux send` at a shell or its outbox.
+function fromAgent(msg: Parameters<typeof promptOf>[1]): boolean {
+  const provenance = msg?._meta?.provenance as { kind?: unknown } | undefined;
+  if (provenance) return typeof provenance.kind === "string" && AGENT_KINDS.has(provenance.kind);
+  return typeof msg?.client === "string" && (CLI_CLIENT.test(msg.client) || OUTBOX_CLIENT.test(msg.client));
+}
+
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
+  text: string,
+  msg: Parameters<typeof promptOf>[1],
+  context?: IncomingContext,
+): IncomingPrompt | undefined {
+  // A lane VM's message the lane-gh broker relayed (relayEnvelope.ts): the message inside its
+  // label, read as any other; the label names the sender when nothing else does. The prompt the
+  // agent got, label and all, stays the row's `raw` (behind Details). Only a record acpmux keeps
+  // as another agent's is read so: anyone can type a label, and the person's own prompt stays theirs.
+  const relay = fromAgent(msg) ? relayEnvelope(text) : undefined;
+  if (!relay) return promptOf(text, msg, context);
+  const inner = promptOf(relay.body, msg, context);
+  if (inner?.kind === "message") return { kind: "message", message: { ...inner.message, raw: text } };
+  return { kind: "message", message: { name: relay.sender, text: relay.body, raw: text } };
+}
+
+function promptOf(
   text: string,
   msg:
     | {
@@ -290,10 +365,15 @@ export function incomingPrompt(
   const remote = String(msg?.client ?? "").startsWith("acpmux-peer#") ? { remote: true as const } : {};
   // The sender's harness, model and effort, when acpmux names them (a relayed message's sender is
   // not listed here).
-  const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(msg?.fromHarness);
+  // A local sender's own word for its harness is only its claim (`claimed.fromHarness`), still the
+  // mark its card draws.
+  const claimed = provenance?.claimed as Record<string, unknown> | undefined;
+  const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(claimed?.fromHarness) ?? trimmed(msg?.fromHarness);
   const fromModel = trimmed(provenance?.fromModel) ?? trimmed(msg?.fromModel);
   const fromEffort = trimmed(provenance?.fromEffort) ?? trimmed(msg?.fromEffort);
+  const edited = provenance?.editedBy ? { edited: true as const } : {};
   const harness = {
+    ...edited,
     ...(fromHarness && { harness: fromHarness }),
     ...(fromModel && { model: fromModel }),
     ...(fromEffort && { effort: fromEffort }),
@@ -326,7 +406,12 @@ export function incomingPrompt(
     return {
       kind: "message",
       message: {
-        name: signed?.name ?? name,
+        // The recorded session names the line; only an app/persona label (`[from APP › PERSONA]`)
+        // names its own sender, since a plain signature can't override the recorded name. With no
+        // recorded name (the raw `from` address), the signature still reads better than the address.
+        name: signed && (signed.app || name === provenance.from) ? signed.name : name,
+        ...(signed?.app && { app: signed.app }),
+        ...(signed?.persona && { persona: signed.persona }),
         ...(provenance.kind === "lane_report"
           ? { report: true, ...(provenance.details !== undefined ? { details: provenance.details } : {}) }
           : {}),
@@ -352,17 +437,48 @@ export function incomingPrompt(
       ),
     ];
     if (senders.length > 0) {
+      const parts = digestParts(text, provenance.messages);
+      // Tools' notices alone (a background command's end, acpmux hub/bg_notify.rs, waited behind a
+      // busy turn with another): one notice, the most severe, the rest counted and opened below it.
+      const notices = parts.flatMap((part) => (part.notice ? [part.notice] : []));
+      if (notices.length && notices.length === parts.length) {
+        const first = mostSevere(notices);
+        const body =
+          parts.length === 1
+            ? parts[0]!.text
+            : parts.map((part) => `**${escapeTitle(part.notice!.title)}**\n${part.text}`.trim()).join("\n\n");
+        const more = notices.length - 1;
+        return {
+          kind: "message",
+          message: {
+            name: first.sender,
+            notice: { ...first, links: notices.flatMap((n) => n.links).slice(0, 16), ...(more && { more }) },
+            ...remote,
+            text: body,
+            raw: text,
+          },
+        };
+      }
       const name = senders.length > 3 ? `${senders.slice(0, 3).join(", ")} +${senders.length - 3}` : senders.join(", ");
-      const body = digestBody(text) || text.trim();
+      const body = digestBody(parts) || text.trim();
+      const preview = parts.length > 1 ? (parts[0]!.notice?.title ?? messagePreview(parts[0]!.text)) : undefined;
       return {
         kind: "message",
-        message: { name, ...digestReply(provenance.messages), ...remote, text: body, raw: text },
+        message: {
+          name,
+          ...digestReply(provenance.messages),
+          ...remote,
+          text: body,
+          raw: text,
+          ...(preview && { preview }),
+        },
       };
     }
   }
   // A tool's or reconciler's notice (agentNotice.ts): its sender, severity, title and links; the
   // body without the head and the Links line the row draws itself.
-  if (provenance?.kind === "notice") {
+  // acpmux's own who-else notice (hub/touched.rs) carries a notice's fields under its own kind.
+  if (provenance?.kind === "notice" || provenance?.kind === "who_else") {
     const notice = provenanceNotice(provenance);
     if (notice)
       return {
@@ -406,7 +522,12 @@ export function incomingPrompt(
     return {
       kind: "message",
       message: {
-        name: signed?.name ?? name,
+        // The recorded session names the line; only an app/persona label (`[from APP › PERSONA]`)
+        // names its own sender, since a plain signature can't override the recorded name. With no
+        // recorded name (the raw `from` address), the signature still reads better than the address.
+        name: signed && (signed.app || name === provenance.from) ? signed.name : name,
+        ...(signed?.app && { app: signed.app }),
+        ...(signed?.persona && { persona: signed.persona }),
         ...(sessionId && { sessionId }),
         ...(chief && { chief }),
         ...id("msgId"),
@@ -429,6 +550,20 @@ export function incomingPrompt(
   ) {
     const name = trimmed(provenance.fromName);
     if (name) return { kind: "message", message: { name, ...remote, ...harness, text: text.trim(), raw: text } };
+  }
+  // No proof names its sender: the name it puts first is a claim, and it is never the person's.
+  if (provenance?.kind === "unverified") {
+    const named = namedFirst(text.trim()) ?? fromFirst(text.trim()) ?? addressedFirst(text.trim(), context);
+    return {
+      kind: "message",
+      message: {
+        ...(named ?? { name: "", text: text.trim() }),
+        unverified: true,
+        ...remote,
+        ...harness,
+        raw: text,
+      },
+    };
   }
   if (!provenance && typeof msg?.client === "string" && OUTBOX_CLIENT.test(msg.client)) {
     const named = fromFirst(text.trim());
@@ -500,6 +635,7 @@ const NAMED_SENDER = "fromAgent";
 /// The provenance kinds this page reads on its own; any other from an agent is its message (so is
 /// a `notice` whose notice does not read).
 const KNOWN_KINDS = new Set([
+  "unverified",
   "agent_message",
   "agent_digest",
   "session_message",
@@ -552,9 +688,36 @@ function sentFirst(text: string): { name: string; text: string } | undefined {
   return { name, text: unsigned(prefixed[2]!.trim(), name) };
 }
 
+/// The label `cmux chat send` and MCP `chat_send` put before an agent's words (cmux-conversation
+/// agent_sender.rs): `[from Grok bot › Ada] …`, `[from Muse] …`.
+const FROM_LABEL = /^\[from ([^\]\n]{1,110})\]\s+(\S[\s\S]*)$/;
+const PERSONA_SEPARATOR = " › ";
+
+/// A label that is a session's routing name (`claude-sr2-coord`, `lane-a`): sentFirst's, never an app
+/// whose mark the line may draw (a Codex lane called `claude-…` must not draw Claude's; cmux#30247).
+const ROUTING_NAME = /^[a-z0-9][\w.@/:-]*$/;
+
+/// The sender an agent's `[from APP › PERSONA]` label names, and its words after it: a label with a
+/// persona, a space or a capital (`Grok bot › Ada`, `Muse`), never a lower-case routing name.
+export function labelledFirst(text: string): { name: string; app: string; persona?: string; text: string } | undefined {
+  const labelled = FROM_LABEL.exec(text);
+  if (!labelled || ROUTING_NAME.test(labelled[1]!.trim())) return undefined;
+  const [app, ...rest] = labelled[1]!.split("›").map((part) => part.trim());
+  if (!app) return undefined;
+  const persona = rest.filter(Boolean).join(" ") || undefined;
+  return {
+    name: persona ? `${app}${PERSONA_SEPARATOR}${persona}` : app,
+    app,
+    ...(persona && { persona }),
+    text: unsigned(labelled[2]!.trim(), app),
+  };
+}
+
 /// The agent named first in brackets in `text`, and its message after the name; `[from <name>]`
-/// names `<name>` (sentFirst).
-function namedFirst(text: string): { name: string; text: string } | undefined {
+/// names `<name>` (sentFirst), and `[from APP › PERSONA]` its app and persona (labelledFirst).
+function namedFirst(text: string): { name: string; app?: string; persona?: string; text: string } | undefined {
+  const label = labelledFirst(text);
+  if (label) return label;
   const sent = sentFirst(text);
   if (sent) return sent;
   const prefixed = NAME_PREFIX.exec(text);
@@ -600,7 +763,13 @@ function addressedFirst(
 /// The agent that signed a message whose envelope names its sender already: its name first in
 /// brackets, when it is an agent's name and not a tag (`[WIP]`, `[1/3]`), after "From", or
 /// before an arrow to its receiver. A name the envelope gives (`known`) is a signature in any form.
-function agentSigned(text: string, known: readonly unknown[] = []): { name: string; text: string } | undefined {
+function agentSigned(
+  text: string,
+  known: readonly unknown[] = [],
+): { name: string; app?: string; persona?: string; text: string } | undefined {
+  // A sender that names its app and persona says who it is in any envelope.
+  const label = labelledFirst(text);
+  if (label) return label;
   const named = namedFirst(text);
   if (named && (ENVELOPE_AGENT.test(named.name) || namesSender(named.name, known))) return named;
   const addressed = ADDRESSED.exec(text);
@@ -626,20 +795,47 @@ function namesSender(name: string, known: readonly unknown[]): boolean {
 /// each message under its sender's name in bold, without that line and without the signature
 /// that only repeats the sender (`[lane-a] Merged`); one message alone is just its text. Empty
 /// when `text` is not in that form.
-function digestBody(text: string): string {
+/// The messages of a digest's text, oldest first, each under the sender its line names; one whose
+/// own provenance (`messages`, in the same order, acpmux `digest_provenance`) is a tool's notice
+/// carries it, its text without the rendered head and Links line. Not a digest's text: none.
+function digestParts(text: string, messages: readonly unknown[]): DigestPart[] {
   const rest = text.trim().replace(DIGEST_LEAD, "");
   const parts = [...rest.matchAll(DIGEST_PART)];
-  if (!parts.length || parts[0]!.index !== 0) return "";
-  const messages = parts.map((part, index) => {
+  if (!parts.length || parts[0]!.index !== 0) return [];
+  return parts.map((part, index) => {
     const sender = part[1]!.trim();
     const end = parts[index + 1]?.index ?? rest.length;
-    const body = rest.slice(part.index! + part[0].length, end).trim();
+    const body = withoutRelayEnvelope(rest.slice(part.index! + part[0].length, end)).trim();
+    const sent = (messages[index] as { provenance?: Record<string, unknown> } | null)?.provenance;
+    const notice = sent?.kind === "notice" || sent?.kind === "who_else" ? provenanceNotice(sent) : undefined;
+    if (notice) return { sender, notice, text: noticeBody(body) };
     const signed = agentSigned(body, [sender]);
     return { sender: signed?.name ?? sender, text: signed?.text ?? body };
   });
-  if (messages.length === 1) return messages[0]!.text;
-  return messages.map((message) => `**${message.sender}**\n${message.text}`).join("\n\n");
 }
+
+type DigestPart = { sender: string; text: string; notice?: AgentNotice };
+
+/// A digest's text as its card shows it: one message as it was sent, several each under its
+/// sender's name (a notice under its title too).
+function digestBody(parts: readonly DigestPart[]): string {
+  if (parts.length === 1) return parts[0]!.notice ? noticeRowText(parts[0]!.notice, parts[0]!.text) : parts[0]!.text;
+  return parts
+    .map(({ sender, text, notice }) =>
+      notice ? `**${sender}**\n${noticeRowText(notice, text)}` : `**${sender}**\n${text}`,
+    )
+    .join("\n\n");
+}
+
+const SEVERITY_RANK: Record<AgentNotice["severity"], number> = { info: 0, warn: 1, fire: 2 };
+
+/// The first of the most severe notices.
+function mostSevere(notices: readonly AgentNotice[]): AgentNotice {
+  return notices.reduce((best, n) => (SEVERITY_RANK[n.severity] > SEVERITY_RANK[best.severity] ? n : best));
+}
+
+/// A title as bold Markdown's words: its own marks kept as written.
+const escapeTitle = (title: string) => title.replace(/[\\`*_[\]<>]/g, "\\$&");
 
 const DIGEST_LEAD =
   /^\d+ messages? from other agents arrived while you were busy\.(?: Each follows as it was sent, oldest first\.)?\s*/;

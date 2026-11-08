@@ -68,6 +68,69 @@ class LoadedTests(unittest.TestCase):
         self.assertAlmostEqual(result["roles"]["total"]["idle_wakeups_per_s"], 6.0)
         self.assertAlmostEqual(result["roles"]["total"]["wakeups_per_s"], 15.0)  # idle 2 + interrupt 3, three processes
 
+    def test_footprint_read_as_zero_is_unread_not_zero(self):
+        # A display run read 0 MB for 24 of 46 live renderers and summed them as 0 (7.3 GB, not ~13).
+        clock = FakeClock()
+        saved = (bp.time, bp.bm.owned, bp.usage_v6, bp.main_thread_ns)
+        try:
+            bp.time = clock
+            bp.bm.owned = lambda pid, bundle: {1: ("app", "app"), 2: ("cef-renderer", "r"), 3: ("cef-renderer", "r")}
+            bp.usage_v6 = lambda pid: (0, int(1e8 * clock.now), 0, 0, 0 if pid == 3 else 100 * 1048576)
+            bp.main_thread_ns = lambda pid: None
+            result = bp.measure_processes(1, "/x.app", "idle-chats", 5, {2: "cef-renderer: agent", 3: "cef-renderer: agent"}, set())
+        finally:
+            bp.time, bp.bm.owned, bp.usage_v6, bp.main_thread_ns = saved
+        unread = next(r for r in result["processes"] if r["pid"] == 3)
+        self.assertIsNone(unread["footprint_mb"])
+        agent = result["roles"]["cef-renderer: agent"]
+        self.assertEqual((agent["footprint_mb"], agent["footprint_unread"]), (100.0, 1))
+        self.assertEqual(result["roles"]["total"]["footprint_unread"], 1)
+        rows, _ = bp.process_rows({**result, "label": "idle-chats"}, 5.0)
+        # The unread process says so, not a blank cell that reads as "no footprint".
+        self.assertTrue(any(row.startswith("| cef-renderer: agent | 3 |") and "|  | unread |" in row for row in rows))
+        # The role's per-role row shows the partial sum with its unread count, never a bare number.
+        role_rows = bp.perf_rows(result, None, "h")
+        self.assertIn("| cef-renderer: agent: footprint MB | 100 (1 unread) |  |  | h |", role_rows)
+
+    def test_perf_rows_footprint_with_unread_members_has_no_delta(self):
+        # A failed read leaves a role's sum incomplete: a delta against it is no measurement.
+        full = {"roles": {"total": {"cpu_pct": 70.0, "footprint_mb": 2000.0, "footprint_unread": 0}}}
+        partial = {"roles": {"total": {"cpu_pct": 35.0, "footprint_mb": 1200.0, "footprint_unread": 3}}}
+        rows = bp.perf_rows(full, partial, "h")
+        self.assertIn("| total: footprint MB | 2000 | 1200 (3 unread) | unknown (incomplete read) | h |", rows)
+        self.assertIn("| total: CPU % (avg) | 70 | 35 | -35 (-50%) | h |", rows)
+        rows = bp.perf_rows(partial, full, "h")
+        self.assertIn("| total: footprint MB | 1200 (3 unread) | 2000 | unknown (incomplete read) | h |", rows)
+        self.assertFalse(any("footprint" in row and "+800" in row for row in rows))
+        # Both sides fully read: the delta stays.
+        rows = bp.perf_rows(full, {"roles": {"total": {"footprint_mb": 2100.0, "footprint_unread": 0}}}, "h")
+        self.assertIn("| total: footprint MB | 2000 | 2100 | +100 (+5%) | h |", rows)
+
+    def test_power_measure_counts_a_zero_footprint_as_unread(self):
+        clock = FakeClock()
+        saved = (bp.time, bp.bm.owned, bp.counters, bp.powermetrics)
+        try:
+            bp.time = clock
+            bp.bm.owned = lambda pid, bundle: {1: ("app", "app"), 2: ("cef-renderer", "r"), 3: ("cef-renderer", "r")}
+            bp.counters = lambda pid: (0, int(1e8 * clock.now), 0, 0 if pid == 3 else 100 * 1048576)
+            bp.powermetrics = lambda seconds: None
+            result = bp.measure(1, "/x.app", "idle", 5)
+        finally:
+            bp.time, bp.bm.owned, bp.counters, bp.powermetrics = saved
+        self.assertEqual(result["kinds"]["cef-renderer"]["footprint_unread"], 1)
+        self.assertEqual(result["total"]["footprint_unread"], 1)
+        self.assertAlmostEqual(result["total"]["footprint_mb"], 200.0)
+
+    def test_profile_summary_self_time_by_function(self):
+        profile = {"nodes": [{"id": 1, "callFrame": {"functionName": "(root)", "url": "", "lineNumber": -1, "columnNumber": -1}},
+                             {"id": 2, "callFrame": {"functionName": "(program)", "url": "", "lineNumber": -1, "columnNumber": -1}},
+                             {"id": 3, "callFrame": {"functionName": "tick", "url": "cmux-page://cmux.agent/pane.js", "lineNumber": 9, "columnNumber": 4}}],
+                   "samples": [2, 3, 3, 2], "timeDeltas": [0, 1000, 3000, 500]}
+        summary = bp.profile_summary(profile)
+        self.assertEqual(summary["self_ms"][0], ["tick pane.js:10:5", 3.5])
+        self.assertEqual(summary["self_ms"][1], ["(program) :0:0", 1.0])
+        self.assertEqual(summary["total_ms"], 4.5)
+
     def test_perf_rows(self):
         before = {"roles": {"total": {"cpu_pct": 70.0, "footprint_mb": 2000.0, "main_thread_pct": None}}}
         after = {"roles": {"total": {"cpu_pct": 35.0, "footprint_mb": 2100.0, "main_thread_pct": None}}}

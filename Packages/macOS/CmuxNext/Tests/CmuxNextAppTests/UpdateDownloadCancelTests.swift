@@ -33,7 +33,7 @@ import Testing
             .presentation(version: "1.0.0", build: "100")
         let notice = SidebarCardFeed.notice(shown, asked: true)
         let card = SidebarNoticeCardView(motionPolicy: { MotionPolicy(speed: .fast, reduceMotion: true) })
-        card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: notice))
+        card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: notice, width: 240))
         card.configure(notice)
         card.layoutSubtreeIfNeeded()
         let pad = Metrics.space3
@@ -66,11 +66,9 @@ import Testing
             updater.debugIndicatorPhase = phase
             updater.syncFlowPhase()
         }
-        #expect(updater.card == nil, "the download shows a sidebar card")
-        #expect(updater.settingsStatus == .card(.downloading(.downloading(received: 62 * Self.mb, expected: 250 * Self.mb))))
+        #expect(updater.card == .downloading(.downloading(received: 62 * Self.mb, expected: 250 * Self.mb)))
 
-        // The cancel is Settings > Updates' now (the sidebar shows no download).
-        updater.performSettingsAction(.cancelDownload)
+        updater.performCardAction(.cancelDownload)
         #expect(cancels == 1, "the cancel did not stop the download")
         #expect(updater.card == .available(version: nil), "the card did not go back to the found update: \(String(describing: updater.card))")
         let notice = SidebarCardFeed.noticeCard(updater, registry: nil)

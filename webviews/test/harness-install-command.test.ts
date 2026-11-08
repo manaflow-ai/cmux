@@ -26,9 +26,16 @@ function run(command: string, withNpm: boolean): { code: number; log: string[] }
     chmodSync(join(dir, name), 0o755);
   };
   stub("curl", `echo "curl $*" >> "${log}"; echo 'echo installer'`);
+  stub("brew", `echo "brew $*" >> "${log}"`);
+  stub("cargo", `echo "cargo $*" >> "${log}"`);
   // Only builtins: PATH holds nothing but these stubs.
   stub("bash", `IFS= read -r script; echo "bash <$script>" >> "${log}"`);
-  stub("sh", `IFS= read -r script; echo "sh <$script> CODEX_NON_INTERACTIVE=$CODEX_NON_INTERACTIVE" >> "${log}"`);
+  // Keep the expected log stable even when the parent test runner exports the
+  // Codex installer flag. Only the Codex command intentionally sets it.
+  stub(
+    "sh",
+    `IFS= read -r script; if [ -n "$CODEX_NON_INTERACTIVE" ]; then echo "sh <$script> CODEX_NON_INTERACTIVE=$CODEX_NON_INTERACTIVE" >> "${log}"; else echo "sh <$script>" >> "${log}"; fi`,
+  );
   if (withNpm) stub("npm", `echo "npm $*" >> "${log}"`);
   const result = Bun.spawnSync(["/bin/sh", "-c", command], { env: { PATH: dir, HOME: dir } });
   return {
@@ -51,10 +58,23 @@ test("without npm, Install runs each vendor's own installer", () => {
     code: 0,
     log: ["curl -fsSL https://opencode.ai/install", "bash <echo installer>"],
   });
+  expect(run(INSTALL_COMMANDS.gemini!, false)).toEqual({
+    code: 0,
+    log: ["brew install gemini-cli"],
+  });
+  // Muse uses its existing setup/docs action; it has no second install command
+  // that could duplicate the provider's official setup flow.
+  expect(INSTALL_COMMANDS.muse).toBeUndefined();
 });
 
 test("with npm, Install keeps npm, and never also runs a vendor installer", () => {
   expect(run(INSTALL_COMMANDS.claude!, true)).toEqual({ code: 0, log: ["npm install -g @anthropic-ai/claude-code"] });
   expect(run(INSTALL_COMMANDS.codex!, true)).toEqual({ code: 0, log: ["npm install -g @openai/codex"] });
   expect(run(INSTALL_COMMANDS.opencode!, true)).toEqual({ code: 0, log: ["npm install -g opencode-ai"] });
+  // Gemini keeps npm when it is available; Muse uses its setup/docs action.
+  expect(run(INSTALL_COMMANDS.gemini!, true)).toEqual({
+    code: 0,
+    log: ["npm install -g @google/gemini-cli"],
+  });
+  expect(INSTALL_COMMANDS.muse).toBeUndefined();
 });

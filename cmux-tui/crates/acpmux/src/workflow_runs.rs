@@ -34,12 +34,26 @@ pub enum Child {
         #[serde(default)]
         host: Option<String>,
     },
+    CiMachine {
+        intent: CiIntent,
+    },
     Machine {
         session_id: String,
         task_id: String,
         #[serde(default)]
         host: Option<String>,
     },
+}
+
+/// Immutable fleet submission, committed with the activity before the first POST.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CiIntent {
+    pub request_key: String,
+    pub repo: String,
+    pub source_ref: String,
+    pub command: String,
+    pub target_worker: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

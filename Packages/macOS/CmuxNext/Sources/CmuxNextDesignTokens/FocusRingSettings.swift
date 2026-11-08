@@ -45,7 +45,6 @@ public nonisolated struct FocusRingSettings: Hashable, Sendable {
 
     public init() {}
 
-    public static let widthRange: ClosedRange<CGFloat> = 0.5...8
     public static let cornerRadiusRange: ClosedRange<CGFloat> = 0...24
 
     /// Alpha for the theme focus color: the Debug Settings override, else `contrast`.

@@ -19,25 +19,19 @@ extension BookmarkService {
         let bar = BookmarksBarView()
         bar.source = adapter
         chromes[key] = WeakChrome(entry: entry, bar: bar, source: adapter)
-        entry.chrome.addressBar.onPageURLChange = { [weak self, weak entry] url in
-            guard let self, let entry else { return }
-            updateStar(entry, url: url)
-        }
-        entry.chrome.addressBar.onBookmarkStar = { [weak self] anchor in self?.starPressed(tab: key, anchor: anchor) }
+        entry.state.onPageURLChange = { [weak self, weak entry] url in if let self, let entry { updateStar(entry, url: url) } }
+        entry.state.onBookmarkStar = { [weak self] anchor in self?.starPressed(tab: key, anchor: anchor) }
         updateStar(entry, url: entry.tab.state.url)
-        entry.chrome.setAccessoryView(showsBar ? bar : nil, height: BookmarksBarView.height)
         chromes = chromes.filter { $0.value.entry != nil }
+        updateBar(bar, entry: entry)
     }
 
     func refreshChromes(profiles: Set<String>) {
         for (key, chrome) in chromes {
-            guard let entry = chrome.entry else {
-                chromes[key] = nil
-                continue
-            }
+            guard let entry = chrome.entry else { chromes[key] = nil; continue }
             guard profiles.contains(profile(of: entry.tab.profileID)) else { continue }
             updateStar(entry, url: entry.tab.state.url)
-            if showsBar { chrome.bar.reload() }
+            updateBar(chrome.bar, entry: entry)
         }
     }
 
@@ -45,22 +39,25 @@ extension BookmarkService {
     func setBarShown(_ shown: Bool) {
         guard shown != showsBar else { return }
         showsBar = shown
-        for chrome in chromes.values {
-            guard let entry = chrome.entry else { continue }
-            if shown { chrome.bar.reload() }
-            entry.chrome.setAccessoryView(shown ? chrome.bar : nil, height: BookmarksBarView.height)
-        }
+        for chrome in chromes.values { if let entry = chrome.entry { updateBar(chrome.bar, entry: entry) } }
     }
 
     var isBarShown: Bool { showsBar }
+
+    /// A tab's bar shows while the setting is on and its profile fills one (#38046); off its window it rebuilds when attached.
+    private func updateBar(_ bar: BookmarksBarView, entry: BrowserEntry) {
+        let shown = showsBar && tree(profile(of: entry.tab.profileID)).fillsBookmarksBar
+        if shown { bar.reload() }
+        if (entry.state.accessory?.view === bar) != shown { entry.state.accessory = shown ? (bar, BookmarksBarView.height) : nil }
+    }
 
     /// The bar of tab `key`, for diagnostics.
     func bar(ofTab key: String) -> BookmarksBarView? { chromes[key]?.bar }
 
     private func updateStar(_ entry: BrowserEntry, url: URL?) {
-        guard Self.canBookmark(url) else { return entry.chrome.addressBar.setBookmarkStar(.hidden) }
+        guard Self.canBookmark(url) else { return entry.state.bookmarkStar = .hidden }
         let bookmarked = tree(profile(of: entry.tab.profileID)).isBookmarked(url)
-        entry.chrome.addressBar.setBookmarkStar(bookmarked ? .on : .off)
+        entry.state.bookmarkStar = bookmarked ? .on : .off
     }
 
     /// Pages that can be bookmarked: anything with a scheme except blank,
@@ -91,7 +88,7 @@ extension BookmarkService {
             isNew = true
         }
         guard let node else { return }
-        let anchor = anchor ?? entry.chrome.addressBar.bookmarkStarAnchor ?? entry.chrome.addressBar
+        guard let anchor = anchor ?? entry.chrome.map({ $0.addressBar.bookmarkStarAnchor ?? $0.addressBar }) else { return }
         showBubble(for: node, profile: profile, isNew: isNew, anchor: anchor, tab: key)
     }
 

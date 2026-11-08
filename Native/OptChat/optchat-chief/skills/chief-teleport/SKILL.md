@@ -8,7 +8,9 @@ cmux-managed: true
 
 The person asks in plain words; you do the whole move yourself with the `move`
 tool. Nothing is lost: your memory, this conversation, settings and subagent
-transcripts go with you, and the copy you leave stays for rollback.
+transcripts go with you, and the copy you leave stays for rollback. Subagents that are
+working when you move to a Mac mini or another SSH host go with you (acpmux moves them); a move
+to the cloud leaves them on this Mac, and the move's report says how many.
 
 This skill moves you, the Chief. To move one agent chat or subagent to another
 machine ("teleport this chat to the mini"), follow the `agent-session-teleport`

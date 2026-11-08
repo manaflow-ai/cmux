@@ -1,0 +1,15 @@
+{
+  "title": "Claude desktop tool-call summary: \"Finished 3 background tasks, ran 7 commands (2 failed)\" over its status line, opened to one row per call titled by its description, a failed one tagged Failed, then one opened to its command, Exit code and output (debug seed_rows fixture \"tool-summary\", webviews toolSummaryFixture.ts). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/claude-desktop-tool-summary.json",
+  "launch_args": ["--showcase"],
+  "frameInterval": 0.5,
+  "steps": [
+    {"title": "Open a main workspace", "cmux": ["action", "run", "newTab", "--name", "Tool summary capture", "--focus", "--cwd", "/tmp"]},
+    {"title": "Open a chat", "cmux": ["agent", "new-chat", "--cwd", "/tmp"]},
+    {"title": "Wait for the chat page", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}},
+    {"title": "Start the chat's session (the showcase mock answers)", "rpc": {"method": "debug.agent_pane", "params": {"action": "send_prompt", "text": "Show the tool summary"}}, "wait": 4},
+    {"title": "The summarized run", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "tool-summary"}}, "record": true, "wait": 2},
+    {"title": "Open the finished turn's fold", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "selector": ".cv-worked[aria-expanded=\"false\"]"}}, "record": true, "wait": 1.5, "optional": "the turn's fold is already open"},
+    {"title": "Open the run: one row per call, titled by its description", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "text": "Finished 3 background tasks"}}, "record": true, "wait": 2, "optional": "the run's group is already open (command groups open by default)"},
+    {"title": "Open the failed call: its command, Exit code 1, then its output", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "text": "Count the retry fixture cases"}}, "record": true, "wait": 2}
+  ]
+}

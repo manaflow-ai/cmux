@@ -141,9 +141,11 @@ const minimalChat = chat([
   assistant("Merged cmux/grid-fix into this branch.", 4.5),
   summary(4.5, { status: "completed" }),
 ]);
+const PREVIEW = ".cv-received__preview, .cv-received > .cv-disclosure__below";
 const linesDrawn: Play = async (ctx) => {
   await openReceivedRow(ctx);
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__preview").length >= minimalTexts.length);
+  // A line's first line: on the line (`single`) or under it (stacked, messageLineLook.ts).
+  await ctx.waitFor(() => ctx.document.querySelectorAll(PREVIEW).length >= minimalTexts.length);
 };
 const ALT_ID = "incoming-minimal-alt";
 /// Draws a gallery-only line over the shipped one: its stylesheet, then `mark` on each line (its
@@ -158,7 +160,7 @@ const alternate =
     style.textContent = css;
     ctx.document.head.append(style);
     ctx.document.querySelectorAll<HTMLElement>(".cv-received").forEach((line, index) => {
-      const preview = line.querySelector<HTMLElement>(".cv-received__preview");
+      const preview = line.querySelector<HTMLElement>(PREVIEW);
       const name = line.querySelector(".cv-received__from")?.textContent ?? "";
       if (preview) mark(preview, minimalTexts[index] ?? "", name);
     });
@@ -423,6 +425,42 @@ export default agentPaneEntry({
           untyped: true,
         }),
       ]),
+    },
+    "sender-identity-remote": {
+      note: "Public fixture: the actual incoming remote-sender row, with the session headline, a secondary machine, and an explicit parent relationship.",
+      snapshot: chat(
+        [
+          user("Ask the review session for its result", 9),
+          assistant("The review session will report back here.", 8.5),
+          summary(8.5, { status: "completed" }),
+          user("The review is ready. The regression passes.", 4, {
+            incoming: {
+              kind: "message",
+              message: {
+                name: "review-box/pr-row",
+                sessionId: "fixture-remote-review",
+                relation: "parent",
+                text: "[review-box/pr-row] The review is ready. The regression passes.",
+                raw: "[review-box/pr-row] The review is ready. The regression passes.",
+              },
+            },
+            untyped: true,
+          }),
+        ],
+        {
+          sessions: [
+            session({ sessionId: SESSION_ID, title: "Review the sender identity" }),
+            session({
+              sessionId: "fixture-remote-review",
+              name: "review-box/pr-row",
+              peer: "review-box",
+              host: "review-box",
+              hostKind: undefined,
+              harness: "codex",
+            }),
+          ],
+        },
+      ),
     },
     "sender-hover": {
       note: "A lane on another machine (studio-mac) messages this chat. Hovering its name lights the name alone; a click opens that chat beside this one, or focuses its tab when one shows it.",
