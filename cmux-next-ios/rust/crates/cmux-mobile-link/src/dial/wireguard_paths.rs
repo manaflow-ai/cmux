@@ -250,9 +250,22 @@ impl Paths {
         for id in lost {
             let _ = self.selector.on_probe(id, ProbeOutcome::Lost);
         }
+        let chosen_quiet = chosen.is_some_and(|id| silent.contains(&id));
         for id in silent {
             tracing::debug!(route = ?self.route_of(id), "WireGuard route went quiet; sending on every route");
             let _ = self.selector.on_silence(id);
+        }
+        if chosen_quiet {
+            // The other paths were last heard up to a 30 s probe ago, and the
+            // cut that silenced the chosen one may have taken them too (one
+            // Wi-Fi carries the LAN and the routed address): probe them all
+            // now, so the fallback is a path that answers today.
+            for entry in &mut self.entries {
+                if Some(entry.id) != chosen {
+                    entry.watch.probe_now(now);
+                }
+            }
+            due.next = Some(now);
         }
         due
     }
@@ -346,6 +359,47 @@ mod tests {
         assert!(sprayed <= ms(250), "sprays {sprayed:?} after the cut, not at the 14 s silence");
         let relay = relay_at.expect("the relay takes over once the LAN path dies").duration_since(cut);
         assert!(relay <= std::time::Duration::from_secs(5), "relay after {relay:?}");
+    }
+
+    #[test]
+    fn a_cut_that_takes_every_direct_path_falls_back_to_the_relay_not_a_stale_one() {
+        let ms = std::time::Duration::from_millis;
+        let mut paths = paths_on(lan_table());
+        let lan = udp("192.168.1.30:4100");
+        let tailnet = udp("100.80.2.3:4100");
+        let relay = turn("203.0.113.9:4100");
+        paths.sync(&[
+            Wanted { route: lan, relayed: false },
+            Wanted { route: tailnet, relayed: false },
+            Wanted { route: relay, relayed: true },
+        ]);
+        let cut = answer_all(&mut paths, Instant::now(), ms(2));
+        assert_eq!(paths.current(), Some(lan));
+        // The Wi-Fi drops: the LAN and the tailnet address both go silent,
+        // though the tailnet path answered its last (30 s) probe.
+        paths.sent(lan, cut);
+        let mut now = cut;
+        let mut seen = vec![lan];
+        for _ in 0..800 {
+            now += ms(10);
+            let due = paths.poll(now);
+            for (id, probe) in due.pings {
+                if paths.route_of(id) == Some(relay) {
+                    paths.on_pong(id, probe, now);
+                }
+            }
+            if let Some(route) = paths.current()
+                && seen.last() != Some(&route)
+            {
+                seen.push(route);
+            }
+            if paths.current() == Some(relay) {
+                break;
+            }
+        }
+        assert_eq!(seen, vec![lan, relay], "never moves to the stale tailnet path");
+        let relay_after = now.duration_since(cut);
+        assert!(relay_after <= std::time::Duration::from_secs(5), "relay after {relay_after:?}");
     }
 
     #[test]

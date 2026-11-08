@@ -278,14 +278,28 @@ async fn main() {
                 {
                     record.photon_us.push(now.saturating_sub(echo));
                 }
-                if record.frames_received >= record.frames_sent && Instant::now() >= end {
-                    break;
-                }
             }
         })
     };
-    // Every frame the Mac sent arrives, or the run gives up 20 s after its end.
-    let complete = tokio::time::timeout_at(end + Duration::from_secs(20), reader).await.is_ok();
+    // Every frame the Mac sent arrives, or the run gives up 20 s after its
+    // end. The last frame can land before `end`, so this checks on a timer
+    // rather than only when a frame arrives.
+    let all_arrived = {
+        let record = record.clone();
+        async move {
+            loop {
+                {
+                    let record = lock(&record);
+                    if Instant::now() >= end && record.frames_received >= record.frames_sent {
+                        break;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    };
+    let complete = tokio::time::timeout_at(end + Duration::from_secs(20), all_arrived).await.is_ok();
+    reader.abort();
     let path = *connected.path.borrow();
     let mut record = lock(&record);
     if !complete && let Some(last) = record.last_frame_at_us {
