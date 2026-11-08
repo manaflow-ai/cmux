@@ -124,16 +124,19 @@ fn names_only_an_app(query: &str) -> bool {
     query.strip_prefix("app=").is_some_and(is_cmux_scheme)
 }
 
-/// `cmux`, `cmux-dev`, `cmux-nightly`, `cmux-dev-<tag>`: a cmux build's own scheme.
+/// `cmux`, `cmux-dev`, `cmux-nightly`, `cmux-dev-<tag>` or a bundle's `cmux.<name>`: a cmux build's own scheme,
+/// `cmux` then `-` or `.` separated runs of `[a-z0-9]` (the guest page's `CMUX_SCHEME`, appLink.ts).
 pub(super) fn is_cmux_scheme(scheme: &str) -> bool {
-    scheme == "cmux"
-        || scheme.strip_prefix("cmux-").is_some_and(|rest| {
-            !rest.is_empty()
-                && rest.split('-').all(|part| {
-                    !part.is_empty()
-                        && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
-                })
-        })
+    let Some(rest) = scheme.strip_prefix("cmux") else { return false };
+    let mut run = 0usize;
+    for (index, byte) in rest.bytes().enumerate() {
+        match byte {
+            b'-' | b'.' if index == 0 || run > 0 => run = 0,
+            b'a'..=b'z' | b'0'..=b'9' if index > 0 => run += 1,
+            _ => return false,
+        }
+    }
+    rest.is_empty() || run > 0
 }
 
 /// Whether a link's page belongs to a room this daemon knows: the configured room, or a declared deployment.
