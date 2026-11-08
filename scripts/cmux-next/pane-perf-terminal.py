@@ -841,7 +841,7 @@ def main():
                 time.sleep(0.4)  # test harness: idle between runs
         for wanted in filter(None, opts.sample.split(",")):
             where, _, what = wanted.partition(":")
-            if where == name:
+            if where == name and not not_applicable(what, columns if name != "stress" else None):
                 profile(what, f"{name}-{what}")
         if opts.record:
             for step in sequence:
@@ -855,6 +855,8 @@ def main():
     for name in labels:
         for step in sequence:
             runs = [r for r in report["runs"] if r["layout"] == name and r["action"] == step]
+            if not runs:
+                continue  # not applicable to this layout (1x2 drag): no all-None row for perf-budgets.py
 
             def med(key):
                 values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
