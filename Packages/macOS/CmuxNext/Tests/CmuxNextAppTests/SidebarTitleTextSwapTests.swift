@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
 import Foundation
@@ -190,6 +191,71 @@ import Testing
             // The same view, renamed again now that it shows: that swap is real.
             try h.patch(0) { $0.title = "Renamed in view" }
             #expect(!Self.swapKeys(row).isEmpty, "a rename of the shown row swaps")
+        }
+    }
+
+    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    func theOldWordsFadeOverTheWholeOutDuration() throws {
+        try Self.withMotion {
+            let h = Harness()
+            defer { h.close() }
+            let row = try h.row(3)
+            try h.patch(3) { $0.title = "Fix the flaky login test" }
+            let ghost = try #require(Self.ghosts(row).first, "the old words lie over the title")
+            let out = try #require(ghost.animation(forKey: "cmux.textSwap.out") as? CAAnimationGroup, "the old words rise and fade")
+            let children = out.animations ?? []
+            #expect(children.count == 2, "a fade and a rise")
+            // A child with no duration of its own runs 0.25 s inside the group and is clipped at its end, still showing.
+            for child in children {
+                #expect(abs(child.duration - out.duration) < 1e-9,
+                        "\((child as? CAPropertyAnimation)?.keyPath ?? "?") spans \(child.duration) s of the group's \(out.duration) s")
+            }
+            // As `useTextSwap.ts`: gone at `TextSwapMotion.goneAt` of the out duration, and still gone at its end.
+            let fade = try #require(children.compactMap { $0 as? CAKeyframeAnimation }.first { $0.keyPath == "opacity" })
+            #expect(fade.keyTimes?.map(\.doubleValue) == [0, TextSwapMotion.goneAt, 1])
+            #expect((fade.values as? [Double])?.suffix(2) == [0, 0], "fully transparent from goneAt to the end")
+        }
+    }
+
+    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    func rapidRenamesDropTheOldestSnapshots() throws {
+        try Self.withMotion {
+            let h = Harness()
+            defer { h.close() }
+            let row = try h.row(3)
+            // Three renames in one turn of the run loop: no fade ends between them.
+            try h.patch(3) { $0.title = "First name" }
+            let first = try #require(Self.ghosts(row).first)
+            try h.patch(3) { $0.title = "Second name" }
+            let second = try #require(Self.ghosts(row).first { $0 !== first }, "the second rename left its own snapshot")
+            try h.patch(3) { $0.title = "Third name" }
+            let ghosts = Self.ghosts(row)
+            #expect(ghosts.count <= MotionScale.textSwapMaxGhosts, "at most \(MotionScale.textSwapMaxGhosts) snapshots: \(ghosts.count)")
+            #expect(!ghosts.contains { $0 === first }, "the oldest snapshot went")
+            #expect(ghosts.contains { $0 === second }, "the newer snapshot stays")
+            #expect(ghosts.contains { $0 !== first && $0 !== second }, "the newest snapshot stays")
+            #expect(row.title.stringValue == "Third name")
+        }
+    }
+
+    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    func aRowScrolledAwayAndBackUnchangedSwapsItsNextRename() throws {
+        try Self.withMotion {
+            let h = Harness(count: 80, height: 300)
+            defer { h.close() }
+            let original = try h.row(0)
+            h.scroll(to: max(0, h.list.frame.height - 300))
+            #expect(h.list.rowViews[.workspace(h.ids[0])] == nil, "the first row left the realized rows")
+            h.scroll(to: 0)
+            let row = try h.row(0)
+            // Its own parked view, with its content kept (`keepsContentOnReturn`): configure changes nothing.
+            try #require(row === original, "the first row took back its own view")
+            #expect(row.title.stringValue == "Workspace 0")
+            #expect(!Self.moves(row), "coming back into view moves nothing")
+            try h.patch(0) { $0.title = "Renamed after scrolling back" }
+            #expect(row.title.stringValue == "Renamed after scrolling back")
+            #expect(Set(Self.swapKeys(row)) == ["cmux.textSwap.opacity", "cmux.textSwap.rise"],
+                    "a rename of the row back in view swaps: \(row.title.layer?.animationKeys() ?? [])")
         }
     }
 
