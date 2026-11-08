@@ -84,9 +84,10 @@ test("a prompt's author picture is a person's face at the author face token, not
 test("the author face token derives from the grid scale, and the row estimate matches its line", () => {
   const css = readFileSync(new URL("./multiplayer.css", import.meta.url), "utf8");
   expect(css).toMatch(/--cv-author-face:\s*calc\(var\(--grid-base\) \* 5\);/);
-  // The line is the 20 face plus the 4 under it (model.ts AUTHOR_HEIGHT).
+  // The line is the 20 face (scaled with the interface) plus the 4 under it (model.ts authorHeight).
   const model = readFileSync(new URL("../model.ts", import.meta.url), "utf8");
-  expect(model).toMatch(/const AUTHOR_HEIGHT = 24;/);
+  expect(model).toMatch(/const AUTHOR_FACE = 20;/);
+  expect(model).toMatch(/Math\.max\(AUTHOR_LINE, AUTHOR_FACE \* chromeScale\) \+ AUTHOR_GAP/);
 });
 
 test("the header stacks three faces, then +N, and names everyone for screen readers", () => {
