@@ -453,6 +453,10 @@ path = "tests/test_nushell_shim_path_refront.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_outbound_hosts.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_package_resolved_policy_remote_inputs.py"
 lane = "linux-guard"
 

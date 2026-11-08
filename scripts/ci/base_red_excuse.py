@@ -1169,6 +1169,10 @@ FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 _spec = importlib.util.spec_from_file_location("app_ffi_pin", Path(__file__).with_name("app_ffi_pin.py"))
 app_ffi_pin = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(app_ffi_pin)
+_spec = importlib.util.spec_from_file_location("github_release_download",
+                                          Path(__file__).with_name("github_release_download.py"))
+release_download = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(release_download)
 
 
 def ffi_binary_target(manifest: str, repo: str, pin_file: str | None = None) -> tuple[str | None, str | None, str]:
@@ -1198,13 +1202,20 @@ def ffi_pin_file_at(repo: str, sha: str, github) -> str | None:
 
 def ffi_release_file(repo: str, tag: str, name: str) -> str | None:
     """File NAME of the published release TAG of REPO, read anonymously from its release download (no API quota), or
-    None when it is not published (404). Any other failure raises: an unread release is no answer."""
+    None when it is not published (404, or a release without it). A download that fails otherwise is read through
+    the release-assets API (github_release_download.py; 2026-11-08 every release download answered 503 or 504 and
+    every merge was held). Any other failure raises: an unread release is no answer."""
     import urllib.error
-    import urllib.request
     url = f"https://github.com/{repo}/releases/download/{tag}/{name}"
     try:
-        with urllib.request.urlopen(url, timeout=FFI_RELEASE_SECONDS) as answer:  # noqa: S310 (a fixed https URL)
-            return answer.read(1 << 16).decode("utf-8", "replace")
+        with tempfile.TemporaryDirectory(prefix="cmux-ffi-release-") as tmp:
+            out = Path(tmp) / name
+            release_download.download(url, out, FFI_RELEASE_SECONDS,
+                                      log=lambda message: print(f"base_red_excuse: {message}", file=sys.stderr))
+            with open(out, "rb") as answer:
+                return answer.read(1 << 16).decode("utf-8", "replace")
+    except release_download.NoAsset:
+        return None
     except urllib.error.HTTPError as error:
         if error.code == 404:
             return None
@@ -2872,6 +2883,121 @@ def gallery_crash_verdict(repo: str, base: str, name: str, job: dict, head_log: 
             f"red the same way: {'; '.join(verdict.shared)[:400]}")
 
 
+# A webview test job is judged per test, never by its job name (2026-11-08). A pull request's red files run in a head
+# shard (`web / react-apps-check (N)`) and are replayed on the merge parent by `web / react-apps-base-check (N)`, a job
+# ci-web.yml runs on pull requests only. So no base push ever has a job of the replay's name, and every red replay was
+# refused as "no feat-cmux-next run of its workflow has a verdict for it to compare with" (cmux#34111 at 64617d70,
+# replays (2), (5) and (7)), whatever the base showed. And the base's own push runs a test in whichever shard its split
+# puts it, so even a head shard's name matches a base job that ran other files. test_reds.classify_web_window judges
+# such a red the way next-autoland's web_red (cmuxterm-hq) does: the tests a replay charged to the change (its head
+# re-run's verdict), with their errors from the head shard N of the same run, or a head shard's own failing tests,
+# against the red shards of the base's newest webview runs (BASE_WORKFLOW_FOR's push caller, cmux-next-web.yml): a
+# test is the base's when one of those runs fails it with the same error. The window is the base-red window: at most
+# BASE_WINDOW runs that gave every shard a verdict, within BASE_WINDOW_HOURS of the newest, back to the first all-green
+# run (every test passed there, so an older red never counts), reading at most WEB_BASE_JOB_READS job lists.
+WEB_TEST_JOB = re.compile(r"web / react-apps-(base-)?check \((\d+)\)")
+WEB_SHARD = "web / react-apps-check ({})"
+WEB_SHARD_JOB = re.compile(r"web / react-apps-check \(\d+\)")
+WEB_BASE_JOB_READS = BASE_JOB_READS
+# The steps whose failure is a webview test red, as the jobs API shows them: every other step of these jobs that can
+# fail is continue-on-error (it reads as a success there) and is gathered by the job's own last step, 'Fail on the gate
+# checks' in a shard (bundles, type check, PR rules) or a head build step in a replay. A job with any other failed step
+# failed outside its tests, and a per-test match never excuses it (review F1 on #38380): a head shard is then judged
+# by its name and failed steps as before, and a replay, which has no base job of its name, is refused.
+WEB_TEST_STEPS = {"replay": frozenset({"Re-run the change's reds alone on the head", "Fail on the change's own reds"}),
+                  "shard": frozenset({"Test webviews"})}
+
+
+def web_base_runs(repo: str, base: str, workflow, github, base_runs: dict):
+    """(run, its red webview shard jobs) for each of BASE's newest webview runs of WORKFLOW that gave every shard a
+    verdict, newest first, read lazily: the window above. An all-green run is yielded and ends it."""
+    list_base_runs(repo, base, workflow, github, base_runs)
+    reads, count, newest = 0, 0, None
+    for run in base_runs[workflow]:
+        if run.get("status") == "completed" and run.get("conclusion") in ("cancelled", "skipped"):
+            continue  # a superseded coalesced run: no shard of it ran
+        if reads >= WEB_BASE_JOB_READS:
+            return
+        reads += 1
+        shards = [job for job in base_run_jobs(repo, run, github) if WEB_SHARD_JOB.fullmatch(job.get("name") or "")]
+        if not shards or any(job.get("status") != "completed" or job.get("conclusion") not in VERDICTS
+                             for job in shards):
+            continue
+        when = created(run)
+        newest = newest or when
+        if newest and when and newest - when > timedelta(hours=BASE_WINDOW_HOURS):
+            return
+        red = sorted((job for job in shards if job.get("conclusion") == "failure"), key=lambda job: job["name"])
+        yield run, red
+        count += 1
+        if not red or count >= BASE_WINDOW:
+            return
+
+
+def web_test_verdict(repo: str, base: str, name: str, job: dict, head_log: str, workflow_info: dict, github,
+                     base_runs: dict) -> str | None:
+    """The audit line for a red webview test job NAME (WEB_TEST_JOB) judged per test against the base's newest webview
+    runs (the rule above); None for any other job, or a head shard whose log names no failing webview test (judged by
+    its name as before). Raises Refused when a test is not red on the base the same way, or nothing could be judged."""
+    found = WEB_TEST_JOB.fullmatch(name)
+    if repo != HOME_REPO or found is None:
+        return None
+    replay = bool(found.group(1))
+    failed = [step.get("name") or "" for step in job.get("steps") or []
+              if step.get("conclusion") not in (None, "success", "skipped")]
+    outside = [step for step in failed if step not in WEB_TEST_STEPS["replay" if replay else "shard"]]
+    if outside or not failed:
+        if not replay:
+            return None
+        raise Refused(f"'{name}' failed outside its webview test steps: {', '.join(outside) or 'no step failed'}; "
+                      f"a replay has no {base} job of its name to compare with, so it is never a base red")
+    head_logs: list[str | None] = [head_log]
+    if replay:
+        shard = WEB_SHARD.format(found.group(2))
+        sibling = next((other for other in base_run_jobs(repo, {"id": job["run_id"]}, github)
+                        if other.get("name") == shard), None)
+        try:
+            head_logs.append(github.log(repo, sibling) if sibling is not None else None)
+        except Refused as why:
+            raise Refused(f"'{name}': the log of its head shard '{shard}', where its tests' errors are printed, "
+                          f"could not be read: {str(why)[:300]}") from None
+        if sibling is None:
+            raise Refused(f"'{name}': its run has no head shard '{shard}' whose errors its tests could be "
+                          "compared by")
+    workflow = base_caller(repo, base, workflow_info, name) or workflow_info["workflow_id"]
+    green: list[dict] = []
+    unread: list[str] = []  # why a base log could not be read, named in the refusal
+
+    def windows():
+        for run, red in web_base_runs(repo, base, workflow, github, base_runs):
+            if not red:
+                green.append(run)
+                return
+            logs = []
+            for found_job in red:
+                try:
+                    logs.append(github.log(repo, found_job))
+                except Refused as why:
+                    unread.append(f"job {found_job.get('id')}: {str(why)[:200]}")
+                    logs.append(None)
+            yield f"{base} run {run['id']}", logs
+
+    verdict = test_reds.classify_web_window(head_logs, windows(), name, base)
+    if verdict is None:
+        if not replay:
+            return None
+        raise Refused(f"'{name}': its replay names no failing webview test (it failed outside its tests); a replay "
+                      f"has no {base} job of its name to compare with, so it is never a base red")
+    if verdict.own:
+        said = "; ".join(verdict.reasons)
+        if green:
+            said += f" (every webview test passed on {base} run {green[0]['id']}, which ends the window)"
+        if unread:
+            said += f" (unread: {unread[0]})"
+        raise Refused(f"'{name}' judged per test against {base}'s webview runs: {said}"[:1000])
+    return f"excused '{name}': each failing webview test is red the same way on {base}: " + "; ".join(verdict.shared)[:600]
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
@@ -2925,7 +3051,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         chromium_without_diagnostics = (name == CHROMIUM_CURRENCY_JOB
                                         and CHROMIUM_CURRENCY_STEP in head_steps
                                         and not (head_tests or head_errors or crash_signals(head_log)))
-        own = test_reds.read(head_log)
+        # A webview replay's log holds the merge parent's run too: only its head part can crash or be cut short as
+        # the head's (test_reds.web_head_part; cmux#34111's replay (2), whose merge parent timed out a file).
+        own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
         if own.crashes or (own.truncated and not chromium_without_diagnostics):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
@@ -2949,6 +3077,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if (crashed := gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github,
                                              base_runs)) is not None:
             audit.append(crashed)
+            continue
+        if (web := web_test_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs)) is not None:
+            audit.append(web)
             continue
         list_base_runs(repo, base, workflow, github, base_runs)
         # The newest base run where this job has a verdict decides whether it is red on the base.
