@@ -461,7 +461,11 @@ test("the actions that open a chat in a tab hand the chat over first", async () 
   const files = ["../src/agent-session/acpmux/App.tsx", "../src/agent-session/acpmux/conversation/openFork.ts"];
   const sources = await Promise.all(files.map((file) => readFile(new URL(file, import.meta.url), "utf8")));
   const sites = sources.flatMap((source, at) =>
-    [...source.matchAll(/callNative\("chat\.openTab"/g)].map((site) => ({ file: files[at], source, index: site.index })),
+    [...source.matchAll(/callNative\("chat\.openTab"/g)].map((site) => ({
+      file: files[at],
+      source,
+      index: site.index,
+    })),
   );
   // Two today (openInOwnTab, onMoveToTab); a third would need the hand-over too, so this notices it.
   expect(sites.length).toBe(2);
