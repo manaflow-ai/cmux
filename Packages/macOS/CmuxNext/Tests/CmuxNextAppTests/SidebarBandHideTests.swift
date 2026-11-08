@@ -155,8 +155,11 @@ import Testing
         #expect(band.contains("Show Profile Button"))
         #expect(!band.contains("Show Spaces"))
         _ = h.services.registry.perform("sidebar.profileControl.show")
-        await h.until { h.showsProfileControl && h.saved("showProfileControl") == true }
+        // Shown is the default: the write removes the key (#38119), so cmux.json keeps no copy.
+        await h.until { h.showsProfileControl && h.fileParses() && h.saved("showProfileControl") == nil }
         #expect(h.showsProfileControl)
+        #expect(h.fileParses(), "cmux.json is missing or does not parse")
+        #expect(h.saved("showProfileControl") == nil, "shown is the default: sidebar.showProfileControl leaves cmux.json")
     }
 
     /// Relaunch: cmux.json still says hidden, so the band draws neither piece, and its empty

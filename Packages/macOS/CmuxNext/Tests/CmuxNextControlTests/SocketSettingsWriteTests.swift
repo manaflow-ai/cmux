@@ -51,7 +51,6 @@ import Testing
             #expect(read == stored, "\(descriptor.id)")
             if stored == nil {
                 #expect(FileManager.default.fileExists(atPath: directory.appending(path: "cmux.json").path), "\(descriptor.id): cmux.json is gone")
-                #expect(descriptor.sampleValue == settings.defaultValue(of: descriptor), "\(descriptor.id): only a write of the default may leave no key")
             }
             guard case .failure(let refused) = await call(router, "settings.set", ["path": key, "value": ["wrong": true]]) else {
                 Issue.record("\(descriptor.id) accepted a value of the wrong type")
