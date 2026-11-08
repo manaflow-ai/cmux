@@ -13,9 +13,10 @@ import CmuxNextDesign
 /// page uses the same path, so both engines show one card the same way.
 ///
 /// A pane in front of the page (a zoom growing over it, a docked column) clips the page
-/// (`PaneHostView.setStripClip`), but the overlay host draws above every pane: a card whose
-/// place on the page such a pane covers is taken off until the page shows it again, as the
-/// page itself is cut there (`CEFClipShape`); it never floats over the pane in front.
+/// (`PaneHostView.setStripClip`), but the overlay host draws above every pane: a card is cut
+/// the same way as its page (`CEFClipShape`), so it never floats over the pane in front and
+/// shows again in the same frame as the page under it. It takes clicks only where it shows,
+/// and leaves while none of it shows.
 ///
 /// The chrome owns the cards and places them over `page` (its page area):
 /// bottom center (or bottom left, ``Placement/bottomLeading``, the link
@@ -48,6 +49,8 @@ final class PageFloatingOverlays {
         /// Its size the last time it was presented: where a card taken off under a pane in front
         /// would show, without an Auto Layout pass of it on each frame of the motion.
         var lastSize: CGSize?
+        /// Where it takes clicks (its own coordinates) while a pane in front cuts it; nil when whole.
+        var mouseRect: NSRect?
     }
 
     private var cards: [Card] = []
@@ -130,8 +133,8 @@ final class PageFloatingOverlays {
         for index in cards.indices {
             let view = cards[index].view
             // A hidden card waits for its tab (one chrome per pane): off screen, it takes no clicks.
-            // So does a card under a pane in front of the page: the page is cut there too.
-            if view.isHidden || !shown.shows(placedRect(of: cards[index], in: clip)) {
+            // So does a card that a pane in front of the page covers whole: the page is cut there too.
+            if view.isHidden || !shown.showsAny(of: placedRect(of: cards[index], in: clip)) {
                 dismiss(index)
                 continue
             }
@@ -156,9 +159,34 @@ final class PageFloatingOverlays {
             holder.layoutSubtreeIfNeeded()
             let solved = view.frame
             cards[index].lastSize = solved.size
-            handle.update(anchor: NSRect(x: clip.minX + solved.minX, y: clip.minY + solved.minY,
-                                         width: solved.width, height: solved.height))
+            let anchor = NSRect(x: clip.minX + solved.minX, y: clip.minY + solved.minY, width: solved.width, height: solved.height)
+            handle.update(anchor: anchor)
+            cut(index, at: anchor, to: shown, handle: handle)
         }
+    }
+
+    /// Cuts the card at `frame` (window coordinates) to what its page shows: a mask of the shown
+    /// part, as the page's own (`StripClipMaskLayer`), and clicks only there; whole, no mask.
+    private func cut(_ index: Int, at frame: NSRect, to shown: ShownArea, handle: OverlayHandle) {
+        let view = cards[index].view
+        var mouseRect: NSRect?
+        if shown.shows(frame) {
+            if view.layer?.mask is StripClipMaskLayer { view.layer?.mask = nil }
+        } else if let layer = view.layer {
+            let visible = view.convert(frame.intersection(shown.visible), from: nil)
+            let cutouts = shown.cutouts.map { view.convert($0, from: nil) }
+            let mask = (layer.mask as? StripClipMaskLayer) ?? StripClipMaskLayer()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            mask.place(visible, cutouts: cutouts, scale: view.window?.backingScaleFactor ?? 2)
+            CATransaction.commit()
+            if layer.mask !== mask { layer.mask = mask }
+            // A hole in the card has no one rect to click in: none while a pane cuts into its middle.
+            mouseRect = shown.cutouts.contains { $0.intersects(frame) } ? .zero : visible
+        }
+        guard cards[index].mouseRect != mouseRect else { return }
+        cards[index].mouseRect = mouseRect
+        handle.update(anchor: frame, modalRegion: nil, mouseRect: mouseRect)
     }
 
     /// What a pane in front leaves of `page`, in window coordinates: the rect its square clips
@@ -172,6 +200,13 @@ final class PageFloatingOverlays {
         func shows(_ rect: CGRect) -> Bool {
             visible.insetBy(dx: -0.5, dy: -0.5).contains(rect)
                 && !cutouts.contains { let shared = $0.intersection(rect); return !shared.isNull && shared.width > 0.5 && shared.height > 0.5 }
+        }
+
+        /// Whether any of a card at `rect` shows: some of it in the visible rect, not all of that under one cutout.
+        func showsAny(of rect: CGRect) -> Bool {
+            let part = visible.intersection(rect)
+            guard !part.isNull, part.width > 0.5, part.height > 0.5 else { return false }
+            return !cutouts.contains { $0.insetBy(dx: -0.5, dy: -0.5).contains(part) }
         }
     }
 
@@ -240,6 +275,7 @@ final class PageFloatingOverlays {
     private func dismiss(_ index: Int) {
         let handle = cards[index].handle
         cards[index].handle = nil
+        cards[index].mouseRect = nil
         handle?.dismiss()
     }
 }
