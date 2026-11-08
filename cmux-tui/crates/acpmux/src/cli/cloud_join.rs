@@ -10,11 +10,13 @@ mod enroll;
 pub(crate) mod host_fingerprint;
 mod leave;
 mod recovery;
+mod self_capabilities;
 
 pub(crate) use enroll::{
     EnrollOutcome, EnrollRequest, enroll_self, finish_leave_at_start, leave_if_auto, leave_pending,
     relay_may_start,
 };
+pub(crate) use self_capabilities::state_at_start as state_capabilities_at_start;
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
 /// The hub a join with no `--hub` uses: cmux-platform's production origin

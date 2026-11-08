@@ -2447,6 +2447,87 @@
         ],
         "type": "object"
       },
+      "MachineSelfCapabilities": {
+        "additionalProperties": false,
+        "description": "What the calling machine states it can do. It may set a list when none is recorded (it joined before capabilities were recorded) or narrow the recorded one; it can never widen it.",
+        "examples": [
+          {
+            "capabilities": [
+              "vault.proxy.v1"
+            ]
+          }
+        ],
+        "properties": {
+          "capabilities": {
+            "description": "The calling machine's capabilities. Only `vault.proxy.v1` is accepted today (its acpmux runs the vault's egress proxy); any other name is refused with 400 machine.capability_unknown. Order and repeats do not matter.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          }
+        },
+        "required": [
+          "capabilities"
+        ],
+        "type": "object"
+      },
+      "MachineSelfCapabilitiesSet": {
+        "additionalProperties": false,
+        "description": "The calling machine's recorded capabilities after the call.",
+        "properties": {
+          "capabilities": {
+            "description": "The capabilities now recorded with the credential, de-duplicated and sorted.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "changed": {
+            "description": "Whether this call changed the recorded list; false when it was already the same.",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "machineId": {
+            "description": "The calling machine's identifier.",
+            "examples": [
+              "machine_01"
+            ],
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "teamId": {
+            "description": "The owning team identifier.",
+            "examples": [
+              "team_01"
+            ],
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "machineId",
+          "teamId",
+          "capabilities",
+          "changed"
+        ],
+        "type": "object"
+      },
       "MachineShape": {
         "additionalProperties": false,
         "properties": {
@@ -6190,6 +6271,84 @@
           }
         ],
         "summary": "Read the calling machine credential",
+        "tags": [
+          "Machine join redemption"
+        ]
+      }
+    },
+    "/v1/machines/credentials/self/capabilities": {
+      "put": {
+        "description": "Record what the calling machine's client can do, using the machine's own bearer; the machine is the one the credential belongs to, never one named in the request. Only allowlisted names (vault.proxy.v1). It may set a list when none is recorded (the credential joined before capabilities were recorded) or narrow the recorded list; widening answers 409 machine.capabilities_widen, since a list a person set (for example [] after a delegated rotation) is theirs to widen by re-joining or rotating. Changes nothing but the list. Idempotent: the same list again answers 200 with changed false. An unknown, rotated-out or expired bearer answers 401 machine.unknown, a revoked one 401 machine.revoked.",
+        "operationId": "machineRedeem.selfCapabilities",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MachineSelfCapabilities"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineSelfCapabilitiesSet"
+                }
+              }
+            },
+            "description": "The calling machine's recorded capabilities after the call."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinBadRequestEncoded"
+                }
+              }
+            },
+            "description": "join.malformed: the join request is malformed; correct the fields and retry. machine.capability_unknown: a machine may state only the allowlisted capabilities (vault.proxy.v1); drop the others."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "machine.unknown: the machine credential is unknown. machine.revoked: the machine credential is revoked. machine.unauthorized: the replacement proof is invalid."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinConflictEncoded"
+                }
+              }
+            },
+            "description": "join.used: the join credential was already used; mint another one. machine.capabilities_widen: a machine credential cannot widen its recorded capabilities; a person must re-join the machine or rotate its credential."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinUnavailableEncoded"
+                }
+              }
+            },
+            "description": "machine.join.unavailable: machine onboarding is unavailable; retry later."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "summary": "State the calling machine's capabilities",
         "tags": [
           "Machine join redemption"
         ]

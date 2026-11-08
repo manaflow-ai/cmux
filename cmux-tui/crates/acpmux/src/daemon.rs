@@ -506,6 +506,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Kept on the hub, so a sign-in enroll can start one live (`server/machine_enroll.rs`).
     // A sign-out's leave the last run did not finish goes first: no relay for a machine that left.
     crate::server::machine_enroll::start_relay_at_start(&hub).await;
+    // A machine joined before the hub recorded capabilities states them with its own credential,
+    // in the background (`cli/cloud_join/self_capabilities.rs`); the start never waits for it.
+    crate::cli::cloud_join::state_capabilities_at_start();
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {

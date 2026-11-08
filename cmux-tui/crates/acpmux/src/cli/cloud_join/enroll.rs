@@ -157,7 +157,7 @@ const STALE_FILE: &str = "machine-join.stale.json";
 /// does not enroll it again. A join made here (`recovery::complete`) clears it.
 const REVOKED_FILE: &str = "machine-join.revoked.json";
 /// A sign-out's leave, marked before it starts and cleared when it is done (or a sign-in comes).
-const LEAVE_FILE: &str = "machine-join.leave.json";
+pub(super) const LEAVE_FILE: &str = "machine-join.leave.json";
 
 /// One hub row of this box (a stale row, or a revoked machine's mark).
 #[derive(Serialize, Deserialize)]
@@ -220,7 +220,7 @@ fn mark_leave(home: &Path) -> Result<()> {
 }
 
 /// Takes the join lock in `home`, waiting up to [`LOCK_WAIT`] for a join or leave in progress.
-async fn wait_for_lock(home: &Path) -> Option<HeldLock> {
+pub(super) async fn wait_for_lock(home: &Path) -> Option<HeldLock> {
     let deadline = tokio::time::Instant::now() + LOCK_WAIT;
     loop {
         if let Ok(lock) = crate::config::private_state_dir(home).and_then(|()| join_lock_at(home)) {
