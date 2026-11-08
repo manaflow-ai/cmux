@@ -319,7 +319,7 @@ section h3 {
   position: fixed;
   inset: 0;
   z-index: var(--layer-modal);
-  background: var(--cmux-page-background, var(--cmux-window-background, Canvas));
+  background: var(--cmux-surface-solid, Canvas);
 }
 
 .viewer[data-full] .viewer-stage {
