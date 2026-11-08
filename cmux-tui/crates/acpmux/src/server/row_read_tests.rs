@@ -155,3 +155,20 @@ async fn a_link_whose_rows_are_not_applied_yet_never_answers_from_its_row() {
             .await;
     assert!(info.is_err(), "answered from a row the link has not listed again: {info:?}");
 }
+
+/// A peer whose link was ready and listed its rows drops and reconnects: until the hub applied
+/// the new link's session list, the rows are the old link's, and a send's info goes to the peer
+/// (review of #38305 at 24f8ec1: `rows_ready` stays true across a drop the grace loop handles).
+#[tokio::test]
+async fn a_reconnected_link_answers_from_its_row_only_once_its_new_list_is_applied() {
+    let (hub, peer) = hub_with_peer();
+    hub.seed_peer_back(&peer, vec![row()]);
+    let info = json!({"sessionId": format!("far/{CHAT}"), "row": true});
+    call(&hub, method::MUX_INFO, info.clone()).await.expect("answered from the row");
+    // The link drops, and the next one finishes its handshake; its list is not applied yet.
+    peer.link_ended();
+    let again = call(&hub, method::MUX_INFO, info.clone()).await;
+    assert!(again.is_err(), "answered from the old link's row: {again:?}");
+    hub.seed_peer_back(&peer, vec![row()]);
+    call(&hub, method::MUX_INFO, info).await.expect("the new list is applied");
+}
