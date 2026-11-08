@@ -2717,6 +2717,8 @@ pub(super) fn repair_dangling_terminal_resources(
             .and_modify(|first| *first = (*first).min(*position))
             .or_insert(*position);
     }
+    let affected_pane_ids = affected_panes.keys().map(|id| (*id).to_string()).collect::<Vec<_>>();
+    record_pending_pane_restatement(transaction, &affected_pane_ids)?;
     for (pane_id, first_retired_position) in affected_panes {
         let survivors = {
             let mut statement = transaction.prepare(
@@ -2789,6 +2791,127 @@ pub(super) fn repair_dangling_terminal_resources(
         &changes,
     )?;
     Ok(())
+}
+
+/// Meta key holding the panes, as a JSON list of public ids, that a startup
+/// repair changed and the registry has not restated yet.
+const STARTUP_REPAIR_RESTATE_META_KEY: &str = "startup_repair_restate_panes";
+
+/// Adds `pane_ids` to the panes that the registry restates after the repair
+/// commits. The set is durable, so a crash between the repair and its
+/// restatement still publishes the restatement on the next open.
+fn record_pending_pane_restatement(
+    transaction: &Transaction<'_>,
+    pane_ids: &[String],
+) -> anyhow::Result<()> {
+    if pane_ids.is_empty() {
+        return Ok(());
+    }
+    let mut pending = pending_pane_restatement(transaction)?;
+    pending.extend(pane_ids.iter().cloned());
+    pending.sort_unstable();
+    pending.dedup();
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![STARTUP_REPAIR_RESTATE_META_KEY, serde_json::to_string(&pending)?],
+    )?;
+    Ok(())
+}
+
+fn pending_pane_restatement(connection: &Connection) -> anyhow::Result<Vec<String>> {
+    meta_value(connection, STARTUP_REPAIR_RESTATE_META_KEY)?
+        .map(|value| {
+            serde_json::from_str(&value).context("pending pane restatement is not a JSON list")
+        })
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+
+impl WorkspaceRegistry {
+    /// Publishes the tabs and screens of the panes that a startup repair
+    /// changed, read back from the committed rows, as one resource batch.
+    ///
+    /// The repair batch has only deletes. Without this batch an event-feed
+    /// client keeps the old index and focus of the surviving tabs and the old
+    /// screen layout until another update.
+    pub(super) fn restate_startup_repaired_panes(&mut self) -> anyhow::Result<()> {
+        let pane_ids = pending_pane_restatement(&self.connection)?;
+        if pane_ids.is_empty() {
+            return Ok(());
+        }
+        let topology = self.resource_topology_snapshot()?;
+        let tabs_by_pane = crate::resource_screen::tabs_by_pane(&topology.tabs);
+        let panes_by_id = crate::resource_screen::panes_by_id(&topology.panes);
+        let mut changes = Vec::new();
+        let mut screen_ids = HashSet::new();
+        for pane in topology
+            .panes
+            .iter()
+            .filter(|pane| pane_ids.iter().any(|id| id == pane.public_id.as_str()))
+        {
+            screen_ids.insert(&pane.screen_id);
+            for tab in tabs_by_pane.get(&pane.public_id).into_iter().flatten() {
+                let sequence = changes.len();
+                changes.push(json!({
+                    "kind": "upsert",
+                    "sequence": sequence,
+                    "resource": "tab",
+                    "id": tab.public_id,
+                    "value": tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)),
+                }));
+            }
+        }
+        for screen in
+            topology.screens.iter().filter(|screen| screen_ids.contains(&screen.public_id))
+        {
+            let value = crate::resource_screen::public_screen_value(
+                &topology,
+                screen,
+                &tabs_by_pane,
+                &panes_by_id,
+            )?;
+            let sequence = changes.len();
+            changes.push(json!({
+                "kind": "upsert",
+                "sequence": sequence,
+                "resource": "screen",
+                "id": screen.public_id,
+                "value": value,
+            }));
+        }
+
+        let transaction = self.connection.transaction()?;
+        transaction
+            .execute("DELETE FROM meta WHERE key = ?1", [STARTUP_REPAIR_RESTATE_META_KEY])?;
+        if !changes.is_empty() {
+            let current_revision = current_resource_revision(&transaction)?;
+            anyhow::ensure!(
+                current_revision == topology.revision,
+                "resource topology changed while restating repaired panes"
+            );
+            let revision = current_revision.checked_add(1).ok_or_else(|| {
+                anyhow::anyhow!("resource revision exhausted during repair restatement")
+            })?;
+            transaction.execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+                [revision.to_string()],
+            )?;
+            append_resource_journal_record(
+                &transaction,
+                revision,
+                current_revision,
+                "cmux-startup-repair",
+                &format!("terminal-close-repair-restate-{revision}"),
+                "terminal.close.repair",
+                None,
+                &json!({ "restated_panes": pane_ids }),
+                &Value::Array(changes),
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
 }
 
 pub(super) fn apply_resource_patch(
