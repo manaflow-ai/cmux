@@ -69,3 +69,24 @@ async fn an_unfiltered_attach_that_reaches_the_link_last_widens_it() {
         task.abort();
     }
 }
+
+/// An attach that reached the link but that the peer refused (or never answered) leaves the peer
+/// streaming nothing of the chat: it no longer reads as streamed, so a send's subscription goes
+/// to the peer again (review of #38305 at 8047f79).
+#[tokio::test]
+async fn an_attach_the_peer_refused_leaves_the_chat_unstreamed() {
+    let peer = peer();
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let attach = tokio::spawn({
+        let peer = peer.clone();
+        async move { peer.link_request_on(method::MUX_ATTACH, unfiltered(), None).await }
+    });
+    let frame = tokio::time::timeout(Duration::from_secs(5), out_rx.recv()).await.unwrap().unwrap();
+    assert!(peer.streams_every_kind(CHAT), "an attach in the queue streams the chat");
+    let sent: Value = serde_json::from_str(&frame.line).unwrap();
+    let key = sent["id"].to_string();
+    let answer = peer.pending.lock().await.remove(&key).expect("the attach waits for its answer");
+    let _ = answer.send(Err(RpcError::not_found("no such session")));
+    assert!(attach.await.unwrap().is_err());
+    assert!(!peer.streams_every_kind(CHAT), "a refused attach left the chat reading as streamed");
+}
