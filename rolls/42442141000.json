@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42442141000",
+  "recorded_at": "2026-11-08T03:25:01Z",
+  "reason": "cmux-tui 3fa2bb9f3437 changes the image's cmux-tui (pinned 77fefa72709f)",
+  "dry_run": false,
+  "cmux_tui": "3fa2bb9f343722b3e0a156777068493d3cc3cdb4",
+  "fixes": [
+    {
+      "sha": "3fa2bb9f343722b3e0a156777068493d3cc3cdb4",
+      "mergedAt": "2026-11-07T19:02:54-08:00",
+      "subject": "cmux NEXT: a link never docks the Chief; Undock Chief floats a docked one (#37372) (#37388)"
+    },
+    {
+      "sha": "5d5841b22b54e229cde6a85b9a37018cb035fadf",
+      "mergedAt": "2026-11-07T19:02:34-08:00",
+      "subject": "Chief on sr2: a start keeps waiting on its harness, a hung start retries without losing the message (#36028) (#36192)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T03:25:01Z",
+    "snapshot_id": "sh-68f955d60ba34062a0800ed5263309a5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42442141000): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b37af17b6d1b13221c9985ef3194474d8a1aab33",
+    "image": "cloud-native-auto-3fa2bb9f-42442141000-1",
+    "revision": "ci-42442141000-1",
+    "at": "2026-11-08T03:25:01Z"
+  },
+  "rolled_back": false
+}
