@@ -99,9 +99,12 @@ test("a pasted attachment the host's value does not show yet is never drawn in t
   const box = createRef<ComposerBoxHandle>();
   const field = createRef<MarkdownFieldHandle>();
   let paste: (() => void) | undefined;
+  let setValue: ((next: string) => void) | undefined;
   function Host() {
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
     const [pending, setPending] = useState<PendingAttachment[]>([]);
+    const [value, setValueState] = useState("");
+    setValue = setValueState;
     // The intake's paste (attachmentIntakeModel.ts): the chip is made and placed in the same step.
     paste = () => {
       setPending([PASTED]);
@@ -115,7 +118,7 @@ test("a pasted attachment the host's value does not show yet is never drawn in t
         }}
         // A host whose value has not caught up with the edit yet: the node is in the text, its token
         // not yet in `value`.
-        field={{ value: "", onChange: () => {} }}
+        field={{ value, onChange: () => {} }}
         attachments={attachments}
         pending={pending}
         setAttachments={(update) => setAttachments(update)}
@@ -134,4 +137,10 @@ test("a pasted attachment the host's value does not show yet is never drawn in t
   expect(field.current?.inlineIds()).toEqual([PASTED.id]);
   // ...and the strip above it draws nothing.
   expect(host.querySelector(".acpmux-attachments")).toBeNull();
+  // A value from outside that takes the node away (a command's clear) gives the still-loading chip
+  // back to the strip: it is never hidden from both.
+  await act(async () => setValue!("cleared by a command"));
+  await until(() => field.current?.inlineIds()?.length === 0 && !!host.querySelector(".acpmux-attachments"));
+  expect(field.current?.inlineIds()).toEqual([]);
+  expect(host.querySelector(".acpmux-attachments")).not.toBeNull();
 });
