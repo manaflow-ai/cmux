@@ -946,6 +946,7 @@ function Columns({
           <div className="acpmux-cols-group">
             <AgentMark agent={list.find((family) => family.id === group.rows[0]?.family)?.mark} size={12} />
             {group.name}
+            {group.note && <span className="acpmux-cols-group-note">{group.note}</span>}
           </div>
           {group.rows.map((model, offset) => modelRow(model, start + offset))}
         </Fragment>

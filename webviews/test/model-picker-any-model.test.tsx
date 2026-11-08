@@ -240,7 +240,7 @@ test("the search finds the models of a harness this Mac does not have", async ()
   await search("gemini 3.8 flash");
   // Its vendor's own CLI leads: the harnesses a pick installs come before those that only serve the
   // model (OpenCode), and those no pick installs come last.
-  expect(groupNames()[0]).toBe("Gemini CLI");
+  expect(groupNames()[0]).toBe("Gemini CLINot installed");
   expect(rowNames()[0]).toBe("3.8 Flash");
   // OpenCode's probe names its models only once it runs: until then the feed's OpenCode Zen and Go
   // models stand in, so an open model such as DeepSeek is found too.

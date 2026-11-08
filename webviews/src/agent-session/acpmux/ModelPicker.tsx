@@ -886,6 +886,7 @@ export function ModelPicker(props: ModelPickerProps) {
           ...(!harnessFixed ? { harness: entry.name } : {}),
           ...(hint ? { hint } : {}),
           ...(rank(entry) > 0 ? { rank: rank(entry) } : {}),
+          ...(setup ? { setupNote: setup } : {}),
           ...(effort ? { effort } : {}),
           ...(typed.fast ? { fast: true } : {}),
         },

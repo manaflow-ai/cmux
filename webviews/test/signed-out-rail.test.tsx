@@ -290,9 +290,10 @@ test("a search lists a signed-out harness's models after the ready ones, and a p
   const headings = [...dom.window.document.querySelectorAll(".acpmux-cols .acpmux-cols-group")].map(
     (heading) => heading.textContent,
   );
+  // Its heading says a pick signs in first.
+  expect(headings).toContain("CodexSigned out");
   // Other providers can offer GPT models; those that are ready come first.
-  expect(headings.indexOf("Codex")).toBe(headings.length - 1 - headings.slice().reverse().indexOf("Codex"));
-  if (headings.length > 1) expect(headings[0]).not.toBe("Codex");
+  if (headings.length > 1) expect(headings[0]).not.toBe("CodexSigned out");
   await act(async () => {
     codexRows[0]!.click();
     await new Promise((resolve) => setTimeout(resolve, 0));

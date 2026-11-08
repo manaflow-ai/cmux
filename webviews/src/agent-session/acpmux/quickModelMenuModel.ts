@@ -139,6 +139,9 @@ export type QuickModel = {
   /// Where a search lists the row's family: 0 (unset) its harness is set up here, 1 a pick sets it
   /// up first (installs or signs it in), 2 that harness lists the feed's models until it runs.
   rank?: number;
+  /// Why a pick sets the row's harness up first ("Not installed", "Signed out"): its search
+  /// heading says so.
+  setupNote?: string;
   offers?: (QuickModel & { provider: string })[];
 };
 
@@ -253,7 +256,8 @@ export function heldTab(families: QuickFamilies | undefined): string | undefined
 
 /// One harness's search matches under its name. Groups keep the rail's order; Starred is never one,
 /// since every starred model also sits under its own harness.
-export type QuickSearchGroup = { id: string; name: string; rows: QuickModel[] };
+/// One harness family's matches; `note` says a pick sets the harness up first ("Not installed").
+export type QuickSearchGroup = { id: string; name: string; note?: string; rows: QuickModel[] };
 
 export function searchGroups(
   found: readonly QuickModel[],
@@ -288,7 +292,10 @@ export function searchGroups(
   const rank = (group: QuickSearchGroup) => Math.min(...group.rows.map((row) => row.rank ?? 0));
   return [...groups.values()]
     .filter((group) => group.rows.length > 0)
-    .map(({ id, name, rows }) => ({ id, name, rows }))
+    .map(({ id, name, rows }) => {
+      const note = rows.find((row) => row.setupNote)?.setupNote;
+      return { id, name, ...(note ? { note } : {}), rows };
+    })
     .map((group, index) => ({ group, index, rank: rank(group) }))
     .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map(({ group }) => group);

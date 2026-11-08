@@ -329,6 +329,8 @@
   font-weight: 600;
 }
 .acpmux-cols-group:first-child { padding-top: var(--ds-space-1); }
+/* A heading's "Not installed" / "Signed out": a pick of its models sets the harness up first. */
+.acpmux-cols-group-note { margin-inline-start: auto; font-weight: 400; }
 /* A hairline between the effort levels and Fast: inset as the rows' text, 4px above and below. */
 .acpmux-cols-gap {
   margin: 4px var(--acpmux-cols-inline);
