@@ -3,7 +3,7 @@ import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
 import { lastModel } from "./lastPick";
-import { heldOptionPick } from "./heldOptions";
+import { heldOptionPick, isEffortOption } from "./heldOptions";
 import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
@@ -477,7 +477,17 @@ export class HarnessSwitch {
 
   /// Records a config pick on `intent` for its session, with the pick's gesture ticket.
   private holdConfig(intent: Intent, configId: string, value: string): void {
-    intent.config = { ...intent.config, options: { ...intent.config.options, [configId]: value } };
+    // One effort pick is held at a time: a later pick under the session's own id (reasoning_effort)
+    // replaces one held under the generic `effort` and the other way round, so the earlier level is
+    // neither drawn nor sent after it when the session opens.
+    const options = { ...intent.config.options };
+    if (isEffortOption({ id: configId }))
+      for (const held of Object.keys(options))
+        if (held !== configId && isEffortOption({ id: held })) {
+          delete options[held];
+          intent.tickets.delete(`config:${held}`);
+        }
+    intent.config = { ...intent.config, options: { ...options, [configId]: value } };
     intent.tickets.set(
       `config:${configId}`,
       this.takeTicket({ method: "session/set_config_option", params: { configId, value } }),

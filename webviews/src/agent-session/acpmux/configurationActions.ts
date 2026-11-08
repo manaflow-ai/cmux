@@ -46,6 +46,7 @@ export async function pickEffort(
     typeof params.value === "string" && params.value ? params.value : String(params.effort ?? "");
   const asked = typeof params.configId === "string" && params.configId ? params.configId : undefined;
   const resolved = resolveEffortOption(summary?.configOptions, asked);
+  if (requested && !resolved && !summary?.sessionId && route.pickConfig(asked ?? HELD_EFFORT_ID, requested)) return;
   // l10n-allow: a refusal for the host action's caller; the picker offers no effort then.
   if (!resolved || !requested) throw new Error("the session offers no effort option");
   const live = summary?.sessionId ? { sessionId: summary.sessionId, current: resolved.currentValue } : undefined;
