@@ -415,8 +415,8 @@ pub(crate) fn with_proofs(
     for (session, proofs) in proofs {
         let mut by_seq: BTreeMap<u64, Value> = BTreeMap::new();
         let at = ahead.iter().position(|(s, ..)| *s == session);
-        if let Some(i) = at {
-            by_seq.extend(ahead[i].3.drain(..).filter_map(|r| Some((seq_of(&r)?, r))));
+        if let Some((.., copy)) = at.and_then(|i| ahead.get_mut(i)) {
+            by_seq.extend(copy.drain(..).filter_map(|r| Some((seq_of(&r)?, r))));
         }
         for records in proofs {
             let fits = records.iter().all(|r| {
@@ -441,8 +441,8 @@ pub(crate) fn with_proofs(
             continue;
         }
         let records: Vec<Value> = by_seq.into_values().collect();
-        match at {
-            Some(i) => ahead[i].3 = records,
+        match at.and_then(|i| ahead.get_mut(i)) {
+            Some((.., copy)) => *copy = records,
             None => {
                 if let Some((_, generation, last)) = rows.iter().find(|(s, ..)| *s == session) {
                     ahead.push((session, *generation, *last, records));
