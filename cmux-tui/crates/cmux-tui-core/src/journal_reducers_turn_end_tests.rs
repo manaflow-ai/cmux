@@ -44,14 +44,15 @@ impl Rig {
     }
 
     fn session_hook(&mut self, at_ms: u64, session: &str, native_event: &str) {
+        self.native_hook(at_ms, native_event, json!({"tool_name": "Bash", "session_id": session}));
+    }
+
+    /// One hook event with the native payload the harness sent.
+    fn native_hook(&mut self, at_ms: u64, native_event: &str, native: Value) {
         let sequence = self.next();
-        let ingress = crate::agent_hook_journal_ingress(
-            self.adapter,
-            native_event,
-            Some(TERMINAL),
-            json!({"tool_name": "Bash", "session_id": session}),
-        )
-        .unwrap();
+        let ingress =
+            crate::agent_hook_journal_ingress(self.adapter, native_event, Some(TERMINAL), native)
+                .unwrap();
         self.roster.apply(&RosterEvent {
             producer_id: &ingress.producer_id,
             kind: &ingress.kind,
@@ -365,4 +366,33 @@ fn an_exit_of_another_process_does_not_remove_the_row() {
     let mut rig = Rig::running_turn("claude");
     rig.screen_as(PLUGIN, "pid:5151", 14_600, "done", false);
     assert_eq!(rig.shown(), "working");
+}
+
+/// Kill Claude Code and `claude --resume` the same session in the same tab:
+/// the id is the same, the process is new. The old process's late exit must
+/// not remove the resumed session's row (fifth review of #38417, F1).
+#[test]
+fn a_late_exit_of_the_killed_process_does_not_remove_a_resumed_session() {
+    let mut rig = Rig::running_turn("claude");
+    rig.native_hook(
+        14_200,
+        "SessionStart",
+        json!({"session_id": "claude-session-1", "source": "resume"}),
+    );
+    assert_eq!(rig.shown(), "idle");
+    rig.screen(14_600, "done");
+    assert_eq!(rig.shown(), "idle", "the resumed session's row stays");
+}
+
+/// A compaction's `SessionStart` runs in the same process: what the screen
+/// saw of it still counts.
+#[test]
+fn a_compaction_keeps_the_screen_evidence() {
+    let mut rig = Rig::running_turn("claude");
+    rig.native_hook(
+        14_000,
+        "SessionStart",
+        json!({"session_id": "claude-session-1", "source": "compact"}),
+    );
+    assert!(rig.roster.screen_evidence.contains_key(TERMINAL));
 }

@@ -791,12 +791,20 @@ impl AgentRoster {
                 state == AgentState::Done,
                 observed_at_ms,
             );
-            // Another agent session took the terminal (or an ended one came
-            // back): what the screen saw belongs to the agent before it, so a
+            // Another agent session took the terminal, an ended one came
+            // back, or a new process started (`claude --resume` reuses the
+            // id): what the screen saw belongs to the agent before it, so a
             // late exit of that process cannot remove this row
-            // ([`Self::screen_ends_hook_row`]). A `SessionStart` of the same
-            // session (Claude Code's compaction and `/clear`) keeps it.
-            if current.is_none_or(|fence| fence.ended || fence.session_id != next.session_id) {
+            // ([`Self::screen_ends_hook_row`]). Claude Code's `SessionStart`
+            // for a compaction or `/clear` runs in the same process and keeps it.
+            let new_process = event.kind == "agent.session.started"
+                && !matches!(
+                    event.payload.pointer("/native/source").and_then(Value::as_str),
+                    Some("compact" | "clear")
+                );
+            if new_process
+                || current.is_none_or(|fence| fence.ended || fence.session_id != next.session_id)
+            {
                 self.screen_evidence.remove(terminal_id);
             }
             self.hook_fences.insert(terminal_id.to_string(), next);
