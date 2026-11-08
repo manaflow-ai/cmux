@@ -57,11 +57,7 @@ export function parseRoute(hash: string, attributes: { surface?: string; style?:
   const limit = Number(params.get("limit"));
   return {
     view,
-    surface: oneOf(
-      params.get("surface") ?? attributes.surface,
-      ["page", "sidebar"] as const,
-      DEFAULT_SURFACE[view],
-    ),
+    surface: oneOf(params.get("surface") ?? attributes.surface, ["page", "sidebar"] as const, DEFAULT_SURFACE[view]),
     style: oneOf(params.get("style") ?? attributes.style, ["rows", "cards", "bar"] as const, "rows"),
     limit: Number.isInteger(limit) && limit > 0 ? limit : NEEDS_YOU_LIMIT,
     density: oneOf(params.get("density"), ["split", "compact", "stacked"] as const, "split"),
