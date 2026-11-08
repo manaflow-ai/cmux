@@ -505,6 +505,7 @@ export type AcpmuxPermission = {
   /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
   /// ask, the Chief), mapped from the request by question/model.ts; unset for a tool permission.
   question?: AgentQuestion;
+  dependency?: import("./dependency").AcpmuxDependency;
 };
 
 /** A model acpmux probed or a profile declared (`_acpmux/models`); declared entries may carry

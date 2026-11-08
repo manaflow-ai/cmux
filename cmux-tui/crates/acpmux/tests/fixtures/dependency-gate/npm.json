@@ -1,0 +1,1 @@
+{"dist-tags":{"latest":"1.2.3"},"time":{"created":"2020-01-01T00:00:00.000Z"},"maintainers":[{"name":"Ada"}],"versions":{"1.2.3":{"scripts":{"preinstall":"node build.js"}}}}

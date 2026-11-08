@@ -1,0 +1,7 @@
+{
+  "npm": ["react", "react-dom", "typescript", "lodash", "express", "axios", "vite", "webpack", "next", "eslint", "prettier"],
+  "pypi": ["requests", "numpy", "pandas", "flask", "django", "fastapi", "pytest", "boto3", "urllib3", "setuptools"],
+  "crates": ["serde", "tokio", "clap", "reqwest", "anyhow", "thiserror", "rand", "regex", "syn", "quote"],
+  "go": ["golang.org/x/net", "golang.org/x/tools", "github.com/stretchr/testify"],
+  "brew": ["git", "wget", "jq", "ripgrep", "fd", "node", "python", "go", "rust"]
+}

@@ -29,6 +29,7 @@ mod complete;
 pub mod composers;
 mod cursor_ext;
 mod digest;
+mod dependency_gate;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;

@@ -32,12 +32,35 @@ const askStyles: Record<Exclude<AskStyle, "current">, string> = {
     [data-ask-style="text"] .acpmux-ask-action.is-secondary { box-shadow: none; }`,
 };
 
-const request = (title: string, command: string, path: string) => ({
+const dependency = {
+  status: "ok",
+  packages: [
+    {
+      ecosystem: "npm",
+      name: "reqeusts",
+      status: "ok",
+      version: "4.0.0",
+      ageDays: 12,
+      weeklyDownloads: 18420,
+      maintainers: 1,
+      installScripts: true,
+      lookalike: "requests",
+    },
+  ],
+};
+
+const unavailableDependency = {
+  status: "unavailable",
+  packages: [{ ecosystem: "crates", name: "telemetry-kit", status: "unavailable", maintainers: 0, installScripts: false }],
+};
+
+const request = (title: string, command: string, path: string, dependency?: object) => ({
   toolCall: {
     title,
     kind: "execute",
     locations: [{ path }],
     rawInput: { command, cwd: "/Users/you/src/cmux" },
+    ...(dependency ? { _meta: { acpmux: { dependency } } } : {}),
   },
 });
 
@@ -87,6 +110,30 @@ const resolvedState: PermissionClientState = {
 const collectingState: PermissionClientState = {
   ...baseState,
   groups: [{ ...pendingGroup, state: "collecting" }],
+};
+
+const dependencyState: PermissionClientState = {
+  ...baseState,
+  groups: [
+    {
+      ...pendingGroup,
+      items: [
+        { ...pendingGroup.items[0], permissionId: "permission-gallery-dependency", request: request("Install package", "npm install reqeusts", "package.json", dependency) },
+      ],
+    },
+  ],
+};
+
+const unavailableDependencyState: PermissionClientState = {
+  ...dependencyState,
+  groups: [
+    {
+      ...dependencyState.groups[0]!,
+      items: [
+        { ...dependencyState.groups[0]!.items[0]!, permissionId: "permission-gallery-unavailable", request: request("Install crate", "cargo add telemetry-kit", "Cargo.toml", unavailableDependency) },
+      ],
+    },
+  ],
 };
 
 const allowanceState: PermissionClientState = {
@@ -283,6 +330,14 @@ export default componentEntry<Props>({
     collecting: {
       note: "A batching group announces that requests are still being collected.",
       props: { state: collectingState, ...callbacks },
+    },
+    "dependency-rich": {
+      note: "A package install shows age, downloads, maintainers, install-script risk and a one-edit lookalike before Allow.",
+      props: { state: dependencyState, ...callbacks },
+    },
+    "dependency-unavailable": {
+      note: "A registry timeout is explicit in the gate card while the permission decision remains available.",
+      props: { state: unavailableDependencyState, ...callbacks },
     },
     receipt: {
       note: "A resolved group remains available as a compact, expandable receipt.",

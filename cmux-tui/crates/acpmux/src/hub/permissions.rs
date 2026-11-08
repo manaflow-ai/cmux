@@ -757,6 +757,9 @@ impl Hub {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
+        // Dependency installs are held at the same permission seam as every other tool call. The
+        // inspector is bounded and cached; an unavailable registry still gets a visible card.
+        let dependency_gate = super::dependency_gate::inspect(&mut request).await;
         // A person-readable line for a tool whose name and JSON mean nothing
         // to a person (permissions/display.rs), before anything shows the request.
         self.stamp_permission_display(session, &mut request);
@@ -903,9 +906,10 @@ impl Hub {
             let full_access = (full_access_on && !off.off() && rule.is_none() && !denied)
                 .then(|| full_access_allow(session, &request))
                 .flatten();
+            let gated_for_person = dependency_gate && rule.is_none();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
-            } else if needs_person || web_turn {
+            } else if needs_person || gated_for_person || web_turn {
                 // Policy never answers a question: only a person does.
                 None
             } else if let Some((_, option_id)) = &full_access {

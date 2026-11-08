@@ -16,6 +16,7 @@ import {
   type PermissionKeyAction,
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { DependencyGate } from "./dependency";
 
 export { permissionOptionKind } from "./permissions/prompt";
 
@@ -393,6 +394,7 @@ export function PermissionCard({
             )}
           </div>
         )}
+        {permission.dependency && <DependencyGate dependency={permission.dependency} />}
       </div>
       {!writing && (
         <div className="acpmux-permission-buttons">

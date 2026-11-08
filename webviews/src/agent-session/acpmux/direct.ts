@@ -68,6 +68,7 @@ import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } f
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
+import { dependencyFromValue } from "./dependency";
 import { failedSendText } from "./sendFailure";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
@@ -429,6 +430,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const subjectTool = subject?.type === "tool_call" ? objectValue(subject.toolCall) : undefined;
   const subjectCommand = subject?.type === "command" ? subject : undefined;
   const toolCall = raw.toolCall ?? subjectTool;
+  const dependency = dependencyFromValue(toolCall?._meta?.acpmux?.dependency);
   const suggestions = Array.isArray(claudeMeta?.suggestions)
     ? claudeMeta.suggestions.flatMap((suggestion: unknown) => {
         if (typeof suggestion === "string" && suggestion.trim()) return [suggestion.trim()];
@@ -448,6 +450,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     : [];
   return {
     ...(question ? { question } : {}),
+    ...(dependency ? { dependency } : {}),
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
