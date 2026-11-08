@@ -4,7 +4,7 @@ public import Observation
 
 /// Client-local tab selection per pane (the daemon's `active_tab` is only a
 /// shared default). When the selected tab disappears, the selection goes to
-/// the tab that took its slot, else the new last tab. It also keeps the pane
+/// the tab before it, else the one after it (`FocusAfterClose.tab`). It also keeps the pane
 /// this window last focused in each workspace (the daemon's `focused_at` is a
 /// default the app never writes, focus.md 2), which a sidebar row's face reads.
 ///
@@ -62,12 +62,10 @@ public final class TabSelectionMemory {
 
     /// The tab to show for `pane` given its current order. Remembers the
     /// order so a later removal can pick the neighbor
-    /// (`FocusAfterClose.tab`: the next shown tab, else the previous one;
-    /// a member of a collapsed group in `hidden` is skipped while a shown
-    /// tab survives; a link tab goes back to its opener family first, from
-    /// `openers`, read only when the selected tab closed).
-    public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [],
-                        openers: () -> [String: String] = { [:] }) -> String? {
+    /// (`FocusAfterClose.tab`: the shown tab before it, else the one after
+    /// it; a member of a collapsed group in `hidden` is skipped while a shown
+    /// tab survives).
+    public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = []) -> String? {
         defer { lastOrder[pane] = tabs }
         guard !tabs.isEmpty else {
             set(nil, in: pane)
@@ -77,7 +75,7 @@ public final class TabSelectionMemory {
             if tabs.contains(current) { return current }
             if let old = lastOrder[pane], old.contains(current) {
                 let pick = FocusAfterClose.tab(selected: current, old: old, surviving: tabs,
-                                               shown: Set(tabs).subtracting(hidden), opener: openers()) ?? tabs[0]
+                                               shown: Set(tabs).subtracting(hidden)) ?? tabs[0]
                 set(pick, in: pane)
                 return pick
             }
