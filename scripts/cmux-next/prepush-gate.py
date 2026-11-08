@@ -128,6 +128,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -435,14 +436,15 @@ def read_lock(lock: Path) -> dict[str, tuple[str, str, str, str]]:
 
 def release_download():
     """scripts/ci/github_release_download.py: the copy install-git-hooks.sh puts beside the hook's copy of this
-    file, else this checkout's. Loaded on the first fetch, so a gate that downloads nothing never needs it."""
+    file, else this checkout's, else None. None in a hook installed before it: that install's refresh_checks.py
+    rewrites this file from feat-cmux-next but copies nothing from scripts/ci (#38454 review)."""
     name = "cmux_github_release_download"
     if name not in sys.modules:
         script = Path(__file__).with_name("github_release_download.py")
         if not script.is_file():
             script = Path(__file__).resolve().parent.parent / "ci" / "github_release_download.py"
         if not script.is_file():
-            raise SystemExit("prepush-gate: github_release_download.py is missing; rerun scripts/install-git-hooks.sh")
+            return None
         spec = importlib.util.spec_from_file_location(name, script)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -454,6 +456,12 @@ def download(url: str, archive: Path) -> None:
     """The pinned archive at `url`, through the release-assets API when its GitHub release download fails
     (github_release_download.py). The caller's sha256 check judges either."""
     fetcher = release_download()
+    if fetcher is None:
+        log("prepush-gate: github_release_download.py is not installed, so a failed release download is not retried "
+            "through the release-assets API; rerun scripts/install-git-hooks.sh")
+        with urllib.request.urlopen(url, timeout=120) as response, open(archive, "wb") as out:
+            shutil.copyfileobj(response, out)
+        return
     try:
         fetcher.download(url, archive, log=lambda message: log(f"prepush-gate: {message}"))
     except fetcher.NoAsset as error:
