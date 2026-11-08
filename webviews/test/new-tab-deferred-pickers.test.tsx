@@ -125,6 +125,7 @@ async function mountNewTab({
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   const { HarnessSwitch, applySwitch } = await import("../src/agent-session/acpmux/harnessSwitch");
   const { HarnessProfiles } = await import("../src/agent-session/acpmux/harnessProfiles");
+  const { pickEffort } = await import("../src/agent-session/acpmux/configurationActions");
   const catalog = BUNDLED_MODEL_CATALOG.harnesses.map((entry) => ({
     id: entry.id,
     name: entry.name,
@@ -159,6 +160,15 @@ async function mountNewTab({
   const inFlight: { kind: "model" | "config"; land: () => void }[] = [];
   const later = (kind: "model" | "config") =>
     live ? new Promise<void>((land) => void inFlight.push({ kind, land })) : undefined;
+  const setConfig = async (configId: string, value: string) => {
+    wire.push(`${configId}=${value}`);
+    await later("config");
+    const option = options.find((candidate) => candidate.id === configId);
+    if (option) option.currentValue = value;
+    reported();
+  };
+  // Effort picks the page's chat.effort refused (configurationActions.ts pickEffort).
+  const refused: string[] = [];
   const store = new HarnessSwitch();
   store.connect({
     turnRunning: () => live !== undefined,
@@ -182,13 +192,7 @@ async function mountNewTab({
       reported();
     },
     setMode: async () => undefined,
-    setConfig: async (configId: string, value: string) => {
-      wire.push(`${configId}=${value}`);
-      await later("config");
-      const option = options.find((candidate) => candidate.id === configId);
-      if (option) option.currentValue = value;
-      reported();
-    },
+    setConfig,
     discard: () => undefined,
     prewarm: () => undefined,
     prewarmSupported: () => false,
@@ -242,9 +246,14 @@ async function mountNewTab({
           void store.pickModel(modelId, shownSession());
         }}
         onMode={() => undefined}
+        // App's chat.effort itself, over the page's own summary (which names no options before
+        // the session opens), as the host's action map runs it.
         onEffort={(configId, value) => {
           start();
-          store.pickConfig(configId, value, shownSession());
+          pickEffort({ configId, value }, raw().summary, {
+            pickConfig: (id, picked, live) => store.pickConfig(id, picked, live),
+            setConfig,
+          }).catch(() => refused.push(`${configId}=${value}`));
         }}
         // App's chat.new for a pick of another harness: a switch carrying the combo (deferred on a
         // New Tab page).
@@ -392,6 +401,7 @@ async function mountNewTab({
     send,
     answer,
     held: () => store.view().intent?.config,
+    refused,
   };
 }
 
@@ -627,3 +637,40 @@ test.todo("a live click on Sonnet's row, then on its High level, sends the level
   await answer("model");
   expect(wire).toEqual(["model claude-sonnet-5-5", "reasoning_effort=high"]);
 });
+
+// https://github.com/manaflow-ai/cmux/issues/38173: on the Home composer (no session yet) the person
+// could not change effort. The page's chat.effort refused every pick there (the page's summary names
+// no options before a session), so the pick never reached the harness switch; once the first pick
+// started the deferred switch, the chip drew the level the harness's last session reported, and the
+// check stayed on it. Each level picked now moves the check, and only the last one reaches the session.
+for (const [harness, model, optionId, modelName] of [
+  ["claude", "claude-sonnet-5-5", "effort", "Sonnet 5.5"],
+  ["codex", "gpt-6.1-sol", "reasoning_effort", "GPT-6.1 Sol"],
+] as const)
+  test(`${harness}: an effort picked on the Home composer moves the check and reaches the first turn`, async () => {
+    const doc = dom.window.document;
+    const levels = () => [...doc.querySelectorAll<HTMLElement>('.acpmux-cols-tune [role="radio"]')];
+    const checked = () =>
+      levels()
+        .filter((row) => row.getAttribute("aria-checked") === "true")
+        .map((row) => row.querySelector(".acpmux-cols-name")?.textContent);
+    // The harness ran a chat on this Mac before: its profile remembers that session's level (Medium).
+    const { wire, clickChip, send, refused } = await mountNewTab({
+      opened: [effortOption(optionId, ["low", "medium", "high", "xhigh"])],
+      harness,
+      model,
+      remembered: true,
+    });
+    await clickChip();
+    expect(doc.querySelector(".acpmux-cols-rail")).not.toBeNull();
+    for (const label of ["High", "Low", "Extra High"]) {
+      const row = levels().find((candidate) => candidate.querySelector(".acpmux-cols-name")?.textContent === label);
+      expect(row, `${label} under ${modelName}`).toBeDefined();
+      await act(async () => row!.click());
+      await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(checked()).toEqual([label]);
+    }
+    expect(refused).toEqual([]);
+    await send("hello");
+    expect(wire).toEqual([`new ${harness}`, `${optionId}=xhigh`, "prompt hello"]);
+  });
