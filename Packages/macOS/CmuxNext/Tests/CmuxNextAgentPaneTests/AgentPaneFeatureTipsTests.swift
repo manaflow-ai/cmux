@@ -26,11 +26,14 @@ struct AgentPaneFeatureTipsTests {
             == .featureTips(.claim(id: Self.browserTip, feature: "browser")))
         #expect(AgentPaneRequest(body: ["method": "tips.state", "params": ["claim": Self.browserTip]])
             == .featureTips(.claim(id: Self.browserTip, feature: nil)))
+        #expect(AgentPaneRequest(body: ["method": "tips.state", "params": ["reserve": "share-nudge"]])
+            == .featureTips(.reserve(id: "share-nudge")))
         let refused: [[String: Any]] = [
             ["id": "tip"], ["state": "closed"], ["id": "Tip", "state": "closed"], ["id": "tip", "state": "shown"],
             ["id": "tip", "state": "open"], ["id": "../tip", "state": "used"], ["id": 3, "state": "used"],
             ["id": String(repeating: "a", count: 81), "state": "used"], ["claim": "Tip"], ["claim": 1],
             ["claim": "tip", "feature": "Browser"], ["claim": "tip", "id": "tip"], ["id": "tip", "state": "used", "x": 1],
+            ["reserve": "Share"], ["reserve": 1], ["reserve": "share-nudge", "feature": "browser"],
         ]
         for params in refused {
             #expect(AgentPaneRequest(body: ["method": "tips.state", "params": params]) == .unsupported("tips.state"))
@@ -49,6 +52,17 @@ struct AgentPaneFeatureTipsTests {
         relaunched.settleInstall(launchedBefore: true)
         #expect(!relaunched.claim(Self.browserTip, feature: "browser"))
         #expect(relaunched.records[Self.browserTip] == "shown")
+    }
+
+    /// A reservation goes to the first caller only, is kept `closed`, and spends no tip budget.
+    @Test func reserveIsFirstCallerOnlyAndOutsideTheBudget() throws {
+        let shared = try defaults()
+        let store = AgentPaneFeatureTipRecords(defaults: shared)
+        store.settleInstall(launchedBefore: false)
+        #expect(store.reserve("share-nudge"))
+        #expect(!AgentPaneFeatureTipRecords(defaults: shared).reserve("share-nudge"))
+        #expect(store.records["share-nudge"] == "closed")
+        #expect(store.claim(Self.browserTip, feature: "browser"))
     }
 
     @Test func neverWhenTheBrowserWasUsed() throws {

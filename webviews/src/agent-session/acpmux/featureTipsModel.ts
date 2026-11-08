@@ -37,15 +37,20 @@ const tipState = (reply: unknown): TipState => {
   return { records, used: new Set(Array.isArray(used) ? used.filter((name) => typeof name === "string") : []) };
 };
 
-/** `tips.state {}` reads the install's records and used features, `{id, state}` keeps one, and
+/** `tips.state {}` reads the install's records and used features, `{id, state}` keeps one,
  *  `{claim, feature}` asks the app to show a tip (`claimed`: once per tip per install, never after a
- *  use of its feature, at most one every 14 days). An older app refuses all three: no tips. */
+ *  use of its feature, at most one every 14 days), and `{reserve}` takes a one-time line outside
+ *  that budget (`reserved`: the first caller only). An older app refuses them: no tips. */
 export const paneTipHost: TipHost = {
   read: () => call<unknown>("tips.state", {}).then(tipState),
   write: (id, state) => call<unknown>("tips.state", { id, state }),
   claim: (id, feature) =>
     call<unknown>("tips.state", feature ? { claim: id, feature } : { claim: id }).then(
       (reply) => (reply as { claimed?: unknown } | null)?.claimed === true,
+    ),
+  reserve: (id) =>
+    call<unknown>("tips.state", { reserve: id }).then(
+      (reply) => (reply as { reserved?: unknown } | null)?.reserved === true,
     ),
 };
 

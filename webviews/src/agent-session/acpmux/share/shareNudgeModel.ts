@@ -4,10 +4,12 @@
 // chat. Sharing is otherwise only in the chat's ••• menu (design chat-multiplayer.md, "Share
 // dialog"), so a new person had no way to learn a chat can be shared.
 //
-// Once per install is the app's to keep, like a feature tip's (design feature-tips.md): the page
-// writes the nudge's record (`tips.state {id: "share-nudge", state}`, the app's defaults) before the
-// line draws, and an app that keeps no records shows none, since a line that could not stay gone
-// must not show at all. No timer, no observer: it reacts to the turn's end and to the person.
+// Once per install is the app's to keep, like a feature tip's (design feature-tips.md): before the
+// line draws, the page reserves the nudge's record (`tips.state {reserve: "share-nudge"}`, kept
+// `closed` in the app's defaults in the same step as the check, so two panes ending a turn at once
+// never both show it; it spends no tip budget). An app that cannot reserve shows none, since a line
+// that could not stay gone must not show at all. No timer, no observer: it reacts to the turn's end
+// and to the person.
 import { useEffect, useRef, useState } from "react";
 import type { TipHost } from "../../../ui/featureTips/store";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
@@ -17,11 +19,18 @@ import { turnEndedBetween } from "../snapshotCache";
 /** The nudge's record id in the app's tip records (lower-case, digits and dashes). */
 export const SHARE_NUDGE_ID = "share-nudge";
 
-/** The person's own chats: not a side chat, nor one an agent or a Chief started. Archived chats
- *  count: a person who archived chats is not new here. */
+/** The person's own chats: not a side chat, nor one an agent or a Chief started, nor a lane
+ *  another chat started (`reportsTo`, as leads.ts reads it). Archived chats count: a person who archived chats is not
+ *  new here. */
 export function ownChats(sessions: readonly AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return sessions.filter(
-    (entry) => !entry.side && !entry.spawnedBy && !entry.startedBy && !entry.chiefChild && !entry.chiefTurn,
+    (entry) =>
+      !entry.side &&
+      !entry.spawnedBy &&
+      !entry.startedBy &&
+      !(entry.reportsTo && entry.reportsTo !== entry.sessionId) &&
+      !entry.chiefChild &&
+      !entry.chiefTurn,
   );
 }
 
@@ -126,14 +135,10 @@ export function useShareNudge(
     if (!ready) return;
     setPhase("asking");
     const session = chat.sessionId;
+    // Kept before it draws, by the app in one step: a page that reloads, or another pane or window
+    // ending a turn at the same time, never shows it again.
     void host
-      .read()
-      .then(async (state) => {
-        if (state.records[SHARE_NUDGE_ID] !== undefined) return false;
-        // Kept before it draws: a page that reloads, or another window, never shows it again.
-        await host.write(SHARE_NUDGE_ID, "closed");
-        return true;
-      })
+      .reserve(SHARE_NUDGE_ID)
       .then(
         (show) => {
           if (!mounted.current) return;

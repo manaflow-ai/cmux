@@ -101,6 +101,18 @@ public final class AgentPaneFeatureTipRecords {
         return true
     }
 
+    /// Takes `id` for this install outside the tip budget: true only to the first caller, which the
+    /// app records `closed` in the same step, so two panes asking at once never both get it. For a
+    /// one-time line that is not a feature tip (the share nudge, share/shareNudgeModel.ts): it spends
+    /// no budget and no feature use blocks it.
+    public func reserve(_ id: String) -> Bool {
+        var all = records
+        guard all[id] == nil, all.count < Self.maxRecords else { return false }
+        all[id] = "closed"
+        defaults.set(all, forKey: Self.recordsKey)
+        return true
+    }
+
     /// Whether a page may name `id` (a highlight id or a feature: lower-case letters, digits and
     /// dashes) and keep `state` (`closed` or `used`).
     public nonisolated static func accepts(id: String, state: String) -> Bool {
@@ -115,7 +127,8 @@ public final class AgentPaneFeatureTipRecords {
 
 extension AgentPaneModel {
     /// `tips.state {}` reads the records and `tips.state {id, state}` keeps one, both answering
-    /// `{states, used}`; `tips.state {claim, feature?}` asks to show a tip, answering `{claimed}`. A
+    /// `{states, used}`; `tips.state {claim, feature?}` asks to show a tip, answering `{claimed}`;
+    /// `tips.state {reserve}` takes a one-time line outside the budget, answering `{reserved}`. A
     /// page on an app without this op shows no tip, since none could stay closed.
     func featureTipState(_ request: AgentPaneFeatureTipRequest) -> [String: Any] {
         let records = featureTipRecords
@@ -126,6 +139,8 @@ extension AgentPaneModel {
             return AgentPaneReply.success(["states": records.keep(id, state), "used": records.usedFeatures])
         case .claim(let id, let feature):
             return AgentPaneReply.success(["claimed": records.claim(id, feature: feature)])
+        case .reserve(let id):
+            return AgentPaneReply.success(["reserved": records.reserve(id)])
         }
     }
 }
@@ -135,6 +150,7 @@ public nonisolated enum AgentPaneFeatureTipRequest: Equatable, Sendable {
     case read
     case keep(id: String, state: String)
     case claim(id: String, feature: String?)
+    case reserve(id: String)
 
     /// The request `params` make, or nil for params a page may not send.
     public init?(_ params: [String: Any]?) {
@@ -145,6 +161,8 @@ public nonisolated enum AgentPaneFeatureTipRequest: Equatable, Sendable {
         } else if keys == ["id", "state"], let id = params["id"] as? String, let state = params["state"] as? String,
                   AgentPaneFeatureTipRecords.accepts(id: id, state: state) {
             self = .keep(id: id, state: state)
+        } else if keys == ["reserve"], let id = params["reserve"] as? String, AgentPaneFeatureTipRecords.isName(id) {
+            self = .reserve(id: id)
         } else if keys.isSubset(of: ["claim", "feature"]), let id = params["claim"] as? String,
                   AgentPaneFeatureTipRecords.isName(id) {
             let feature = params["feature"] as? String
