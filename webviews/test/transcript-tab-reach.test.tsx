@@ -109,7 +109,15 @@ function turn(n: number, at: number) {
   return [
     { id: `u${n}`, version: 1, at, kind: "user", text: `Question ${n}.` },
     { id: `a${n}`, version: 1, at: at + 1_000, kind: "assistant", text: `Answer ${n}.` },
-    { id: `f${n}`, version: 1, at: at + 2_000, kind: "turnSummary", durationMs: 2_000, toolCount: 0, status: "completed" },
+    {
+      id: `f${n}`,
+      version: 1,
+      at: at + 2_000,
+      kind: "turnSummary",
+      durationMs: 2_000,
+      toolCount: 0,
+      status: "completed",
+    },
   ];
 }
 
