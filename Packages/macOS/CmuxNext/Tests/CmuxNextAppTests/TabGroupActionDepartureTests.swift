@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextTabs
@@ -12,8 +13,8 @@ import Testing
 /// same-tree cmux-tui: the actions refuse with no daemon.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct TabGroupActionDepartureTests {
-    @Test(arguments: ["tabGroup.moveToNewSplit", "tabGroup.moveToNewColumn", "tabGroup.moveToWorkspace"])
-    func aGroupActionMarksItsTabsDeparting(_ action: String) async throws {
+    @Test(arguments: ["tabGroup.moveToNewSplit", "tabGroup.moveToNewColumn", "tabGroup.moveToWorkspace"] as [ActionID])
+    func aGroupActionMarksItsTabsDeparting(_ action: ActionID) async throws {
         try await AppHarnessWindows.withApp { services, connection in
             let pane = try MoveToNewWindowTests.firstPane(services)
             let browser = try await MoveToNewWindowTests.browserTab(in: pane, services, connection)
