@@ -11,6 +11,10 @@
 //! settings that run a command at start, runs CMD with stdout sent to its stderr, and
 //! completes the barrier only when CMD exits 0. A CMD that fails, or a child that dies,
 //! leaves the barrier incomplete, so no tool runs on a partial checkout.
+//!
+//! `cmux repo wait DIR SECONDS` waits until the barrier on DIR is open: 0 once it is (or DIR has
+//! none), 1 when its sync failed, 124 after SECONDS. The machine-config applier waits on it for a
+//! checkout still filling, before its setup runs in it.
 
 use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
@@ -18,7 +22,7 @@ use std::process::{Command, Stdio};
 
 use cmux_git::sync_barrier::Sync;
 
-const USAGE: &str = "usage: cmux repo hold DIR -- CMD [ARG...]";
+const USAGE: &str = "usage: cmux repo hold DIR -- CMD [ARG...] | cmux repo wait DIR SECONDS";
 /// The child's one stdout line once it holds the barrier.
 const HELD: &str = "held";
 
@@ -32,6 +36,13 @@ pub(crate) fn run(args: &[String]) -> i32 {
             Some(_) if rest.first().is_some_and(|a| a == "--help") => help(),
             Some((dir, cmd)) => hold(&dir, cmd),
             None => usage(),
+        },
+        Some((verb, rest)) if verb == "wait" => match rest {
+            [dir, seconds] => match seconds.parse::<u64>() {
+                Ok(seconds) => wait(Path::new(dir), std::time::Duration::from_secs(seconds)),
+                Err(_) => usage(),
+            },
+            _ => usage(),
         },
         Some((verb, rest)) if verb == "hold-run" => match parse(rest) {
             Some((dir, cmd)) => hold_run(&dir, cmd, || println!("{HELD}")),
@@ -66,6 +77,21 @@ fn parse(rest: &[String]) -> Option<(PathBuf, &[String])> {
 /// Whether the head may be marked ready: none of [`START_SETTINGS`] is in it.
 pub(crate) fn head_allowed(dir: &Path) -> bool {
     START_SETTINGS.iter().all(|settings| std::fs::symlink_metadata(dir.join(settings)).is_err())
+}
+
+/// Waits until the barrier on `dir` is open (`cmux_git::sync_barrier::wait_ready`).
+pub(crate) fn wait(dir: &Path, timeout: std::time::Duration) -> i32 {
+    match cmux_git::sync_barrier::wait_ready(dir, timeout) {
+        Ok(()) => 0,
+        Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+            eprintln!("cmux repo wait: {}: {error}", dir.display());
+            124
+        }
+        Err(error) => {
+            eprintln!("cmux repo wait: {}: {error}", dir.display());
+            1
+        }
+    }
 }
 
 /// The child holds the barrier past this process; this one returns once it does.

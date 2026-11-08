@@ -154,13 +154,19 @@ else
   fresh=1
   if [ -z "$ref" ] && holder; then
     net clone --quiet --depth 1 --filter=blob:none --sparse "$url" "$dir"
-    # shellcheck disable=SC2086 # one word per folder
-    g -C "$dir" sparse-checkout add $head_dirs || { rm -rf "$dir"; die "cannot check out the head of $url"; }
     # A depth-1 clone fetches only the default branch from then on; every branch, as a whole
     # clone has, so the history fill and a later start's `@branch` see them all.
     g -C "$dir" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' ||
       { rm -rf "$dir"; die "cannot track the branches of $url"; }
-    tip=1
+    # shellcheck disable=SC2086 # one word per folder
+    if g -C "$dir" sparse-checkout add $head_dirs; then
+      tip=1
+    else
+      # A harness folder that is a symlink or a file is no sparse folder: the whole tree, now.
+      g -C "$dir" sparse-checkout disable && g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin ||
+        { rm -rf "$dir"; die "cannot check out all of $url"; }
+      fill=done
+    fi
   else
     net clone --quiet --filter=blob:none "$url" "$dir"
     switch || { rm -rf "$dir"; die "$why"; }

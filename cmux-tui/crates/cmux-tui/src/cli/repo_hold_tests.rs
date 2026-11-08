@@ -76,12 +76,29 @@ fn a_held_checkout_refuses_a_second_hold() {
     assert_eq!((outer, inner), (0, 1));
 }
 
+/// The machine-config applier's wait: open once the hold's command succeeds, refused after one
+/// that failed, and a wait that runs out says so.
+#[test]
+fn a_wait_ends_with_the_barrier() {
+    let (_dir, repo) = checkout();
+    assert_eq!(wait(&repo, std::time::Duration::ZERO), 0, "no barrier: nothing to wait for");
+    let mut during = -1;
+    let at_held = || during = wait(&repo, std::time::Duration::from_millis(50));
+    assert_eq!(hold_run(&repo, &words(&["true"]), at_held), 0);
+    assert_eq!(during, 124);
+    assert_eq!(wait(&repo, std::time::Duration::from_secs(5)), 0);
+    assert_eq!(hold_run(&repo, &words(&["false"]), || {}), 1);
+    assert_eq!(wait(&repo, std::time::Duration::from_secs(5)), 1);
+}
+
 #[test]
 fn the_verbs_parse() {
     assert_eq!(run(&words(&["hold", "--help"])), 0);
     assert_eq!(run(&words(&["hold", "/tmp/x"])), 2);
     assert_eq!(run(&words(&["hold", "/tmp/x", "--"])), 2);
     assert_eq!(run(&words(&["fill"])), 2);
+    assert_eq!(run(&words(&["wait", "/tmp/x"])), 2);
+    assert_eq!(run(&words(&["wait", "/tmp/x", "soon"])), 2);
     let args = words(&["/tmp/x", "--", "sh", "-c", "true"]);
     let (dir, cmd) = parse(&args).unwrap();
     assert_eq!((dir, cmd.to_vec()), (PathBuf::from("/tmp/x"), words(&["sh", "-c", "true"])));

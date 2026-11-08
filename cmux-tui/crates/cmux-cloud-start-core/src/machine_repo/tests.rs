@@ -490,3 +490,23 @@ fn a_head_first_checkout_filled_without_a_hold_gets_its_history() {
     assert!(machine.checkout().join("lib/y.rs").is_file());
     assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "false");
 }
+
+#[cfg(unix)]
+/// Review F2 (cmux#38099, 344dd0d083c): a harness folder that the repository tracks as a symlink
+/// is no sparse folder, so the head-first clone takes the whole tree at once instead of failing.
+#[test]
+fn a_symlinked_harness_folder_takes_the_whole_tree_at_once() {
+    let Some(machine) = Machine::new(true) else { return };
+    let linked = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("cd src && ln -s .github .claude && git add -A && git -c user.email=t@t -c user.name=t commit -qm l")
+        .current_dir(&machine.0)
+        .status()
+        .unwrap();
+    assert!(linked.success());
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("done")), "{record}");
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+    assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "false");
+    assert!(!machine.0.join("home/held").exists(), "no hold");
+}
