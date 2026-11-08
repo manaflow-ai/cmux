@@ -907,8 +907,8 @@ pub(crate) fn mark_pasted(msg: &mut Value, blocks: &[Value]) {
             [
                 crate::prompt_provenance::UNVERIFIED_KIND,
                 "offer_result",
-                "agent_digest",
-                super::inbox_digest::KIND,
+                super::digest::DIGEST_KIND,
+                super::digest::inbox_digest::KIND,
             ]
             .contains(&kind)
         });
