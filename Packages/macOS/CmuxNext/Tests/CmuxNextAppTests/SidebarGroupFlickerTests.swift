@@ -22,10 +22,14 @@ import Testing
     static func ws(_ id: WorkspaceID) -> SidebarWorkspace { SidebarWorkspace(id: id, title: id.rawValue) }
 
     /// The top group (blue, open), three loose rows, a second group (green, collapsed), one more loose row.
+    static let fresh = GroupID("g-new")
+    static let freshMembers = ["n1", "n2"].map(WorkspaceID.init)
+
     static func nodes(topCollapsed: Bool = false, lowerCollapsed: Bool = true, above: [WorkspaceID] = [], below: [WorkspaceID] = [],
-                      patched: [WorkspaceID: SidebarWorkspace] = [:]) -> [SidebarNode] {
+                      patched: [WorkspaceID: SidebarWorkspace] = [:], newGroup: Bool = false, loose: [WorkspaceID] = Self.loose) -> [SidebarNode] {
         func row(_ id: WorkspaceID) -> SidebarWorkspace { patched[id] ?? ws(id) }
         return above.map { .workspace(row($0)) }
+            + (newGroup ? [.group(SidebarGroup(id: fresh, name: "New", color: .orange, workspaces: freshMembers.map(row)))] : [])
             + [.group(SidebarGroup(id: top, name: "Top", color: .blue, isCollapsed: topCollapsed, workspaces: members.map(row)))]
             + below.map { .workspace(row($0)) }
             + loose.map { .workspace(row($0)) }
@@ -33,11 +37,11 @@ import Testing
             + [.workspace(row(tail))]
     }
 
-    static func make(topCollapsed: Bool = false) -> (SidebarModel, SidebarListView, NSWindow) {
+    static func make(topCollapsed: Bool = false, lowerCollapsed: Bool = true, selected: WorkspaceID = members[0]) -> (SidebarModel, SidebarListView, NSWindow) {
         _ = NSApplication.shared
-        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes(topCollapsed: topCollapsed))],
-                                 activeWorkspaceID: members[0])
-        model.selection = [members[0]]
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes(topCollapsed: topCollapsed, lowerCollapsed: lowerCollapsed))],
+                                 activeWorkspaceID: selected)
+        model.selection = [selected]
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -97,14 +101,14 @@ import Testing
     }
 
     /// The rail of the top group: the group line view at the frame the line views show for it.
-    static func rail(_ list: SidebarListView) -> GroupLineView? {
-        guard let frame = list.groupLineViews.shown[top]?.frame else { return nil }
+    static func rail(_ list: SidebarListView, _ group: GroupID = top) -> GroupLineView? {
+        guard let frame = list.groupLineViews.shown[group]?.frame else { return nil }
         return list.subviews.lazy.compactMap { $0 as? GroupLineView }.first { $0.frame == frame }
     }
 
-    static func sample(_ list: SidebarListView, flipped: Bool) -> Frame {
+    static func sample(_ list: SidebarListView, flipped: Bool, group: GroupID = top, members: [WorkspaceID] = members) -> Frame {
         var frame = Frame()
-        let header = list.rowViews[.group(top)] as? GroupHeaderRowView
+        let header = list.rowViews[.group(group)] as? GroupHeaderRowView
         frame.header = piece(view: header, in: list, flipped: flipped)
         if let header, let headerLayer = header.layer {
             // Inside the header: the header's own layer space (its sublayers move with it).
@@ -117,7 +121,7 @@ import Testing
                                   hidden: header.rim.isHidden || rimLayer.isHidden, alpha: rim.opacity, minY: rim.frame.minY, maxY: rim.frame.maxY)
             }
         }
-        frame.rail = piece(view: rail(list), in: list, flipped: flipped)
+        frame.rail = piece(view: rail(list, group), in: list, flipped: flipped)
         for id in members { frame.members[id] = piece(view: list.rowViews[.workspace(id)], in: list, flipped: flipped) }
         return frame
     }
@@ -131,6 +135,9 @@ import Testing
         case looseGrows = "d: a loose row below grows"
         case lowerOpens = "e: the second group opens"
         case selectElsewhere = "f: a row elsewhere is selected"
+        case selectedPassesOver = "i: the selected row moves up past the top group"
+        case topFolds = "j: the top group folds, the second group open below it"
+        static let first: [Event] = [.insertBelow, .insertAbove, .memberGrows, .looseGrows, .lowerOpens, .selectElsewhere]
     }
 
     static func grown(_ id: WorkspaceID) -> SidebarWorkspace {
@@ -161,6 +168,12 @@ import Testing
             model.activeWorkspaceID = loose[1]
             model.selection = [loose[1]]
             if !list.patchSelection(from: old, oldSelection: oldSelection) { list.reload(animated: intent, fromModel: true) }
+        case .selectedPassesOver:
+            // A re-sort or a move puts the selected row `b` above the top group.
+            model.sections = [SidebarSection(kind: .machine(machine), nodes: nodes(above: [loose[1]], loose: [loose[0], loose[2]]))]
+            list.showModelChange(animates: true)
+        case .topFolds:
+            model.setGroupCollapsed(top, true)
         }
     }
 
@@ -174,7 +187,8 @@ import Testing
 
     /// Every frame's failures for one run of `event`.
     static func run(_ event: Event, intent: Bool, topCollapsed: Bool = false, then second: Event? = nil, log: inout [String]) -> [String] {
-        let (model, list, window) = make(topCollapsed: topCollapsed)
+        let (model, list, window) = make(topCollapsed: topCollapsed, lowerCollapsed: event != .topFolds,
+                                         selected: event == .selectedPassesOver ? loose[1] : members[0])
         defer { window.close() }
         let label = "\(event.rawValue)\(second.map { " + \($0.rawValue) 2 frames later" } ?? "")\(intent ? " (user intent)" : " (calm)")\(topCollapsed ? " [top collapsed]" : "")"
         guard let headerView = list.rowViews[.group(top)], let headerLayer = headerView.layer else {
@@ -184,8 +198,12 @@ import Testing
         let flipped = abs(headerLayer.frame.minY - headerView.frame.minY) > 0.5
         let before = sample(list, flipped: flipped)
         var applies = 0
-        list.onApply = { _ in applies += 1 }
         var frames: [Frame] = []
+        var applyFrames: [(Int, Frame)] = []
+        list.onApply = { _ in
+            applies += 1
+            applyFrames.append((frames.count, sample(list, flipped: flipped)))
+        }
         apply(event, model, list, intent: intent)
         list.layoutSubtreeIfNeeded()
         CATransaction.flush()
@@ -214,8 +232,20 @@ import Testing
 
         let headerHeight = before.header.maxY - before.header.minY
         let railOffset = before.rail.minY - before.header.minY
+        let folds = event == .topFolds || second == .topFolds
+        // The list as `apply` hands it over (before the frame commits): the header is the same view, shown.
+        for (index, frame) in applyFrames {
+            let h = frame.header
+            if h.object != before.header.object { fail(index, "at apply: header view replaced or gone (\(h))") }
+            if !h.shown { fail(index, "at apply: header removed or hidden (\(h))") }
+        }
         for (index, frame) in frames.enumerated() {
             let h = frame.header
+            // The rail draws with its header: never brighter or dimmer than the bar (a pass-over fade, a new line's fade).
+            if frame.rail.shown, h.shown, abs(frame.rail.alpha - h.alpha) > 0.05 {
+                fail(index, "rail alpha \(frame.rail.alpha), header alpha \(h.alpha) (rail \(frame.rail), header \(h))")
+            }
+            if folds { continue }
             if h.object != before.header.object { fail(index, "header view replaced or gone (\(h))") }
             if !h.attached { fail(index, "header removed from the list (\(h))") }
             if h.hidden { fail(index, "header hidden (\(h))") }
@@ -245,7 +275,15 @@ import Testing
             }
         }
         monotonic("header", frames.map(\.header.minY), start: before.header.minY, end: after.header.minY)
-        if before.rail.shown, after.rail.shown { monotonic("rail top", frames.map(\.rail.minY), start: before.rail.minY, end: after.rail.minY) }
+        if folds {
+            // The lines shown after the fold are the ones a full pass makes.
+            let shown = list.groupLineViews.lines.map { "\($0.group.rawValue) \($0.frame)" }
+            let made = list.groupLines(list.displayed).map { "\($0.group.rawValue) \($0.frame)" }
+            if shown != made { fail(frames.count, "lines after the fold \(shown), a full pass makes \(made)") }
+            let lowerRail = piece(view: rail(list, lower), in: list, flipped: flipped)
+            if !lowerRail.shown || lowerRail.alpha < 0.99 { fail(frames.count, "second group's rail after the fold: \(lowerRail)") }
+        }
+        if !folds, before.rail.shown, after.rail.shown { monotonic("rail top", frames.map(\.rail.minY), start: before.rail.minY, end: after.rail.minY) }
         for id in members {
             guard let was = before.members[id], was.shown, let end = after.members[id], end.shown else { continue }
             monotonic("member \(id.rawValue)", frames.map { $0.members[id]?.minY ?? .nan }, start: was.minY, end: end.minY)
@@ -266,9 +304,78 @@ import Testing
         var log = ["animatesMovement \(Motion.sidebar.animatesMovement), screens \(NSScreen.screens.count)"]
         var failures: [String] = []
         for intent in [true, false] {
+            failures += Self.run(.memberGrows, intent: intent, topCollapsed: true, log: &log)
             for event in Event.allCases { failures += Self.run(event, intent: intent, log: &log) }
+            // A height change while the spring of the change before it still runs.
+            failures += Self.run(.insertAbove, intent: intent, then: .memberGrows, log: &log)
+            failures += Self.run(.memberGrows, intent: intent, then: .insertBelow, log: &log)
         }
         print("SidebarGroupFlicker log:\n" + log.joined(separator: "\n"))
+        #expect(failures.isEmpty, "\(failures.count) failures:\n\(failures.prefix(60).joined(separator: "\n"))")
+    }
+
+    /// New Workspace in New Group: a group with members opens at the top, on the spring (then, `then`, another row
+    /// opens above it two frames later, while that spring runs). In every frame from the first one its header shows,
+    /// its rail draws at its header's opacity, and never past its last member's drawn bottom; the header view stays
+    /// the same view once made, and its opacity never goes back down.
+    static func runNewGroup(then: Bool, log: inout [String]) -> [String] {
+        let (model, list, window) = make()
+        defer { window.close() }
+        let label = "g: a new group opens at the top\(then ? " + h: a row opens above it 2 frames later" : "") (user intent)"
+        guard let anyHeader = list.rowViews[.group(top)], let anyLayer = anyHeader.layer else { return ["\(label): no header"] }
+        let flipped = abs(anyLayer.frame.minY - anyHeader.frame.minY) > 0.5
+        var frames: [(String, Frame)] = []
+        list.onApply = { _ in frames.append(("apply \(frames.count)", sample(list, flipped: flipped, group: fresh, members: freshMembers))) }
+        model.noteUserIntent()
+        model.sections = [SidebarSection(kind: .machine(machine), nodes: nodes(newGroup: true))]
+        model.activeWorkspaceID = freshMembers[0]
+        model.selection = [freshMembers[0]]
+        list.reload(animated: true, fromModel: true) // SidebarView's observation: a new selection with new rows
+        list.layoutSubtreeIfNeeded()
+        CATransaction.flush()
+        frames.append(("frame 0", sample(list, flipped: flipped, group: fresh, members: freshMembers)))
+        for index in 1...30 {
+            if then, index == 2 {
+                model.noteUserIntent()
+                model.sections = [SidebarSection(kind: .machine(machine), nodes: nodes(above: [WorkspaceID("x")], newGroup: true))]
+                list.showModelChange(animates: true)
+            }
+            step(list)
+            frames.append(("frame \(index)", sample(list, flipped: flipped, group: fresh, members: freshMembers)))
+        }
+        var failures: [String] = []
+        var header: ObjectIdentifier?
+        var lastAlpha: Float = 0
+        for (name, frame) in frames {
+            func fail(_ what: String) { failures.append("\(label), \(name): \(what)") }
+            let h = frame.header, r = frame.rail
+            if let header, h.object != header { fail("new group's header view replaced or gone (\(h))") }
+            if header == nil, h.object != nil { header = h.object }
+            if header != nil, h.shown, h.alpha + 0.02 < lastAlpha { fail("header alpha went back \(lastAlpha) -> \(h.alpha)") }
+            if h.shown { lastAlpha = max(lastAlpha, h.alpha) }
+            if r.shown, h.shown, abs(r.alpha - h.alpha) > 0.05 { fail("rail alpha \(r.alpha), header alpha \(h.alpha) (rail \(r), header \(h))") }
+            if r.shown, !h.shown, r.alpha > 0.05 { fail("rail drawn (\(r)) with no header shown (\(h))") }
+            if r.shown, r.alpha > 0.05, let last = freshMembers.reversed().compactMap({ frame.members[$0] }).first(where: \.shown) {
+                if r.maxY > last.maxY + 0.5 { fail("rail bottom \(Piece.f(r.maxY)) past its last member's bottom \(Piece.f(last.maxY)) (rail \(r), member \(last))") }
+            } else if r.shown, r.alpha > 0.05 {
+                fail("rail drawn (\(r)) with no member row shown")
+            }
+        }
+        if let end = frames.last?.1, !(end.header.shown && end.header.alpha > 0.99 && end.rail.shown && end.rail.alpha > 0.99) {
+            failures.append("\(label), end: header \(end.header), rail \(end.rail)")
+        }
+        log.append("\(label): \(frames.map { "\($0.0): h \($0.1.header) r \($0.1.rail)" }.prefix(6).joined(separator: "; "))")
+        return failures
+    }
+
+    @Test func aNewGroupAndItsRailOpenAsOne() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        var log: [String] = []
+        let failures = Self.runNewGroup(then: false, log: &log) + Self.runNewGroup(then: true, log: &log)
+        print("SidebarGroupFlicker new group log:\n" + log.joined(separator: "\n"))
         #expect(failures.isEmpty, "\(failures.count) failures:\n\(failures.prefix(60).joined(separator: "\n"))")
     }
 }
