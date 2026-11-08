@@ -586,6 +586,9 @@ impl Hub {
                     .map_err(|e| RpcError::internal(e.to_string()))?;
             }
         } else {
+            // The copies are the parent's turns: they count in the parent's cost, not here, until
+            // the fork's own `forked` record below.
+            self.ledger.suppress(&new.id);
             let order = new.append_lock.lock().unwrap_or_else(|e| e.into_inner());
             self.catch_up_locked(&new);
             let copied = self.store.scan_kinds(&session.id, COPIED, &mut |e: EventRecord| {
@@ -639,11 +642,14 @@ impl Hub {
             });
             drop(order);
             if cancelled {
+                self.ledger.unsuppress(&new.id);
                 return Err(super::fork_cancel::cancelled_refusal());
             }
-            if before.is_some() {
-                copied
-                    .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
+            if before.is_some()
+                && let Err(e) = copied
+            {
+                self.ledger.unsuppress(&new.id);
+                return Err(super::fork_before::refused("fork.incomplete", &e.to_string()));
             }
         }
         // These too go to no watcher: the `forked` record below is the first one heard.
@@ -681,6 +687,7 @@ impl Hub {
             forked.set("from", json!("transcript"));
             forked.set("harness", json!(parent_meta.harness));
         }
+        self.ledger.unsuppress(&new.id);
         self.append(&new, "mux", "forked", forked);
         if before.is_none() {
             self.append(session, "mux", "fork_child", json!({"childId": id}));
