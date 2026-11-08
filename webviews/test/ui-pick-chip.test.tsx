@@ -1,0 +1,178 @@
+// An inspector pick in the composer and in a sent message (composer/UIPickChip.tsx). Leo, 2026-11-08,
+// after pasting a pick's report: "i just used the inspector. i think it could be more ergonomic...
+// clicking it should be able to show the raw/full thing... idk how possible it'd be to also be able
+// to have a well-designed button to click to re-collapse it too."
+// - The pick draws as a chip naming the element and a snippet of its text, never the report's page.
+// - A click opens the whole report in place; Collapse folds it; Escape folds it, focus on the face.
+// - The prompt still sends the whole report, byte for byte.
+// - A sent message draws the pick as the same chip, opening in place in its body.
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { JSDOM } from "jsdom";
+import { act } from "react";
+import type { Root } from "react-dom/client";
+
+const scope = globalThis as Record<string, unknown>;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "Node",
+  "Element",
+  "MutationObserver",
+  "ResizeObserver",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+] as const;
+const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+let dom: JSDOM;
+let root: Root | undefined;
+let host: HTMLElement;
+
+beforeAll(() => {
+  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  const { window } = dom;
+  Object.assign(scope, {
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    window,
+    document: window.document,
+    navigator: window.navigator,
+    HTMLElement: window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    Node: window.Node,
+    Element: window.Element,
+    MutationObserver: window.MutationObserver,
+    getComputedStyle: window.getComputedStyle.bind(window),
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+  });
+  host = window.document.getElementById("root")!;
+});
+
+afterEach(() => {
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+});
+
+afterAll(() => {
+  dom.window.close();
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
+});
+
+/// The report Leo pasted, as UIInspectorController.swift pageReport writes it.
+const REPORT = [
+  "cmux NEXT app-owned webview selection",
+  "Component: span",
+  "Source: unavailable",
+  "Selector: span",
+  "Text: the Cloud version-check and Cloud Desktop fixes;",
+  'Computed styles: ["color": "rgb(229, 229, 229)", "display": "inline"]',
+  'DOM: <span class="cv-li__text">the Cloud version-check and Cloud Desktop fixes;</span>',
+].join("\n");
+
+const SELECTION = { id: "ui-pointer-6F1C", name: "UI: span", text: REPORT };
+
+async function render(node: React.ReactNode) {
+  const { createRoot } = await import("react-dom/client");
+  root ??= createRoot(host);
+  await act(async () => root!.render(node));
+}
+
+function click(node: Element) {
+  act(() => {
+    node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+}
+
+/// Opens the chip with a click and checks the whole report shows in place; then the collapse
+/// button folds it, and Escape folds it with focus back on the face.
+function opensAndFolds(chip: HTMLElement) {
+  const face = chip.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+  expect(face).toBeTruthy();
+  click(face);
+  expect(chip.hasAttribute("data-open")).toBe(true);
+  expect(face.getAttribute("aria-expanded")).toBe("true");
+  // In place: the report is in the chip itself, no sheet over the pane.
+  expect(dom.window.document.querySelector('[role="dialog"]')).toBeNull();
+  const shown = chip.querySelector('[role="document"]')!.textContent ?? "";
+  expect(shown).toBe(REPORT);
+  const collapse = [...chip.querySelectorAll("button")].find((button) => button.textContent === "Collapse");
+  expect(collapse).toBeTruthy();
+  click(collapse!);
+  expect(chip.hasAttribute("data-open")).toBe(false);
+  expect(face.getAttribute("aria-expanded")).toBe("false");
+  click(face);
+  expect(chip.hasAttribute("data-open")).toBe(true);
+  act(() => {
+    chip
+      .querySelector('[role="document"]')!
+      .dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  });
+  expect(chip.hasAttribute("data-open")).toBe(false);
+  expect(dom.window.document.activeElement).toBe(face);
+}
+
+test("an inspector pick in the composer is a chip of its element and a snippet of its text", async () => {
+  const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
+  const { AttachmentStrip } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  await render(
+    <AttachmentStrip attachments={designSelectionChips(SELECTION)} onRemove={() => {}} onExpand={() => {}} />,
+  );
+  const chip = host.querySelector<HTMLElement>('[data-chip-kind="ui"]');
+  expect(chip).toBeTruthy();
+  const face = chip!.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+  const title = face.querySelector(".acpmux-paste-chip__title")!.textContent;
+  expect(title).toStartWith("span · “the Cloud version-check");
+  expect(title).toEndWith("…”");
+  expect(face.querySelector(".acpmux-text-card__label")!.textContent).toBe("UI element");
+  // Never the report's page of first lines.
+  expect(chip!.textContent).not.toContain("cmux NEXT app-owned webview selection");
+  expect(face.getAttribute("aria-label")).toContain("span");
+  opensAndFolds(chip!);
+});
+
+test("the prompt still sends the whole report, exactly", async () => {
+  const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
+  const { promptText } = await import("../src/agent-session/acpmux/attachments");
+  const [chip] = designSelectionChips(SELECTION);
+  expect(promptText("Why is this cut off?", [chip!])).toBe(
+    `Why is this cut off?\n\nUI: span\n\`\`\`\n${REPORT}\n\`\`\``,
+  );
+});
+
+test("a sent message draws the pick as the chip, opening in place in its body", async () => {
+  const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
+  const { promptText } = await import("../src/agent-session/acpmux/attachments");
+  const { PromptTyped } = await import("../src/agent-session/acpmux/conversation/PromptText");
+  const [pick] = designSelectionChips(SELECTION);
+  const sent = promptText("Why is this cut off?", [pick!]);
+  await render(
+    <div className="cv-user">
+      <PromptTyped text={sent} show={(text) => text} />
+    </div>,
+  );
+  const chip = host.querySelector<HTMLElement>('.cv-user [data-chip-kind="ui"]');
+  expect(chip).toBeTruthy();
+  expect(host.textContent).toContain("Why is this cut off?");
+  // The fence and the report's lines are not drawn as a code block beside the chip.
+  expect(host.querySelector("pre")).toBeNull();
+  expect(chip!.querySelector(".acpmux-paste-chip__title")!.textContent).toStartWith("span · “the Cloud version-check");
+  opensAndFolds(chip!);
+});
+
+test("text that is not a pick draws as it did", async () => {
+  const { PromptTyped } = await import("../src/agent-session/acpmux/conversation/PromptText");
+  await render(<PromptTyped text={"notes.md\n```md\n# Title\n```"} show={(text) => text} />);
+  expect(host.querySelector("[data-chip-kind]")).toBeNull();
+  expect(host.querySelector("pre")).toBeTruthy();
+});
