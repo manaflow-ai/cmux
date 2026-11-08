@@ -608,6 +608,9 @@ pub(crate) struct AgentRoster {
     /// ([`ScreenEvidence`]).
     #[serde(default)]
     screen_evidence: HashMap<String, ScreenEvidence>,
+    /// The last program status edge per terminal ([`ProgramStatusEvidence`]).
+    #[serde(default)]
+    program_status_evidence: HashMap<String, ProgramStatusEvidence>,
     /// When a hook last started a turn on each terminal (`agent.turn.started`,
     /// its commit time). A prompt submitted while the row is already `working`
     /// keeps the row's `since_ms`, so only this fences the screen's evidence of
@@ -674,6 +677,9 @@ impl AgentRoster {
                     Some(RosterDelta::Remove { terminal_id, source: AgentSource::Plugin })
                 })
                 .collect();
+        }
+        if event.is_program_status_evidence() {
+            return self.apply_program_status(event);
         }
         if event.plugin_event()
             && self.plugin_observation_is_fenced(
@@ -1040,8 +1046,9 @@ impl AgentRoster {
         let entry = self.entries.remove(terminal_id).is_some();
         let fence = self.hook_fences.remove(terminal_id).is_some();
         let evidence = self.screen_evidence.remove(terminal_id).is_some();
+        let program = self.program_status_evidence.remove(terminal_id).is_some();
         let turn = self.hook_turn_started_at.remove(terminal_id).is_some();
-        entry || fence || evidence || turn
+        entry || fence || evidence || program || turn
     }
 
     fn record_plugin_exit_fence(
@@ -1097,7 +1104,9 @@ impl AgentRoster {
         {
             return None;
         }
-        if !roster.screen_evidence.values().all(ScreenEvidence::valid) {
+        if !roster.screen_evidence.values().all(ScreenEvidence::valid)
+            || !roster.program_status_evidence.values().all(ProgramStatusEvidence::valid)
+        {
             return None;
         }
         if !roster.plugin_exit_fences.iter().all(|(plugin_id, fence)| {
@@ -1150,6 +1159,10 @@ fn valid_decimal_generation(value: &str) -> bool {
 #[path = "journal_reducers_screen_evidence.rs"]
 mod screen_evidence;
 use screen_evidence::{HookTurnStart, ScreenEvidence, ScreenNote};
+#[path = "journal_reducers_program_status.rs"]
+mod program_status;
+use program_status::ProgramStatusEvidence;
+pub(crate) use program_status::{PROGRAM_STATUS_NATIVE_EVENT, is_program_status_evidence};
 
 #[cfg(test)]
 #[path = "journal_reducers_blocker_tests.rs"]

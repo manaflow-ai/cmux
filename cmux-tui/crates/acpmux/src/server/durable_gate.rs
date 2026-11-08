@@ -88,10 +88,14 @@ pub(super) fn install(
     (lines_tx, Some(gate))
 }
 
-/// How long a connection's lines may wait for the journal before the store asks the daemon to
-/// stop for a restart (review of #35400, F2): a sync takes milliseconds, a few seconds on a
-/// disk under heavy load; this long only on a hung or failing disk, whose writer retries without
-/// end and would hold every reply.
+/// How often a connection's lines that wait for the journal ask the store whether the journal is
+/// failing (review of #35400, F2). A sync takes milliseconds, a few seconds on a disk under heavy
+/// load, and more than ten on a saturated one (huge-blue, 2026-11-08: 35-50% iowait, a 10.4 s
+/// fdatasync). Past each interval the store asks the daemon to stop for a restart only when the
+/// journal's writer is failing (a write or sync returned an error and it retries without end);
+/// while it is merely slow the lines keep waiting: a slow disk makes replies slower, never makes
+/// the daemon restart (a restart on the same disk is no faster, and every client meanwhile gets
+/// "acpmux is shutting down").
 const STALL_LIMIT: Duration = Duration::from_secs(10);
 
 fn stall_limit() -> Duration {
@@ -131,7 +135,7 @@ async fn run(
     out: mpsc::Sender<String>,
     gate: Arc<Gate>,
     mut journal: Journal,
-    stalled: Arc<dyn Fn(String) + Send + Sync>,
+    stalled: Arc<dyn Fn(Duration) -> bool + Send + Sync>,
 ) {
     let limit = lines.max_capacity();
     let mut batch = Vec::with_capacity(limit.min(64));
@@ -151,6 +155,7 @@ async fn run(
         if !journal.reached(needs, needs_written) {
             let reached = journal.reach(needs, needs_written);
             tokio::pin!(reached);
+            let started = tokio::time::Instant::now();
             let stall = tokio::time::sleep(stall_limit());
             tokio::pin!(stall);
             let mut asked = false;
@@ -166,11 +171,9 @@ async fn run(
                         break;
                     }
                     () = &mut stall, if !asked => {
-                        asked = true;
-                        stalled(format!(
-                            "a reply waited {:?} for the event journal, which made nothing durable",
-                            stall_limit()
-                        ));
+                        // Asked again each interval: a disk that is slow first may fail later.
+                        asked = stalled(started.elapsed());
+                        stall.as_mut().reset(tokio::time::Instant::now() + stall_limit());
                     }
                 }
             }

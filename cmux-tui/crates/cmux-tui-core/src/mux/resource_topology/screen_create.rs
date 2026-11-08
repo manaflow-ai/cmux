@@ -1,6 +1,8 @@
 //! The `screen.create` effect: a new screen holding one new terminal, with
 //! the terminal's spawn fields (directory, argv, and through the terminal
-//! reservation its environment and caller-chosen id).
+//! reservation its environment and caller-chosen id). With `focus` the new
+//! screen becomes its workspace's focused screen; without it the focus
+//! stays (a programmatic create, socket focus policy).
 
 use super::*;
 
@@ -14,6 +16,9 @@ impl Mux {
         argv: Option<Vec<String>>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
+        // Absent only on the daemon's and the user's own new screens: the
+        // resource router sends `focus: false` for a caller that did not ask.
+        let focus = intent["fields"][SCREEN_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
             .with_context(|| format!("workspace {workspace} disappeared"))?;
@@ -64,7 +69,9 @@ impl Mux {
                 anyhow::bail!("workspace disappeared while creating screen");
             };
             state.insert_pane(pane);
-            stamp_pane_focus(self, &mut state, pane_id);
+            if focus {
+                stamp_pane_focus(self, &mut state, pane_id);
+            }
             let workspace = &mut state.workspaces[workspace_index];
             workspace.screens.push(Screen {
                 id: screen_id,
@@ -80,7 +87,10 @@ impl Mux {
                 layout_revision: 0,
                 layout_undo: Default::default(),
             });
-            workspace.active_screen = workspace.screens.len() - 1;
+            // A workspace whose only screen this is shows it either way.
+            if focus || workspace.screens.len() == 1 {
+                workspace.active_screen = workspace.screens.len() - 1;
+            }
             let path = self.created_resource_path_in_state(&state, surface.id)?;
             CreatedTerminalEffect { path }
         };

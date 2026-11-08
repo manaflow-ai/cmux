@@ -16,7 +16,7 @@ use crate::abuse::{
 };
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
-use crate::daemon::{live_daemon, replaced_by_register};
+use crate::daemon::{heard_within_window, live_daemon, replaced_by_register};
 use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
     connect_disposition, expired_while_parked, pairing_order, parked_and_live, parked_notice,
@@ -647,6 +647,10 @@ impl RelaySlot {
                     && attachment.expires_at > self.now() =>
             {
                 let now_ms = self.now_ms();
+                // Silent past the liveness window: it paused or lost its
+                // network and is back, so circuits sent to it meanwhile may
+                // never have arrived.
+                let resumed = !heard_within_window(&attachment, now_ms);
                 attachment.last_seen_ms = now_ms;
                 attachment.idle_deadline_ms = now_ms
                     .saturating_add(DAEMON_CONTROL_IDLE_TIMEOUT_MS)
@@ -657,6 +661,12 @@ impl RelaySlot {
                 // A Connect parked while this daemon was past the liveness
                 // window (crate::daemon) is answered now that it spoke.
                 let slot = attachment.relay.slot.clone();
+                if resumed
+                    && let Err(error) =
+                        self.hand_over_unjoined(&slot, socket, attachment.expires_at).await
+                {
+                    worker::console_error!("RelaySlot circuit hand-over error: {error}");
+                }
                 if let Err(error) = self.pair_parked(&slot, socket, attachment.expires_at).await {
                     worker::console_error!("RelaySlot parked pairing error: {error}");
                 }

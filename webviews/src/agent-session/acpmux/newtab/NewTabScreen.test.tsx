@@ -2,7 +2,9 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { noChat } from "../../../gallery/fixtures/acpmux";
+import { noChat, session } from "../../../gallery/fixtures/acpmux";
+import { showsFirstRunStarters } from "./FirstRunStarters";
+import { translateNewTab } from "./strings";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
 import { CloudStartView } from "../CloudStartView";
@@ -387,6 +389,76 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
+});
+
+test("first run: the starters show only once acpmux answered with an agent and no chat exists", () => {
+  expect(showsFirstRunStarters(noChat([]), { allChats: false })).toBe(true);
+  // Before acpmux answers, an empty chat list proves nothing about a first run.
+  expect(showsFirstRunStarters(noChat([], { catalog: [] }), { allChats: false })).toBe(false);
+  expect(showsFirstRunStarters(noChat([session({ sessionId: "s1" })]), { allChats: false })).toBe(false);
+  expect(showsFirstRunStarters(noChat([]), { allChats: true })).toBe(false);
+  // A cached catalog can come before the chats are listed: no starters until they are.
+  expect(showsFirstRunStarters(noChat([]), { allChats: false, chatsPending: true })).toBe(false);
+  // Chats the host indexed on this device show as recent chats: that Mac is not on a first run.
+  expect(showsFirstRunStarters(noChat([]), { allChats: false, deviceChats: 2 })).toBe(false);
+});
+
+test("while the chats are still being listed, New Tab draws no starters", async () => {
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} chatsPending />);
+  });
+  await promptField();
+  expect(container.querySelector(".nt-starters")).toBeNull();
+});
+
+test("a starter picked in shell mode leaves shell mode, so Return asks the agent", async () => {
+  let shellRuns = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onShell={() => void shellRuns++} />,
+    );
+  });
+  const field = await typePrompt("!");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".nt-screen[data-shell]")).toBeTruthy();
+  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
+  await act(async () => fix.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".nt-screen[data-shell]")).toBeNull();
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  await press(field, "Enter");
+  expect(shellRuns).toBe(0);
+});
+
+test("a first-run starter fills the composer, sends nothing, and the rows stay while it is edited", async () => {
+  let asked = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onAsk={() => void asked++} />,
+    );
+  });
+  const field = await promptField();
+  const rows = [...container.querySelectorAll<HTMLButtonElement>(".nt-starters .nt-starter")];
+  expect(rows.map((row) => row.textContent)).toEqual([
+    translateNewTab("starters.explain"),
+    translateNewTab("starters.fix"),
+    translateNewTab("starters.review"),
+  ]);
+  await act(async () => rows[1]!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  expect(asked).toBe(0);
+  expect(container.querySelectorAll(".nt-starters .nt-starter")).toHaveLength(3);
+});
+
+test("with a chat on this Mac, New Tab draws no starters", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([session({ sessionId: "s1" })])} />,
+    );
+  });
+  await promptField();
+  expect(container.querySelector(".nt-starters")).toBeNull();
 });
 
 test("No folder, then a remote machine with a folder: headline, location and send name that folder", async () => {
@@ -1410,6 +1482,34 @@ test("Open in Profile…: a search no profile is named makes one with that name;
   field = await typePrompt("Client X");
   await press(field, "Enter");
   expect(made).toEqual([["https://example.com", "Client X"]]);
+});
+
+test("a first-run starter picked in the profile search leaves it, so Return asks the agent", async () => {
+  const made: unknown[] = [];
+  let asked = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        omnibar={profileOmnibar}
+        onAsk={() => void asked++}
+        onOpenInProfile={(url, id) => made.push([url, id])}
+        onOpenInNewProfile={(url, name) => made.push([url, name])}
+      />,
+    );
+  });
+  const field = await typePrompt("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
+  await act(async () => fix.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  await press(field, "Enter");
+  expect(made).toEqual([]);
+  expect(asked).toBe(1);
 });
 
 test("Open in New Profile from the address's rows makes a profile with the default name", async () => {
