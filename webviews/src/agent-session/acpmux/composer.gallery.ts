@@ -687,9 +687,12 @@ const BULLETED_REPLY = [
 const HEADING_AND_CODE_HTML =
   "<meta charset='utf-8'><h2>Retry plan</h2><ul><li>Retry only on <b>429</b> and <b>503</b></li><li>Back off from 200 ms</li></ul><pre><code class='language-ts'>await retry(send, { attempts: 3 });</code></pre>";
 
-/// One long paragraph, as dictation or a chat message gives it: about 1,100 words on a single line.
+/// One huge paragraph on a single line: about 3,600 words, past the chip's limit (pastedText.ts
+/// PASTE_CHIP_WORDS), so a paste of it is a Pasted text chip. A dictation-length paragraph (1,100
+/// words) stays text in the prompt (ask-14d16a6247; Leo, 2026-11-07: "Like just don't separate
+/// these out.").
 const PARAGRAPH = Array.from(
-  { length: 40 },
+  { length: 130 },
   (_, index) =>
     `Okay, but at the same time the retry helper in step ${index + 1} should back off a little longer each attempt, log why it gave up, and keep the`,
 ).join(" ");
@@ -1147,7 +1150,7 @@ export default agentPaneEntry({
     // previewing one, two, three, four, five words out of a multi-hundred-word pasted text bit". One
     // long dictated paragraph: the card wraps it in the composer's font and says its size.
     "text-pasted-paragraph": {
-      note: "One 1,100-word paragraph pasted in the inline view: the card wraps its first lines in the composer's font, faded, over Pasted text · 5.4K characters (never 1 line).",
+      note: "One 3,600-word paragraph pasted in the inline view, past the chip's limit (a dictation-length one stays text; Leo, 2026-11-07: \"Like just don't separate these out.\"): the card wraps its first lines in the composer's font, faded, over Pasted text · 17.4K characters (never 1 line).",
       ready: { draft: "Can you tighten this up? " },
       snapshot: chat(finished),
       play: (ctx) => pasteParagraph(ctx, '.acpmux-md-inline-chip[data-preview="text"]'),
