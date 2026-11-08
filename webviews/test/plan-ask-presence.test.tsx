@@ -71,10 +71,15 @@ function mount() {
   document.body.append(host);
   const root = createRoot(host);
   const seen: boolean[] = [];
+  const drawnCalls: boolean[] = [];
+  // Stable, as App's state setter is.
+  const onDrawn = (drawn: boolean) => {
+    drawnCalls.push(drawn);
+  };
   const draw = (permission: AcpmuxPermission | undefined) =>
     act(() =>
       root.render(
-        <PlanAsk permission={permission}>
+        <PlanAsk permission={permission} onDrawn={onDrawn}>
           {(shown, leaving) => {
             seen.push(leaving);
             return <p className="card">{shown.permissionId}</p>;
@@ -82,7 +87,7 @@ function mount() {
         </PlanAsk>,
       ),
     );
-  return { host, root, seen, draw, wrap: () => host.querySelector<HTMLElement>(".acpmux-plan-ask") };
+  return { host, root, seen, drawnCalls, draw, wrap: () => host.querySelector<HTMLElement>(".acpmux-plan-ask") };
 }
 
 test("a plan ask enters under the Needs your input pill and its dot", async () => {
@@ -100,10 +105,12 @@ test("a plan ask enters under the Needs your input pill and its dot", async () =
 
 test("an answered plan stays drawn, inert, until its exit ends", async () => {
   transitionDuration = "0.265s";
-  const { host, root, seen, draw, wrap } = mount();
+  const { host, root, seen, drawnCalls, draw, wrap } = mount();
   await draw(plan);
   await draw(undefined);
   expect(wrap()?.dataset.presence).toBe("leaving");
+  // The stack around it stays while the exit plays (App.tsx `bottomAsks`).
+  expect(drawnCalls).toEqual([true]);
   expect(wrap()?.hasAttribute("inert")).toBe(true);
   expect(host.querySelector(".card")?.textContent).toBe("plan-1");
   expect(seen.at(-1)).toBe(true);
@@ -111,6 +118,7 @@ test("an answered plan stays drawn, inert, until its exit ends", async () => {
     wrap()!.dispatchEvent(new dom.window.Event("transitionend"));
   });
   expect(wrap()).toBeNull();
+  expect(drawnCalls).toEqual([true, false]);
   act(() => root.unmount());
 });
 

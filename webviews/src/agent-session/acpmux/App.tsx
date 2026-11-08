@@ -2304,6 +2304,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [trustRoute]);
   /// The ask whose card has a deny's instructions open: it stays the single card (`heldOnCard`).
   const [draftAsk, setDraftAsk] = useState<AcpmuxPermission>();
+  /// A plan ask is drawn in the bottom stack, its exit included (PlanAsk `onDrawn`).
+  const [planDrawn, setPlanDrawn] = useState(false);
   const individualPermission =
     heldOnCard(draftAsk, snapshot.permission, snapshot.permissionGroups) ??
     (askOnSingleCard(snapshot.permission, snapshot.permissionGroups) ? snapshot.permission : undefined);
@@ -9780,7 +9782,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     toolCards.length > 0,
   );
   // Pinned questions join the stack but never take the composer's keys (waitingAskStore.ts).
-  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length);
+  // An answered plan shrinks out in the stack (PlanAsk), which stays drawn until that has played.
+  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length, planDrawn && !individualPermission?.plan);
   const hasBottomAsk = bottomStack.holdsKeys;
   // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
@@ -9910,7 +9913,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         />
       )}
       {/* Outside the block below: an answered plan stays drawn while it shrinks out. */}
-      <PlanAsk permission={individualPermission?.plan ? individualPermission : undefined}>
+      <PlanAsk permission={individualPermission?.plan ? individualPermission : undefined} onDrawn={setPlanDrawn}>
         {(permission, leaving) => permissionAsk(permission, leaving)}
       </PlanAsk>
       {(individualPermission || secret || toolCards.length > 0) && (

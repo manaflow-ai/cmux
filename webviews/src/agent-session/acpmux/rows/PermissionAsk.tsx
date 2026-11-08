@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import { usePresence } from "../../../ui/presence";
 import { type AcpmuxPermission } from "../model";
 import { PermissionCard } from "../PermissionCard";
@@ -83,19 +83,34 @@ export function PermissionAsk({
 /// house settle, so the transcript above moves in the same motion. Motion off, it is simply there and
 /// gone. Nothing loops or pulses.
 /// `permission` is the plan ask waiting now; `children` draws it, told when it is on its way out.
+/// `onDrawn` hears whether anything is drawn, its exit included, so the stack around it stays until
+/// the exit has played (waitingAskStore.ts `bottomAsks`).
 export function PlanAsk({
   permission,
   children,
+  onDrawn,
 }: {
   permission?: AcpmuxPermission;
   children: (permission: AcpmuxPermission, leaving: boolean) => ReactNode;
+  onDrawn?: (drawn: boolean) => void;
 }) {
   const t = useT();
   const [last, setLast] = useState(permission);
   if (permission && permission !== last) setLast(permission);
   const presence = usePresence(Boolean(permission), "bottom", { appear: true });
   const shown = permission ?? last;
-  if (!presence.present || !shown) return null;
+  const drawn = presence.present && Boolean(shown);
+  useLayoutEffect(() => {
+    onDrawn?.(drawn);
+  }, [drawn, onDrawn]);
+  // Taken away with the stack (another chat shown), nothing of it is drawn.
+  useLayoutEffect(
+    () => () => {
+      onDrawn?.(false);
+    },
+    [onDrawn],
+  );
+  if (!drawn || !shown) return null;
   return (
     <div className="acpmux-plan-ask" {...presence.props} inert={presence.leaving}>
       <div className="acpmux-plan-ask-body">

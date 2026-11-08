@@ -142,5 +142,10 @@ export function subscribeAnswers(listener: () => void): () => void {
 /// The asks stack above the composer: whether it shows, and whether it holds the keys the composer
 /// would otherwise hand on (an empty ⌘↩ to the waiting card, the Home lists' shortcuts). A live ask
 /// (trust, a permission, a secret, a tool card) holds them; pinned questions only show, since
-/// their newest takes the empty ⌘↩ itself.
-export const bottomAsks = (live: boolean, pinned: number) => ({ shows: live || pinned > 0, holdsKeys: live });
+/// their newest takes the empty ⌘↩ itself. `leaving`: an answered plan still shrinking out
+/// (rows/PermissionAsk.tsx `PlanAsk`), which keeps the stack drawn until its exit has played but holds
+/// no keys.
+export const bottomAsks = (live: boolean, pinned: number, leaving = false) => ({
+  shows: live || pinned > 0 || leaving,
+  holdsKeys: live,
+});
