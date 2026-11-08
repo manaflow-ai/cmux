@@ -72,7 +72,7 @@ plist = "1.10"
 futures = "0.3"
 futures-util = "0.3"
 ratatui = "0.30"
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 # raw_value: an OpenCode config keeps its keys as written (src/opencode_ask.rs).
 serde_json = { version = "1", features = ["raw_value"] }
 jsonschema.workspace = true
