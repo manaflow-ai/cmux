@@ -140,7 +140,9 @@ struct SidebarPinFlight {
             }
         }
         if let title { SidebarDragSpring.offset(title.view, by: title.offset, token, now: now) }
+        if let glyph { SidebarDragSpring.attach(glyph) }
         if let layer = glyph?.layer { SidebarDragSpring.appear(layer, token, now: now) }
+        revealed.forEach(SidebarDragSpring.attach)
         for layer in revealed.compactMap(\.layer) { SidebarDragSpring.appear(layer, token, now: now) }
     }
 

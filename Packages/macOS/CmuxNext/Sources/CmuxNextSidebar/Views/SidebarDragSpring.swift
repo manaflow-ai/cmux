@@ -191,6 +191,7 @@ import QuartzCore
     /// so a retarget starts from `start` (the frame on screen) with no velocity carried over (m68: no overshoot).
     /// `now`: the move's one begin time, so the flight and the rows around it are on the same progress every frame.
     static func fly(_ view: NSView, from start: NSRect, _ token: MotionSpring = .move, now: CFTimeInterval) {
+        attach(view)
         guard let layer = view.layer else { return }
         stop([view])
         layer.removeAnimation(forKey: "position")
@@ -203,9 +204,34 @@ import QuartzCore
                  size: start.size, now: now, key: batchKey, token)
     }
 
+    /// Puts `view`'s layer (and each new ancestor's) in its superview's layer now, at its subview place. AppKit puts a
+    /// subview added in this turn into its superview's layer only at the display pass, and Core Animation drops every
+    /// animation added to a layer before that (a new Pinned item's flight ended one frame in, unfinished: p1 diag v4).
+    static func attach(_ view: NSView) {
+        var pending: [NSView] = []
+        var node: NSView? = view
+        while let current = node, let layer = current.layer, layer.superlayer == nil, let parent = current.superview, parent.layer != nil {
+            pending.append(current)
+            node = parent
+        }
+        for current in pending.reversed() {
+            guard let layer = current.layer, layer.superlayer == nil, let parent = current.superview, let host = parent.layer else { continue }
+            let siblings = parent.subviews
+            let index = siblings.firstIndex { $0 === current } ?? siblings.count
+            if let above = siblings[(index + 1)...].lazy.compactMap(\.layer).first(where: { $0.superlayer === host }) {
+                host.insertSublayer(layer, below: above)
+            } else if let below = siblings[..<index].reversed().lazy.compactMap(\.layer).first(where: { $0.superlayer === host }) {
+                host.insertSublayer(layer, above: below)
+            } else {
+                host.addSublayer(layer)
+            }
+        }
+    }
+
     /// Carries `view` (a row's title) from `offset` (in its superview's coordinates) back to its model place on `token`'s
     /// spring from `now`: the title moves on the flight's curve from where the leaving view drew it.
     static func offset(_ view: NSView, by offset: CGPoint, _ token: MotionSpring = .move, now: CFTimeInterval) {
+        attach(view)
         guard let layer = view.layer, offset != .zero else { return }
         addDelta(to: layer, position: CGPoint(x: layer.position.x + offset.x, y: layer.position.y + offset.y),
                  size: layer.bounds.size, now: now, key: batchKey, token)
