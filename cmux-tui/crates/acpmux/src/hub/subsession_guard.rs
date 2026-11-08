@@ -833,8 +833,11 @@ impl Hub {
             .flatten()
             .filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_owned))
             .collect();
-        let own =
-            crate::web_modes::mode_of(pm).filter(|_| crate::web_modes::family_of(pm) == family);
+        // Never the parent's toggle (plan mode, `start_mode.rs`): a builder held to a planning
+        // chat moves to the family's asking mode; a toggle is only the last of those.
+        let own = crate::web_modes::mode_of(pm).filter(|m| {
+            crate::web_modes::family_of(pm) == family && !super::start_mode::is_toggle(m)
+        });
         let bridge: &[&str] = if crate::codex_app_server::is_profile_launch(&cm.harness_argv) {
             crate::web_modes::BRIDGE_ASKING_MODES
         } else {
