@@ -56,6 +56,21 @@ struct SyntheticMouseButtonsTests {
         #expect(NSEvent.pressedMouseButtons & 1 == 0, "a click whose release a tracking loop took kept button 1 held")
     }
 
+    /// The event queue keeps a posted event's timestamp to the nanosecond: the event that arrives is stamped a
+    /// fraction of a nanosecond off the one registered (1269102.0579499167 posted, 1269102.057949916 dispatched, in
+    /// a capture's log). It is still the synthetic press, and its button is held.
+    @Test func aPressStampedToTheNanosecondInTheQueueIsStillSynthetic() throws {
+        let base = 904_000.0579499167 + Double(Int.random(in: 0..<1000))
+        let posted = try Self.event(.leftMouseDown, at: base)
+        let dispatched = try Self.event(.leftMouseDown, at: (base * 1e9).rounded(.down) / 1e9)
+        let up = try Self.event(.leftMouseUp, at: base + 0.01)
+        SyntheticInput.register([posted, up])
+        #expect(!SyntheticInput.isUserInput(dispatched), "a press stamped to the nanosecond read as the person's")
+        #expect(NSEvent.pressedMouseButtons & 1 == 1)
+        #expect(!SyntheticInput.isUserInput(up))
+        #expect(NSEvent.pressedMouseButtons & 1 == 0)
+    }
+
     /// The person's own press is the hardware's to report: one that was never registered changes nothing.
     @Test func thePersonsOwnPressHoldsNoSyntheticButton() throws {
         let base = 902_000 + Double.random(in: 0..<1000)
