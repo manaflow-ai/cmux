@@ -59,10 +59,10 @@ public final class AgentPaneFinishSound {
     /// stops on its own at its end (a sound under a second; nothing loops).
     func play(_ kind: Kind) {
         let now = ProcessInfo.processInfo.systemUptime
-        guard admits(now: now, last: lastPlayed), systemAllowsUISounds else { return }
+        guard Self.admits(now: now, last: lastPlayed), Self.systemAllowsUISounds else { return }
         guard let sound = sounds[kind] ?? (NSSound(named: kind.soundName)?.copy() as? NSSound) else { return }
         sounds[kind] = sound
-        sound.volume = volume
+        sound.volume = Self.volume
         lastPlayed = now
         if sound.isPlaying { sound.stop() }
         sound.play()
