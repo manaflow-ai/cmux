@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42518399410",
+  "recorded_at": "2026-11-08T20:19:38Z",
+  "reason": "cmux-tui d66737e4daff changes the image's cmux-tui (pinned c2514e2da8a6)",
+  "dry_run": false,
+  "cmux_tui": "d66737e4daffe147f662c40764cb2a2874302323",
+  "fixes": [
+    {
+      "sha": "d66737e4daffe147f662c40764cb2a2874302323",
+      "mergedAt": "2026-11-08T11:50:13-08:00",
+      "subject": "prediction: a redraw with only held confirmations stays opaque (#38808)"
+    },
+    {
+      "sha": "17e1ec32fdf74cfdf8ed0740c22e49a0a845b09f",
+      "mergedAt": "2026-11-08T11:47:50-08:00",
+      "subject": "cmux-rd host: default max_fps to the captured display's refresh rate (#38771)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T20:19:38Z",
+    "snapshot_id": "sh-db714d3bdbf94cdea532528f123a84f5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42518399410): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fa7e0b6d4e73ac484e7567b478a6d7571fe0cefb",
+    "image": "cloud-native-auto-d66737e4-42518399410-1",
+    "revision": "ci-42518399410-1",
+    "at": "2026-11-08T20:19:38Z"
+  },
+  "rolled_back": false
+}
