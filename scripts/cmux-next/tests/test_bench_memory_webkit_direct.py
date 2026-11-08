@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """bench_memory.owned counts the app's WebKit processes after a direct launch too: macOS holds the
 launching script's responsible process responsible for them then, not the app. A WebKit process that
-ran before the launch, or that another app is responsible for, stays out. macOS only (libproc)."""
+ran before the launch, or that another app is responsible for, stays out. Off macOS the libproc
+and libSystem handles are stubs: the test mocks every call it reaches."""
 
 from __future__ import annotations
 
+import ctypes
 import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import bench_memory as bm  # noqa: E402
+if sys.platform == "darwin":
+    import bench_memory as bm  # noqa: E402
+else:
+    with mock.patch.object(ctypes, "CDLL", mock.MagicMock()):
+        import bench_memory as bm  # noqa: E402
 
 BUNDLE = "/tmp/cmux DEV.app"
 APP, SCRIPT_OWNER, OTHER = 100, 50, 70
