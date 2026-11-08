@@ -37,11 +37,15 @@ import Testing
             + [.workspace(row(tail))]
     }
 
-    static func make(topCollapsed: Bool = false, lowerCollapsed: Bool = true, selected: WorkspaceID = members[0]) -> (SidebarModel, SidebarListView, NSWindow) {
+    static func make(topCollapsed: Bool = false, lowerCollapsed: Bool = true, selected: WorkspaceID = members[0],
+                     expanded: Bool = false) -> (SidebarModel, SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes(topCollapsed: topCollapsed, lowerCollapsed: lowerCollapsed))],
                                  activeWorkspaceID: selected)
         model.selection = [selected]
+        // Expanded density: a row with something to say draws a second line, so a status grows it (the default
+        // density draws no status line, Lawrence 2026-10-21).
+        model.expanded = expanded
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -142,6 +146,7 @@ import Testing
 
     static func grown(_ id: WorkspaceID) -> SidebarWorkspace {
         var row = ws(id)
+        row.status = "Building"
         row.reported = SidebarWorkspaceStatus(entries: [.init(key: "build", text: "Building"), .init(key: "tests", text: "412 passed")],
                                               log: .init(level: .info, text: "compiling"))
         return row
@@ -188,7 +193,8 @@ import Testing
     /// Every frame's failures for one run of `event`.
     static func run(_ event: Event, intent: Bool, topCollapsed: Bool = false, then second: Event? = nil, log: inout [String]) -> [String] {
         let (model, list, window) = make(topCollapsed: topCollapsed, lowerCollapsed: event != .topFolds,
-                                         selected: event == .selectedPassesOver ? loose[1] : members[0])
+                                         selected: event == .selectedPassesOver ? loose[1] : members[0],
+                                         expanded: [.memberGrows, .looseGrows].contains(event) || [.memberGrows, .looseGrows].contains(second))
         defer { window.close() }
         let label = "\(event.rawValue)\(second.map { " + \($0.rawValue) 2 frames later" } ?? "")\(intent ? " (user intent)" : " (calm)")\(topCollapsed ? " [top collapsed]" : "")"
         guard let headerView = list.rowViews[.group(top)], let headerLayer = headerView.layer else {
@@ -301,8 +307,16 @@ import Testing
         TunableStore.shared.register(SidebarTunables.all)
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
+        let kinds = DesignSettings.shared.enabledAnimations
+        defer { DesignSettings.shared.enabledAnimations = kinds }
         var log = ["animatesMovement \(Motion.sidebar.animatesMovement), screens \(NSScreen.screens.count)"]
         var failures: [String] = []
+        // `ui.animations.newWorkspace` on: a new row opens its slot on the spring, so the rows around it move.
+        DesignSettings.shared.enabledAnimations.insert(.newWorkspace)
+        for event in Event.allCases { failures += Self.run(event, intent: true, log: &log).map { "[newWorkspace motion] " + $0 } }
+        failures += Self.run(.insertAbove, intent: true, then: .memberGrows, log: &log).map { "[newWorkspace motion] " + $0 }
+        failures += Self.run(.insertAbove, intent: true, then: .insertBelow, log: &log).map { "[newWorkspace motion] " + $0 }
+        DesignSettings.shared.enabledAnimations = kinds
         for intent in [true, false] {
             failures += Self.run(.memberGrows, intent: intent, topCollapsed: true, log: &log)
             for event in Event.allCases { failures += Self.run(event, intent: intent, log: &log) }
@@ -373,8 +387,12 @@ import Testing
         TunableStore.shared.register(SidebarTunables.all)
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
+        let kinds = DesignSettings.shared.enabledAnimations
+        defer { DesignSettings.shared.enabledAnimations = kinds }
         var log: [String] = []
-        let failures = Self.runNewGroup(then: false, log: &log) + Self.runNewGroup(then: true, log: &log)
+        var failures = Self.runNewGroup(then: false, log: &log) + Self.runNewGroup(then: true, log: &log)
+        DesignSettings.shared.enabledAnimations.insert(.newWorkspace)
+        failures += (Self.runNewGroup(then: false, log: &log) + Self.runNewGroup(then: true, log: &log)).map { "[newWorkspace motion] " + $0 }
         print("SidebarGroupFlicker new group log:\n" + log.joined(separator: "\n"))
         #expect(failures.isEmpty, "\(failures.count) failures:\n\(failures.prefix(60).joined(separator: "\n"))")
     }
