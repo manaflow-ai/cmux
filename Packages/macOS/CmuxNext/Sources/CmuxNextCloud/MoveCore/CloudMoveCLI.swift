@@ -133,6 +133,13 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return read.object ?? Data(#"{"ok":false,"error_code":"bad_answer"}"#.utf8)
     }
 
+    /// `cmux link start-chat warm-spare --request JSON`, the session `access` token on stdin: the person's spare, warmed.
+    public func startChatWarmSpare(request: String, access: String) async throws -> Data {
+        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
+        let read = try await run(Call(request: request), reading: "reservation", stdin: Data((access + "\n").utf8))
+        return read.object ?? Data(#"{"ok":false,"error_code":"bad_answer"}"#.utf8)
+    }
+
     /// `cmux link start-chat plan --request JSON`, the cmux `access` token on stdin.
     public func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
         let read = try await run(["verb": "start-chat-plan", "request": request], reading: "start-chat-plan", stdin: access.map { Data(($0 + "\n").utf8) })

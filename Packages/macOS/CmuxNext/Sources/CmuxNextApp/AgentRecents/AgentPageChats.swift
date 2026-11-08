@@ -150,6 +150,7 @@ final class AgentPageChats {
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            if !request.release { await CloudStartChat.warmSpare(services) } // warm first: the reserve then claims the running spare
             return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
                                      binary: services.cloud.move.cli, configuration: services.cloud.configuration, auth: services.cloud.auth,
                                      team: { try await services.cloud.reservationTeam() })
