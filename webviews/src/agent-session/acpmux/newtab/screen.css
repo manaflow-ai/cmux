@@ -44,13 +44,14 @@
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:var(--text-caption)/1 var(--font-ui)}
 /* The create actions the rows don't list (screenModel.ts createStrip): one quiet line under them, never three rows (Leo 2026-10-24: "the new terminal, new browser tab, new tab ... less annoying"). Shows with the rows, no fade. */
-.nt-create-strip{display:flex;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden}
+ .nt-create-strip{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden}
 .nt-create-strip-item{display:flex;flex:1 1 0;align-items:center;gap:var(--ds-space-2);min-width:0;height:24px;padding:0 var(--ds-space-2);border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-create-strip-item .nt-row-title{flex:1;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis}
 /* Labels that do not all fit (createStripFit.ts) go away together: three centered icons, each named by its aria-label and tooltip, never three ellipsized "Nouv…". The title stays measurable (visually hidden, not display:none). */
 .nt-create-strip[data-icons-only] .nt-create-strip-item{position:relative;justify-content:center}
 .nt-create-strip[data-icons-only] .nt-create-strip-item .nt-row-title{position:absolute;width:0;height:0;overflow:hidden;clip-path:inset(50%)}
 .nt-create-strip-item.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
+.nt-fix-error{flex-basis:100%;margin:0;color:var(--agent-status-error,var(--agent-muted));font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
 .nt-chats{margin-top:var(--ds-space-5)}
 .nt-chats-head{display:flex;align-items:center;gap:var(--ds-space-3);height:28px;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-tab{color:var(--acpmux-composer-dim)}

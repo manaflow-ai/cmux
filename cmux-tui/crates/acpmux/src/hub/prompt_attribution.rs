@@ -29,6 +29,20 @@ pub(crate) fn agent_line(name: &str) -> String {
     format!("From another agent ({name}), not the person:")
 }
 
+/// The opening line ahead of a message a Claude Code subagent of session `name` sent to a lane
+/// of `name` (`prompt_provenance::SUBAGENT_GETS_REPLY`, `label` "TYPE subagent ID8"). It runs in
+/// its lead's session, so the receiver read the lead as its sender and answered the lead (a
+/// reviewer SendMessage'd claude-17 its review, 2026-11-08); the turn's answer reaches the
+/// subagent by itself (`hub/lane_report_reads.rs`, `hub/lane_report_subagents.rs`). A subagent's
+/// message to any other session, or a steer, names it in [`agent_line`] only.
+pub(crate) fn subagent_line(name: &str, label: &str) -> String {
+    format!(
+        "From another agent ({name}'s {label}), not the person. End your turn with your answer: \
+acpmux gives it to that subagent, or to {name} once the subagent has ended. Do not send it to \
+{name} yourself (acpmux send, SendMessage):"
+    )
+}
+
 /// The opening line ahead of a prompt no sender is known for.
 pub(crate) fn unverified_line(claimed: Option<&str>) -> String {
     match claimed {
@@ -132,7 +146,17 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
     // Ahead of the first block the agent reads as the prompt, after acpmux's hidden context.
     let first = blocks.iter().position(|b| !crate::prompt_context::is_context(b)).unwrap_or(0);
     if let Some(name) = sender.filter(|n| !n.trim().is_empty()) {
-        blocks.insert(first, text_block(agent_line(name)));
+        let sub = provenance.and_then(|p| p.get(crate::prompt_provenance::FROM_SUBAGENT));
+        let gets_reply = provenance
+            .and_then(|p| p.get(crate::prompt_provenance::SUBAGENT_GETS_REPLY))
+            .and_then(Value::as_bool)
+            == Some(true);
+        let line = match super::lane_report_subagents::label(sub) {
+            Some(label) if gets_reply => subagent_line(name, &label),
+            Some(label) => agent_line(&format!("{name}'s {label}")),
+            None => agent_line(name),
+        };
+        blocks.insert(first, text_block(line));
         return;
     }
     // A suggested task's result (`offer_results.rs`) names no sender: it is that task's chat's

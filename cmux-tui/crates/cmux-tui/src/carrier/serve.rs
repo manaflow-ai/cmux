@@ -293,6 +293,7 @@ async fn connection(
         prefetched: shared.prefetched.clone(),
         log: shared.log.clone(),
         phases: shared.log.clone(),
+        fresh_sessions: Default::default(),
     };
     let plan = &plan;
     let outcome = tokio::select! {

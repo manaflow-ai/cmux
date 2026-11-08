@@ -214,7 +214,7 @@ struct ClassicUpgradeSimulationTests {
         let manual = Task { @MainActor in
             while services.onboarding.classicMigrationRun == nil { try? await Task.sleep(for: .milliseconds(10)) }
             return try await AppOnboardingServices(owner: services.onboarding)
-                .migrateClassic(.manual) { _ in true }
+                .migrateClassic(.manual) { _ in .accepted }
         }
         _ = await sim.launch()
         _ = try await manual.value

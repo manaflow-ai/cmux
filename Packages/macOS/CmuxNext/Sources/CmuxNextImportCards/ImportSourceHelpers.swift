@@ -27,10 +27,13 @@ nonisolated struct ClassicWorkspaceCount: Sendable {
 
     func count() async -> Int? {
         let finder = ClassicMigrationSourceFinder(support: support, ownBundleID: bundleID)
-        guard let candidate = finder.candidates().first else { return nil }
-        let size = ((try? FileManager.default.attributesOfItem(atPath: candidate.url.path))?[.size] as? NSNumber)?.intValue ?? 0
-        guard size > 0, size <= Self.maximumSessionBytes,
-              let snapshot = try? ClassicSessionImporter(fileURL: candidate.url).readSnapshot() else { return nil }
+        // The first file that reads, newest channel first, as the migration itself falls back.
+        let snapshot = finder.allCandidates().lazy.compactMap { candidate -> ClassicSessionSnapshot? in
+            let size = ((try? FileManager.default.attributesOfItem(atPath: candidate.url.path))?[.size] as? NSNumber)?.intValue ?? 0
+            guard size > 0, size <= Self.maximumSessionBytes else { return nil }
+            return try? ClassicSessionImporter(fileURL: candidate.url).readSnapshot()
+        }.first
+        guard let snapshot else { return nil }
         let ledger: ClassicMigrationLedger?
         switch await ClassicMigrationRepository(directory: ledgerDirectory).load() {
         case .ledger(let saved): ledger = saved

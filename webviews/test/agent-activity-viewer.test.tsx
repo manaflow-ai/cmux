@@ -3,6 +3,10 @@
 // kept shows in order; Previous / Next and Left / Right (Home / End) step through them with the step
 // that made each one and "4 of 12"; a frame clicked in the timeline or grid opens the viewer over
 // the page; and the viewer loads only the shown frame and its neighbours.
+// Leo (2026-10-29), on the same viewer: "But why can't I click and drag? And why can't I full screen
+// this picture? ... it loads a little bit slowly, and it... it's kind of blank". A drag across the
+// frame or the filmstrip scrubs, Full Screen (F) fills the page, and a frame on its way shows its
+// thumbnail in its place.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
@@ -131,10 +135,12 @@ function fixture(extra: Partial<ActivityState> = {}): ActivityState {
 
 type Load = { blob: string; size: string; session: string };
 
-async function render(initial: ActivityState) {
+async function render(initial: ActivityState, { holdFull = false } = {}) {
   const loads: Load[] = [];
   const loadFrame = async (frame: ActivityFrame, size: "thumb" | "full", session: string) => {
     loads.push({ blob: frame.blob, size, session });
+    // A full frame still on its way: never answered.
+    if (holdFull && size === "full") return new Promise<string>(() => undefined);
     return `data:image/png;base64,${size}-${frame.blob}`;
   };
   let current = initial;
@@ -275,15 +281,95 @@ describe("the viewer in the split", () => {
 
   test("only the shown frame and its neighbours load; thumbnails out of view never do", async () => {
     const page = await render(fixture());
-    expect(page.loads.filter((l) => l.size === "thumb")).toHaveLength(0);
-    expect(new Set(page.loads.map((l) => l.blob))).toEqual(new Set(["b10.jpg", "b11.jpg"]));
+    const full = () => page.loads.filter((l) => l.size === "full").map((l) => l.blob);
+    // The only thumbnail asked for is the shown frame's stand-in, while its full frame was on its way.
+    const thumbs = () => page.loads.filter((l) => l.size === "thumb").map((l) => l.blob);
+    expect(thumbs()).toEqual(["b11.jpg"]);
+    expect(new Set(full())).toEqual(new Set(["b10.jpg", "b11.jpg"]));
     expect(page.loads.every((l) => l.session === "a")).toBe(true);
     await press("Home");
-    expect(new Set(page.loads.map((l) => l.blob))).toEqual(new Set(["b10.jpg", "b11.jpg", "b1.jpg", "b2.jpg"]));
-    // One step on asks only for the new neighbour; a frame already loaded is not asked for again.
+    expect(new Set(full())).toEqual(new Set(["b10.jpg", "b11.jpg", "b1.jpg", "b2.jpg"]));
+    // One step on asks only for the new neighbour; a frame already loaded is not asked for again, and
+    // a frame whose full size is already here needs no stand-in.
     await press("ArrowRight");
-    expect(page.loads.map((l) => l.blob)).toEqual(["b10.jpg", "b11.jpg", "b1.jpg", "b2.jpg", "b4.jpg"]);
+    expect(full()).toEqual(["b10.jpg", "b11.jpg", "b1.jpg", "b2.jpg", "b4.jpg"]);
+    expect(thumbs()).toEqual(["b11.jpg", "b1.jpg"]);
     expect(document.querySelectorAll(".viewer-stage img")).toHaveLength(1);
+  });
+
+  test("a frame whose full size is on its way shows its thumbnail in the frame's own box", async () => {
+    await render(fixture(), { holdFull: true });
+    const img = document.querySelector<HTMLImageElement>(".viewer-stage .viewer-frame img");
+    expect(img?.getAttribute("src")).toBe("data:image/png;base64,thumb-b11.jpg");
+    expect(img?.dataset.placeholder).toBe("true");
+    expect(document.querySelector(".viewer-loading")).toBeNull();
+    const box = document.querySelector<HTMLElement>(".viewer-frame")!;
+    expect(box.style.getPropertyValue("--frame-ratio")).toBe(String(180 / 319));
+    expect(box.style.getPropertyValue("--frame-width")).toBe("180px");
+  });
+
+  test("Full Screen fills the page; F turns it on and off, Escape leaves it", async () => {
+    const page = await render(fixture());
+    const button = () => document.querySelector<HTMLButtonElement>('.viewer-bar button[aria-keyshortcuts="F"]')!;
+    const full = () => document.querySelector(".viewer")?.hasAttribute("data-full");
+    expect(button().getAttribute("aria-label")).toBe("Full Screen");
+    await click(button());
+    expect(full()).toBe(true);
+    expect(page.state().fullFrame).toBe(true);
+    expect(button().getAttribute("aria-label")).toBe("Exit Full Screen");
+    // The frame keys still step in Full Screen.
+    await press("ArrowLeft");
+    expect(position()).toBe("7 of 8");
+    await press("Escape");
+    expect(full()).toBe(false);
+    await press("f");
+    expect(full()).toBe(true);
+    await press("f");
+    expect(full()).toBe(false);
+    // An F typed in the filter is a letter.
+    await press("f", document.querySelector("nav input")!);
+    expect(full()).toBe(false);
+  });
+
+  test("a drag across the frame scrubs: right goes later, left earlier, clamped to the ends", async () => {
+    await render(fixture({ scrubSeq: 1 }));
+    const stage = document.querySelector<HTMLElement>(".viewer-stage")!;
+    expect(stage.hasAttribute("data-scrubs")).toBe(true);
+    const pointer = (type: string, clientX: number, button = 0) =>
+      act(async () => {
+        stage.dispatchEvent(new window.MouseEvent(type, { clientX, button, buttons: 1, bubbles: true }));
+      });
+    expect(position()).toBe("1 of 8");
+    // jsdom lays out nothing (width 0), so a frame is the least step: 12 px.
+    await pointer("pointerdown", 100);
+    await pointer("pointermove", 124);
+    expect(position()).toBe("3 of 8");
+    await pointer("pointermove", 400);
+    expect(position()).toBe("8 of 8");
+    await pointer("pointermove", 88);
+    expect(position()).toBe("1 of 8");
+    await pointer("pointerup", 88);
+    // Moving with no press scrubs nothing; nor does a press of another button.
+    await pointer("pointermove", 400);
+    expect(position()).toBe("1 of 8");
+    await pointer("pointerdown", 100, 2);
+    await pointer("pointermove", 400);
+    expect(position()).toBe("1 of 8");
+  });
+
+  test("a press dragged along the filmstrip shows each frame it passes over", async () => {
+    await render(fixture());
+    const films = document.querySelectorAll(".filmstrip .film");
+    const move = (target: Element, buttons: number) =>
+      act(async () => {
+        target.dispatchEvent(new window.MouseEvent("pointermove", { buttons, bubbles: true }));
+      });
+    await move(films[1]!, 0);
+    expect(position()).toBe("8 of 8");
+    await move(films[1]!.querySelector(".thumb")!, 1);
+    expect(position()).toBe("2 of 8");
+    await move(films[5]!, 1);
+    expect(position()).toBe("6 of 8");
   });
 
   test("a session with no screenshots says so", async () => {
@@ -294,6 +380,11 @@ describe("the viewer in the split", () => {
     expect(position()).toBeUndefined();
     expect(document.querySelector(".viewer-bar")).toBeNull();
     expect(document.querySelector(".filmstrip")).toBeNull();
+    // Nothing to show full screen: F stays a plain key, not taken from the page.
+    const f = new window.KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true });
+    await act(async () => window.dispatchEvent(f));
+    expect(f.defaultPrevented).toBe(false);
+    expect(document.querySelector(".viewer[data-full]")).toBeNull();
   });
 });
 
@@ -311,6 +402,22 @@ describe("the viewer over the timeline and grid", () => {
     await press("ArrowRight");
     expect(position()).toBe("2 of 2");
     await click(document.querySelector('.activity-viewer-dialog button[aria-label="Close"]'));
+    expect(page.state().viewing).toBe(false);
+  });
+
+  test("in the dialog, Escape leaves Full Screen first and closes the viewer next", async () => {
+    const page = await render(fixture({ layout: "grid" }));
+    await click(document.querySelectorAll(".tile")[0]);
+    await press("f");
+    expect(document.querySelector(".activity-viewer-dialog .viewer")?.hasAttribute("data-full")).toBe(true);
+    const escape = (target: EventTarget) =>
+      act(async () => {
+        target.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+    await escape(document.activeElement ?? document.body);
+    expect(page.state().viewing).toBe(true);
+    expect(page.state().fullFrame).toBe(false);
+    await escape(document.activeElement ?? document.body);
     expect(page.state().viewing).toBe(false);
   });
 

@@ -30,7 +30,9 @@ const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_ADMIN_CONNECTIONS: usize = 32;
 const ADMIN_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
+mod link;
 mod mux_binding;
+pub use link::{LINK_AWAIT_LIMIT, LinkStatus, link_admin_socket, serve_link_admin};
 pub use mux_binding::{MuxBinding, verify_mux_binding};
 
 /// Failure to authenticate the process on the other end of a Unix socket.
@@ -112,6 +114,13 @@ pub enum AdminRequest {
     Shutdown,
     ShutdownLifecycle {
         lifecycle_id: String,
+    },
+    /// The link's state. Served only by a link's own socket ([`serve_link_admin`]).
+    LinkState,
+    /// Wait until the link is connected or `within_ms` passes; the answer is the state, `down`
+    /// with the reason past the deadline. Served only by a link's own socket.
+    AwaitReady {
+        within_ms: u64,
     },
 }
 
@@ -613,11 +622,14 @@ async fn call_admin_over_stream(
     // daemon's one-response close and return ENOTCONN on macOS.
     let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
-    let size = timeout_admin_io(
-        "reading admin response",
+    let size = tokio::time::timeout(
+        link::response_timeout(request),
         read_bounded_admin_message(&mut reader, &mut response),
     )
-    .await?;
+    .await
+    .map_err(|_| {
+        AdminError::Io(io::Error::new(io::ErrorKind::TimedOut, "timed out reading admin response"))
+    })??;
     if size == 0 {
         return Err(AdminError::Protocol("daemon closed the admin connection".into()));
     }
@@ -769,6 +781,9 @@ async fn dispatch(
         AdminRequest::Shutdown => request_shutdown(lifecycle_id, None, owner_shutdown),
         AdminRequest::ShutdownLifecycle { lifecycle_id: requested_lifecycle_id } => {
             request_shutdown(lifecycle_id, Some(&requested_lifecycle_id), owner_shutdown)
+        }
+        AdminRequest::LinkState | AdminRequest::AwaitReady { .. } => {
+            Err(IdentityError::Invalid("link requests are served by a link's own socket".into()))
         }
     };
     match result {
