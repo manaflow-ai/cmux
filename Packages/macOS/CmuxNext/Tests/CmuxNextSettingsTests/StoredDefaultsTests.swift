@@ -53,21 +53,77 @@ import Testing
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string(ChromeStyleSetting.fallback.rawValue))
     }
 
-    /// Another editor's settings fill the code editor's keys (`editor.importFrom`, "auto" by
-    /// default): VS Code's `editor.wordWrap: "on"` applies unless cmux-next.json says otherwise, so a
-    /// pick of cmux's default stays stored; with the import off, it is removed.
+    /// Writes `descriptor`'s default and returns what the file then holds at its path.
+    func writingTheDefault(_ path: [String], in settings: SettingsController) async throws -> JSONValue? {
+        let descriptor = try #require(SettingsSchema.descriptor(for: path))
+        try await settings.setSetting(descriptor, to: descriptor.defaultValue, by: .user)
+        return try await settings.file.value(at: path)
+    }
+
+    /// The team's default fills the key when the file leaves it out.
+    @Test func aTeamDefaultKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        settings.setTeamPolicy(TeamPolicyLayer(teamName: "Acme", defaults: ["appearance.chromeStyle": .string("card")]))
+        await settings.reload()
+        #expect(try await writingTheDefault(ChromeStyleSetting.configPath, in: settings) == .string(ChromeStyleSetting.fallback.rawValue))
+    }
+
+    /// A team default under an older name (`EffectiveSettings.legacyKeys`) fills the new key too.
+    @Test func aTeamDefaultUnderAnOlderNameKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        let old = AgentPaneDisplaySettingsSchema.legacySessionInfoPlacementPath.joined(separator: ".")
+        settings.setTeamPolicy(TeamPolicyLayer(teamName: "Acme", defaults: [old: .string("push")]))
+        await settings.reload()
+        let path = AgentPaneDisplaySettingsSchema.sessionInfoPlacementPath
+        #expect(try await writingTheDefault(path, in: settings) == .string(AgentPaneDisplaySettingsSchema.sessionInfoPlacementDefault))
+    }
+
+    /// Another editor's settings fill the code editor's keys (`editor.importFrom`, "auto" by default):
+    /// VS Code's `editor.wordWrap: "on"` applies unless cmux-next.json says otherwise.
     @Test func anImportedEditorValueKeepsAnExplicitDefault() async throws {
         defer { try? FileManager.default.removeItem(at: home) }
         let settings = try await controller(#"{ "editor": { "wordWrap": "on" } }"#)
-        let wrap = try #require(SettingsSchema.descriptor(for: EditorSettingsSchema.wordWrapPath))
+        #expect(try await writingTheDefault(EditorSettingsSchema.wordWrapPath, in: settings) == .string(EditorSettingsSchema.wordWrapDefault))
+    }
 
-        try await settings.setSetting(wrap, to: .string(EditorSettingsSchema.wordWrapDefault), by: .user)
-        #expect(try await settings.file.value(at: EditorSettingsSchema.wordWrapPath) == .string(EditorSettingsSchema.wordWrapDefault))
+    /// With no editor import, the built-in per-language values still fill an unset key (Markdown
+    /// wraps), so Word Wrap Off stays stored.
+    @Test func aLanguageDefaultKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "editor": { "importFrom": "none", "wordWrap": "on" } }"#)
+        #expect(try await writingTheDefault(EditorSettingsSchema.wordWrapPath, in: settings) == .string(EditorSettingsSchema.wordWrapDefault))
+    }
 
-        try await settings.file.set(.string("none"), at: EditorSettingsSchema.importFromPath)
-        await settings.reload()
-        try await settings.setSetting(wrap, to: .string(EditorSettingsSchema.wordWrapDefault), by: .user)
-        #expect(try await settings.file.value(at: EditorSettingsSchema.wordWrapPath) == nil)
+    /// `editor.autoClosingQuotes` follows `editor.autoClosingBrackets` when unset.
+    @Test func aKeyThatFollowsAnotherKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "editor": { "importFrom": "none", "autoClosingBrackets": false } }"#)
+        #expect(try await writingTheDefault(EditorSettingsSchema.autoClosingQuotesPath, in: settings)
+            == .bool(EditorSettingsSchema.autoClosingQuotesDefault))
+    }
+
+    /// An older file's `browser.openTerminalLinksInCmuxBrowser` fills `browser.openLinksInCmuxBrowser`.
+    @Test func anOlderKeyInTheFileKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "browser": { "openTerminalLinksInCmuxBrowser": false } }"#)
+        #expect(try await writingTheDefault(LinkRouting.openPath, in: settings) == .bool(LinkRouting.openDefault))
+    }
+
+    /// The Debug tunable `agent.harnessPlacement` fills `agentPane.display.harnessPlacement`.
+    @Test func aDebugTunableKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        #expect(try await writingTheDefault(AgentPaneDisplaySettingsSchema.harnessPlacementPath, in: settings)
+            == .string(AgentPaneDisplaySettingsSchema.harnessPlacementDefault))
+    }
+
+    /// Every entry of `unsetIsNotDefaultKeys` names a schema key or a prefix of one.
+    @Test func everyFallbackEntryNamesSchemaKeys() {
+        for key in SettingsSchema.unsetIsNotDefaultKeys.keys {
+            #expect(SettingsSchema.all.contains { key.hasSuffix(".") ? $0.id.hasPrefix(key) : $0.id == key }, "\(key)")
+        }
     }
 
     /// The default changed from "flat-sidebar-line" (stored by an old pick of the row's default) to

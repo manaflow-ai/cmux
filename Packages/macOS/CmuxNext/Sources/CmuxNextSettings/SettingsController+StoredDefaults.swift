@@ -16,6 +16,27 @@ public nonisolated struct StoredDefaultsReport: Sendable, Equatable {
     public var kept: [String: JSONValue] = [:]
 }
 
+extension SettingsSchema {
+    /// Keys (or, ending in ".", key prefixes) whose readers fill an unset key with something other
+    /// than the row's default, which the controller cannot see, with that reader. A written default
+    /// stays stored for these (it is the person's override), and the launch pass keeps such copies.
+    nonisolated static let unsetIsNotDefaultKeys: [String: String] = [
+        // `editor.importFrom` (FilePageLook), `LANGUAGE_DEFAULTS` in webviews' `settingsForLanguage`
+        // (Markdown and commit messages wrap, Go and Makefiles indent with tabs), and keys that
+        // follow another (`autoClosingQuotes` follows `autoClosingBrackets`).
+        "editor.": "another editor's settings, the built-in per-language values, a key it follows",
+        // `LinkRouting`: an older file's `browser.openTerminalLinksInCmuxBrowser` fills it.
+        "browser.openLinksInCmuxBrowser": "classic's browser.openTerminalLinksInCmuxBrowser",
+        // webviews' `resolveHarnessPlacement`: the Debug tunable `agent.harnessPlacement` fills it.
+        "agentPane.display.harnessPlacement": "the Debug tunable agent.harnessPlacement",
+    ]
+
+    /// Whether `unsetIsNotDefaultKeys` names `key`.
+    nonisolated static func unsetIsNotDefault(_ key: String) -> Bool {
+        unsetIsNotDefaultKeys.keys.contains { $0.hasSuffix(".") ? key.hasPrefix($0) : key == $0 }
+    }
+}
+
 extension SettingsController {
     /// The launch's settings migrations, in order, each once its own way; a failed one leaves the
     /// file as it was and the next still runs.
