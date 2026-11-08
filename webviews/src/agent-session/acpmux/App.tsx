@@ -155,6 +155,8 @@ import { drawsAsIs, setStreamingRowBlocked, streamingRow, streamingRowBlocked, t
 import { liveToolOutput, toolOutputOnly } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { StuckBanner } from "./StuckBanner";
+import { prefillStuckNudge } from "./stuckNudge";
 import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
@@ -374,6 +376,7 @@ import {
   type EditableTurns,
 } from "./conversation/editPrompt";
 import { isFindRow, type ChatFind } from "./conversation/chatFind";
+import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
   ACTIVITY_LINE,
@@ -621,6 +624,7 @@ import {
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
+import { askPermissionFocus } from "./permissions/focusRequest";
 import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
 import { withoutQuietThoughts } from "./conversation/thoughts";
@@ -1890,7 +1894,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// which row it asked for; undefined while this chat has no row for that message. Set below,
   /// where the chat's rows are.
   const showMessage = useRef<(messageId: string) => string | undefined>(() => undefined);
+  /// ``showMessage`` for a message the chats page found by its words (a `said:` reveal).
+  const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
   const reveal = (value: string) => {
+    // The command palette's chats page opens a chat at the message it found by what was said:
+    // the newest row of that kind holding the words, brought in as a `message=<id>` link's is.
+    const said = revealedSaid(value);
+    if (said !== undefined) {
+      return void revealMessageWhenShown(value, () => showSaid.current(said), document, {
+        chat: () => shownView.current,
+      });
+    }
     // A `message=<id>` link (schemas/deeplinks/agent-link.json): bring that message's row in
     // once the transcript has it, and leave the view alone when this session never saw it.
     const message = revealedMessage(value);
@@ -4035,6 +4049,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [registry],
   );
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
+  const [newTabFixError, setNewTabFixError] = useState<string>();
   const newTabStartGeneration = useRef(0);
   const [sessionSelection, setSessionSelection] = useState<
     { sessionId: string; state: "pending" | "failed" } | undefined
@@ -5192,9 +5207,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // running line's count does. The reveal lets go after a moment, as a count's does: it stands in
   // for Find's own target while it is set, and a target that never let go would scroll back to
   // this row whenever its id is drawn again.
-  showMessage.current = (messageId) => {
+  const showRows = (pick: (rows: readonly AcpmuxRow[]) => readonly string[]) => {
     const { sourceRows: rows, transcriptRows: shown } = counted.current;
-    const target = messageRevealTarget(rows, shown, directClient.current?.rowsOfMessage(messageId) ?? []);
+    const target = messageRevealTarget(rows, shown, pick(rows));
     if (target === undefined) return undefined;
     if (target.fold !== undefined) openFold(target.fold);
     if (target.run !== undefined) openFold(target.run);
@@ -5204,6 +5219,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
     return target.rowId;
   };
+  showMessage.current = (messageId) => showRows(() => directClient.current?.rowsOfMessage(messageId) ?? []);
+  showSaid.current = (said) => showRows((rows) => saidRows(rows, said));
   // A link waiting on replay retries against committed rows, without a polling timer.
   useLayoutEffect(() => notifyRevealRowsChanged(), [sourceRows, transcriptRows]);
   // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
@@ -6612,6 +6629,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (name === "archiveChat") archiveChatRef.current?.();
         // Commit and Push live in the diff tab beside the chat (its Commit form and Push button).
         if (name === "gitCommit" || name === "gitPush") openChangesTab.current();
+        // A card that mounts just after the click still takes it (`permissions/focusRequest.ts`).
+        if (name === "permissionFocus") askPermissionFocus();
         if (
           [
             "permissionAllowOnce",
@@ -6621,6 +6640,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             "permissionRetry",
             "permissionRevoke",
             "permissionRefresh",
+            // A click on an ask's notification: the waiting card takes the keyboard.
+            "permissionFocus",
             // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down), and Previous and Next Bookmarked
             // Prompt (the palette's): the thread minimap steps the transcript.
             "previousTurn",
@@ -7737,6 +7758,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             );
             await persistSession(started);
             return started;
+          },
+          "chat.fix_from_link": async ({ url, cwd, harness, model }) => {
+            const sessionId = await client.fixFromLink(
+              String(url ?? ""),
+              typeof cwd === "string" ? cwd : undefined,
+              typeof harness === "string" ? harness : undefined,
+              typeof model === "string" ? model : undefined,
+            );
+            await persistSession(sessionId);
+            return { sessionId };
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
@@ -10305,6 +10336,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the pane's own subagent id (a workflow agent's run and id). Never the relay target, whose harness
   // id, task name and connected chat arrive or change later and would remount the composer empty.
   const subagentDraftKey = `${subagentDraftChat}\u0000${shownSubagentId ?? ""}`;
+  const stuckDiagnosis =
+    snapshot.summary?.loopEpisode?.diagnosis ||
+    (snapshot.summary?.stalledSince != null ? t("stuck.silentDiagnosis") : undefined);
   const composer = readOnlySubagent ? (
     <SubagentComposer
       key={subagentDraftKey}
@@ -10317,6 +10351,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     !reviewing && (
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
+        {stuckDiagnosis && (
+          <StuckBanner
+            diagnosis={stuckDiagnosis}
+            onNudge={() => prefillStuckNudge(composerHandle.current, stuckDiagnosis, t)}
+          />
+        )}
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
         </Notice>
@@ -11128,7 +11168,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   if (quick)
     return (
       <ShortcutsContext.Provider value={shortcuts}>
-        <section className="acpmux-shell" data-surface="quick">
+        <section className="acpmux-shell" data-surface="quick" data-stuck={stuckDiagnosis ? "" : undefined}>
           <QuickSurface
             transcript={
               snapshot.rows.length > 0 || chatShellRuns.length > 0 || queuedRows.length > 0 ? transcript : undefined
@@ -11281,6 +11321,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       >
         <div
           className="acpmux-main"
+          data-stuck={stuckDiagnosis ? "" : undefined}
           data-new-chat={freshView && !showNewTab ? "" : undefined}
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
@@ -11423,6 +11464,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     })
                   }
                   snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
+                  {...(newTabFixError ? { fixError: newTabFixError } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}
                   lastAgent={newTab.lastAgent}
@@ -11488,6 +11530,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         if (cwd) setProjectDraft(cwd);
                         shellRuns.start(command, cwd ? { cwd } : {});
                       },
+                      clearError: () => setNewTabFixError(undefined),
+                      showError: (error) => setNewTabFixError(errorMessage(error) || String(error)),
                     }),
                   )}
                 />

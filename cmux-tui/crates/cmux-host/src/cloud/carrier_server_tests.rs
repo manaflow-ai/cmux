@@ -299,9 +299,11 @@ struct Live {
     mint_gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
     /// While set, a bearer mint is held here (a slow auth at the bind).
     token_gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
-    /// While set, the next ticket request alone is held here, up to 20 s
-    /// (one on a pooled connection that died in a pause).
-    ticket_gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// Each ticket request takes the next gate here, in order, and is held
+    /// on it up to 20 s (one on a pooled connection that died in a pause).
+    ticket_gates: Mutex<
+        std::collections::VecDeque<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
+    >,
     /// Ticket requests that came back.
     answered: Mutex<u64>,
 }
@@ -346,7 +348,7 @@ impl Http for LiveHttp {
             *tickets += 1;
             *tickets
         };
-        let gate = self.0.ticket_gate.lock().unwrap().take();
+        let gate = self.0.ticket_gates.lock().unwrap().pop_front();
         if let Some((entered, gate)) = gate {
             let _ = entered.send(());
             let _ = gate.recv_timeout(Duration::from_secs(20));
@@ -544,7 +546,7 @@ fn a_45_s_ticket_asked_for_an_ask_is_handed_out_on_the_first_fetch() {
 fn hold_next_ticket(live: &Live) -> (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>) {
     let (entered, reached) = std::sync::mpsc::channel();
     let (release, gate) = std::sync::mpsc::channel();
-    *live.ticket_gate.lock().unwrap() = Some((entered, gate));
+    live.ticket_gates.lock().unwrap().push_back((entered, gate));
     (release, reached)
 }
 
@@ -615,4 +617,453 @@ fn a_ticket_asked_for_an_ask_before_a_resume_is_not_handed_out_after_it() {
     assert_eq!(reply["ok"], true, "{reply}");
     assert_ne!(reply["ticket"], "t-1", "the ticket from before the pause was handed out");
     drop(server);
+}
+
+/// Waits for `ok` up to `limit`; whether it held.
+fn holds_within(limit: Duration, mut ok: impl FnMut() -> bool) -> bool {
+    let until = Instant::now() + limit;
+    while !ok() {
+        if Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    true
+}
+
+/// #38593's review (F1): a resume that lands right before the hand-out
+/// (after the socket thread took the kept ticket and checked it) does not
+/// let that ticket out. The ask gets the ticket asked for after the resume.
+#[test]
+fn a_resume_right_before_the_hand_out_does_not_hand_out_the_old_ticket() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, resumes) = live_server(&dir, 300, Duration::from_secs(5));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the kept ticket", || server.shared.lock().warm.is_some());
+    let shared = Arc::clone(&server.shared);
+    let resuming = Arc::clone(&resumes);
+    *server.shared.test_points.before_handout.lock().unwrap() = Some(Box::new(move || {
+        let before = shared.lock().generation;
+        resuming.note();
+        assert_ne!(shared.lock().generation, before, "the note starts the resume's generation");
+    }));
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_ne!(reply["ticket"], "t-1", "the ticket from before the resume was handed out");
+    assert_eq!(reply["ticket"], "t-2", "{reply}");
+    drop(server);
+}
+
+/// #38593's review (F1): an ask between `bound()` and the fetch thread
+/// taking the bind does not get the kept ticket of the bind before it.
+#[test]
+fn an_ask_before_the_fetch_thread_takes_a_rebind_does_not_get_the_old_ticket() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, _resumes) = live_server(&dir, 300, Duration::from_secs(5));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the kept ticket", || server.shared.lock().warm.is_some());
+    let (release, gate) = std::sync::mpsc::channel();
+    *server.shared.test_points.hold_fetcher.lock().unwrap() = Some(gate);
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the fetch thread held", || {
+        server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
+    });
+    let asking = std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#));
+    std::thread::sleep(Duration::from_millis(200));
+    release.send(()).unwrap();
+    let reply = asking.join().unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_ne!(reply["ticket"], "t-1", "the ticket of the bind before was handed out");
+    drop(server);
+}
+
+/// #38593's review (F2): between the fetch thread taking an asker's want and
+/// starting its request, the asker woken again (another ask, any wake) does
+/// not ask a second time: one ask is one ticket request.
+#[test]
+fn an_asker_woken_before_its_request_starts_causes_one_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, _resumes) = live_server(&dir, 300, Duration::from_secs(5));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    wait_for("the bind", || {
+        let state = server.shared.lock();
+        state.bound && !state.fetching
+    });
+    let shared = Arc::clone(&server.shared);
+    *server.shared.test_points.before_wanted.lock().unwrap() = Some(Box::new(move || {
+        shared.changed.notify_all();
+        let _ = holds_within(Duration::from_millis(500), || shared.lock().want);
+    }));
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!(reply["ticket"], "t-1", "{reply}");
+    assert!(
+        !holds_within(Duration::from_millis(500), || live.tickets() > 1),
+        "the one ask asked for {} tickets",
+        live.tickets()
+    );
+    drop(server);
+}
+
+/// #38700's review (F1): a rebind between the fetch thread taking an
+/// asker's want and starting its request. That request (on the old client)
+/// is of the generation before the rebind: its late reply is dropped, never
+/// handed out, while the new bind's ticket is still on its way.
+#[test]
+fn a_rebind_before_a_wanted_request_starts_drops_that_requests_late_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, _resumes) = live_server(&dir, 300, Duration::from_secs(10));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    wait_for("the bind", || {
+        let state = server.shared.lock();
+        state.bound && !state.fetching
+    });
+    // The old client's ticket request (t-1) and the new bind's (t-2) are each held.
+    let (release_old, old_entered) = hold_next_ticket(&live);
+    let (release_new, new_entered) = hold_next_ticket(&live);
+    let (at_wanted, reached_wanted) = std::sync::mpsc::channel();
+    let (go, gate) = std::sync::mpsc::channel::<()>();
+    *server.shared.test_points.before_wanted.lock().unwrap() = Some(Box::new(move || {
+        let _ = at_wanted.send(());
+        let _ = gate.recv_timeout(Duration::from_secs(10));
+    }));
+    let asking = std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#));
+    reached_wanted.recv_timeout(Duration::from_secs(10)).expect("the ask's want was not taken");
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    go.send(()).unwrap();
+    old_entered.recv_timeout(Duration::from_secs(10)).expect("the old request did not start");
+    new_entered.recv_timeout(Duration::from_secs(10)).expect("the new bind did not ask");
+    // The old request comes back while the new bind's is in flight.
+    release_old.send(()).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    release_new.send(()).unwrap();
+    let reply = asking.join().unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_ne!(reply["ticket"], "t-1", "the old binding's ticket was handed out");
+    assert_eq!(reply["ticket"], "t-2", "{reply}");
+    drop(server);
+}
+
+/// #38700's review (F1): a Register between `bound()` and the fetch thread
+/// taking the bind sets the want; the bind's prefetched ticket satisfies it.
+/// No second ticket request follows, and no extra reply waits for the next
+/// Register.
+#[test]
+fn a_want_satisfied_by_the_binds_prefetched_ticket_asks_for_no_more() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, _resumes) = live_server(&dir, 300, Duration::from_secs(5));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the kept ticket", || live.tickets() == 1 && server.shared.lock().warm.is_some());
+    let (release, gate) = std::sync::mpsc::channel();
+    *server.shared.test_points.hold_fetcher.lock().unwrap() = Some(gate);
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the fetch thread held", || {
+        server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
+    });
+    let asking = std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#));
+    std::thread::sleep(Duration::from_millis(200));
+    release.send(()).unwrap();
+    let reply = asking.join().unwrap();
+    assert_eq!(reply["ticket"], "t-2", "the rebind's prefetched ticket: {reply}");
+    assert!(
+        !holds_within(Duration::from_millis(500), || live.tickets() > 2),
+        "the Register's want asked for {} tickets in all (2 expected)",
+        live.tickets()
+    );
+    drop(server);
+}
+
+/// #38700's review (F2): a Register right after a resume is noted, before
+/// the fetch thread sees it, does not get the kept ticket from before the
+/// resume.
+#[test]
+fn a_register_right_after_a_resume_is_noted_does_not_get_the_old_ticket() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, resumes) = live_server(&dir, 300, Duration::from_secs(5));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the kept ticket", || server.shared.lock().warm.is_some());
+    let (release, gate) = std::sync::mpsc::channel();
+    *server.shared.test_points.hold_fetcher.lock().unwrap() = Some(gate);
+    resumes.note();
+    wait_for("the fetch thread held", || {
+        server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
+    });
+    let asking = std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#));
+    std::thread::sleep(Duration::from_millis(200));
+    release.send(()).unwrap();
+    let reply = asking.join().unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_ne!(reply["ticket"], "t-1", "the ticket from before the resume was handed out");
+    drop(server);
+}
+
+/// #38700's review: a model of the ticket threads on their one state.
+/// Each seed drives a random interleaving of Registers (an ask, its
+/// hand-out, an asker leaving), resumes, binds, the fetch thread's jobs,
+/// request replies and the clock, every step one transition of
+/// [`super::state::Core`], and checks after each step:
+///
+/// - no ticket asked for in an older generation is handed out;
+/// - one request per want: no more `Wanted` requests than wants, and none
+///   while a kept or answered ticket already satisfies the want;
+/// - at most one request of the current generation is on its way.
+mod model {
+    use std::time::{Duration, Instant};
+
+    use serde_json::{Value, json};
+
+    use super::super::MAX_REFRESHES;
+    use super::super::state::{Asked, Core, Done, Job, Task, View, Warm};
+
+    const SEEDS: u64 = 3000;
+    const STEPS: usize = 250;
+    const START_MS: u64 = 1_790_000_000_000;
+
+    struct Rng(u64);
+
+    impl Rng {
+        fn below(&mut self, n: u64) -> u64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x % n
+        }
+    }
+
+    struct Request {
+        generation: u64,
+        task: Task,
+    }
+
+    /// A reply between its ask and its hand-out.
+    struct Pending {
+        reply: Value,
+        kept: bool,
+        generation: u64,
+        started: Instant,
+    }
+
+    struct Model {
+        core: Core<bool, ()>,
+        now_ms: u64,
+        prefetch: bool,
+        refreshes: u32,
+        in_flight: Vec<Request>,
+        asker: Option<Instant>,
+        pending: Option<Pending>,
+        issued: u64,
+        wants: u64,
+        wanted: u64,
+        handed: u64,
+        /// Replies whose generation ended between their ask and hand-out.
+        refused_stale: u64,
+        /// Requests that came back after their generation ended.
+        stale_replies: u64,
+        trace: Vec<String>,
+    }
+
+    impl Model {
+        fn new() -> Model {
+            Model {
+                core: Core::default(),
+                now_ms: START_MS,
+                prefetch: false,
+                refreshes: 0,
+                in_flight: Vec::new(),
+                asker: None,
+                pending: None,
+                issued: 0,
+                wants: 0,
+                wanted: 0,
+                handed: 0,
+                refused_stale: 0,
+                stale_replies: 0,
+                trace: Vec::new(),
+            }
+        }
+
+        fn fail(&self, seed: u64, invariant: &str) -> ! {
+            let tail = self.trace.iter().rev().take(14).rev().cloned().collect::<Vec<_>>();
+            panic!("seed {seed}: {invariant}\nlast steps:\n  {}", tail.join("\n  "));
+        }
+
+        fn ask(&mut self, seed: u64, started: Instant) {
+            let wanted_before = self.core.want;
+            match self.core.ask(self.now_ms, started) {
+                Asked::Reply { reply, kept, generation } => {
+                    self.asker = None;
+                    if reply["ok"] == true {
+                        self.pending = Some(Pending { reply, kept, generation, started });
+                    }
+                }
+                Asked::Wait { .. } => self.asker = Some(started),
+                Asked::Stopping => self.fail(seed, "an ask saw a stop no one made"),
+            }
+            if !wanted_before && self.core.want {
+                self.wants += 1;
+            }
+        }
+
+        fn hand_out(&mut self, seed: u64) {
+            let Some(pending) = self.pending.take() else { return };
+            if !self.core.may_hand_out(pending.generation) {
+                self.refused_stale += 1;
+                // The real asker asks again within its wait.
+                return self.ask(seed, pending.started);
+            }
+            let ticket = pending.reply["ticket"].as_str().unwrap_or_default().to_owned();
+            let origin: u64 = ticket
+                .trim_start_matches('g')
+                .split('-')
+                .next()
+                .and_then(|g| g.parse().ok())
+                .unwrap_or(u64::MAX);
+            if origin != self.core.generation {
+                self.fail(
+                    seed,
+                    &format!(
+                        "a ticket from an older generation was handed out: {ticket} in generation {}",
+                        self.core.generation
+                    ),
+                );
+            }
+            self.handed += 1;
+        }
+
+        fn leave(&mut self) {
+            let Some(pending) = self.pending.take() else { return };
+            if pending.kept
+                && let Some(warm) = Warm::handout(&pending.reply, self.now_ms)
+            {
+                self.core.keep_unsent(warm, pending.generation);
+            }
+        }
+
+        fn start(&mut self, seed: u64, task: Task, generation: u64) {
+            self.core.starting(generation);
+            if generation == self.core.generation
+                && self.in_flight.iter().any(|r| r.generation == self.core.generation)
+            {
+                self.fail(seed, "two requests of one generation on their way");
+            }
+            self.in_flight.push(Request { generation, task });
+        }
+
+        fn fetch_step(&mut self, seed: u64) {
+            let view = View {
+                has_client: true,
+                can_resume: true,
+                prefetch: self.prefetch,
+                may_refresh: self.refreshes < MAX_REFRESHES,
+            };
+            match self.core.next_job(view, self.now_ms) {
+                Job::Bind(prefetch, generation) => {
+                    self.prefetch = *prefetch;
+                    self.refreshes = 0;
+                    let ticket = self.prefetch.then_some(("prefetched", false));
+                    self.start(seed, Task { mint: true, ticket }, generation);
+                }
+                Job::Resume(generation) => {
+                    self.refreshes = 0;
+                    if self.prefetch {
+                        self.start(
+                            seed,
+                            Task::ticket("prefetched after resume", false),
+                            generation,
+                        );
+                    }
+                }
+                Job::Wanted(generation) => {
+                    self.wanted += 1;
+                    if self.wanted > self.wants {
+                        self.fail(seed, "more ticket requests for asks than wants");
+                    }
+                    let kept = self.core.warm.as_ref().is_some_and(|w| w.usable(self.now_ms));
+                    if kept || self.core.answered.is_some() {
+                        self.fail(seed, "a ticket request for a want a ticket already satisfies");
+                    }
+                    self.start(seed, Task::ticket("fetched for an ask", true), generation);
+                }
+                Job::Refresh(generation) => {
+                    if self.refreshes < MAX_REFRESHES {
+                        self.refreshes += 1;
+                        self.start(seed, Task::ticket("refreshed", false), generation);
+                    }
+                }
+                Job::Done(_, current, _) => self.stale_replies += u64::from(!current),
+                Job::Wait(_) | Job::Stop => {}
+            }
+        }
+
+        fn reply(&mut self, rng: &mut Rng) {
+            if self.in_flight.is_empty() {
+                return;
+            }
+            let at = rng.below(self.in_flight.len() as u64) as usize;
+            let Request { generation, task } = self.in_flight.remove(at);
+            let reply = task.ticket.map(|_| {
+                if rng.below(6) == 0 {
+                    json!({ "ok": false, "error": { "code": "carrier.unavailable" } })
+                } else {
+                    self.issued += 1;
+                    json!({ "ok": true, "ticket": format!("g{generation}-{}", self.issued), "expires_at": self.now_ms / 1000 + 300 })
+                }
+            });
+            self.core.finished(Done { generation, client: (), task, reply, took: Duration::ZERO });
+        }
+    }
+
+    #[test]
+    fn random_interleavings_keep_one_request_per_want_and_no_older_ticket() {
+        let (mut handed, mut refused, mut wanted, mut stale) = (0, 0, 0, 0);
+        for seed in 0..SEEDS {
+            let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+            let mut model = Model::new();
+            for _ in 0..STEPS {
+                let step = rng.below(12);
+                model.trace.push(format!(
+                    "step {step}: generation {} want {} fetching {} warm {} answered {} in flight {}",
+                    model.core.generation,
+                    model.core.want,
+                    model.core.fetching,
+                    model.core.warm.is_some(),
+                    model.core.answered.is_some(),
+                    model.in_flight.len()
+                ));
+                match step {
+                    0 if model.asker.is_none() && model.pending.is_none() => {
+                        model.ask(seed, Instant::now());
+                    }
+                    1 => {
+                        if let Some(started) = model.asker {
+                            model.ask(seed, started);
+                        }
+                    }
+                    2 => model.hand_out(seed),
+                    3 if rng.below(4) == 0 => model.leave(),
+                    4 => model.core.note_resume(),
+                    5 if rng.below(3) == 0 => model.core.bind(rng.below(2) == 0),
+                    6..=8 => model.fetch_step(seed),
+                    9 | 10 => model.reply(&mut rng),
+                    11 => model.now_ms += rng.below(120_000),
+                    _ => {}
+                }
+            }
+            handed += model.handed;
+            refused += model.refused_stale;
+            wanted += model.wanted;
+            stale += model.stale_replies;
+        }
+        // Every path the invariants guard was driven, many times over.
+        let reached = [
+            ("tickets handed out", handed),
+            ("replies refused at the hand-out as stale", refused),
+            ("ticket requests for asks", wanted),
+            ("requests answered after their generation ended", stale),
+        ];
+        for (what, count) in reached {
+            assert!(count >= SEEDS / 10, "the model reached {what} only {count} times");
+        }
+    }
 }
