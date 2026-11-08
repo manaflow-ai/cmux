@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agentPane.savedPrompts": {
+      "comment": "Settings row title: the named prompts the agent chat's / menu offers",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الموجّهات المحفوظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sačuvani upiti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gemte prompts"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gesicherte Prompts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved Prompts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts guardados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts enregistrés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt salvati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保存したプロンプト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបញ្ចូលដែលបានរក្សាទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "저장한 프롬프트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lagrede prompter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapisane prompty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts salvos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сохранённые запросы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พรอมต์ที่บันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kayıtlı istemler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Збережені запити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lời nhắc đã lưu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已保存的提示词"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已儲存的提示詞"
+          }
+        }
+      }
+    },
+    "settings.agentPane.savedPrompts.help": {
+      "comment": "Settings row help for Saved Prompts; /name is typed as is, {{date}} {{time}} {{folder}} {{branch}} are variable names and stay untranslated",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موجّهات تعرضها قائمة / في كل محادثة: اسم ونصه. كتابة ‎/name‎ تضع النص في مربع الكتابة، مع ملء {{date}} و{{time}} و{{folder}} و{{branch}}."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upiti koje nudi meni / u svakom chatu: naziv i njegov tekst. Upisivanje /name upisuje tekst u polje za pisanje, uz popunjene {{date}}, {{time}}, {{folder}} i {{branch}}."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts, som /-menuen i hver chat tilbyder: et navn og dets tekst. Når du skriver /name, indsættes teksten i skrivefeltet med {{date}}, {{time}}, {{folder}} og {{branch}} udfyldt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts, die das /-Menü jedes Chats anbietet: ein Name und sein Text. /name schreibt den Text ins Eingabefeld, mit {{date}}, {{time}}, {{folder}} und {{branch}} ausgefüllt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompts every chat's / menu offers: a name and its text. Typing /name writes the text into the composer, with {{date}}, {{time}}, {{folder}} and {{branch}} filled in."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts que ofrece el menú / de cada chat: un nombre y su texto. Escribir /name pone el texto en el editor, con {{date}}, {{time}}, {{folder}} y {{branch}} rellenados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts proposés par le menu / de chaque chat : un nom et son texte. Taper /name écrit le texte dans le champ de saisie, avec {{date}}, {{time}}, {{folder}} et {{branch}} remplis."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt offerti dal menu / di ogni chat: un nome e il suo testo. Digitare /name scrive il testo nel campo di composizione, con {{date}}, {{time}}, {{folder}} e {{branch}} compilati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "各チャットの / メニューに出るプロンプト(名前と本文)。/name と入力すると本文が入力欄に入り、{{date}}、{{time}}、{{folder}}、{{branch}} は自動で埋まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបញ្ចូលដែលម៉ឺនុយ / ក្នុងការជជែកនីមួយៗផ្ដល់ជូន៖ ឈ្មោះ និងអត្ថបទរបស់វា។ ការវាយ /name សរសេរអត្ថបទចូលប្រអប់សរសេរ ដោយបំពេញ {{date}}, {{time}}, {{folder}} និង {{branch}}។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 채팅의 / 메뉴에 나오는 프롬프트: 이름과 본문. /name을 입력하면 본문이 입력란에 들어가며 {{date}}, {{time}}, {{folder}}, {{branch}}는 자동으로 채워집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompter som /-menyen i hver chat tilbyr: et navn og teksten. Når du skriver /name, settes teksten inn i skrivefeltet med {{date}}, {{time}}, {{folder}} og {{branch}} fylt ut."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompty oferowane przez menu / w każdym czacie: nazwa i jej tekst. Wpisanie /name wstawia tekst do pola wpisywania z wypełnionymi {{date}}, {{time}}, {{folder}} i {{branch}}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts que o menu / de cada chat oferece: um nome e seu texto. Digitar /name escreve o texto no campo de escrita, com {{date}}, {{time}}, {{folder}} e {{branch}} preenchidos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запросы, которые предлагает меню / в каждом чате: название и текст. Ввод /name вставляет текст в поле ввода, а {{date}}, {{time}}, {{folder}} и {{branch}} заполняются сами."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พรอมต์ที่เมนู / ของทุกแชตเสนอให้: ชื่อและข้อความ การพิมพ์ /name จะใส่ข้อความลงในช่องพิมพ์ โดยเติม {{date}}, {{time}}, {{folder}} และ {{branch}} ให้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her sohbetin / menüsünün sunduğu istemler: bir ad ve metni. /name yazmak metni yazma alanına koyar; {{date}}, {{time}}, {{folder}} ve {{branch}} doldurulur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запити, які пропонує меню / у кожному чаті: назва і текст. Введення /name вставляє текст у поле введення, а {{date}}, {{time}}, {{folder}} і {{branch}} заповнюються самі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các lời nhắc mà menu / của mọi cuộc trò chuyện đưa ra: một tên và nội dung. Gõ /name sẽ ghi nội dung vào ô soạn, với {{date}}, {{time}}, {{folder}} và {{branch}} được điền sẵn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个聊天的 / 菜单提供的提示词:名称及其文本。输入 /name 会把文本写入输入框,并填好 {{date}}、{{time}}、{{folder}} 和 {{branch}}。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個聊天的 / 選單提供的提示詞:名稱及其文字。輸入 /name 會把文字寫入輸入框,並填好 {{date}}、{{time}}、{{folder}} 和 {{branch}}。"
+          }
+        }
+      }
+    },
     "settings.choice.groupPalettePictorial": {
       "comment": "Group Colors choice: colors from the desktop picture by place",
       "extractionState": "manual",

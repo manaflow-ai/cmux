@@ -1,0 +1,71 @@
+/* The Stashed chip (StashedChip.tsx) in the composer's quiet row. It takes the row's free middle
+   after the mode chip, as the machine link does (machineLinkStatus.css), so the model chip and the
+   ring keep their place. Always drawn: with nothing stashed its fold has no width and takes no
+   pointer, so the first stash opens it in place and nothing else in the row moves. The motion
+   variables follow the page's motion gate; with motion off the fold opens in one frame. */
+.acpmux-composer-foot.acpmux-composer-foot > .acpmux-stash {
+  order: -1;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.acpmux-composer-foot:has(> .acpmux-stash[data-shown]):not(:has(> .acpmux-machine-link)) > .acpmux-stash {
+  margin-inline-end: auto;
+}
+.acpmux-composer-foot:has(> .acpmux-stash[data-shown]):not(:has(> .acpmux-machine-link)) .acpmux-access {
+  margin-inline-end: 0;
+}
+.acpmux-stash-fold {
+  display: grid;
+  grid-template-columns: 0fr;
+  min-width: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-columns var(--agent-motion-out, 120ms) var(--agent-ease-out, ease-out),
+    opacity var(--agent-motion-out, 120ms) var(--agent-ease-out, ease-out),
+    visibility 0s linear var(--agent-motion-out, 120ms);
+}
+.acpmux-stash[data-shown] .acpmux-stash-fold {
+  grid-template-columns: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+.acpmux-stash-fold > * {
+  min-width: 0;
+  overflow: hidden;
+}
+.acpmux-stash-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--agent-muted);
+  white-space: nowrap;
+}
+.acpmux-stash-glyph {
+  flex: none;
+}
+.acpmux-stash-count {
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-stash-menu {
+  max-width: min(420px, var(--available-width, 420px));
+}
+.acpmux-stash-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.acpmux-stash-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-stash-files {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption, 11px);
+}

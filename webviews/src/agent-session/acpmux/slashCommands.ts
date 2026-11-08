@@ -14,8 +14,11 @@ export type SlashCommand = {
   /** A pane string that replaces `description`, for commands cmux owns. */
   descriptionKey?: StringKey;
   hint?: string;
-  /** Where the command came from. Harness commands are the default for old snapshots. */
-  source?: "agent" | "cmux" | "skill" | "prompt";
+  /** Where the command came from. Harness commands are the default for old snapshots. `saved`: one
+   *  of the person's saved prompts (savedPrompts.ts), which a pick writes out as `body`. */
+  source?: "agent" | "cmux" | "skill" | "prompt" | "saved";
+  /** A saved prompt's text. */
+  body?: string;
 };
 
 /// One menu row: the command and the ranges of its name the query matched.
@@ -385,9 +388,14 @@ export const goesAsText = (command: SlashCommand) => command.source === "skill" 
 /// The menu's rows for `trigger`: every command at the prompt's start, the ones that go as text
 /// mid-prompt.
 export function slashMatches(commands: readonly SlashCommand[], trigger: SlashTrigger): SlashMatch[] {
+  // A saved prompt is written out where it is picked, so it is offered mid-prompt too.
   return trigger.leading
     ? matchCommands([...commands], trigger.query)
-    : matchCommands(commands.filter(goesAsText), trigger.query, false);
+    : matchCommands(
+        commands.filter((command) => goesAsText(command) || command.source === "saved"),
+        trigger.query,
+        false,
+      );
 }
 
 /// Whether Return picks `match`, the menu's highlighted row, for `query` (the typed word without its
@@ -399,7 +407,9 @@ export function returnPicks(match: SlashMatch | undefined, query: string, arrowe
   if (!match) return false;
   const name = shownName(match.command);
   const typed = query.replace(/^\$/, "");
-  if (name === typed && (!match.command.hint || match.command.source === "cmux")) return false;
+  // A saved prompt typed in full is still picked: `/standup` alone means its text, never the word.
+  if (name === typed && match.command.source !== "saved" && (!match.command.hint || match.command.source === "cmux"))
+    return false;
   return arrowed || name.toLowerCase().startsWith(typed.toLowerCase());
 }
 

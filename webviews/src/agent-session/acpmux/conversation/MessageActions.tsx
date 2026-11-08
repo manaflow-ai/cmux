@@ -20,6 +20,7 @@ import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { RowReplyButton } from "./SelectionReply";
+import { SavePromptButton } from "./SavePromptButton";
 import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
 import { retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -340,6 +341,7 @@ export function PromptActions({
       <MessageCopy text={text} />
       {promptRetry && <PromptRetry rowId={row.id} prompt={prompt} />}
       <PinButton rowId={row.id} bookmark />
+      <SavePromptButton text={prompt} />
     </MessageFooterRow>
   );
   return (
@@ -398,6 +400,7 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <PinButton rowId={row.id} />
         <ReadAloudButton id={row.id} text={text} />
         <RowReplyButton text={text} />
+        <SavePromptButton text={text} />
         <MessageMore rowId={row.id} />
       </span>
       <ReplyTime at={row.at} />

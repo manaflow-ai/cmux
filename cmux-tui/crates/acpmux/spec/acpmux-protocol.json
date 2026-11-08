@@ -507,6 +507,30 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/prompts_list",
+      "params": {
+        "$ref": "#/types/PromptsListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/prompts_save",
+      "params": {
+        "$ref": "#/types/PromptsSaveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/prompts_delete",
+      "params": {
+        "$ref": "#/types/PromptsDeleteParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -4549,6 +4573,36 @@
           "type": "string"
         }
       ]
+    },
+    "PromptsDeleteParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "name": true
+      },
+      "type": "object"
+    },
+    "PromptsListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        }
+      },
+      "type": "object"
+    },
+    "PromptsSaveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "name": true,
+        "text": true
+      },
+      "type": "object"
     },
     "ProtocolParams": {
       "additionalProperties": false,

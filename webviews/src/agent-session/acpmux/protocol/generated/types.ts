@@ -991,6 +991,21 @@ export interface ProcessTailParams {
 /** What another agent's message asks of the session it goes to. */
 export type PromptClass = ("block" | "question" | "result" | "fyi");
 
+export interface PromptsDeleteParams {
+  _meta?: RequestMeta;
+  name?: unknown;
+}
+
+export interface PromptsListParams {
+  _meta?: RequestMeta;
+}
+
+export interface PromptsSaveParams {
+  _meta?: RequestMeta;
+  name?: unknown;
+  text?: unknown;
+}
+
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;
 

@@ -234,6 +234,12 @@ keyed! {
     ProcessListParams: ["sessionId", "cursor", "limit"];
     /// `_acpmux/process/tail`.
     ProcessTailParams: ["sessionId", "processId", "fromByte", "maxBytes"];
+    /// `_acpmux/prompts_delete`.
+    PromptsDeleteParams: ["name"];
+    /// `_acpmux/prompts_list`.
+    PromptsListParams: [];
+    /// `_acpmux/prompts_save`.
+    PromptsSaveParams: ["name", "text"];
     /// `_acpmux/queue_approve`.
     QueueApproveParams: ["sessionId", "promptId", "turnId", "revision"];
     /// `_acpmux/queue_decline`.

@@ -545,6 +545,11 @@ pub mod method {
     pub const MUX_COMPOSERS: &str = "_acpmux/composers";
     pub const MUX_BOOKMARK_GET: &str = "_acpmux/bookmark_get";
     pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
+    /// The person's saved prompts: list them (with the read-only ones the settings file names),
+    /// save one, or delete one (`prompts.rs`).
+    pub const MUX_PROMPTS_LIST: &str = "_acpmux/prompts_list";
+    pub const MUX_PROMPTS_SAVE: &str = "_acpmux/prompts_save";
+    pub const MUX_PROMPTS_DELETE: &str = "_acpmux/prompts_delete";
     pub const MUX_ASK: &str = "_acpmux/ask";
     /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
     /// cheap model, sent the question; answers with its session id at once.

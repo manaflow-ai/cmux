@@ -32,6 +32,9 @@ extension AgentPaneComposerSetting {
     /// `agentPane.newChatsIn`: Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
     public nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
     public nonisolated static let newChatsInDefault: AgentPaneNewChatPlace = .local
+    /// `agentPane.savedPrompts`: Saved prompts by name (webviews/src/agent-session/acpmux/savedPrompts.ts). acpmux reads them at each list (crates/acpmux/src/prompts.rs) beside the ones Save as Prompt keeps in its own store; a saved one of the same name wins.
+    public nonisolated static let savedPromptsPath = ["agentPane", "savedPrompts"]
+    public nonisolated static let savedPromptsDefault: JSONValue = .object([:])
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -157,6 +160,16 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 ]),
                 default: .string(AgentPaneComposerSetting.newChatsInDefault.rawValue),
                 keywords: ["cloud", "new chat", "start", "machine", "vm", "remote", "this mac", "local", "run"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.savedPromptsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.savedPrompts", "Saved Prompts"),
+                help: SettingsText.keyed("settings.agentPane.savedPrompts.help", "Prompts every chat's / menu offers: a name and its text. Typing /name writes the text into the composer, with {{date}}, {{time}}, {{folder}} and {{branch}} filled in."),
+                kind: .stringMap,
+                default: AgentPaneComposerSetting.savedPromptsDefault,
+                keywords: ["prompt", "prompts", "saved", "snippet", "template", "library", "slash", "composer", "agent"]
             ),
         ]
     }

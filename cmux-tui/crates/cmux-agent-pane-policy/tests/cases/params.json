@@ -1096,6 +1096,86 @@
   "breaks": true
  },
  {
+  "name": "_acpmux/prompts_list every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_list",
+   "params": {}
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/prompts_list with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_list",
+   "params": {
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/prompts_save every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_save",
+   "params": {
+    "name": 1,
+    "text": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/prompts_save with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_save",
+   "params": {
+    "name": 1,
+    "text": 1,
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/prompts_delete every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_delete",
+   "params": {
+    "name": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/prompts_delete with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_delete",
+   "params": {
+    "name": 1,
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
   "name": "_acpmux/bookmark_get with another param breaks",
   "frame": {
    "jsonrpc": "2.0",

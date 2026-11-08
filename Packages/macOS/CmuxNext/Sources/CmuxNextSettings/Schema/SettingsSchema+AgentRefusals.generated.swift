@@ -186,5 +186,7 @@ extension SettingsSchema {
         "browser.passwords.allowExport": .privacy,
         // The person decides whether cmux reads verification emails.
         "browser.verificationAutofill.enabled": .privacy,
+        // Saved prompts are the person's own words, sent to agents as prompts; an agent does not write them.
+        "agentPane.savedPrompts": .userOnly,
     ]
 }

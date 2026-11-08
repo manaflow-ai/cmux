@@ -1,0 +1,47 @@
+/* Save as Prompt's popover (SavePromptButton.tsx): a name field, one line that says what the name
+   types (or why the save was refused), and Cancel and Save at its end. The line keeps its height
+   whatever it says, so the buttons never move while the person types. */
+.cv-save-prompt-popover {
+  width: min(300px, var(--available-width, 300px));
+  padding: 10px;
+}
+.cv-save-prompt-form {
+  display: grid;
+  gap: 6px;
+}
+.cv-save-prompt-label {
+  display: grid;
+  gap: 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption, 11px);
+}
+.cv-save-prompt-input {
+  min-width: 0;
+  height: 26px;
+  padding-inline: 8px;
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-edge, currentColor);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--agent-text, inherit);
+  font: inherit;
+  font-size: var(--text-control, 13px);
+}
+.cv-save-prompt-note {
+  min-height: 16px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-caption, 11px);
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-save-prompt-note[data-tone="error"] {
+  color: var(--agent-danger, currentColor);
+  white-space: normal;
+}
+.cv-save-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

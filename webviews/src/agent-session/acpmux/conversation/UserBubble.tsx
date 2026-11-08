@@ -46,6 +46,7 @@ import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, PromptRetry } from "./MessageActions";
+import { SavePromptButton } from "./SavePromptButton";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
 import { NO_RETRY_TARGET, retryPlacement } from "./turns";
@@ -307,6 +308,7 @@ export function UserBubble({
               {retry}
               {forkButton}
               <PinButton rowId={row.id} bookmark />
+              <SavePromptButton text={resend} />
             </MessageFooterRow>
           </UserFooter>
         )}

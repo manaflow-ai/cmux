@@ -56,6 +56,7 @@ const READS = new Set([
   "_acpmux/subsession/list",
   "_acpmux/workflows",
   "_acpmux/bookmark_get",
+  "_acpmux/prompts_list",
   "_acpmux/send_status",
   "_acpmux/process/list",
   "_acpmux/process/tail",

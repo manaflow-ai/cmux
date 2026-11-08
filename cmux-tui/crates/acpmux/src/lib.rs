@@ -126,6 +126,7 @@ pub mod prompt_class;
 pub mod prompt_context;
 pub mod prompt_provenance;
 pub mod prompt_uploads;
+pub mod prompts;
 pub mod protected_folders;
 pub mod protocol;
 pub mod qos;

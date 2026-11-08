@@ -88,6 +88,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
+        "_acpmux/prompts_list": ([], []),
+        "_acpmux/prompts_save": (["name", "text"], []),
+        "_acpmux/prompts_delete": (["name"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
         // `queue.stale` on another one; direct.ts answerHeld names both).
