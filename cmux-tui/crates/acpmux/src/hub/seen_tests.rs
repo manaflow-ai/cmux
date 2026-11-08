@@ -1,0 +1,73 @@
+use super::*;
+
+async fn chat() -> (Arc<Hub>, Arc<Session>) {
+    use crate::config::{Config, StoreMode};
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
+    let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    (hub, s)
+}
+
+/// The newest mux `status` record that says the chat was read.
+fn last_read(hub: &Hub, s: &Session) -> Option<Value> {
+    let events = hub.store.events(&s.id, 0, 10_000).unwrap();
+    events
+        .into_iter()
+        .rev()
+        .find(|e| e.dir == "mux" && e.kind == "status" && e.msg["read"] == json!(true))
+        .map(|e| e.msg)
+}
+
+#[tokio::test]
+async fn coming_back_says_where_the_person_left_off_and_how_many_turns_ended() {
+    let (hub, s) = chat().await;
+    hub.attach_count(&s, 1, true);
+    hub.append(&s, "mux", "note", json!({"seen": true}));
+    let left_at = s.seq.load(Ordering::SeqCst);
+    hub.attach_count(&s, -1, true);
+    assert_eq!(s.meta().seen_seq, Some(left_at), "leaving keeps the seq the person saw");
+
+    // Two turns end while nobody shows it; records in between move no mark.
+    for _ in 0..2 {
+        hub.append(&s, "mux", "note", json!({"seen": false}));
+        hub.mark_unread_unless_work_below(&s);
+    }
+    let meta = s.meta();
+    assert!(meta.unread);
+    assert_eq!(meta.unread_turns, 2);
+    assert_eq!(meta.seen_seq, Some(left_at), "only a hide moves the mark");
+
+    hub.attach_count(&s, 1, true);
+    let read = last_read(&hub, &s).expect("showing it logs the read status");
+    assert_eq!(read["since"], json!(left_at));
+    assert_eq!(read["turns"], json!(2));
+    let meta = s.meta();
+    assert!(!meta.unread);
+    assert_eq!(meta.unread_turns, 0, "seeing it clears the count");
+}
+
+#[tokio::test]
+async fn a_hidden_client_moves_no_mark_and_a_chat_never_left_has_no_since() {
+    let (hub, s) = chat().await;
+    // An agent's hidden hold is not a person looking.
+    hub.attach_count(&s, 1, false);
+    hub.attach_count(&s, -1, false);
+    assert_eq!(s.meta().seen_seq, None);
+
+    hub.mark_unread_unless_work_below(&s);
+    hub.attach_count(&s, 1, false);
+    hub.set_visible(&s, true);
+    let read = last_read(&hub, &s).expect("showing it logs the read status");
+    assert_eq!(read["since"], Value::Null, "no person left it before");
+    assert_eq!(read["turns"], json!(1));
+
+    // Hiding it through `_acpmux/view` keeps the mark too.
+    let before = s.seq.load(Ordering::SeqCst);
+    hub.set_visible(&s, false);
+    assert_eq!(s.meta().seen_seq, Some(before));
+}

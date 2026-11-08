@@ -428,6 +428,8 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            seen_seq: None,
+            unread_turns: 0,
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,

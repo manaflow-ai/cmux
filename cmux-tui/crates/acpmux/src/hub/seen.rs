@@ -3,6 +3,13 @@
 //! never says counts as showing it (the TUI, `acpmux attach`). A turn that
 //! ends while no attached client shows the chat leaves it `unread`, and
 //! showing it is seeing it, so every client draws the same dot.
+//!
+//! Where the person left off (Leo, 2026-11-08: "go think of things/look at things, esp valuable
+//! things that people would think \"wow this is awesome\""): when the last client showing the
+//! chat stops, its log seq is kept as `seen_seq`, and each turn that ends unseen counts in
+//! `unread_turns`. Showing it again logs the `read` status with both (`since`, `turns`), so a
+//! client draws "New since you looked" above the first record after `since`. Both are kept in
+//! `session.json` and change once per hide, show or turn, never per record.
 
 use super::*;
 
@@ -12,6 +19,7 @@ impl Hub {
     pub fn attach_count(&self, session: &Session, delta: i32, visible: bool) {
         // A client letting go starts the idle period; one arriving resets it.
         self.touch(session);
+        let was_shown = self.shown(session);
         let n = delta.unsigned_abs() as usize;
         if delta > 0 {
             session.attached.fetch_add(n, Ordering::SeqCst);
@@ -27,6 +35,7 @@ impl Hub {
                 let _ = session.hidden.fetch_update(Ordering::SeqCst, Ordering::SeqCst, less);
             }
         }
+        self.left_off(session, was_shown);
         // Leaving the chat or coming back to it (`away_recap.rs`).
         self.recap_visibility(session);
         // The git watch follows the chats clients hold (`git_watch.rs`).
@@ -37,6 +46,7 @@ impl Hub {
 
     /// An attached client starts or stops showing the chat.
     pub fn set_visible(&self, session: &Session, visible: bool) {
+        let was_shown = self.shown(session);
         let less = |v: usize| Some(v.saturating_sub(1));
         if visible {
             let _ = session.hidden.fetch_update(Ordering::SeqCst, Ordering::SeqCst, less);
@@ -44,8 +54,28 @@ impl Hub {
         } else {
             session.hidden.fetch_add(1, Ordering::SeqCst);
         }
+        self.left_off(session, was_shown);
         self.recap_visibility(session);
         self.events.changed();
+    }
+
+    /// The last client showing the chat stopped: the person has seen it up to its newest record.
+    fn left_off(&self, session: &Session, was_shown: bool) {
+        if !was_shown || self.shown(session) {
+            return;
+        }
+        let seq = session.seq.load(Ordering::SeqCst);
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let changed = meta.seen_seq.replace(seq) != Some(seq);
+        drop(meta);
+        if changed {
+            self.save_meta(session);
+        }
+    }
+
+    /// A turn ended while no client showed the chat: one more for the sidebar's count.
+    pub(super) fn count_unread_turn(meta: &mut crate::store::SessionMeta) {
+        meta.unread_turns = meta.unread_turns.saturating_add(1);
     }
 
     /// Some attached client shows the chat, so a turn ending now is seen.
@@ -89,19 +119,33 @@ impl Hub {
         saved
     }
 
-    /// The person saw the chat: clears `unread` and tells every client.
+    /// The person saw the chat: clears `unread` and its count, and tells every client where they
+    /// left off (`since`, none when no person left it before) and how many turns ended since.
     fn mark_seen(&self, session: &Session) {
         let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         let was_unread = std::mem::replace(&mut meta.unread, false);
+        let turns = std::mem::take(&mut meta.unread_turns);
+        let since = meta.seen_seq;
         drop(meta);
-        if was_unread {
+        if was_unread || turns > 0 {
             self.save_meta(session);
+        }
+        if was_unread {
             self.append(
                 session,
                 "mux",
                 "status",
-                json!({"status": session.status().to_string(), "read": true}),
+                json!({
+                    "status": session.status().to_string(),
+                    "read": true,
+                    "since": since,
+                    "turns": turns,
+                }),
             );
         }
     }
 }
+
+#[cfg(test)]
+#[path = "seen_tests.rs"]
+mod tests;

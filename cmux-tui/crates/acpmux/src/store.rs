@@ -309,6 +309,14 @@ pub struct SessionMeta {
     /// A turn ended while no client was attached.
     #[serde(default)]
     pub unread: bool,
+    /// The log seq the person had seen when they last stopped showing the chat (`hub/seen.rs`):
+    /// where "New since you looked" goes when they come back. Set once per hide, never per
+    /// record; None until a person has shown and left it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_seq: Option<u64>,
+    /// Turns that ended unseen since the person last showed the chat (the sidebar's count).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unread_turns: u64,
     /// The Claude conversation acpmux started with a fresh id has not
     /// finished a turn, so Claude may never have stored it (a launcher that
     /// died before the prompt reached Claude stores nothing). A respawn (a

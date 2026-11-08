@@ -206,6 +206,9 @@ pub struct SessionSummary {
     pub tags: Value,
     pub state_seq: u64,
     pub unread: bool,
+    /// Turns that ended while no client showed the chat, since a person last showed it
+    /// (`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.
+    pub unread_turns: u64,
     #[schemars(with = "Option<LastTurn>")]
     pub last_turn: Option<Value>,
     /// The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
