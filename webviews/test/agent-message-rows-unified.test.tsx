@@ -382,6 +382,52 @@ test("a lane batch's hover counts a preview-only delivery as its thread's whole 
   expect(list.total).toBe(7);
 });
 
+// Review of #37653: the "Received N messages" hover is newest first by when each message came
+// (an inbox message's `at`, else its row's), not by the rows' order reversed: a notice lists its
+// threads in its own order, which is not the messages' age.
+test("a lane batch's hover lists its messages newest first by their time, not their order", async () => {
+  const { hoverMessages } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+  const notice: InboxNotice = {
+    threads: [
+      {
+        threadId: "pr:1",
+        label: "#1",
+        from: ["vm/lane-a"],
+        count: 1,
+        preview: "",
+        blocker: false,
+        promptIds: ["a1"],
+        messages: [{ promptId: "a1", from: "vm/lane-a", text: "newest, listed first", at: 50 }],
+      },
+      {
+        threadId: "pr:2",
+        label: "#2",
+        from: ["vm/lane-b"],
+        count: 1,
+        preview: "",
+        blocker: false,
+        promptIds: ["b1"],
+        messages: [{ promptId: "b1", from: "vm/lane-b", text: "oldest, listed last", at: 10 }],
+      },
+    ],
+  };
+  const row: AcpmuxRow = { id: "inbox-time", version: 1, at: 99, kind: "user", incoming: { kind: "inbox", notice } };
+  const children = flattenInboxRows([row]).filter((r) => r.incoming?.kind === "message");
+  const messages = children.map((r) => (r.incoming?.kind === "message" ? r.incoming.message : undefined));
+  const list = hoverMessages(
+    messages,
+    children.map(() => undefined),
+    children.map((r) => r.at),
+  );
+  expect(list.messages.map((m) => m.text)).toEqual(["newest, listed first", "oldest, listed last"]);
+  // Rows with no message time sort by their own: the later row first, a tie by order.
+  const one = (name: string, text: string): IncomingMessage => ({ name, text, raw: "" });
+  expect(
+    hoverMessages([one("a", "late"), one("b", "early"), one("c", "tie")], [], [30, 10, 30]).messages.map((m) => m.text),
+  ).toEqual(["tie", "late", "early"]);
+});
+
 test("a sender named only by its record's session still opens its chat", async () => {
   const opened: string[] = [];
   const notice: InboxNotice = {
