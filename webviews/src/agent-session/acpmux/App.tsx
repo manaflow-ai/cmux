@@ -5362,6 +5362,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The started chat's folder: the session's, else the one picked before the first send.
   // A peer's (SSH, Cloud) folder is a path on that machine: the host's workspace gets none.
   const remoteChat = Boolean(snapshot.summary?.peer) || snapshot.summary?.hostKind === "cloud";
+  // The repo tour's offer and Start (repoTour/) only for a chat on this Mac: not a peer's or Cloud
+  // chat, and not one whose page talks to another machine's acpmux (chatMachine.ts `elsewhere`).
+  const tourHere = !remoteChat && snapshot.origin !== "remote" && snapshot.origin !== "peer";
   quickCwd.current = remoteChat ? undefined : (snapshot.summary?.cwd ?? projectDraft);
   useEffect(flushOpenInWindow, [snapshot.sessionId]);
   useEscapeToDismiss(quick, () => {
@@ -9589,7 +9592,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const tourOffered = useMemo(
     () =>
       Boolean(heroPicker) &&
-      !remoteChat &&
+      tourHere &&
       !cloudPicked &&
       sandbox.mode !== "sandboxed" &&
       offersTour({
@@ -9602,7 +9605,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
     [
       heroPicker,
-      remoteChat,
+      tourHere,
       cloudPicked,
       sandbox.mode,
       tourCwd,
@@ -9634,7 +9637,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const startTourTask = useCallback(async (task: TourTask) => {
     const client = directClient.current;
     const summary = snapshotRef.current?.summary;
-    if (!client || !summary?.cwd) throw new Error(translate("error.notOpen"));
+    const origin = snapshotRef.current?.origin;
+    if (!client || !summary?.cwd || origin === "remote" || origin === "peer") throw new Error(translate("error.notOpen"));
     const { root } = await newWorktree(callNative, summary.cwd, () => undefined);
     return client.startTask(root, task.prompt, {
       harness: summary.harness,
@@ -11693,7 +11697,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     <AgentNamesContext.Provider value={chatAgentNames}>
                       <AgentOpenContext.Provider value={chatAgentOpen}>
                         <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                          <TourStartContext.Provider value={remoteChat ? undefined : startTourTask}>
+                          <TourStartContext.Provider value={tourHere ? startTourTask : undefined}>
                             {transcript}
                           </TourStartContext.Provider>
                         </BackgroundTaskOutputContext.Provider>
