@@ -41,7 +41,8 @@ def receipt_script():
 
 
 class Rerun(unittest.TestCase):
-    def invoke(self, status="completed", *, missing=False, error="", post_error=False):
+    def invoke(self, status="completed", *, missing=False, error="", post_error=False, conclusion=None,
+               event="issue_comment", action="created", review_state=""):
         self.assertIsNotNone(shutil.which("jq"), "this shell harness needs jq")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -66,11 +67,12 @@ class Rerun(unittest.TestCase):
                 sys.exit("unexpected API read or mutation: " + repr(args))
                 '''))
             gh.chmod(0o755)
-            runs = [] if missing else [{"id": 123, "status": status}]
+            runs = [] if missing else [{"id": 123, "status": status, "conclusion": conclusion}]
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
                    "REPO": REPO, "HEAD_SHA": HEAD, "CALL_LOG": str(log),
                    "RUNS": json.dumps({"workflow_runs": runs}), "API_ERROR": error,
-                   "POST_ERROR": "1" if post_error else "0"}
+                   "POST_ERROR": "1" if post_error else "0", "EVENT_NAME": event, "EVENT_ACTION": action,
+                   "REVIEW_STATE": review_state}
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", rerun_script()],
                                     env=env, text=True, capture_output=True, timeout=5)
             calls = [json.loads(line) for line in log.read_text().splitlines()]
@@ -82,6 +84,33 @@ class Rerun(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(calls), 2, calls)
         self.assertEqual(calls[1], ["api", "-X", "POST", f"repos/{REPO}/actions/runs/123/rerun"])
+
+    def test_red_run_is_rerun(self):
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            with self.subTest(conclusion=conclusion):
+                result, calls = self.invoke(conclusion=conclusion)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), 2, calls)
+
+    def test_green_run_is_not_rerun_by_a_receipt_or_approval(self):
+        for event, action, state in (("issue_comment", "created", ""), ("issue_comment", "edited", ""),
+                                     ("pull_request_review", "submitted", "approved"),
+                                     ("pull_request_review", "submitted", "commented"),
+                                     ("pull_request_review", "edited", "approved")):
+            with self.subTest(event=event, action=action, state=state):
+                result, calls = self.invoke(conclusion="success", event=event, action=action, review_state=state)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), 1, calls)
+                self.assertIn("already passed", result.stdout)
+
+    def test_green_run_is_rerun_when_a_review_can_take_approval_back(self):
+        for action, state in (("submitted", "changes_requested"), ("dismissed", "dismissed"),
+                              ("dismissed", "approved")):
+            with self.subTest(action=action, state=state):
+                result, calls = self.invoke(conclusion="success", event="pull_request_review", action=action,
+                                            review_state=state)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), 2, calls)
 
     def test_active_run_is_not_polled_or_rerun(self):
         for status in ("queued", "in_progress", "pending", "waiting", "requested"):
