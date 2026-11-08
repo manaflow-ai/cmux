@@ -17,10 +17,10 @@
 //! [`PUSHED_READ_DELAY`], at most [`MAX_PUSHED_READS`].
 
 use super::ops::{LINK_UNAVAILABLE, link_failure_for, starting};
-use cmux_cloud_wire::CloudMachineStatus;
 use crate::api::{CloudError, ControlPlane, Request};
 use crate::clock::Timer;
 use crate::ops::Server;
+use cmux_cloud_wire::CloudMachineStatus;
 use serde_json::Value;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
