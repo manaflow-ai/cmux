@@ -463,7 +463,9 @@ cmux agent plugin use|update|remove <name-or-id>
 cmux agent plugin use --builtin
 ```
 
-`agent list` puts blocked agents first, then working, then idle and done
+`agent list` lists the caller's session: its terminal agents and the acpmux
+chats created in its workspaces (`--all-sessions` for every session and every
+chat on the machine). It puts blocked agents first, then working, then idle and done
 (`--sort recent|none` for recency or the daemon's order). `--json` stays a bare
 array of agents; `--json --counts` adds the counts by state
 (`{"agents": [...], "counts": {...}}`).

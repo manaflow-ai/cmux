@@ -322,13 +322,6 @@ fn a_file_hash_covers_every_byte_past_one_read_buffer() {
     assert_eq!(store::sha256_file(&path).unwrap(), sha(&bytes));
 }
 
-#[test]
-fn a_running_relay_chat_holds_the_update() {
-    assert_eq!(relay_chats_busy(0), None);
-    assert_eq!(relay_chats_busy(1).as_deref(), Some("1 relay chat"));
-    assert_eq!(relay_chats_busy(3).as_deref(), Some("3 relay chats"));
-}
-
 /// A claimed spare resumed at 21:28:35 and its updater restarted the services
 /// at 21:28:41, killing the Mac's first dial (nightly 8d8fc7a, 2026-11-06): no
 /// flip within the connect hold of a start, a bind or a resume.

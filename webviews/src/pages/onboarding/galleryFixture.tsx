@@ -2,7 +2,6 @@
 import { useState } from "react";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
-import type { ImportLook } from "./ImportStep";
 import {
   agentsState,
   computerUseState,
@@ -22,17 +21,9 @@ export type OnboardingGalleryProps = {
   importer?: ImportFixture;
   computerUse?: ComputerUseFixture;
   look?: AgentsLook;
-  importLook?: ImportLook;
 };
 
-export function OnboardingGallery({
-  step = "agents",
-  agents,
-  importer,
-  computerUse,
-  look,
-  importLook,
-}: OnboardingGalleryProps) {
+export function OnboardingGallery({ step = "agents", agents, importer, computerUse, look }: OnboardingGalleryProps) {
   const [store] = useState(() => {
     const state =
       step === "importData"
@@ -43,5 +34,5 @@ export function OnboardingGallery({
     return new OnboardingStore(new MockOnboardingProvider(step), state);
   });
   const [strings] = useState(() => createStrings(table));
-  return <OnboardingPage store={store} strings={strings} agentsLook={look} importLook={importLook} />;
+  return <OnboardingPage store={store} strings={strings} agentsLook={look} />;
 }
