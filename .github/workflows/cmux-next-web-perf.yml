@@ -86,7 +86,7 @@ jobs:
         working-directory: webviews
         run: |
           set +e
-          bun scripts/latency/run.ts --ci --no-fail --engine chromium --page chat --runs 10 --base "$BASE_SHA" \
+          bun scripts/latency/run.ts --ci --no-fail --engine chromium --pages "chat flows,chat 3000 paged,chat 3000 resident,chat rail" --runs 10 --base "$BASE_SHA" \
             --trace-dir "$RUNNER_TEMP/web-perf-traces" \
             --json "$RUNNER_TEMP/web-perf-results.json" --require longTasks,reactCommits,cpu
           status=$?

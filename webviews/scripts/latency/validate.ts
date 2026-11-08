@@ -188,9 +188,12 @@ function parseEvidence(
     errors.push("source.base must be a full commit SHA");
   if (
     !source ||
-    !["git@github.com:manaflow-ai/cmux.git", "https://github.com/manaflow-ai/cmux.git"].includes(
-      source.repository ?? "",
-    )
+    // actions/checkout sets origin to https://github.com/manaflow-ai/cmux, with no .git suffix.
+    ![
+      "git@github.com:manaflow-ai/cmux.git",
+      "https://github.com/manaflow-ai/cmux.git",
+      "https://github.com/manaflow-ai/cmux",
+    ].includes(source.repository ?? "")
   )
     errors.push("source.repository must identify manaflow-ai/cmux");
   if (options.expectedHead && source?.head !== options.expectedHead)

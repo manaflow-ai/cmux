@@ -6,6 +6,7 @@ import path from "node:path";
 import { formatReport } from "../scripts/latency/report";
 import { validateEvidence, type BudgetConfig } from "../scripts/latency/validate";
 import { captureBaseline } from "../scripts/latency/bootstrap";
+import { PAGES } from "./latency/actions";
 
 const budget: BudgetConfig = {
   minRuns: 10,
@@ -313,4 +314,24 @@ test.each(["probe", "adapter"])("every %s cadence run must contribute a nonempty
     run.frameGaps = [];
   });
   expect(validateEvidence(candidate, baseline(8), cadenceBudget).ok).toBe(false);
+});
+
+test("the gate workflow's --pages measure exactly the budget's expected cases", () => {
+  const workflow = fs.readFileSync(path.join(import.meta.dir, "../../.github/workflows/cmux-next-web-perf.yml"), "utf8");
+  const pages = workflow.match(/--pages "([^"]+)"/)?.[1].split(",") ?? [];
+  const budgetFile = JSON.parse(fs.readFileSync(path.join(import.meta.dir, "latency/budget.json"), "utf8"));
+  const cases = PAGES.filter((spec) => pages.includes(spec.name)).flatMap((spec) =>
+    spec.actions.map((action) => `chromium/${spec.name}/${action.id ?? action.name}`),
+  );
+  expect(cases.sort()).toEqual([...budgetFile.expectedCases].sort());
+});
+
+test("a checkout's origin without the .git suffix is accepted as manaflow-ai/cmux", () => {
+  const candidate = evidence();
+  candidate.source = { ...source, repository: "https://github.com/manaflow-ai/cmux" };
+  const result = validateEvidence(candidate, baseline(), budget, { expectedHead: source.head });
+  expect(result.errors.filter((error: string) => error.includes("repository"))).toEqual([]);
+  candidate.source = { ...source, repository: "https://github.com/someone/cmux" };
+  const forked = validateEvidence(candidate, baseline(), budget, { expectedHead: source.head });
+  expect(forked.errors).toContain("source.repository must identify manaflow-ai/cmux");
 });

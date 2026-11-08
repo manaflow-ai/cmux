@@ -39,6 +39,7 @@ export function parseOptions(args: string[]) {
       [
         "--runs",
         "--page",
+        "--pages",
         "--action",
         "--engine",
         "--cpu-throttle",
@@ -82,6 +83,9 @@ export function parseOptions(args: string[]) {
     idleMs,
     required,
     pageFilter: values.get("--page"),
+    // Exact page names, comma separated: the trusted gate measures exactly its budget's pages, where
+    // --page's substring match would also pick up pages like "chat rail pointer".
+    pageNames: values.get("--pages")?.split(",").map((name) => name.trim()),
     actionFilter: values.get("--action"),
     engineFilter: values.get("--engine"),
     base: values.get("--base"),
@@ -262,14 +266,16 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   const options = parseOptions(args);
   if (options.help) {
     console.log(
-      "latency [--ci] [--no-fail] [--engine chromium|webkit] [--runs N] [--json PATH] [--page FILTER] [--action FILTER] [--idle-ms N] [--base REF] [--require longTasks,reactCommits,cpu,wakeups,trace] [--cpu-throttle N] [--dev]",
+      "latency [--ci] [--no-fail] [--engine chromium|webkit] [--runs N] [--json PATH] [--page FILTER] [--pages NAME,NAME] [--action FILTER] [--idle-ms N] [--base REF] [--require longTasks,reactCommits,cpu,wakeups,trace] [--cpu-throttle N] [--dev]",
     );
     return 0;
   }
   const engines = ENGINES.filter(([name]) => !options.engineFilter || name === options.engineFilter);
   const selectedEngines = engines.map(([name]) => name);
   const specs = PAGES.filter(
-    (spec) => !options.pageFilter || spec.name.includes(options.pageFilter) || spec.path.includes(options.pageFilter),
+    (spec) =>
+      (!options.pageFilter || spec.name.includes(options.pageFilter) || spec.path.includes(options.pageFilter)) &&
+      (!options.pageNames || options.pageNames.includes(spec.name)),
   ).map((spec) => ({
     ...spec,
     actions: spec.actions.filter((action) => !options.actionFilter || action.name.includes(options.actionFilter)),
