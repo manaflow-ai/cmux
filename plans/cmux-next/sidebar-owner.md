@@ -1715,3 +1715,12 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   `Metrics.dividerThickness` straight, so it stayed under borders none; it now goes through `Metrics.lineWidth`, and
   the glass specular rim (`GlassRimView`) through `Borders.width`. Look change only under borders none: no group
   header edge and no glass rim. Sidebar-Look: Leo 2026-11-07, "the blocky without border kinda vibe".
+
+## Session-tree host groups use the drawn workspace projection (2026-10-30)
+
+Leo: "i feel like there's still a big mess of uncategorized stuff in the sidebar", "i mean we dont want to be too opinionated by defgault", "im saying for my particular sidebar there's a lot of wack stuff there". The existing opt-in session tree groups its loose agent workspaces by their existing tab host, with a foldable host header and a count that includes folded descendants. A live parent in this window wins across machines; a loose child also follows a visible parent inside a user group. Explicit child group placement is retained. The real layout and shortcut order share this projection; the unbound remote-lane feed no longer filters children. No default or row title/subtitle changes. `SidebarSessionHostTests` exercises feed-to-layout lineage, parent absence, cross-machine lineage, folds, explicit groups and the disabled state.
+
+- Follow-up geometry: host regrouping keeps the drop gap attached to its logical insertion slot, retains section and chat-history boundary spacing, and shifts Earlier by the final visible family extent; Pinned remains above the first host header.
+
+- Dragging preserves the host projection and row identity: synthetic headers remain during an open gap, workspace rows retain their document section and sibling index, and the drop reducer maps each drawn neighbor to its underlying document slot. Fleet children of Pinned/custom rows stay in their own machine group, preserving the section boundary.
+- Grouped drag halves resolve from the drawn family: a drop maps before the row or before its next drawn sibling, and a family mismatch refuses the gap. The ungrouped layout keeps its existing reducer path.
