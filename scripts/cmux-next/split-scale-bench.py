@@ -8,7 +8,7 @@ MANY WORKSPACES/PROCESSES THERE ARE." So the same gestures run in every cell of
   content     --contents            what every measured pane shows:
                 empty       a fresh terminal
                 scrollback  a terminal with --scrollback lines that keeps streaming output (about 2,000 lines/s)
-                browser     a Chromium page (perf-stress-session's page: a grid of cards, a spinner on rAF)
+                browser     a Chromium page that holds still: 2,500 laid-out cards with tables and text (HeavyPages)
                 chat        an agent chat with a --chat-turns turn transcript (seeded once, a copy per pane)
   workspaces  --workspaces 1,10,30  workspaces in the window, the measured one included (checked before each
                                     cell); every other one runs a terminal that prints a line every 20 ms
@@ -30,7 +30,8 @@ Per transition, from two recordings of the same gesture (split_scale_metrics.py 
                                   chat) settled is no earlier than the composited window's settled frame
   frame_p50/p95/max_ms, dropped   display-link frame intervals while anything moved (`debug.motion trace_*`)
   blank_frames, partial_frames    content one flat color neither before nor final; content still painting after
-                                  the panes landed
+                                  the panes landed (judged for empty, browser and chat panes; a streaming terminal
+                                  changes every frame, so its cells are timed by the layout and judged on blank only)
   retargets                       a mover that reversed or sped up again mid-flight
 
 Each number is the median over --rounds (blank, partial, retargets and frame max: the worst round). Targets: first
@@ -74,7 +75,7 @@ TRANSITIONS = ("split_right", "close_right", "split_down", "close_down", "bottom
                "divider_drag", "side_open", "side_close")
 CONTENTS = ("empty", "scrollback", "browser", "chat")
 # Content whose pixels hold still between inputs: its composited settle is judged too (split_scale_metrics.transition).
-STATIC_CONTENTS = ("empty", "chat")
+STATIC_CONTENTS = ("empty", "browser", "chat")
 CMD_D = {"key": "d", "modifiers": ["command"]}
 CMD_SHIFT_D = {"key": "d", "modifiers": ["command", "shift"]}
 CMD_W = {"key": "w", "modifiers": ["command"]}
@@ -174,6 +175,54 @@ def seed_chats(root, copies):
 
 
 # ---------------------------------------------------------------------------------------------
+# The browser content: a heavy page that holds still (thousands of laid-out cards, tables and long text, no animation),
+# so a pane that grows into an area its page has not painted yet shows as partial frames, not as page motion.
+
+class HeavyPages:
+    """Local pages for the browser panes, served from 127.0.0.1 (no network); `url()` and `close()` as
+    perf-stress-session's Pages, so Stress.add_tab opens them."""
+
+    def __init__(self):
+        cards = "".join(f"<div class='c'><b>Card {i}</b><p>{'lorem ipsum dolor sit amet ' * 6}</p>"
+                        f"<table>{'<tr><td>a</td><td>b</td><td>c</td></tr>' * 3}</table></div>" for i in range(2500))
+        self.body = ("<!doctype html><meta charset='utf-8'><title>split-scale heavy page</title>"
+                     "<style>body{margin:0;font:14px -apple-system,sans-serif;background:#eef0f4}"
+                     ".g{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;padding:12px}"
+                     ".c{border-radius:8px;padding:8px;background:linear-gradient(135deg,#c9d4e8,#e8d4c9);"
+                     "box-shadow:0 1px 3px #0003}td{border:1px solid #9ab;padding:2px}</style>"
+                     f"<div class='g'>{cards}</div>").encode()
+        self.server = None
+        self.next = 0
+
+    def url(self):
+        import http.server
+        import threading
+        if self.server is None:
+            body = self.body
+
+            class Handler(http.server.BaseHTTPRequestHandler):
+                def do_GET(self):  # noqa: N802
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+
+                def log_message(self, *args):
+                    pass
+            self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+        self.next += 1
+        return f"http://127.0.0.1:{self.server.server_address[1]}/{self.next}"
+
+    def close(self):
+        if self.server is not None:
+            self.server.shutdown()
+            self.server.server_close()
+            self.server = None
+
+
+# ---------------------------------------------------------------------------------------------
 # The app.
 
 class Run:
@@ -188,6 +237,7 @@ class Run:
         while not self.app.ping() and time.monotonic() < deadline:
             time.sleep(0.5)  # test script: the app's socket answers once it runs
         self.stress = STRESS.Stress(lambda m, p=None, timeout=60: self.rpc(m, p, timeout), log=say, busy_where="elsewhere")
+        self.stress.pages = HeavyPages()
 
     def rpc(self, method, params=None, timeout=40):
         try:
@@ -207,6 +257,8 @@ class Run:
         return {"error": answer["error"]} if answer.get("error") else answer.get("result")
 
     def end(self):
+        if getattr(self, "stress", None):
+            self.stress.pages.close()
         bm.end_bundle(APP)
         if self.scratch:
             shutil.rmtree(self.scratch, ignore_errors=True)
@@ -237,18 +289,34 @@ def grid(stress, workspace, count):
     return columns
 
 
+def show_tab(run, workspace, pane, kinds):
+    """Selects `pane`'s newest tab of `kinds` (tab.focus) and waits until the pane shows it: a tab that exists but is
+    not selected is not what the cell measures."""
+    stress = run.stress
+    tab = STRESS.wait(lambda: next((t.get("id") for t in reversed(stress.tabs(workspace, pane))
+                                    if t.get("kind") in kinds and not STRESS.provisional(t)), None), 20, step=0.1)
+    if not tab:
+        raise RuntimeError(f"no {sorted(kinds)} tab in pane {pane}")
+    stress.action("tab.focus", target=f"tab:{tab}", focus=False)
+    if not STRESS.wait(lambda: any(t.get("id") == tab and t.get("selected") for t in stress.tabs(workspace, pane)), 10, step=0.05):
+        raise RuntimeError(f"pane {pane} never showed its {sorted(kinds)} tab {tab}")
+
+
 def fill(run, workspace, pane, content, chats):
-    """Puts `content` in `pane`; returns what it started (a busy terminal's tab id, the chat id)."""
+    """Puts `content` in `pane`, shown (its selected tab); returns what it started (a busy terminal's tab id, the chat
+    id)."""
     stress = run.stress
     if content == "empty":
         return None
     if content == "browser":
         stress.add_tab(workspace, pane, "chromium")
+        show_tab(run, workspace, pane, STRESS.topology_kinds("chromium", False))
         return None
     if content == "scrollback":
         tab = next((t.get("id") for t in stress.settled_tabs(workspace, pane) if t.get("kind") == "terminal"), None)
-        if tab:
-            stress.send(tab, SCROLL_COMMAND.format(n=opts.scrollback))
+        if not tab:
+            raise RuntimeError(f"pane {pane} has no terminal for the scrollback")
+        stress.send(tab, SCROLL_COMMAND.format(n=opts.scrollback))
         return tab
     chat = chats.pop() if chats else None
     if not chat:
@@ -256,40 +324,42 @@ def fill(run, workspace, pane, content, chats):
     reply = stress.action("agent.openSessionTab", {"session": chat}, target=f"pane:{pane}", focus=False)
     if isinstance(reply, dict) and reply.get("error"):
         raise RuntimeError(f"agent.openSessionTab: {str(reply['error'])[:300]}")
-    STRESS.wait(lambda: any(t.get("kind") == "conversation" for t in stress.tabs(workspace, pane)), 20, step=0.1)
+    show_tab(run, workspace, pane, {"conversation"})
     return chat
 
 
-def background(run, count):
-    """Makes the window hold `count` - 1 workspaces besides the measured one (the launch workspace is one of them),
-    each with a terminal that prints a line every 20 ms."""
+def background(run, count, measured):
+    """Makes the window hold exactly `count` workspaces, `measured` among them: the others (the launch workspace is
+    one) each run a terminal that prints a line every 20 ms; extra ones are closed, missing ones made. Checks the
+    count before the cell is measured."""
     stress = run.stress
     busy = getattr(run, "busy_workspaces", set())
-    while True:
-        workspaces = [w["id"] for w in stress.workspaces()]
-        for workspace in workspaces:
-            if workspace in busy:
-                continue
-            pane = STRESS.wait(lambda w=workspace: (stress.panes(stress.workspace(w)) or [{}])[0].get("id"), 20)
-            tab = next((t.get("id") for t in stress.settled_tabs(workspace, pane) if t.get("kind") == "terminal"), None)
-            if not tab:
-                raise RuntimeError(f"background workspace {workspace} has no terminal to keep busy")
-            stress.make_busy(tab)
-            busy.add(workspace)
-        if len(workspaces) >= count - 1:
+    for _ in range(count + 8):
+        others = [w["id"] for w in stress.workspaces() if w["id"] != measured]
+        if len(others) > count - 1:
+            extra = next((w for w in others if w not in busy), others[-1])
+            stress.action("closeWorkspace", target=f"workspace:{extra}", focus=False)
+            STRESS.wait(lambda: stress.workspace(extra) is None, 15, step=0.1)
+            busy.discard(extra)
+        elif len(others) < count - 1:
+            if not stress.new_workspace():
+                raise RuntimeError(f"no background workspace {len(others) + 1}: {stress.refusals[-2:]}")
+        else:
             break
-        if not stress.new_workspace():
-            raise RuntimeError(f"no background workspace {len(workspaces) + 1}: {stress.refusals[-2:]}")
+    for workspace in others:
+        if workspace in busy:
+            continue
+        pane = STRESS.wait(lambda w=workspace: (stress.panes(stress.workspace(w)) or [{}])[0].get("id"), 20)
+        tab = next((t.get("id") for t in stress.settled_tabs(workspace, pane) if t.get("kind") == "terminal"), None)
+        if not tab:
+            raise RuntimeError(f"background workspace {workspace} has no terminal to keep busy")
+        stress.make_busy(tab)
+        busy.add(workspace)
     run.busy_workspaces = busy
-    if len(workspaces) != count - 1:
-        raise RuntimeError(f"the window has {len(workspaces)} workspaces before the measured one, not {count - 1}")
-
-
-def check_workspaces(run, count):
-    """The cell's window holds exactly `count` workspaces, the measured one among them."""
-    have = len(run.stress.workspaces())
+    have = len(stress.workspaces())
     if have != count:
         raise RuntimeError(f"the cell has {have} workspaces, not {count}")
+    stress.show(measured)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -482,7 +552,6 @@ def main():
         STRESS.place_window(run.rpc)
         time.sleep(4)  # test script: launch work ends before the first cell
         for count in WORKSPACES:
-            background(run, count)
             for splits in SPLITS:
                 for content in WANTED_CONTENTS:
                     cell = f"s{splits}-{content}-w{count}"
@@ -490,7 +559,7 @@ def main():
                     workspace = None
                     try:
                         workspace, columns = build_cell(run, splits, content, chats)
-                        check_workspaces(run, count)
+                        background(run, count, workspace)
                         run_cell(run, workspace, columns, results, cell, content)
                     except (Exception, SystemExit) as error:  # noqa: BLE001 - a cell that fails is its record; the next runs
                         results["errors"][cell] = f"{type(error).__name__}: {str(error)[:500]}"
