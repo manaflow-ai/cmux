@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42450517714",
+  "recorded_at": "2026-11-08T05:29:02Z",
+  "reason": "cmux-tui 1cad10e9ab6e changes the image's cmux-tui (pinned 935bc62e76ff)",
+  "dry_run": false,
+  "cmux_tui": "1cad10e9ab6ead2e85fbacc747f453ddae9f2bcf",
+  "fixes": [
+    {
+      "sha": "1cad10e9ab6ead2e85fbacc747f453ddae9f2bcf",
+      "mergedAt": "2026-11-07T21:08:16-08:00",
+      "subject": "cmux share chat --view-only: agent.share takes role and signedInRole (#38214)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T05:29:02Z",
+    "snapshot_id": "sh-fc4d6f325a844ac3ac7ec5009eff5d49",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42450517714): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d96c7313a741c1b8afa5ae3c5733deebe72ac9c5",
+    "image": "cloud-native-auto-1cad10e9-42450517714-1",
+    "revision": "ci-42450517714-1",
+    "at": "2026-11-08T05:29:02Z"
+  },
+  "rolled_back": false
+}
