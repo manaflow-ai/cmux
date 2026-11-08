@@ -509,10 +509,15 @@ def build_cell(run, splits, content, chats):
 
 
 def close_cell(run, workspace):
+    """Closes the cell's workspace; returns why it stayed, or None. A workspace left behind is background load the
+    next cells never asked for, so the caller records it as the cell's error (the run cannot pass)."""
     run.stress.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
+    left = None
     if not STRESS.wait(lambda: run.stress.workspace(workspace) is None, 15, step=0.1):
-        say(f"split-scale: closeWorkspace left {workspace}: {run.stress.refusals[-2:]}")
+        left = f"closeWorkspace left {workspace}: {run.stress.refusals[-2:]}"
+        say(f"split-scale: {left}")
     time.sleep(1)  # test script: the close's own work ends before the next cell builds
+    return left
 
 
 # ---------------------------------------------------------------------------------------------
@@ -597,7 +602,9 @@ def main():
                         results["errors"][cell] = f"{type(error).__name__}: {str(error)[:500]}"
                         say(f"split-scale: {cell} did not finish: {results['errors'][cell]}")
                     if workspace:
-                        close_cell(run, workspace)
+                        left = close_cell(run, workspace)
+                        if left:
+                            results["errors"][cell] = results["errors"].get(cell) or f"cleanup: {left}"
     finally:
         try:
             finish(results)  # before teardown: a teardown that stalls never loses the run
