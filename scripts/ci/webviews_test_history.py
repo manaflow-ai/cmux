@@ -223,38 +223,39 @@ def newest(listing: object, branch: str) -> dict | None:
     return best
 
 
-def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dict], str]:
-    """(the newest history a push on BRANCH uploaded, what was read): two requests, the list and the download. Any
-    failure is an empty history and says why; a missing history only means no flakes."""
+def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dict], str, bool]:
+    """(the newest history a push on BRANCH uploaded, what was read, whether it was read): two requests, the list and
+    the download. Any failure is an empty history that says why and was not read; a missing history only means no
+    flakes, and counts as read."""
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     query = urllib.parse.urlencode({"name": ARTIFACT, "per_page": LIST_PAGE})
     try:
         status, _, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
         if status != 200:
-            return [], f"listing the {ARTIFACT} artifacts answered {status}"
+            return [], f"listing the {ARTIFACT} artifacts answered {status}", False
         found = newest(json.loads(body), branch)
         if found is None:
-            return [], f"no {ARTIFACT} artifact from a push on {branch}"
+            return [], f"no {ARTIFACT} artifact from a push on {branch}", True
         status, headers, body = get(str(found.get("archive_download_url") or ""), token)
         if status in (301, 302, 303, 307, 308):
             location = headers.get("Location") or headers.get("location") or ""
             status, _, body = get(location, None) if location.startswith("https://") else (status, {}, b"")
         if status != 200:
-            return [], f"downloading {ARTIFACT} {found.get('id')} answered {status}"
+            return [], f"downloading {ARTIFACT} {found.get('id')} answered {status}", False
         if len(body) > MAX_BYTES:
-            return [], f"{ARTIFACT} {found.get('id')} is over {MAX_BYTES} bytes"
+            return [], f"{ARTIFACT} {found.get('id')} is over {MAX_BYTES} bytes", False
         with zipfile.ZipFile(io.BytesIO(body)) as archive:
             info = archive.getinfo(ARTIFACT_FILE)
             if info.file_size > MAX_BYTES:
-                return [], f"{ARTIFACT} {found.get('id')}'s {ARTIFACT_FILE} is over {MAX_BYTES} bytes"
+                return [], f"{ARTIFACT} {found.get('id')}'s {ARTIFACT_FILE} is over {MAX_BYTES} bytes", False
             data = json.loads(archive.read(info))
     except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
-        return [], f"reading the {ARTIFACT} artifact failed: {error}"
+        return [], f"reading the {ARTIFACT} artifact failed: {error}", False
     runs = data.get("runs") if isinstance(data, dict) else None
     if not isinstance(runs, list):
-        return [], f"{ARTIFACT} {found.get('id')} holds no runs"
+        return [], f"{ARTIFACT} {found.get('id')} holds no runs", False
     run = found.get("workflow_run") or {}
-    return runs, f"{ARTIFACT} {found.get('id')} from run {run.get('id')} ({str(run.get('head_sha') or '')[:12]})"
+    return runs, f"{ARTIFACT} {found.get('id')} from run {run.get('id')} ({str(run.get('head_sha') or '')[:12]})", True
 
 
 def main(argv: list[str]) -> int:
@@ -277,13 +278,15 @@ def main(argv: list[str]) -> int:
     fe.add_argument("out")
     fe.add_argument("--repo", required=True)
     fe.add_argument("--branch", required=True)
+    fe.add_argument("--need-read", action="store_true",
+                    help="exit 1 when the history could not be read (a missing one is fine): a push then saves none")
     args = parser.parse_args(argv)
     if args.command == "fetch":
-        found, said = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"))
+        found, said, read = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"))
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps({"runs": found}, separators=(",", ":")) + "\n", encoding="utf-8")
         print(f"webview test history: {len(found)} push runs ({said})")
-        return 0
+        return 1 if args.need_read and not read else 0
     if args.command == "inputs":
         print(inputs(args.root))
         return 0
