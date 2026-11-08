@@ -129,6 +129,21 @@ fn a_registry_file_on_another_machine_stays_there_unread() {
 }
 
 #[test]
+fn a_file_named_like_pathspec_magic_carries_only_itself() {
+    let src = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(
+        src.path(),
+        "printf 'x\\n' > ':(glob)**' && printf 'SECRET=1\\n' > .env && mkdir -p keys \\
+         && printf 'k\\n' > keys/id_ed25519",
+    );
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    assert_eq!(carry.files, 1, "only the oddly named file: {:?}", carry.left_out);
+    let patch = String::from_utf8_lossy(&carry.patch);
+    assert!(!patch.contains("SECRET") && !patch.contains("id_ed25519"), "{patch}");
+}
+
+#[test]
 fn a_head_that_moves_between_the_two_reads_refuses() {
     let src = tempfile::tempdir().unwrap();
     repo(src.path());

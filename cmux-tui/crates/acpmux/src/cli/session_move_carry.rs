@@ -77,6 +77,8 @@ s=$(mktemp -d) || exit 2
 trap 'rm -rf -- "$s"' EXIT
 if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2; fi
 GIT_INDEX_FILE="$s/index"; export GIT_INDEX_FILE
+# Every path is a file name, never pathspec magic: `:(glob)**` must not add the secrets left out.
+GIT_LITERAL_PATHSPECS=1; export GIT_LITERAL_PATHSPECS
 g() { git -c core.fsmonitor=false -c core.quotepath=false "$@"; }
 g add --update -- . || exit 3
 if [ -n "$keep" ]; then
