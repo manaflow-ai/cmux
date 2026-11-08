@@ -16,8 +16,10 @@ function pathOf(value: unknown): string | undefined {
 }
 
 function inScope(path: string, scope: string): boolean {
-  if (path === scope || path.startsWith(`${scope}/`)) return true;
-  return !scope.startsWith("/") && (path.endsWith(`/${scope}`) || path.includes(`/${scope}/`));
+  const normalizedScope = scope.replace(/\/+$/, "");
+  if (path === normalizedScope || path.startsWith(`${normalizedScope}/`)) return true;
+  return !normalizedScope.startsWith("/") &&
+    (path.endsWith(`/${normalizedScope}`) || path.includes(`/${normalizedScope}/`));
 }
 
 function areaOf(path: string): string {
