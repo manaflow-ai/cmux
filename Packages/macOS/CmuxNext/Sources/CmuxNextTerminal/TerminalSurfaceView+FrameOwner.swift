@@ -125,8 +125,11 @@ extension TerminalSurfaceView {
               size != frameOwnership.wanted?.size else { return }
         let pixels = convertToBacking(size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
+        // A size drawn ahead that no frame showed yet: a key press retargeted the spring (its turn draws the next refresh
+        // ahead again), and that size's frame will not show.
+        let replacing = frameOwnership.ahead != nil
         frameOwnership.ahead = size
-        updateSurfaceSize(drawingAhead: true)
+        updateSurfaceSize(drawingAhead: true, replacingAhead: replacing)
     }
 
     /// A frame just landed short of the wanted size and its spring gave it the next refresh's size this turn: that size

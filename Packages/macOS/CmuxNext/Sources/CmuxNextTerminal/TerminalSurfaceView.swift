@@ -487,7 +487,10 @@ public final class TerminalSurfaceView: NSView {
     ///   8, item 0: a tab switch mid-hold sent 99x34, then 80x44).
     /// - Parameter drawingAhead: The call gives Ghostty a size drawn ahead (``applyAhead()``): the shown frame did not
     ///   change, so the copy-mode cursor box stays.
-    func updateSurfaceSize(forceReport: Bool = false, justShown: Bool = false, drawingAhead: Bool = false) {
+    /// - Parameter replacingAhead: That size replaces a size drawn ahead whose frame will not show (a key press retargeted
+    ///   the spring): its grid goes at once (``TerminalGridReporter/coalesced(_:waitsForRefresh:replacesUnshown:)``).
+    func updateSurfaceSize(forceReport: Bool = false, justShown: Bool = false, drawingAhead: Bool = false,
+                           replacingAhead: Bool = false) {
         guard let surface else { return }
         // Not shown (made, hidden or parked): no size and no report now; the view sizes and reports once it
         // is shown (`syncWindowState`), a forced report included.
@@ -545,7 +548,7 @@ public final class TerminalSurfaceView: NSView {
             gridReports.drag(report, shownNow: frameOwnership.inFlight == nil)
         } else {
             // A key spring's grid: the size asked of Ghostty, coalesced; a just-shown view's waits for the refresh.
-            gridReports.coalesced(report, waitsForRefresh: justShown)
+            gridReports.coalesced(report, waitsForRefresh: justShown, replacesUnshown: replacingAhead)
         }
     }
 
