@@ -169,6 +169,13 @@ fn a_screen_blocker_seen_by_another_plugin_does_not_clear_a_hook_block() {
     assert_eq!(state(&roster), "blocked");
 }
 
+#[test]
+fn a_retired_terminal_forgets_its_screen_evidence() {
+    let mut roster = denied_with_esc();
+    assert!(roster.retire_terminal(TERMINAL));
+    assert!(roster.screen_evidence.is_empty());
+}
+
 /// The real-build repro: Esc 0.3 s after the dialog drew, before the plugin's
 /// next scan, so the plugin never reported the blocker. Its next report is
 /// the idle prompt box, which no dialog shows.
