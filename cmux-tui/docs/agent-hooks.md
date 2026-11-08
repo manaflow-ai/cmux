@@ -14,10 +14,11 @@ cmux agent hook status
 
 Hook reports outrank the screen-detection plugin for 30 s, with one
 exception: a blocked state ends when the screen proves the dialog gone, after
-the hook reported it. The proof is the plugin seeing the dialog and then not,
-or the plugin seeing the agent's own idle prompt (a dismissal faster than its
-scan). Claude Code sends no hook when a permission dialog is dismissed with
-Esc, so the screen is the only evidence that the agent stopped waiting.
+the hook reported it. The proof is one plugin process seeing the dialog and
+then not (a restarted plugin starts with no such proof), or the plugin seeing
+the agent's own idle prompt (a dismissal faster than its scan). Claude Code
+sends no hook when a permission dialog is dismissed with Esc, so the screen is
+the only evidence that the agent stopped waiting.
 
 ## Agents in a tmux session started elsewhere
 
@@ -43,10 +44,18 @@ Claude Code started in a cmux-tui terminal gets the session's hooks even when
 config directory and passes its own `--settings` (for example a proxy or
 account-switching launcher).
 
-At startup the server writes a `claude` shim to
-`$XDG_DATA_HOME/cmux-tui/shims/claude` (default
-`~/.local/share/cmux-tui/shims/claude`) and puts that directory first on each
-terminal's `PATH`. The shim runs `cmux-tui agent claude-wrapper`, which:
+At startup the server writes `claude` and `codex` shims to a folder of its
+own build, `$XDG_DATA_HOME/cmux-tui/builds/<key>/shims` (default
+`~/.local/share/cmux-tui/builds/<key>/shims`), and puts that folder first on
+each terminal's `PATH` and in `CMUX_TUI_AGENT_SHIMS`. The key is a hash of the
+build's resolved executable path, so two installs on one machine (the npm
+package, the app, a dev build) never run each other's wrapper, and two
+daemons of one build share the folder. The server also points each
+terminal's `CMUX_TUI_HOOK` at its own build's helper: the `cmux-tui-hook`
+beside its executable, else `builds/<key>/bin/cmux-tui-hook`, a launcher that
+runs the executable's hook mode. The shared `cmux-tui/bin/cmux-tui-hook` that
+`agent hook install` writes is not used for these terminals. The shim runs
+`cmux-tui agent claude-wrapper`, which:
 
 1. Finds the next `claude` on `PATH`, skipping the shim.
 2. Folds every `--settings` argument, inline JSON or a file, into one private
@@ -80,10 +89,13 @@ another name that look up `claude` on PATH are not affected.
 
 With `agent hook install claude` also in place and its `cmux-tui-hook`
 helper present, both copies use the same command, and Claude Code runs it
-once. When the wrapper finds no helper (neither the installed copy nor one
-beside the cmux-tui binary), its hooks call `cmux-tui agent hook emit`
-instead. If `CMUX_TUI_HOOK` still names a working helper in that case, the
-installed hooks run as well and each event is delivered twice.
+once. The wrapper keeps a `CMUX_TUI_HOOK` it inherits when that is an
+absolute path to an executable file other than the shared installed helper
+(the terminal's own build helper, or one you set for a launch). Otherwise it
+uses its own build's helper. When it cannot write that helper, its hooks call
+`cmux-tui agent hook emit` instead. If `CMUX_TUI_HOOK` still names a working
+helper in that case, the installed hooks run as well and each event is
+delivered twice.
 
 ## Codex without an install
 
