@@ -45,8 +45,9 @@ public struct AgentTabMap<Value>: Sequence {
     public var values: [Value] { Array(storage.values) }
     public var entries: [(key: AgentTabKey, value: Value)] { storage.map { (key: $0.key, value: $0.value) } }
     public static func duplicateIDs(_ keys: [AgentTabKey]) -> Set<String> {
+        // Distinct machines only: one tab listed twice (its page and its tree's row) is not a duplicate.
         var counts: [String: Int] = [:]
-        keys.forEach { counts[$0.key, default: 0] += 1 }
+        Set(keys).forEach { counts[$0.key, default: 0] += 1 }
         return Set(counts.compactMap { $0.value > 1 ? $0.key : nil })
     }
     public func relaunchEntries(_ duplicateIDs: Set<String>) -> [String: Value] {
