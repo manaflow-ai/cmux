@@ -49,7 +49,7 @@ export function CreateSheet({
       onOpenChange={(open) => !open && store.closeCreate()}
       label={t(L.createSheetTitle)}
       side="top"
-      className="cloud-create-sheet"
+      className="ui-glass ui-glass-floats cloud-create-sheet"
       backdropClassName="cloud-sheet-backdrop"
     >
       <h2 id="cloud-create-title" className="cloud-sheet-title">

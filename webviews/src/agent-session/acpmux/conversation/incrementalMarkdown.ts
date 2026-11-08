@@ -1,7 +1,7 @@
 // Incremental parsing of a streaming agent message. A delta only appends text, so every block
 // before the last safe boundary is final: it is parsed once, keeps its object (so a memoized block
 // never renders again) and its key. Only the tail after that boundary is parsed again.
-import { type MdBlock, parseMarkdown } from "./Markdown";
+import { type MdBlock, parseMarkdown } from "./markdownModel";
 import { fenceStep } from "./fenceRule";
 import { safeTail } from "./safeTail";
 

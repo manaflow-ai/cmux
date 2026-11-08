@@ -1089,6 +1089,13 @@ export type QueuedPromptSummary = {
   inboxNotice: unknown;
   prompt: string;
   promptId: string;
+  /**
+   * Its `_meta.provenance` when it names a sender that is no agent's to act on: another agent's
+   * message the person edited (`editedBy`, still that agent's words to read) or a prompt no
+   * proof attributes (`unverified`). An app draws its card from it while `fromAgent` is null.
+   * Null otherwise. Display only, never authority.
+   */
+  provenance: unknown;
   queuedAt: number;
   /** Its version for the owner's approval: 0 when queued, one more at each edit by its author. */
   revision: number;
