@@ -181,6 +181,24 @@ fn next_records_carry_creator_and_team() {
 }
 
 #[test]
+fn a_next_record_carries_when_a_paused_machine_is_deleted() {
+    let paused = next(json!({"id": "vm_p", "status": "paused", "evict_at": 1_800_000_000_000_i64}));
+    assert_eq!(paused.evict_at, Some(1_800_000_000_000.0));
+    // Warn mode or an older server: null or absent; a malformed value drops only itself.
+    for value in [json!(null), json!("soon"), json!(-1)] {
+        assert_eq!(
+            next(json!({"id": "vm_p", "status": "paused", "evict_at": value})).evict_at,
+            None
+        );
+    }
+    assert_eq!(next(json!({"id": "vm_p", "status": "paused"})).evict_at, None);
+    // The app's JSON (CloudMachine.swift `evictAt`) keeps it.
+    let text = serde_json::to_value(&paused).unwrap();
+    assert_eq!(text["evictAt"], 1_800_000_000_000.0);
+    assert_eq!(serde_json::from_value::<Machine>(text).unwrap(), paused);
+}
+
+#[test]
 fn the_record_carries_why_it_is_paused_and_its_idle_timeout() {
     let idle =
         classic(r#"{"id":"vm-1","status":"paused","pauseReason":"idle","idlePauseMinutes":30}"#);

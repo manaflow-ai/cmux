@@ -21,6 +21,9 @@
 //                                          least-squares slope over the checkpoints (0.1: no O(rows) work per token)
 //   transcript_replay.long.tool_output_ms  and .tool_output_slope_ms_per_krow: the same for a shell call's streamed
 //                                          output update
+//   transcript_replay.long.thought_ms      and .thought_slope_ms_per_krow: the same for a streamed thought token
+//   transcript_replay.long.tool_call_ms    and .tool_call_slope_ms_per_krow: the same for a read call's start or end
+//                                          (a new row, the bulk of an agent's turn)
 //   transcript_replay.long.heap_mb         JS heap after GC, the long log open, less the empty pane's (64 MB)
 //   (a check, not a row) each kind's cost at the largest checkpoint within GROWTH_FACTOR (1.5x) of the smallest's
 //   transcript_replay.long.idle_ms_per_s   main-thread ms per second once the replay has settled (1 ms/s: no idle CPU)
@@ -41,7 +44,18 @@ import { chromium, type Browser, type CDPSession, type Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow, TARGET_MS, type PerfRow } from "./perfRow";
-import { checkSeq, longLog, mockLogs, parseLog, recordedLog, rowsIn, slope, type ReplayLog } from "./replayLogs";
+import {
+  BURST_KINDS,
+  type BurstKind,
+  checkSeq,
+  longLog,
+  mockLogs,
+  parseLog,
+  recordedLog,
+  rowsIn,
+  slope,
+  type ReplayLog,
+} from "./replayLogs";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -463,6 +477,13 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
   }
 }
 
+/// Each burst kind as a budget line names one of its records.
+const BURST_NAMES: Record<BurstKind, string> = {
+  token: "reply token",
+  thought: "thought token",
+  tool_output: "tool output update",
+  tool_call: "tool call start or end",
+};
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor((values.length - 1) / 2)] ?? 0;
 const worst = (values: number[]) => Math.max(0, ...values);
 
@@ -532,7 +553,7 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
   }
   const longLive = lives.find((l) => l.log === "long");
   if (longLive) {
-    for (const kind of ["token", "tool_output"] as const) {
+    for (const kind of BURST_KINDS) {
       const points = longLive.bursts
         .filter((b) => b.kind === kind)
         .map((b) => ({ x: b.rows / 1000, y: b.msPerRecord }));
@@ -546,7 +567,7 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
           target: TARGET_MS.frameWork,
           floor: 0.5,
         },
-        `one ${kind === "token" ? "reply token" : "tool output update"} costs more main-thread time than a frame's work`,
+        `one ${BURST_NAMES[kind]} costs more main-thread time than a frame's work`,
       );
       const growth = Math.round(slope(points) * 1000) / 1000;
       row(
@@ -557,7 +578,7 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
           target: BUDGET.slope,
           floor: 0.05,
         },
-        `each ${kind === "token" ? "token" : "tool output update"} costs ${growth} ms more per 1000 rows already in the ` +
+        `each ${BURST_NAMES[kind]} costs ${growth} ms more per 1000 rows already in the ` +
           `transcript (${points.map((p) => `${Math.round(p.x * 1000)} rows: ${p.y} ms`).join(", ")}): O(rows) work per update`,
       );
       // The largest checkpoint against the smallest (`--checkpoints 11,110,1105`: 5,000 rows against
@@ -567,7 +588,7 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
       const factor = Math.round((largest.y / Math.max(smallest.y, 0.001)) * 100) / 100;
       if (points.length > 1 && factor > GROWTH_FACTOR)
         misses.push(
-          `BUDGET MISS ${kind} growth = ${factor}x (budget ${GROWTH_FACTOR}x): one ${kind === "token" ? "token" : "tool output update"} ` +
+          `BUDGET MISS ${kind} growth = ${factor}x (budget ${GROWTH_FACTOR}x): one ${BURST_NAMES[kind]} ` +
             `costs ${largest.y} ms at ${Math.round(largest.x * 1000)} rows against ${smallest.y} ms at ${Math.round(smallest.x * 1000)} rows`,
         );
     }
@@ -701,13 +722,17 @@ if (import.meta.main) {
           if (!note.includes(" 0.0000 ")) console.log(`  ${note}`);
         for (const burst of live?.bursts ?? [])
           console.log(`  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record`);
-        for (const kind of ["token", "tool_output"]) {
+        for (const kind of BURST_KINDS) {
           const profiled = (live?.bursts ?? []).filter((burst) => burst.kind === kind && burst.selfMs);
           if (profiled.length < 2) continue;
           const [first, last] = [profiled[0]!, profiled.at(-1)!];
           console.log(`  ${kind}: self ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
           for (const [fn, before, after] of grew(first.selfMs!, last.selfMs!))
             console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);
+          // And where a record's time goes at the largest checkpoint, growing or not.
+          console.log(`  ${kind}: most self ms per record at ${last.rows} rows`);
+          for (const [fn, ms] of [...last.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
+            console.log(`    ${ms.toFixed(3)}  ${fn}`);
         }
       } catch (error) {
         failed += 1;

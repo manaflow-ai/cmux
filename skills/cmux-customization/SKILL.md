@@ -131,8 +131,18 @@ top, so a block copies between the two:
 }
 ```
 
+- cmux ships an example, Harbor (`Resources/theme-files/harbor.json` in the app): the
+  sidebar's own glass, the terminal font, a painting behind the window and the pane
+  background, each through the keys below. It is in the Theme File list as `harbor`;
+  copy it to `~/.config/cmux/themes/harbor.json` to edit it (your file of the same
+  name wins over the shipped one).
+- A background picture may sit beside the theme: `"appearance.background":
+  "file:harbor.jpg"` (or `folder:walls`, or `file:~/Pictures/x.png`) resolves against
+  `~/.config/cmux/themes`, so a theme and its pictures move as one folder.
 - Only look settings apply (`appearance.*`, `ui.animation*`, `ui.calm`,
-  `browser.omnibar.glass*`, `app.uiScale`), each checked like `cmux settings set`.
+  `browser.omnibar.glass*`, `app.uiScale`, `terminal.fontFamily`,
+  `terminal.fontSize`, and the sidebar's `sidebar.style`, `sidebar.border`,
+  `sidebar.borderWidth` and `sidebar.sectionLook`), each checked like `cmux settings set`.
   A refused value or key is dropped with the toast settings use, naming the
   theme file and the key (`themes/tokyo.json: appearance.accent = "purple" was
   ignored: ...`); the rest still applies. Look keys up as in
