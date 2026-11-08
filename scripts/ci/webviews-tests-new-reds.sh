@@ -38,6 +38,23 @@ fi
 # shard's timeout and cancelling react-apps-check.
 if [ "${CMUX_WEB_TEST_SKIP_BASE:-}" = 1 ]; then
   echo "::notice title=Webview test base comparison::base comparison runs in the separate react-apps base job"
+  # The pull request's shard step is continue-on-error (ci-web.yml), so this exit reaches no one:
+  # react-apps-base-check judges only the reds the published head results name. A run that ends red
+  # and names none (an exit other than 1, or 1 with every recorded test passing) broke, and its results
+  # would pass there; publish none, so the base job fails on their absence (guards_new_reds.py).
+  reds=""
+  if [ -s "$work/head.json" ]; then
+    reds="$(python3 "$here/webviews_test_results.py" --failed-files "$work/head.json")" || reds=""
+  fi
+  if [ "$status" -ne 0 ] && { [ "$status" -ne 1 ] || [ -z "$reds" ]; }; then
+    if [ -n "$head_results" ]; then rm -f "$head_results"; fi
+    echo "::error title=Webview test run broke::the run exited $status naming no red the base job can judge;" \
+      "no head results are published, so react-apps-base-check fails"
+  elif [ -n "$reds" ]; then
+    count="$(grep -c . <<< "$reds")"
+    echo "::warning title=Webview test reds on this head::$count file$([ "$count" -eq 1 ] || echo s) red here," \
+      "judged by react-apps-base-check: $(head -n 10 <<< "$reds" | paste -sd, - | sed 's/,/, /g')"
+  fi
   exit "$status"
 fi
 # 0 is green; anything but 1 (one or more files red) is a broken run, never a base red.
@@ -55,17 +72,23 @@ done < <(python3 "$here/webviews_test_results.py" --failed-files "$work/head.jso
 echo "::group::the red files again on the base ($base_ref)"
 if [ -s "$work/files" ] && git worktree add -q --detach "$base_tree" "$base_ref" > /dev/null &&
   (cd "$base_tree/$prefix" && bun install --frozen-lockfile &&
-    # The base's own Playwright engines: a change that bumps Playwright would leave the base's
+    # The base's own Playwright WebKit: a change that bumps Playwright would leave the base's
     # browser tests red on a missing executable, and every head browser red would match them.
-    ./node_modules/.bin/playwright install --only-shell chromium webkit &&
+    # Chromium is the system Chrome (ensure-system-chrome.sh), never Playwright's bundled build.
+    # Never on a Mac outside GitHub Actions (no Playwright on Macs, run-webviews-tests.sh says why):
+    # there the runner skips the browser files, so the base needs no engine.
+    { { [ "${GITHUB_ACTIONS:-}" != true ] && [ "$(uname -s)" = Darwin ]; } ||
+      { ./node_modules/.bin/playwright install webkit && "$here/ensure-system-chrome.sh" --optional; }; } &&
     "$base_tree/scripts/cmux-next/build-web-bundles.sh" --force); then
   # Every red file runs, one at a time (the head's verdict is its retry alone; a retry here would
-  # only run it alone twice), whatever this job's shard. prScope.ts gets no changed files (in the base
+  # only run it alone twice), whatever this job's shard and whatever pool widths it set: an
+  # inherited CMUX_WEB_TEST_DEV_JOBS would run the red dev-server files 4 at once here. prScope.ts gets no changed files (in the base
   # checkout its `git diff HEAD^1` has no parent and would crash the file) and warns only: the
   # head's run already counted just the change's own findings, so the base's findings, all of
   # them unscoped, must not turn the same test red there and pass the change's off as old.
   (cd "$base_tree/$prefix" && CMUX_WEB_TEST_FILES="$(cat "$work/files")" CMUX_WEB_TEST_RESULTS="$work/base.json" CMUX_WEB_TEST_JOBS=1 CMUX_WEB_TEST_RETRIES=0 \
-    env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES CMUX_NEXT_STYLE_GUARDS=warn \
+    env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_WEB_TEST_DEV_JOBS -u CMUX_WEB_TEST_BROWSER_JOBS \
+      -u CMUX_PR_CHANGED_FILES CMUX_NEXT_STYLE_GUARDS=warn \
     bash "$here/run-webviews-tests.sh" > "$work/base.log" 2>&1) || true
   sed -n '/^### webviews tests:/,$p' "$work/base.log"
 elif [ -s "$work/files" ]; then

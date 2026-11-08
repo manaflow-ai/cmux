@@ -1,5 +1,7 @@
 /// Where a person's new tab goes when it is opened from an agent chat
-/// (lawrence-call-1006 D, two columns like the Codex app). The chat dock is
+/// (lawrence-call-1006 D, two columns like the Codex app). The rules that
+/// pick one are Rust's (cmux-tui/crates/cmux-window-rules `chat`); the app
+/// asks them through CmuxNextWindowRules. The chat dock is
 /// the left dock column with the agent chat role: tools opened from it are
 /// tabs in the scrolling strip. It shows its tab bar like every pane
 /// (cx-v4dmy).
@@ -29,48 +31,6 @@ public nonisolated enum ChatColumnPlacement: Equatable, Sendable {
     /// column right of it, whether or not the dock takes dragged tabs.
     case besideDock
 
-    /// `columns` are the screen's, in strip order; `recent` orders panes by
-    /// last focus, newest first; `isLoneChat` says whether a column is one
-    /// pane holding one agent chat. Only the role makes a chat dock: chats
-    /// in a plain dock or beside other columns are normal panes. A `zoomed`
-    /// screen shows only its zoomed pane, so nothing docks or moves. The
-    /// daemon keeps a dock without a scrolling column only when it is pinned
-    /// (Home's dock alone); its new tabs open in a new column beside it.
-    public nonisolated static func resolve(from pane: PaneID, columns: [LayoutColumn], recent: [PaneID] = [],
-                                              zoomed: Bool = false, isLoneChat: (LayoutColumn) -> Bool) -> ChatColumnPlacement {
-        guard !zoomed, let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return .here }
-        let column = columns[index]
-        let strip = columns.filter { $0.dock == nil }
-        if column.dock?.role == .agentChat {
-            guard let target = strip.first else { return column.dock?.isPinned == true ? .besideDock : .here }
-            return .tab(in: recent.first { id in strip.contains { $0.root.contains(id) } } ?? target.root.panes[0])
-        }
-        guard column.dock == nil, strip.count == 1, !columns.contains(where: { $0.dock?.role == .agentChat }),
-              isLoneChat(column) else { return .here }
-        return .dockChat
-    }
-
-    /// Whether a person's New Tab page from `pane` opens in `pane` itself although its new tabs go
-    /// elsewhere: `pane` is the chat dock (not Home's pinned one), the main pane. Leo 2026-10-30: "IF I'M
-    /// FOCUSED ON THE MAIN PANE OPEN IT THERE". The page is an agent tab, so the dock still holds only
-    /// agent tabs; what is picked on it opens beside the chat.
-    public nonisolated static func keepsNewTabPage(from pane: PaneID, columns: [LayoutColumn]) -> Bool {
-        guard let dock = columns.first(where: { $0.root.contains(pane) })?.dock else { return false }
-        return dock.role == .agentChat && !dock.isPinned
-    }
-
-    /// Where a terminal or browser picked on a New Tab page in `pane` opens: for a page in the chat dock
-    /// (``keepsNewTabPage(from:columns:)``), the strip pane its new tabs go to (the one used last, else the
-    /// first), whatever else the dock holds, the page alone included. Nil anywhere else (the pick takes the
-    /// page's place), and on a zoomed screen or a dock with no strip beside it.
-    public nonisolated static func pagePick(from pane: PaneID, columns: [LayoutColumn], recent: [PaneID] = [],
-                                            zoomed: Bool = false) -> PaneID? {
-        guard keepsNewTabPage(from: pane, columns: columns),
-              case .tab(let strip) = resolve(from: pane, columns: columns, recent: recent, zoomed: zoomed, isLoneChat: { _ in false })
-        else { return nil }
-        return strip
-    }
-
     /// `screen`'s columns in strip order. A screen stored as one split tree
     /// is one implicit column.
     public nonisolated static func columns(of screen: LayoutScreen, containing pane: PaneID) -> [LayoutColumn] {
@@ -93,21 +53,4 @@ public nonisolated enum NewChatPlacement: Equatable, Sendable {
     /// A new column right of the chat dock: Home's pinned dock alone on its screen
     /// (`pinned-dock-alone-v1`) takes no chat and has no scrolling pane beside it.
     case besideDock
-
-    /// `columns` are the pane's screen's; `isLoneChat` says the pane's column
-    /// is one pane holding one agent chat, the only scrolling column. A lone
-    /// chat docks when the first tool opens (``ChatColumnPlacement``), so a
-    /// second chat joins its pane.
-    public nonisolated static func resolve(from pane: PaneID, columns: [LayoutColumn], isLoneChat: Bool) -> NewChatPlacement {
-        guard columns.contains(where: { $0.root.contains(pane) }) else { return .here }
-        if let dock = columns.first(where: { $0.dock?.role == .agentChat }) {
-            if dock.dock?.isPinned != true { return .dock(dock.root.panes[0]) }
-            // `pinned-dock-v1`: a pinned chat dock (Home's) takes no new chat, even while it takes
-            // dragged tabs (`allow_tabs`). It opens where it was asked for, or in the first
-            // scrolling pane when that was the dock itself.
-            guard dock.root.contains(pane) else { return .here }
-            return columns.first(where: { $0.dock == nil }).map { NewChatPlacement.dock($0.root.panes[0]) } ?? .besideDock
-        }
-        return isLoneChat ? .here : .newDock
-    }
 }

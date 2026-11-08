@@ -6,7 +6,7 @@ name: cmux-next perf bench
 # (class exclusive) and fails when a cmux row regressed past
 # scripts/perf-bench/baseline/<chip>-macos<major>.json, or broke an enforced resource budget
 # (cmux-budget, scripts/perf-bench/budgets.json). It goes through the
-# build-fleet gateway runner (the one CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY names),
+# build-fleet gateway runner (the one CI_EVAL_STEP_GATEWAY names),
 # which only hands the step to the controller with `cmux-ci run`.
 
 on:
@@ -23,6 +23,15 @@ on:
       worker:
         description: "fleet worker (empty: any idle bench worker, today cmux20-bench)"
         default: ""
+      gate:
+        description: "1: fail on a cmux row regressed past the baseline; 0: report only (a budget-only run has no baseline rows)"
+        default: "1"
+      tabswitch:
+        description: "tab switch matrix kinds, or off (off also skips the tagged Debug build when palette is off)"
+        default: "chromium,webkit,markdown,chat"
+      palette:
+        description: "palette open timing: on or off"
+        default: "on"
 
 permissions:
   contents: read
@@ -33,20 +42,24 @@ concurrency:
 
 jobs:
   bench:
-    if: github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != ''
-    runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     timeout-minutes: 420
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: feat-cmux-next
-          fetch-depth: 1
-          submodules: false
+      # No checkout: the gateway runner takes only thin cmux-ci clients (glaeda GATEWAY_JOBS), and this
+      # job needs only the feat-cmux-next tip's sha. The bench mini checks the tree out itself.
       - name: xbench on a fleet mini
         env:
+          # A run on feat-cmux-next (the daily dispatcher's, a manual dispatch) is at its tip already; any other
+          # ref (main's cron) reads the tip from the API. git ls-remote from the mini timed out (run 42187585623).
+          RUN_SHA: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.sha || '' }}
+          GH_TOKEN: ${{ github.token }}
           ROUNDS: ${{ inputs.rounds || '3' }}
           BROWSERS: ${{ inputs.browsers || 'cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari' }}
           WORKER: ${{ inputs.worker || '' }}
+          GATE: ${{ inputs.gate || '1' }}
+          TABSWITCH: ${{ inputs.tabswitch || 'chromium,webkit,markdown,chat' }}
+          PALETTE: ${{ inputs.palette || 'on' }}
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -54,14 +67,25 @@ jobs:
             echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; the bench did not run."
             exit 127
           fi
-          sha="$(git rev-parse HEAD)"
+          sha="$RUN_SHA"
+          if [[ -z "$sha" ]]; then
+            sha="$(curl -fsS --retry 2 --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.sha" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/feat-cmux-next" || true)"
+          fi
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=No feat-cmux-next tip::could not read the feat-cmux-next tip ('$sha'); the bench did not run."
+            exit 1
+          fi
           target=()
           [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
           status=0
-          "$client" run --class exclusive --measurement --label bench \
+          # cmux20 is owner-only for pool perf-lead (hq fleet.json owner_only_hosts): the controller refuses a
+          # --label bench step that is not a measurement of that pool (HTTP 409, run 42183675700).
+          "$client" run --class exclusive --measurement --pool perf-lead --label bench \
             --script scripts/measure/perf-bench.sh --ref "$sha" --timeout 23400 \
             --artifact artifacts/perf-bench/results.json ${target[@]+"${target[@]}"} \
-            --arg="rounds=$ROUNDS" --arg="browsers=$BROWSERS" --arg=gate=1 | tee "$RUNNER_TEMP/bench.log" || status=$?
+            --arg="rounds=$ROUNDS" --arg="browsers=$BROWSERS" --arg="gate=$GATE" \
+            --arg="tabswitch=$TABSWITCH" --arg="palette=$PALETTE" | tee "$RUNNER_TEMP/bench.log" || status=$?
           # The report prints BENCH.md into the step log; show it on the run page.
           sed -n '/^# xbench, /,$p' "$RUNNER_TEMP/bench.log" | grep -v '^PERF-BENCH-' >> "$GITHUB_STEP_SUMMARY" || true
           grep -E '^(PERF-BENCH-GATE|PERF-BUDGET)' "$RUNNER_TEMP/bench.log" >> "$GITHUB_STEP_SUMMARY" || true

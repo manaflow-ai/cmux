@@ -8,7 +8,7 @@ import Foundation
 import Testing
 
 /// Shuffle Daily (cx-t2x.5): `appearance.background: "daily"` shows one work of the art set a day.
-@MainActor @Suite(.serialized) struct DailyBackgroundTests {
+@MainActor @Suite(.serialized, .ghosttyOverrides) struct DailyBackgroundTests {
     static let gesture = PageCallContext(page: "cmux.settings", userGesture: true)
 
     struct Harness {

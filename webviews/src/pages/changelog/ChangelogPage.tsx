@@ -1,24 +1,30 @@
 // The changelog page (`cmux-page://cmux.changelog/`, R114; What's New, cx-urd.61). The design
-// comes from the route (`design=`, Debug Settings `whatsNew.design`): the Ledger by default (u5099:
-// Conductor's changelog, version and date in the margin), the journal it grew from, B Rail and C Digest. Colors are the app theme's tokens.
+// comes from the route (`design=`, Debug Settings `whatsNew.design`): the What's New sheet by default
+// (SheetPage, 2026-10-31), the Ledger (u5099: Conductor's changelog, version and date in the margin),
+// the journal it grew from, B Rail and C Digest. Colors are the app theme's tokens.
 import { useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { DigestPage } from "./DigestPage";
 import { JournalPage } from "./JournalPage";
 import { RailPage } from "./RailPage";
+import { SheetPage } from "./SheetPage";
 import type { ChangelogStore } from "./store";
-import type { ChangelogDesign, NewsLayout } from "./types";
+import type { ChangelogDesign, NewsLayout, SheetLayout, SheetLinks } from "./types";
 
 export function ChangelogPage({
   store,
   strings,
-  design = "ledger",
+  design = "sheet",
   news,
+  sheet = "inline",
+  prs = "hover",
 }: {
   store: ChangelogStore;
   strings: Strings;
   design?: ChangelogDesign;
   news?: NewsLayout;
+  sheet?: SheetLayout;
+  prs?: SheetLinks;
 }) {
   const s = useSyncExternalStore(store.subscribe, store.getSnapshot);
   if (s.loading)
@@ -27,6 +33,7 @@ export function ChangelogPage({
         {strings.t("changelog.page.loading")}
       </div>
     );
+  if (design === "sheet") return <SheetPage store={store} strings={strings} s={s} layout={sheet} links={prs} />;
   if (design === "rail") return <RailPage store={store} strings={strings} s={s} />;
   if (design === "digest") return <DigestPage store={store} strings={strings} s={s} />;
   return <JournalPage store={store} strings={strings} s={s} ledger={design === "ledger"} news={news} />;

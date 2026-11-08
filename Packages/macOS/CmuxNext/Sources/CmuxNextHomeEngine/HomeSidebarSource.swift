@@ -1,6 +1,7 @@
 public import CmuxHomeCore
 public import CmuxNextDaemon
 public import CmuxNextHome
+public import CmuxNextHomeModel
 public import Foundation
 public import Observation
 
@@ -47,6 +48,23 @@ public final class HomePinStore {
     }
 
     static func marksKey(_ account: String) -> String { "cmux.home.unreadMarks.\(account)" }
+
+    /// The conversations the user deleted from the list (Delete Conversation…, a swipe, `cmux home hide`),
+    /// per account (`cmux.home.hidden.<account>`), each with its newest message then. As in Messages'
+    /// Recently Deleted the conversation still exists: a newer message lists it again, and
+    /// Show Hidden Conversations lists them all again.
+    func hidden(account: String) -> [ConversationID: Seq] {
+        guard let data = defaults.data(forKey: Self.hiddenKey(account)),
+              let hidden = try? JSONDecoder().decode([ConversationID: Seq].self, from: data) else { return [:] }
+        return hidden
+    }
+
+    func save(hidden: [ConversationID: Seq], account: String) {
+        guard let data = try? JSONEncoder().encode(hidden) else { return }
+        defaults.set(data, forKey: Self.hiddenKey(account))
+    }
+
+    static func hiddenKey(_ account: String) -> String { "cmux.home.hidden.\(account)" }
 }
 
 /// The data source of the Home sidebar (the vendored MessagesLab sidebar
@@ -78,6 +96,8 @@ public final class HomeSidebarSource {
     public private(set) var pins = HomePins()
     /// Conversations shown unread by the user's Mark as Unread until they open or read them.
     public private(set) var unreadMarks: Set<ConversationID> = []
+    /// Conversations deleted from the list, with their newest message then (``HomePinStore/hidden(account:)``).
+    public private(set) var hidden: [ConversationID: Seq] = [:]
     @ObservationIgnored public var onSelect: (ConversationID) -> Void = { _ in }
     @ObservationIgnored public var onStart: (HomeContact) -> Void = { _ in }
     /// This Mac's marks changed here (a Mark as Unread or Read of a row no owner lists): other
@@ -143,8 +163,14 @@ public final class HomeSidebarSource {
         #endif
     }
 
+    /// Whether `row` stays listed: not deleted, or a message came after the delete.
+    private func shows(_ row: InboxRow) -> Bool {
+        guard let seq = hidden[row.id] else { return true }
+        return row.summary.lastSeq > seq
+    }
+
     private func model(query: String, now: Date) -> HomeSidebarModel {
-        let listed = listed()
+        let listed = listed().filter(shows)
         let replies = inboxes.compactMap(\.reply)
         guard !replies.isEmpty else {
             return HomeSidebarModel(rows: listed, pins: pins, me: me(), query: query, contacts: people(),
@@ -153,7 +179,7 @@ public final class HomeSidebarSource {
         }
         let owned = HomeInboxMapping.ordered(replies.map(\.rows))
         let list = HomeInboxMapping(owned: owned, listed: listed, pins: pins, unreadMarks: unreadMarks)
-        var model = HomeSidebarModel(ordered: list.rows, pinned: list.pinned, me: me(), query: query, contacts: people(),
+        var model = HomeSidebarModel(ordered: list.rows.filter(shows), pinned: list.pinned, me: me(), query: query, contacts: people(),
                                      unreadMarks: list.unreadMarks, chiefAvatars: chiefAvatars(), defaultChiefAvatar: defaultChiefAvatar(),
                                      chiefHarnesses: chiefHarnesses(), chiefRoster: chiefRoster(), chiefNames: chiefNames(), now: now)
         model.cloudState = replies.compactMap(\.cloud).first { $0 != "not_asked" }
@@ -175,6 +201,7 @@ public final class HomeSidebarSource {
     }
 
     /// Pins or unpins `id`: with the owner when it lists `id`, else for this account on this Mac.
+    /// Pinning a conversation that is already pinned changes nothing: it keeps its place.
     public func setPinned(_ on: Bool, _ id: ConversationID) {
         if let inbox = owner(of: id) { return inbox.setPinned(on, id.rawValue) }
         guard let row = listed().first(where: { $0.id == id }) else { return }
@@ -184,27 +211,25 @@ public final class HomeSidebarSource {
         store.save(pins, account: account())
     }
 
-    /// Puts `id` at `index` of the pinned grid (a drag: a new place, or a row pinned there) and
-    /// keeps the order: with the owner among its pinned rows when it lists `id`, else with this account's pins.
+    /// Puts `id` at `index` of the pinned grid (a drag: a new place, or a row pinned there). The whole
+    /// grid in its new order gets one numbering (the owners' scale: now in milliseconds plus the tile's
+    /// index), each pin kept by its own keeper: the owner that lists it, else this account on this Mac.
+    /// So the drawn order holds across both owners and this Mac's pins, and after a relaunch.
     public func place(_ id: ConversationID, at index: Int) {
-        let shown = model(query: "", now: Date()).pinned.map(\.id)
-        if owner(of: id) != nil {
-            // The whole grid in its new order gets positions, each pin with its own owner, so pins of both owners keep that order.
-            var order = shown.filter { $0 != id && owner(of: $0) != nil }
-            order.insert(id, at: min(max(0, index), order.count))
-            let base = HomeInboxSource.now()
-            for inbox in inboxes {
-                let mine = order.enumerated().filter { owner(of: $0.element) === inbox }.map { (id: $0.element.rawValue, position: base + UInt64($0.offset)) }
-                if !mine.isEmpty { inbox.place(mine) }
-            }
-            return
-        }
-        // Only rows no owner lists are this Mac's to order: an owner's pin kept here would move to it again.
-        var order = shown.filter { $0 != id }
+        var order = model(query: "", now: Date()).pinned.map(\.id).filter { $0 != id }
         order.insert(id, at: min(max(0, index), order.count))
-        let mine = order.filter { owner(of: $0) == nil }
+        let base = HomeInboxSource.now()
+        let numbered = order.enumerated().map { (id: $0.element, position: base + UInt64($0.offset)) }
+        let keepers = numbered.map { (pin: $0, owner: owner(of: $0.id)) }
+        for inbox in inboxes {
+            let mine = keepers.filter { $0.owner === inbox }.map { (id: $0.pin.id.rawValue, position: $0.pin.position) }
+            if !mine.isEmpty { inbox.place(mine) }
+        }
+        // Only rows no owner lists are this Mac's to keep: an owner's pin kept here would move to it again.
+        let local = keepers.filter { $0.owner == nil }.map(\.pin)
+        guard !local.isEmpty else { return }
         pins = store.pins(account: account())
-        pins.place(id, at: mine.firstIndex(of: id) ?? mine.count, shown: mine)
+        pins.arrange(local.map(\.id), positions: local.map(\.position))
         store.save(pins, account: account())
     }
 
@@ -218,8 +243,22 @@ public final class HomeSidebarSource {
         onMarksChanged()
     }
 
-    /// The conversations the list dots, unfiltered by the search (``HomeSidebarModel/unreadConversations``).
-    public var unreadConversations: [ConversationID] { model(query: "", now: Date()).unreadConversations }
+    /// The conversations the list dots, unfiltered by the search (``HomeSidebarModel/unreadConversations``), from the
+    /// same rows, pins and marks as ``model(now:)`` but with none of its display work (the Dock badge reads it at launch).
+    public var unreadConversations: [ConversationID] {
+        let listed = listed().filter(shows)
+        let replies = inboxes.compactMap(\.reply)
+        guard !replies.isEmpty else {
+            let (pinned, rest) = pins.split(listed)
+            return HomeSidebarModel.unreadConversations(pinned: pinned, rest: rest, unreadMarks: unreadMarks,
+                                                        mainChief: pins.leading(chiefRoster().main))
+        }
+        let list = HomeInboxMapping(owned: HomeInboxMapping.ordered(replies.map(\.rows)), listed: listed, pins: pins, unreadMarks: unreadMarks)
+        let rows = list.rows.filter(shows)
+        return HomeSidebarModel.unreadConversations(pinned: rows.filter { list.pinned.contains($0.id) },
+                                                    rest: rows.filter { !list.pinned.contains($0.id) },
+                                                    unreadMarks: list.unreadMarks, mainChief: nil)
+    }
 
     /// Reads this account's marks again (another source changed them).
     public func reloadMarks() {
@@ -240,9 +279,30 @@ public final class HomeSidebarSource {
         owner(of: id)?.rows?.first { $0.id == id.rawValue }?.muted ?? false
     }
 
-    /// The signed-in account changed: its own pins and unread marks.
+    /// Deletes `id` from the list (it is hidden until a newer message or Show Hidden Conversations).
+    /// False when no listed conversation is `id`.
+    @discardableResult
+    public func hide(_ id: ConversationID) -> Bool {
+        guard let row = listed().first(where: { $0.id == id }) else { return false }
+        hidden = store.hidden(account: account())
+        hidden[id] = row.summary.lastSeq
+        store.save(hidden: hidden, account: account())
+        return true
+    }
+
+    /// Lists every deleted conversation again; returns how many were hidden.
+    @discardableResult
+    public func unhideAll() -> Int {
+        let count = store.hidden(account: account()).count
+        hidden = [:]
+        store.save(hidden: [:], account: account())
+        return count
+    }
+
+    /// The signed-in account changed: its own pins, unread marks and deleted conversations.
     public func reloadPins() {
         pins = store.pins(account: account())
         unreadMarks = store.unreadMarks(account: account())
+        hidden = store.hidden(account: account())
     }
 }

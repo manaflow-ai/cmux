@@ -9,14 +9,15 @@
 //! turns auto-memory and CLAUDE.md files off (its system prompt carries the
 //! instructions), and this directory's project settings turn hooks off, so
 //! the user's own ~/.claude/CLAUDE.md, hooks and project memory never reach
-//! a turn. What stays outside our control: Claude Code's own system prompt
+//! a turn, except the hooks and skills the user names in cmux.json
+//! (`chief.turnHooks`, `chief.turnSkills`: turn_user_extras.rs). What stays outside our control: Claude Code's own system prompt
 //! (with its date and environment lines), the user's other settings and
 //! any machine-wide managed settings.
 //!
 //! Deviation: acpmux ignores the client's `mcpServers` in `session/new` and
 //! gives every agent chat its own agent tools instead (cmux, cmux-cua,
-//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps only cmux,
-//! `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
+//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps cmux, its folded
+//! acpmux server and agent memory, `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
 //! MCP servers reaches no harness. The Chief's own `optchat` server, which
 //! acpmux does not know, goes in the directory's `.mcp.json`, enabled by the
 //! project settings, which Claude Code harnesses read.
@@ -232,7 +233,7 @@ pub const SUBAGENT_DENIED_TOOLS: [&str; 5] = [
 /// tool a later Claude Code adds is not offered. This
 /// list stays as the second guard, for an acpmux older than that preset
 /// arg (the preset is then installed without it).
-pub const TURN_DENIED_TOOLS: [&str; 25] = [
+pub const TURN_DENIED_TOOLS: [&str; 24] = [
     "Task",
     "Agent",
     "AskUserQuestion",
@@ -251,7 +252,6 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "ReportFindings",
     "ScheduleWakeup",
     "SendMessage",
-    "Skill",
     "TaskCreate",
     "TaskGet",
     "TaskList",
@@ -273,7 +273,10 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
 /// started in the app (#25571): a send is the Chief's agent message, under
 /// the daemon's agent message policy, and starts a turn in that chat, a
 /// restored chat no tab has shown yet included.
-pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
+/// Folded `acpmux_*` tools reach coordinator sessions. They are not in
+/// `approval::turn_allowed_tools`: an ask turn still refuses them.
+/// Background tasks stay out because a turn session is temporary.
+pub const CHIEF_CMUX_TOOLS: [&str; 23] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -290,14 +293,26 @@ pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
     "agents_chat_send",
     "agents_chat_read",
     "agents_chat_state",
+    "acpmux_send",
+    "acpmux_send_status",
+    "acpmux_ls",
+    "acpmux_last",
+    "acpmux_info",
+    "acpmux_inbox_read",
+    "acpmux_inbox_reply",
 ];
 
-/// The turn presets' env that keeps only acpmux's `cmux` MCP server
+/// The turn presets' env that keeps `cmux` and its folded `acpmux` server
 /// (acpmux `agent_tools::SERVERS_ENV`; its built-in turn presets set the
 /// same, cx-4a5w2). In the app, whose bundle has `cmux-cua`, the computer
 /// use and secret servers' 43 tool names and instructions came after the
 /// turn's cache mark: 1,440 of its 2,905 uncached tokens, every turn.
-pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux");
+/// The agent memory server (`cmux-agent-memory`, acpmux
+/// `MEMORY_SERVER_NAME`) stays too: acpmux adds it only when cmux.json sets
+/// `agents.memory.enabled`, and its three tools wait behind ToolSearch
+/// (measured 2026-10-31: 158 tokens).
+pub const TURN_TOOL_SERVERS: (&str, &str) =
+    ("ACPMUX_AGENT_TOOL_SERVERS", "cmux,acpmux,cmux-agent-memory");
 
 /// The turn presets' env that limits acpmux's `cmux` MCP server to
 /// `CHIEF_CMUX_TOOLS` (acpmux `agent_tools::MCP_TOOLS_ENV`).
@@ -311,8 +326,14 @@ const CODE_MODE_TOOLS: [&str; 2] = ["cmux_exec", "cmux_docs"];
 /// Deny rules for the other agent tool servers, the second guard for an
 /// acpmux without `TURN_TOOL_SERVERS` (their tools leave the list; their
 /// instructions stay).
-pub const TURN_DENIED_SERVERS: [&str; 3] =
-    ["mcp__cmux-cua", "mcp__cmux-secrets", "mcp__cmux-sessions"];
+pub const TURN_DENIED_SERVERS: [&str; 4] = [
+    "mcp__cmux-cua",
+    "mcp__cmux-secrets",
+    "mcp__cmux-sessions",
+    // Without the cmux fold, acpmux has no per-tool filter. Keep its standalone
+    // server denied; the six `mcp__cmux__acpmux_*` tools are still available.
+    "mcp__acpmux",
+];
 
 /// How long `cmux mcp tools` may take before a turn keeps every tool.
 const TOOL_LIST_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -568,6 +589,31 @@ pub fn claude_settings() -> Value {
 /// ~/.claude config is never changed.
 pub const QUIET_ENV: [(&str, &str); 1] = [("DISABLE_AUTOUPDATER", "1")];
 
+/// Claude Code's switch for auto mode's server-side safety check
+/// (2.1.319). With it on, auto mode asks the API to judge each tool call
+/// and runs the call only on the verdict that comes back with the
+/// response. When a response carries no verdict (`server_no_result` in
+/// `--debug`), it denies the call ("auto mode has no safety result for
+/// this call"), because it keeps no local classifier as a fallback. On
+/// 2026-11-06 that denied every classified Bash call of a Chief on both
+/// `claude` and `claude-sr2` (https://github.com/manaflow-ai/cmux/issues/37356).
+/// With the switch at `0`, Claude Code's own classifier judges the same
+/// calls with its own retries, and still denies the unsafe ones.
+pub const AUTO_MODE_SERVER_ENV: &str = "CLAUDE_CODE_AUTO_MODE_SERVER";
+
+/// The env every Chief Claude session's preset carries (turn, compactor,
+/// subagent): [`QUIET_ENV`], and auto mode judged by Claude Code's local
+/// classifier ([`AUTO_MODE_SERVER_ENV`] at `0`). A daemon with built-in
+/// Chief presets fills the same env itself (acpmux
+/// `config/chief_builtins.rs`).
+pub fn claude_session_env() -> BTreeMap<String, String> {
+    QUIET_ENV
+        .iter()
+        .chain(&[(AUTO_MODE_SERVER_ENV, "0")])
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect()
+}
+
 /// The env of the turn and subagent sessions' acpmux presets: no
 /// auto-memory. No `CLAUDE_CONFIG_DIR` of their own: Claude Code finds the
 /// user's login through the user's Claude home, and a plain `claude`
@@ -641,6 +687,12 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         settings["env"][key] = json!(value);
     }
     settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
+    // The hooks and skills the user names in cmux.json, bundled skills off.
+    crate::turn_user_extras::apply(&mut settings, &paths.session);
+    // The rights table's tool hook (rights.rs); OPTCHAT_RIGHTS=0: none.
+    if std::env::var("OPTCHAT_RIGHTS").as_deref() != Ok("0") {
+        crate::rights::add_turn_hooks(&mut settings, &setup.exe, &paths.tools_socket);
+    }
     let settings = pretty(&settings)?;
     write_private(
         &paths.session.join(".claude").join("settings.json"),

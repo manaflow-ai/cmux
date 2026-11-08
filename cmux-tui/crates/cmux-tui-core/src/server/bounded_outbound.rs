@@ -46,6 +46,9 @@ pub(super) struct BoundedOutboundState {
     pub(super) control_bytes: usize,
     pub(super) regular_bytes: usize,
     pub(super) closed: bool,
+    /// Lines taken for the socket, in the order the writer writes them (every queue): a command
+    /// that reads it before it reads state names the lines its client got before that read (#32408).
+    pub(super) lines_taken: u64,
 }
 
 pub(super) struct StreamOutboundUsage {
@@ -82,7 +85,7 @@ pub(super) struct ConnectionPermit {
 pub(super) fn claim_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
 ) -> Option<ConnectionPermit> {
-    claim_connection_watching(connections, None, false)
+    claim_connection_watching(connections, None, None)
 }
 
 /// A slot for a local client, taken back if the client hangs up while its
@@ -91,25 +94,37 @@ pub(super) fn claim_watched_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
     stream: &dyn transport::Stream,
 ) -> Option<ConnectionPermit> {
-    claim_connection_watching(connections, watch_peer(stream), false)
+    claim_connection_watching(connections, watch_peer(stream), None)
 }
 
 /// A slot for a process inside one of the session's terminals: it also takes
 /// a terminal slot, and is refused (its slot given back) when terminals
 /// already hold `MAX_TERMINAL_CONNECTIONS` (#27698). Watched like
 /// `claim_watched_connection`; a hang-up gives back both slots.
+/// `client`: the terminal the peer runs in (its process session), nil when
+/// unknown.
 pub(super) fn claim_watched_terminal_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
     stream: &dyn transport::Stream,
+    client: Option<u32>,
 ) -> Option<ConnectionPermit> {
-    claim_connection_watching(connections, watch_peer(stream), true)
+    claim_connection_watching(connections, watch_peer(stream), Some(client))
 }
 
 #[cfg(test)]
 pub(super) fn claim_terminal_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
 ) -> Option<ConnectionPermit> {
-    claim_connection_watching(connections, None, true)
+    claim_connection_watching(connections, None, Some(None))
+}
+
+/// A terminal slot for a connection from terminal `client` (its process session).
+#[cfg(test)]
+pub(super) fn claim_terminal_connection_from(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+    client: u32,
+) -> Option<ConnectionPermit> {
+    claim_connection_watching(connections, None, Some(Some(client)))
 }
 
 fn watch_peer(stream: &dyn transport::Stream) -> Option<crate::diagnostics::PeerClosed> {
@@ -119,17 +134,22 @@ fn watch_peer(stream: &dyn transport::Stream) -> Option<crate::diagnostics::Peer
     }
 }
 
+/// `terminal`: nil for a connection from outside the session's terminals,
+/// else the terminal it comes from (nil inside when unknown).
 fn claim_connection_watching(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
     peer_closed: Option<crate::diagnostics::PeerClosed>,
-    terminal: bool,
+    terminal: Option<Option<u32>>,
 ) -> Option<ConnectionPermit> {
     if !connections.try_claim(MAX_SERVER_CONNECTIONS as u64) {
         return None;
     }
-    if terminal
-        && !connections
-            .try_claim_terminal(MAX_TERMINAL_CONNECTIONS as u64, MAX_SERVER_CONNECTIONS as u64)
+    if let Some(client) = terminal
+        && !connections.try_claim_terminal(
+            MAX_TERMINAL_CONNECTIONS as u64,
+            MAX_SERVER_CONNECTIONS as u64,
+            client,
+        )
     {
         connections.release();
         return None;
@@ -479,7 +499,20 @@ impl BoundedOutbound {
         }
     }
 
+    /// The lines taken for the socket so far (``BoundedOutboundState::lines_taken``).
+    pub(super) fn lines_taken(&self) -> u64 {
+        self.state.lock().recover_poison().lines_taken
+    }
+
     pub(super) fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
+        let item = Self::pop_item_locked(state);
+        if matches!(item, Some(OutboundItem::Text(_))) {
+            state.lines_taken += 1;
+        }
+        item
+    }
+
+    fn pop_item_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
             return Some(OutboundItem::Text(message.text));
@@ -795,5 +828,9 @@ impl MessageSink for QueuedSink {
 
     fn close_after_control(&self) {
         self.outbound.close_after_control();
+    }
+
+    fn lines_written(&self) -> Option<u64> {
+        Some(self.outbound.lines_taken())
     }
 }

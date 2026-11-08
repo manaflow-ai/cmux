@@ -40,6 +40,12 @@ final class OmnibarFieldEditor: NSTextView {
         isFieldEditor = true
         isRichText = false
         importsGraphics = false
+        // A field editor pads its line by 2 pt a side, as AppKit's shared one does once it edits; a new
+        // text view starts at TextKit's 5. The resting address is laid out with this editor's padding
+        // (`EditorAlignedTextFieldCell`) before the field first takes the keyboard, so it must already be 2:
+        // since 15972f3ebef put the resting line at the title rect, a 5 pt padding drew the address 3 pt right
+        // of where focus puts it (OmnibarFocusLayoutShiftTests).
+        textContainer?.lineFragmentPadding = 2
     }
 
     // MARK: Drops
@@ -99,6 +105,8 @@ final class OmnibarFieldEditor: NSTextView {
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         isChangingText = false
+        // A composition hides the placeholder the field's cell draws under this editor.
+        (delegate as? NSView)?.needsDisplay = true
         sink?.fieldEditorDidChange(kind: .insert)
     }
 
@@ -110,6 +118,7 @@ final class OmnibarFieldEditor: NSTextView {
         super.unmarkText()
         guard composing else { return }
         isChangingText = false
+        (delegate as? NSView)?.needsDisplay = true
         sink?.fieldEditorDidChange(kind: .insert)
     }
 

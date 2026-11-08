@@ -3,6 +3,8 @@ import CoreGraphics
 
 /// The production check: the window server's time of the last key-down or mouse-button event in
 /// this login session, against the timestamp of the last such event AppKit dispatched in this app.
+/// While one of the app's menus tracks, a recent pointer move counts too (a person moving through
+/// its rows, ``SessionInputEvents/isMenuTracking``).
 ///
 /// An event that the HID system generated after the last one the app dispatched is still on its
 /// way through the event queue: the app is active, so it is ours. Mouse moves, drags and scroll
@@ -32,6 +34,9 @@ public final class SessionInputPending: InputPendingSource {
     public static let staleAfter: TimeInterval = 2.0 / 60.0
 
     private static let eventTypes: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+    /// The pointer's motion through an open menu: moved, or dragged with a button held from the
+    /// press that opened it.
+    private static let pointerTypes: [CGEventType] = [.mouseMoved, .rightMouseDragged, .leftMouseDragged]
     private let events: any SessionInputEvents
     /// The newest key-down or mouse-button-down AppKit dispatched here.
     private var lastDispatched: TimeInterval = 0
@@ -61,6 +66,11 @@ public final class SessionInputPending: InputPendingSource {
         // tracking loop takes (a drag, a menu) never reach the monitor, so during one this answers
         // "maybe" and the per-type queries decide.
         guard Self.isPending(uptime - events.secondsSinceLastInput(), after: lastDispatchedAny, now: uptime) else { return false }
+        // In an open menu the pointer's motion is the person moving through its rows: each row's
+        // highlight waits for the main thread, so a move the menu has not answered yet counts.
+        // Budgeted work then runs every other frame, on its own share (MainFrameBudget's
+        // yielded-last-frame rule), not in every frame on the whole 4 ms.
+        if events.isMenuTracking, Self.pointerTypes.contains(where: { events.secondsSinceLastEvent($0) < Self.staleAfter }) { return true }
         for type in Self.eventTypes where Self.isPending(uptime - events.secondsSinceLastEvent(type), after: lastDispatched, now: uptime) {
             return true
         }

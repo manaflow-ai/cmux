@@ -18,6 +18,8 @@ await mock.module("./shellHighlight", () => ({
   },
 }));
 const { ShellBlock } = await import("./ShellBlock");
+const { Lines } = await import("./BlockParts");
+const { OUTPUT_LINE_WINDOW } = await import("./blockPartsModel");
 
 const { shellTokens, MAX_HIGHLIGHTED_COMMAND } = highlight;
 
@@ -186,6 +188,18 @@ test("the command draws in its colors, one Find run, its prompt skipped", async 
   expect(container.querySelector(".cv-shell__output")?.textContent).toBe("src/a.ts:1:todo\n");
 });
 
+test("a failed command reads $ command, then Exit code N, then its output, as Claude Code desktop opens one", async () => {
+  // Leo, 2026-11-03: "claude code desktop's summarization of tool calls/parsing of them seem kinda good?"
+  await act(async () =>
+    root!.render(<ShellBlock command="ls fixtures" output="ls: fixtures: No such file" exitCode={1} />),
+  );
+  const order = [...container.querySelectorAll(".cv-shell__command, .cv-shell__exit, .cv-shell__body")].map(
+    (node) => node.className.split(" ")[0],
+  );
+  expect(order).toEqual(["cv-shell__command", "cv-shell__exit", "cv-shell__body"]);
+  expect(container.querySelector(".cv-shell__exit")!.textContent).toBe("Exit code 1");
+});
+
 test("streaming output tokenizes the command once, and a sibling step's not at all", async () => {
   const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
   const view = (n: number) => (
@@ -209,6 +223,59 @@ test("streaming output tokenizes the command once, and a sibling step's not at a
     ),
   );
   expect(calls).toBe(3);
+});
+
+test("streaming output keeps finished line chunks stable and windows the live tail", async () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
+  await act(async () => root!.render(<Lines text={lines(100)} windowed />));
+  const first = container.querySelector<HTMLElement>(".cv-line")!;
+  await act(async () => root!.render(<Lines text={lines(101)} windowed />));
+  expect(container.querySelector<HTMLElement>(".cv-line")).toBe(first);
+
+  await act(async () => root!.render(<Lines text={lines(401)} windowed />));
+  const frozenMiddle = [...container.querySelectorAll<HTMLElement>(".cv-line")].find(
+    (line) => line.textContent === "line 65\n",
+  );
+  await act(async () => root!.render(<Lines text={lines(402)} windowed />));
+  expect(
+    [...container.querySelectorAll<HTMLElement>(".cv-line")].find((line) => line.textContent === "line 65\n"),
+  ).toBe(frozenMiddle);
+
+  await act(async () => root!.render(<Lines text={lines(OUTPUT_LINE_WINDOW + 80)} windowed />));
+  const rendered = [...container.querySelectorAll(".cv-line")];
+  expect(rendered).toHaveLength(OUTPUT_LINE_WINDOW);
+  expect(rendered[0]!.textContent).toBe("line 81\n");
+  expect(rendered.at(-1)!.textContent).toBe(`line ${OUTPUT_LINE_WINDOW + 80}`);
+});
+
+test("a windowed tail ending in a newline keeps all 400 real lines", async () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
+  await act(async () => root!.render(<Lines text={`${lines(OUTPUT_LINE_WINDOW + 1)}\n`} windowed />));
+  const rendered = [...container.querySelectorAll<HTMLElement>(".cv-line")];
+  expect(rendered).toHaveLength(OUTPUT_LINE_WINDOW + 1);
+  expect(rendered[0]!.textContent).toBe("line 2\n");
+  expect(rendered.at(-2)!.textContent).toBe(`line ${OUTPUT_LINE_WINDOW + 1}\n`);
+  expect(rendered.at(-1)!.textContent).toBe("");
+});
+
+test("ShellBlock keeps chunk identity when the live output tail slides", async () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
+  const line = (text: string, value: string) =>
+    [...container.querySelectorAll<HTMLElement>(".cv-line")].find((node) => node.textContent === text) ??
+    (() => {
+      throw new Error(`missing ${value}`);
+    })();
+
+  await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(500)} live />));
+  const middle = line("line 200\n", "line 200");
+  await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(501)} live />));
+  expect(line("line 200\n", "line 200")).toBe(middle);
+});
+
+test("a live suffix keeps its final line free of an extra newline", async () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
+  await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(500)} live />));
+  expect(container.querySelector(".cv-shell__output")?.textContent?.endsWith("line 500")).toBe(true);
 });
 
 test("past eight lines the output is capped to scroll, with Show all to lift the cap", async () => {

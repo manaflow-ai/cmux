@@ -2,7 +2,7 @@
 // `archived` tag) over its own connection, then asks the app to close the tab; an archived chat
 // opened from search offers Unarchive.
 import { type Translate, translate } from "../i18n";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 
 export function archiveRow(
   chat: { sessionId: string | undefined; archived: boolean; local: boolean },
@@ -15,8 +15,6 @@ export function archiveRow(
     key: "archive",
     label: t(chat.archived ? "chatMenu.unarchive" : "chatMenu.archive"),
     icon: "inbox",
-    // Claude Code desktop's A picks Archive while the chat menu is open.
-    ...(chat.archived ? {} : { accelerator: "A" }),
     onSelect: () => archive(!chat.archived),
   };
 }

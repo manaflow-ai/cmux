@@ -106,7 +106,7 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
         config.io_write_userdata = Unmanaged.passUnretained(box).toOpaque()
         config.io_write_cb = { userdata, bytes, length in
-            guard let userdata, let bytes, length > 0 else { return }
+            guard let userdata, length > 0 else { return }
             // Copy now: the bytes are valid only during the call.
             let data = Data(bytes: bytes, count: Int(length))
             let box = Unmanaged<InputBox>.fromOpaque(userdata).takeUnretainedValue()

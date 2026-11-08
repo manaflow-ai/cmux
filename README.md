@@ -12,7 +12,6 @@
 </p>
 
 <p align="center">
-  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -401,7 +400,7 @@ macOS only, for now. cmux is a native Swift + AppKit app.
 
 ### Is there an iOS app?
 
-Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition). See the [iOS docs](https://cmux.com/docs/ios).
+Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. See the [iOS docs](https://cmux.com/docs/ios).
 
 ### What coding agents does cmux work with?
 
@@ -461,7 +460,7 @@ Yes, cmux is free to use. The source code is available on [GitHub](https://githu
 
 ### How can I support cmux?
 
-cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux is free and open source, and always will be.
 
 ### I have a feature request or found a bug?
 
@@ -486,7 +485,7 @@ Mac. Then the [contributor guide](CONTRIBUTING.md) and
 
 Ways to get involved:
 
-- Follow us on X for updates [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen), and [@austinywang](https://x.com/austinywang)
+- Follow us on X for updates [@lawrencecchen](https://x.com/lawrencecchen) and [@austinywang](https://x.com/austinywang)
 - Join the conversation on [Discord](https://discord.gg/xsgFEVrWCZ)
 - Create and participate in [GitHub issues](https://github.com/manaflow-ai/cmux/issues) and [discussions](https://github.com/manaflow-ai/cmux/discussions)
 - Let us know what you're building with cmux
@@ -496,7 +495,6 @@ Ways to get involved:
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
-- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -505,19 +503,6 @@ Ways to get involved:
   <strong>WeChat:</strong> Scan the QR code to join the community.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR code to join the cmux community" width="240" />
 </p>
-
-## Founder's Edition
-
-cmux is free, open source, and always will be. If you'd like to support development and get early access to what's coming next:
-
-**[Get Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Prioritized feature requests/bug fixes**
-- **Early access: cmux AI that gives you context on every workspace, tab and panel**
-- **Early access: iOS app with terminals synced between desktop and phone**
-- **Early access: Cloud VMs**
-- **Early access: Voice mode**
-- **My personal iMessage/WhatsApp**
 
 ## Install
 

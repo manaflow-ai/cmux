@@ -33,10 +33,12 @@ const ACCOUNT: &str = "default";
 #[cfg(not(target_os = "macos"))]
 const FILE_NAME: &str = "vm-token.json";
 
-pub const DEFAULT_TTL_SECONDS: u64 = 8 * 3600;
-pub const MAX_TTL_SECONDS: u64 = 24 * 3600;
-pub const DEFAULT_MAX_VMS: u32 = 3;
-pub const DEFAULT_MAX_USD_PER_HOUR: f64 = 2.0;
+// The mint's rules are shared with the cmux app's `vm.agent_key.create`
+// (cmux-tui/crates/cmux-cloud-config `agent_key`), so both paths ask for the same key.
+pub use cmux_cloud_config::agent_key::{
+    DEFAULT_MAX_USD_PER_HOUR, DEFAULT_MAX_VMS, DEFAULT_TTL_SECONDS,
+};
+pub const MAX_TTL_SECONDS: u64 = *cmux_cloud_config::agent_key::TTL_SECONDS.end();
 
 /// A stored token. `key` is the secret; nothing prints it.
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -178,15 +180,43 @@ pub fn store_name() -> &'static str {
     }
 }
 
+/// What the store holds.
+pub enum Stored {
+    Token(StoredToken),
+    /// Something that is not a token (bad JSON, not text): nothing can
+    /// revoke its key, and `token revoke` removes it ([`remove_unreadable`]).
+    Unreadable,
+}
+
+/// What the store holds, if anything. `Err` when the store itself cannot be
+/// read (the Keychain refuses, the file is unsafe or unreadable).
+pub fn read_stored(env: &dyn Fn(&str) -> Option<String>) -> Result<Option<Stored>, String> {
+    let Some(bytes) = platform::read(env)? else {
+        return Ok(None);
+    };
+    Ok(Some(
+        serde_json::from_slice(&bytes).map_or(Stored::Unreadable, Stored::Token),
+    ))
+}
+
 /// The stored token, if any. A store that cannot be read is an error, so a
 /// broken store never silently falls back to another credential.
 pub fn load(env: &dyn Fn(&str) -> Option<String>) -> Result<Option<StoredToken>, String> {
-    let Some(text) = platform::read(env)? else {
-        return Ok(None);
-    };
-    serde_json::from_str(&text)
-        .map(Some)
-        .map_err(|_| "the stored VM token is unreadable; run `cmux vm token revoke`".to_owned())
+    match read_stored(env)? {
+        None => Ok(None),
+        Some(Stored::Token(token)) => Ok(Some(token)),
+        Some(Stored::Unreadable) => Err(unreadable_message()),
+    }
+}
+
+/// The error for a stored token that cannot be read, naming the recovery
+/// that works: `token revoke` removes it (it cannot revoke a key it cannot
+/// read, which ends at its expiry).
+pub fn unreadable_message() -> String {
+    format!(
+        "the stored VM token is unreadable; run `{} token revoke` to remove it (its key cannot be revoked without it: it expires within its TTL, at most 24h, which deletes its VMs)",
+        crate::error::program()
+    )
 }
 
 pub fn save(token: &StoredToken, env: &dyn Fn(&str) -> Option<String>) -> Result<(), String> {
@@ -210,11 +240,9 @@ mod platform {
     /// errSecItemNotFound.
     const NOT_FOUND: i32 = -25300;
 
-    pub fn read(_env: &dyn Fn(&str) -> Option<String>) -> Result<Option<String>, String> {
+    pub fn read(_env: &dyn Fn(&str) -> Option<String>) -> Result<Option<Vec<u8>>, String> {
         match get_generic_password(SERVICE, ACCOUNT) {
-            Ok(bytes) => String::from_utf8(bytes)
-                .map(Some)
-                .map_err(|_| "the stored VM token is not text".to_owned()),
+            Ok(bytes) => Ok(Some(bytes)),
             Err(error) if error.code() == NOT_FOUND => Ok(None),
             Err(error) => Err(format!(
                 "cannot read the VM token from the login Keychain: {error}"
@@ -256,7 +284,7 @@ mod platform {
         Some(base.join("cmux").join(FILE_NAME))
     }
 
-    pub fn read(env: &dyn Fn(&str) -> Option<String>) -> Result<Option<String>, String> {
+    pub fn read(env: &dyn Fn(&str) -> Option<String>) -> Result<Option<Vec<u8>>, String> {
         let Some(path) = path(env) else {
             return Ok(None);
         };
@@ -270,14 +298,15 @@ mod platform {
             use std::os::unix::fs::PermissionsExt;
             if meta.permissions().mode() & 0o077 != 0 {
                 return Err(format!(
-                    "{} is readable by other users; refusing it (chmod 600 it or revoke the token)",
-                    path.display()
+                    "{} is readable by other users; refusing it: chmod 600 it, then run `{} token revoke` if someone else may have read the key",
+                    path.display(),
+                    crate::error::program()
                 ));
             }
         }
         #[cfg(not(unix))]
         let _ = meta;
-        std::fs::read_to_string(&path)
+        std::fs::read(&path)
             .map(Some)
             .map_err(|e| format!("cannot read {}: {e}", path.display()))
     }
@@ -388,27 +417,79 @@ pub fn create_body(args: &TokenCreateArgs) -> Result<Value, CliError> {
             "--max-usd-per-hour must be above 0 and at most 50",
         ));
     }
-    Ok(json!({
-        "name": args.name,
-        "scopes": ["vm:read", "vm:write", "vm:exec"],
-        "ttlSeconds": ttl,
-        "maxVms": args.max_vms,
-        "maxUsdPerHour": args.max_usd_per_hour,
-    }))
+    let params: serde_json::Map<String, Value> = [
+        ("name", json!(args.name)),
+        ("ttlSeconds", json!(ttl)),
+        ("maxVms", json!(args.max_vms)),
+        ("maxUsdPerHour", json!(args.max_usd_per_hour)),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.to_owned(), value))
+    .collect();
+    cmux_cloud_config::agent_key::body(&params).map_err(|refusal| CliError::usage(refusal.message))
 }
 
-/// Where `token create` serializes this user's creates: beside the file
-/// store (on macOS too, whose token lives in the Keychain).
-fn create_lock_path(env: &dyn Fn(&str) -> Option<String>) -> Option<std::path::PathBuf> {
-    let base = env("XDG_CONFIG_HOME")
-        .filter(|v| !v.is_empty())
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            env("HOME")
-                .filter(|v| !v.is_empty())
-                .map(|home| std::path::PathBuf::from(home).join(".config"))
+/// Where `token create` and `revoke` serialize this user's changes to the
+/// store ([`lock_path_for`] with the account's home on macOS). On macOS it
+/// fails closed: without the account's home it never falls back to the
+/// environment, which would split the lock again.
+fn create_lock_path(
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<Option<std::path::PathBuf>, CliError> {
+    if cfg!(target_os = "macos") {
+        let home = account_home().ok_or_else(|| {
+            CliError::unexpected(
+                "cannot find this user's home directory in the user database, so the VM token store cannot be locked",
+            )
         })?;
+        Ok(lock_path_for(Some(&home), env))
+    } else {
+        Ok(lock_path_for(None, env))
+    }
+}
+
+/// The store lock. The file store is locked beside its file: both follow
+/// XDG_CONFIG_HOME or HOME, so another environment is another store. On
+/// macOS the token is one login Keychain item per user, so the lock follows
+/// the account instead (`account_home`, from the user database): two creates
+/// of one user with different HOME or XDG_CONFIG_HOME would otherwise take
+/// different locks, both mint, and one overwrite the other's stored key,
+/// leaving it live with nothing able to revoke it (#29705). In the usual
+/// environment it is the same file as before.
+fn lock_path_for(
+    account_home: Option<&std::path::Path>,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Option<std::path::PathBuf> {
+    let base = match account_home {
+        Some(home) => home.join(".config"),
+        None => env("XDG_CONFIG_HOME")
+            .filter(|v| !v.is_empty())
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                env("HOME")
+                    .filter(|v| !v.is_empty())
+                    .map(|home| std::path::PathBuf::from(home).join(".config"))
+            })?,
+    };
     Some(base.join("cmux").join("vm-token.lock"))
+}
+
+/// This user's home from the user database (getpwuid), never the
+/// environment. `None` when there is no entry or it is not absolute.
+#[cfg(target_os = "macos")]
+fn account_home() -> Option<std::path::PathBuf> {
+    nix::unistd::User::from_uid(nix::unistd::geteuid())
+        .ok()
+        .flatten()
+        .map(|user| user.dir)
+        .filter(|dir| dir.is_absolute())
+}
+
+/// The file store follows the environment, and so does its lock
+/// ([`create_lock_path`] does not ask for the account's home here).
+#[cfg(not(target_os = "macos"))]
+fn account_home() -> Option<std::path::PathBuf> {
+    None
 }
 
 /// The start of every `token create`: takes this user's create lock and
@@ -428,7 +509,7 @@ pub fn begin_create(
 /// This user's lock on the token store, held while a create or a revoke
 /// reads and changes it. `None` when there is no config directory.
 fn lock_store(env: &dyn Fn(&str) -> Option<String>) -> Result<Option<std::fs::File>, CliError> {
-    Ok(match create_lock_path(env) {
+    Ok(match create_lock_path(env)? {
         Some(path) => {
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir).map_err(|e| {
@@ -643,6 +724,28 @@ pub async fn revoke(
     writeln!(out, "{text}").map_err(|e| CliError::unexpected(format!("write output: {e}")))
 }
 
+/// `token revoke` when the stored token cannot be read: its key cannot be
+/// revoked without it, so only the local copy is removed (the key expires
+/// within its TTL). Under the store lock, and only while it is still
+/// unreadable: a create may have stored a new token meanwhile.
+pub fn remove_unreadable(
+    env: &dyn Fn(&str) -> Option<String>,
+    json_output: bool,
+    out: &mut dyn Write,
+) -> Result<(), CliError> {
+    let _lock = lock_store(env)?;
+    let removed = matches!(read_stored(env), Ok(Some(Stored::Unreadable)))
+        && remove(env).map_err(CliError::unexpected)?;
+    let text = if json_output {
+        json!({ "id": null, "revoked": false, "removed": removed }).to_string()
+    } else if removed {
+        "the stored VM token could not be read, so it was removed without revoking its key; that key expires within its TTL (at most 24h), which deletes its VMs".to_owned()
+    } else {
+        "the stored VM token was replaced meanwhile and was kept".to_owned()
+    };
+    writeln!(out, "{text}").map_err(|e| CliError::unexpected(format!("write output: {e}")))
+}
+
 /// Seconds since the Unix epoch for exactly `YYYY-MM-DDTHH:MM:SS[.fff]Z`
 /// (years 0000 to 9999, so nothing here can overflow); anything else, an
 /// impossible date or time included, is `None`.
@@ -729,6 +832,26 @@ mod tests {
         let body = create_body(&args).unwrap();
         assert_eq!(body["scopes"], json!(["vm:read", "vm:write", "vm:exec"]));
         assert_eq!(body["ttlSeconds"], json!(DEFAULT_TTL_SECONDS));
+    }
+
+    #[test]
+    fn the_request_is_the_one_the_app_asks_for() {
+        // The app's vm.agent_key.create and this command share cmux-cloud-config's body.
+        let args = TokenCreateArgs {
+            name: String::new(),
+            ttl: Some("1h".into()),
+            max_vms: 2,
+            max_usd_per_hour: 1.5,
+        };
+        let mut params = serde_json::Map::new();
+        params.insert("ttlSeconds".into(), json!(3600));
+        params.insert("maxVms".into(), json!(2));
+        params.insert("maxUsdPerHour".into(), json!(1.5));
+        assert_eq!(
+            create_body(&args).unwrap(),
+            cmux_cloud_config::agent_key::body(&params).unwrap()
+        );
+        assert_eq!(create_body(&args).unwrap()["name"], "cmux vm token");
     }
 
     #[test]
@@ -847,7 +970,7 @@ mod tests {
         let xdg = dir.to_string_lossy().into_owned();
         let env = |name: &str| (name == "XDG_CONFIG_HOME").then(|| xdg.clone());
         let held = begin_create(&env, 0).unwrap().expect("a lock file");
-        let other = std::fs::File::open(create_lock_path(&env).unwrap()).unwrap();
+        let other = std::fs::File::open(create_lock_path(&env).unwrap().unwrap()).unwrap();
         assert!(matches!(
             other.try_lock(),
             Err(std::fs::TryLockError::WouldBlock)
@@ -858,6 +981,41 @@ mod tests {
         // outlive `drop` by that long; a create waits the same way.
         other.lock().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// On macOS the token is one login Keychain item per user, so the lock
+    /// is the account's, whatever HOME or XDG_CONFIG_HOME say (#29705).
+    #[test]
+    fn the_lock_follows_the_account_not_the_environment() {
+        let home = std::path::Path::new("/Users/someone");
+        let xdg = |name: &str| (name == "XDG_CONFIG_HOME").then(|| "/tmp/a".to_owned());
+        let other_home = |name: &str| (name == "HOME").then(|| "/tmp/b".to_owned());
+        let lock = Some(home.join(".config").join("cmux").join("vm-token.lock"));
+        assert_eq!(lock_path_for(Some(home), &xdg), lock);
+        assert_eq!(lock_path_for(Some(home), &other_home), lock);
+        assert_eq!(lock_path_for(Some(home), &|_| None), lock);
+        // The file store (no Keychain) is locked beside the file it keeps.
+        assert_eq!(
+            lock_path_for(None, &xdg),
+            Some(std::path::PathBuf::from("/tmp/a/cmux/vm-token.lock"))
+        );
+        assert_eq!(
+            lock_path_for(None, &other_home),
+            Some(std::path::PathBuf::from(
+                "/tmp/b/.config/cmux/vm-token.lock"
+            ))
+        );
+        assert_eq!(lock_path_for(None, &|_| None), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn two_environments_of_one_user_share_the_macos_lock() {
+        let a = |name: &str| (name == "XDG_CONFIG_HOME").then(|| "/tmp/a".to_owned());
+        let b = |name: &str| (name == "HOME").then(|| "/tmp/b".to_owned());
+        let a = create_lock_path(&a).unwrap();
+        assert!(a.is_some());
+        assert_eq!(a, create_lock_path(&b).unwrap());
     }
 
     // The file store; macOS keeps the token in the login Keychain.

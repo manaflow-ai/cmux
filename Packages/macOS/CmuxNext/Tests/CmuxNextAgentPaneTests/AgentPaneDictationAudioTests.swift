@@ -1,3 +1,4 @@
+import CmuxNextActions
 @testable import CmuxNextDictation
 import Foundation
 import Testing
@@ -395,6 +396,63 @@ struct AgentPaneDictationAudioTests {
         #expect(payload["audio"] == nil)
         #expect(AgentPaneDictation.payload(DictationUpdate(phase: .idle, text: "fix the build"))["audioOmitted"] == nil)
     }
+
+    @Test func finalTextCallbackExcludesVolatileHypotheses() async throws {
+        let engine = ScriptedDictationTranscriber()
+        let session = DictationSession(authorizer: GrantedDictationAuthorizer(), makeTranscriber: { _ in engine })
+        var finals: [String] = []
+        session.onFinalText = { finals.append($0) }
+        session.start()
+        try await waitFor { session.phase == .listening }
+        engine.emit(.partial("hel"))
+        engine.emit(.final("hello"))
+        engine.emit(.partial("wor"))
+        session.stop()
+        try await waitFor { session.phase == .idle }
+        #expect(finals == ["hello", " wor"])
+    }
+
+    /// Toggle Dictation's palette row says whether dictation is on (the user, 2026-11-03: "'toggle'
+    /// options are very confusing, since we don't know the current state"): on while the dictation
+    /// a run would end listens, as the app's handler picks it.
+    @Test func toggleDictationsPaletteRowFollowsTheDictationItWouldEnd() async throws {
+        let engine = ScriptedDictationTranscriber()
+        let session = DictationSession(authorizer: GrantedDictationAuthorizer(), makeTranscriber: { _ in engine })
+        let microphone = DictationMicrophone()
+        let pane = AgentPaneDictation(send: { _ in }, microphone: microphone, makeSession: { session })
+        defer { pane.close() }
+        let registry = ActionRegistry.standard()
+        // Bound as the app binds it, before its state.
+        let bound = registry.bind("palette.toggleDictation", invoke: { _ in })
+        #expect(bound)
+        var terminalFocused = false, terminalListening = false, chatFocused = true
+        registry.setDictationPaletteState(focusedTerminal: { terminalFocused }, terminalListening: { terminalListening },
+                                          chatListening: { chatFocused ? pane.isListening : nil }, microphone: microphone)
+        func on() -> Bool? { registry.action(for: "palette.toggleDictation")?.paletteState?() }
+        #expect(on() == false)
+
+        pane.handle(.toggle)
+        try await waitFor { session.phase == .listening }
+        #expect(on() == true)
+        // A focused terminal toggles its own dictation, which does not listen.
+        terminalFocused = true
+        #expect(on() == false)
+        terminalListening = true
+        #expect(on() == true)
+        // Off the terminal, a run first stops the terminal's dictation that still listens.
+        terminalFocused = false
+        chatFocused = false
+        #expect(on() == true)
+        terminalListening = false
+        // With no chat focused, a run stops the chat that listens.
+        #expect(on() == true)
+
+        pane.handle(.toggle)
+        try await waitFor { session.phase == .idle }
+        #expect(on() == false)
+        chatFocused = true
+        #expect(on() == false)
+    }
 }
 
 private nonisolated struct GrantedDictationAuthorizer: DictationAuthorizing {
@@ -427,6 +485,25 @@ private nonisolated final class LongRecordingTranscriber: SpeechTranscribing, @u
             heard = true
         }
         return stream
+    }
+
+    func finishTranscribing() async {
+        lock.withLock { continuation }?.finish()
+    }
+}
+
+private nonisolated final class ScriptedDictationTranscriber: SpeechTranscribing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
+
+    func transcribe(locale: Locale) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: DictationTranscriptionEvent.self, throwing: (any Error).self)
+        lock.withLock { self.continuation = continuation }
+        return stream
+    }
+
+    func emit(_ event: DictationTranscriptionEvent) {
+        lock.withLock { continuation }?.yield(event)
     }
 
     func finishTranscribing() async {

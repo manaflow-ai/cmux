@@ -122,7 +122,7 @@ await requireBrowserLane("image-viewer-first-open-fit.test.ts", async () => {
   /// has held its box for 10 frames, the image's box against the stage's content box. Returns the
   /// frames where the image (shown, fitted, not zoomed) spilled out of the stage.
   async function openAndRead(page: Page, how: "click" | "dblclick") {
-    const thumbnail = page.getByRole("button", { name: "Screenshot" });
+    const thumbnail = page.getByRole("button", { name: "Screenshot", exact: true });
     if (how === "dblclick") await thumbnail.dblclick();
     else await thumbnail.click();
     const motion = await page.evaluate(() => {

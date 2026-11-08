@@ -5,6 +5,12 @@
 
 use super::*;
 
+// How long a long chat's fork takes to answer (an ignored bench).
+#[path = "fork_latency.rs"]
+mod fork_latency;
+// Fork Conversation's Cancel and its quiet history copy.
+#[path = "fork_cancel.rs"]
+mod fork_cancel;
 // Side questions fork the chat too, and share its Claude helpers.
 #[path = "aside.rs"]
 mod aside;
@@ -29,6 +35,9 @@ mod background_task;
 // Claude's Agent tool as a subagent session, which shares these helpers too.
 #[path = "claude_subagents.rs"]
 mod claude_subagents;
+// Claude Code's turns of its own, which the person did not start, which share these helpers too.
+#[path = "background_turns.rs"]
+mod background_turns;
 // Claude's "Allow for this session", which shares these helpers too.
 #[path = "claude_allow_always.rs"]
 mod claude_allow_always;
@@ -37,10 +46,16 @@ mod claude_allow_input;
 // The background-process registry over Claude's shells, which shares these helpers too.
 #[path = "processes.rs"]
 mod processes;
+// The person's message moves the long foreground call it waits behind.
+#[path = "message_background.rs"]
+mod message_background;
 // The same registry over Codex's background terminals (the fake app-server).
 #[cfg(unix)]
 #[path = "codex_processes.rs"]
 mod codex_processes;
+#[cfg(unix)]
+#[path = "codex_usage_limits.rs"]
+mod codex_usage_limits;
 // Claude's skills in the slash command list, which share these helpers too.
 #[path = "claude_skill_commands.rs"]
 mod claude_skill_commands;
@@ -55,6 +70,9 @@ mod turn_usage;
 // A fork of a chat whose turn runs, which shares these helpers too.
 #[path = "fork_running.rs"]
 mod fork_running;
+
+#[path = "fork_before.rs"]
+mod fork_before;
 
 const FORK_OP: &str = "acp.session.fork";
 

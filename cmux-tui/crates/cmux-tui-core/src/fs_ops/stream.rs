@@ -12,11 +12,20 @@
 //!           path, mode and free space are checked; nothing is sent before)
 //!        -> exactly `size` raw bytes from the client
 //!        -> `{"id","ok":true,"data":{"entry":{...}}}`.
+//!        With `fs-write-deflate-v1` the request may also carry
+//!        `"permissions"`, and `"encoding":"deflate"` with `"decoded_size"`:
+//!        the `size` wire bytes are raw deflate, decoded as they come, never
+//!        past `decoded_size` ([`super::encoding`]). With
+//!        `fs-write-nofollow-v1`, `"no_follow":true` refuses a symlink as any
+//!        component of `path` (`fs.symlink_in_path`).
 //!
 //! Backpressure is the socket itself: the daemon reads and writes through
 //! one 256 KiB buffer and blocks on a full window. A write stream that ends
 //! (or times out) before `size` bytes drops its [`PendingWrite`], which
-//! unlinks the temporary file: nothing appears at `path`.
+//! unlinks the temporary file: nothing appears at `path`. A write the daemon
+//! refuses after `ready` (bytes past `decoded_size`, a failed disk write) is
+//! answered at once and the stream closes without reading the rest of the
+//! `size` bytes: a client whose send then fails reads that answer.
 
 use std::io::{self, Read, Write};
 use std::os::fd::AsFd;
@@ -25,6 +34,7 @@ use std::os::unix::fs::FileExt as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::encoding::{Encoding, Inflater, Sink};
 use super::entry::Meta;
 use super::error::FsError;
 use super::ops::FsService;
@@ -34,14 +44,33 @@ use cmux_json::JsonSet as _;
 
 /// Bytes moved per read or write.
 pub const STREAM_CHUNK_BYTES: usize = 256 * 1024;
-/// Largest write stream.
-pub const MAX_STREAM_WRITE_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 
 /// A request line that opens a byte stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StreamRequest {
-    Read { id: Value, path: String, offset: u64 },
-    Write { id: Value, path: String, mode: String, expected: Option<String>, size: u64 },
+    Read {
+        id: Value,
+        path: String,
+        offset: u64,
+    },
+    Write {
+        id: Value,
+        path: String,
+        mode: String,
+        expected: Option<String>,
+        size: u64,
+        options: WriteOptions,
+    },
+}
+
+/// The optional fields of a write stream (`fs-write-deflate-v1`,
+/// `fs-write-nofollow-v1`); every one absent is the stream as before.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WriteOptions {
+    pub permissions: Option<u32>,
+    pub encoding: Option<String>,
+    pub decoded_size: Option<u64>,
+    pub no_follow: bool,
 }
 
 #[derive(Deserialize)]
@@ -61,6 +90,14 @@ struct Line {
     expected: Option<String>,
     #[serde(default)]
     size: Option<u64>,
+    #[serde(default)]
+    permissions: Option<u32>,
+    #[serde(default)]
+    encoding: Option<String>,
+    #[serde(default)]
+    decoded_size: Option<u64>,
+    #[serde(default)]
+    no_follow: bool,
 }
 
 impl StreamRequest {
@@ -81,7 +118,13 @@ impl StreamRequest {
         }
         let Some(mode) = line.mode else { return invalid("mode is required") };
         let Some(size) = line.size else { return invalid("size is required for a write stream") };
-        Some(Ok(Self::Write { id: line.id, path, mode, expected: line.expected, size }))
+        let options = WriteOptions {
+            permissions: line.permissions,
+            encoding: line.encoding,
+            decoded_size: line.decoded_size,
+            no_follow: line.no_follow,
+        };
+        Some(Ok(Self::Write { id: line.id, path, mode, expected: line.expected, size, options }))
     }
 }
 
@@ -130,8 +173,8 @@ pub fn serve(
     };
     match request {
         StreamRequest::Read { path, offset, .. } => serve_read(service, &id, &path, offset, writer),
-        StreamRequest::Write { path, mode, expected, size, .. } => {
-            serve_write(service, &id, &path, (&mode, expected), size, reader, writer)
+        StreamRequest::Write { path, mode, expected, size, options, .. } => {
+            serve_write(service, &id, &path, (&mode, expected, &options), size, reader, writer)
         }
     }
 }
@@ -181,21 +224,47 @@ fn serve_write(
     service: &FsService,
     id: &Value,
     path: &str,
-    (mode, expected): (&str, Option<String>),
+    (mode, expected, options): (&str, Option<String>, &WriteOptions),
     size: u64,
     reader: &mut impl Read,
     writer: &mut impl Write,
 ) -> io::Result<()> {
-    if size > MAX_STREAM_WRITE_BYTES {
-        return send(writer, &answer(id, Err(FsError::TooLarge { total: Some(size) })));
-    }
-    let begun = WriteMode::parse(mode, expected)
-        .and_then(|mode| PendingWrite::begin(service.roots(), path, mode, Some(size)));
-    let mut pending = match begun {
-        Ok(pending) => pending,
+    let begun =
+        Encoding::parse(options.encoding.as_deref(), options.decoded_size).and_then(|encoding| {
+            let decoded = match encoding {
+                Encoding::Identity => size,
+                Encoding::Deflate { decoded_size } => decoded_size,
+            };
+            let mode = WriteMode::parse(mode, expected)?;
+            let mut pending = if options.no_follow {
+                PendingWrite::begin_no_follow(service.roots(), path, mode, Some(decoded))?
+            } else {
+                PendingWrite::begin(service.roots(), path, mode, Some(decoded))?
+            };
+            if let Some(permissions) = options.permissions {
+                pending.set_permissions(permissions)?;
+            }
+            Ok((encoding, pending))
+        });
+    let (encoding, mut pending) = match begun {
+        Ok(begun) => begun,
         Err(error) => return send(writer, &answer(id, Err(error))),
     };
     send(writer, &answer(id, Ok(json!({ "ready": true }))))?;
+    if let Encoding::Deflate { decoded_size } = encoding {
+        let decoded = {
+            let mut inflater = Inflater::new(&mut pending, decoded_size);
+            match receive(reader, size, &mut inflater)? {
+                Ok(()) => inflater.finish(),
+                Err(error) => Err(error),
+            }
+        };
+        if let Err(error) = decoded {
+            return send(writer, &answer(id, Err(error)));
+        }
+        let result = pending.commit().map(|entry| json!({ "entry": entry }));
+        return send(writer, &answer(id, result));
+    }
     let mut buffer = vec![0u8; STREAM_CHUNK_BYTES];
     let mut received = 0u64;
     while received < size {
@@ -214,4 +283,32 @@ fn serve_write(
     }
     let result = pending.commit().map(|entry| json!({ "entry": entry }));
     send(writer, &answer(id, result))
+}
+
+/// Reads exactly `size` wire bytes from `reader` into `inflater`. The
+/// outer error is the peer's (it ends the stream; the temporary file goes
+/// with the [`PendingWrite`]); the inner one is answered.
+fn receive<S: Sink>(
+    reader: &mut impl Read,
+    size: u64,
+    inflater: &mut Inflater<'_, S>,
+) -> io::Result<Result<(), FsError>> {
+    let mut buffer = vec![0u8; STREAM_CHUNK_BYTES];
+    let mut received = 0u64;
+    while received < size {
+        let left = size.saturating_sub(received).min(STREAM_CHUNK_BYTES as u64);
+        let want = usize::try_from(left).unwrap_or(0);
+        let Some(slot) = buffer.get_mut(..want) else { return Err(io::ErrorKind::Other.into()) };
+        let read = match reader.read(slot) {
+            Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+            Ok(read) => read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        if let Err(error) = inflater.push(buffer.get(..read).unwrap_or_default()) {
+            return Ok(Err(error));
+        }
+        received = received.saturating_add(read as u64);
+    }
+    Ok(Ok(()))
 }

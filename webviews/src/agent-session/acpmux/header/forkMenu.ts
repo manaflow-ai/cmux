@@ -1,4 +1,4 @@
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 import type { Translate } from "../i18n";
 import { openForkMenu } from "../conversation/messageMenu";
 
@@ -14,7 +14,6 @@ export function forkMenuRows(
       key: "fork",
       label: t("chatMenu.fork"),
       icon: "agent.fork",
-      accelerator: "F",
       onSelect: (event) => {
         if (event?.altKey && choose(throughSeq, event.currentTarget)) return;
         fork();

@@ -1,6 +1,6 @@
 // cmux-web-test-timeout: 600
 // Discovered by run-webviews-tests.sh (browser import + gallery Vite config);
-// tests/test-execution.toml registers Python tests only. No duplicate browser registry.
+// tests/test-execution.d/ registers Python tests only. No duplicate browser registry.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -79,6 +79,7 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
             colorScheme: scheme as "light" | "dark",
           });
           let lines: GridResult[];
+          let clippedHeadings: (string | null)[] = [];
           try {
             const port = (vite!.httpServer!.address() as { port: number }).port;
             await page.goto(
@@ -97,6 +98,23 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
               () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
             );
             lines = await page.evaluate(measureGridLines, scene);
+            if (scene.surface === "session-info") {
+              clippedHeadings = await page
+                .locator(".acpmux-session-info-section__title")
+                .evaluateAll((titles) =>
+                  titles.filter((title) => title.scrollWidth > title.clientWidth + 1).map((title) => title.textContent),
+                );
+            }
+            if (process.env.CMUX_GRID_CAPTURE_DIR && scene.surface === "session-info") {
+              const directory = path.resolve(process.env.CMUX_GRID_CAPTURE_DIR);
+              await mkdir(directory, { recursive: true });
+              // Capture the real gallery DOM, expanded and tall enough to show every section.
+              await page.setViewportSize({ width, height: 2400 });
+              await page.screenshot({
+                path: path.join(directory, `${scene.variant}-${scheme}-${width}.png`),
+                fullPage: true,
+              });
+            }
           } catch (error) {
             fixtureErrors.push({ surface: scene.surface, width, scheme, error: String(error) });
             throw error;
@@ -124,6 +142,7 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
               `::${scene.level === "fail" ? "error" : "warning"} title=grid-lines ${escape(scene.surface)}::${escape(detail)}`,
             );
           }
+          expect(clippedHeadings, "section names stay readable before their status counts").toEqual([]);
           expect(lines.filter((line) => line.coverageFailure)).toEqual([]);
           if (scene.level === "fail") expect(lines.filter(problem)).toEqual([]);
         });

@@ -21,7 +21,9 @@ import os
 /// crashed daemon). Attempts are spaced by one capped backoff across
 /// consecutive drops (reset only after a connection stays up for
 /// `healthyAfter`), and after `retry.timedRetries` failures no timer runs:
-/// the loop waits for the daemon socket to change or `retryWake` to fire.
+/// the loop waits for the daemon socket to change or `retryWake` to fire,
+/// unless `retry.keepsTrying` (the app's local daemon, whose start can fail
+/// for a cause that ends with no event: one attempt per backoff cap).
 /// After `retry.socketRetries` failures that a new socket woke (a daemon
 /// that dies on connect) only `retryWake` does.
 public actor DaemonConnection {
@@ -51,7 +53,7 @@ public actor DaemonConnection {
     private(set) var serial: UInt64 = 0
     /// The open `session.events` stream id (`DaemonConnection+SessionEvents`).
     var sessionStream: String?
-    private var reconnectTask: Task<Void, Never>?
+    private(set) var reconnectTask: Task<Void, Never>?
     /// The initial endpoint/handshake attempt, retained so teardown can join it too.
     private var connectTask: Task<DaemonIdentity, any Error>?
     private var pacer: RetryPacer
@@ -163,8 +165,11 @@ public actor DaemonConnection {
         return false
     }
 
-    /// Control-plane deadline default: 2 s (architecture.md 5a).
-    public static let defaultRequestTimeout: Duration = .seconds(2)
+    /// Control-plane deadline default: 30 s (architecture.md 5a), the heartbeat's window
+    /// (`heartbeat` x `heartbeatMisses`). A busy daemon is not a dead one: at 2 s, requests behind a
+    /// slow journal step (5-8 s) failed while the daemon still answered them (#34628). A daemon that
+    /// misses this long is the heartbeat's not-answering case, which offers Restart.
+    public static let defaultRequestTimeout: Duration = .seconds(30)
     /// The terminal start deadline: a command that starts a terminal
     /// answers once its host is up. cmux-tui bounds one host launch by its
     /// 2 s handshake after a 1 s connect retry window, and starts the hosts
@@ -293,10 +298,14 @@ public actor DaemonConnection {
         phase = .connecting
         serial += 1
         let serial = serial
+        // A failed attempt closes what it opened: left open, its reader kept running and the daemon,
+        // which already took the pipelined `subscribe`, streamed events into a gate that never opens.
+        var opened: LineTransport?
         do {
             let endpoint = try await endpointProvider()
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
-            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
+            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, latency: configuration.requestLatency)
+            opened = transport
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
@@ -341,6 +350,7 @@ public actor DaemonConnection {
             logger.info("connected to cmux-tui \(identity.session, privacy: .public) pid \(identity.pid) gen \(identity.generation.rawValue, privacy: .public)")
             return identity
         } catch {
+            opened?.close()
             if case .connecting = phase { phase = .waiting }
             throw error
         }
@@ -355,7 +365,7 @@ public actor DaemonConnection {
         }
     }
 
-    private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
+    func transportClosed(serial: UInt64, reason: TransportCloseReason) {
         guard serial == self.serial else { return }
         if case .closed = phase { return }
         if case .ready = phase {} else if case .connecting = phase {} else { return }
@@ -388,7 +398,7 @@ public actor DaemonConnection {
     }
 
     private func reconnectLoop() async {
-        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only)
+        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only, or the cap with `keepsTrying`)
         while !Task.isCancelled {
             // A drop or a failed attempt: space the next one (events only past the budget;
             // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).

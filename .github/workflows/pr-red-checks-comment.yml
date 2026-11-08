@@ -16,10 +16,49 @@ on:
 
 permissions: {}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
+  portable-placement:
+    name: portable light placement
+    if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    timeout-minutes: 4
+    permissions:
+      contents: read
+    outputs:
+      linux_runner: ${{ steps.place.outputs.linux_runner }}
+      linux_jobs: ${{ steps.place.outputs.linux_jobs }}
+      mini_runner: ${{ steps.place.outputs.mini_runner }}
+      mini_jobs: ${{ steps.place.outputs.mini_jobs }}
+      placed_attempt: ${{ github.run_attempt }}
+    steps:
+      - name: Check out the trusted placement script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      - name: Place the portable report job
+        id: place
+        continue-on-error: true
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          JOBS: comment
+          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
+          REQUIRE_LIVE_CAPACITY: '1'
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
+        run: python3 scripts/ci/portable_job_placement.py
+
   comment:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    needs: portable-placement
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
+    # Fresh runner-state capacity admits fleet Linux or an idle owned mini first.
+    # Forks keep the ephemeral route; missing placement keeps the existing hosted/paid fallback.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' comment ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' comment ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 5
     continue-on-error: true
     concurrency:

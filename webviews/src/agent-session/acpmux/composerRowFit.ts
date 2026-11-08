@@ -158,9 +158,8 @@ export function fitStep(
 function paneWidth(bar: HTMLElement): number {
   // The plain quiet row fits on its measured room alone (above): no composer width takes a step
   // there. ComposerFoot draws the same row in both footer looks and marks only the plain one, so with
-  // the plain footer off the row takes the width steps as the one row always did. The box's own row
-  // (Codex's look, where the mode, model and ring sit) and New Tab's take them in either look
-  // (composerLocation.css keys its own guards on the same element and attribute).
+  // the plain footer off the row takes the width steps as the one row always did. New Tab's row takes
+  // them in either look (composerLocation.css keys its own guards on the same element and attribute).
   if (bar.classList.contains("acpmux-composer-foot") && bar.dataset.footerLook === "plain")
     return Number.POSITIVE_INFINITY;
   const composer = bar.closest<HTMLElement>(".acpmux-composer, .nt-composer, .acpmux-newtab");

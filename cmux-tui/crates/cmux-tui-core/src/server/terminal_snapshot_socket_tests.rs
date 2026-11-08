@@ -1159,3 +1159,419 @@ fn dogfood_png_snapshot_events_match_the_golden_fixture() {
          CMUX_UPDATE_SNAPSHOT_FIXTURE=1 and review the diff"
     );
 }
+
+/// SWITCH FRAMES SF-5 C (busy gate on a 2x display, 2026-11-02): with 8 warm hidden terminals printing 20 lines/s,
+/// the Mac app woke about 115 times a second, because each hidden terminal's attach stream sent every output frame
+/// at once. A viewer that says it does not show its terminal (`set-attach-visibility`, `attach-visibility-v1`) gets
+/// its output batched to once per wall-clock second, at once when it is shown again, and loses no byte. What the
+/// person sees without the terminal (a title set by the program) still reaches the viewer within one batch window.
+#[test]
+fn a_hidden_snapshot_viewer_gets_output_once_a_second_and_at_once_when_shown() {
+    let mux = Mux::new_for_test("snapshot-hidden-batch", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let version = ghostty_vt::snapshot_version();
+    handle_command(
+        &mux,
+        client,
+        command(json!({
+            "cmd": "attach-surface", "surface": surface.id,
+            "snapshot": "ghostsnp", "snapshot_version": version,
+        })),
+        &writer,
+    )
+    .unwrap();
+    let first = next_event(&outbound, Duration::from_secs(5)).expect("snapshot");
+    assert_eq!(first["event"], "snapshot", "{first}");
+    let mut offset = first["offset"].as_u64().unwrap();
+    // The READY's history chunks and any first scroll or colors event.
+    while let Some(event) = next_event(&outbound, Duration::from_millis(300)) {
+        assert_ne!(event["event"], "output", "output before the test wrote any: {event}");
+    }
+
+    let reply = handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "set-attach-visibility", "surface": surface.id, "visible": false})),
+        &writer,
+    )
+    .unwrap();
+    assert_eq!(reply["viewers"], 1, "{reply}");
+
+    // A busy program while hidden: a title, then 20 lines 100 ms apart.
+    let started = Instant::now();
+    surface.inject_output_for_test(b"\x1b]0;hidden-title\x07");
+    let mut output_events = 0;
+    let mut title_on_attach_at = None;
+    let mut collect = |outbound: &BoundedOutbound,
+                       until: Instant,
+                       output_events: &mut usize,
+                       offset: &mut u64| {
+        while Instant::now() < until {
+            let Some(event) = next_event(outbound, Duration::from_millis(5)) else { continue };
+            if event["event"] == "output" {
+                *output_events += 1;
+                *offset += decoded_len(&event);
+                assert_eq!(
+                    event["offset"].as_u64(),
+                    Some(*offset),
+                    "offsets are contiguous: {event}"
+                );
+                let data = base64::engine::general_purpose::STANDARD
+                    .decode(event["data"].as_str().unwrap())
+                    .unwrap();
+                if title_on_attach_at.is_none()
+                    && String::from_utf8_lossy(&data).contains("hidden-title")
+                {
+                    title_on_attach_at = Some(started.elapsed());
+                }
+            }
+        }
+    };
+    for line in 0..20 {
+        surface.inject_output_for_test(format!("hidden line {line}\r\n").as_bytes());
+        collect(
+            &outbound,
+            Instant::now() + Duration::from_millis(100),
+            &mut output_events,
+            &mut offset,
+        );
+    }
+    assert!(
+        output_events <= 3,
+        "{output_events} output events for 21 writes in 2 s to a hidden viewer: each wakes the app (want at most one per second)"
+    );
+    let title_at = title_on_attach_at.expect("the hidden viewer never got the title bytes");
+    assert!(
+        title_at <= Duration::from_millis(1_300),
+        "the title reached the hidden viewer after {title_at:?}: more than one batch window"
+    );
+
+    // Shown again: what waits goes out at once, not at the next second.
+    surface.inject_output_for_test(b"shown again\r\n");
+    std::thread::sleep(Duration::from_millis(20));
+    let shown_at = Instant::now();
+    let reply = handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "set-attach-visibility", "surface": surface.id, "visible": true})),
+        &writer,
+    )
+    .unwrap();
+    assert_eq!(reply["viewers"], 1, "{reply}");
+    let mut flushed = false;
+    while shown_at.elapsed() < Duration::from_millis(250) {
+        if let Some(event) = next_event(&outbound, Duration::from_millis(5))
+            && event["event"] == "output"
+        {
+            offset += decoded_len(&event);
+            assert_eq!(event["offset"].as_u64(), Some(offset), "offsets are contiguous: {event}");
+            flushed = true;
+        }
+    }
+    assert!(flushed, "a shown viewer got its waiting output only at the next second");
+    assert_eq!(offset, surface_offset(&mux, surface.id), "the viewer missed output bytes");
+
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// The daemon's output offset of `surface` (its snapshot digest's position).
+fn surface_offset(mux: &Mux, surface: crate::SurfaceId) -> u64 {
+    mux.surface(surface).expect("surface").snapshot_digest().expect("digest").offset
+}
+
+/// Review of #32446: a hidden terminal's scroll position moves once per daemon frame while it prints, and each
+/// `scroll-changed` on its attach stream woke the app's reader as an output frame did. A hidden snapshot viewer gets
+/// none while hidden, and the newest one at once when it is shown again.
+#[test]
+fn a_hidden_snapshot_viewer_gets_no_scroll_changed_until_shown() {
+    let mux = Mux::new_for_test("snapshot-hidden-scroll", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let version = ghostty_vt::snapshot_version();
+    handle_command(
+        &mux,
+        client,
+        command(json!({
+            "cmd": "attach-surface", "surface": surface.id,
+            "snapshot": "ghostsnp", "snapshot_version": version,
+        })),
+        &writer,
+    )
+    .unwrap();
+    while next_event(&outbound, Duration::from_millis(300)).is_some() {}
+    handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "set-attach-visibility", "surface": surface.id, "visible": false})),
+        &writer,
+    )
+    .unwrap();
+
+    for offset in 1..=20 {
+        mux.emit_terminal_scroll(surface.id, offset, true);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let mut scrolls = 0;
+    while let Some(event) = next_event(&outbound, Duration::from_millis(300)) {
+        if event["event"] == "scroll-changed" {
+            scrolls += 1;
+        }
+    }
+    assert_eq!(
+        scrolls, 0,
+        "{scrolls} scroll-changed events reached a hidden viewer: each wakes the app"
+    );
+
+    handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "set-attach-visibility", "surface": surface.id, "visible": true})),
+        &writer,
+    )
+    .unwrap();
+    let mut last = None;
+    while let Some(event) = next_event(&outbound, Duration::from_millis(300)) {
+        if event["event"] == "scroll-changed" {
+            last = Some(event);
+        }
+    }
+    let last = last.expect("a shown viewer got no scroll position");
+    assert_eq!(
+        last["offset"].as_u64(),
+        Some(20),
+        "the shown viewer's scroll position is not the newest: {last}"
+    );
+
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// Lead 17:4xZ (SF-5 C): the host bench was too noisy to show that batching engages, so this counts it. A busy
+/// program's 60 lines over 3 s (20 lines/s, as the busy gate) reach a terminal whose snapshot viewer is hidden; each
+/// write comes with the scroll move the frame producer publishes. Every message on the viewer's stream is one wake of
+/// the app's attach reader (output, scroll-changed, digest, ...). Shown, that is two per line (about 120); hidden, at
+/// most one per batch window (one per aligned second, plus the window the writes start in).
+#[test]
+fn a_hidden_viewer_of_a_busy_program_wakes_its_reader_at_most_once_per_second() {
+    let mux = Mux::new_for_test("snapshot-hidden-busy-program", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let version = ghostty_vt::snapshot_version();
+    handle_command(
+        &mux,
+        client,
+        command(json!({
+            "cmd": "attach-surface", "surface": surface.id,
+            "snapshot": "ghostsnp", "snapshot_version": version,
+        })),
+        &writer,
+    )
+    .unwrap();
+    while next_event(&outbound, Duration::from_millis(500)).is_some() {}
+    handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "set-attach-visibility", "surface": surface.id, "visible": false})),
+        &writer,
+    )
+    .unwrap();
+
+    let started = Instant::now();
+    let mut messages = Vec::new();
+    for line in 0..60u64 {
+        surface.inject_output_for_test(format!("busy line {line}\r\n").as_bytes());
+        mux.emit_terminal_scroll(surface.id, line + 1, true);
+        let until = Instant::now() + Duration::from_millis(50);
+        while Instant::now() < until {
+            if let Some(event) = next_event(&outbound, Duration::from_millis(5)) {
+                messages.push(event["event"].as_str().unwrap_or("?").to_string());
+            }
+        }
+    }
+    while started.elapsed() < Duration::from_millis(4_200) {
+        if let Some(event) = next_event(&outbound, Duration::from_millis(20)) {
+            messages.push(event["event"].as_str().unwrap_or("?").to_string());
+        }
+    }
+    let outputs = messages.iter().filter(|event| *event == "output").count();
+    assert!(outputs >= 1, "the hidden viewer got none of the program's output: {messages:?}");
+    assert!(
+        messages.len() <= 6,
+        "{} stream messages in 4.2 s for 60 hidden lines (each wakes the app's attach reader; want at most one per second): {messages:?}",
+        messages.len()
+    );
+
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+// ---- attach-replay-history-rows-v1 ------------------------------------
+
+/// The first `vt-state` of a bytes attach with these extra fields.
+fn byte_attach_vt_state(
+    mux: &std::sync::Arc<Mux>,
+    surface: &crate::Surface,
+    extra: Value,
+) -> Value {
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let mut request = json!({"cmd": "attach-surface", "surface": surface.id});
+    for (key, value) in extra.as_object().expect("fields") {
+        request[key] = value.clone();
+    }
+    handle_command(mux, client, command(request), &writer).unwrap();
+    let first = next_event(&outbound, Duration::from_secs(5)).expect("vt-state");
+    assert_eq!(first["event"], "vt-state", "{first}");
+    disconnect_client(mux, client, false);
+    first
+}
+
+#[test]
+fn replay_history_rows_capability_is_advertised() {
+    let mux = Mux::new_for_test("replay-history-rows-identify", SurfaceOptions::default());
+    let (writer, _outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let identity =
+        handle_command(&mux, client, command(json!({"cmd": "identify"})), &writer).unwrap();
+    let capabilities = identity["capabilities"].as_array().expect("capabilities");
+    assert!(
+        capabilities.iter().any(|value| value == "attach-replay-history-rows-v1"),
+        "{identity}"
+    );
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// Latest screen first (cmuxterm-hq#7231): a bytes attach with
+/// `replay_history_rows` gets a `vt-state` that rebuilds the screen and only
+/// that many of the newest history rows, and names how many older rows it
+/// left out; the same terminal attached without the field still gets its
+/// whole history and no new field.
+#[test]
+fn a_byte_attach_with_a_history_allowance_gets_the_latest_screen_first() {
+    let (mux, surface) = quiet_surface_with_scrollback("replay-history-rows", 5_000);
+    let full = byte_attach_vt_state(&mux, &surface, json!({}));
+    assert!(full.get("history_rows_omitted").is_none(), "{}", full["history_rows_omitted"]);
+    let screen = byte_attach_vt_state(&mux, &surface, json!({"replay_history_rows": 0}));
+    let tail = byte_attach_vt_state(&mux, &surface, json!({"replay_history_rows": 100}));
+
+    let screen_omitted = screen["history_rows_omitted"].as_u64().expect("omitted rows");
+    let tail_omitted = tail["history_rows_omitted"].as_u64().expect("omitted rows");
+    assert!(screen_omitted >= 4_900, "only {screen_omitted} rows were left out of 5,000");
+    assert_eq!(screen_omitted - tail_omitted, 100, "the allowance keeps 100 more rows");
+
+    let (full_bytes, screen_bytes, tail_bytes) = (data(&full), data(&screen), data(&tail));
+    assert!(
+        screen_bytes.len() * 50 < full_bytes.len(),
+        "a screen-only replay of {} bytes against the whole history's {}",
+        screen_bytes.len(),
+        full_bytes.len()
+    );
+    assert!(screen_bytes.len() < tail_bytes.len() && tail_bytes.len() < full_bytes.len());
+
+    // Each rebuilds the same screen.
+    let screen_text = |bytes: &[u8]| {
+        let mut term =
+            ghostty_vt::Terminal::new(80, 24, 10_000_000, ghostty_vt::Callbacks::default())
+                .unwrap();
+        term.vt_write(bytes);
+        term.viewport_text().unwrap()
+    };
+    let expected = screen_text(&full_bytes);
+    assert!(expected.contains("004999"), "{expected}");
+    assert_eq!(screen_text(&screen_bytes), expected);
+    assert_eq!(screen_text(&tail_bytes), expected);
+    mux.shutdown();
+}
+
+/// Bench (off unless CMUX_LATEST_SCREEN_BENCH=<attaches per arm>): a bytes
+/// attach of an 80x24 terminal with 10,000 and 50,000 lines of history, the
+/// whole replay (today) against the latest screen first
+/// (`replay_history_rows: 0`), interleaved. Per arm: the first `vt-state`
+/// line's wire bytes and the time from the request to that line on the
+/// connection's queue (p50/p95). Prints LATEST-SCREEN-BENCH lines and writes
+/// them to $FAST_CHECKS_OUT/latest-screen-bench.txt when that is set.
+#[test]
+fn latest_screen_first_bench() {
+    let Some(runs) = std::env::var("CMUX_LATEST_SCREEN_BENCH")
+        .ok()
+        .and_then(|runs| runs.parse::<usize>().ok())
+        .filter(|runs| *runs > 0)
+    else {
+        return;
+    };
+    let mut lines_out = Vec::new();
+    for history in [10_000, 50_000] {
+        let (mux, surface) =
+            quiet_surface_with_scrollback_limit("latest-screen-bench", history, 50_000_000);
+        let attach = |extra: Value| {
+            let (writer, outbound) = captured_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            let mut request = json!({"cmd": "attach-surface", "surface": surface.id});
+            for (key, value) in extra.as_object().expect("fields") {
+                request[key] = value.clone();
+            }
+            let started = Instant::now();
+            handle_command(&mux, client, command(request), &writer).unwrap();
+            let line = loop {
+                if let Some(message) = outbound.try_pop() {
+                    if message.contains("\"event\":\"vt-state\"") {
+                        break message;
+                    }
+                    continue;
+                }
+                assert!(started.elapsed() < Duration::from_secs(30), "no vt-state");
+                std::thread::yield_now();
+            };
+            let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+            disconnect_client(&mux, client, false);
+            (line.len(), elapsed)
+        };
+        let (mut whole, mut screen) = (Vec::new(), Vec::new());
+        let (mut whole_bytes, mut screen_bytes) = (0, 0);
+        for round in 0..runs {
+            let arms: [bool; 2] = if round % 2 == 0 { [false, true] } else { [true, false] };
+            for tail in arms {
+                if tail {
+                    let (bytes, ms) = attach(json!({"replay_history_rows": 0}));
+                    screen_bytes = bytes;
+                    screen.push(ms);
+                } else {
+                    let (bytes, ms) = attach(json!({}));
+                    whole_bytes = bytes;
+                    whole.push(ms);
+                }
+            }
+        }
+        let percentiles = |times: &mut Vec<f64>| {
+            times.sort_by(f64::total_cmp);
+            let at = |p: f64| times[((times.len() - 1) as f64 * p).round() as usize];
+            format!("p50 {:.2} ms p95 {:.2} ms", at(0.5), at(0.95))
+        };
+        let profile = if cfg!(debug_assertions) { "dev-profile" } else { "release" };
+        lines_out.push(format!(
+            "LATEST-SCREEN-BENCH {profile} 80x24 {history} lines, {runs} attaches per arm: \
+             whole replay {whole_bytes} wire bytes, {}; latest screen first {screen_bytes} \
+             wire bytes, {}",
+            percentiles(&mut whole),
+            percentiles(&mut screen)
+        ));
+        mux.shutdown();
+    }
+    for line in &lines_out {
+        eprintln!("{line}");
+    }
+    if let Ok(dir) = std::env::var("FAST_CHECKS_OUT") {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            std::path::Path::new(&dir).join("latest-screen-bench.txt"),
+            lines_out.join("\n") + "\n",
+        )
+        .unwrap();
+    }
+}

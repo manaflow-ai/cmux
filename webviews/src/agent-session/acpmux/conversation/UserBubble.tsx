@@ -1,8 +1,8 @@
 // A prompt's bubble, with its action row under its right edge (Leo's spec, after Claude Code
 // desktop's): the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
-// hover), then Copy, Edit, Retry and Fork from here, each naming itself on hover. The ellipsis
-// is gone; its menu remains on right-click. No Pin here: an
-// answer's row has it. Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
+// hover), then Copy, Edit, Retry, Fork from here and Bookmark, each naming itself on hover. The ellipsis
+// is gone; its menu remains on right-click. Bookmark toggles the same saved mark as the rail.
+// Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
 // Leo, GUI push 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so
 // nothing moves when it appears. Edit opens the prompt in place; Send forks the chat through the
 // turn before it and sends the edited text there (the App's `edit.send`), Escape or Cancel puts the
@@ -11,9 +11,21 @@
 // (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts, cx-ncc.61).
 // Fork forks the chat through the prompt's own turn, as its right-click Fork does. The images a
 // prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
-// once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
-// block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
-import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+// once sent). A long prompt opens collapsed on its first twenty lines with Show more, and a pasted
+// block is the bubble's own text under that fold (PromptText.tsx); Copy still copies the whole prompt. A video
+// it sent with its frames is its poster and length among them, playing on a click (SentVideoTile.tsx).
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { PresentationContext } from "./presentationContextModel";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -22,57 +34,94 @@ import { DeliveryMark } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
+import { sendMorphRef } from "./sendMorph";
 import { PromptText } from "./PromptText";
-import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
+import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
+import { isStripMedia, readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
+import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
-import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
-import {
-  ForkButton,
-  forkWithFeedback,
-  MessageCopy,
-  MessageFooterRow,
-  MessageTime,
-  PromptRetry,
-  ROW_ICON,
-} from "./MessageActions";
-import { TurnActionsContext } from "./turnActions";
+import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+
+import { SourceBadge } from "../composer/SourceBadge";
+import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
+import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, PromptRetry } from "./MessageActions";
+import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
+import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
+import { NO_RETRY_TARGET, retryPlacement } from "./turns";
+import { useTranscriptReadOnly } from "./readOnly";
+import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
+import { SkillWordsContext } from "./skillWords";
+import { SentVideoTile } from "./SentVideoTile";
+import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
+import { recordedFiles, isImageOriginal, SENT_IMAGE_HEIGHT, sentImageWidth, sentImageSize } from "./userBubbleModel";
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
-  row,
-  text,
+  row: given,
+  text: givenText,
   pending,
 }: {
   row: AcpmuxRow;
   text: string;
-  pending?: (actions: ReactNode) => ReactNode;
+  pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
+  // A video's frames and their note went to the agent only; the bubble draws the video's tile. A
+  // Codex skill reads `/name` as typed, not `/$name` as sent (slashCommands.ts withoutSkillDollars):
+  // in the bubble, its Copy and its editor; Retry sends the prompt as it went.
+  // Only a skill of the chat's list reads so (skillWords.ts).
+  const skills = useContext(SkillWordsContext);
+  const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
+  // Read before the frames go: a video's note and first frame are its tile (sentVideos.ts).
+  const videos = useMemo(() => sentVideosOf(given), [given]);
+  const text = useMemo(
+    () =>
+      withoutSkillDollars(
+        withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+        skills,
+      ),
+    [givenText, given, skills],
+  );
   const t = useT();
-  const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
+  const { edit, branches, fork, forkSeq, forkAny, promptTurns, retry: canResend } = useContext(TurnActionsContext);
+  // The Messages view draws no reply footer for a turn that ended well (messagesRows.ts), so its
+  // prompts keep their own Retry there; the transcript's is the last turn's footer (TurnFooter).
+  const messagesView = useContext(PresentationContext) === "messages";
+  const retryTarget = useContext(RetryTargetContext);
+  const readOnly = useTranscriptReadOnly();
+  // In the transcript, this prompt draws the chat's one Retry when turns.ts retryPlacement puts it
+  // under the prompt: its turn's footer does not draw it (a turn of tool calls alone, history with no
+  // turn result, a turn still running).
+  const promptRetry =
+    retryTarget?.promptId === row.id &&
+    retryPlacement(retryTarget ?? NO_RETRY_TARGET, {
+      canRetry: Boolean(canResend),
+      readOnly,
+      messages: messagesView,
+    }) === "prompt";
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   const through = edit?.seqs.get(row.id);
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
-  const resend = row.resend ?? row.text ?? text;
+  const resend = given.resend ?? given.text ?? givenText;
   // Only a recorded companion relation or an exact retained original path proves that a
   // file belongs to an image. An unrelated file after an image must remain visible on replay.
   // The ordered bubble below skips them by the same rule.
   const originals = imageOriginals(row);
-  const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
-    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
-      ? [{ ...part, path: attachmentPath(part.uri) }]
-      : [],
-  );
-  const files = recorded?.length
-    ? recorded
-    : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
-        file.kind === "link" && !file.mimeType.startsWith("video/")
-          ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
-          : [],
-      );
+  const recorded = recordedFiles(row.inlineParts, originals);
+  const files = (
+    recorded?.length
+      ? recorded
+      : // A video that went with its frames is its tile; one sent without them (`withoutFrames`:
+        // an agent that takes no images, a prompt past its budget) is the file chip its echo draws.
+        row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
+          file.kind === "link" && !(file.mimeType.startsWith("video/") && file.video?.frames.length)
+            ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
+            : [],
+        )
+  )?.filter((file) => !videos.some((video) => video.name === file.name && video.path === file.path));
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
@@ -101,6 +150,17 @@ export function UserBubble({
   const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
   const shownParts = orderedParts?.filter((part) => !banded(part));
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
+  const renderFile = useCallback(
+    (part: Exclude<PromptContentPart, { kind: "text" | "image" }>) => {
+      const video = sentVideoOf(part, videos);
+      return video ? (
+        <span className="cv-user__inline-image">
+          <SentVideoTile video={video} width={sentImageWidth(video)} height={SENT_IMAGE_HEIGHT} />
+        </span>
+      ) : undefined;
+    },
+    [videos],
+  );
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
@@ -113,14 +173,33 @@ export function UserBubble({
         onCancel={() => setEditing(false)}
         onSend={async (value) => {
           if (!edit || through === undefined) return;
-          if (await edit.send(row.id, through, value)) setEditing(false);
+          // Its skills go as `/$name` again, a skill it named keeping that name where a command
+          // shares it, and a skill added in the editor too.
+          const sent = withSkillDollars(value, skills, pickedSkillsOf(given.text ?? givenText, skills));
+          if (await edit.send(row.id, through, sent)) setEditing(false);
         }}
       />
     );
   }
+  // Retry is the last turn's reply footer's (TurnRows.tsx TurnFooter; Leo, 2026-11-04: "Today Retry
+  // is on your prompt bubble ... Put it, with the model switch, in the last turn's footer."), so neither
+  // the sent row nor a waiting steer's queue row (PendingSteer.tsx) draws one, and the row keeps its
+  // buttons when the steer is delivered, except where that footer draws no Retry (`promptRetry`). The
+  // Messages view draws no footer for a turn that ended well (messagesRows.ts), so its prompts keep
+  // their Retry; not while one is on its way, as a second send would duplicate it.
+  const retry =
+    (messagesView || promptRetry) && !row.pending && row.delivery?.state !== "sending" ? (
+      <PromptRetry rowId={row.id} prompt={resend} />
+    ) : null;
+  const forkButton =
+    forkThrough !== undefined ? (
+      <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+    ) : null;
   return (
     <>
-      {!hasInterleaved && row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {!hasInterleaved && (Boolean(row.images?.length) || videos.length > 0) && (
+        <SentImages images={row.images ?? []} leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null} />
+      )}
       {!hasInterleaved && Boolean(files?.length) && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
@@ -136,7 +215,9 @@ export function UserBubble({
                 {renderImage(part)}
               </span>
             ) : (
-              <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />
+              <Fragment key={`${part.kind}-${part.id ?? part.name}-${index}`}>
+                {renderFile(part) ?? <PromptFile part={part} />}
+              </Fragment>
             ),
           )}
         </div>
@@ -147,7 +228,13 @@ export function UserBubble({
         {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) && (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
-              <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
+              <InlinePromptContent
+                rowId={row.id}
+                parts={shownParts!}
+                show={show}
+                renderImage={renderImage}
+                renderFile={renderFile}
+              />
             ) : (
               <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
             )}
@@ -155,10 +242,19 @@ export function UserBubble({
             {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
         )}
-        {!row.failed && !row.queued && (text || pending) && (
+        {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
+            moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
+        {!row.failed && (text || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
-            pending={pending}
+            pending={
+              pending &&
+              ((actions) =>
+                pending(actions, {
+                  retry: retry && <PromptRetry rowId={row.id} prompt={resend} held />,
+                  fork: forkButton,
+                }))
+            }
           >
             <MessageFooterRow>
               {branch && branches && (
@@ -171,7 +267,7 @@ export function UserBubble({
                     disabled={branch.index === 0}
                     onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
                   >
-                    <ChevronLeft size={12} />
+                    <ChevronLeft size={ROW_ICON} />
                   </button>
                   <span
                     className="cv-user__version-count"
@@ -191,7 +287,7 @@ export function UserBubble({
                     disabled={branch.index === branch.sessions.length - 1}
                     onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
                   >
-                    <ChevronRight size={12} />
+                    <ChevronRight size={ROW_ICON} />
                   </button>
                 </span>
               )}
@@ -208,14 +304,9 @@ export function UserBubble({
                   <Pencil size={ROW_ICON} />
                 </button>
               )}
-              {/* Not while it is still on its way: a second send would duplicate it. */}
-              {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
-              {forkThrough !== undefined && (
-                <ForkButton
-                  throughSeq={forkThrough}
-                  onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))}
-                />
-              )}
+              {retry}
+              {forkButton}
+              <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>
           </UserFooter>
         )}
@@ -224,17 +315,28 @@ export function UserBubble({
   );
 }
 
+/// `row` with its prompt text and placed text parts as the bubble reads them (`withoutSkillDollars`);
+/// `row` itself when it names no Codex skill.
+function shownSkills(row: AcpmuxRow, skills: SkillCatalog): AcpmuxRow {
+  const sent = [row.text, ...(row.inlineParts ?? []).map((part) => (part.kind === "text" ? part.text : ""))];
+  if (!sent.some((text) => text?.includes("/$"))) return row;
+  return {
+    ...row,
+    ...(row.text !== undefined && { text: withoutSkillDollars(row.text, skills) }),
+    ...(row.inlineParts && {
+      inlineParts: row.inlineParts.map((part) =>
+        part.kind === "text" ? { ...part, text: withoutSkillDollars(part.text, skills) } : part,
+      ),
+    }),
+  };
+}
+
 /// The paths of the originals a prompt's images kept (an image the composer converted sends its
 /// original file after it).
 function imageOriginals(row: AcpmuxRow): ReadonlySet<string> {
   return new Set(
     row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
   );
-}
-
-/// A file part that is an image's retained original: drawn as the image, never again as a file.
-function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<string>): boolean {
-  return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
 }
 
 function UserFooter({
@@ -250,15 +352,19 @@ function UserFooter({
 }
 
 /// A prompt's images, each opening the image viewer; IncomingMessageCard shows another agent's.
+/// `leading` goes first in the same row: the prompt's videos (SentVideoTile.tsx).
 export const SentImages = memo(function SentImages({
   images,
   className,
+  leading,
 }: {
   images: readonly PromptImage[];
   className?: string;
+  leading?: ReactNode;
 }) {
   return (
     <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
+      {leading}
       {images.map((image) => (
         <SentImage key={image.id} image={image} />
       ))}
@@ -266,19 +372,16 @@ export const SentImages = memo(function SentImages({
   );
 });
 
-/// The sent thumbnail's height (conversation.css), and the narrowest and
-/// widest it draws as a share of that: a tall phone shot or a wide screenshot is cropped to fill
-/// past those bounds rather than drawn as a sliver.
-export const SENT_IMAGE_HEIGHT = 120;
-const SENT_IMAGE_RATIO = { min: 0.75, max: 1.6 };
-
-/// A thumbnail's width at SENT_IMAGE_HEIGHT for an image of `size`: square only while no size is known.
-export function sentImageWidth(size: { width?: number; height?: number }): number {
-  const ratio =
-    size.width && size.height
-      ? Math.min(SENT_IMAGE_RATIO.max, Math.max(SENT_IMAGE_RATIO.min, size.width / size.height))
-      : 1;
-  return Math.round(SENT_IMAGE_HEIGHT * ratio);
+/// A prompt's videos, each at a sent image's height in its own shape.
+function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
+  return videos.map((video) => (
+    <SentVideoTile
+      key={`${video.name}\n${video.path}`}
+      video={video}
+      width={sentImageWidth(video)}
+      height={SENT_IMAGE_HEIGHT}
+    />
+  ));
 }
 
 /// One sent image, read from acpmux by its id (conversation/imageEntries.ts keeps it, so a
@@ -293,12 +396,20 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // Bytes the row holds (this pane's own send) draw at once; acpmux cannot read a composer id.
   const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, image);
   const [failed, setFailed] = useState<string>();
+  // The app it came from, at the thumbnail's top-right corner (composer/SourceBadge.tsx).
+  const from = useSourceLabel(image.source);
+  // The pane's own send: the thumbnail's first frame is over the composer's chip, then it moves to
+  // the slot it holds from that frame (sendMorph.ts).
+  const morph = useMemo(() => sendMorphRef(image.id), [image.id]);
   if (shown.status === "missing") return null;
-  const width = sentImageWidth(shown);
+  const { width, height } = sentImageSize(shown);
+  // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
+  // (conversation.css), never past the bubble's edge.
+  const shape = { width, aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
   if (shown.src !== undefined && failed === shown.src)
     return (
-      <span className="cv-user__image-failed" style={{ width }}>
+      <span className="cv-user__image-failed" style={shape}>
         <ImageIcon size={16} />
         <span>{t("image.failed")}</span>
       </span>
@@ -307,12 +418,20 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // sent-image band appears after the transcript row has already been placed and pushes the
   // prompt and everything below it down by a frame.
   if (shown.src === undefined)
-    return <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, flexBasis: width }} />;
+    return (
+      <span
+        ref={morph}
+        className="cv-user__image-placeholder"
+        aria-hidden="true"
+        style={{ ...shape, flexBasis: width }}
+      />
+    );
   const src = shown.src;
   // A pasted image's name is WebKit's "image.png": name it by its size instead (imageLabel.ts).
   const label = imageLabel(t, { name: image.name, width: shown.width, height: shown.height });
   const thumbnail = (
     <img
+      ref={morph}
       className={shown.fresh ? "cv-user__image cv-enter" : "cv-user__image"}
       src={src}
       alt={label}
@@ -320,7 +439,7 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
       decoding={shown.decoded ? "sync" : "async"}
       width={shown.width}
       height={shown.height}
-      style={{ width }}
+      style={shape}
       onError={() => setFailed(src)}
       onLoad={(event) => {
         // An image that decodes to no pixels draws nothing: it failed too.
@@ -329,18 +448,26 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
       }}
     />
   );
-  if (!openImage) return thumbnail;
-  return (
+  const opened = openImage ? (
     <button
       type="button"
       /* The image drags out as a file (conversation/dragOut.ts). */
       draggable
-      /* tooltip-allow: an image thumbnail shows no name */ title={label}
+      /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(label, from)}
       aria-label={label || t("image.view")}
       onClick={() => openImage(src, label)}
     >
       {thumbnail}
     </button>
+  ) : (
+    thumbnail
+  );
+  if (!image.source) return opened;
+  return (
+    <span className="cv-user__sourced">
+      {opened}
+      <SourceBadge source={image.source} />
+    </span>
   );
 });
 
@@ -390,7 +517,7 @@ export function PromptEditor({
     void onSend(value).finally(() => setSending(false));
   };
   return (
-    <div className="cv-user__edit">
+    <div className="ui-glass cv-user__edit">
       <textarea
         ref={field}
         className="cv-user__edit-field selectable"

@@ -1,11 +1,15 @@
 /* The transcript family row: one quiet line by default, with its panel growing below the anchored
    header. Incoming messages use the same DisclosureRow API when their shared bridge lands. */
-/* A row's line has the tool rows' 26px height in 2px margins and their regular weight, as the
+/* A row's line has the tool rows' height (--cv-tool-row-height), no outer margin of its own (its
+   container's gap gives the room, as the layout grid has it) and their regular weight, as the
    received-message line it sits among does (conversation.css .cv-received): consecutive rows of the
    family stack with no extra gap and none of them is bold (Leo, 2026-10-29: "why is one of these
    bold? And why is there space, a fucking gap in between them?"). */
 .cv-disclosure {
-  margin: 2px 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
   min-width: 0;
   color: var(--cv-text);
 }
@@ -14,7 +18,7 @@
   align-items: center;
   min-width: 0;
   min-height: var(--cv-disclosure-line-height);
-  gap: calc(var(--ds-space-1) + 2px);
+  gap: var(--grid-gap);
 }
 .cv-disclosure__toggle,
 .cv-disclosure__open {
@@ -23,7 +27,7 @@
   align-items: center;
   flex: 1 1 auto;
   min-width: 0;
-  gap: calc(var(--ds-space-1) + 2px);
+  gap: var(--grid-gap);
   box-sizing: border-box;
   min-height: var(--cv-disclosure-line-height);
   cursor: default;
@@ -62,11 +66,23 @@
 .cv-disclosure__icon {
   display: inline-flex;
   flex: none;
-  width: var(--cv-row-icon, 16px);
-  /* The line's gap is 6px; the words start one --cv-row-icon-gap after the icon, as a tool row's. */
-  margin-inline-end: calc(var(--cv-row-icon-gap, 6.5px) - (var(--ds-space-1) + 2px));
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  align-items: center;
   justify-content: center;
   color: var(--cv-text-muted);
+}
+/* A stacked message's line has no label (its first line is under it): no empty slot, so its
+   chevron sits right after the sender, as after any label's words. */
+.cv-disclosure__label:empty {
+  display: none;
+}
+/* Only after a leading part (a received line's sender): a line that starts with its toggle keeps
+   that toggle's inset rule above. */
+.cv-disclosure__line
+  > * + .cv-disclosure__toggle:not(.is-chevron):not(:has(> .cv-disclosure__label:not(:empty), > .cv-disclosure__icon)) {
+  padding-inline-start: 0;
+  margin-inline-start: calc(-1 * var(--ds-space-1));
 }
 .cv-disclosure__label {
   min-width: 0;
@@ -102,22 +118,34 @@
   color: var(--agent-status-failure);
 }
 .cv-disclosure__panel {
-  margin: calc(var(--ds-space-1) / 2) 0 var(--ds-space-1) 24px;
-  padding: var(--ds-space-2) calc(var(--ds-space-2) + 2px);
+  margin: 0;
+  margin-inline-start: var(--grid-icon-box);
+  padding: var(--grid-cards-padding);
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
   border-radius: 8px;
   background: color-mix(in srgb, var(--cv-text) 5%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 12%, transparent);
 }
 .cv-disclosure__panel > .cv-subsession__raw {
   margin-inline-start: 0;
-  margin-top: var(--ds-space-2);
+  margin-top: 0;
 }
 .cv-disclosure__panel .cv-subsession__markdown,
 .cv-disclosure__panel .cv-subsession__cut {
   margin-inline-start: 0;
 }
 .cv-disclosure__panel > .cv-disclosure {
-  margin: calc(var(--ds-space-1) / 2) 0;
+  margin: 0;
+}
+
+/* The caret sits right after the words, never pushed to the line end (cmux#28018). */
+.cv-disclosure__toggle > .cv-rotor {
+  flex: none;
+}
+.cv-disclosure__panel > .cv-subsession__under {
+  padding-inline-start: 0;
 }
 /* Opened, the line's state reads whole (a lane's error, what it waits on): the panel under it does
    not repeat it (Leo, ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis EVERYTHING WITH NO

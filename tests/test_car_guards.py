@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import yaml
@@ -114,6 +115,20 @@ class FocusedTestMap(unittest.TestCase):
             self.assertEqual(got["docs"], ["docs/README.md"], "docs need no test and are not unmapped")
             self.assertEqual(got["unmapped"], [])
 
+    def test_a_test_registry_fragment_selects_the_tests_that_read_the_registry(self):
+        """tests/test-execution.toml became tests/test-execution.d/<area>.toml; no test names a fragment
+        by its own path, so each one maps to the tests that read the registry, as the single file did."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = repo(tmp, {
+                "tests/test-execution.d/app.toml": '[[test]]\npath = "tests/test_app_x.py"\nlane = "linux-guard"\n',
+                "tests/test_app_x.py": "",
+                "tests/test_reads_old.py": 'REGISTRY = "tests/test-execution.toml"\n',
+                "tests/test_reads_new.py": 'FRAGMENTS = "tests/test-execution.d"\n',
+            })
+            got = plan(root, "tests/test-execution.d/app.toml")
+            self.assertEqual(got["unmapped"], [])
+            self.assertEqual([p["path"] for p in got["python"]], ["tests/test_reads_new.py", "tests/test_reads_old.py"])
+
     def test_webviews_tests_cover_what_they_import_transitively_nearest_first(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = repo(tmp, {
@@ -156,7 +171,13 @@ class FocusedTestMap(unittest.TestCase):
         self.assertTrue(sources, "a CmuxNextFiles source to route")
         path = str(sources[0].relative_to(ROOT))
         routed = cmux_next_route.route(ROOT, "pull_request", [path], set())
-        got = focused_tests.plan(ROOT, [path])
+        # The comparison is about which targets are selected, not the per-car cap: past SWIFT_CAP the
+        # plan defers every Swift target to the candidate (#25696 took CmuxNextFiles' route to 10).
+        self.assertFalse(routed.full, "a CmuxNextFiles source routes to a target set, not everything")
+        self.assertTrue(routed.tests, "a CmuxNextFiles source routes to at least one test target")
+        # Headroom over the routed count, so a target only the plan selects shows in the diff.
+        with mock.patch.object(focused_tests, "SWIFT_CAP", len(routed.tests) + 50):
+            got = focused_tests.plan(ROOT, [path])
         self.assertEqual(sorted(s["filter"] for s in got["swift"] if s["package"] == "Packages/macOS/CmuxNext"),
                          sorted(routed.tests))
 

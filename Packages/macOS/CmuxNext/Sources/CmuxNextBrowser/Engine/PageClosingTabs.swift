@@ -30,6 +30,12 @@ public final class PageClosingTabs {
         }
     }
 
+    /// Whether `page` asks the person its beforeunload question ("Leave site?") now: a tab hidden while
+    /// its page decides comes back then.
+    public static func asksPerson(_ page: any BrowserTab) -> @MainActor @Sendable () -> Bool {
+        { [weak page] in page?.pendingPrompts.contains { $0.kind.isBeforeUnload && !$0.isResolved } ?? false }
+    }
+
     /// Whether tab `id`'s page is still deciding a close no question shows for.
     public func contains(_ id: String) -> Bool { watches[id] != nil }
 

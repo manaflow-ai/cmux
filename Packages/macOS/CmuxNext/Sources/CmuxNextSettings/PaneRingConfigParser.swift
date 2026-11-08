@@ -1,16 +1,23 @@
 public import CmuxNextDesign
+import CoreGraphics
 
 /// `focusRing.*` and `notifications.attention.*` in cmux.json. A bad value
-/// keeps its default with a diagnostic.
+/// keeps its default with a diagnostic. The focus ring's paths, defaults and width range are
+/// generated from schemas/settings/source/appearance.json.
 enum PaneRingConfigParser {
     static func focusRing(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> FocusRingSettings {
         var settings = FocusRingSettings()
+        settings.enabled = focusRingEnabledDefault
+        settings.style = focusRingStyleDefault
+        settings.contrast = focusRingContrastDefault
+        settings.width = CGFloat(focusRingWidthDefault)
+        settings.showsForSinglePane = focusRingShowWhenSinglePaneDefault
         guard var reader = ConfigFieldReader(root, at: ["focusRing"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("enabled") { settings.enabled = value }
         if let value = reader.choice("style", FocusRingStyle.self) { settings.style = value }
         if let value = reader.choice("contrast", FocusRingContrast.self) { settings.contrast = value }
         if let value = reader.color("color") { settings.color = value }
-        if let value = reader.points("width", range: FocusRingSettings.widthRange) { settings.width = value }
+        if let value = reader.number("width", range: focusRingWidthRange) { settings.width = CGFloat(value) }
         if let value = reader.members["cornerRadius"], value.stringValue == "pane" || { if case .null = value { true } else { false } }() {
             settings.cornerRadius = nil
         } else if let value = reader.points("cornerRadius", range: FocusRingSettings.cornerRadiusRange) {
@@ -28,21 +35,21 @@ enum PaneRingConfigParser {
         if let value = reader.color("color") { settings.color = value }
         if let value = reader.choice("terminals", FocusRingStyle.self) { settings.terminalRing = value }
         if let value = reader.choice("agentChats", FocusRingStyle.self) { settings.agentChatRing = value }
-        if let value = reader.points("width", range: AttentionSettings.widthRange) { settings.width = value }
-        let blinks = AttentionSettings.blinkRange
-        if let value = reader.number("blinkCount", range: Double(blinks.lowerBound)...Double(blinks.upperBound)) {
+        if let value = reader.number("width", range: AttentionSettings.widthRange) { settings.width = .init(value) }
+        if let value = reader.number("blinkCount", range: AttentionSettings.blinkCountRange) {
             settings.blinkCount = Int(value.rounded())
         }
-        if let value = reader.number("agentChatBlinkCount", range: Double(blinks.lowerBound)...Double(blinks.upperBound)) {
+        if let value = reader.number("agentChatBlinkCount", range: AttentionSettings.agentChatBlinkCountRange) {
             settings.agentChatBlinkCount = Int(value.rounded())
         }
-        if let value = reader.number("duration", range: AttentionSettings.durationRange) { settings.duration = value }
+        if let value = reader.number("duration", range: AttentionSettings.pulseDurationRange) { settings.duration = value }
         if let value = reader.bool("persist") { settings.persists = value }
         if let value = reader.bool("flash") { settings.flashesOnRead = value }
         if let value = reader.bool("flashOnTyping") { settings.flashesOnTyping = value }
         if let value = reader.bool("showOnTab") { settings.showsOnTab = value }
         if let value = reader.bool("showOnSidebar") { settings.showsOnSidebar = value }
         if let value = reader.bool("moveToTop") { settings.movesToTop = value }
+        if let value = reader.bool("moveToTopOnAgentFinish") { settings.movesToTopOnAgentFinish = value }
         diagnostics += reader.diagnostics
         return settings
     }

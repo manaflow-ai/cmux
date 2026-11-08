@@ -38,8 +38,8 @@ public final class WorkspaceSync {
     @ObservationIgnored private var queued: [QueuedEvent] = []
     /// Events received before the latest snapshot request are covered by it.
     /// Events received during capture must replay, even before its reply:
-    /// the daemon writes subscription events from a separate thread.
-    @ObservationIgnored private var snapshotSequence: UInt64 = 0
+    /// the daemon writes subscription events from a separate thread. Tests set it.
+    @ObservationIgnored var snapshotSequence: UInt64 = 0
     /// Coarse changes can affect arrangement as well as the tree. Their
     /// coverage starts before the arrangement requests, not before the list.
     @ObservationIgnored private var arrangementSequence: UInt64 = 0
@@ -47,13 +47,22 @@ public final class WorkspaceSync {
     @ObservationIgnored private var initializing = false
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var agents = AgentStates()
+    /// When each surface's agent last started a turn the person prompted (Jump to Last
+    /// Prompt), kept across reconnects as the Mac's `AgentRoster.lastPromptBySurface` is.
+    @ObservationIgnored public private(set) var lastPromptAt: [Int: Date] = [:]
     /// The Mac's sidebar order, groups and pins (`list-personal`, `sidebar_layout.get`),
     /// read again after a topology or personal change (`arrangementStale`).
     @ObservationIgnored public private(set) var arrangement: SidebarArrangement?
     @ObservationIgnored private var arrangementStale = true
     /// When an event last arrived per surface (agent state or title): the
     /// only activity time the daemon gives.
-    @ObservationIgnored private var activity: [Int: Date] = [:]
+    @ObservationIgnored private(set) var activity: [Int: Date] = [:]
+    /// Each surface's last title on this connection: a title set again to the
+    /// same text (a shell prompt does it constantly) is not activity, and
+    /// re-listing for it republished every workspace to the store.
+    @ObservationIgnored private var titles: [Int: String] = [:]
+    /// Title events dropped as repeats (tests).
+    @ObservationIgnored private(set) var titleEventsIgnored = 0
     @ObservationIgnored public private(set) var macID = ""
     /// Counts bound `daemon` channels: names the current connection (a new
     /// channel, even to the same Mac, is a new one).
@@ -79,6 +88,7 @@ public final class WorkspaceSync {
         client = nil
         connectionSerial += 1
         activity = [:]
+        titles = [:]
         guard let channel else {
             lastError = nil
             identity = nil
@@ -129,6 +139,7 @@ public final class WorkspaceSync {
         projection = WorkspaceProjection()
         let projection = projection
         activity = [:]
+        titles = [:]
         agents.bySurface = [:]
         arrangement = nil
         arrangementStale = true
@@ -151,6 +162,11 @@ public final class WorkspaceSync {
             let setup = try await Task.detached { try Self.decodeSetup(replies.map { $0.map(\.data) }) }.value
             guard self.client === client else { return }
             identity = setup.identity
+            // A reconnect's list counts a prompt only by its own time (a turn already running
+            // when the link came back is not a new prompt at the moment it is seen).
+            for (surface, state) in setup.agents.bySurface where state.updatedAt != nil {
+                notePrompt(surface, from: agents.bySurface[surface], to: state)
+            }
             agents.bySurface = setup.agents.bySurface
             let snapshot = try replies[4].get()
             let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
@@ -212,10 +228,30 @@ public final class WorkspaceSync {
 
     func handle(_ event: DaemonEvent) { enqueue(event, sequence: nil) }
 
+    /// An event at a wire position, as the daemon's stream delivers it (tests).
+    func handle(_ event: DaemonEvent, sequence: UInt64) { enqueue(event, sequence: sequence) }
+
     private func enqueue(_ event: DaemonEvent, sequence: UInt64?) {
         guard event != .other else { return }
         let entry = QueuedEvent(event: event, sequence: sequence)
+        // An event the latest snapshot covers is dropped before it counts for anything: a stale
+        // title recorded as the surface's last one hid the next real event with the same text.
         guard !isBeforeSnapshot(entry) else { return }
+        switch event {
+        case .titleChanged(let surface, let title):
+            // A title set again to the same text is not activity, and applying it
+            // republished the workspace for nothing.
+            guard titles.updateValue(title, forKey: surface) != title else {
+                titleEventsIgnored += 1
+                return
+            }
+            activity[surface] = Date()
+        case .resubscribe:
+            // Title events may have been lost: the next one is news whatever it says.
+            titles = [:]
+        default:
+            break
+        }
         if event == .treeChanged, let index = queued.firstIndex(where: { $0.event == .treeChanged }) {
             // One pending invalidation covers the burst. Keep its newest
             // position so a change during capture still requests a follow-up.
@@ -262,11 +298,14 @@ public final class WorkspaceSync {
                         let event = queued.remove(at: index).event
                         var agentChanged = false
                         switch event {
-                        case .titleChanged(let surface, _):
-                            activity[surface] = Date()
+                        case .titleChanged:
+                            // Stamped as activity when it arrived (`enqueue`).
+                            break
                         case .agentChanged(let surface, let state, let agent, let updatedAt, let harnessSession):
                             if updatedAt == nil, agents.bySurface[surface]?.state != state { activity[surface] = Date() }
-                            agents.bySurface[surface] = AgentState(state: state, agent: agent, updatedAt: updatedAt, harnessSession: harnessSession)
+                            let next = AgentState(state: state, agent: agent, updatedAt: updatedAt, harnessSession: harnessSession)
+                            notePrompt(surface, from: agents.bySurface[surface], to: next)
+                            agents.bySurface[surface] = next
                             agentChanged = true
                         case .notification(let post):
                             onNotification?(post)
@@ -294,6 +333,21 @@ public final class WorkspaceSync {
                 }
             }
         }
+    }
+
+    /// The Mac's rule (`AgentRoster.startsPromptedTurn`): an agent that starts working, not one
+    /// resuming from an approval, began a turn the person prompted. The report has no source,
+    /// so a hook's repeated `working` with a new time counts as the Mac counts it.
+    nonisolated static func startsPromptedTurn(from old: AgentState?, to new: AgentState) -> Bool {
+        guard new.state == "working" else { return false }
+        if old?.state == "working" { return new.updatedAt != nil && old?.updatedAt != new.updatedAt }
+        return old?.state != "blocked"
+    }
+
+    private func notePrompt(_ surface: Int, from old: AgentState?, to new: AgentState) {
+        guard Self.startsPromptedTurn(from: old, to: new) else { return }
+        let at = new.updatedAt ?? Date()
+        lastPromptAt[surface] = max(lastPromptAt[surface] ?? at, at)
     }
 
     private func publish(_ update: WorkspaceProjection.Update, agentChanged: Bool) {

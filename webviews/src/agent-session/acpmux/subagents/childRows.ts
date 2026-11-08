@@ -2,10 +2,10 @@
 // transcript's rules in direct.ts. Its text is a reply, its thoughts and tool calls fold into
 // activity rows, and the subagents it spawned between two pieces of its text draw as one group
 // row, so nesting reads the same at every level.
-import { appendThought, mergeToolItem, textFromContent } from "../direct";
+import { appendThought, backgroundTask, mergeToolItem, textFromContent } from "../direct";
 import { translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
-import { hiddenCall } from "../hiddenTools";
+import { isCompletedPlumbingTool, isPlumbingCall } from "../hiddenTools";
 import { SUBAGENTS, type Event, type Subagent } from "./subagentFold";
 
 /// One of a subagent's own updates, or the point where it spawned a subagent.
@@ -30,7 +30,7 @@ type Group = { row: string; ids: string[] };
 export class ChildRowView {
   private readonly rows = new Map<string, AcpmuxRow>();
   private readonly tools = new Map<string, string>();
-  private readonly hidden = new Set<string>();
+  private readonly plumbing = new Set<string>();
   private readonly groups: Group[] = [];
   private reply: string | undefined;
   private replyMessageId: string | undefined;
@@ -43,7 +43,7 @@ export class ChildRowView {
   constructor(private readonly id: string) {}
 
   update(entries: readonly ChildEntry[], agents: ReadonlyMap<string, Subagent>, version: number): AcpmuxRow[] {
-    const { id, rows, tools, hidden, groups } = this;
+    const { id, rows, tools, groups } = this;
     let { reply, replyMessageId, activity, group } = this;
     // A resume marks the already-folded tail entry settled after the fact.
     if (this.cursor > 0 && entries[this.cursor - 1]?.settled) reply = activity = undefined;
@@ -122,11 +122,11 @@ export class ChildRowView {
         reply = undefined;
       } else if (kind === "tool_call" || kind === "tool_call_update") {
         const callId = String(update.toolCallId ?? `tool-${event.seq}`);
-        // Plumbing (Claude Code's ToolSearch) draws no row here either (hiddenTools.ts).
-        if (hiddenCall(hidden, callId, update)) {
-          if (settled) reply = activity = undefined;
-          continue;
+        if (kind === "tool_call") {
+          if (isPlumbingCall(update)) this.plumbing.add(callId);
+          else this.plumbing.delete(callId);
         }
+        const plumbing = this.plumbing.has(callId) || isPlumbingCall(update);
         // A fresh start belongs to its current segment; delayed updates keep their recorded row.
         const recorded = tools.get(callId);
         const known = kind === "tool_call" && recorded !== activity ? undefined : recorded;
@@ -148,12 +148,47 @@ export class ChildRowView {
           version: (existing?.version ?? 0) + 1,
           at: existing?.at ?? event.at,
           kind: "activity",
-          toolCount: items.filter((entry) => entry.kind === "tool").length,
+          toolCount: items.filter((entry) => entry.kind === "tool" && !isCompletedPlumbingTool(entry.tool)).length,
           items,
         });
         tools.set(callId, rowId);
         if (!known) activity = rowId;
-        reply = undefined;
+        if (!plumbing) reply = undefined;
+      } else if (kind === "background_task_update") {
+        // A shell it ran in the background ends on the call that started it, as the chat's own do
+        // (direct.ts `markBackgroundCall`): a shell stopped at its time limit, or that finished,
+        // never reads as running in its view, Session Info or the tray. A late `running` leaves an
+        // ended one as it is.
+        const task = backgroundTask(update, event.at);
+        const rowId = task ? tools.get(task.toolCallId) : undefined;
+        const existing = rowId ? rows.get(rowId) : undefined;
+        const index = existing?.items?.findIndex((item) => item.tool?.id === task!.toolCallId) ?? -1;
+        const item = index >= 0 ? existing!.items![index]! : undefined;
+        const tool = item?.tool;
+        const ended = task?.state !== "running";
+        if (
+          task &&
+          rowId &&
+          existing &&
+          item &&
+          tool &&
+          (ended || (tool.background?.state ?? "running") === "running")
+        ) {
+          const items = [...existing.items!];
+          items[index] = {
+            ...item,
+            tool: {
+              ...tool,
+              background: {
+                state: task.state,
+                ...(task.reason ? { reason: task.reason } : {}),
+                ...(task.exitCode !== undefined ? { exitCode: task.exitCode } : {}),
+                ...(ended ? { endedAt: event.at } : {}),
+              },
+            },
+          };
+          rows.set(rowId, { ...existing, version: existing.version + 1, items });
+        }
       }
       if (settled) reply = activity = undefined;
     }

@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { COMPACT_MODEL_MENU, MODEL_ROW_NAME } from "./support/compactModelMenu";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -232,12 +233,21 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
   async function pickModel(page: Page, id: string) {
     await page.locator(".acpmux-model .acpmux-picker-button").first().waitFor();
     await page.keyboard.press("Meta+Control+m");
-    const menu = page.locator(".acpmux-quick-menu").first();
+    const menu = page.locator(COMPACT_MODEL_MENU).first();
     await menu.waitFor();
     const name = claudeModels.find((model) => model.id === id)?.shortName;
     if (!name) throw new Error(`unknown test model ${id}`);
     await menu.getByRole("searchbox").fill(name);
-    await menu.getByRole("menuitemradio", { name, exact: false }).first().click();
+    // Click the row's name, as a person does: in the list menu a short searched row's middle can
+    // fall on its effort item, which sits over the row and opens the levels instead. The columns
+    // land the pick at once.
+    await menu
+      .locator("[role=option], [role=menuitemradio]")
+      .filter({ hasText: name })
+      .first()
+      .locator(MODEL_ROW_NAME)
+      .first()
+      .click();
   }
   /// Checks run once the daemon has taken each message.
   const checks = new Set<() => void>();

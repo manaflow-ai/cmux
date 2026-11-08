@@ -1,8 +1,13 @@
 import { Fragment, memo, useContext, type ReactNode } from "react";
 import type { PromptContentPart, PromptImage } from "../model";
 import { FindReveal } from "./chatFind";
-import { attachmentPath, FileAttachment } from "../FileAttachment";
+import { FileAttachment } from "../FileAttachment";
+import { attachmentPath } from "../fileAttachmentModel";
 import { PasteChip, PromptText, PromptTyped } from "./PromptText";
+import { HUGE_PROMPT_HEAD_CHARS, hasHugeTypedPart, headParts } from "./promptCollapse";
+import { experimentArm } from "../../../experiments/experiment";
+import { sentPasteLook } from "./sentPasteLook.experiment";
+import { blockText } from "./inlinePromptContentModel";
 
 /** Sent prompt content in ACP order. Text and attachment runs stay in one bubble, like Messages.
  * A pasted block is the same chip a legacy prompt draws (PromptText.tsx), opening to its text. */
@@ -11,14 +16,18 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   parts,
   show,
   renderImage,
+  renderFile,
 }: {
   rowId: string;
   parts: readonly PromptContentPart[];
   show(text: string): string;
   renderImage(image: PromptImage): ReactNode;
+  /// A file drawn some other way than its chip (a sent video's tile, UserBubble.tsx), or undefined.
+  renderFile?(part: Exclude<PromptContentPart, { kind: "text" | "image" }>): ReactNode | undefined;
 }) {
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === rowId ? reveal.needle : "";
+  const pasteAsText = experimentArm(sentPasteLook) === "text";
   return (
     <PromptText
       rowId={rowId}
@@ -26,19 +35,27 @@ export const InlinePromptContent = memo(function InlinePromptContent({
       // what Find searches and the fold measures.
       text={parts.flatMap((part) => blockText(part) ?? []).join("\n")}
       show={show}
+      huge={hasHugeTypedPart(parts)}
     >
-      {(open) => (
+      {(open, head, collapsed) => (
         <span className="cv-user__inline-content" data-inline-content="true">
-          {parts.map((part, index) => {
+          {/* A huge prompt collapsed draws only its head (PromptText.tsx): the clamp hides the rest. */}
+          {(head ? headParts(parts, HUGE_PROMPT_HEAD_CHARS, typedText) : parts).map((part, index) => {
             // Two text blocks side by side read as the recorded text does, with its newline between
             // them; the strip view's bubble, its attachments moved to the band, is that text. An
             // attachment drawn between two blocks stands in the newline's place.
+            // A paste drawn as text is a block of its own lines, so it needs no newline beside it.
             const separator =
-              index > 0 && blockText(part) !== undefined && blockText(parts[index - 1]!) !== undefined ? "\n" : null;
+              index > 0 &&
+              blockText(part) !== undefined &&
+              blockText(parts[index - 1]!) !== undefined &&
+              !(pasteAsText && (isPasteBody(part) || isPasteBody(parts[index - 1]!)))
+                ? "\n"
+                : null;
             return (
               <Fragment key={index}>
                 {separator}
-                {renderPart(part, index, open)}
+                {renderPart(part, index, open, collapsed)}
               </Fragment>
             );
           })}
@@ -47,8 +64,11 @@ export const InlinePromptContent = memo(function InlinePromptContent({
     </PromptText>
   );
 
-  function renderPart(part: PromptContentPart, index: number, open: () => void): ReactNode {
-    if (part.kind === "text") return <PromptTyped key={`text-${index}`} text={part.text} show={show} />;
+  function renderPart(part: PromptContentPart, index: number, open: () => void, collapsed: boolean): ReactNode {
+    if (part.kind === "text")
+      return (
+        <PromptTyped key={`text-${index}`} text={part.text} show={show} plain={"huge" in part && part.huge === true} />
+      );
     if (part.kind === "image")
       return (
         <span key={`image-${part.id}-${index}`} className="cv-user__inline-image">
@@ -60,9 +80,17 @@ export const InlinePromptContent = memo(function InlinePromptContent({
     const body = blockText(part);
     if (body)
       return (
-        <PasteChip key={`pasted-${index}`} rowId={rowId} index={index} text={body} needle={needle} onOpen={open} />
+        <PasteChip
+          key={`pasted-${index}`}
+          rowId={rowId}
+          index={index}
+          text={body}
+          needle={needle}
+          collapsed={collapsed}
+          onOpen={open}
+        />
       );
-    return <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />;
+    return renderFile?.(part) ?? <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />;
   }
 });
 
@@ -73,29 +101,21 @@ export function PromptFile({ part }: { part: Exclude<PromptContentPart, { kind: 
   return (
     <span className="cv-user__inline-file">
       <FileAttachment
-        file={{ name: part.name, size: part.size, mimeType: part.mimeType, path: attachmentPath(part.uri) }}
+        file={{
+          name: part.name,
+          size: part.size,
+          mimeType: part.mimeType,
+          path: attachmentPath(part.uri),
+          // The app it came from: its icon and tooltip line, as the legacy band's file chip has.
+          source: part.source,
+        }}
       />
     </span>
   );
 }
 
-/** Whether a part the strip view keeps in the bubble gives it something to read: typed text with
- * more than space, a pasted block, a text file's body. */
-export function readsAsText(part: PromptContentPart): boolean {
-  return part.kind === "text" ? part.text.trim() !== "" : part.kind === "pasted" || Boolean(blockText(part));
-}
+/** Whether a part draws as a paste (PasteChip): a pasted block or a text file's body. */
+const isPasteBody = (part: PromptContentPart) => part.kind !== "text" && blockText(part) !== undefined;
 
-/** The text block a part went to the agent as (typed text, a pasted block, a text file's body), or
- * none for an attachment. */
-function blockText(part: PromptContentPart): string | undefined {
-  if (part.kind === "text") return part.text;
-  if (part.kind === "pasted" || (part.kind === "file" && !part.uri)) return part.text;
-  return undefined;
-}
-
-/** The parts the strip setting moves to the band above the bubble: attachments, not what reads as
- * the prompt's text (typed text, pasted blocks and a text file's body stay in the bubble, as a
- * legacy prompt's do), so the bubble keeps the recorded text whole. */
-export function isStripMedia(part: PromptContentPart): part is Exclude<PromptContentPart, { kind: "text" }> {
-  return blockText(part) === undefined;
-}
+/** A typed text block's text: what a collapsed huge prompt's head counts (pastes are chips). */
+const typedText = (part: PromptContentPart) => (part.kind === "text" ? part.text : undefined);

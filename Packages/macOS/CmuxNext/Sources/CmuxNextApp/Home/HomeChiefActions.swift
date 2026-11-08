@@ -1,7 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 
 /// `home.stopChief` and `home.toggleChiefSettings` from anywhere (the palette, a menu, the compose
@@ -53,7 +53,16 @@ enum HomeChiefActions {
         switch plan(context, front: front).stop {
         case .front:
             guard let front else { return }
-            control = front.chiefControl
+            if front.chiefControl.isHosted {
+                control = front.chiefControl
+                break
+            }
+            let interactive = !context.registry.isCapturingRefusal
+            let services = context.services
+            front.turnActions.stop { error in
+                if interactive { services.refusalHUD.show(error.text, in: services.windows.active?.window ?? services.keyWindowSource()) }
+            }
+            return
         case .chief(let conversation):
             let row = context.services.home.homeStore.rows.first { $0.summary.id == conversation }
             control = HomeChiefControl(services: context.services, conversation: conversation,

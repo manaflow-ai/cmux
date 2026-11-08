@@ -4,11 +4,19 @@
 // paragraph, heading, list item, table cell, code block), so a match may span bold, links and code
 // colors inside it; matches are painted with CSS custom highlights, never by rewriting the editor's
 // DOM. Source: the text area's lines; the active match is its selection.
+import { foldFind } from "../../find/fold";
 import type { FindRange, FindTarget } from "../editor/editorFind";
+import { clearAdaptiveFind, paintAdaptiveFind, type FindColors } from "../../ui/findPaint";
 
 /** The highlight names styles.css paints. */
 export const MARKDOWN_FIND_HIGHLIGHT = "cmux-md-find";
 export const MARKDOWN_FIND_ACTIVE_HIGHLIGHT = "cmux-md-find-active";
+/** The page's find colors (styles.css's fallback rules), fit to each match's surface (ui/findPaint.ts). */
+const MARKDOWN_FIND_COLORS: FindColors = {
+  match: "light-dark(rgba(255, 199, 0, 0.42), rgba(255, 199, 0, 0.34))",
+  current: "light-dark(#ff9632, #e8821e)",
+  currentInk: "#1a1208",
+};
 
 /** Elements whose text is one run. A match never crosses from one into the next. */
 const BLOCKS = "p, h1, h2, h3, h4, h5, h6, li, td, th, pre, blockquote, dt, dd, figcaption, summary";
@@ -76,8 +84,8 @@ function rangeOf(run: Run, match: FindRange): Range {
 }
 
 function occurrences(text: string, query: string, matchCase: boolean, line: number, into: FindRange[]) {
-  const hay = matchCase ? text : text.toLocaleLowerCase();
-  const needle = matchCase ? query : query.toLocaleLowerCase();
+  const hay = matchCase ? text : foldFind(text);
+  const needle = matchCase ? query : foldFind(query);
   if (!needle) return;
   for (let at = hay.indexOf(needle); at >= 0; at = hay.indexOf(needle, at + needle.length)) {
     into.push({ startLineNumber: line, startColumn: at + 1, endLineNumber: line, endColumn: at + 1 + needle.length });
@@ -138,6 +146,7 @@ export function markdownFindTarget(view: MarkdownFindView): FindTarget {
     const api = highlights();
     api?.registry.delete(MARKDOWN_FIND_HIGHLIGHT);
     api?.registry.delete(MARKDOWN_FIND_ACTIVE_HIGHLIGHT);
+    clearAdaptiveFind(MARKDOWN_FIND_HIGHLIGHT);
   };
 
   return {
@@ -237,6 +246,14 @@ export function markdownFindTarget(view: MarkdownFindView): FindTarget {
         } else api.registry.delete(MARKDOWN_FIND_ACTIVE_HIGHLIGHT);
       }
       const scroller = view.scroller();
+      // HIGHLIGHT-CONTRAST: each match fit to the surface it sits on (a code block, a table, a quote).
+      paintAdaptiveFind(
+        scroller?.ownerDocument ?? document,
+        MARKDOWN_FIND_HIGHLIGHT,
+        MARKDOWN_FIND_COLORS,
+        ranges.filter((range): range is Range => range !== null),
+        current ? [current] : [],
+      );
       if (current && scroller) reveal(scroller, current);
     },
 

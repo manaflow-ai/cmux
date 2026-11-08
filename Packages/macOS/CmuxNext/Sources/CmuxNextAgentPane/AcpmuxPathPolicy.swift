@@ -113,6 +113,20 @@ nonisolated enum AcpmuxPathPolicy {
         }
         var params = object["params"]
         var peerCwd: String?
+        var peerFolders: [String]?
+        // Trust questions on a peer carry the owner explicitly at the top level. The folder
+        // exists on that machine, so this Mac checks only the same absolute/NUL/length shape as
+        // a peer start and preserves the spelling for the owning daemon.
+        if method == "acp.trust.get" || method == "acp.trust.set" {
+            var fields = params as? [String: Any] ?? [:]
+            if let peer = fields["peer"] as? String, !peer.isEmpty {
+                guard let cwd = fields.removeValue(forKey: "cwd") as? String, isPeerFolder(cwd) else {
+                    return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
+                }
+                peerCwd = cwd
+                params = fields
+            }
+        }
         // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root;
         // without one, the workspace's agent-home folder, made now. Never the home folder.
         // Do not work in a project (`_meta.acpmux.noProject`, the new chat's project picker,
@@ -154,14 +168,24 @@ nonisolated enum AcpmuxPathPolicy {
                 }
                 peerCwd = cwd
             }
+            // The folders a chat on another machine sees beside its own are that machine's too:
+            // shape only, as its `cwd`.
+            if onPeer, let dirs = fields["additionalDirectories"], !(dirs is NSNull) {
+                guard let list = dirs as? [String], list.allSatisfy(isPeerFolder) else {
+                    return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
+                }
+                fields.removeValue(forKey: "additionalDirectories")
+                peerFolders = list
+            }
             params = fields
         }
         guard let params else { return .success(Checked(text: text, gestureRootsUsed: [])) }
         var checked: Any
         do {
             checked = try rewrite(params, context: &context)
-            if let peerCwd, var fields = checked as? [String: Any] {
-                fields["cwd"] = peerCwd
+            if peerCwd != nil || peerFolders != nil, var fields = checked as? [String: Any] {
+                if let peerCwd { fields["cwd"] = peerCwd }
+                if let peerFolders { fields["additionalDirectories"] = peerFolders }
                 checked = fields
             }
         } catch let refusal as Refusal {

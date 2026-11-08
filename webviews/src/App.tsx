@@ -92,8 +92,9 @@ import {
   useDiffFileOpen,
   type DiffLineClick,
 } from "./diff-viewer/openFile";
-import { diffFingerprintReader, useDiffFreshness } from "./diff-viewer/freshness";
+import { diffFingerprintReader, useDiffFreshness, usePrecomputedFingerprint } from "./diff-viewer/freshness";
 import { diffPageClient, type DiffPageConfig } from "./diff/page";
+import { reportFirstHunk } from "./diff-viewer/openTiming";
 import { GitToolbarButtons, GitWriteBar } from "./agent-session/acpmux/changes/GitActions";
 import { useGitWrite } from "./agent-session/acpmux/changes/useGitWrite";
 import { FilesSidebar, FilesSidebarBackdrop, filteredFileTreeSource } from "./diff-viewer/FilesSidebar";
@@ -120,6 +121,7 @@ import {
   useDiffTransport,
   usePendingReplacement,
   useRenderDiff,
+  type RenderDiffHooks,
 } from "./diff-viewer/useRenderDiff";
 import { fullFilesAvailable, useFileSidesReader, useFullFiles } from "./diff-viewer/fullFiles";
 
@@ -159,6 +161,12 @@ export function App({ config, initialStatus }: ConfigProps) {
   const writes = useDiffWrites();
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
+  const previousDraft = useRef(state.draft);
+  useLayoutEffect(() => {
+    // Pierre pins the gutter utility to its selection until the draft closes.
+    if (previousDraft.current != null && state.draft == null) codeViewRef.current?.clearSelectedLines();
+    previousDraft.current = state.draft;
+  }, [state.draft]);
   const codeViewScrollTopRef = useRef(0);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
@@ -203,6 +211,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
     bridgeAvailable,
+    canSend: payload.commentsSend === true,
     dispatch,
     latestState,
     repoRoot: commentRepoRoot,
@@ -242,8 +251,13 @@ export function App({ config, initialStatus }: ConfigProps) {
     options.onLineClick = ((click: DiffLineClick, context: { item: DiffItem }) =>
       lineClick.current(click, context.item)) as any;
     if (bulkBarRoom) options.layout = { paddingTop: 0, gap: 1, ...options.layout, paddingBottom: DIFF_BULK_BAR_ROOM };
+    // The open's timeline goes to the host once a file with hunks has drawn its rows (openTiming.ts).
+    options.onPostRender = ((_node: HTMLElement, _instance: unknown, phase: string, context?: { item?: DiffItem }) => {
+      if (phase === "mount" && (context?.item?.fileDiff?.hunks?.length ?? 0) > 0)
+        reportFirstHunk(diffPageClient(), latestState.current.items.length);
+    }) as any;
     return options;
-  }, [appearance, gutterClick, lineClick, drawnOptions, bulkBarRoom]);
+  }, [appearance, gutterClick, lineClick, drawnOptions, bulkBarRoom, latestState]);
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {
@@ -414,6 +428,27 @@ export function App({ config, initialStatus }: ConfigProps) {
   });
   useViewedFilesBootstrap(viewedScope, dispatch);
   usePendingReplacement(payload, label, dispatch, transport);
+  // A diff the host precomputed (an agent's turn ended): its fingerprint is the freshness baseline,
+  // and when the files changed since, the new diff replaces it with the reader kept in place.
+  // Each precompute gets its own id, so a later one with the same fingerprint still gets its first check.
+  const [precomputed, setPrecomputed] = usePrecomputedFingerprint();
+  const replaceAnchor = useRef<ReturnType<KindOrderHandlers["anchor"]>>(null);
+  // The session on screen while a reconcile streams its replacement: kept open (previews and full
+  // files read it) until the new diff commits, and the one shown again if the reconcile fails.
+  const retainedSessionRef = useRef<ActiveDiffSession | null>(null);
+  const renderHooks = useRef<RenderDiffHooks>({});
+  renderHooks.current = {
+    retained: retainedSessionRef,
+    prepared: setPrecomputed,
+    beforeReplace: () => {
+      replaceAnchor.current = kindOrderHandlers.current.anchor();
+    },
+  };
+  useLayoutEffect(() => {
+    const anchor = replaceAnchor.current;
+    replaceAnchor.current = null;
+    if (anchor) kindOrderHandlers.current.restore(anchor);
+  }, [state.replaceCount]);
   useRenderDiff(
     config,
     transport,
@@ -429,6 +464,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     adoptedSessionRef,
     state.options.hideWhitespace,
     state.options.hideImports,
+    renderHooks,
   );
   useViewerPrefsBootstrap(payload, dispatch);
   useCommentsBootstrap(bridgeAvailable ? commentRepoRoot : null, comments.onLoaded);
@@ -714,6 +750,8 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (key === "hideWhitespace" || key === "hideImports") refresh();
   };
   const refresh = () => {
+    // A folder found outside a repository is checked again, so a `git init` brings Commit and Push back.
+    git.recheck();
     // Pages with nothing to re-stream (baked status messages, or a pending
     // replacement without a typed session) still need the full reload so a
     // native replacement page can resolve.
@@ -776,11 +814,22 @@ export function App({ config, initialStatus }: ConfigProps) {
     () => diffFingerprintReader(diffPageClient(), (config as DiffPageConfig).ops, shownSource),
     [config, shownSource],
   );
+  const [machineUnavailable, setMachineUnavailable] = useState<string>();
   const filesChanged = useDiffFreshness(
     readFingerprint,
     state.renderGeneration,
     () => latestState.current.draft == null && !commitOpenRef.current,
     () => refreshRef.current(),
+    setMachineUnavailable,
+    {
+      fingerprint: precomputed?.fingerprint,
+      id: precomputed?.id,
+      reconcile: () => {
+        retainedSessionRef.current = activeSessionRef.current;
+        dispatch({ type: "reconcile" });
+      },
+      failedGeneration: state.reconcileFailedGeneration,
+    },
   );
 
   return (
@@ -885,9 +934,9 @@ export function App({ config, initialStatus }: ConfigProps) {
             <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
           </span>
         ) : null}
-        {filesChanged && (
-          <output className="diff-files-changed">
-            <span>{label("filesChangedSinceLoad")}</span>
+        {(filesChanged || machineUnavailable) && (
+          <output className="diff-files-changed" aria-live="polite">
+            <span>{machineUnavailable ?? label("filesChangedSinceLoad")}</span>
             <button type="button" className="file-review-load" onClick={refresh}>
               {label("refresh")}
             </button>
@@ -907,9 +956,11 @@ export function App({ config, initialStatus }: ConfigProps) {
         <FilesSidebar
           commentEntries={commentEntries}
           commentLabels={commentLabels}
+          commentsSendState={comments.sendState}
           hasDraft={state.draft != null}
           label={label}
           onSelectComment={selectCommentEntry}
+          onSendComments={comments.canSend ? comments.send : undefined}
           onActivateItem={activateTreeFile}
           onSelectItem={scrollToItem}
           onToggleViewedPath={toggleViewedPath}

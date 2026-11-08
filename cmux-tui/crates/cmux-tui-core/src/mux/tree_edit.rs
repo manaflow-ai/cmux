@@ -95,10 +95,14 @@ pub(super) fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pan
             return true;
         };
         let column = &mut screen.layout_columns[index];
+        let chat_left = is_agent_chat_top(column, pane);
         let root = std::mem::replace(&mut column.root, Node::Leaf(0));
         let stack_expanded = root.stack_expanded_pane();
         match root.remove_leaf(pane) {
             Some(mut root) => {
+                if chat_left {
+                    release_agent_chat_role(column);
+                }
                 if let Some(panes) = column.creation_order_auto_layout.as_mut() {
                     panes.retain(|candidate| *candidate != pane);
                     if let Some(layout) =
@@ -399,7 +403,7 @@ pub(super) fn layout_undo_confirmation_details(
     }
     let confirmation_token =
         hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    let revision = registry.resource_topology_snapshot()?.revision;
+    let revision = registry.resource_revision()?;
     Ok(serde_json::json!({
         "revision":revision.to_string(),
         "confirmation_token":confirmation_token,

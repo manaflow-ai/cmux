@@ -15,7 +15,10 @@ function selectorsPadding(prop: RegExp): string[] {
 }
 
 test("Codex's look (no split) reserves the shell glyph's column", () => {
-  const reserved = selectorsPadding(/padding-inline-start:\s*var\(--ds-control-icon\)/);
+  // The inset is the field's own variable (#29659), so the placeholder starts where the text does.
+  const reserved = selectorsPadding(
+    /--nt-field-pad-inline-start:\s*var\(--ds-control-icon\)[^}]*padding-inline-start:\s*var\(--nt-field-pad-inline-start\)/,
+  );
   expect(reserved).toContain(".nt-input:not([data-split]) .nt-field-slot .nt-field");
 });
 

@@ -110,6 +110,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var agentBrand: String?
     /// A custom harness's own icon (user 12922), drawn instead of `agentBrand`'s mark when set.
     public var agentIcon: SidebarAgentIcon?
+    /// The Chief operating this chat, resolved from acpmux ownership tags.
+    public var chiefAvatar: SidebarChiefAvatar?
     /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
     public var agentName: String?
     /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
@@ -143,7 +145,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// every other row.
     public var stage: String?
     /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
-    /// terminal in the home folder): the row reads quiet while idle (`SidebarTunables.quietUnnamedRows`).
+    /// terminal in the home folder): the row reads quiet while idle (`WorkspaceRowView.isQuiet`).
     public var isUnnamed = false
     /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
     /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.

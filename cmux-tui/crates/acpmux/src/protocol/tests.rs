@@ -118,3 +118,81 @@ fn protocol_mail_send_supports_optional_reports_target() {
     assert!(required.iter().any(|field| field == "sender"));
     assert!(required.iter().any(|field| field == "body"));
 }
+
+/// Schema and typed forwarding preserve the link guest's owner-approval boundary.
+#[test]
+fn protocol_author_approval_round_trips() {
+    use super::presence::Author;
+    use serde_json::{Value, json};
+    let guest = json!({"id": "guest:one", "name": "Cy", "approval": "owner"});
+    let author: Author = serde_json::from_value(guest.clone()).unwrap();
+    assert_eq!(serde_json::to_value(author).unwrap(), guest);
+    let person = json!({"id": "user_one", "name": "Cy"});
+    let author: Author = serde_json::from_value(person.clone()).unwrap();
+    assert_eq!(serde_json::to_value(author).unwrap(), person);
+    let invalid = json!({"id": "guest:one", "name": "Cy", "approval": "anyone"});
+    assert!(serde_json::from_value::<Author>(invalid).is_err());
+    let ir: Value = serde_json::from_str(&ir_text()).unwrap();
+    let schema = &ir["types"]["Author"];
+    assert_eq!(schema["properties"]["approval"]["anyOf"][0]["$ref"], "#/types/AuthorApproval");
+    assert_eq!(ir["types"]["AuthorApproval"]["enum"], json!(["owner"]));
+    assert!(!schema["required"].as_array().unwrap().contains(&json!("approval")));
+}
+
+/// A keyed method's params are closed, and every request's `_meta.acpmux` names
+/// [`super::params::AcpmuxRequestMeta`], so the IR's `types` carries it.
+#[test]
+fn protocol_keyed_params_are_closed_and_name_the_request_meta() {
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).expect("IR is JSON");
+    let agent_hold = &ir["types"]["AgentHoldParams"];
+    assert_eq!(agent_hold["additionalProperties"], false, "{agent_hold}");
+    assert_eq!(agent_hold["properties"]["_meta"]["$ref"], "#/types/RequestMeta");
+    let meta = &ir["types"]["AcpmuxRequestMeta"];
+    assert_eq!(meta["additionalProperties"], false, "{meta}");
+    let keys: BTreeSet<&str> =
+        meta["properties"].as_object().expect("properties").keys().map(String::as_str).collect();
+    let listed: BTreeSet<&str> = super::params::ACPMUX_REQUEST_META.iter().copied().collect();
+    assert_eq!(keys, listed);
+    assert!(keys.contains("localAppToken") && keys.contains("personKey"), "{keys:?}");
+}
+
+/// Every `_meta.acpmux` key acpmux's own clients put in a request (the CLI, the hand, the TUI, a peer's
+/// `initialize`) is one [`super::params::AcpmuxRequestMeta`] lists, so the closed type accepts acpmux's own
+/// requests: `acpmux send --class/--thread`, `run --effort/--tag`, a peer's `compression` offer.
+#[test]
+fn protocol_request_meta_lists_every_key_acpmux_clients_send() {
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let writes = [
+        r#"\b(?:mux|meta)\s*\[\s*"(\w+)"\s*\]\s*="#,
+        r#"\b(?:mux|meta)\.set\(\s*"(\w+)""#,
+        r#"set_path\(\s*&\["_meta",\s*"acpmux",\s*"(\w+)""#,
+    ]
+    .map(|pattern| regex::Regex::new(pattern).expect("pattern"));
+    let listed: BTreeSet<&str> = super::params::ACPMUX_REQUEST_META.iter().copied().collect();
+    let mut files = vec![src.join("client.rs"), src.join("peer.rs"), src.join("prompt_class.rs")];
+    let mut dirs = vec![src.join("cli"), src.join("hand"), src.join("tui")];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).expect("source dir").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                files.push(path);
+            }
+        }
+    }
+    let mut missing = BTreeSet::new();
+    for path in files.iter().filter(|path| !path.to_string_lossy().contains("test")) {
+        let text = std::fs::read_to_string(path).expect("source file");
+        // A file's own `#[cfg(test)]` module writes test fixtures, not requests.
+        let text = text.split("#[cfg(test)]").next().unwrap_or_default();
+        for pattern in &writes {
+            for key in pattern.captures_iter(text).filter_map(|captures| captures.get(1)) {
+                if !listed.contains(key.as_str()) {
+                    missing.insert(format!("{}: {}", path.display(), key.as_str()));
+                }
+            }
+        }
+    }
+    assert!(missing.is_empty(), "add these request keys to ACPMUX_REQUEST_META: {missing:?}");
+}

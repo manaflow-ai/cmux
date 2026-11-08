@@ -512,6 +512,111 @@ fn applying_a_worktree_runs_no_clean_filter_from_the_main_checkouts_config() {
     let _ = fs::remove_dir_all(root);
 }
 
+/// Git trusts a file's stat data only when the file changed before the index
+/// was written; a change made in the index's own second ("racy git") is
+/// hashed again. So an edit of the same size, made in the second the
+/// worktree's index was written, must still be applied when the apply comes
+/// a second later (the base red at 09c48ed811e: under the full suite's load
+/// the apply came later and found "no changes since main").
+#[test]
+fn an_edit_in_the_second_the_worktree_was_made_is_applied_a_second_later() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-git-worktree-apply-racy-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "git-worktree-apply-racy",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+
+    // The worktree and the edit in one wall-clock second (tried again in the
+    // next second when the host was too slow for that).
+    let second = || SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let made = (0..10).find_map(|attempt| {
+        let into_second = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_millis();
+        std::thread::sleep(Duration::from_millis(u64::from(1_050 - into_second)));
+        let started = second();
+        let name = format!("chat{attempt}");
+        let key = format!("c{attempt}");
+        let args =
+            ["worktree", "create", "--name", name.as_str(), "--idempotency-key", key.as_str()];
+        assert_success(&git_cli(&server, &repo, &args));
+        let worktree = home.join(".cmux/worktrees/project").join(&name);
+        fs::write(worktree.join("a.txt"), "two\n").unwrap();
+        (second() == started).then_some(worktree)
+    });
+    let worktree = made.expect("no try made the worktree and its edit in one second");
+    std::thread::sleep(Duration::from_millis(1_200));
+
+    let applied = git_cli(&server, &worktree, &["worktree", "apply", "--idempotency-key", "a1"]);
+    assert_success(&applied);
+    assert_eq!(fs::read_to_string(repo.join("a.txt")).unwrap(), "two\n");
+    let _ = fs::remove_dir_all(root);
+}
+
+/// A worktree whose index has no write bit (mode 0444; git reads it, and the
+/// apply only copies it) still applies: the copy gets the index's time
+/// without being opened for writing.
+#[test]
+fn a_worktree_whose_index_is_read_only_still_applies() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-git-worktree-apply-readonly-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    // Root writes through any mode, so there the test proves nothing.
+    let probe = root.join("probe");
+    fs::write(&probe, "").unwrap();
+    if fs::metadata(&probe).unwrap().uid() == 0 {
+        eprintln!("skipped: running as root, a 0444 file is writable");
+        let _ = fs::remove_dir_all(root);
+        return;
+    }
+    let server = HeadlessServer::start_with_options(
+        "git-worktree-apply-readonly",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let args = ["worktree", "create", "--name", "chat", "--idempotency-key", "c1"];
+    assert_success(&git_cli(&server, &repo, &args));
+    let worktree = home.join(".cmux/worktrees/project/chat");
+    fs::write(worktree.join("a.txt"), "two, longer\n").unwrap();
+    let git_dir = PathBuf::from(git(&worktree, &["rev-parse", "--absolute-git-dir"]));
+    let index = git_dir.join("index");
+    fs::set_permissions(&index, fs::Permissions::from_mode(0o444)).unwrap();
+
+    let applied = git_cli(&server, &worktree, &["worktree", "apply", "--idempotency-key", "a1"]);
+    assert_success(&applied);
+    assert_eq!(fs::read_to_string(repo.join("a.txt")).unwrap(), "two, longer\n");
+    let _ = fs::remove_dir_all(root);
+}
+
 #[test]
 fn the_worktree_remove_guard_runs_no_clean_filter_from_a_submodules_config() {
     let root = std::env::temp_dir().join(format!(
@@ -570,5 +675,125 @@ fn the_worktree_remove_guard_runs_no_clean_filter_from_a_submodules_config() {
     assert!(!refused.status.success(), "a worktree with a changed submodule was removed");
     let reason = String::from_utf8_lossy(&refused.stderr).to_string();
     assert!(reason.contains("uncommitted_changes"), "{reason}");
+    let _ = fs::remove_dir_all(root);
+}
+
+/// Reads `git worktree setup` in `worktree` until its setup is done.
+fn finished_setup(server: &HeadlessServer, worktree: &std::path::Path) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let read = git_cli(server, worktree, &["worktree", "setup"]);
+        assert_success(&read);
+        let value = json_output(&read);
+        let state = value["run"]["state"].as_str().unwrap_or_default().to_string();
+        if !matches!(state.as_str(), "copying" | "running") {
+            return value;
+        }
+        assert!(Instant::now() < deadline, "setup never finished: {value}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+fn a_new_worktree_copies_its_include_files_and_runs_the_projects_setup_and_teardown() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-git-worktree-setup-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(repo.join(".cmux")).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "git-worktree-setup",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join(".gitignore"), ".env\nsetup-ran.txt\n").unwrap();
+    fs::write(repo.join(".worktreeinclude"), ".env\n").unwrap();
+    fs::write(
+        repo.join(".cmux/worktree.toml"),
+        concat!(
+            "setup = 'printf \"%s %s %s\" \"$CMUX_WORKSPACE_NAME\" \"$CMUX_PORT\" ",
+            "\"$CONDUCTOR_ROOT_PATH\" > setup-ran.txt; echo hello-from-setup'\n",
+            "teardown = 'echo bye > \"$CMUX_ROOT_PATH/teardown-ran.txt\"; echo left > leftover.txt'\n",
+        ),
+    )
+    .unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    fs::write(repo.join(".env"), "SECRET=1\n").unwrap();
+    let main = fs::canonicalize(&repo).unwrap();
+
+    // The reply comes before setup runs; the read follows it to the end.
+    let args = ["worktree", "create", "--name", "chat", "--idempotency-key", "s1"];
+    let created = git_cli(&server, &repo, &args);
+    assert_success(&created);
+    let value = json_output(&created)["value"].clone();
+    assert_eq!(value["setup"]["state"], "copying", "{value}");
+    let port = value["setup"]["port"].as_u64().expect("a port");
+    assert!(port >= 40_000, "{value}");
+    let worktree = home.join(".cmux/worktrees/project/chat");
+    let read = finished_setup(&server, &worktree);
+    assert_eq!(read["run"]["state"], "succeeded", "{read}");
+    assert_eq!(read["run"]["exit_code"], 0, "{read}");
+    assert_eq!(read["run"]["include"]["copied"], 1, "{read}");
+    assert!(read["run"]["output"].as_str().unwrap().contains("hello-from-setup"), "{read}");
+    assert_eq!(
+        read["recipe"]["files"],
+        serde_json::json!([".worktreeinclude", ".cmux/worktree.toml"])
+    );
+    assert_eq!(fs::read_to_string(worktree.join(".env")).unwrap(), "SECRET=1\n");
+    let ran = fs::read_to_string(worktree.join("setup-ran.txt")).unwrap();
+    assert_eq!(ran, format!("chat {port} {}", main.display()));
+
+    // Reading on from where the last read ended returns only what is new.
+    let end = read["run"]["output_end"].as_str().unwrap().to_string();
+    let more = git_cli(&server, &worktree, &["worktree", "setup", "--since", &end]);
+    assert_eq!(json_output(&more)["run"]["output"], "", "{}", json_output(&more));
+
+    // A second worktree gets other ports.
+    let other = git_cli(
+        &server,
+        &repo,
+        &["worktree", "create", "--name", "other", "--idempotency-key", "s2"],
+    );
+    assert_success(&other);
+    let other_port = json_output(&other)["value"]["setup"]["port"].as_u64().unwrap();
+    assert_ne!(other_port, port);
+    finished_setup(&server, &home.join(".cmux/worktrees/project/other"));
+
+    // Removing it runs the teardown first; what the teardown leaves there goes too.
+    let removed = git_cli(
+        &server,
+        &repo,
+        &["worktree", "remove", "--path", worktree.to_str().unwrap(), "--idempotency-key", "s3"],
+    );
+    assert_success(&removed);
+    let value = json_output(&removed)["value"].clone();
+    assert_eq!(value["teardown"]["state"], "succeeded", "{value}");
+    assert_eq!(fs::read_to_string(repo.join("teardown-ran.txt")).unwrap(), "bye\n");
+    assert!(!worktree.exists());
+
+    // A failing setup keeps the worktree and says how it failed.
+    fs::write(repo.join(".cmux/worktree.toml"), "setup = 'echo broke; exit 3'\n").unwrap();
+    let failing = git_cli(
+        &server,
+        &repo,
+        &["worktree", "create", "--name", "bad", "--idempotency-key", "s4"],
+    );
+    assert_success(&failing);
+    let bad = home.join(".cmux/worktrees/project/bad");
+    let read = finished_setup(&server, &bad);
+    assert_eq!(read["run"]["state"], "failed", "{read}");
+    assert_eq!(read["run"]["exit_code"], 3, "{read}");
+    assert!(read["run"]["output"].as_str().unwrap().contains("broke"), "{read}");
+    assert!(bad.join(".git").exists());
     let _ = fs::remove_dir_all(root);
 }

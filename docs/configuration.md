@@ -184,9 +184,30 @@ What Cmd-1 to Cmd-9 select.
 
 A key you bind yourself in `shortcuts.bindings` for `selectWorkspaceByNumber` or `selectSurfaceByNumber` wins, and then neither moves. Change it in **Settings > Keyboard > Sidebar Navigation** or with `cmux settings set tabs.commandDigits tabs`.
 
+## `tabs.verticalTabs` and `tabs.verticalTabsExpandOnHover`
+
+Whether workspaces show their tabs as a vertical list beside their panes, as in Edge and Chrome, instead of the horizontal tab bar.
+
+```json
+{
+  "tabs": { "verticalTabs": true, "verticalTabsExpandOnHover": false }
+}
+```
+
+- `tabs.verticalTabs`: `false` (default) keeps the horizontal tab bar. `true` shows vertical tabs in every workspace. This is **Use Vertical Tabs for All Workspaces**.
+- `tabs.verticalTabsExpandOnHover`: `true` (default) widens a list collapsed to icons to show the titles while the pointer is over it.
+
+One workspace can turn vertical tabs on or off for itself: right-click the empty part of its tab bar or tab list and choose **Turn On Vertical Tabs** or **Turn Off Vertical Tabs**. That workspace's own choice wins over `tabs.verticalTabs`. Changing **Use Vertical Tabs for All Workspaces** clears every workspace's own choice.
+
+The same menu has **New Tab**, **Reopen Closed Tab**, **Bookmark All Tabs**, **Move All Tabs to a New Workspace**, **Collapse Tabs** (icons only, for every workspace), **Auto-Expand Tabs on Hover** and **Task Manager**.
+
+The list has pinned tabs at the top, tab groups with their color bar, the speaker to mute a tab, drag to reorder and the same tab right-click menu as the tab bar. A workspace showing vertical tabs lists no tab rows under its row in the sidebar, even with `sidebar.showWorkspaceTabs` on: its own list shows them.
+
+Change both in **Settings > General > Tabs** or with `cmux settings set tabs.verticalTabs true`.
+
 ## Tab bar (removed: `tabs.tabBar`)
 
-Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
+Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. The exception is a workspace showing vertical tabs (`tabs.verticalTabs`), whose panes list their tabs on their leading edge. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
 
 The only way to hide one pane's tab bar is **Hide Tab Bar** in the command palette (Cmd-Shift-P) or the pane's right-click menu. While the bar is hidden, the same entry reads **Show Tab Bar**. The CLI keeps `cmux pane toggle-tab-bar`. Cmd-T always opens a tab in the current workspace, also in a pane that hides its tab bar (the tab bar then shows); Cmd-N opens a new workspace. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
 
@@ -194,7 +215,7 @@ The `tabs.tabBar.terminal`, `tabs.tabBar.browser` and `tabs.tabBar.agent` settin
 
 ## `tabs.newTabPosition`
 
-Where Cmd-T and the + button put a new tab.
+Where Cmd-T puts a new tab.
 
 ```json
 {
@@ -206,7 +227,7 @@ Where Cmd-T and the + button put a new tab.
 - `"end"`: after the pane's last tab, as in Chrome and Edge.
 - `"start"`: first, right after the pinned tabs.
 
-The setting applies to what you open with Cmd-T and the + button. A script's `cmux tab new` still adds the tab at the end.
+The setting applies to what you open with Cmd-T. The + button has its own setting, `tabs.newTabButtonPosition` (below). A script's `cmux tab new` still adds the tab at the end.
 
 To put one new tab in a specific place, whatever the setting, use these commands (Cmd-Shift-P, the CLI, or MCP). They have no default key; you can assign one in **Settings > Keyboard Shortcuts**.
 
@@ -217,6 +238,22 @@ To put one new tab in a specific place, whatever the setting, use these commands
 | **New Tab at End** | `cmux tab new-at-end` |
 
 **New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition end`.
+
+## `tabs.newTabButtonPosition`
+
+Where the + button after the last tab puts a new tab. The **New Tab** row of vertical tabs follows it too. It takes the same values as `tabs.newTabPosition`; the default is `"end"`.
+
+```json
+{
+  "tabs": { "newTabButtonPosition": "end" }
+}
+```
+
+- `"end"` (default): after the pane's last tab, next to the button.
+- `"afterCurrent"`: right after the selected tab, like Cmd-T's default.
+- `"start"`: first, right after the pinned tabs.
+
+Option-click on the + (a tab of the selected tab's kind) goes to the same place. Change the setting in **Settings > General > Tabs**, in the command palette, or with `cmux settings set tabs.newTabButtonPosition afterCurrent`.
 
 ## `tabs.newTabTemplate`
 
@@ -417,12 +454,12 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 
 ```json
 {
-  "workspaces": { "newPlacement": "top" }
+  "workspaces": { "newPlacement": "afterCurrent" }
 }
 ```
 
-- `"top"` (default): right below the workspace the window shows, inside its group, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
-- `"afterCurrent"` (cmux classic's default): right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"afterCurrent"` (default, as in cmux classic): right after the workspace the window shows, inside that workspace's group when it has one. If that workspace closes before the new one appears, the new one takes its place. Made from a group's + while none of that group's workspaces is shown, it goes last in that group. When the shown workspace is pinned, is Home, or is on another machine, the new one goes to the top. It never goes to the end of the sidebar.
+- `"top"`: first in the group of the workspace the window shows, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
 - `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
 
 So under every value, a new workspace opened while you are in a group stays in that group.

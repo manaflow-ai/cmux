@@ -60,10 +60,12 @@ struct DividerModifierDragTests {
             return (view, from)
         }
 
-        /// Moves a pressed handle `dx` points right of where it was pressed, in two steps.
+        /// Moves a pressed handle `dx` points right of where it was pressed, in two steps, then shows one display
+        /// frame: the frame tick writes a drag's newest pointer.
         func move(_ view: DividerHandleView, from: CGPoint, by dx: CGFloat, flags: NSEvent.ModifierFlags = []) {
             view.mouseDragged(with: event(.leftMouseDragged, CGPoint(x: from.x + dx / 2, y: from.y), flags))
             view.mouseDragged(with: event(.leftMouseDragged, CGPoint(x: from.x + dx, y: from.y), flags))
+            _ = root.advanceFrame(1.0 / 120)
         }
 
         func release(_ view: DividerHandleView, at point: CGPoint, flags: NSEvent.ModifierFlags = []) {
@@ -77,11 +79,14 @@ struct DividerModifierDragTests {
             release(view, at: CGPoint(x: from.x + dx, y: from.y), flags: flags)
         }
 
+        /// Presses or lets go of modifier keys mid-drag, then shows one display frame (the frame tick writes the drag's
+        /// new mode).
         func flags(_ view: DividerHandleView, _ flags: NSEvent.ModifierFlags) {
             let event = NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: flags, timestamp: 0,
                                          windowNumber: window.windowNumber, context: nil, characters: "",
                                          charactersIgnoringModifiers: "", isARepeat: false, keyCode: 58)!
             view.flagsChanged(with: event)
+            _ = root.advanceFrame(1.0 / 120)
         }
 
         private func event(_ type: NSEvent.EventType, _ point: CGPoint, _ flags: NSEvent.ModifierFlags) -> NSEvent {
@@ -172,7 +177,7 @@ struct DividerModifierDragTests {
     @Test func shiftLandsADividerOnTheNearestSnapEvenFarFromIt() throws {
         let screen = Screen(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))))
         defer { screen.window.closeAfterTest() }
-        // 0.3 + 230 pt of 1600 is about 0.44: free without Shift (8 pt snap reach), a half with it.
+        // 0.3 + 230 pt of 1600 is about 0.44: where the pointer lets go without Shift, a half with it.
         try screen.drag(.split("x"), by: 230, flags: .shift)
         #expect(screen.ratio("x") == 0.5)
     }

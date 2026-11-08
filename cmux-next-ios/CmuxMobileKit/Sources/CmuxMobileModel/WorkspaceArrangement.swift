@@ -199,6 +199,48 @@ public enum WorkspaceEdge: String, CaseIterable, Hashable, Sendable {
     }
 }
 
+/// Move Workspace Above… / Below… (the Mac's `workspace.moveAbove` / `moveBelow`): the person
+/// picks another row of the workspace's container, and the workspace goes right before or after it.
+public enum WorkspaceNeighborMove: String, CaseIterable, Hashable, Sendable {
+    case above, below
+
+    /// The Mac's titles.
+    public var title: String {
+        switch self {
+        case .above: "Move Workspace Above…"
+        case .below: "Move Workspace Below…"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .above: "arrow.up.to.line.compact"
+        case .below: "arrow.down.to.line.compact"
+        }
+    }
+
+    /// The rows `workspace` can go next to on this side, in `order` (its container): every other
+    /// row except the one it already sits right after (above) or right before (below).
+    public func targets(for workspace: Workspace, in order: [Workspace]) -> [Workspace] {
+        guard let position = order.firstIndex(where: { $0.id == workspace.id }) else { return [] }
+        return order.enumerated().compactMap { index, row in
+            guard row.id != workspace.id else { return nil }
+            switch self {
+            case .above: return index == position + 1 ? nil : row
+            case .below: return index == position - 1 ? nil : row
+            }
+        }
+    }
+
+    /// `order` once `workspace` sits on this side of `target`.
+    public func reordered(_ workspace: Workspace, next target: Workspace, in order: [Workspace]) -> [Workspace] {
+        var rows = order.filter { $0.id != workspace.id }
+        guard let at = rows.firstIndex(where: { $0.id == target.id }) else { return order }
+        rows.insert(workspace, at: self == .above ? at : at + 1)
+        return rows
+    }
+}
+
 /// Sort Workspaces by Name / Last Used / Directory (the Mac's `WorkspaceSortKey`): every
 /// container of one Mac's sidebar (its loose rows, each group's members) sorted in place;
 /// pinned rows keep their own order (the Mac's pinned section is not sorted).
@@ -345,7 +387,7 @@ extension AppStore {
 }
 
 extension WorkspaceCreator {
-    private var arranger: (any WorkspaceArrangementBackend)? { backend as? any WorkspaceArrangementBackend }
+    var arranger: (any WorkspaceArrangementBackend)? { backend as? any WorkspaceArrangementBackend }
 
     /// Whether the workspace's pin, color, order and read mark can change from here now.
     public func canArrange(_ workspace: Workspace) -> Bool {
@@ -470,6 +512,23 @@ extension WorkspaceCreator {
         track(workspace.id) { [weak self] in
             do {
                 try await arranger.place(workspace, next: anchor, after: after)
+            } catch {
+                self?.restore(old)
+                self?.onManageFailure?(workspace, "Couldn't move \(workspace.title)", Self.message(error))
+            }
+        }
+    }
+
+    /// Move Workspace Above… / Below…: right before or after `target`, a row of the same
+    /// container. The list shows the new place at once; the Mac's answer settles it.
+    public func move(_ workspace: Workspace, _ side: WorkspaceNeighborMove, _ target: Workspace) {
+        let order = container(of: workspace)
+        guard canArrange(workspace), let arranger, side.targets(for: workspace, in: order).contains(where: { $0.id == target.id })
+        else { return }
+        let old = reorderLocally(order, to: side.reordered(workspace, next: target, in: order))
+        track(workspace.id) { [weak self] in
+            do {
+                try await arranger.place(workspace, next: target, after: side == .below)
             } catch {
                 self?.restore(old)
                 self?.onManageFailure?(workspace, "Couldn't move \(workspace.title)", Self.message(error))

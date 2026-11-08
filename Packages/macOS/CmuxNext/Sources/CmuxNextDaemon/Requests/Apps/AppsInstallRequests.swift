@@ -13,6 +13,28 @@ public struct AppsListRequest: DaemonRequest {
     public init() {}
 }
 
+/// `apps-store`: a read or mutation from the app-store operation family.
+/// Arguments stay opaque so newer daemon operations can be forwarded by an
+/// older page host.
+public struct AppsStoreRequest: DaemonRequest, VerbatimFieldsRequest {
+    public typealias Response = JSONValue
+    public static let command = "apps-store"
+
+    public var op: String
+    public var args: JSONValue
+
+    /// `apps.panels.list`: the Session Info sections of installed, visible apps.
+    public static let panelsList = AppsStoreRequest(op: "apps.panels.list")
+
+    public init(op: String, args: JSONValue = .object([:])) {
+        self.op = op
+        self.args = args
+    }
+
+    enum CodingKeys: String, CodingKey { case op }
+    var verbatimFields: [String: JSONValue] { ["args": args] }
+}
+
 /// `apps-set`: one change of one app; answers the app's record after the
 /// commit (with the commit's `revision`). Every change needs the verified
 /// cmux app connection (Gate A2), whatever `origin` says.

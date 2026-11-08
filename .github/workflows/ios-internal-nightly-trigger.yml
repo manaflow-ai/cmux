@@ -6,7 +6,8 @@ name: cmux-next iPhone INTERNAL builder trigger
 # no extra credential is needed. Rules: scripts/ci/ios_internal_builder.py plan
 # (iOS change since the last upload, or any change after 12 hours; skip a head
 # already uploaded, building or failed; skip a head whose shared iOS packages
-# drift from upstream, which the archive refuses; back off 30 min doubling to
+# drift from upstream, which the archive refuses, and fail this run red so
+# the drift is seen; back off 30 min doubling to
 # 6 h while builds keep failing). The schedule is the periodic fallback
 # and runs only once this file is on the default branch.
 # Design: plans/cmux-next/ios-testflight-builder-DESIGN.md.
@@ -28,7 +29,7 @@ concurrency:
 jobs:
   decide:
     if: github.repository == 'manaflow-ai/cmux' && vars.IOS_INTERNAL_HOLD != '1'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     permissions:
       # actions: read lists earlier builds; actions: write dispatches one.

@@ -1,16 +1,19 @@
 // A control the transcript shows only on hover fades in and out, never blinks (Leo 2026-10-28:
 // "there should be, like, a fast fade-in fade-out. Right now they're just appearing and
 // disappearing. Like they're just blinking in and out of existence, and it's a bit jarring").
-// Every one takes the message hover row's fade (#23769, conversation.css --cv-actions-*): out
-// quickly at rest, in after a beat under the pointer.
+// Every one takes the message hover row's dwell ramp (conversation.css --cv-actions-*, aliases of
+// pages/shared/desktop.css --cmux-hover-reveal-*; Leo, 2026-11-07: "it should be, like, having its
+// limit based off of how long you've had your cursor actually on it"): out on its ease-in at rest,
+// in on its ramp under the pointer with no delay, so a brush past reaches only a faint level.
+// test/hover-reveal-dwell.test.ts measures the ramp in Chromium.
 // - A hover-revealed control is a class a transcript stylesheet hides (`opacity: 0` or
 //   `visibility: hidden`) in a rule without a reveal state, and shows (`opacity` above 0 or
 //   `visibility: visible`) in a rule with one (`:hover`, `:focus-within`, `:focus-visible`,
 //   `[data-turn-revealed]`). The class is the selector's subject (its last compound, `:is()` lists
 //   included).
-// - Each one transitions `opacity` on `var(--cv-actions-out` in a rule without a reveal state, and,
-//   when the pointer reveals it, on `var(--cv-actions-in` and `var(--cv-actions-in-delay` in a
-//   `:hover` rule.
+// - Each one transitions `opacity` on `var(--cv-actions-out` and `var(--cv-actions-out-ease` in a
+//   rule without a reveal state, and, when the pointer reveals it, on `var(--cv-actions-in` and
+//   `var(--cv-actions-in-ease` in a `:hover` rule. No rule waits on a delay before the ramp.
 // Menus and popovers are not transcript controls here: they open on the click with no fade
 // (popover-instant-open.test.ts).
 import { describe, expect, test } from "bun:test";
@@ -74,7 +77,8 @@ function splitTop(text: string, separator: RegExp): string[] {
 const REVEAL = /:hover|:focus-within|:focus-visible|\[data-turn-revealed\]/;
 const OUT = "var(--cv-actions-out";
 const IN = "var(--cv-actions-in";
-const IN_DELAY = "var(--cv-actions-in-delay";
+const OUT_EASE = "var(--cv-actions-out-ease";
+const IN_EASE = "var(--cv-actions-in-ease";
 const HOVER = /:hover/;
 const ZERO = /^0(\.0+)?$/;
 
@@ -87,6 +91,12 @@ function subjectClasses(selector: string): string[] {
 }
 
 type Control = { name: string; hidden: Rule[]; shown: Rule[]; fadesOut: boolean; fadesInOnHover: boolean };
+
+// The running subagent Stop is an intentional immediate reveal. Its per-row control is kept
+// transparent at rest so a tray does not repeat a lit Stop on every line; subagent-stop-hover.test.tsx
+// pins that contract. It is the settled exception in the chat-transcript action rules, not a blink
+// in the fade-enabled message and tool controls covered here.
+const IMMEDIATE_REVEALS = new Set(["cv-subagent__stop"]);
 
 /// Every hover-revealed control in `sheets` and whether it takes the shared fade.
 function hoverControls(sheets: { file: string; source: string }[]): Control[] {
@@ -102,8 +112,8 @@ function hoverControls(sheets: { file: string; source: string }[]): Control[] {
     const values = (name: string) => rule.decls.filter(([key]) => key === name).map(([, value]) => value);
     const onOpacity = (value: string) => /\bopacity\b|\ball\b/.test(value);
     const transitions = [...values("transition"), ...values("transition-property")].filter(onOpacity);
-    const fadeOut = transitions.some((value) => value.includes(OUT));
-    const fadeIn = transitions.some((value) => value.includes(IN) && value.includes(IN_DELAY));
+    const fadeOut = transitions.some((value) => value.includes(OUT) && value.includes(OUT_EASE));
+    const fadeIn = transitions.some((value) => value.includes(IN) && value.includes(IN_EASE));
     for (const selector of splitTop(rule.selector, /,/)) {
       const revealing = REVEAL.test(selector);
       const hides = values("opacity").some((value) => ZERO.test(value)) || values("visibility").includes("hidden");
@@ -129,11 +139,11 @@ const where = (rule: Rule) => `${path.relative(ACPMUX, rule.file)}:${rule.line}`
 /// The controls that blink, as `.name (hidden at …, shown at …): what is missing`.
 function blinking(controls: Control[]): string[] {
   return controls
-    .filter((one) => !one.fadesOut || !one.fadesInOnHover)
+    .filter((one) => !IMMEDIATE_REVEALS.has(one.name) && (!one.fadesOut || !one.fadesInOnHover))
     .map((one) => {
       const missing = [
-        !one.fadesOut && "no opacity transition on var(--cv-actions-out) at rest",
-        !one.fadesInOnHover && "no :hover opacity transition on var(--cv-actions-in) after var(--cv-actions-in-delay)",
+        !one.fadesOut && "no opacity transition on var(--cv-actions-out) var(--cv-actions-out-ease) at rest",
+        !one.fadesInOnHover && "no :hover opacity transition on var(--cv-actions-in) var(--cv-actions-in-ease)",
       ].filter(Boolean);
       const hidden = one.hidden.map(where).join(", ");
       const shown = one.shown.map(where).join(", ");
@@ -145,7 +155,18 @@ describe("transcript hover-revealed controls fade", () => {
   const sheets = transcriptSheets().map((file) => ({ file, source: readFileSync(file, "utf8") }));
   const controls = hoverControls(sheets);
 
-  test("every hover-revealed transcript control fades in and out on the shared tokens", () => {
+  test("no reveal waits on a delay: the ramp starts with the pointer", () => {
+    const delayed = sheets.flatMap(({ file, source }) =>
+      source
+        .split("\n")
+        .map((line, index) => ({ line, at: `${path.relative(ACPMUX, file)}:${index + 1}` }))
+        .filter(({ line }) => line.includes("--cv-actions-in-delay"))
+        .map(({ at }) => at),
+    );
+    expect(delayed).toEqual([]);
+  });
+
+  test("every fade-enabled hover-revealed transcript control uses the shared tokens", () => {
     expect(blinking(controls)).toEqual([]);
   });
 
@@ -166,6 +187,7 @@ describe("transcript hover-revealed controls fade", () => {
       "cv-sent-actions",
       "cv-table-tools",
       "cv-media__actions",
+      "cv-subagent__stop",
     ])
       expect(names).toContain(name);
   });
@@ -173,7 +195,7 @@ describe("transcript hover-revealed controls fade", () => {
   test("a control that shows on hover with no fade is reported", () => {
     const fixture = (css: string) => blinking(hoverControls([{ file: path.join(ACPMUX, "fixture.css"), source: css }]));
     expect(fixture(".row-tools { opacity: 0 } .row:hover .row-tools { opacity: 1 }")).toEqual([
-      ".row-tools (hidden at fixture.css:1, shown at fixture.css:1): no opacity transition on var(--cv-actions-out) at rest; no :hover opacity transition on var(--cv-actions-in) after var(--cv-actions-in-delay)",
+      ".row-tools (hidden at fixture.css:1, shown at fixture.css:1): no opacity transition on var(--cv-actions-out) var(--cv-actions-out-ease) at rest; no :hover opacity transition on var(--cv-actions-in) var(--cv-actions-in-ease)",
     ]);
     // A fade of its own duration is not the shared fade.
     expect(
@@ -185,16 +207,16 @@ describe("transcript hover-revealed controls fade", () => {
       fixture(`.row-tools { opacity: 0 }
         .row:hover .row-tools, .row-tools:focus-within { opacity: 1 }
         @media (prefers-reduced-motion: no-preference) {
-          .row-tools { transition: opacity var(--cv-actions-out) var(--cv-actions-ease) }
+          .row-tools { transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease) }
           .row:hover .row-tools {
-            transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+            transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
           }
         }`),
     ).toEqual([]);
     // Shown only from the keyboard: the fade out is enough.
     expect(
       fixture(
-        ".row-tools { opacity: 0; transition: opacity var(--cv-actions-out) } .row-tools:focus-within { opacity: 1 }",
+        ".row-tools { opacity: 0; transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease) } .row-tools:focus-within { opacity: 1 }",
       ),
     ).toEqual([]);
   });

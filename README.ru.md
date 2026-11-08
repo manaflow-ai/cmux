@@ -14,7 +14,6 @@
 </p>
 
 <p align="center">
-  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -384,7 +383,7 @@ tmux — это мультиплексор терминала, который р
 
 ### Как я могу поддержать cmux?
 
-cmux бесплатен и с открытым исходным кодом, и всегда будет таким. Если вы хотите поддержать разработку и получить ранний доступ к тому, что будет дальше, включая cmux AI, приложение для iOS и Cloud VMs, ознакомьтесь с [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux бесплатен и с открытым исходным кодом, и всегда будет таким.
 
 ### У меня есть запрос на функцию или я нашёл ошибку?
 
@@ -404,7 +403,7 @@ cmux бесплатен и с открытым исходным кодом, и �
 
 Способы принять участие:
 
-- Подписывайтесь на нас в X для получения обновлений [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen) и [@austinywang](https://x.com/austinywang)
+- Подписывайтесь на нас в X для получения обновлений [@lawrencecchen](https://x.com/lawrencecchen) и [@austinywang](https://x.com/austinywang)
 - Присоединяйтесь к обсуждению в [Discord](https://discord.gg/xsgFEVrWCZ)
 - Создавайте и участвуйте в [GitHub issues](https://github.com/manaflow-ai/cmux/issues) и [обсуждениях](https://github.com/manaflow-ai/cmux/discussions)
 - Расскажите нам, что вы создаёте с помощью cmux
@@ -414,7 +413,6 @@ cmux бесплатен и с открытым исходным кодом, и �
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
-- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -423,19 +421,6 @@ cmux бесплатен и с открытым исходным кодом, и �
   <strong>WeChat:</strong> отсканируйте QR-код, чтобы присоединиться к сообществу.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="QR-код WeChat для присоединения к сообществу cmux" width="240" />
 </p>
-
-## Издание основателя
-
-cmux бесплатен, с открытым исходным кодом и всегда будет таким. Если вы хотите поддержать разработку и получить ранний доступ к будущим возможностям:
-
-**[Получить Издание основателя](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Приоритетные запросы на функции/исправления ошибок**
-- **Ранний доступ: cmux AI, который даёт контекст по каждому рабочему пространству, вкладке и панели**
-- **Ранний доступ: приложение для iOS с терминалами, синхронизированными между компьютером и телефоном**
-- **Ранний доступ: облачные виртуальные машины**
-- **Ранний доступ: голосовой режим**
-- **Мой личный iMessage/WhatsApp**
 
 ## Лицензия
 

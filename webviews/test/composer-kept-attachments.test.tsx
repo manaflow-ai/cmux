@@ -269,6 +269,72 @@ test("a chip's contents go to the host once; later writes name it without them",
   expect(store.chats.get("chat-a")?.map((chip) => chip.data)).toEqual([btoa("png-bytes-1"), btoa("png-bytes-2")]);
 });
 
+// Regression (SW-00): a file's full-resolution original can arrive after its
+// preview was already saved. It updates the existing chip, without changing its ID.
+test("an original upload finishing after the preview was kept updates that draft", async () => {
+  const store = new Host();
+  const page = await openPage("chat-a", store);
+  act(() => page.current!.attach(screenshot(1)));
+  await settle();
+  expect(store.chats.get("chat-a")?.[0]?.originalPath).toBeUndefined();
+  const before = store.writes.length;
+
+  act(() =>
+    page.current!.attach({
+      ...screenshot(1),
+      originalPath: "/remote/Screenshot 1.png",
+      originalName: "Screenshot 1.png",
+    }),
+  );
+  await settle();
+
+  expect(store.writes).toHaveLength(before + 1);
+  // The host already holds the preview bytes: the metadata update sends no second image copy.
+  expect(store.writes.at(-1)!.attachments[0]?.data).toBeUndefined();
+  closePage();
+  const restored = await openPage("chat-a", store);
+  expect(shown(restored)[0]?.originalPath).toBe("/remote/Screenshot 1.png");
+  expect(shown(restored)[0]?.originalName).toBe("Screenshot 1.png");
+  expect(shown(restored)[0]?.data).toBe(btoa("png-bytes-1"));
+});
+
+// The upload may finish inside the 300-ms draft settle window. Its newer path
+// must replace the pending preview-only write before that timer submits.
+test("an original upload updates the pending draft snapshot before it settles", async () => {
+  const store = new Host();
+  const page = await openPage("chat-a", store);
+  act(() => page.current!.attach(screenshot(2)));
+  act(() =>
+    page.current!.attach({
+      ...screenshot(2),
+      originalPath: "/remote/Screenshot 2.png",
+      originalName: "Screenshot 2.png",
+    }),
+  );
+  await settle();
+
+  expect(store.writes).toHaveLength(1);
+  expect(store.chats.get("chat-a")?.[0]?.originalPath).toBe("/remote/Screenshot 2.png");
+  closePage();
+  const restored = await openPage("chat-a", store);
+  expect(shown(restored)[0]?.originalPath).toBe("/remote/Screenshot 2.png");
+});
+
+test("an image original path cleared on the same chip is cleared in its saved draft", async () => {
+  const store = new Host();
+  const page = await openPage("chat-a", store);
+  act(() => page.current!.attach({ ...screenshot(3), originalPath: "/remote/old.png" }));
+  await settle();
+
+  act(() => page.current!.attach(screenshot(3)));
+  await settle();
+  closePage();
+
+  const restored = await openPage("chat-a", store);
+  expect(shown(restored)[0]?.originalPath).toBeUndefined();
+  expect(shown(restored)[0]?.data).toBe(btoa("png-bytes-3"));
+});
+
 test("moving to another chat shows that chat's chips; a harness switch carries the ones held", async () => {
   const store = new Host();
   store.chats.set("chat-c", [screenshot(3)]);

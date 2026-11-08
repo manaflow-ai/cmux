@@ -110,11 +110,12 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
                 tool: [".cv-command__time", ".cv-command__ok, svg.cv-tool__chevron"],
                 command: [".cv-command__time", ".cv-command__ok, svg.cv-tool__chevron"],
                 worked: [".cv-worked__label", ".cv-worked__chevron"],
-                thought: [".cv-thought__label", ".cv-tool__chevron"],
+                // A closed thought reads its words after the brain glyph (Codex parity).
+                thought: [".cv-thought__preview", ".cv-tool__icon svg, .cv-tool__chevron"],
                 plan: [".cv-plan__text", ".cv-plan__mark"],
                 "session-info": [
-                  ".acpmux-chat-inspector-section__title",
-                  ".acpmux-chat-inspector-section__icon, .acpmux-chat-inspector-section__fold",
+                  ".acpmux-session-info-section__title",
+                  ".acpmux-session-info-section__icon, .acpmux-session-info-section__fold",
                 ],
                 read: ["[data-read-label]", ".cv-user__read svg"],
               };
@@ -126,14 +127,14 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
               ".cv-user__time",
               ".cv-iconbtn svg",
             );
-            const retry = (kind: string) =>
-              getComputedStyle(document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`)!).display;
+            // The last turn's Retry is its reply footer's (TurnFooter): no message row draws one.
+            const retry = (kind: string) => document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`);
             const sessionInfo = document.querySelector('[data-glyph-row="session-info"]')!;
             const sectionTitle = sessionInfo
-              .querySelector(".acpmux-chat-inspector-section__title")!
+              .querySelector(".acpmux-session-info-section__title")!
               .getBoundingClientRect();
             const environmentName = sessionInfo
-              .querySelector(".acpmux-chat-inspector-row__name")!
+              .querySelector(".acpmux-session-info-row__name")!
               .getBoundingClientRect();
             return {
               rows,
@@ -141,7 +142,7 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
               versionFooter,
               retryHidden: retry("nonretryable"),
               retryShown: retry("retryable"),
-              inspectorColumnDelta: Math.abs(sectionTitle.left - environmentName.left),
+              sessionInfoColumnDelta: Math.abs(sectionTitle.left - environmentName.left),
             };
           });
           console.log(`GLYPH_METRICS ${JSON.stringify({ theme, height, ...measurements })}`);
@@ -153,20 +154,21 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
           }
           expect(errors).toEqual([]);
           expect(measurements.rows).toHaveLength(7);
-          expect(measurements.inspectorColumnDelta).toBeLessThanOrEqual(0.5);
+          expect(measurements.sessionInfoColumnDelta).toBeLessThanOrEqual(0.5);
           for (const row of measurements.rows) {
             expect(row.glyphs.length, row.kind).toBeGreaterThan(0);
             for (const glyph of row.glyphs) expect(glyph.delta, row.kind).toBeLessThanOrEqual(0.5);
           }
-          expect(measurements.footer).toHaveLength(3);
-          expect(measurements.versionFooter).toHaveLength(5);
+          // Two fewer than before: Retry and its model switch moved to the reply footer (TurnFooter).
+          expect(measurements.footer).toHaveLength(1);
+          expect(measurements.versionFooter).toHaveLength(3);
           for (const glyph of [...measurements.footer, ...measurements.versionFooter]) {
             expect(glyph.delta, "sent footer").toBeLessThanOrEqual(0.5);
             expect(glyph.width, "footer glyph width").toBe(16);
             expect(glyph.height, "footer glyph height").toBe(16);
           }
-          expect(measurements.retryHidden).toBe("none");
-          expect(measurements.retryShown).toBe("flex");
+          expect(measurements.retryHidden).toBeNull();
+          expect(measurements.retryShown).toBeNull();
         } finally {
           await page.close();
         }

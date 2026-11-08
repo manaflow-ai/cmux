@@ -46,8 +46,8 @@ job and never prints an empty `runner`:
         SNAPSHOT_TOKEN=<actions: read> CANDIDATE=<vars.MACOS_RUNNER_26> signing_runner.py
     -> owned=..., runner=..., alternate=..., placement=... in $GITHUB_OUTPUT
 
-`signing_runner.py owned` prints only `owned` (pick-nightly-sign-runner already
-prints the Blacksmith pair).
+`signing_runner.py owned` prints `owned` and its shared `owned_pool` label
+(pick-nightly-sign-runner already prints the Blacksmith pair).
 """
 
 from __future__ import annotations
@@ -56,6 +56,7 @@ import collections
 import datetime as dt
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -68,12 +69,37 @@ import pr_runner_pool as pool  # noqa: E402
 import warm_distance  # noqa: E402
 from nightly_build_runner import NIGHTLY_SLOT_LABEL, owned_label  # noqa: E402
 
+# SIGNER_LABEL: the signer's label (glaeda runner.trustedNextSigning), the one route nightly.yml's signing jobs and
+# their pickers ask for (vars.CI_NIGHTLY_SIGNING_POOL), never a label they share with nightly builds or PR side lanes:
+# on 2026-11-04 eleven sign-nightly-identity-legacy jobs queued on the shared std nightly label reached an M5 Ultra
+# Studio's nightly slot, a host never enrolled for signing, and GitHub delivered their secrets there before glaeda's
+# hook refused them. Only a trusted-only mini carries it: its hook admits no pull request job, and glaeda gives a
+# trustedRef host no nightly slot or shared pool label. A shared PR mini's nightly slot cannot sign safely: its other
+# runners run pull request jobs as the same user, whose persistent state outlives a whole-Mac claim.
+SIGNER_LABEL = "glaeda-trusted-next-signing"
+
+
+def signing_route_label(label: str) -> bool:
+    """The one label nightly.yml's signing pick (`signing_runner.py owned`) may name: the signer's. A drifted
+    OWNED_LABELS naming a shared pool or nightly slot then yields no pick, and the job queues on the signer's label."""
+    return label == SIGNER_LABEL
+
+
+def owned_route_label(label: str) -> bool:
+    """A label that puts a signing job on an owned Mac (for the at-most-one count): owned_label()'s, or the signer's."""
+    return owned_label(label) or label == SIGNER_LABEL
+
+
+def slot_label(label: str) -> bool:
+    """A label the drain path offers: a nightly slot's, or the signer's (a nightly-only mini that runs no PR job)."""
+    return bool(NIGHTLY_SLOT_LABEL.fullmatch(label)) or label == SIGNER_LABEL
+
 ENABLED_VALUE = "1"
 # The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS; tests/test_ci_signing_owned_mac.py keeps the
 # lists equal): the workflow file and the job's display name (its `name:` or id; a matrix adds " (...)").
 SIGNING_JOBS = {
-    "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization", "sign-nightly-identity-legacy",
-                    "generate-nightly-deltas"),
+    "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization",
+                    "generate-nightly-deltas", "publish-nightly", "publish-nightly-next-github"),
     "release.yml": ("build-sign-notarize",),
     "repair-v0-64-25-helper-rpaths.yml": ("repair",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),
@@ -112,8 +138,6 @@ DRAIN_SNAPSHOT_MAX_MINUTES = 15.0
 ACTIVE_RUN_STATUSES = ("in_progress", "waiting", "pending", "requested")
 # A GitHub 5xx is retried this many times before the count gives up (run 40899583793's pick gave up on one 502).
 READ_RETRIES = 2
-
-
 def member(name: str) -> str:
     """The mini a glaeda runner runs on: its name before `-glaeda` (pool, gui, fast and dedicated runners alike)."""
     head, found, _ = (name or "").partition("-glaeda")
@@ -137,7 +161,8 @@ def drain_seconds(names: Sequence[str], running: Mapping[str, Any] | None, model
 
 def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], seed: str = "",
                    running: Mapping[str, Any] | None = None, model: Mapping[str, Any] | None = None,
-                   now: dt.datetime | None = None, drain_anyway: bool = False) -> tuple[str, str]:
+                   now: dt.datetime | None = None, drain_anyway: bool = False,
+                   signer_only: bool = False) -> tuple[str, str]:
     """(the JSON runs-on array for an idle runner on a mini with no busy runner, else one to drain, or "", why).
 
     A candidate runner is online, idle, carries one of `labels` (an owned pool label) and its own
@@ -152,7 +177,8 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
     """
     # The owned labels nightly_build_runner offers: a persistent pool or glaeda's nightly slot, which
     # vars.CI_NIGHTLY_NEXT_BUILD_RUNNER may name (its hook still admits a signing job only as the exclusive class).
-    wanted = [label for label in labels if label and owned_label(label)]
+    # signer_only (nightly.yml's `owned` pick): only the signer's label, whatever OWNED_LABELS says.
+    wanted = [label for label in labels if label and (signing_route_label(label) if signer_only else owned_label(label))]
     if not wanted:
         return "", f"no owned pool label among {list(labels) or 'none'}"
     busy: collections.Counter[str] = collections.Counter()
@@ -188,7 +214,7 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
         anyway = []
         for mini, found in idle.items():
             for label, name in found:
-                if not NIGHTLY_SLOT_LABEL.fullmatch(label):
+                if not slot_label(label):
                     continue
                 if mini not in waits:
                     waits[mini] = drain_seconds(busy_names.get(mini, []), running, weights, moment)
@@ -272,8 +298,11 @@ def owned_signing_jobs(read: Callable[[str], Any]) -> int:
                 jobs = every_page(read, f"/actions/runs/{run['id']}/jobs?filter=latest", "jobs")
                 for job in jobs:
                     name = str(job.get("name") or "").split(" (", 1)[0]
+                    labels = {str(label) for label in job.get("labels") or []}
+                    owned_route = any(label.startswith(pool.RUNNER_LABEL_PREFIX) or owned_route_label(label)
+                                      for label in labels)
                     if (name in names and job.get("status") in ("queued", "in_progress", "waiting", "pending", "requested")
-                            and any(str(label).startswith(pool.RUNNER_LABEL_PREFIX) for label in job.get("labels") or [])):
+                            and owned_route):
                         count += 1
     return count
 
@@ -294,7 +323,8 @@ def owned_pick(env: Mapping[str, str],
                read_jobs: Callable[[str], Any] | None = None,
                read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
                sleep: Callable[[float], None] = time.sleep,
-               bounded_snapshot: Callable[[str, str], tuple[Any, str]] | None = None) -> tuple[str, str]:
+               bounded_snapshot: Callable[[str, str], tuple[Any, str]] | None = None,
+               signer_only: bool = False) -> tuple[str, str]:
     if (env.get("ENABLED") or "").strip() != ENABLED_VALUE:
         return "", "vars.CI_SIGN_OWNED is not 1, so signing stays off the owned Macs"
     # A re-run signs on Blacksmith unless its workflow picks again on every attempt and reads the pick only on the
@@ -338,7 +368,19 @@ def owned_pick(env: Mapping[str, str],
                                           <= DRAIN_SNAPSHOT_MAX_MINUTES
                                           and isinstance(snapshot.get("running"), Mapping)) else None
     return drained_runner(runners, (env.get("OWNED_LABELS") or "").split(), running=running, now=moment,
-                          drain_anyway=(env.get("DRAIN_ANYWAY") or "").strip() == DRAIN_ANYWAY_VALUE)
+                          drain_anyway=(env.get("DRAIN_ANYWAY") or "").strip() == DRAIN_ANYWAY_VALUE,
+                          signer_only=signer_only)
+
+
+def owned_pool_label(owned: str) -> str:
+    """Return the shared pool label from an owned pick, never its per-runner label."""
+    if not owned:
+        return ""
+    try:
+        labels = json.loads(owned)
+    except (TypeError, ValueError):
+        return ""
+    return labels[0] if isinstance(labels, list) and labels and isinstance(labels[0], str) else ""
 
 
 def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
@@ -357,9 +399,18 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
             kept.append(blacksmith_picker.read_snapshot(lambda: reader(token, repo), "signing runner", sleep=sleep))
         return kept[0]
 
-    owned, owned_why = owned_pick(env, read_runners, read_jobs, read_snapshot, now, sleep, bounded)
+    # `owned` is nightly.yml's signing pick: it may name only the signer (SIGNER_LABEL). release.yml, the DEV daily and
+    # the repair workflow keep their own owned pick.
+    owned, owned_why = owned_pick(env, read_runners, read_jobs, read_snapshot, now, sleep, bounded,
+                                  signer_only=list(argv[:1]) == ["owned"])
+    # A shared pool label is only safe once the controller can prove every eligible listener has the
+    # exclusive-capable hook. That aggregate does not exist yet, so publication controls use their
+    # trusted Blacksmith fallback while the runner-specific signing pick remains unchanged.
+    owned_pool = ""
+    owned_pool_why = "shared owned-pool publication route withheld until the controller supplies hook evidence"
     if list(argv[:1]) == ["owned"]:
-        write_output(env, {"owned": owned}, [f"owned: {owned or 'none'} ({owned_why})"])
+        write_output(env, {"owned": owned, "owned_pool": owned_pool},
+                     [f"owned: {owned or 'none'} ({owned_why})", f"owned_pool: none ({owned_pool_why})"])
         return 0
     variable = (env.get("CANDIDATE") or "").strip()
     snapshot, problem = None, "no token to read the pool snapshot"
@@ -374,9 +425,10 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
     label, other, why, verified = blacksmith_picker.place(variable, snapshot, now, attempt, problem)
     if not verified:
         print(f"::warning title=signing runner::{why}")
-    write_output(env, {"owned": owned, "runner": label, "alternate": other,
+    write_output(env, {"owned": owned, "owned_pool": owned_pool, "runner": label, "alternate": other,
                        "placement": "verified" if verified else "unverified"},
-                 [f"owned: {owned or 'none'} ({owned_why})", f"blacksmith: {why}; a re-run takes `{other}`"])
+                 [f"owned: {owned or 'none'} ({owned_why})", f"owned_pool: none ({owned_pool_why})",
+                  f"blacksmith: {why}; a re-run takes `{other}`"])
     return 0
 
 

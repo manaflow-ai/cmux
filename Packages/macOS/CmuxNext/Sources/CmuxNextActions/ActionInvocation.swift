@@ -87,6 +87,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// `caller.terminal_id`: the terminal whose cmux CLI sent the run (an agent running in a
     /// terminal), nil for any other run. Like ``callerAgentSession``, the caller's own claim.
     public var callerTerminal: String?
+    /// `caller.home_chat`: a Chief turn sent the run (the Chief host sets it); its chat is Home's.
+    /// Like ``callerAgentSession``, the caller's own claim: it names who asks, it grants nothing.
+    public var callerHomeChat = false
     /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
     /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
     public var opensTerminal = false
@@ -103,6 +106,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// dispatch. The registry stamps it when the gate starts; the run's `action.*` signposts
     /// report its age when no input event is being dispatched at the run. Nil for every other run.
     public var inputTimestamp: Double?
+    /// The person chose this run from an open menu (the main menu or a context menu, `ActionMenuTarget`), not with a key
+    /// equivalent: AppKit runs a chosen item's action after the menu's tracking, outside any input event's dispatch, so no
+    /// event names the person; the run's focus choices count as theirs (`FocusState.personMoveSeq`). In-app only.
+    public var menuPick = false
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {
@@ -110,6 +117,14 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
         self.arguments = arguments
         self.origin = origin
         self.focusRequested = focusRequested
+    }
+
+    /// This run scoped to the machine that owns its target (nil: unscoped). A forked or SSH machine
+    /// keeps this Mac's tab ids, so the id alone can name two tabs.
+    public func onMachine(_ machineID: String?) -> ActionInvocation {
+        var scoped = self
+        scoped.targetMachineID = machineID
+        return scoped
     }
 
     /// Whether the run may change this client's focus, selection, shown
@@ -152,5 +167,15 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
         case .bool(let flag): return String(flag)
         case .target(let ref): return ref.id
         }
+    }
+}
+
+public extension ActionInvocation {
+    /// Whether this is a person's own run in this app (palette, menu, keyboard, click): the only run
+    /// that gets what automation must not (raw screen pixels, a read of a folder macOS guards). A run
+    /// the control socket carries is automation even when it claims the `user` origin, and so is a
+    /// run that names a caller (an app, an agent chat or a terminal), even during the person's gesture in it.
+    var isPersonsOwnRun: Bool {
+        origin == .user && !viaControlSocket && callerApp == nil && callerAgentSession == nil && callerTerminal == nil
     }
 }

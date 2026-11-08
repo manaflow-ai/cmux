@@ -3,7 +3,7 @@
 // stuff for composer"): the chat composer and the New Tab page's composer draw the same states.
 //
 // - Rest: each button is its icon or label, no pill. The button row is the chat's plain footer, so
-//   the New Tab model chip drops the brand mark at a roomy width, as the chat's does.
+//   the New Tab model chip keeps its provider's logo in its brand colors, as the chat's does.
 // - Hover: the hovered button alone takes the soft pill (--acpmux-pill-hover), the mic included;
 //   the composer box never changes under the pointer.
 // - Keyboard focus: the same pill and no outline (#23745, Leo 2026-10-21: "I HATE THE APPEARANCE OF
@@ -96,7 +96,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       entry: "agent-pane.new-tab",
       // Cards (composer-mic pins it), the first dot, whose box and quiet row these checks read.
       variant: "composer-mic",
-      field: ".nt-field",
+      field: ".nt-field .acpmux-md",
       box: ".nt-box",
       row: ":is(.nt-pickers, .acpmux-composer-foot)",
       foot: ".nt-composer .acpmux-composer-foot",
@@ -108,7 +108,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       name: "New Tab stage composer",
       entry: "agent-pane.new-tab",
       variant: "reasoning-chip-stage",
-      field: ".nt-field",
+      field: ".nt-field .acpmux-md",
       box: ".nt-box",
       row: ":is(.nt-box .nt-pickers, .nt-foot .acpmux-composer-foot)",
       foot: ".nt-foot .acpmux-composer-foot",
@@ -264,8 +264,8 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
     );
 
   for (const [engine] of engines) {
-    // The New Tab row is the chat's footer: the same plain look, the model's brand mark hidden at a
-    // roomy width and its name in the muted chip ink, as the chat's (composerLocation.css).
+    // The New Tab row is the chat's footer: the same plain look, the model's provider logo in its
+    // brand colors (cmux#38053) and its name in the muted chip ink, as the chat's (composerLocation.css).
     for (const stage of COMPOSERS)
       test(`${engine}: ${stage.name}: the button row is the plain footer, its model chip a muted label`, async () => {
         const page = await open(engine, stage);
@@ -283,7 +283,13 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
             const quietRow = bar.classList.contains("acpmux-composer-foot");
             return {
               look: bar.dataset.footerLook ?? "",
-              mark: mark ? getComputedStyle(mark).display : "none",
+              // The provider's logo draws in its brand colors ("brand"), not the chip's ink.
+              mark:
+                !mark || getComputedStyle(mark).display === "none"
+                  ? "none"
+                  : getComputedStyle(mark).fill === getComputedStyle(model).color
+                    ? "ink"
+                    : "brand",
               muted: !effort
                 ? true
                 : quietRow
@@ -294,7 +300,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
           { foot: stage.foot },
         );
         await page.close();
-        expect(row).toEqual({ look: "plain", mark: "none", muted: true });
+        expect(row).toEqual({ look: "plain", mark: "brand", muted: true });
       });
 
     // Hover pills the one button under the pointer, every button the same soft pill (the mic too);

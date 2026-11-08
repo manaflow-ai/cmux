@@ -11,8 +11,9 @@ import { CWD, manySessions, noChat } from "../../../gallery/fixtures/acpmux";
 import { newTabHeadline } from "./headline.experiment";
 
 const PROJECTS = [CWD, "/Users/you/src/cmux", "/Users/you/src/manaflow"];
-const page = (pageWidgets: string[]) => ({
+const page = (pageWidgets: string[], host?: string) => ({
   newTab: {
+    ...(host ? { host } : {}),
     layout: "b",
     kind: "agent",
     cwd: CWD,
@@ -90,7 +91,7 @@ export default agentPaneEntry({
   },
   variants: {
     on: {
-      note: 'Ask What to Work On turned on, before a pick: "What should we work on?" over the composer, Choose project under it.',
+      note: 'Ask What to Work On turned on, before a pick: "What should we work on?" over the composer, Choose folder under it.',
       ready: page(["greeting"]),
       snapshot: noChat(manySessions(12)),
       play: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".nt-headline") !== null),
@@ -101,8 +102,18 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(12)),
       play: (ctx) => pick(ctx, "cmux"),
     },
+    machine: {
+      note: 'The machine the chat starts on named too: "What should we work on in cmux on studio-mini?", the machine plain text that follows the location row\'s pick.',
+      ready: page(["greeting"], "studio-mini"),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx) => {
+        await pick(ctx, "cmux");
+        const text = ctx.document.querySelector(".nt-headline-text")?.textContent ?? "";
+        if (!text.includes("studio-mini")) throw new Error(`headline names no machine: ${text}`);
+      },
+    },
     "picker-open": {
-      note: "The headline's picker open under the question: the recent projects with a search field, Browse and Do not work in a project.",
+      note: "The headline's picker open under the question: the recent projects with a search field, Add folder… and No folder.",
       ready: page(["greeting"]),
       snapshot: noChat(manySessions(12)),
       play: async (ctx) => {

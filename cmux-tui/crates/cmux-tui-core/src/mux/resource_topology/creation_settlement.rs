@@ -5,7 +5,9 @@ use super::*;
 impl Mux {
     /// A correlated creation (a terminal tab, pane or workspace). Its
     /// commits are in the WAL when it answers; the registry's syncer makes
-    /// them power-loss durable off this path (`wal_durability`).
+    /// them power-loss durable off this path (`wal_durability`). Creations
+    /// that wait for the creation fence at the same time run as one group
+    /// and share one projection commit (`creation_group`).
     #[allow(clippy::too_many_arguments)]
     pub(super) fn resource_correlated_creation_operation(
         self: &Arc<Self>,
@@ -18,14 +20,42 @@ impl Mux {
     ) -> anyhow::Result<ResourcePatchCommit> {
         debug_assert!(is_created_path_operation(operation));
         crate::debug_spans::mark("creation.start");
-        let _execution = self.resource_creation_execution.lock().unwrap();
-        crate::debug_spans::mark("creation.execution_locked");
+        let groupable = expected_revision.is_none() && creation_shares_group_commit(operation);
+        let correlation_key =
+            fields.get("correlation_key").and_then(Value::as_str).unwrap_or(&mutation.id);
+        self.run_in_creation_group(groupable, &[correlation_key, &mutation.id], || {
+            self.stage_correlated_creation(
+                operation,
+                &selector_candidates,
+                &fields,
+                expected_revision,
+                mutation,
+                fingerprint,
+            )
+            .unwrap_or_else(|error| StagedCreationOutcome::Answered(Err(error)))
+        })
+    }
+
+    /// One creation's own steps, in its group turn under the creation fence:
+    /// reconcile, prepare, mark executing and run the effect. A replay or a
+    /// failure answers here; an executed creation is staged for the group's
+    /// projection commit.
+    #[allow(clippy::too_many_arguments)]
+    fn stage_correlated_creation(
+        self: &Arc<Self>,
+        operation: ResourceOperation,
+        selector_candidates: &[ResourceSelectors],
+        fields: &Map<String, Value>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+    ) -> anyhow::Result<StagedCreationOutcome> {
         let operation_name = operation_name(operation);
         let correlation_key =
             fields.get("correlation_key").and_then(Value::as_str).unwrap_or(&mutation.id);
         self.reconcile_interrupted_resource_creation(correlation_key)?;
         crate::debug_spans::mark("creation.reconciled");
-        let effect_fields = semantic_creation_fields(&fields);
+        let effect_fields = semantic_creation_fields(fields);
         let preparation = {
             let mut registry = self.workspace_registry.lock().unwrap();
             crate::debug_spans::mark("creation.registry_locked");
@@ -54,7 +84,7 @@ impl Mux {
                     crate::debug_spans::mark("creation.state_locked");
                     let selectors = self.select_live_creation_selectors(
                         operation,
-                        &selector_candidates,
+                        selector_candidates,
                         &state,
                         &registry,
                     )?;
@@ -81,16 +111,20 @@ impl Mux {
             }
         };
         crate::debug_spans::mark("creation.prepared");
-        let commit = match preparation {
+        let replayed = match preparation {
             ResourceCreationPreparation::Created { created_path, revision, .. } => {
-                Ok(ResourcePatchCommit { revision, result: created_path, replayed: true })
+                ResourcePatchCommit { revision, result: created_path, replayed: true }
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
-                Err(anyhow::Error::new(resource_effect_indeterminate(&idempotency_key, &operation)))
+                return Err(anyhow::Error::new(resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                )));
             }
-            ResourceCreationPreparation::Failed { error, .. } => Err(anyhow::Error::new(error)),
+            ResourceCreationPreparation::Failed { error, .. } => {
+                return Err(anyhow::Error::new(error));
+            }
             ResourceCreationPreparation::Execute { idempotency_key, .. } => {
-                let _activity = ResourceCreationActivity::begin(&self.resource_creation_active);
                 let intent = self.mark_resource_effect_executing(
                     &idempotency_key,
                     &operation_name,
@@ -103,6 +137,7 @@ impl Mux {
                     .resource_creation_recovery(correlation_key)?
                     .context("executing resource creation omitted its recovery record")?;
                 crate::debug_spans::mark("creation.executing_marked");
+                self.run_creation_before_effect_hook();
                 let result = match self.execute_resource_topology_effect(
                     &mutation.actor,
                     operation,
@@ -113,59 +148,140 @@ impl Mux {
                         #[cfg(test)]
                         eprintln!("correlated resource creation failed: {error:#}");
                         let failure = resource_creation_failure(&recovery, &error);
-                        return creation_settlement_result(
-                            self.settle_resource_creation(recovery, Some(failure))?,
+                        return Ok(StagedCreationOutcome::Answered(self.settle_failed_creation(
+                            recovery,
+                            failure,
                             &idempotency_key,
                             &operation_name,
-                        );
+                        )));
                     }
                 };
                 crate::debug_spans::mark("creation.effect_done");
-                match self.commit_full_resource_effect_projection(
-                    &idempotency_key,
-                    &operation_name,
-                    fingerprint,
+                return Ok(StagedCreationOutcome::Staged(Box::new(StagedCreation {
+                    idempotency_key,
+                    operation_name,
+                    fingerprint: fingerprint.clone(),
                     result,
-                ) {
-                    Ok(commit) => Ok(commit),
-                    Err(error) => {
-                        #[cfg(test)]
-                        eprintln!(
-                            "correlated resource creation projection commit failed: {error:#}"
-                        );
-                        let failure = resource_creation_failure(&recovery, &error);
-                        creation_settlement_result(
-                            self.settle_resource_creation(recovery, Some(failure))?,
-                            &idempotency_key,
-                            &operation_name,
-                        )
-                    }
-                }
+                    recovery,
+                })));
             }
-        }?;
+        };
+        Ok(StagedCreationOutcome::Answered(self.activated_creation(replayed)))
+    }
+
+    /// Commit one staged creation's projection alone; settle it when the
+    /// commit fails.
+    pub(super) fn commit_staged_creation(
+        &self,
+        staged: StagedCreation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        match self.commit_full_resource_effect_projection(
+            &staged.idempotency_key,
+            &staged.operation_name,
+            &staged.fingerprint,
+            staged.result.clone(),
+        ) {
+            Ok(commit) => self.activated_creation(commit),
+            Err(error) => self.settle_failed_staged_creation(staged, &error),
+        }
+    }
+
+    /// Settle a staged creation whose projection commit failed with `error`.
+    pub(super) fn settle_failed_staged_creation(
+        &self,
+        staged: StagedCreation,
+        error: &anyhow::Error,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        #[cfg(test)]
+        eprintln!("correlated resource creation projection commit failed: {error:#}");
+        let StagedCreation { idempotency_key, operation_name, recovery, .. } = staged;
+        let failure = resource_creation_failure(&recovery, error);
+        self.settle_failed_creation(recovery, failure, &idempotency_key, &operation_name)
+            .and_then(|commit| self.activated_creation(commit))
+    }
+
+    /// A created (or replayed) creation's answer, once its hosted launch
+    /// may stream.
+    pub(super) fn activated_creation(
+        &self,
+        commit: ResourcePatchCommit,
+    ) -> anyhow::Result<ResourcePatchCommit> {
         crate::debug_spans::mark("creation.projection_committed");
         self.activate_created_terminal_launch(&commit.result)?;
         crate::debug_spans::mark("creation.launch_activated");
         Ok(commit)
     }
 
-    pub(super) fn activate_created_terminal_launch(&self, result: &Value) -> anyhow::Result<()> {
-        if result.get("terminal_id").and_then(Value::as_str).is_none() {
-            return Ok(());
+    /// Settle a creation that failed and answer the caller. When the
+    /// settlement itself fails (its rollback or its receipt is a write, and
+    /// a full disk refuses it), the error is logged and the caller gets the
+    /// creation's own failure, which names the cause ("database or disk is
+    /// full"), not the settlement's. Memory was rolled back before any of
+    /// those writes, and the receipt stays unsettled: a retry with the same
+    /// key is blocked, and the next start settles it.
+    fn settle_failed_creation(
+        &self,
+        recovery: ResourceCreationRecovery,
+        failure: ResourceError,
+        idempotency_key: &str,
+        operation_name: &str,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        match self.settle_resource_creation(recovery, Some(failure.clone())) {
+            Ok(settlement) => {
+                creation_settlement_result(settlement, idempotency_key, operation_name)
+            }
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: the failed creation {idempotency_key} ({operation_name}) could not be \
+                     settled: {error:#}"
+                );
+                Err(anyhow::Error::new(failure))
+            }
         }
-        let Some(tab_id) = result.get("tab_id").and_then(Value::as_str) else {
+    }
+
+    /// Release the launch barrier of the terminal a creation made: its host
+    /// sends none of the shell's output until then, with no deadline.
+    ///
+    /// The barrier belongs to the terminal's runtime, not to the tab that
+    /// made it. A tab strip change takes no creation fence, so the new tab
+    /// can leave before this runs while its terminal keeps running (closing
+    /// a view never ends a terminal). The runtime is therefore found in the
+    /// terminal catalog; a lookup through the tab missed it and left the
+    /// host waiting for ever, an empty screen wherever the terminal showed
+    /// again (open-P0 close-then-type, build dd832e31).
+    pub(super) fn activate_created_terminal_launch(&self, result: &Value) -> anyhow::Result<()> {
+        let Some(terminal_id) = result.get("terminal_id").and_then(Value::as_str) else {
             return Ok(());
         };
-        let tab_id = TabPublicId::parse(tab_id.to_string()).map_err(anyhow::Error::new)?;
-        let Some(surface_id) =
-            self.state.lock().unwrap().resource_indexes.tabs.get(&tab_id).copied()
-        else {
-            // A replay can outlive its detached terminal view. There is no
-            // launch barrier to release in that case.
+        let terminal_id =
+            TerminalPublicId::parse(terminal_id.to_string()).map_err(anyhow::Error::new)?;
+        let (runtime, tab_left) = {
+            let state = self.state.lock().unwrap();
+            let tab_left = result
+                .get("tab_id")
+                .and_then(Value::as_str)
+                .and_then(|tab| TabPublicId::parse(tab.to_string()).ok())
+                .is_some_and(|tab| !state.resource_indexes.tabs.contains_key(&tab));
+            (state.terminal_catalog.get(&terminal_id).cloned(), tab_left)
+        };
+        let Some(runtime) = runtime else {
+            // The terminal ended or was closed (its close ends the host), or
+            // a replay outlived it: no host waits for this barrier.
+            if tab_left {
+                eprintln!(
+                    "cmux-tui: created terminal {terminal_id} has no runtime at its launch \
+                     activation; nothing to release"
+                );
+            }
             return Ok(());
         };
-        if let Some(surface) = self.surface(surface_id) {
-            surface.activate_hosted_launch_stream()?;
+        let released = runtime.activate_hosted_launch_stream()?;
+        if released && tab_left {
+            eprintln!(
+                "cmux-tui: created terminal {terminal_id} lost its tab before its launch \
+                 activation; activated through its runtime"
+            );
         }
         Ok(())
     }
@@ -243,6 +359,22 @@ impl Mux {
                 Ok(ResourceCreationSettlement::Indeterminate)
             }
             ResourceCreationEvidence::AmbiguousLive => {
+                // The terminal's outcome is unknown, but the creation did not
+                // report success: a workspace it staged does not stay behind,
+                // and neither does its terminal with no view.
+                if recovery.intent.get("workspace_reservation").is_some()
+                    && let Some(terminal_id) = recovery
+                        .intent
+                        .get("terminal_reservation")
+                        .and_then(|reservation| reservation.get("terminal_id"))
+                        .and_then(Value::as_str)
+                    && let Err(error) = self.close_unpublished_terminal(terminal_id)
+                {
+                    eprintln!(
+                        "cmux-tui: a failed creation's terminal could not be closed: {error:#}"
+                    );
+                }
+                self.rollback_interrupted_workspace_creation(&recovery.intent)?;
                 self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
                 Ok(ResourceCreationSettlement::Indeterminate)
             }
@@ -274,6 +406,8 @@ impl Mux {
         }
     }
 
+    /// Roll back the workspace a creation staged, when it is not public.
+    /// Memory always lets it go, even when the store refuses the close.
     pub(super) fn rollback_interrupted_workspace_creation(
         &self,
         intent: &Value,
@@ -300,14 +434,35 @@ impl Mux {
         }
         let workspace =
             self.state.lock().unwrap().resource_indexes.workspaces.get(&public_id).copied();
-        if let Some(workspace) = workspace {
-            anyhow::ensure!(
-                self.close_workspace_at_revision_for_resource_effect(&Actor::Daemon, workspace)?
-                    .is_some(),
-                "interrupted staged workspace {public_id} disappeared during rollback"
-            );
+        let Some(workspace) = workspace else {
+            return Ok(());
+        };
+        match self.close_workspace_at_revision_for_resource_effect(&Actor::Daemon, workspace) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => {
+                anyhow::bail!(
+                    "interrupted staged workspace {public_id} disappeared during rollback"
+                )
+            }
+            Err(error) => {
+                // The store refused the close (a full disk). The workspace
+                // still leaves memory and its subscribers, so no client shows
+                // a workspace the store never published (fuzz restore h1).
+                // The error goes on, so the receipt stays unsettled and the
+                // creation's recovery closes the stored row later.
+                match self.discard_unpublished_workspace_from_memory(workspace) {
+                    Ok(_) => eprintln!(
+                        "cmux-tui: staged workspace {public_id} left memory, but the store \
+                         refused its close: {error:#}"
+                    ),
+                    Err(discard) => eprintln!(
+                        "cmux-tui: the store refused the close of staged workspace {public_id} \
+                         ({error:#}), and it stays in memory: {discard}"
+                    ),
+                }
+                Err(error)
+            }
         }
-        Ok(())
     }
 
     pub(super) fn persisted_creation_settlement(

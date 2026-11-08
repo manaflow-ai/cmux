@@ -171,6 +171,15 @@ pub fn connect_session_socket(
     if !is_derived {
         return transport::connect(path);
     }
+    verify_session_socket_directory(path)?;
+    transport::connect_same_user(path)
+}
+
+/// Check, before a client connects to a derived session socket, that it
+/// sits in the private runtime directory a server prepared (the check
+/// [`connect_session_socket`] makes; a client that connects through the
+/// SDK, which checks the listener's user, makes this one first).
+pub fn verify_session_socket_directory(path: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     if let Some(dir) = path.parent() {
         verify_private_socket_directory(dir)?;
@@ -185,7 +194,7 @@ pub fn connect_session_socket(
             ));
         }
     }
-    transport::connect_same_user(path)
+    Ok(())
 }
 
 /// Check, without changing anything, that a derived socket directory is still
@@ -416,8 +425,10 @@ impl ServedSession {
         // state lock (`TerminalSessions`).
         let key = stream.peer_process_key();
         let connections = self.mux.connection_stats();
-        let permit = if self.terminal_sessions.contains_peer(&self.mux, key.as_deref()) {
-            claim_watched_terminal_connection(connections, &*stream)
+        let permit = if let Some(terminal) =
+            self.terminal_sessions.terminal_of_peer(&self.mux, key.as_deref())
+        {
+            claim_watched_terminal_connection(connections, &*stream, Some(terminal))
         } else {
             claim_watched_connection(connections, &*stream)
         };

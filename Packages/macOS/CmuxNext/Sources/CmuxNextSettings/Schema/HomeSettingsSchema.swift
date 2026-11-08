@@ -3,10 +3,6 @@ import CmuxNextDesign
 /// Settings > Home (the Home tab's conversations). One group of
 /// `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum HomeSettingsSchema {
-    /// Rows an agent may set (looks only): the Chief chat's bubble style.
-    static let agentSettableKeys: Set<String> = Set([HomeChiefBubbleStyleSetting.key]
-        + HomeBubbleColorsSetting.roles.map { (HomeBubbleColorsSetting.configPath + [$0]).joined(separator: ".") })
-
     static var descriptors: [SettingDescriptor] {
         let attachments = SettingsText.keyed("settings.group.attachments", "Attachments")
         return [
@@ -35,6 +31,14 @@ nonisolated enum HomeSettingsSchema {
                 ]),
                 default: .string(HomeChiefBubbleStyleSetting.defaultStyle),
                 keywords: ["chief", "imessage", "messages", "bubbles", "blue", "chat", "theme", "colors", "home"]
+            ),
+            // The Feed's notices among the main Chief's messages, for the person only (Leo 2026-10-20).
+            SettingDescriptor(
+                HomeFeedRowsSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefChat", "Chief Chat"),
+                title: SettingsText.keyed("settings.home.feedInChief", "Show the Feed in Chief"),
+                help: SettingsText.keyed("settings.home.feedInChief.help",
+                                         "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them."),
+                kind: .toggle, default: .bool(true), keywords: ["chief", "feed", "notices", "updates", "pull requests", "timeline", "home"]
             ),
             // The bubble colours every chat starts with (user 2026-10-28); a chat's Chat Colors… go over them.
             ] + bubbleColorRows + [
@@ -65,18 +69,47 @@ nonisolated enum HomeSettingsSchema {
                 HomeChiefPetSetting.mascotPath, section: .home, group: SettingsText.keyed("settings.group.chiefPet", "Chief Pet"),
                 title: SettingsText.keyed("settings.home.chiefPetMascot", "Character"),
                 kind: .choice([
-                    SettingChoice("orb", SettingsText.keyed("settings.choice.chiefPetMascot.orb", "Orb")),
-                    SettingChoice("orb-spark", SettingsText.keyed("settings.choice.chiefPetMascot.orb-spark", "Orb Spark")),
-                    SettingChoice("orb-hood", SettingsText.keyed("settings.choice.chiefPetMascot.orb-hood", "Hooded Orb")),
+                    SettingChoice("fox", SettingsText.keyed("settings.choice.chiefPetMascot.fox", "Fox")),
                     SettingChoice("machine", SettingsText.keyed("settings.choice.chiefPetMascot.machine", "Machine")),
                     SettingChoice("machine-cyan", SettingsText.keyed("settings.choice.chiefPetMascot.machine-cyan", "Cyan Machine")),
                     SettingChoice("machine-blue", SettingsText.keyed("settings.choice.chiefPetMascot.machine-blue", "Blue Machine")),
                     SettingChoice("moon", SettingsText.keyed("settings.choice.chiefPetMascot.moon", "Moon")),
                     SettingChoice("moon-blue", SettingsText.keyed("settings.choice.chiefPetMascot.moon-blue", "Blue Moon")),
-                    SettingChoice("fox", SettingsText.keyed("settings.choice.chiefPetMascot.fox", "Fox")),
                     SettingChoice("mochi", SettingsText.keyed("settings.choice.chiefPetMascot.mochi", "Mochi")),
+                    SettingChoice("captain", SettingsText.keyed("settings.choice.chiefPetMascot.captain", "Captain")),
+                    SettingChoice("sprout", SettingsText.keyed("settings.choice.chiefPetMascot.sprout", "Sprout")),
+                    SettingChoice("bolt", SettingsText.keyed("settings.choice.chiefPetMascot.bolt", "Bolt")),
+                    SettingChoice("fox-arctic", SettingsText.keyed("settings.choice.chiefPetMascot.fox-arctic", "Arctic Fox")),
+                    SettingChoice("machine-violet", SettingsText.keyed("settings.choice.chiefPetMascot.machine-violet", "Violet Machine")),
+                    SettingChoice("machine-gold", SettingsText.keyed("settings.choice.chiefPetMascot.machine-gold", "Gold Machine")),
+                    SettingChoice("moon-rose", SettingsText.keyed("settings.choice.chiefPetMascot.moon-rose", "Rose Moon")),
+                    SettingChoice("orb", SettingsText.keyed("settings.choice.chiefPetMascot.orb", "Orb")),
+                    SettingChoice("orb-spark", SettingsText.keyed("settings.choice.chiefPetMascot.orb-spark", "Orb Spark")),
+                    SettingChoice("orb-hood", SettingsText.keyed("settings.choice.chiefPetMascot.orb-hood", "Hooded Orb")),
                 ]),
                 default: .string(HomeChiefPetSetting.defaultMascot), keywords: ["chief", "pet", "mascot", "character", "avatar", "pixel"]
+            ),
+            // The Chief panel (user 2026-11-06): the edge the Chief docks at when the person docks it, and whether a link
+            // clicked in the Chief opens its workspace with the Chief floating over it.
+            SettingDescriptor(
+                ChiefDockSetting.edgePath, section: .home, group: SettingsText.keyed("settings.group.chiefDock", "Chief Dock"),
+                title: SettingsText.keyed("settings.home.chiefDockEdge", "Dock Edge"),
+                help: SettingsText.keyed("settings.home.chiefDockEdge.help",
+                                         "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick."),
+                kind: .choice([
+                    SettingChoice("left", SettingsText.keyed("settings.choice.chiefDockEdge.left", "Left")),
+                    SettingChoice("right", SettingsText.keyed("settings.choice.chiefDockEdge.right", "Right")),
+                    SettingChoice("top", SettingsText.keyed("settings.choice.chiefDockEdge.top", "Top")),
+                    SettingChoice("bottom", SettingsText.keyed("settings.choice.chiefDockEdge.bottom", "Bottom")),
+                ]),
+                default: .string(ChiefDockSetting.defaultEdge), keywords: ["chief", "dock", "window", "edge", "left", "right", "top", "bottom", "side", "home"]
+            ),
+            SettingDescriptor(
+                ChiefDockSetting.openBesidePath, section: .home, group: SettingsText.keyed("settings.group.chiefDock", "Chief Dock"),
+                title: SettingsText.keyed("settings.home.chiefDockOpenBeside", "Show Chief When Opening Workspaces"),
+                help: SettingsText.keyed("settings.home.chiefDockOpenBeside.help",
+                                         "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it."),
+                kind: .toggle, default: .bool(ChiefDockSetting.defaultOpenBeside), keywords: ["chief", "dock", "window", "links", "workspace", "beside", "home"]
             ),
             // Settings > Chief's Chiefs card draws it as its Engine row (ChiefsCard.tsx).
             SettingDescriptor(

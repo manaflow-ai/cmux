@@ -25,7 +25,8 @@ public nonisolated struct SidebarCustomSection: Hashable, Sendable {
 
 /// Machine metadata for a machine section header.
 public nonisolated struct SidebarMachine: Hashable, Sendable {
-    public nonisolated enum Kind: Hashable, Sendable {
+    /// Raw values are the `sidebar_bridge` rules' words.
+    public nonisolated enum Kind: String, Hashable, Sendable {
         case local
         case cloud
         case ssh
@@ -33,7 +34,8 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case server
     }
 
-    public nonisolated enum Status: Hashable, Sendable {
+    /// Raw values are the `sidebar_bridge` rules' words.
+    public nonisolated enum Status: String, Hashable, Sendable {
         case connected
         case connecting
         /// The link to the machine dropped (sleep, a network drop or
@@ -97,6 +99,9 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     /// shown in the header's tooltip (`Cost.lines`); nil for machines
     /// that bill nothing.
     public var cost: Cost?
+    /// Connecting for less than its grace (`SidebarPlaceholderGrace.holdingConnectingLabels`): one list
+    /// does not name "Connecting…" on its workspace rows yet, so a launch or a quick reconnect shows none.
+    public var holdsStatusLabel = false
 
     public init(id: MachineID, name: String, kind: Kind, status: Status = .connected, detail: String? = nil,
                 icon: WorkspaceIcon? = nil, cost: Cost? = nil) {
@@ -153,15 +158,6 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
             return rate * seconds / 3600
         }
     }
-
-    /// A connected machine whose link redials reads as reconnecting
-    /// (cx-z5oif): its socket stays up, so its connection cannot tell.
-    public func redialing(_ redialing: Bool) -> SidebarMachine {
-        guard redialing, status == .connected || status == .updateAvailable else { return self }
-        var machine = self
-        machine.status = .reconnecting
-        return machine
-    }
 }
 
 /// A top-level section.
@@ -179,6 +175,8 @@ public nonisolated struct SidebarSection: Identifiable, Hashable, Sendable {
     public var nodes: [SidebarNode]
     /// A machine section made a remote group (remote-groups-DESIGN.md slice 4).
     public var isHostGroup = false
+    /// The remote group draws as one sidebar group (``wrappedAsHostGroup()``), not under a section header.
+    public var drawsAsGroup = false
 
     public init(kind: Kind, isCollapsed: Bool = false, nodes: [SidebarNode]) {
         self.kind = kind

@@ -37,3 +37,13 @@ extension AgentPaneView {
         scope.performWithTheme { PageImageBackground.isOpaque(AgentPaneTheme.pageBackground(scope.themeTokens, surface: surface)) }
     }
 }
+
+extension AgentPaneLaunchImages {
+    /// `key`'s last page (``take(_:size:appearance:)``) when it may stand in for the page in `scope`
+    /// (``AgentPaneView/savedPictureCovers(_:newTab:in:)``): a saved picture with no alpha over a page that is clear
+    /// now (an older version's Chromium JPEG of a see-through page) is black where the page is clear, so it is nil
+    /// and the pane shows its loading state instead.
+    public func takeCovering(_ key: String, newTab: Bool, size: NSSize, appearance: NSAppearance.Name?, in scope: NSView) -> NSImage? {
+        take(key, size: size, appearance: appearance).flatMap { AgentPaneView.savedPictureCovers($0, newTab: newTab, in: scope) ? $0 : nil }
+    }
+}

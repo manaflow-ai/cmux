@@ -149,3 +149,90 @@ fn without_the_setting_each_turn_still_gets_a_fresh_session() {
     h.settle();
     assert_eq!(h.agents.inner.lock().unwrap().specs.len(), 2);
 }
+
+/// The first turn after a host restart (an app update) does not wait for
+/// the old host's kept session to end: its prompt goes out first, and the
+/// stale session is ended right after (Leo, 2026-11-03: "why is chief so
+/// slow :(" on the first turn after an update).
+#[test]
+fn after_a_restart_the_stale_kept_session_ends_after_the_new_prompt_goes_out() {
+    let mut h = harness();
+    fill(&h.chat, 120);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    assert_eq!(h.agents.inner.lock().unwrap().prompt_sessions, vec!["s1"]);
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+    let s = kept(dir.path());
+    let mut h = Harness::configured(dir, default_script(), owner, s, Arc::new(|_: &str| {}));
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.system_prompts = true;
+        // The new acpmux's ids go on from the old one's (`s1` is the kept one).
+        inner.specs.push(inner_spec_placeholder());
+    }
+    let traces_dir = h.dir.path().join("traces");
+    h.brain
+        .set_trace(optchat_chief::trace::Trace::open(&traces_dir, false).unwrap());
+    h.connect();
+    let posted = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    h.say_at("user_local", "two", &posted);
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompt_sessions, vec!["s2"], "a fresh session");
+    assert_eq!(
+        inner.calls,
+        vec!["prompt s2".to_owned(), "end s1".to_owned()],
+        "the prompt first, then the stale session ends"
+    );
+    drop(inner);
+    // The trace says how long the person waited for the first words.
+    let ends: Vec<Value> = traces(&h)
+        .into_iter()
+        .filter(|e| e["ev"] == "turn.end")
+        .collect();
+    let last = ends.last().expect("a turn.end");
+    for key in [
+        "first_draft_ms",
+        "posted_to_start_ms",
+        "posted_to_first_draft_ms",
+    ] {
+        assert!(last[key].is_u64(), "{key} in {last}");
+    }
+    assert!(
+        last["posted_to_first_draft_ms"].as_u64() >= last["first_draft_ms"].as_u64(),
+        "{last}"
+    );
+}
+
+fn traces(h: &Harness) -> Vec<Value> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(h.dir.path().join("traces"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        out.extend(
+            text.lines()
+                .filter_map(|l| serde_json::from_str::<Value>(l).ok()),
+        );
+    }
+    out
+}
+
+fn inner_spec_placeholder() -> optchat_chief::acpmux::SessionSpec {
+    optchat_chief::acpmux::SessionSpec {
+        name: "placeholder".into(),
+        ..Default::default()
+    }
+}

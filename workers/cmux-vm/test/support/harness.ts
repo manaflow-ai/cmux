@@ -6,6 +6,7 @@
 import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { makeWebHandler } from "../../src/app.ts";
+import { CiTrust, GITHUB_ACTIONS_ISSUER, makeCiTrust, parseCiTrust } from "../../src/auth/ci-trust.ts";
 import { generateApiKey, hashApiKey, makeStackSessionVerifier, makeStackTeamMembership, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
 import { makeMemoryMembershipCache } from "../../src/auth/membership-cache.ts";
 import { signWebhookContent } from "../../src/auth/webhook-signature.ts";
@@ -16,7 +17,7 @@ import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type
 import { memoryLimitsLayer, type TenantLimits } from "../../src/limits/service.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
-import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
+import { Entitlements, entitlementsFromPolicyLayer } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import { makeUpstreamClient } from "../../src/upstream/live.ts";
 import { parseVmImages, VmImages } from "../../src/upstream/live-images.ts";
@@ -24,7 +25,7 @@ import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
-import { ServiceKeys } from "../../src/auth/service-keys.ts";
+import { applyServiceScopeGrants, parseServiceScopeGrants, ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 import { AgentStore, type ClientSessionRow } from "../../src/db/agents.ts";
 
@@ -35,6 +36,8 @@ const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
   readonly limits?: Layer.Layer<TenantLimits>;
+  /** The CMUX_VM_SERVICE_KEY_SCOPE_GRANTS var, applied to every service key as the Worker does. */
+  readonly serviceScopeGrants?: string;
   /** Operator-approved image configuration, as supplied to the Worker. */
   readonly bootImages?: string;
   readonly httpsProxyOrigins?: ReadonlyArray<string>;
@@ -42,6 +45,11 @@ export interface HarnessOptions {
   readonly environment?: "local" | "staging" | "production";
   /** Tenants treated as dev/test in production. */
   readonly devTestTenants?: ReadonlyArray<string>;
+  /**
+   * Use the Worker's own entitlement rules (entitlementsFromPolicyLayer) instead of the setBilling list, with these
+   * MANAFLOW_TEAM_TENANT_IDS and CMUX_VM_ENTITLED_SERVICE_IDS values.
+   */
+  readonly policyEntitlements?: { readonly manaflowTenantIds?: ReadonlyArray<string>; readonly entitledServiceIds?: ReadonlyArray<string> };
   /** Live VMs per tenant. */
   readonly maxVms?: number;
   /** Live snapshots per tenant. */
@@ -54,6 +62,8 @@ export interface HarnessOptions {
   readonly mesh?: MeshFakeOptions;
   /** The Stack webhook signing secret (whsec_...); absent: the webhook answers 503. */
   readonly stackWebhookSecret?: string;
+  /** The CMUX_VM_CI_TRUST var; tokens from `githubToken` are signed by the harness's stand-in for GitHub's key. */
+  readonly ciTrust?: string;
 }
 
 /** One audit row as a test sees it. */
@@ -85,6 +95,7 @@ interface StoredKey extends ApiKeyRecord {
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
   const recordFault = { before: 0, after: 0 };
+  const meshRecordFault = { before: 0, after: 0 };
   const keys: StoredKey[] = [];
   /** Service keys (cx-b4h.13), as parsed from the CMUX_VM_SERVICE_KEYS secret. */
   const serviceKeys: Array<{
@@ -136,6 +147,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const { publicKey, privateKey } = await generateKeyPair("ES256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256" };
   const getKey = createLocalJWKSet({ keys: [jwk] });
+  const github = await generateKeyPair("RS256");
+  const githubKey = createLocalJWKSet({ keys: [{ ...(await exportJWK(github.publicKey)), kid: "github-test-key", alg: "RS256" }] });
 
   const ownership = Layer.succeed(OwnershipStore, {
     findCreation: (tenantId, key) => Effect.sync(() => {
@@ -154,13 +167,20 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row))),
       ),
+    findMany: (tenantId, kind, cmuxIds) =>
+      Effect.sync(() => {
+        const wanted = new Set(cmuxIds);
+        return new Map(resources.filter((row) => row.tenantId === tenantId && row.kind === kind && wanted.has(row.cmuxId) && live(row)).map((row) => [row.cmuxId, row] as const));
+      }),
     record: (resource) => Effect.gen(function* () {
+      if (resource.kind === "mesh" && meshRecordFault.before > 0) { meshRecordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
       if (resource.kind === "vm" && recordFault.before > 0) { recordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
       const existing = resources.find((r) => r.cmuxId === resource.cmuxId);
       if (existing && (existing.tenantId !== resource.tenantId || existing.kind !== resource.kind || existing.upstreamId !== resource.upstreamId || existing.createdBy !== resource.createdBy || existing.displayName !== resource.displayName || JSON.stringify(existing.labels) !== JSON.stringify(resource.labels) || JSON.stringify(existing.creation) !== JSON.stringify(resource.creation) || deleted.has(existing.cmuxId))) return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "allocation identity conflict" }));
-      if (!existing) resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) });
+      if (!existing) resources.push({ ...resource, createdAt: resource.kind === "mesh" ? resource.createdAt : nextCreatedAt(resource.createdAt) });
       // Mirrors the SQL: recording the same allocation again may commit it, never uncommit it.
       else if (existing.committed === false && resource.committed !== false) resources[resources.indexOf(existing)] = { ...existing, committed: true };
+      if (resource.kind === "mesh" && meshRecordFault.after > 0) { meshRecordFault.after--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected lost commit reply" })); }
       if (resource.kind === "vm" && recordFault.after > 0) { recordFault.after--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected lost commit reply" })); }
     }),
     // Mirrors the SQL: tenant and kind, live rows, newest first by (created_at, cmux_id), keyset after a position.
@@ -206,11 +226,14 @@ export async function makeHarness(options: HarnessOptions = {}) {
     ...(options.maxSnapshots === undefined ? {} : { maxSnapshots: options.maxSnapshots }),
     ...(options.ratePerMinute === undefined ? {} : { ratePerMinute: options.ratePerMinute }),
     ...(options.maxUploadBytes === undefined ? {} : { maxUploadBytes: options.maxUploadBytes }),
+    ...options.policyEntitlements,
   });
 
-  const entitlements = Layer.succeed(Entitlements, {
-    mayCreate: (tenantId) => Effect.sync(() => billed.has(tenantId)),
-  });
+  const entitlements = options.policyEntitlements === undefined
+    ? Layer.succeed(Entitlements, {
+      mayCreate: (caller) => Effect.sync(() => billed.has(caller.tenantId)),
+    })
+    : entitlementsFromPolicyLayer.pipe(Layer.provide(policy));
 
   const apiKeys = Layer.succeed(ApiKeyStore, {
     findActiveByHash: (hash, now) =>
@@ -242,13 +265,20 @@ export async function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(ServiceKeys, {
       find: (sha256) =>
         Effect.sync(() =>
-          Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) => ({
-            id: key.id,
-            sha256: key.sha256,
-            scopes: new Set(key.scopes),
-            labels: key.labels,
-            teams: key.teams === null ? null : new Set(key.teams.map((team) => TenantId.make(team))),
-          })),
+          Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) =>
+            applyServiceScopeGrants(
+              [
+                {
+                  id: key.id,
+                  sha256: key.sha256,
+                  scopes: new Set(key.scopes),
+                  labels: key.labels,
+                  teams: key.teams === null ? null : new Set(key.teams.map((team) => TenantId.make(team))),
+                },
+              ],
+              parseServiceScopeGrants(options.serviceScopeGrants).grants,
+            )[0]!,
+          ),
         ),
     }),
     auditStore,
@@ -260,6 +290,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
       UpstreamClient,
       upstreamClient,
     ),
+    Layer.succeed(CiTrust, makeCiTrust(parseCiTrust(options.ciTrust).rows, { getKey: githubKey })),
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
     // The real membership client and shared positive cache (mesh M4), over a fake Stack teams API.
     Layer.succeed(
@@ -379,6 +410,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     upstreamRequests,
     resources,
     recordFault,
+    meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
       Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request) }));
     },
@@ -557,6 +589,19 @@ export async function makeHarness(options: HarnessOptions = {}) {
         .setIssuedAt()
         .setExpirationTime(options.expiresIn ?? "1h")
         .sign(options.key ?? privateKey);
+    },
+    /** A GitHub Actions OIDC token, signed with the harness's GitHub key unless `key` is given. */
+    async githubToken(
+      claims: Record<string, unknown>,
+      options: { readonly audience?: string; readonly expiresIn?: string; readonly issuedAt?: number; readonly issuer?: string; readonly key?: CryptoKey } = {},
+    ): Promise<string> {
+      const jwt = new SignJWT(claims)
+        .setProtectedHeader({ alg: "RS256", kid: "github-test-key" })
+        .setIssuer(options.issuer ?? GITHUB_ACTIONS_ISSUER)
+        .setAudience(options.audience ?? "https://vm.test")
+        .setExpirationTime(options.expiresIn ?? "5m");
+      jwt.setIssuedAt(options.issuedAt ?? Math.floor(Date.now() / 1000));
+      return jwt.sign(options.key ?? github.privateKey);
     },
     request(path: string, headers: Record<string, string> = {}, init: { readonly method?: string; readonly body?: unknown } = {}): Promise<Response> {
       const body = init.body === undefined ? null : JSON.stringify(init.body);

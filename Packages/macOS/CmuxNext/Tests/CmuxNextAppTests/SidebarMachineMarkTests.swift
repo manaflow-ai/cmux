@@ -1,12 +1,15 @@
-import CmuxNextDesign
+import AppKit
+@testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import Foundation
 import Testing
 
 /// Machine identity: while the sidebar lists more than one machine, a workspace row on another
-/// machine marks it (its glyph in its color), so rows on different machines tell apart. This Mac's
-/// rows are marked only with `sidebar.showLocalMachine` (Leo 2026-10-20: another machine is the
-/// news). One machine: no mark.
-@MainActor struct SidebarMachineMarkTests {
+/// machine carries it (`WorkspaceRowContent.machine`), which its accessibility label names; the row
+/// draws no glyph for it (Leo 2026-11-02: "the tiny cloud icon the repeated cloud cloud cloud"). This
+/// Mac's rows carry it only with `sidebar.showLocalMachine` (Leo 2026-10-20: another machine is the
+/// news). One machine: none.
+@MainActor @Suite(.serialized) struct SidebarMachineMarkTests {
     private let mac = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     private let vm = SidebarMachine(id: MachineID("vm"), name: "gpu-box", kind: .ssh, icon: .symbol("server.rack"))
 
@@ -150,5 +153,48 @@ import Testing
 
     @Test func oneMachineDrawsNoMark() {
         #expect(marks(showsLocalMachine: true, [mac]).isEmpty)
+    }
+
+    /// The realized rows of a sidebar listing this Mac and two other machines, each with one workspace.
+    private static func machineRows() throws -> [String: WorkspaceRowView] {
+        let machines = [
+            SidebarMachine(id: .local, name: "This Mac", kind: .local),
+            SidebarMachine(id: MachineID("cloud-a"), name: "cloud-a", kind: .cloud),
+            SidebarMachine(id: MachineID("gpu-box"), name: "gpu-box", kind: .ssh),
+        ]
+        let model = SidebarModel(sections: machines.map { m in
+            SidebarSection(kind: .machine(m), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("ws-\(m.name)"), machineID: m.id,
+                                                                                  title: "a workspace named at length \(m.name)"))])
+        })
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.list.reload(animated: false)
+        var rows: [String: WorkspaceRowView] = [:]
+        for m in machines {
+            let row = try #require(sidebar.list.rowViews[.workspace(WorkspaceID("ws-\(m.name)"))] as? WorkspaceRowView)
+            row.layoutSubtreeIfNeeded()
+            row.updateLayer()
+            rows[m.name] = row
+        }
+        return rows
+    }
+
+    /// Leo 2026-11-02, on a Cloud row and its hover card: "isn't this extremely stupid looking?" / "the tiny cloud
+    /// icon the repeated cloud cloud cloud". The row draws no machine glyph (the hover card names the machine once,
+    /// in its header): a row on another machine draws exactly the views this Mac's row draws, and its label still
+    /// names the machine for VoiceOver.
+    @Test func aRowOnAnotherMachineDrawsNoMachineGlyph() throws {
+        let rows = try Self.machineRows()
+        func shown(_ row: WorkspaceRowView) -> [String] {
+            row.subviews.filter { !$0.isHidden && $0.alphaValue > 0 && !$0.frame.isEmpty }.map { String(describing: type(of: $0)) }.sorted()
+        }
+        let local = try #require(rows["This Mac"])
+        for name in ["cloud-a", "gpu-box"] {
+            let row = try #require(rows[name])
+            #expect(shown(row) == shown(local), "\(name) draws more than this Mac's row: \(shown(row)) vs \(shown(local))")
+            let label = row.accessibilityLabel() ?? ""
+            #expect(label.contains(name), "\(name): the row's label lost its machine: \(label)")
+        }
     }
 }

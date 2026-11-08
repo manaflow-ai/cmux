@@ -1,6 +1,8 @@
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextAgentPane
 @testable import CmuxNextComputerUse
+import CmuxNextSettings
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -54,6 +56,48 @@ struct ComputerUsePreviewBoardTests {
         let chats = [Self.chat("a", working: true), Self.chat("b", agent: "claude-1")]
         let pick = ComputerUsePreviewRoute.pick(for: Self.session("s", harness: "claude-1"), chats: chats)
         #expect(pick == .init(key: "b", exact: true))
+    }
+
+    @Test func anExactAcpSessionMustBelongToTheReportedWorkspace() {
+        let wrong = Self.chat("wrong", session: "acp-target", workspace: "w-other")
+        let session = Self.session("s", acp: "acp-target", workspace: "w-owner")
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: [wrong]) == nil)
+        let owner = Self.chat("owner", session: "acp-target", workspace: "w-owner")
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: [wrong, owner]) == .init(key: "owner", exact: true))
+    }
+
+    @Test func anAmbiguousAcpSessionMustNotFallThroughToItsHarness() {
+        let chats = [Self.chat("a", session: "acp-shared", agent: "h", workspace: "w"),
+                     Self.chat("b", session: "acp-shared", agent: "h", workspace: "w")]
+        let session = Self.session("s", acp: "acp-shared", harness: "h", workspace: "w")
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: chats) == nil)
+    }
+
+    @Test func aHarnessIdMustAgreeWithWorkspaceAndFamily() {
+        let session = Self.session("s", kind: "claude", harness: "shared", workspace: "w-owner")
+        let elsewhere = Self.chat("elsewhere", agent: "shared", workspace: "w-other")
+        let otherFamily = Self.chat("other-family", agent: "shared", workspace: "w-owner", harness: "codex")
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: [elsewhere]) == nil)
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: [otherFamily]) == nil)
+        let owner = Self.chat("owner", agent: "shared", workspace: "w-owner", harness: "claude")
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: [elsewhere, otherFamily, owner]) == .init(key: "owner", exact: true))
+    }
+
+    @Test func duplicateHarnessIdsNeverPickTheFirstChat() {
+        let session = Self.session("s", harness: "shared", workspace: "w")
+        let chats = [Self.chat("a", agent: "shared", workspace: "w"),
+                     Self.chat("b", agent: "shared", workspace: "w")]
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: chats) == nil)
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: Array(chats.reversed())) == nil)
+    }
+
+    @Test func anotherWorkspacesLiveComputerFrameCannotAppearInThisChat() {
+        var board = ComputerUsePreviewBoard()
+        board.apply(sessions: [Self.session("s", harness: "shared", workspace: "w-owner")])
+        board.route(chats: [Self.chat("other", agent: "shared", workspace: "w-other", working: true)])
+        board.apply(newestFrame: "frame", at: Self.at(1), session: "s")
+        board.loaded(.init(id: "frame", at: Self.at(1), url: "data:image/jpeg;base64,AA=="), session: "s")
+        #expect(board.card(for: "other") == nil)
     }
 
     @Test func theWorkingChatOfTheWorkspaceWins() {
@@ -232,6 +276,62 @@ struct ComputerUsePreviewBoardTests {
         #expect(ComputerUseAgentCursorWindows.fraction([outside, inside], in: window) == CGPoint(x: 0.25, y: 0.5))
         #expect(ComputerUseAgentCursorWindows.fraction([outside], in: window) == nil)
         #expect(ComputerUseAgentCursorWindows.fraction([inside], in: nil) == nil)
+    }
+
+    /// The person's pointer is a fraction of the window too: inside it shows; outside it is clamped to
+    /// the nearest edge and hidden, so the card never draws it off the window.
+    @Test func thePersonsPointerIsAFractionOfTheWindowAndHiddenOutside() {
+        let window = CGRect(x: 100, y: 200, width: 400, height: 300)
+        #expect(ComputerUseAgentCursorWindows.person(CGPoint(x: 200, y: 350), in: window)
+            == ComputerUsePersonPointer(point: CGPoint(x: 0.25, y: 0.5), visible: true))
+        #expect(ComputerUseAgentCursorWindows.person(CGPoint(x: 900, y: 50), in: window)
+            == ComputerUsePersonPointer(point: CGPoint(x: 1, y: 0), visible: false))
+        #expect(ComputerUseAgentCursorWindows.person(CGPoint(x: 1, y: 1), in: .zero) == nil)
+    }
+
+    /// A running card carries both telepointers: the agent's where its cursor shows, aged from the
+    /// live cursor's move, and the person's as the capture read it. A done card carries none.
+    @Test func aRunningCardCarriesTheAgentsAndThePersonsTelepointers() {
+        var board = Self.running()
+        let calculator = ComputerUsePreviewWindow(pid: 40846, windowID: 7)
+        board.apply(window: calculator, session: "s")
+        #expect(board.card(for: "a")?.telepointers == nil, "neither is known yet")
+        let person = ComputerUsePreviewTelepointer(x: 0.5, y: 0.2, visible: true, movedAt: Self.at(5))
+        board.apply(person: person, session: "s")
+        #expect(board.card(for: "a")?.telepointers == ComputerUsePreviewTelepointers(person: person))
+        board.apply(cursor: ComputerUseAgentCursor(point: CGPoint(x: 0.4, y: 0.6), windowWidth: 230), session: "s", at: Self.at(6))
+        let both = board.card(for: "a")?.telepointers
+        #expect(both?.agent == ComputerUsePreviewTelepointer(x: 0.4, y: 0.6, visible: true, movedAt: Self.at(6)))
+        #expect(both?.person == person)
+        board.apply(cursor: nil, session: "s", at: Self.at(7))
+        board.apply(pointer: ComputerUsePreviewPointer(window: calculator, x: 0.1, y: 0.1, click: 4), session: "s")
+        #expect(board.card(for: "a")?.telepointers?.agent == ComputerUsePreviewTelepointer(x: 0.1, y: 0.1, visible: true),
+                "a pixel click's point has no age")
+        board.apply(sessions: [Self.session("s", live: false)])
+        #expect(board.card(for: "a")?.telepointers == nil, "a done card draws no telepointer")
+    }
+
+    /// The page's value keeps `pointer` for older pages and adds `telepointers`, each pointer with its
+    /// fraction, whether it shows, its age in milliseconds and, once still long enough, `idle`.
+    @Test func thePageValueCarriesTelepointersBesideThePointer() {
+        let preview = AgentPaneComputerUsePreview(
+            session: "cua_s", app: "Calculator", done: false, frame: "data:image/png;base64,AA==",
+            pointer: .init(x: 0.4, y: 0.6, click: 3, windowWidth: 230),
+            telepointers: .init(agent: .init(x: 0.4, y: 0.6, visible: true, movedAt: Self.at(10)),
+                                person: .init(x: 1, y: 0.5, visible: false, movedAt: Self.at(8), idle: true)))
+        let json = preview.json(at: Self.at(10.25))
+        guard case .object(let object) = json, case .object(let pointers)? = object["telepointers"] else {
+            Issue.record("no telepointers in \(json.compactText)")
+            return
+        }
+        #expect(object["pointer"] == .object(["x": .number(0.4), "y": .number(0.6), "click": .number(3), "windowWidth": .number(230)]))
+        #expect(pointers["agent"] == .object(["x": .number(0.4), "y": .number(0.6), "visible": .bool(true), "ageMs": .number(250)]))
+        #expect(pointers["person"] == .object(["x": .number(1), "y": .number(0.5), "visible": .bool(false), "ageMs": .number(2250),
+                                               "idle": .bool(true)]))
+        let none = AgentPaneComputerUsePreview(session: "cua_s", app: "", done: false, frame: "data:image/png;base64,AA==",
+                                               telepointers: .init())
+        guard case .object(let bare) = none.json(at: Self.at(1)) else { return }
+        #expect(bare["telepointers"] == nil, "no pointer known: no field")
     }
 
     @Test func onlyClickToolsPlayTheClick() {

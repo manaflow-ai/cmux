@@ -38,6 +38,12 @@ struct GrantParam {
 enum Command {
     #[serde(rename = "apps-list")]
     List,
+    #[serde(rename = "apps-place")]
+    Place {
+        contribution: String,
+        #[serde(default)]
+        region: Option<cmux_layout_reducer::sidebar_doc::Region>,
+    },
     #[serde(rename = "apps-set")]
     Set {
         idempotency_key: String,
@@ -106,6 +112,11 @@ enum Command {
     /// tell every app server that reads the link (`cmux.host.link.changed`).
     #[serde(rename = "apps-link-changed")]
     LinkChanged,
+    /// One Cloud event the app received pushed (a machine's state socket):
+    /// the daemon passes it to the first-party Cloud server as a
+    /// `team.event` line (`Supervisor::team_event`). Verified app only.
+    #[serde(rename = "apps-team-event")]
+    TeamEvent { event: String, data: Value },
     /// The Mac app serves ops the daemon does not own (app-op-routing.md).
     #[serde(rename = "apps-provider-register")]
     ProviderRegister {
@@ -296,7 +307,7 @@ pub(super) fn try_handle(
         Command::Set { .. } => true,
         Command::Store { op, .. } => crate::apps::store_op_mutates(op),
         // Only the app that runs the link reports its changes (cx-rtipa).
-        Command::LinkChanged => true,
+        Command::LinkChanged | Command::TeamEvent { .. } => true,
         _ => false,
     };
     let user_authority = changes_apps || request.origin == crate::apps::Origin::User;
@@ -323,7 +334,7 @@ pub(super) fn try_handle(
     }
     // An agent-bound connection never reports a link change, also when it
     // is the verified app's (as `apps-provider-register`).
-    if matches!(request.command, Command::LinkChanged)
+    if matches!(request.command, Command::LinkChanged | Command::TeamEvent { .. })
         && !crate::apps::hosting_app_connection(&origin_claim)
     {
         return Some(reply(
@@ -352,8 +363,10 @@ pub(super) fn try_handle(
     let user = origin == crate::apps::Origin::User;
     let result = match command {
         Command::List => Ok(supervisor.list()),
+        Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
+        Command::TeamEvent { event, data } => supervisor.team_event(&event, &data),
         Command::Set {
             idempotency_key,
             app,

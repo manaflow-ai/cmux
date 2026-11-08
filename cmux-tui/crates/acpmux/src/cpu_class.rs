@@ -7,9 +7,9 @@
 //! children (`cmux-git` `run.rs`): the lowest CPU priority, throttled disk I/O and
 //! background-class new sockets. `normal` leaves the harness at its starter's class.
 //!
-//! The start never runs at background class. Every start has a deadline (`agent_start`, the
-//! pool's `START_BUDGET`, the app's own wait on `session/new`), and a background harness can miss
-//! it on a busy disk: on 2026-10-30 (load 125 on 18 cores, `du` and `git` scans of a 3.3 TB disk)
+//! The start never runs at background class. A caller may retain a real hazard bound, and a
+//! background harness can miss it on a busy disk: on 2026-10-30 (load 125 on 18 cores, `du` and
+//! `git` scans of a 3.3 TB disk)
 //! a `claude` harness at `PRIO_DARWIN_BG` spent 90 s in its trust-settings reads (`open()` and a
 //! plist parse at disk tier 3) with under 1 s of CPU, and every Chief turn failed; the same
 //! command at normal class answered in 14.5 s. So:
@@ -34,6 +34,15 @@
 //!    (set again during the start by another process) is retried once, and the retry is logged.
 //! 4. A start that misses its deadline says what its harness was doing ([`HarnessSeen`]): alive or
 //!    not, its class and priority, how long it ran, its CPU time and its threads on a CPU.
+//! 5. What a harness did is read over its whole process tree, never its first process alone: a
+//!    launcher (`sr2 claude`) does nothing itself while the agent it started does the work. And a
+//!    page-in is work: on 2026-11-04 (swap 26.8 of 27.6 GB full, about 60 `git fetch` processes
+//!    of 0.5 to 1.5 GB each) every Chief start failed at 90 s with "0.1 s of CPU, 0 of 12 threads
+//!    running", read off the `sr2` launcher, while its `claude` was in uninterruptible page-in
+//!    waits (ps state `U`, 24 MB resident after 14 minutes). Such a harness is slow, not hung.
+//!    The cost: any process of the tree that works (an MCP server's timer) keeps a hung harness
+//!    counted as working, so that case falls to its caller's longer bound (Chief's start ceiling,
+//!    the pool's `START_HAZARD`).
 //!
 //! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` as the harness gets it
 //! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
@@ -143,7 +152,7 @@ pub fn clear_running(pid: u32) -> bool {
 }
 
 /// What a harness was doing when its start missed its deadline or failed, read from the kernel
-/// with no process listing (`proc_pidinfo` of the one pid).
+/// with no process listing (`proc_pidinfo` or `/proc/<pid>/stat` for the one pid).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HarnessState {
@@ -159,14 +168,73 @@ pub struct HarnessState {
     pub cpu_ms: u64,
     pub threads: i32,
     /// Its threads on a CPU or ready for one when read: 0 while every thread waits (on the disk,
-    /// a lock or input).
+    /// memory, a lock or input).
     pub threads_running: i32,
+    /// Its processes: the harness and those it started (a launcher's agent, its MCP servers).
+    /// CPU time, threads and page-ins are the sums over them.
+    pub processes: i32,
+    /// Pages it read in from disk or swap: the work a harness does while memory is short and
+    /// every thread waits on a page.
+    pub pageins: u64,
+    /// Its own program name (`sr2`, `claude`), so an error says which process it read.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// The earliest-started process it still has, if any: for a launcher (`sr2 claude`) usually
+    /// its agent. An error names it, so a start that stalled before the launcher started its agent
+    /// reads apart from one whose agent is slow (#36028: the stall was in `claude`, after `sr2`
+    /// started it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_child: Option<ChildSeen>,
+}
+
+/// The first process a harness started, as a start's deadline error names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChildSeen {
+    pub pid: u32,
+    pub name: String,
+    pub cpu_ms: u64,
+    pub pageins: u64,
+}
+
+/// The CPU time a harness must use in a [`WORK_WINDOW`] to count as working: an idle launcher's
+/// runtime spends some on its own. An `sr2` waiting on a stopped `claude` used 0.6 ms per 10 s
+/// (2026-11-05, #36028), so "any change" kept a harness that did nothing counted as working and its
+/// start never ended. A harness short of memory still reads pages in, and one short of CPU has a
+/// thread ready, so neither needs this budget to count as working.
+pub const WORK_CPU_MS: u64 = 5;
+
+/// The span [`WORK_CPU_MS`] is measured over. A reader that reads more often keeps its older read
+/// until this much time has passed (`HarnessState::worked_since`), so the bar is a rate, the same
+/// at any tick.
+pub const WORK_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
+
+impl HarnessState {
+    /// Whether it did any work in the `between` since `earlier`: a thread on a CPU, a page read
+    /// in, a process started or ended, or [`WORK_CPU_MS`] of CPU time per [`WORK_WINDOW`] (never
+    /// less than one window's worth, so a read sooner than a window asks for the whole budget). A
+    /// loaded host or short memory slows that down; only a harness that waits on input or a lock
+    /// does none of it.
+    pub fn worked_since(&self, earlier: &HarnessState, between: std::time::Duration) -> bool {
+        let windows = between.max(WORK_WINDOW).as_millis() as f64 / WORK_WINDOW.as_millis() as f64;
+        self.threads_running > 0
+            || self.cpu_ms.abs_diff(earlier.cpu_ms) as f64 >= WORK_CPU_MS as f64 * windows
+            || self.pageins != earlier.pageins
+            || self.processes != earlier.processes
+    }
 }
 
 /// The state of the running process `pid` (macOS; elsewhere None). None once it ended or when the
 /// kernel refuses (another user's process).
 pub fn harness_state(pid: u32) -> Option<HarnessState> {
     imp::state(pid)
+}
+
+/// A portable progress signal for a live harness. On Linux this is the process's
+/// cumulative user plus system CPU ticks from `/proc/<pid>/stat`; macOS reuses
+/// its kernel CPU accounting. Platforms without a per-process signal return None.
+pub fn harness_cpu_ticks(pid: u32) -> Option<u64> {
+    imp::cpu_ticks(pid)
 }
 
 /// What a start's deadline error can say about its harness.
@@ -176,7 +244,7 @@ pub enum HarnessSeen {
     NotStarted,
     /// It ended.
     Ended,
-    /// It runs, and its state cannot be read (not macOS, or the kernel refused).
+    /// It runs, and its state cannot be read (the platform lacks accounting, or the kernel refused).
     Unread,
     Running(HarnessState),
 }
@@ -212,17 +280,36 @@ impl HarnessState {
 impl std::fmt::Display for HarnessState {
     /// One clause for an error a person reads (no vendor names).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let named = if self.name.is_empty() { String::new() } else { format!(", {}", self.name) };
         write!(
             f,
-            "its agent process (pid {}) is alive at {} CPU class (priority {}), ran {} s, used {:.1} s of CPU, {} of {} threads running",
+            "its agent process (pid {}{named}, {} process{} in all) is alive at {} CPU class (priority {}), ran {} s, used {:.1} s of CPU, {} of {} threads running, {} page-ins",
             self.pid,
+            self.processes,
+            if self.processes == 1 { "" } else { "es" },
             self.class(),
             self.priority,
             self.ran_secs,
             self.cpu_ms as f64 / 1000.0,
             self.threads_running,
             self.threads,
-        )
+            self.pageins,
+        )?;
+        // Only when it was read: an empty name means the platform names no process.
+        if self.name.is_empty() {
+            return Ok(());
+        }
+        match &self.first_child {
+            Some(child) => write!(
+                f,
+                "; the first process it started is {} (pid {}), which used {:.1} s of CPU and {} page-ins",
+                child.name,
+                child.pid,
+                child.cpu_ms as f64 / 1000.0,
+                child.pageins,
+            ),
+            None => write!(f, "; it has started no process"),
+        }
     }
 }
 
@@ -261,6 +348,36 @@ mod imp {
         (n == size).then(|| unsafe { out.assume_init() })
     }
 
+    /// The most processes of one harness's tree it reads: a launcher, its agent and their MCP
+    /// servers are a handful; the bound keeps a harness that forks a build from costing more.
+    const TREE_MAX: usize = 64;
+
+    /// The processes `root` started, and theirs, at most [`TREE_MAX`] in all with `root`, each
+    /// with the process that started it (`root`'s own is 0). Only the descendants of a harness
+    /// acpmux spawned and holds: no other process is listed.
+    fn tree(root: libc::c_int) -> Vec<(libc::c_int, libc::c_int)> {
+        let mut all = vec![(root, 0)];
+        let mut next = 0;
+        while next < all.len() && all.len() < TREE_MAX {
+            let parent = all[next].0;
+            let mut kids = [0 as libc::c_int; TREE_MAX];
+            let bytes = libc::c_int::try_from(std::mem::size_of_val(&kids)).unwrap_or(0);
+            // SAFETY: the buffer holds `bytes` bytes of pids, which the kernel fills.
+            let n = unsafe { libc::proc_listchildpids(parent, kids.as_mut_ptr().cast(), bytes) };
+            let n = usize::try_from(n).unwrap_or(0).min(TREE_MAX);
+            for kid in kids[..n].iter().copied() {
+                if all.len() == TREE_MAX {
+                    break;
+                }
+                if kid > 0 && !all.iter().any(|(p, _)| *p == kid) {
+                    all.push((kid, parent));
+                }
+            }
+            next += 1;
+        }
+        all
+    }
+
     // The Mach timebase's struct and call are deprecated in favour of the `mach2` crate, which
     // acpmux does not depend on; they are not defective.
     #[allow(deprecated)]
@@ -277,9 +394,40 @@ mod imp {
         } else {
             (1, 1)
         };
-        let cpu_ns = u128::from(task.pti_total_user.saturating_add(task.pti_total_system))
-            .saturating_mul(numer)
-            / denom;
+        let (mut ticks, mut threads, mut running, mut pageins, mut processes) =
+            (0u128, 0i32, 0i32, 0u64, 0i32);
+        let to_ms = |ticks: u128| {
+            u64::try_from(ticks.saturating_mul(numer) / denom / 1_000_000).unwrap_or(u64::MAX)
+        };
+        // The harness itself, then each process under it that is still there to read.
+        let kids: Vec<(libc::c_int, libc::c_int, libc::proc_taskinfo)> = tree(id)
+            .into_iter()
+            .skip(1)
+            .filter_map(|(kid, parent)| Some((kid, parent, pidinfo(kid, libc::PROC_PIDTASKINFO)?)))
+            .collect();
+        // Its first process: of those it started itself, the one that started first.
+        let first_child = kids
+            .iter()
+            .filter(|(_, parent, _)| *parent == id)
+            .filter_map(|(kid, _, t)| {
+                let b: libc::proc_bsdinfo = pidinfo(*kid, libc::PROC_PIDTBSDINFO)?;
+                Some(((b.pbi_start_tvsec, b.pbi_start_tvusec), *kid, name_of(&b), t))
+            })
+            .min_by_key(|(started, kid, _, _)| (*started, *kid))
+            .map(|(_, kid, name, t)| super::ChildSeen {
+                pid: u32::try_from(kid).unwrap_or(0),
+                name,
+                cpu_ms: to_ms(u128::from(t.pti_total_user.saturating_add(t.pti_total_system))),
+                pageins: u64::try_from(t.pti_pageins).unwrap_or(0),
+            });
+        let rest = kids.iter().map(|(_, _, t)| *t);
+        for t in std::iter::once(task).chain(rest) {
+            ticks += u128::from(t.pti_total_user.saturating_add(t.pti_total_system));
+            threads = threads.saturating_add(t.pti_threadnum);
+            running = running.saturating_add(t.pti_numrunning);
+            pageins = pageins.saturating_add(u64::try_from(t.pti_pageins).unwrap_or(0));
+            processes += 1;
+        }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -290,14 +438,67 @@ mod imp {
             // MAXPRI_THROTTLE: the base priority of a darwinbg task.
             background: task.pti_priority <= 4,
             ran_secs: now.saturating_sub(bsd.pbi_start_tvsec),
-            cpu_ms: u64::try_from(cpu_ns / 1_000_000).unwrap_or(u64::MAX),
-            threads: task.pti_threadnum,
-            threads_running: task.pti_numrunning,
+            cpu_ms: to_ms(ticks),
+            threads,
+            threads_running: running,
+            processes,
+            pageins,
+            name: name_of(&bsd),
+            first_child,
         })
+    }
+
+    /// A process's program name: its long name, else its short one (both NUL-ended).
+    fn name_of(bsd: &libc::proc_bsdinfo) -> String {
+        let text = |chars: &[libc::c_char]| {
+            let bytes: Vec<u8> =
+                chars.iter().take_while(|c| **c != 0).map(|c| c.to_ne_bytes()[0]).collect();
+            String::from_utf8_lossy(&bytes).into_owned()
+        };
+        let long = text(&bsd.pbi_name);
+        if long.is_empty() { text(&bsd.pbi_comm) } else { long }
+    }
+
+    pub(super) fn cpu_ticks(pid: u32) -> Option<u64> {
+        state(pid).map(|state| state.cpu_ms)
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+mod imp {
+    use super::HarnessState;
+
+    pub(super) fn set_background(_pid: u32, _on: bool) -> bool {
+        false
+    }
+
+    /// The one process record's fields after the parenthesized command name.
+    /// The command may contain spaces, so split only after its final `)`.
+    fn stat(pid: u32) -> Option<Vec<String>> {
+        let raw = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let (_, fields) = raw.rsplit_once(')')?;
+        Some(fields.split_whitespace().map(str::to_owned).collect())
+    }
+
+    /// `/proc/<pid>/stat` fields 14 and 15 (`utime` and `stime`) become indexes
+    /// 11 and 12 after the leading pid and command name have been removed.
+    fn ticks(pid: u32) -> Option<u64> {
+        let fields = stat(pid)?;
+        let user = fields.get(11)?.parse::<u64>().ok()?;
+        let system = fields.get(12)?.parse::<u64>().ok()?;
+        Some(user.saturating_add(system))
+    }
+
+    pub(super) fn cpu_ticks(pid: u32) -> Option<u64> {
+        ticks(pid)
+    }
+
+    pub(super) fn state(_pid: u32) -> Option<HarnessState> {
+        None
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod imp {
     use super::HarnessState;
 
@@ -306,6 +507,10 @@ mod imp {
     }
 
     pub(super) fn state(_pid: u32) -> Option<HarnessState> {
+        None
+    }
+
+    pub(super) fn cpu_ticks(_pid: u32) -> Option<u64> {
         None
     }
 }
@@ -329,5 +534,118 @@ mod tests {
         // A value that names no class is skipped.
         assert_eq!(CpuClass::resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
         assert_eq!(CpuClass::resolve(Some(""), None, None), CpuClass::Background);
+    }
+
+    /// The 2026-11-04 stall: `sr2 claude` waits on its `claude`, which does the work. A launcher
+    /// that only waits must not read as a harness that does nothing.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_launchers_harness_state_counts_the_work_of_the_agent_it_started() {
+        use std::io::BufRead;
+        // The launcher (`sh`, kept by the `; :` after its one command) waits on its agent, which
+        // spends CPU, says so, then waits on its input.
+        let agent = "i=0; while [ $i -lt 100000 ]; do i=$((i+1)); done; echo worked; cat";
+        let mut launcher = std::process::Command::new("/bin/sh")
+            .args(["-c", &format!("/bin/sh -c '{agent}'; :")])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn the launcher");
+        let mut said = String::new();
+        let stdout = launcher.stdout.take().expect("its stdout");
+        std::io::BufReader::new(stdout).read_line(&mut said).expect("the agent's line");
+        assert_eq!(said.trim(), "worked");
+        let state = harness_state(launcher.id()).expect("read the launcher");
+        drop(launcher.stdin.take());
+        let _ = launcher.kill();
+        let _ = launcher.wait();
+        // The launcher alone used a few ms; its agent's loop took far more.
+        assert!(state.cpu_ms >= 100, "the agent's CPU time counts: {state:?}");
+        // The error names the launcher and the agent it started, with the agent's own work.
+        // Named by the kernel (macOS's `/bin/sh` runs as `bash`, so no fixed name is asserted).
+        assert!(!state.name.is_empty(), "the launcher's name: {state:?}");
+        let agent = state.first_child.as_ref().expect("the agent the launcher started");
+        assert!(!agent.name.is_empty(), "the agent's name: {state:?}");
+        assert_ne!(agent.pid, state.pid);
+        assert!(agent.cpu_ms >= 50, "the agent's own CPU time: {state:?}");
+        let said = state.to_string();
+        let named =
+            format!("; the first process it started is {} (pid {}), ", agent.name, agent.pid);
+        assert!(said.contains(&named), "{said}");
+    }
+
+    /// #36028: a start's error says which process it read and what its launcher started, so a
+    /// launcher that never started its agent reads apart from an agent that is slow.
+    #[test]
+    fn a_deadline_clause_names_the_launcher_and_the_agent_it_started() {
+        let launcher = HarnessState {
+            pid: 9104,
+            priority: 20,
+            background: false,
+            ran_secs: 87,
+            cpu_ms: 140,
+            threads: 20,
+            threads_running: 0,
+            processes: 2,
+            pageins: 1800,
+            name: "sr2".to_owned(),
+            first_child: Some(ChildSeen {
+                pid: 9120,
+                name: "claude".to_owned(),
+                cpu_ms: 40,
+                pageins: 1700,
+            }),
+        };
+        assert_eq!(
+            launcher.to_string(),
+            "its agent process (pid 9104, sr2, 2 processes in all) is alive at normal CPU class \
+             (priority 20), ran 87 s, used 0.1 s of CPU, 0 of 20 threads running, 1800 page-ins; \
+             the first process it started is claude (pid 9120), which used 0.0 s of CPU and 1700 \
+             page-ins"
+        );
+        let alone = HarnessState { first_child: None, processes: 1, ..launcher.clone() };
+        assert!(alone.to_string().ends_with("; it has started no process"), "{alone}");
+        // A platform that names no process adds nothing.
+        let unnamed = HarnessState { name: String::new(), ..alone };
+        assert!(unnamed.to_string().ends_with(" page-ins"), "{unnamed}");
+    }
+
+    #[test]
+    fn a_page_in_or_a_process_change_is_work_and_waiting_alone_is_not() {
+        let idle = HarnessState {
+            pid: 1,
+            priority: 31,
+            background: false,
+            ran_secs: 60,
+            cpu_ms: 100,
+            threads: 12,
+            threads_running: 0,
+            processes: 2,
+            pageins: 500,
+            name: String::new(),
+            first_child: None,
+        };
+        let w = WORK_WINDOW;
+        assert!(!idle.worked_since(&idle, w));
+        assert!(HarnessState { pageins: 501, ..idle.clone() }.worked_since(&idle, w));
+        assert!(HarnessState { processes: 3, ..idle.clone() }.worked_since(&idle, w));
+        assert!(HarnessState { cpu_ms: 100 + WORK_CPU_MS, ..idle.clone() }.worked_since(&idle, w));
+        // #36028: an idle launcher's runtime ticks (0.6 ms per 10 s for `sr2`) are not work.
+        assert!(!HarnessState { cpu_ms: 101, ..idle.clone() }.worked_since(&idle, w));
+        assert!(HarnessState { threads_running: 1, ..idle.clone() }.worked_since(&idle, w));
+        // The bar is a rate: a read 1 s on asks for a whole window's budget, a read 30 s on (a
+        // skipped tick) for three.
+        let second = std::time::Duration::from_secs(1);
+        assert!(!HarnessState { cpu_ms: 104, ..idle.clone() }.worked_since(&idle, second));
+        assert!(HarnessState { cpu_ms: 105, ..idle.clone() }.worked_since(&idle, second));
+        let late = std::time::Duration::from_secs(30);
+        assert!(!HarnessState { cpu_ms: 114, ..idle.clone() }.worked_since(&idle, late));
+        assert!(HarnessState { cpu_ms: 115, ..idle.clone() }.worked_since(&idle, late));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_harness_cpu_ticks_reads_one_process_record() {
+        assert!(harness_cpu_ticks(std::process::id()).is_some());
     }
 }

@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
-import { browseFailureMessage } from "./BrowseFailure";
+import { browseFailureMessage } from "./browseFailureModel";
 import { ChevronIcon } from "./ComposerPickers";
-import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./AddProjectPanel";
+import { type BrowseRequest } from "./AddProjectPanel";
+import { BROWSE_BUSY, type BrowseResult } from "./addProjectPanelModel";
 import {
   SAVED_ENVIRONMENT_NAME_LIMIT,
   savedEnvironmentReady,
@@ -195,13 +196,13 @@ export function SavedEnvironmentPanel({
           <div className="acpmux-env-field">
             <span className="acpmux-env-label">{t("environment.host")}</span>
             <Menu>
-              <MenuButton className="acpmux-env-select" label={t("environment.host")}>
+              <MenuButton className="acpmux-env-select" label={t("environment.host")} fieldTrigger>
                 <span className="acpmux-env-select-text" data-placeholder={draft.host ? undefined : ""}>
                   {draft.host ?? t("environment.chooseHost")}
                 </span>
                 <ChevronIcon />
               </MenuButton>
-              <MenuPopup className="acpmux-menu acpmux-location-menu" align="start">
+              <MenuPopup className="acpmux-menu acpmux-location-menu acpmux-env-host-menu" align="start" matchTrigger>
                 {machines.length > 0 && (
                   <MenuRadioGroup
                     value={draft.host ?? ""}

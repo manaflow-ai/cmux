@@ -26,8 +26,9 @@ import {
   turnFoldFor,
   turnFooterFrom,
   turnView,
+  SUPERSEDED,
   WORKED,
-  WORKING,
+  THINKING,
   workedLabel,
 } from "../src/agent-session/acpmux/conversation/turns";
 import { endsTurn, turnRows } from "../src/agent-session/acpmux/diff";
@@ -67,6 +68,9 @@ async function clientOf(
   held: string[] = [],
 ) {
   let socket: any;
+  const promptRequests: string[] = [];
+  let promptSent!: () => void;
+  const firstPrompt = new Promise<void>((resolve) => (promptSent = resolve));
   const session = {
     sessionId: CHAT,
     cwd: "/home/dev/x",
@@ -105,6 +109,10 @@ async function clientOf(
       readyState: 1,
       send(raw: string) {
         const message = JSON.parse(raw);
+        if (message.method === "session/prompt") {
+          promptRequests.push(message.params._meta.acpmux.promptId);
+          promptSent();
+        }
         if (message.id !== undefined && !held.includes(message.method))
           queueMicrotask(() =>
             socket.onmessage?.({
@@ -131,8 +139,11 @@ async function clientOf(
       socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
   };
   /// The socket closes, as when acpmux restarts or the network drops.
-  const drop = () => socket.onclose?.({ code: 1006, reason: "", wasClean: false });
-  return { client, rows: () => rows, push, drop };
+  const drop = () => {
+    socket.readyState = WebSocket.CLOSED;
+    socket.onclose?.({ code: 1006, reason: "", wasClean: false });
+  };
+  return { client, rows: () => rows, push, drop, firstPrompt, promptRequests };
 }
 
 /// Leo's prompt runs 55s; he sends a message now; acpmux stops that turn and runs his message next.
@@ -155,11 +166,11 @@ test("a steer draws inline in the running turn, whose line counts from the first
   const view = turnView(rows, new Set(), { working: true });
   const first = view.find((row) => row.kind === "user" && row.text === "Fix the flaky login test")!;
   const steer = view.find((row) => row.kind === "user" && row.text === "also check the logout path")!;
-  // One running turn: one Working line, timed from the first prompt.
-  const working = view.filter((row) => row.kind === WORKING);
+  // One running turn: one live line at its foot, under the steer, timed from the first prompt.
+  const working = view.filter((row) => row.kind === THINKING);
   expect(working).toHaveLength(1);
   expect(working[0]!.at).toBe(first.at);
-  expect(view.indexOf(working[0]!)).toBeLessThan(view.indexOf(steer));
+  expect(view.indexOf(working[0]!)).toBeGreaterThan(view.indexOf(steer));
   // Nothing says the turn was stopped.
   expect(view.some((row) => row.kind === "turnSummary" && row.status === "cancelled")).toBe(false);
   expect(view.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(false);
@@ -187,7 +198,10 @@ test("once the chain ends, all its work folds under one stable disclosure", asyn
   expect(view.some((row) => row.id === steerRow.id)).toBe(true);
   expect(view.some((row) => row.text === "The retry races the session refresh.")).toBe(true);
   expect(view.indexOf(worked[0]!)).toBeLessThan(view.findIndex((row) => row.text === "Both paths are fixed."));
-  expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(1);
+  // The stretch before the steer ends on its own footer (turns.ts supersededFooters); the turn's
+  // own footer stays one, at its end.
+  expect(view.filter((row) => row.kind === "turnSummary" && !row.superseded)).toHaveLength(1);
+  expect(view.filter((row) => row.superseded)).toHaveLength(1);
   // Nothing is dropped: open, the fold holds every tool call and steer in recorded order.
   const open = turnView(rows, new Set(worked.map((row) => row.id)));
   const toolAt = (id: string) => open.findIndex((row) => row.items?.some((item) => item.tool?.id === id));
@@ -217,7 +231,7 @@ test("a real Stop still reads You stopped after", async () => {
   const stopped = view.find((row) => row.kind === WORKED)!;
   expect(stopped.status).toBe("cancelled");
   expect(workedLabel(translate, stopped)).toBe(translate("turn.stopped", { time: "40s" }));
-  const working = view.find((row) => row.kind === WORKING);
+  const working = view.find((row) => row.kind === THINKING);
   expect(working?.at).toBe(START + 60_000);
 });
 
@@ -241,7 +255,7 @@ test("a prompt sent now after a real Stop leaves the Stop as it was", async () =
   expect(view.find((row) => row.kind === WORKED)?.status).toBe("cancelled");
   const next = view.find((row) => row.kind === "user" && row.text === "then the logout path")!;
   expect(next.steer).toBeUndefined();
-  expect(view.find((row) => row.kind === WORKING)?.at).toBe(START + 50_000);
+  expect(view.find((row) => row.kind === THINKING)?.at).toBe(START + 50_000);
 });
 
 /// The chain ended: the steer's work, then the answer and the turn's own end. Each summary carries
@@ -320,7 +334,12 @@ test("Find and a shell's row open the fold the turn draws, and the hover footer 
       footer = view[at]!;
       break;
     }
-  expect(turnFooterFrom(view, view.indexOf(first))).toBe(footer.id);
+  // Before the steer, the stretch the person came in on ends on its own footer (turns.ts
+  // supersededFooters); after it, the chain's.
+  const stretch = view.find((row) => row.superseded)!;
+  expect(turnFooterFrom(view, view.indexOf(first))).toBe(stretch.id);
+  const steer = view.find((row) => row.kind === "user" && row.continues)!;
+  expect(turnFooterFrom(view, view.indexOf(steer) + 1)).toBe(footer.id);
 });
 
 test("between the cancel and the steer's record, the turn does not read as stopped", async () => {
@@ -347,7 +366,10 @@ test("an older history page that ends at the steer leaves it a steer", async () 
   // One turn: one footer and one stable fold, including after history is paged in.
   const first = rows().find((row) => row.kind === "user" && row.text === "Fix the flaky login test")!;
   expect(view.filter((row) => row.kind === WORKED).map((row) => row.id)).toEqual([`${WORKED}-${first.id}`]);
-  expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(1);
+  // The stretch before the steer ends on its own footer (turns.ts supersededFooters); the turn's
+  // own footer stays one, at its end.
+  expect(view.filter((row) => row.kind === "turnSummary" && !row.superseded)).toHaveLength(1);
+  expect(view.filter((row) => row.superseded)).toHaveLength(1);
 });
 
 test("an edit before a sent-now cancel asks for its checkpoint only once the turn ends", () => {
@@ -454,8 +476,11 @@ test("a Send now that ends the turn with end_turn goes on as the same turn", asy
   const steer = view.find((row) => row.kind === "user" && row.text === "also check the logout path")!;
   expect(steer.continues).toBe(true);
   expect(view.filter((row) => row.kind === WORKED)).toHaveLength(0);
-  expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(0);
-  const working = view.filter((row) => row.kind === WORKING);
+  // The stretch before the steer ends on its own footer (turns.ts supersededFooters); the turn's
+  // own footer stays one, at its end.
+  expect(view.filter((row) => row.kind === "turnSummary" && !row.superseded)).toHaveLength(0);
+  expect(view.filter((row) => row.superseded)).toHaveLength(1);
+  const working = view.filter((row) => row.kind === THINKING);
   expect(working).toHaveLength(1);
   expect(working[0]!.at).toBe(first.at);
 });
@@ -573,9 +598,12 @@ test("a Send now whose request the dropped socket fails still continues the turn
   const hadWindow = "window" in scope;
   if (!hadWindow) scope.window = globalThis;
   const head = record(sentNow.slice(0, 5));
-  const { client, rows, push, drop } = await clientOf(head, head.length, "running", ["session/prompt"]);
+  const { client, rows, push, drop, firstPrompt } = await clientOf(head, head.length, "running", ["session/prompt"]);
   try {
     const sent = client.send("also check the logout path", [], "p-2").catch(() => undefined);
+    // The gesture reservation is asynchronous. Drop an actual in-flight request, as this
+    // scenario promises, rather than assuming send() has already written to the socket.
+    await firstPrompt;
     push(
       record([...sentNow, cancelAt(55), ["mux", "dequeued", { promptId: "p-2" }, 55]])
         .slice(head.length)
@@ -591,10 +619,38 @@ test("a Send now whose request the dropped socket fails still continues the turn
   }
 });
 
-test("a Claude turn steered twice keeps every call under one completed-turn fold", () => {
-  // Leo's live Claude turns (2026-10-21): a call, his steer, a reply and a call, a second steer,
-  // more calls, the answer. Ended, the folds hold every call; nothing is dropped or moved above
-  // a steer it came after.
+test("a socket dropped while the send awaits its gesture cannot receive the prompt", async () => {
+  const scope = globalThis as Record<string, unknown>;
+  const hadWindow = "window" in scope;
+  if (!hadWindow) scope.window = globalThis;
+  const head = record(sentNow.slice(0, 5));
+  const { client, rows, push, drop, promptRequests } = await clientOf(head, head.length, "running");
+  let release!: (ticket: string) => void;
+  const ticket = new Promise<string>((resolve) => (release = resolve));
+  try {
+    const sent = client.send("also check the logout path", [], "p-2", undefined, ticket);
+    push(
+      record([...sentNow, cancelAt(55), ["mux", "dequeued", { promptId: "p-2" }, 55]])
+        .slice(head.length)
+        .map((event, index) => ({ ...event, seq: head.length + 1 + index })),
+    );
+    expect(rows().find((row) => row.kind === "turnSummary")?.continued).toBe(true);
+    drop();
+    release("held-gesture");
+    await expect(sent).rejects.toMatchObject({ code: "native.not_connected" });
+    expect(promptRequests).toEqual([]);
+    expect(rows().find((row) => row.kind === "turnSummary")?.continued).toBe(true);
+  } finally {
+    client.close();
+    if (!hadWindow) delete scope.window;
+  }
+});
+
+test("a turn steered twice keeps every call under one completed-turn fold", () => {
+  // Leo's live turns (2026-10-21): a call, his steer, a reply and a call, a second steer, more
+  // calls, the answer. Ended, the fold holds every call; nothing is dropped or moved above a steer
+  // it came after. A Claude chat draws each run on its own line instead
+  // (transcript-claude-turn-groups.test.ts).
   let at = START;
   const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
     id,
@@ -620,10 +676,11 @@ test("a Claude turn steered twice keeps every call under one completed-turn fold
     row("sum", "turnSummary", { status: "completed" }),
   ];
   // A clock just after the turn, so no date line comes before it.
-  const now = { now: START + 200_000, agentFamily: "claude" };
+  const now = { now: START + 200_000, agentFamily: "codex" };
   const view = turnView(rows, new Set(), now);
   const ids = view.map((each) => each.id);
-  expect(ids).toEqual(["u", `${WORKED}-u`, "s1", "r1", "s2", "r2", "sum"]);
+  // The reply before the second steer ends on its stretch's footer (turns.ts supersededFooters).
+  expect(ids).toEqual(["u", `${WORKED}-u`, "s1", "r1", `${SUPERSEDED}-s2`, "s2", "r2", "sum"]);
   expect(view.filter((each) => each.kind === WORKED).map((each) => each.durationMs)).toEqual([90_000]);
   const open = turnView(rows, new Set([`${WORKED}-u`]), now);
   expect(open.map((each) => each.id)).toEqual([
@@ -633,6 +690,7 @@ test("a Claude turn steered twice keeps every call under one completed-turn fold
     "s1",
     "r1",
     "a-b2",
+    `${SUPERSEDED}-s2`,
     "s2",
     "a-b3",
     "a-b4",
@@ -642,7 +700,7 @@ test("a Claude turn steered twice keeps every call under one completed-turn fold
   expect(rows.map((_, index) => turnFoldFor(rows, index))).toEqual(rows.map(() => `${WORKED}-u`));
 });
 
-test("only Codex folds interim assistant text; Claude keeps every assistant message visible", () => {
+test("Codex folds interim text under Worked for; Claude folds it into its run's line", () => {
   let at = START;
   const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
     id,
@@ -664,11 +722,24 @@ test("only Codex folds interim assistant text; Claude keeps every assistant mess
     row("summary", "turnSummary", { status: "completed" }),
   ];
 
-  const claude = turnView(rows, new Set(), { agentFamily: "claude" });
-  expect(claude.filter((each) => each.kind === "assistant").map((each) => each.id)).toEqual(["interim", "final"]);
-  expect(claude.some((each) => each.kind === WORKED)).toBe(true);
+  const now = START + 200_000;
+  // By default a Claude turn folds under Worked for, as Codex does (Codex parity).
+  expect(turnView(rows, new Set(), { now, agentFamily: "claude" }).map((each) => each.id)).toEqual([
+    "prompt",
+    "worked-prompt",
+    "final",
+    "summary",
+  ]);
+  // Claude's in-place arm (claudeTurnFold.experiment.ts "runs") folds it into its run's line.
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+  const claude = turnView(rows, new Set(), { now, agentFamily: "claude" });
+  globalThis.cmuxExperiments = undefined;
+  expect(claude.map((each) => each.id)).toEqual(["prompt", "a-one", "final", "summary"]);
+  const run = claude.find((each) => each.id === "a-one");
+  expect(run?.foldRun).toBe(true);
+  expect(run?.items?.find((item) => item.kind === "note")?.text).toBe("The first check is still running.");
 
-  const codex = turnView(rows, new Set(), { agentFamily: "codex" });
+  const codex = turnView(rows, new Set(), { now, agentFamily: "codex" });
   expect(codex.some((each) => each.id === "interim")).toBe(false);
   expect(codex.some((each) => each.id === "final")).toBe(true);
   expect(codex.some((each) => each.kind === WORKED)).toBe(true);

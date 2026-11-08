@@ -63,13 +63,13 @@ final class ChangelogPageTab: InternalPageProvider {
         return view != nil
     }
 
-    /// `#/?design=<d>&from=<from>&to=<to>`: `design` only off the default ledger, the span only
+    /// `#/?design=<d>&from=<from>&to=<to>`: `design` only off the default sheet, the span only
     /// with `to`; nil when neither applies.
-    static func route(from: String?, to: String?, design: WhatsNewDesign = .ledger) -> String? {
+    static func route(from: String?, to: String?, design: WhatsNewDesign = .sheet) -> String? {
         let span = to.flatMap { $0.isEmpty ? nil : $0 }
-        guard span != nil || design != .ledger else { return nil }
+        guard span != nil || design != .sheet else { return nil }
         var query = URLComponents()
-        query.queryItems = [design == .ledger ? nil : URLQueryItem(name: "design", value: design.rawValue),
+        query.queryItems = [design == .sheet ? nil : URLQueryItem(name: "design", value: design.rawValue),
                             span.flatMap { _ in from.flatMap { $0.isEmpty ? nil : URLQueryItem(name: "from", value: $0) } },
                             span.map { URLQueryItem(name: "to", value: $0) }].compactMap { $0 }
         // URLSearchParams reads `+` as a space; a version may carry build metadata (`1.2.3+abc`).
@@ -82,12 +82,12 @@ nonisolated enum ChangelogPageStrings {
 }
 
 extension PageFactory {
-    /// The changelog page: `cmux.changelog.` to verified notes, `cmux.app.` to the native ops
-    /// (Try it runs only the descriptor's allow-listed actions).
+    /// The changelog page: Install first (routes match in order), `cmux.changelog.` to verified notes,
+    /// `cmux.app.` to the native ops (Try it runs only the descriptor's allow-listed actions).
     func changelogPage(route: String? = nil) -> PageWebView? {
         let provider = changelogNotes(media: services.updater.releaseMedia)
         let native = AppPageNativeProvider(services: services, page: .changelog)
-        let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [ChangelogInstallProvider.route(services.updater), PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         let page = PageWebView(descriptor: .changelog, routes: routes, route: route)
         native.anchor = { [weak page] in page }
         provider.anchor = { [weak page] in page }

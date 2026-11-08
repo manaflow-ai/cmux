@@ -4,6 +4,7 @@
 /// MAX_AUDIO_BYTES) caps nothing about their sum: ten screenshots' previews passed it (Leo,
 /// 2026-10-31: "this is completely hardlocked bc of message size").
 import { promptBlocks, type ComposerAttachment, type InlineReadOptions, type PromptBlock } from "./attachments";
+import { withoutFrames } from "./composer/videoPrompt";
 
 /// The bytes a prompt's blocks may carry: under acpmux's 31 MiB, with room for the message's
 /// envelope (its ids, `_meta`, the bubble's display parts).
@@ -70,22 +71,33 @@ export function fitPromptBudget(
       total -= copy.data!.length + copy.mimeType.length + jsonBytes(copy.name) + BLOCK_OVERHEAD;
     }
   }
-  return attachments.map((chip) => linked.get(chip.id) ?? chip);
+  const fitted = attachments.map((chip) => linked.get(chip.id) ?? chip);
+  // Still too large: the videos' frames stay out, each video going as its link (composer/videoPrompt.ts).
+  if (total > budget && fitted.some((chip) => chip.video?.frames.length)) {
+    const bare = withoutFrames(fitted);
+    if (inlineBytes(promptBlocks(input, bare, options)) < total) return bare;
+  }
+  return fitted;
 }
 
 /// Whether a send must wait for originals still uploading (`uploading`, by chip id) before it goes:
 /// the prompt is over `budget` even with every saved original linked, and an image still uploading
 /// its original would let it fit. Never for a prompt that fits: it goes at once, its originals
-/// staying for the next prompt.
+/// staying for the next prompt. Except an image whose original is the point (`needsOriginal`: a
+/// capture over the image cap, whose preview is a reduced copy): the send waits for it at any size.
 export function awaitsOriginals(
   input: string,
   attachments: readonly ComposerAttachment[],
   uploading: (id: string) => boolean,
   options: InlineReadOptions = {},
   budget = PROMPT_INLINE_BUDGET,
+  needsOriginal: (id: string) => boolean = () => false,
 ): boolean {
-  if (!attachments.some((chip) => chip.kind === "image" && chip.data && !chip.originalPath && uploading(chip.id)))
-    return false;
+  const waiting = attachments.filter(
+    (chip) => chip.kind === "image" && chip.data && !chip.originalPath && uploading(chip.id),
+  );
+  if (waiting.length === 0) return false;
+  if (waiting.some((chip) => needsOriginal(chip.id))) return true;
   const fitted = fitPromptBudget(input, [...attachments], options, budget);
   return inlineBytes(promptBlocks(input, fitted, options)) > budget;
 }

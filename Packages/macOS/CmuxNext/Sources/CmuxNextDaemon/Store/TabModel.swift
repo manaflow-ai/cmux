@@ -176,6 +176,9 @@ public final class TabModel: Identifiable {
         return titleText
     }
 
+    /// A live daemon terminal: a pty that is not dead and not a creation's stand-in (a provisional surface).
+    public var isLiveTerminal: Bool { kind == .pty && !dead && !ProvisionalTab.isProvisional(surface: surface) }
+
     /// Whether the tab holds an unread notification. A notification this
     /// client read (``expectNotificationRead()``) shows read before the
     /// daemon's echo.
@@ -250,6 +253,9 @@ public final class TabModel: Identifiable {
     public var page: String? {
         kind == .conversation ? conversation?.page : nil
     }
+
+    /// Home's docked chat page tab (`WorkspaceModel.homeDockPage`), where a Chief's turns post.
+    public var isHomeDockPage: Bool { page == WorkspaceModel.homeDockPage }
 
     /// What a page tab shows (`page-tab-route-v1`); nil for none or any other tab.
     public var pageRoute: String? {

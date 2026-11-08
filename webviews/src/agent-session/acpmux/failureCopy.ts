@@ -1,3 +1,4 @@
+import { agentKey } from "../shared/agentKey";
 import type { Translate } from "./i18n";
 
 /// Why a turn failed, as the user can act on it (ROUTES R0, cx-w10a). Errors from harnesses are user-facing
@@ -16,6 +17,7 @@ export type FailureKind =
   | "auth"
   | "disk-full"
   | "context-full"
+  | "codex-config"
   | "tailscale"
   | "agent-exited"
   | "spawn-failed"
@@ -27,6 +29,9 @@ export type FailureRoute = {
   harness?: string;
   hostKind?: "local" | "cloud";
   host?: string;
+  /// A Cloud team machine whose start passed no personal Claude login (the host's handshake
+  /// `cloudTeamMachine`: CloudHarnessLoginDecision skipped it as `guest-not-owner`, guest `team`).
+  teamMachine?: boolean;
 };
 
 /// CodeRouter's refusal on a team Cloud machine whose team has no account for the agent: a 403
@@ -67,6 +72,9 @@ const MISSING_CREDENTIAL =
   /(?:provider )?credentials? (?:is |are )?(?:missing|not configured|not set)|no provider credentials?/i;
 const EXPIRED_CREDENTIAL =
   /(?:credential|token|session).{0,24}(?:expired|revoked)|(?:expired|revoked).{0,24}(?:credential|token|session)/i;
+/// The Cloud machine's provider answered that the stored Claude login is no longer accepted.
+/// This exact family is the only auth failure eligible for silent cached-login recovery.
+const CLOUD_REJECTED_CREDENTIAL = /provider rejected Claude Code[’']s credentials on this Cloud machine/i;
 /// A full disk, here or on the chat's machine: before every other kind, since what it broke (a
 /// write, a socket, the agent) reads as that kind too.
 const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk space|disk quota exceeded|EDQUOT/i;
@@ -104,6 +112,15 @@ const TYPED: readonly [RegExp, FailureKind][] = [
   [/exit|closed|crash|died/i, "agent-exited"],
   [/rate|quota|capacity/i, "rate-limited"],
 ];
+/// Codex refused its own settings for the turn: its app-server loads the thread's config again before
+/// every model request (workspace routing on a ChatGPT login) and, when that load fails, says only
+/// "failed to load workspace requirements: <reason>" and stops after its retries. The reason is a bare
+/// io error kind ("invalid input parameter": a `[permissions]` profile with no `default_permissions`,
+/// which cmux-codex-acp sent for every thread until it set one) or "invalid configuration at PATH:LINE:COL".
+/// Another model or a sign-in does not help; the file does.
+const CODEX_CONFIG = /failed to (?:re)?load workspace requirements/i;
+/// The path may hold spaces; it ends at the first `:LINE:COLUMN` that ends a word.
+const CODEX_CONFIG_AT = /invalid configuration at (.+?):\d+:\d+(?!\S)/i;
 const URL_HOST = /https?:\/\/([^\s/'")\]]+)/i;
 const STATUS = /\b([45]\d\d)\b/;
 /// Harness profiles that reach their provider through a proxy acpmux knows by name.
@@ -114,6 +131,23 @@ const PROVIDER_HOSTS = /(?:^|\.)(?:anthropic\.com|openai\.com|chatgpt\.com|claud
 export function isAuthenticationFailure(message: string | undefined): boolean {
   const kind = failureKind(message);
   return kind === "subscription-login" || kind === "auth";
+}
+
+/// A Claude sign-in failure on a team Cloud machine (`route.teamMachine`): cmux passes no personal
+/// login to a machine teammates share, so neither the person's own sign-in nor a login transfer gets
+/// it signed in (the transfer refuses: "Personal credentials can only be transferred to a Cloud
+/// machine you own"). Its card says so and offers Switch model and Use an API key instead.
+export function isTeamMachineSignIn(kind: FailureKind, route?: FailureRoute): boolean {
+  return (
+    route?.hostKind === "cloud" &&
+    route.teamMachine === true &&
+    (kind === "auth" || kind === "subscription-login") &&
+    agentKey(route.harness?.split("/").pop() ?? "claude") === "claude"
+  );
+}
+
+export function isCloudRejectedCredential(message: string | undefined, route?: FailureRoute): boolean {
+  return route?.hostKind === "cloud" && CLOUD_REJECTED_CREDENTIAL.test(message ?? "");
 }
 
 /// The proxy or endpoint a failure names: a host in the message that is not the provider's, else the
@@ -151,6 +185,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (UNREACHABLE.test(words)) return "unreachable";
   const signIn = [INVALID_KEY, SUBSCRIPTION, AUTH, MISSING_CREDENTIAL, EXPIRED_CREDENTIAL].some((re) => re.test(words));
   if (DROPPED.test(words) && !signIn) return "unreachable";
+  // After the network: a cloud config bundle that timed out is a connection, not the file.
+  if (CODEX_CONFIG.test(message) && !signIn) return "codex-config";
   const via = failureVia(message, route);
   // A signed-out Claude CLI says "Invalid API key · Please run /login": its way out is the login.
   if (INVALID_KEY.test(message) && !(SUBSCRIPTION.test(message) && !via)) return "invalid-key";
@@ -173,8 +209,10 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
 /// 2026-10-23: "good opportunity for upsell here"): a key, sign-in or capacity failure that another
 /// route fixes. Never on a chat CodeRouter already serves (sending it there again does nothing), and
 /// never on a team machine's missing account, which CodeRouter itself refused.
+/// Never on a Cloud machine's chat either: it is signed in from the Mac (Set up credentials), and runs
+/// no CodeRouter (Leo, 2026-10-31: "STOP USING CODEROUTER").
 export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean {
-  if (route?.harness === "claude-cr") return false;
+  if (route?.harness === "claude-cr" || route?.hostKind === "cloud") return false;
   return kind === "invalid-key" || kind === "subscription-login" || kind === "auth" || kind === "rate-limited";
 }
 
@@ -208,6 +246,7 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
   const harness = route?.name || route?.harness || t("turn.failure.theAgent");
   const via = failureVia(message, route);
   const status = message ? STATUS.exec(message)?.[1] : undefined;
+  if (isTeamMachineSignIn(kind, route)) return t("turn.failure.cloudTeamMachineNoLogin", { harness });
   if (route?.hostKind === "cloud" && (kind === "auth" || kind === "subscription-login")) {
     if (MISSING_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthMissing", { harness });
     if (EXPIRED_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthExpired", { harness });
@@ -238,6 +277,10 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.diskFull", { harness });
     case "context-full":
       return t("turn.failure.contextFull", { harness });
+    case "codex-config": {
+      const path = message ? CODEX_CONFIG_AT.exec(message)?.[1] : undefined;
+      return path ? t("turn.failure.codexConfigAt", { harness, path }) : t("turn.failure.codexConfig", { harness });
+    }
     case "tailscale":
       return t("turn.failure.tailscale", { harness });
     case "agent-exited":

@@ -34,6 +34,12 @@ const CLI_TITLE = /^acpmux(?:-debug-cli)?\s+(dispatch|steer|report|briefs(?:\s+(
 const CLI_ACTION =
   /(?:^|(?:&&|\|\||;)\s*)(?:\w+=\S+\s+)*(?:\S+\/)?acpmux(?:-debug-cli)?\s+(dispatch|steer|report|briefs(?:\s+(?:ls|list))?)(?:\s|$)/i;
 
+/// Where a dispatch went as its card names it: the target, then its host when that is another name.
+export function dispatchDestination(call: DispatchCall): string | undefined {
+  const target = call.to ?? call.sessionId ?? call.host;
+  return target && call.host && target !== call.host ? `${target} · ${call.host}` : target;
+}
+
 /// The dispatch operation represented by one ACP activity, or undefined for ordinary MCP calls.
 export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
   const tool = item.tool;
@@ -55,7 +61,7 @@ export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
     sessionId:
       identityField(values, "to", ["sessionId", "session_id", "session"]) ??
       firstString(values, ["sessionId", "session_id", "session"]),
-    status: firstString(values, ["status", "state"]) ?? statusFromTool(tool),
+    status: dispatchStatus(tool, output),
     stopCondition: firstString(values, ["stopCondition", "stop_condition"]),
     text:
       firstString(
@@ -116,14 +122,12 @@ function operationName(tool: Tool): DispatchKind | undefined {
   return "briefs";
 }
 
-function statusFromTool(tool: Tool): string | undefined {
-  if (tool.status === "pending" || tool.status === "in_progress") return "running";
+function dispatchStatus(tool: Tool, output: unknown): string | undefined {
   if (tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0)) return "failed";
-  const output = tool.output?.toLowerCase() ?? "";
-  if (/\bmerged\b/.test(output)) return "merged";
-  if (/\breported\b/.test(output)) return "reported";
-  if (/\bsteered\b/.test(output)) return "steered";
-  return tool.status || undefined;
+  if (tool.status === "pending" || tool.status === "in_progress") return "running";
+  // Input is a requested transition; prose is the report's content. Only the
+  // structured acknowledgement can confirm a brief's lifecycle transition.
+  return firstString([output, ...records(output)], ["status", "state"]) ?? (tool.status || undefined);
 }
 
 /// A plain-text output as the report's text, whole: the card's panel scrolls a long one (Leo,

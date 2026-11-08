@@ -1,5 +1,5 @@
 public import CmuxInstallAuthCore
-import CryptoKit
+public import CmuxNextCompat
 public import Foundation
 
 /// Where the Mac app keeps its install keys and records (cx-wb5.64), one
@@ -9,7 +9,7 @@ public import Foundation
 ///   keys and the records in 0600 files in a 0700 directory, so a rebuild
 ///   never raises a Keychain prompt (the same known DEV gap as the P8
 ///   frontend key, identity.md).
-/// - ``enclave(service:directory:)``: every other build: keys in the Secure
+/// - ``enclave(service:directory:loginKeychain:)``: every other build: keys in the Secure
 ///   Enclave (only the encrypted blob is stored, in the Keychain); records
 ///   (user and install ids, not secrets) in the 0600 file.
 public struct MacInstallStore: Sendable {
@@ -23,22 +23,26 @@ public struct MacInstallStore: Sendable {
                         records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: false)
     }
 
-    public static func enclave(service: String, directory: URL) -> MacInstallStore {
-        MacInstallStore(makeSigner: { account in EnclaveInstallSigner(service: service, account: account) },
+    public static func enclave(service: String, directory: URL, loginKeychain: LoginKeychain) -> MacInstallStore {
+        MacInstallStore(makeSigner: { account in EnclaveInstallSigner(service: service, account: account, loginKeychain: loginKeychain) },
                         records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: true)
     }
 
     /// The store for this process. Only a debug build with no Team ID uses
     /// files; a release build, or a build whose Team ID could not be read,
-    /// uses the Secure Enclave (fails closed).
-    public static func forApp(directory: URL, service: String, team: String?, isDebugBuild: Bool) -> MacInstallStore {
-        isDebugBuild && team == nil ? .files(directory: directory) : .enclave(service: service, directory: directory)
+    /// uses the Secure Enclave (fails closed), its Keychain reads behind the app's one `loginKeychain`.
+    public static func forApp(directory: URL, service: String, team: String?, isDebugBuild: Bool, loginKeychain: LoginKeychain) -> MacInstallStore {
+        isDebugBuild && team == nil ? .files(directory: directory) : .enclave(service: service, directory: directory, loginKeychain: loginKeychain)
     }
 
-    /// The key of `user`: `install-key-<first 16 hex of SHA-256(user)>`.
+    /// The key of `user` (Rust's `identity::install_key_account`: `install-key-<first 16 hex of SHA-256(user)>`). An
+    /// FFI that does not answer throws at the key's first use, never shares another user's key.
     func signer(for user: String) -> any InstallSigner {
-        let digest = SHA256.hash(data: Data(user.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
-        return makeSigner("install-key-\(digest)")
+        struct Reply: Decodable { var account: String }
+        guard let account = CloudStartCore().call("cloud_identity_install_key", ["user": user], as: Reply.self)?.account else {
+            return UnnamedInstallSigner()
+        }
+        return makeSigner(account)
     }
 
     func record(for user: String) -> InstallRecord? {
@@ -53,6 +57,14 @@ public struct MacInstallStore: Sendable {
         guard let data = try? JSONEncoder().encode(all) else { return }
         try? OwnerOnlyFile.write(data, to: records)
     }
+}
+
+/// The signer of a key whose name could not be made: every call fails.
+private struct UnnamedInstallSigner: InstallSigner {
+    struct Unnamed: Error {}
+    func publicKeyX963() async throws -> Data { throw Unnamed() }
+    func sign(_ message: Data) async throws -> Data { throw Unnamed() }
+    func rotate() async throws {}
 }
 
 /// 0600 files in a 0700 directory: written to a unique temporary file

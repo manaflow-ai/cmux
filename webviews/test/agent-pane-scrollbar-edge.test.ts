@@ -1,6 +1,6 @@
 // l10n-allow-file: sample transcript and screenshot labels, not shipped UI.
 // Leo: "when I said move the scrollbar to the right, I do mean to the right". The
-// Inspector may move the text column, but never the native scrollbar's own box.
+// Session Info may move the text column, but never the native scrollbar's own box.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
@@ -35,18 +35,20 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
             actions.configureQuickActions(tools ? undefined : { quickActions: [] });
             window.cmuxAcpmuxBridge?.applyHeaderState?.({ inspector: true, version: 2 });
           }, tools);
-          const toggle = page.locator("button.acpmux-chat-inspector-toggle");
-          const panel = page.locator("aside.acpmux-chat-inspector");
+          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const panel = page.locator("aside.acpmux-session-info");
           await toggle.waitFor();
-          if ((await panel.count()) === 0) await toggle.click();
-          await page.locator('.acpmux-chat-inspector[data-presence="shown"]').waitFor();
+          if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
+          await page.locator('.acpmux-session-info[data-presence="shown"]').waitFor();
           await settled(page);
           const geometry = await page.evaluate(() => {
             const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
             const pane = rect(".acpmux-main");
             const scroll = rect(".acpmux-scroll");
             const row = rect(".acpmux-row");
-            const composer = rect(".acpmux-composer");
+            // The composer's card: its wrapper keeps the chat's whole width and pads the column's
+            // insets, which differ left and right while Session Info moves the column aside.
+            const composer = rect(".acpmux-composer-box");
             const scrollNode = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const thumb = getComputedStyle(scrollNode, "::-webkit-scrollbar-thumb");
             return {
@@ -83,6 +85,14 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
           expect(findOffset).toBeLessThanOrEqual(1);
           await page.keyboard.press("Escape");
           await page.locator(".acpmux-find").waitFor({ state: "detached" });
+          // Where the chat has no room for Find's bar beside the panel, the panel steps aside while
+          // Find shows and stays aside until its toggle opens it again (#33230). Open it first, so the
+          // close below starts from the panel open at the pane's edge.
+          if ((await toggle.getAttribute("aria-pressed")) !== "true") {
+            await toggle.click();
+            await page.locator('.acpmux-session-info[data-presence="shown"]').waitFor();
+            await settled(page);
+          }
           // The toggle remains a real hit target with the panel open at the pane's edge.
           await toggle.click();
           await panel.waitFor({ state: "detached" });

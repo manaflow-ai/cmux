@@ -29,6 +29,11 @@
 //!   session host, or after a clone signal (clock set, driver file: a
 //!   fork may have happened) it arms a bounded retry (50 ms doubling, 10
 //!   times), and `Resumed` waits for a read that confirms the id.
+//! - A session host that runs with another relay carrier route than
+//!   `carrier.json` names (the file appeared or changed, or an adopted host
+//!   predates it) is stopped and started again through a fresh
+//!   observation. Parked, binding or stopping hosts are left alone: their
+//!   next start reads the file.
 //! - Every restart goes through a fresh observation (a backoff timer can
 //!   be from before a snapshot). Session host exits restart with a capped
 //!   backoff
@@ -107,6 +112,9 @@ pub enum Input {
     ChannelChanged,
     /// `server.json` changed.
     ConfigChanged,
+    /// The running session host's relay carrier route is not the one
+    /// `carrier.json` names now.
+    CarrierChanged,
     /// Every role handled `Parked` and stopped (`ok`), or one refused.
     RolesParked { ok: bool },
     /// SIGTERM or SIGINT.
@@ -224,6 +232,8 @@ pub enum StopReason {
     /// Finish binding this id once the old host has exited.
     Bind(String),
     Park,
+    /// Start it again with the current relay carrier route.
+    Respawn,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -384,6 +394,12 @@ impl Machine {
             }
             Input::ChannelChanged => self.notify(Lifecycle::ChannelChanged, &mut out),
             Input::ConfigChanged => self.notify(Lifecycle::ConfigChanged, &mut out),
+            Input::CarrierChanged => {
+                if self.daemon == DaemonState::Running && !self.parked && self.binding.is_none() {
+                    out.push(Action::TerminateDaemon);
+                    self.daemon = DaemonState::Stopping(StopReason::Respawn);
+                }
+            }
             Input::RolesParked { ok } => self.roles_parked(ok, &mut out),
             Input::Shutdown => {
                 if self.roles_running {
@@ -604,7 +620,7 @@ impl Machine {
     /// no identity change in flight: a bind stops the roles first and a
     /// failed bind leaves them stopped, so running roles mean the id they
     /// started with is the current one.
-    fn identity_settled(&self) -> bool {
+    pub(crate) fn identity_settled(&self) -> bool {
         // A clone signal whose metadata read has not confirmed the id yet
         // may be a fork: do not announce the source machine's identity.
         !self.parked && self.roles_running && self.current_id.is_some() && !self.verify_pending
@@ -657,6 +673,13 @@ impl Machine {
                             self.evaluate(obs, out);
                         }
                     }
+                    // Terminal hosts keep running: only the session host's
+                    // route changed. The restart goes through a fresh
+                    // observation, or the one that came during the stop.
+                    StopReason::Respawn => match deferred {
+                        Some(obs) => self.evaluate(obs, out),
+                        None => out.push(Action::Recheck),
+                    },
                 }
                 if !self.ready_sent {
                     self.ready_sent = true;
@@ -709,3 +732,7 @@ impl Machine {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "machine_carrier_tests.rs"]
+mod carrier_tests;

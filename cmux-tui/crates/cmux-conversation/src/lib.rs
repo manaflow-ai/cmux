@@ -7,6 +7,7 @@
 //! The local owner (the cmux daemon) and the cloud owner (`ConversationDO`)
 //! run the same reducer, so both speak the same ops and events.
 
+pub mod agent_sender;
 mod attachments;
 mod budget;
 mod home;
@@ -14,6 +15,7 @@ mod id;
 mod link;
 mod link_preview;
 mod question;
+pub mod question_reply;
 mod reducer;
 mod search;
 mod types;

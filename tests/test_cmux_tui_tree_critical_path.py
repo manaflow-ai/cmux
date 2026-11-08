@@ -256,12 +256,23 @@ def main():
     deferring = preflight_values(owns_key="false", owner_run_id="3")
     _check(evaluate(owner_wait["if"], dict(deferring, __needs__=needs(owner_wait))),
            "tree-owner-wait runs when another run owns the key")
+    # build-windows runs only on a dispatch with include_windows; no push builds Windows.
+    windows = all_jobs["build-windows"]
+    _check(not evaluate(windows["if"], dict(owns, **{"needs.tree-owner-wait.result": "skipped",
+                                                    "inputs.include_windows": True, "__needs__": needs(windows)})),
+           "build-windows never runs on a push")
+    _check(not evaluate(windows["if"], dict(owns, **{"github.event_name": "workflow_dispatch",
+                                                    "needs.tree-owner-wait.result": "skipped",
+                                                    "inputs.include_windows": False, "__needs__": needs(windows)})),
+           "build-windows does not run on a dispatch without include_windows")
+    windows_dispatch = {"github.event_name": "workflow_dispatch", "inputs.include_windows": True}
     for name in ("build", "build-windows", "cmux-next-daemon-tests"):
         job = all_jobs[name]
-        skipped = dict(owns, **{"needs.tree-owner-wait.result": "skipped", "__needs__": needs(job)})
+        extra = windows_dispatch if name == "build-windows" else {}
+        skipped = dict(owns, **extra, **{"needs.tree-owner-wait.result": "skipped", "__needs__": needs(job)})
         _check(evaluate(job["if"], skipped), f"{name} starts without tree-owner-wait when the run owns its key")
         for takeover, result, expected in (("true", "success", True), ("false", "success", False), ("", "failure", False)):
-            values = dict(deferring, **{"needs.tree-owner-wait.result": result,
+            values = dict(deferring, **extra, **{"needs.tree-owner-wait.result": result,
                                         "needs.tree-owner-wait.outputs.takeover": takeover, "__needs__": needs(job)})
             _check(evaluate(job["if"], values) == expected,
                    f"{name} with tree-owner-wait {result}, takeover {takeover or '-'}: {'runs' if expected else 'skipped'}")
@@ -277,7 +288,7 @@ def main():
     _check("build-ok" not in all_jobs, "no build-ok job between the build and publish")
     publish = all_jobs["publish"]
     base = dict(owns, **{"__needs__": needs(publish), "needs.build-darwin-fallback.result": "skipped",
-                         "needs.darwin-fallback-plan.result": "skipped"})
+                         "needs.darwin-fallback-plan.result": "skipped", "needs.build-linux.result": "success"})
     for build, fallback, recovered, expected in (("success", "skipped", "", True), ("failure", "success", "false", True),
                                                  ("failure", "skipped", "true", True), ("failure", "failure", "false", False),
                                                  ("failure", "skipped", "", False), ("skipped", "skipped", "", False)):
@@ -287,6 +298,9 @@ def main():
                f"publish with build {build}, fallback {fallback}, recovered {recovered or '-'}: {'runs' if expected else 'skipped'}")
         _check(evaluate(all_jobs["sentry-dsyms"]["if"], values) == expected,
                f"sentry-dsyms with build {build}, fallback {fallback}: {'runs' if expected else 'skipped'}")
+    # The Linux targets build in build-linux: publish never runs without them.
+    _check(not evaluate(publish["if"], dict(base, **{"needs.build.result": "success", "needs.build-linux.result": "failure"})),
+           "publish with build success and build-linux failure: skipped")
 
     # 4. publish-tree writes this commit's marker on feat-cmux-next, and only on its first (unix) pass.
     tree_steps = all_jobs["publish-tree"]["steps"]

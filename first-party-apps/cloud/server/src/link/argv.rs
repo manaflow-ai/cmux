@@ -70,8 +70,11 @@ pub fn link_command(
 /// a stream's typed dial refusal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkLine {
-    Connected { local_socket: PathBuf },
-    DialFailed(DialCode),
+    Connected {
+        local_socket: PathBuf,
+    },
+    /// The typed code and the link's detail of what failed, if it sent one.
+    DialFailed(DialCode, Option<String>),
     Other,
 }
 
@@ -81,11 +84,12 @@ pub fn ready_line(local_socket: &Path) -> String {
         .to_string()
 }
 
-/// `{"event":"dial-failed","error_code":...,"reason":...}`.
-pub fn dial_failed_line(code: &DialCode) -> String {
+/// `{"event":"dial-failed","error_code":...,"reason":...}`: the reason is
+/// an unavailable link's text, or the dial's `error_detail`.
+pub fn dial_failed_line(code: &DialCode, detail: Option<&str>) -> String {
     let reason = match code {
         DialCode::Unavailable(why) => why.as_str(),
-        _ => "",
+        _ => detail.unwrap_or(""),
     };
     serde_json::json!({ "event": "dial-failed", "error_code": code.as_str(), "reason": reason })
         .to_string()
@@ -102,12 +106,18 @@ pub fn parse_line(line: &str) -> LinkLine {
         },
         Some("dial-failed") => {
             let code = value["error_code"].as_str().unwrap_or_default();
-            LinkLine::DialFailed(match code {
-                "unavailable" => DialCode::Unavailable(
-                    value["reason"].as_str().unwrap_or("cmux link is unavailable").to_owned(),
+            match code {
+                "unavailable" => LinkLine::DialFailed(
+                    DialCode::Unavailable(
+                        value["reason"].as_str().unwrap_or("cmux link is unavailable").to_owned(),
+                    ),
+                    None,
                 ),
-                other => DialCode::parse(other),
-            })
+                other => LinkLine::DialFailed(
+                    DialCode::parse(other),
+                    value["reason"].as_str().and_then(super::dial::clip_detail),
+                ),
+            }
         }
         _ => LinkLine::Other,
     }

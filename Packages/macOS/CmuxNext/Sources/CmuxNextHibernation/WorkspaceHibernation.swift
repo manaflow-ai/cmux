@@ -10,11 +10,31 @@ public protocol WorkspaceHibernationHost: AnyObject {
     func hibernationResidents() -> [WorkspaceHibernationResident]
     /// The workspaces shown in a window now (with `sidebar.multiView` companions and the workspace under a top page).
     func hibernationShownWorkspaces() -> Set<String>
+    /// The spaces (rooms) the open windows show now: a change can hide a space without changing the shown workspaces.
+    func hibernationShownSpaces() -> Set<String>
     /// `workspaces.hibernation.*`.
     func hibernationPolicy() -> WorkspaceHibernationPlanner.Policy
     /// Frees `workspace`'s memory: unmounts it in every window, destroys its terminal surfaces,
     /// discards its pages and lets its chat pages go (each page's own checks may keep it).
     func hibernate(workspace: String)
+    /// As ``hibernate(workspace:)``; `byPerson` is the person's Hibernate Workspace, whose pages then
+    /// restore only when shown, never on a hover (plans/cmux-next/hover-preload-DESIGN.md).
+    func hibernate(workspace: String, byPerson: Bool)
+}
+
+extension WorkspaceHibernationHost {
+    public func hibernate(workspace: String, byPerson: Bool) { hibernate(workspace: workspace) }
+}
+
+extension WorkspaceHibernationHost {
+    /// No spaces: one implicit space every window shows.
+    public func hibernationShownSpaces() -> Set<String> { [] }
+}
+
+/// What the shown-set follow watches: the shown workspaces and the shown spaces.
+nonisolated struct WorkspaceHibernationShownState: Equatable, Sendable {
+    var workspaces: Set<String>
+    var spaces: Set<String>
 }
 
 /// The one-shot deadline the coordinator plans its next pass with (the App passes a `DemandTimer`;
@@ -40,14 +60,18 @@ public nonisolated struct WorkspaceHibernationResident: Hashable, Sendable {
     public var running: Bool
     /// An agent waits on the person, or it shows an error.
     public var needsAttention: Bool
+    /// No window shows any space it is in (its space is hidden), so it hibernates on the shorter clock.
+    public var inHiddenSpace: Bool
 
     /// Every flag defaults to false.
-    public init(workspace: String, lastActivity: Date? = nil, pinned: Bool = false, running: Bool = false, needsAttention: Bool = false) {
+    public init(workspace: String, lastActivity: Date? = nil, pinned: Bool = false, running: Bool = false, needsAttention: Bool = false,
+                inHiddenSpace: Bool = false) {
         self.workspace = workspace
         self.lastActivity = lastActivity
         self.pinned = pinned
         self.running = running
         self.needsAttention = needsAttention
+        self.inHiddenSpace = inHiddenSpace
     }
 }
 
@@ -74,10 +98,18 @@ public final class WorkspaceHibernation {
     private let now: @MainActor () -> Date
     private let deadline: any WorkspaceHibernationDeadline
     private let planner = WorkspaceHibernationPlanner()
+    private let freeing = WorkspaceFreeingPlanner()
+    /// The freeing tier's terminal reads and park; nil frees no terminal.
+    private let terminals: (any WorkspaceTerminalFreeing)?
+    /// How many terminals it freed this run (`debug.surfaces`).
+    public private(set) var freedCount = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
     /// When each workspace was last shown, or first seen (never idle on arrival).
     private var lastShown: [String: Date] = [:]
     private var shown: Set<String> = []
+    private var shownSpaces: Set<String> = []
+    /// When the armed deadline fires (nil: none armed by this coordinator), so a re-arm never postpones it.
+    private var dueAt: Date?
     /// Hibernated and not shown since.
     public private(set) var hibernated: Set<String> = []
     /// The memory pressure it plans for.
@@ -85,6 +117,9 @@ public final class WorkspaceHibernation {
     private var follows: [Task<Void, Never>] = []
     /// How many workspaces it hibernated this run (`debug.surfaces`).
     public private(set) var hibernatedCount = 0
+    private let memoryPressure: MemoryPressureEvents?
+    /// A pass runs: a level reported meanwhile (its first read) is planned by that pass, not a nested one.
+    private var passing = false
 
     /// The first pass after launch: nothing is resident yet, and a launch is no time to evict.
     public static let launchDelay: Duration = .seconds(60)
@@ -93,27 +128,40 @@ public final class WorkspaceHibernation {
     ///   - host: the App's owners.
     ///   - keepAwake: the person's Keep Awake set.
     ///   - deadline: the one-shot timer of the next pass.
+    ///   - memoryPressure: the app's memory pressure events, read at each pass (``MemoryPressureEvents/refresh()``);
+    ///     the level itself arrives through ``pressureDidChange(_:)``. Nil reads nothing.
     ///   - now: the wall clock idle times are measured on.
+    ///   - terminals: the freeing tier's terminal reads and park (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md);
+    ///     nil frees no terminal.
     public init(host: any WorkspaceHibernationHost, keepAwake: WorkspaceKeepAwakeStore, deadline: any WorkspaceHibernationDeadline,
-                now: @escaping @MainActor () -> Date = { Date() }) {
+                memoryPressure: MemoryPressureEvents? = nil, now: @escaping @MainActor () -> Date = { Date() },
+                terminals: (any WorkspaceTerminalFreeing)? = nil) {
         self.host = host
+        self.terminals = terminals
         self.keepAwake = keepAwake
         self.deadline = deadline
+        self.memoryPressure = memoryPressure
         self.now = now
     }
 
     /// Follows the shown workspaces and the setting, and schedules the first pass.
     public func start() {
-        // task-owner: the shown-workspaces follow; cancelled in stop()
+        // task-owner: the shown-workspaces and shown-spaces follow; cancelled in stop()
         follows.append(Task { @MainActor [weak self] in
-            for await shown in ObservationStream({ [weak self] in self?.host.hibernationShownWorkspaces() ?? [] }) {
-                self?.noteShown(shown)
+            for await state in ObservationStream({ [weak self] in
+                WorkspaceHibernationShownState(workspaces: self?.host.hibernationShownWorkspaces() ?? [],
+                                               spaces: self?.host.hibernationShownSpaces() ?? [])
+            }) {
+                self?.noteShown(state.workspaces)
+                self?.noteShownSpaces(state.spaces)
             }
         })
         // task-owner: the settings follow; cancelled in stop()
         follows.append(Task { @MainActor [weak self] in
             var first = true
-            for await _ in ObservationStream({ [weak self] in self?.host.hibernationPolicy() ?? .init() }) {
+            for await _ in ObservationStream({ [weak self] in
+                self?.host.hibernationPolicy() ?? .init()
+            }) {
                 self?.schedulePass(after: first ? Self.launchDelay : .seconds(1))
                 first = false
             }
@@ -124,28 +172,61 @@ public final class WorkspaceHibernation {
     public func stop() {
         follows.forEach { $0.cancel() }
         follows = []
-        deadline.cancel()
+        cancelDeadline()
     }
 
     /// The shown workspaces changed: one that left starts its idle clock, one that came back is awake.
+    /// One that left plans a pass within a minute (``replanSoon()``).
     public func noteShown(_ current: Set<String>) {
         let time = now()
         for id in shown.symmetricDifference(current) { lastShown[id] = time }
         for id in current { hibernated.remove(id) }
         let left = !shown.subtracting(current).isEmpty
         shown = current
-        if left, !deadline.isScheduled { schedulePass(after: .seconds(Int64(WorkspaceHibernationPlanner.minimumRecheck))) }
+        if left { replanSoon() }
+    }
+
+    /// The shown spaces changed (a window switched space, opened or closed): a space no window shows any
+    /// more puts its workspaces on the shorter hidden-space clock, so plan a pass within a minute.
+    public func noteShownSpaces(_ current: Set<String>) {
+        let hid = !shownSpaces.subtracting(current).isEmpty
+        shownSpaces = current
+        if hid { replanSoon() }
+    }
+
+    /// A window opened or closed (`WindowManager.controllers`' didSet). The window list is not observable, so the
+    /// shown-set follow can miss a close; this re-reads both shown sets, and closing the last window of a space
+    /// plans a pass within a minute like a space switch (#30854). Re-reading an unchanged set does nothing.
+    public func windowsDidChange() {
+        noteShown(host.hibernationShownWorkspaces())
+        noteShownSpaces(host.hibernationShownSpaces())
+    }
+
+    /// Arms a pass a minute out unless one is already due sooner. The pending deadline was planned on the old
+    /// shown set and can be later than a newly hidden space's clock; an earlier one is never postponed, so
+    /// switching back and forth cannot starve a pass.
+    private func replanSoon() {
+        let delay = WorkspaceHibernationPlanner.minimumRecheck
+        if deadline.isScheduled, let dueAt, dueAt <= now().addingTimeInterval(delay) { return }
+        schedulePass(after: .seconds(Int64(delay)))
     }
 
     /// Memory pressure changed: a higher level shortens the idle time, so plan now.
     public func pressureDidChange(_ level: MemoryPressureLevel) {
         guard level != pressure else { return }
         pressure = level
+        guard !passing else { return }
         if level != .normal { pass() } else { schedulePass(after: .seconds(1)) }
     }
 
-    /// Plans and hibernates what is due, then arms the deadline for the next one.
+    /// Reads the memory pressure level now (``MemoryPressureEvents/refresh()``: the kernel may never have sent
+    /// this process its event), plans and hibernates what is due, then arms the deadline for the next one.
     public func pass() {
+        guard !passing else { return }
+        passing = true
+        defer { passing = false }
+        memoryPressure?.refresh() // a changed level comes back through pressureDidChange(_:), planned by this pass
+        dueAt = nil
         let time = now()
         let residents = host.hibernationResidents()
         let live = Set(residents.map(\.workspace))
@@ -159,18 +240,46 @@ public final class WorkspaceHibernation {
             return WorkspaceHibernationPlanner.Candidate(
                 workspace: resident.workspace, lastActive: active, shown: shown.contains(resident.workspace),
                 pinned: resident.pinned, running: resident.running, needsAttention: resident.needsAttention,
-                keptAwake: keepAwake.contains(resident.workspace), hibernated: hibernated.contains(resident.workspace))
+                keptAwake: keepAwake.contains(resident.workspace), hibernated: hibernated.contains(resident.workspace),
+                inHiddenSpace: resident.inHiddenSpace)
         }
         // A hibernated workspace that holds nothing more stays hibernated until shown; one that is
         // gone (closed) is forgotten.
         let plan = planner.plan(candidates, policy: host.hibernationPolicy(), pressure: pressure, now: time)
-        for id in plan.due { hibernateNow(id, cause: pressure == .normal ? "idle" : "memory-pressure=\(pressure.rawValue)") }
-        lastShown = lastShown.filter { live.contains($0.key) || shown.contains($0.key) }
-        if let next = plan.nextCheck {
+        let hiddenSpace = Set(residents.filter(\.inHiddenSpace).map(\.workspace))
+        for id in plan.due {
+            hibernateNow(id, cause: pressure != .normal ? "memory-pressure=\(pressure.rawValue)" : hiddenSpace.contains(id) ? "hidden-space" : "idle")
+        }
+        // A hibernated workspace keeps its last-shown time: the freeing tier measures from it.
+        lastShown = lastShown.filter { live.contains($0.key) || shown.contains($0.key) || hibernated.contains($0.key) }
+        let freed = freePass(now: time)
+        if let next = [plan.nextCheck, freed].compactMap(\.self).min() {
             schedulePass(after: .milliseconds(Int64(max(next.timeIntervalSince(time), 1) * 1000)))
         } else {
-            deadline.cancel()
+            cancelDeadline()
         }
+    }
+
+    /// The freeing tier: parks the idle shells of hibernated workspaces that are due, and returns when the next
+    /// one comes due. Nothing while `workspaces.freeing.enabled` is off.
+    private func freePass(now time: Date) -> Date? {
+        let policy = host.hibernationPolicy().freeing
+        guard policy.enabled, !hibernated.isEmpty, let source = self.terminals else { return nil }
+        let candidates = source.terminals(in: hibernated).map { terminal -> WorkspaceFreeingPlanner.Terminal in
+            var terminal = terminal
+            terminal.hibernated = hibernated.contains(terminal.workspace) && !shown.contains(terminal.workspace)
+            terminal.workspaceKept = terminal.workspaceKept || keepAwake.contains(terminal.workspace)
+            let seen = lastShown[terminal.workspace]
+            terminal.workspaceLastActive = [seen, terminal.workspaceLastActive].compactMap(\.self).max() ?? time
+            return terminal
+        }
+        let plan = freeing.plan(candidates, policy: policy, now: time)
+        if !plan.due.isEmpty {
+            source.park(plan.due)
+            freedCount += plan.due.count
+            logger.notice("freed \(plan.due.count, privacy: .public) idle terminal(s) of hibernated workspaces")
+        }
+        return plan.nextCheck
     }
 
     /// Hibernate Workspace (palette, CLI): hibernates `workspace` now, idle or not, unless it is shown.
@@ -191,13 +300,20 @@ public final class WorkspaceHibernation {
     public func isHibernated(_ workspace: String) -> Bool { hibernated.contains(workspace) }
 
     private func hibernateNow(_ workspace: String, cause: String) {
-        host.hibernate(workspace: workspace)
+        host.hibernate(workspace: workspace, byPerson: cause == "person")
         hibernated.insert(workspace)
         hibernatedCount += 1
         logger.notice("hibernated workspace \(workspace, privacy: .public) cause=\(cause, privacy: .public)")
     }
 
     private func schedulePass(after delay: Duration) {
+        let (seconds, attoseconds) = delay.components
+        dueAt = now().addingTimeInterval(TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18)
         deadline.schedule(after: delay) { @MainActor [weak self] in self?.pass() }
+    }
+
+    private func cancelDeadline() {
+        dueAt = nil
+        deadline.cancel()
     }
 }

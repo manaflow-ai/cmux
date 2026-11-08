@@ -3,6 +3,7 @@ import CmuxHomeCore
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 import CmuxNextTestSupport
 import Foundation
@@ -101,7 +102,7 @@ import UniformTypeIdentifiers
             defaults.removePersistentDomain(forName: suite)
             let ref = Ref()
             let rows: @MainActor @Sendable () -> [InboxRow] = {
-                TopHomePageView.visible(HomeLaunchListTests.storeRows(), archivedChiefs: ref.launch?.archived ?? [], me: HomeLaunchListTests.me.id)
+                HomeArchivedChiefs(ref.launch?.archived ?? [], me: HomeLaunchListTests.me.id).visible(HomeLaunchListTests.storeRows())
             }
             source = HomeSidebarSource(
                 store: HomePinStore(defaults: defaults), inboxes: [local, cloud], account: { HomeLaunchListTests.account },

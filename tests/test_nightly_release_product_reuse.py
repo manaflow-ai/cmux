@@ -344,7 +344,13 @@ class Workflow(unittest.TestCase):
             self.assertIn(f"needs.decide.outputs.{excluded} != 'true'", condition)
         self.assertIn("github.event_name == 'push'", condition)
         self.assertIn("github.ref == 'refs/heads/nightly-next'", condition)
-        allowed = set(fingerprint.NIGHTLY_PRODUCT_FLAGS) | {"fast_build", "build_only", "should_publish"}
+        # cold_cache only chooses local versus shared compiler-cache transport;
+        # both produce the same compiled inputs, so it does not key the product.
+        # notary_probe never reaches a lookup (the condition above), and profile_channel is
+        # derived from notary_probe, track and channel ('' on nightly-next), so neither can
+        # change a reused app without changing its key.
+        allowed = set(fingerprint.NIGHTLY_PRODUCT_FLAGS) | {
+            "fast_build", "build_only", "should_publish", "cold_cache", "notary_probe", "profile_channel"}
         skipped = [step for step in self.steps() if "steps.nightly-product.outputs.hit != 'true'" in step]
         self.assertGreaterEqual(len(skipped), 15)
         for step in skipped:

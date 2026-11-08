@@ -9,6 +9,8 @@ import { JSDOM } from "jsdom";
 import React, { act, useRef } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -24,6 +26,10 @@ const keys = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "MutationObserver",
+  "getSelection",
+  "InputEvent",
+  "FocusEvent",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
@@ -46,12 +52,15 @@ beforeAll(() => {
     MouseEvent: window.MouseEvent,
     KeyboardEvent: window.KeyboardEvent,
     IS_REACT_ACT_ENVIRONMENT: true,
-    // The suggestions' Popover (Base UI and Floating UI) reads these.
-    Node: window.Node,
+    // The suggestions' Popover (Base UI and Floating UI) reads these (Node comes with proseMirrorGlobals).
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    // The New Tab field is the composer's Markdown field (ProseMirror).
+    InputEvent: window.InputEvent,
+    FocusEvent: window.FocusEvent,
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
 });
@@ -65,6 +74,25 @@ afterAll(() => {
 });
 
 const noop = () => {};
+
+/// The New Tab field (the composer's Markdown field), its handle and its editable element.
+const field = () => host.querySelector<MarkdownFieldElement>(".nt-field")!;
+const handle = () => field().acpmuxMarkdownField!;
+const editor = () => field().querySelector<HTMLElement>("[contenteditable]")!;
+/// The field's text as the person sees it.
+const fieldText = () => handle().plainText();
+/// The editor mounts a moment after the field; dictation writes into it once it is made.
+async function fieldReady() {
+  for (
+    let turn = 0;
+    turn < 200 && !(field()?.acpmuxMarkdownField && field().querySelector("[contenteditable]"));
+    turn++
+  )
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(editor()).not.toBeNull();
+}
+/// The words the empty field shows (its placeholder).
+const placeholderText = () => field().querySelector(".acpmux-md-placeholder")!.textContent;
 
 /// The New Tab page as the pane draws it: the page's dictation, aimed at the New Tab field, and
 /// its mic before Send. `calls` records what the page asked the host.
@@ -92,6 +120,7 @@ async function renderNewTab(
         cwd="/Users/you/src/app"
         dictationField={field}
         dictating={isWaitingForWords(dictation.state)}
+        dictation={dictation}
         accessory={<DictationMic dictation={dictation} />}
         onAsk={onAsk}
         onOpen={noop}
@@ -106,6 +135,7 @@ async function renderNewTab(
   root?.unmount();
   root = createRoot(host);
   await act(async () => root!.render(<Page />));
+  await fieldReady();
 }
 
 test("auto-send routes finalized dictation through the normal New Tab prompt action", async () => {
@@ -144,7 +174,7 @@ test("the New Tab composer has the mic beside Send, and dictated words land in i
   await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
   await act(async () => deliverDictation({ state: "listening", text: "fix the upload", level: 0.4, cancelled: false }));
   await act(async () => deliverDictation({ state: "idle", text: "fix the upload test", level: 0, cancelled: false }));
-  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("fix the upload test");
+  expect(fieldText()).toBe("fix the upload test");
 });
 
 test("right-click Hide Dictation Button hides the mic in every composer until Settings shows it", async () => {
@@ -175,7 +205,7 @@ test("updates that arrive before a render still land once each (review: the fiel
     deliverDictation({ state: "listening", text: "fix the upload", level: 0.4, cancelled: false });
     deliverDictation({ state: "idle", text: "fix the upload test", level: 0, cancelled: false });
   });
-  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("fix the upload test");
+  expect(fieldText()).toBe("fix the upload test");
 });
 
 test("a session whose New Tab field goes away ends, and never writes into the chat composer", async () => {
@@ -236,9 +266,10 @@ test("a session whose New Tab field goes away ends, and never writes into the ch
   root?.unmount();
   root = createRoot(host);
   await act(async () => root!.render(<Pane />));
+  await fieldReady();
   await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
   await act(async () => deliverDictation({ state: "listening", text: "fix the", level: 0.4, cancelled: false }));
-  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("fix the");
+  expect(fieldText()).toBe("fix the");
   await act(async () => leave());
   await act(async () => deliverDictation({ state: "listening", text: "fix the upload", level: 0.4, cancelled: false }));
   await act(async () => deliverDictation({ state: "idle", text: "fix the upload test", level: 0, cancelled: false }));
@@ -247,10 +278,11 @@ test("a session whose New Tab field goes away ends, and never writes into the ch
 });
 
 // The listening look (Leo's Claude Code reference, 10-20): while a session waits for words the
-// field says "Listening…"; the words then stream in live, update by update; a waveform, a finish
-// key (Return glyph) and the lit mic sit beside Send until the session ends.
-const field = () => host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+// field says "Listening…"; the words then stream in live, update by update; a waveform and the lit
+// mic sit beside Send until the session ends. The strip has no send of its own (Leo 2026-11-05: "The
+// dictate button has its own send button. We don't need that."): the one Send ends the session.
 const finishKey = () => host.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-dictation-finish");
+const send = () => host.querySelector<HTMLButtonElement>(".nt-pickers .nt-send");
 const wave = () => host.querySelector(".nt-pickers .acpmux-dictation-wave");
 
 test("while listening the field says Listening… until words come, then they stream in live", async () => {
@@ -258,24 +290,24 @@ test("while listening the field says Listening… until words come, then they st
   const { deliverDictation } = await import("../src/agent-session/acpmux/dictation");
   const { translate } = await import("../src/agent-session/acpmux/i18n");
   const listening = translate("dictation.listening" as Parameters<typeof translate>[0]);
-  const idlePlaceholder = field().placeholder;
+  const idlePlaceholder = placeholderText();
   expect(idlePlaceholder).not.toBe(listening);
   await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
-  expect(field().placeholder).toBe(listening);
-  expect(field().hasAttribute("data-dictation-listening")).toBe(true);
+  expect(placeholderText()).toBe(listening);
+  expect(editor().hasAttribute("data-dictation-listening")).toBe(true);
   await act(async () => deliverDictation({ state: "listening", text: "", level: 0.2, cancelled: false }));
-  expect(field().placeholder).toBe(listening);
+  expect(placeholderText()).toBe(listening);
   // Each partial lands as it arrives, before the session ends.
   await act(async () => deliverDictation({ state: "listening", text: "fix the", level: 0.5, cancelled: false }));
-  expect(field().value).toBe("fix the");
+  expect(fieldText()).toBe("fix the");
   await act(async () => deliverDictation({ state: "listening", text: "fix the upload", level: 0.5, cancelled: false }));
-  expect(field().value).toBe("fix the upload");
+  expect(fieldText()).toBe("fix the upload");
   await act(async () => deliverDictation({ state: "idle", text: "fix the upload", level: 0, cancelled: false }));
-  expect(field().placeholder).toBe(idlePlaceholder);
-  expect(field().hasAttribute("data-dictation-listening")).toBe(false);
+  expect(placeholderText()).toBe(idlePlaceholder);
+  expect(editor().hasAttribute("data-dictation-listening")).toBe(false);
 });
 
-test("while listening the mic is lit and pressed, beside a waveform and a finish key; idle shows the mic alone", async () => {
+test("while listening the mic is lit and pressed, beside a waveform and no send of its own; idle shows the mic alone", async () => {
   await renderNewTab([]);
   const { deliverDictation } = await import("../src/agent-session/acpmux/dictation");
   expect(wave()).toBeNull();
@@ -295,44 +327,53 @@ test("while listening the mic is lit and pressed, beside a waveform and a finish
   // The newest level lifts the newest (rightmost) bar; the oldest still rests as a dot.
   expect(Number(bars[bars.length - 1]!.style.getPropertyValue("--level"))).toBeGreaterThan(0);
   expect(Number(bars[0]!.style.getPropertyValue("--level"))).toBe(0);
-  expect(finishKey()).not.toBeNull();
-  expect(finishKey()!.getAttribute("aria-label")).toBeTruthy();
-  // Order in the row: waveform, finish key, mic, then Send.
-  const order = [
-    ...host.querySelectorAll(
-      ".nt-pickers .acpmux-dictation-wave, .nt-pickers .acpmux-dictation-finish, .nt-pickers .acpmux-mic",
-    ),
-  ];
-  expect(order.map((node) => node.classList[0])).toEqual([
-    "acpmux-dictation-wave",
-    "acpmux-dictation-finish",
-    "acpmux-mic",
-  ]);
+  expect(finishKey()).toBeNull();
+  // Order in the row: waveform, mic, then the one Send, which an empty field still enables.
+  const order = [...host.querySelectorAll(".nt-pickers .acpmux-dictation-wave, .nt-pickers .acpmux-mic, .nt-send")];
+  expect(order.map((node) => node.classList[0])).toEqual(["acpmux-dictation-wave", "acpmux-mic", "acpmux-send"]);
+  expect(send()!.disabled).toBe(false);
   await act(async () => deliverDictation({ state: "idle", text: "", level: 0, cancelled: false }));
   expect(wave()).toBeNull();
   expect(finishKey()).toBeNull();
   expect(mic()!.getAttribute("aria-pressed")).toBe("false");
 });
 
-test("the finish key ends the session and keeps its words (stop, never cancel)", async () => {
+test("Send while dictating ends the session, keeps its words, and sends them once they land", async () => {
   const calls: [string, unknown][] = [];
-  await renderNewTab(calls);
+  const asks: string[] = [];
+  await renderNewTab(calls, (_harness, text) => asks.push(text));
   const { deliverDictation } = await import("../src/agent-session/acpmux/dictation");
   await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
   await act(async () =>
     deliverDictation({ state: "listening", text: "rename the helper", level: 0.4, cancelled: false }),
   );
   calls.length = 0;
-  // Pressed from the keyboard: the finish key has focus, not the field.
-  finishKey()!.focus();
-  expect(document.activeElement).toBe(finishKey());
-  await act(async () => finishKey()!.click());
+  await act(async () => send()!.click());
+  // It stops (never cancels) and sends nothing half-heard.
   expect(calls.map(([method]) => method)).toEqual(["dictation.stop"]);
-  // The keyboard goes back to the field the words are in, not to the page.
-  expect(document.activeElement).toBe(field());
+  expect(asks).toEqual([]);
+  // The keyboard stays in the field the words are in.
+  expect(document.activeElement).toBe(editor());
   await act(async () =>
     deliverDictation({ state: "finalizing", text: "rename the helper", level: 0, cancelled: false }),
   );
-  await act(async () => deliverDictation({ state: "idle", text: "rename the helper", level: 0, cancelled: false }));
-  expect(field().value).toBe("rename the helper");
+  expect(asks).toEqual([]);
+  await act(async () =>
+    deliverDictation({ state: "idle", text: "rename the helper function", level: 0, cancelled: false }),
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toEqual(["rename the helper function"]);
+});
+
+test("a session cancelled after Send sends nothing", async () => {
+  const calls: [string, unknown][] = [];
+  const asks: string[] = [];
+  await renderNewTab(calls, (_harness, text) => asks.push(text));
+  const { deliverDictation } = await import("../src/agent-session/acpmux/dictation");
+  await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
+  await act(async () => deliverDictation({ state: "listening", text: "drop this", level: 0.4, cancelled: false }));
+  await act(async () => send()!.click());
+  await act(async () => deliverDictation({ state: "idle", text: "", level: 0, cancelled: true }));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toEqual([]);
 });

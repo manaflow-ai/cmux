@@ -86,6 +86,10 @@ if "--suite=cef-tab" in sys.argv:
 if "--suite=budgets" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=budgets"])
+# `--suite=workspace-scaling`: the warning-only 1/100/1000 workspace trend budget.
+if "--suite=workspace-scaling" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace-scaling-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=workspace-scaling"])
 # `--suite=config-parity`: is the bench build (split-spring.sh --config=bench builds --app) as fast as Release?
 # Builds a Release app of this checkout (tag cfgparity-rel), then scripts/cmux-next/bench-config-parity.py
 # runs the same actions on both, interleaved (--runs, --rounds, --idle pass through).
@@ -118,6 +122,11 @@ if "--suite=app-perf" in sys.argv:
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=app-perf"])
 # `--suite=anim-perf`: every other app animation (tabs, workspace switch, sidebars, groups, Home, palette),
 # scripts/cmux-next/anim-perf-terminal.py, budgets in scripts/perf-bench/budgets.json (animations).
+# `--suite=one-motion`: does every pane move as one? Per-pane frame timing of Cmd-B, Cmd-D, the two together and the
+# right sidebar beside an agent chat (scripts/cmux-next/one-motion-trace.py; Leo 2026-11-05, "everything moves as one").
+if "--suite=one-motion" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "one-motion-trace.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=one-motion"])
 # `--suite=chromium-tab-count`: 150 Chromium tabs under launchd's 256 open files, the app still answering
 # (scripts/cmux-next/chromium-tab-count-live.py; release blocker 2026-10-23, OpenFileLimit).
 if "--suite=chromium-tab-count" in sys.argv:
@@ -172,6 +181,11 @@ def _run_per_session(script, name):
     sys.exit(code)
 
 
+# `--suite=keep-frames-disk`: what the app writes while the 12-pane HEAVY session runs and after it goes idle, with the
+# launch frame folder's writes per terminal (REOPEN-F6), scripts/cmux-next/keep-frames-disk-bench.py.
+if "--suite=keep-frames-disk" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "keep-frames-disk-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=keep-frames-disk"])
 # `--suite=sidebar-churn`: terminal typing idle and while the sidebar rearranges, scripts/cmux-next/sidebar-churn-typing.py.
 if "--suite=sidebar-churn" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-churn-typing.py")

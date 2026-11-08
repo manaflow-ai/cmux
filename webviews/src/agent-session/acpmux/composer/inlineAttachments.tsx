@@ -11,13 +11,21 @@ import {
   inlineCopyParent,
   orderedByMarks,
 } from "../attachments";
-import { FileDoc, ImageIcon, Spinner } from "../conversation/icons";
-import { useT } from "../i18n";
+import { FileDoc, ImageIcon, PlayTriangle } from "../conversation/icons";
+import { usePaneLanguage, useT } from "../i18n";
+import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, RetryButton, UploadProgress, type PendingAttachment } from "./attachmentIntake";
+import { AttachmentChip, InstantPreview, RetryButton, UploadProgress } from "./attachmentIntake";
+import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { keptThumb } from "./imagePool";
+import { PasteLoadingMark } from "./pasteLoading";
+import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
+import { TextAttachmentCard } from "./TextAttachmentCard";
+import { pastedSize } from "./textAttachmentCardModel";
+import { RemoveGlyph } from "./RemoveGlyph";
+import { chipRef } from "../conversation/sendMorph";
 
 type Options = {
   field: RefObject<MarkdownFieldHandle | null>;
@@ -59,8 +67,8 @@ export function useInlineAttachments(options: Options) {
   /// failed prompt) is the composer's again.
   const sentIds = useRef(new Set<string>());
   /// From a send until its clear is done (the same task): the clear takes the text's nodes out, and a
-  /// file among them still uploading is not sent (useSendWhenAttached) but stays for the next prompt,
-  /// never cancelled. Only the person's own edit cancels one (review of #26667).
+  /// file among them still uploading holds the send (useSendWhenAttached) and is never cancelled by
+  /// it. Only the person's own edit cancels one (review of #26667).
   const clearing = useRef(false);
   useLayoutEffect(() => {
     removed.current.clear();
@@ -125,12 +133,13 @@ export function useInlineAttachments(options: Options) {
   const [api] = useState(() => ({
     /// The person's paste or drop made `chips`: each goes in at the caret, images and files alike, so
     /// the prompt reads text, image, text, file as written (attachmentIntake.tsx `place`).
-    place(chips: readonly PendingAttachment[], _kind: DroppedKind) {
+    place(chips: readonly PendingAttachment[], kind: DroppedKind | undefined) {
       const { placing, field } = live.current;
       const ids = chips.map((chip) => chip.id);
       if (!ids.length || !placing()) return;
       for (const id of ids) placed.current.add(id);
-      if (!field.current?.insertInline(ids)) for (const id of ids) placed.current.delete(id);
+      // A paste takes the selection's place, as pasted text would; a drop or a pick replaces nothing.
+      if (!field.current?.insertInline(ids, kind === "paste")) for (const id of ids) placed.current.delete(id);
     },
     ready() {
       const { attachments, field, placing } = live.current;
@@ -232,6 +241,20 @@ export function useInlineAttachments(options: Options) {
       live.current.expand(id);
     },
     known,
+    /// The attachments in the text, read from `markdown` (the host's value): with the placeholders this
+    /// composer put there whose node the editor holds, which the host's value may not show yet. A pasted
+    /// or dropped chip is the text's from the moment it is made, so it is never drawn in the strip above
+    /// for a frame (Leo, 2026-11-07: "it pasted above the original picture, which would, like, extend
+    /// the composer"). One whose node a value from outside took away (a command's clear) is the strip's
+    /// again.
+    inText(markdown: string): ReadonlySet<string> {
+      const ids = new Set(inlineTokenIds(markdown, known));
+      if (placed.current.size) {
+        const nodes = new Set(live.current.field.current?.inlineIds() ?? []);
+        for (const id of placed.current) if (nodes.has(id)) ids.add(id);
+      }
+      return ids;
+    },
     /// The field tells its nodes' elements in a microtask after the change that made them (MarkdownField
     /// `tellInlineViews`): their chips draw before that task's frame paints, so a paste's placeholder
     /// shows in the paste's own frame, as the strip's does (composer-paste-instant.test.tsx).
@@ -299,6 +322,12 @@ const InlineChip = memo(function InlineChip({
   originalFailed: string | undefined;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
+  const look = usePasteLoadingLook();
+  /// Whether this chip loaded in place (a paste, a drop): its picture then comes up from the loading
+  /// tile's dim instead of popping in. A chip that arrives ready (a draft read back) just shows.
+  const loaded = useRef(false);
+  if (pending && !pending.failed) loaded.current = true;
 
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
   if (!attachment && !pending) return null;
@@ -310,16 +339,21 @@ const InlineChip = memo(function InlineChip({
       aria-label={t(pending && !pending.failed ? "composer.cancelAttachment" : "composer.removeAttachment", { name })}
       onClick={() => (attachment ? onRemove(id) : onCancel(id))}
     >
-      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
-        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      </svg>
+      <RemoveGlyph />
     </button>
   );
   if (!attachment)
     return (
       <span
-        className="acpmux-md-inline-chip"
+        className={pending!.failed ? "acpmux-md-inline-chip" : `acpmux-md-inline-chip ${PASTE_LOADING_CLASS}`}
         data-state={pending!.failed ? "failed" : "loading"}
+        {...(pending!.failed ? {} : { "data-paste-look": look })}
+        // A loading image is the shape its thumbnail will be (its header's size), so the picture
+        // arriving moves nothing.
+        {...(!pending!.failed && pending!.image && pending!.size
+          ? { "data-sized": "", style: imageShape(pending!.size) }
+          : {})}
+        {...(!pending!.failed && pending!.sizing ? { "data-sizing": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}
         aria-label={name}
         /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}
@@ -328,42 +362,73 @@ const InlineChip = memo(function InlineChip({
           <>
             {pending!.image ? (
               <ImageIcon size={14} className="acpmux-attachment-failed-icon" />
+            ) : pending!.video ? (
+              <PlayTriangle size={14} className="acpmux-attachment-failed-icon" />
             ) : (
               <FileDoc size={14} className="acpmux-attachment-failed-icon" />
             )}
-            <RetryButton
-              className="acpmux-attachment-retry acpmux-md-inline-retry"
-              reason={pending!.failed}
-              onRetry={() => onRetry(id)}
+            {pending!.retryable && (
+              <RetryButton
+                className="acpmux-attachment-retry acpmux-md-inline-retry"
+                reason={pending!.failed}
+                onRetry={() => onRetry(id)}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {pending!.preview && <InstantPreview src={pending!.preview} />}
+            <PasteLoadingMark
+              look={look}
+              size={14}
+              className="acpmux-md-inline-spinner"
+              upload={
+                pending!.progress === undefined ? undefined : (
+                  <UploadProgress value={pending!.progress} name={name} size={14} />
+                )
+              }
             />
           </>
-        ) : pending!.progress === undefined ? (
-          <Spinner loading size={14} className="acpmux-md-inline-spinner" />
-        ) : (
-          <UploadProgress value={pending!.progress} name={name} size={14} />
         )}
         {remove}
       </span>
     );
-  // A huge paste: its name; a click puts its text back in the prompt at its place.
-  if (attachment.kind === "pasted")
+  // A huge paste: a small page of its first lines (TextAttachmentCard); a click puts its text back
+  // in the prompt at its place.
+  if (attachment.kind === "pasted") {
+    const text = attachment.text ?? "";
+    const label = `${t("composer.pastedText")} · ${pastedSize(t, language, text)}`;
     return (
       <span
-        className="acpmux-md-inline-chip"
+        className="acpmux-md-inline-chip acpmux-text-card"
         data-state="ready"
         data-kind="file"
-        /* tooltip-allow: a long name is cut to the chip */ title={attachment.name}
+        data-preview="text"
+        /* tooltip-allow: the card shows the paste's first lines; the tooltip says a click puts it back in the prompt */
+        title={t("composer.pastedText.edit")}
       >
-        <button type="button" className="acpmux-md-inline-retry" onClick={() => onExpand(id)}>
-          {attachment.name}
+        <button
+          type="button"
+          className="acpmux-md-inline-retry acpmux-text-card__open"
+          aria-label={`${attachment.name || pasteName(text)}, ${label}`}
+          onClick={() => onExpand(id)}
+        >
+          <TextAttachmentCard text={text} label={label} wrap />
         </button>
         {remove}
       </span>
     );
+  }
   // An image, a PDF, a video or a file: the strip's chip, so it previews, opens, plays and falls back
   // (an image that cannot be drawn) as it does there.
   return (
-    <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip">
+    <span
+      className="acpmux-md-inline-chip"
+      data-state="ready"
+      data-chip="strip"
+      ref={chipRef(id)}
+      {...(loaded.current ? { "data-loaded": "" } : {})}
+    >
       <AttachmentChip
         attachment={attachment}
         codex={codex}

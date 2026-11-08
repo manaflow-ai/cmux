@@ -3,7 +3,7 @@
 //!
 //! The CLI holds no account token. Each verb is one `cloud.automation` call
 //! to the cmux app, which forwards the op to the API Worker as the signed-in
-//! user (`CloudAutomationRelay` in CmuxNextCloud). A Cloud automation's body
+//! user (`cmux cloud automation-relay`, rules in `cmux_cloud_wire::automation`). A Cloud automation's body
 //! is `{type: "chief", chief, conversation, prompt}`: each run puts the prompt
 //! in the person's default Cloud Chief's main conversation and starts a turn
 //! there, with every computer of the person asleep too. The free plan has one
@@ -149,16 +149,22 @@ pub(super) fn call(
     }
 }
 
-/// Prints a refusal: the checkout link of a plan refusal on its own line.
-/// Exit 4 for a plan refusal (a person can act on it), 3 signed out, 1 else.
-pub(super) fn print_refusal(error: &Value, output: OutputMode) -> i32 {
-    let code = error.get("code").and_then(Value::as_str).unwrap_or("error");
-    let exit = match code {
+/// The exit code of a refusal: 4 for a plan refusal (a person can act on
+/// it), 3 signed out, 5 an app without the method, 1 else.
+pub(super) fn refusal_exit(error: &Value) -> i32 {
+    match error.get("code").and_then(Value::as_str).unwrap_or("error") {
         "automation.plan.required" => 4,
         "automation.signed_out" | "not_signed_in" => 3,
         "method_not_found" => 5,
         _ => 1,
-    };
+    }
+}
+
+/// Prints a refusal: the checkout link of a plan refusal on its own line.
+/// Exit as [`refusal_exit`].
+pub(super) fn print_refusal(error: &Value, output: OutputMode) -> i32 {
+    let code = error.get("code").and_then(Value::as_str).unwrap_or("error");
+    let exit = refusal_exit(error);
     if output == OutputMode::Json {
         println!("{}", json!({"ok": false, "error": error}));
         return exit;

@@ -13,11 +13,11 @@ struct AgentPaneHandoffPromptTests {
     }
 
     @Test func theOwnIdDropsOnlyAHandoffTurnsLabel() {
-        #expect(AgentPaneHandoffPrompt.ownID("handoff-3-0b6f2c4e-1d2a") == "0b6f2c4e-1d2a")
-        #expect(AgentPaneHandoffPrompt.ownID("handoff-123456789012345-p") == "p")
+        #expect(AgentPaneHandoffPrompt(id: "handoff-3-0b6f2c4e-1d2a").ownID == "0b6f2c4e-1d2a")
+        #expect(AgentPaneHandoffPrompt(id: "handoff-123456789012345-p").ownID == "p")
         // Not a turn acpmux reads: kept as it is.
         for id in ["p-1", "handoff-1-handoff-2-p", "handoff-0-p", "handoff-01-p", "handoff--p", "handoff-3-", "handoff-x-p", "handoff-1234567890123456-p", "handoff-3"] {
-            #expect(AgentPaneHandoffPrompt.ownID(id) == id, "\(id)")
+            #expect(AgentPaneHandoffPrompt(id: id).ownID == id, "\(id)")
         }
     }
 

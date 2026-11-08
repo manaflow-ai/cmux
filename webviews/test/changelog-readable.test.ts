@@ -145,6 +145,31 @@ test("hyphenated feature names, small numbers and squash commits stay user-facin
   for (const subject of USER_FACING) expect([subject, readableChange(subject).internal]).toEqual([subject, false]);
 });
 
+test("backend and provider plumbing stays under the hood", () => {
+  for (const subject of [
+    "fix: encode snapshot cutoff for Postgres",
+    "fix: make env projection explicit",
+    "fix(security): gate all provider allocations (cloud-3)",
+    "fix: repair credential plumbing",
+  ])
+    expect(readableChange(subject).internal).toBe(true);
+  expect(readableChange("fix: tabs keep their position after restart").internal).toBe(false);
+  const rows = readableChanges([
+    {
+      title: "fix: tabs keep their position after restart (#123)",
+      pr: 123,
+      description: "They stay put after restart.",
+    },
+    {
+      title: "fix: encode snapshot cutoff for Postgres (#124)",
+      pr: 124,
+      description: "Database snapshots use the cutoff.",
+    },
+  ]);
+  expect(rows.changes[0]?.description).toBe("They stay put after restart.");
+  expect(rows.hidden[0]?.description).toBe("Database snapshots use the cutoff.");
+});
+
 test("readable change titles", () => {
   expect(readableChange("cmux NEXT perf-split: snapshot sources name a new pane's first runs (cx-8w027.14)")).toEqual({
     title: "Snapshot sources name a new pane's first runs",
@@ -273,6 +298,14 @@ test("the page and the pipeline read every subject of the span alike", () => {
       ...RELEASE_USER_FACING,
       "cmux-next: export-backdrop-art reads each entry's subject box and exports it",
       "fix(cmux-next): restore #21369 and #21384, undone by the Chief Dock squash",
+      // Leo 2026-11-02: work-tracking codes, cmux work-stream labels and infrastructure.
+      "P0 RESIZE KEYS K4: Ctrl-Shift-J/K and Ctrl-Cmd-Down/Up move a row edge one exact step (#31001)",
+      "P0 RESIZE F1 part 1 of 2 (#31002)",
+      "Chrome glyphs come from one shared bitmap per glyph (REOPEN-F7 part A2)",
+      "Cmux-tui + app: hidden terminals' scroll events no longer wake the app (SWITCH FRAMES SF-5 B)",
+      "Cmux NEXT agent pane: a file drag rings the composer in the accent",
+      "Start the Native link in ad hoc builds",
+      "Press F1 on M4 Pro Macs to open UTF-8 paths",
     ]),
   ];
   const script = `

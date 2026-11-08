@@ -12,7 +12,7 @@ extension AgentTurnStateStore {
     /// The session that started the one `summary` describes (`startedBy`, else `spawnedBy`, as
     /// ``RemoteAgentSessionLinks`` reads a peer's); nil for a session a person or a client started,
     /// and never the session itself. Without `spawnedBy` a chat its agent made with `acpmux new`
-    /// showed in the tray and the Inspector, but a click on it was refused (`chat.offer.refused`).
+    /// showed in the tray and Session Info, but a click on it was refused (`chat.offer.refused`).
     public nonisolated static func startedBy(summary: [String: Any]) -> String? {
         let parent = ["startedBy", "spawnedBy"].lazy
             .compactMap { (summary[$0] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -44,10 +44,10 @@ extension AgentTurnStateStore {
         }
     }
 
-    /// Replaces the links of every session of `source`'s watch with its page's.
-    public func replaceStartedBy(_ links: [String: String], source: String = AgentTurnStateStore.localSource) {
+    /// Replaces the links of every session of `source`'s watch with its page's, but the `keeping` ones.
+    public func replaceStartedBy(_ links: [String: String], source: String = AgentTurnStateStore.localSource, keeping: Set<String> = []) {
         let own = sessions.compactMap { $0.value.source == source && $0.value.startedBy != nil ? $0.key : nil }
-        for id in Set(own).union(links.keys) { setStartedBy(links[id], session: id, source: source) }
+        for id in Set(own).union(links.keys) where !keeping.contains(id) { setStartedBy(links[id], session: id, source: source) }
     }
 
     // MARK: Reads

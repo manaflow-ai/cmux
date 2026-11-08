@@ -6,6 +6,7 @@
  */
 
 export interface FakeVm {
+  vpcs?: ReadonlyArray<{ readonly vpc: string; readonly vpcId?: string | null; readonly ipv4?: string | null }>;
   id: string;
   slug?: string | null;
   state: string;
@@ -37,6 +38,8 @@ export interface UpstreamCall {
 }
 
 export type UpstreamOperation =
+  | "listFirewallRules"
+  | "createFirewallRule"
   | "create"
   | "get"
   | "list"
@@ -72,6 +75,7 @@ interface FakeIdentity {
 }
 
 const vmBody = (vm: FakeVm) => ({
+  ...(vm.vpcs === undefined ? {} : { vpcs: vm.vpcs }),
   id: vm.id,
   slug: vm.slug ?? `tenant-slug-${vm.id}`,
   snapshotId: vm.snapshotId ?? `sc-${vm.id}`,
@@ -102,6 +106,8 @@ export function makeFakeUpstream(apiKey: string) {
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
   const tlsRules = new Map<string, Record<string, unknown>>();
+  /** Public egress rules by id, with the VM each names (a create's inline rule has an empty source, as the provider's). */
+  const firewallRules = new Map<string, { readonly vmId: string; readonly rule: Record<string, unknown> }>();
   const files = new Map<string, Uint8Array>();
   const fileStats = new Map<string, Record<string, unknown>>();
   const calls: UpstreamCall[] = [];
@@ -173,7 +179,9 @@ export function makeFakeUpstream(apiKey: string) {
           slug: typeof slug === "string" ? slug : null,
           state: "starting",
           resources: { ...(base ?? DEFAULT_RESOURCES) },
-          idleTimeoutSeconds: typeof read("idleTimeoutSeconds") === "number" ? Number(read("idleTimeoutSeconds")) : null,
+          // Like the provider: its Vm schema has idleTimeoutSeconds minimum 0, so a create with -1 ("never pause")
+          // reads back as null (production, 2026-11-04).
+          idleTimeoutSeconds: typeof read("idleTimeoutSeconds") === "number" && Number(read("idleTimeoutSeconds")) >= 0 ? Number(read("idleTimeoutSeconds")) : null,
           displayName: typeof read("displayName") === "string" ? String(read("displayName")) : null,
           metadata:
             typeof metadata === "object" && metadata !== null
@@ -189,6 +197,13 @@ export function makeFakeUpstream(apiKey: string) {
           const id = `tls-${crypto.randomUUID()}`;
           tlsRules.set(id, { ...value, id, protocol: "http", source: { vmId: created.id } });
         }
+        const firewall = read("firewall");
+        const inlineFirewall = typeof firewall === "object" && firewall !== null && "rules" in firewall && Array.isArray(firewall.rules) ? firewall.rules : [];
+        for (const value of inlineFirewall) {
+          if (typeof value !== "object" || value === null) continue;
+          const id = `fwr-${crypto.randomUUID()}`;
+          firewallRules.set(id, { vmId: created.id, rule: { ...value, id, createdAt: "2026-11-03T00:00:00Z", updatedAt: "2026-11-03T00:00:00Z" } });
+        }
         if (faults.lostCreateResponses > 0) { faults.lostCreateResponses--; throw new TypeError("lost provider create response"); }
         return Response.json(vmBody(created), { status: 201 });
       }
@@ -198,6 +213,24 @@ export function makeFakeUpstream(apiKey: string) {
         const id = decodeURIComponent(url.pathname.slice("/v5/snapshots/".length));
         const snapshot = snapshots.get(id) ?? [...snapshots.values()].find((s) => s.slug === id);
         return snapshot === undefined ? notFound() : Response.json(snapshot);
+      }
+      case "listFirewallRules": {
+        const forVm = url.searchParams.get("vmId");
+        const offset = Number(url.searchParams.get("offset") ?? 0);
+        const limit = Number(url.searchParams.get("limit") ?? 100);
+        const listed = [...firewallRules.values()].filter((entry) => forVm === null || entry.vmId === forVm).map((entry) => entry.rule);
+        return Response.json({ rules: listed.slice(offset, offset + limit), totalCount: listed.length });
+      }
+      case "createFirewallRule": {
+        const body: unknown = await request.json();
+        const source: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "source") : undefined;
+        const ruleVm: unknown = typeof source === "object" && source !== null ? Reflect.get(source, "vmId") : undefined;
+        if (typeof ruleVm !== "string" || !vms.has(ruleVm)) return notFound();
+        const id = `fwr-${crypto.randomUUID()}`;
+        const fields = typeof body === "object" && body !== null ? Object.fromEntries(Object.entries(body)) : {};
+        const rule = { ...fields, id, createdAt: "2026-11-03T00:00:00Z", updatedAt: "2026-11-03T00:00:00Z" };
+        firewallRules.set(id, { vmId: ruleVm, rule });
+        return Response.json(rule);
       }
       case "listTlsRules": {
         // Deliberately return unrelated/shared rules too: the client must verify exact source ownership.
@@ -217,6 +250,7 @@ export function makeFakeUpstream(apiKey: string) {
       case "delete":
         if (vm === undefined) return notFound();
         vms.delete(vm.id);
+        for (const [id, entry] of firewallRules) if (entry.vmId === vm.id) firewallRules.delete(id);
         return new Response(null, { status: 204 });
       case "start":
         if (vm === undefined) return notFound();
@@ -350,6 +384,8 @@ export function makeFakeUpstream(apiKey: string) {
   };
 
   const operationOf = (method: string, url: URL): { operation: UpstreamOperation; vmId: string | null } | null => {
+    if (url.pathname === "/v5/firewall/rules" && method === "GET") return { operation: "listFirewallRules", vmId: null };
+    if (url.pathname === "/v5/firewall/rules" && method === "POST") return { operation: "createFirewallRule", vmId: null };
     if (url.pathname === "/v5/tls" && method === "GET") return { operation: "listTlsRules", vmId: null };
     if (url.pathname.startsWith("/v5/tls/") && method === "PUT") return { operation: "replaceTlsRule", vmId: null };
     if (url.pathname === "/v5/vms") return method === "POST" ? { operation: "create", vmId: null } : { operation: "list", vmId: null };
@@ -412,6 +448,7 @@ export function makeFakeUpstream(apiKey: string) {
     fileStats,
     calls,
     tlsRules,
+    firewallRules,
     resizeReplies,
     updateReplies,
     /** Makes the next `times` calls of `operation` answer `status`. */

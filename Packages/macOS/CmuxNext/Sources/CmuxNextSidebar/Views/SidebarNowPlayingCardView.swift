@@ -184,7 +184,7 @@ final class SidebarNowPlayingCardView: NSView {
         super.layout()
         let b = bounds, pad = Self.padding
         surface.frame = b
-        surface.cornerRadius = Metrics.space3
+        surface.cornerRadius = Metrics.surfaceCornerRadius
         siteLabel.font = Typography.caption
         titleLabel.font = Typography.bodyEmphasized
         artistLabel.font = Typography.caption

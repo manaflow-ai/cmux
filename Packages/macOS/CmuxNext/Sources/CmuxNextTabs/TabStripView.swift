@@ -69,6 +69,11 @@ public final class TabStripView: NSView {
         metrics.newTabButtonWidth + (showsNewTabMenuButton ? Metrics.smallIconSize + Metrics.space2 : 0)
     }
     var windowControlsInset: CGFloat = 0
+    /// The tabs' top the last layout applied (``computeTabTop()``); a move in the window that changes it lays out again.
+    var appliedTabTop: CGFloat?
+    /// Called after the strip's pane moved in the window (``updateWindowControlsAvoidance()``): the pane's toolbar
+    /// re-checks its own place on the top row's line.
+    public var onMovedInWindow: (() -> Void)?
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -89,6 +94,8 @@ public final class TabStripView: NSView {
     /// frame origin) and clips them to after the fixed pinned band, so a tab scrolled under the pinned tabs
     /// never draws over them (`TabScrollMapping`, cx-kp9b4). Pinned tabs sit in `tabsClip` itself.
     let scrollingLayer = CALayer()
+    /// The line that ends the pinned group (Lawrence msg 20243): `TabStripView+PinnedDivider.swift`.
+    let pinnedDivider = TabStripView.makePinnedDivider()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
     let newTabButton = NewTabButtonView()
     let newTabMenuButton = PaneTypeMenuButton()
@@ -121,10 +128,20 @@ public final class TabStripView: NSView {
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0) {
         didSet { slotIndexCache = nil }
     }
+    /// The tabs fill the bar: they are narrower than their widest, or scroll (``updateCrowded()``).
+    /// The trailing controls then show at rest (`tabs.crowdedControls`), since their kept room is
+    /// room the tabs could use.
+    public internal(set) var isCrowded = false
+    /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
+    public var onCrowdedChange: ((Bool) -> Void)?
+    /// ``TabStripModel/holdsOneTab`` at the last sync: its change lays the pane out again (`syncFromModel`).
+    var laidOutOneTab: Bool?
     /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
     var movesInFlight: Set<Int> = []
+    /// Work waiting for every strip move to end (``whenStill(_:)``).
+    var stillWaiters: [@MainActor () -> Void] = []
     /// Passes over every cell, by kind (`occlusion`, `separators`, `frames`): what a change cost, for
     /// the switch work budget (a tab switch at rest runs none, at any tab count).
     var rowPasses = TabStripRowPasses()
@@ -155,10 +172,14 @@ public final class TabStripView: NSView {
     var lastSyncedInput: ModelSnapshot?
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
+    /// What the cells' frames were last written from (`applyFrames`, `followWidth`): a width change that keeps it and
+    /// every slot writes no cell (SMOOTH-STRIP). Nil: a cell may sit elsewhere (an opening tab's start, `place`).
+    var framedCells: FramedCells?
     /// Drag autoscroll steps on the window's one `MotionClock`; nothing else in the strip does.
     weak var motionClock: MotionClock?
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
+    private(set) lazy var frameFixture = TabFrameFixture(strip: self) // the film's tab outline (motion.frameOwner.tabOutline)
 
     // MARK: Pointer state
 
@@ -171,6 +192,13 @@ public final class TabStripView: NSView {
     var pressedAudioID: TabID?
     /// The tab whose speaker the pointer is on: its fill and the strip's tooltip.
     var audioHoveredID: TabID?
+    /// A press on a zoomed pane's indicator (`TabCell.zoomButtonRect`): its release there restores the layout.
+    var pressedZoomID: TabID?
+    /// The tab whose zoom indicator the pointer is on: its fill and the strip's tooltip.
+    var zoomHoveredID: TabID?
+    /// The tab whose zoom indicator the click sequence began on: its remaining presses do not
+    /// activate the tab or another button that moves into the indicator's old slot.
+    var zoomClickedID: TabID?
     var middlePressID: TabID?
     var pressedNewTab = false
     /// Press-and-hold on + opens the new tab menu (`TabNewTabHold`).
@@ -208,6 +236,8 @@ public final class TabStripView: NSView {
     private(set) lazy var escapeMonitor = TabDragEscapeMonitor(strip: self)
     /// A dropped tab keeps the placeholder's geometry when it arrives.
     var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?
+    /// Identifies the committed drop whose result may still roll back this strip.
+    var dropCommitID: UUID?
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
@@ -236,6 +266,7 @@ public final class TabStripView: NSView {
         scrollingLayer.masksToBounds = true
         scrollingLayer.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
         tabsClip.layer?.addSublayer(scrollingLayer)
+        tabsClip.layer?.addSublayer(pinnedDivider)
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
         contentView.addSubview(newTabMenuButton)
@@ -344,12 +375,14 @@ public final class TabStripView: NSView {
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()
+            frameFixture.start()
             sync(fromModel: true)
         } else {
             observationTask?.cancel()
             observationTask = nil
             tokenObservationTask?.cancel()
             tokenObservationTask = nil
+            frameFixture.stop()
             motionClock?.stop(self)
             motionClock = nil
             endPointerState()
@@ -367,6 +400,9 @@ public final class TabStripView: NSView {
         closingWatch.end()
         closingModeWidth = nil
         menuTracking.end()
+        _ = newTabHold.end()
+        pressedNewTab = false
+        newTabButton.isPressed = false
         buttonReveal.pointerInStrip = false
     }
 
@@ -400,6 +436,7 @@ public final class TabStripView: NSView {
         // What changed while out of sight lands at once in its final place: nobody saw it move.
         if modelChangedWhileHidden {
             modelChangedWhileHidden = false
+            layOutPaneIfOneTabChanged()
             sync(fromModel: true, animating: false)
         }
         hoverCards.register(hoverCard)
@@ -443,6 +480,7 @@ public final class TabStripView: NSView {
             chip.scale = scale
         }
         for band in groups.bands.values { band.themeScope = scope }
+        applyPinnedDividerColor()
     }
 
     func applyTokens(animated: Bool) {
@@ -450,7 +488,7 @@ public final class TabStripView: NSView {
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
         hoverCard.tokensChanged()
         geometryDidChange()
-        let font = Typography.body
+        let font = Typography.tabTitle
         for cell in cells.values {
             cell.metrics = metrics
             cell.titleFont = font
@@ -475,28 +513,37 @@ public final class TabStripView: NSView {
         if glassView == nil { contentView.frame = bounds }
         let padding = metrics.stripHorizontalPadding
         windowControlsInset = computeWindowControlsInset()
+        appliedTabTop = computeTabTop()
         let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? newTabControlsWidth : 0))
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
-            // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.
-            relayout(animated: !dying.isEmpty && !Motion.isLiveResizing(window) && !reduceMotion, keepsSelectedInView: viewport < lastViewportWidth)
+            // FRAME OWNER S1: the width is the pane's of this frame tick (a window resize, a split, a pane spring), so the tabs
+            // take it at once, with no move of their own; a close in flight keeps its own move and its closing tab (cx-y2uf5).
+            // A narrower strip (a split) keeps the selected tab in view.
+            followWidth(narrower: viewport < lastViewportWidth)
             lastViewportWidth = viewport
         } else {
             applyFrames()
         }
     }
 
+    /// Its own tracking area only where no layout screen serves it (``PanePointerFollowing``, `TabStripView+Pointer`): in a
+    /// pane the screen's one area delivers its pointer, so a strip that moves with its pane costs AppKit no tracking-area
+    /// work (RESIZE MAIN BUDGET, PaneMotionPointerAreasTests).
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
+        trackingArea = nil
+        if !isServedByPanePointerArea {
+            let area = NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(area)
+            trackingArea = area
+        }
         closingWatch.updateTracking()
     }
 
@@ -505,8 +552,6 @@ public final class TabStripView: NSView {
 
     var viewportWidth: CGFloat { tabsClip.bounds.width }
 
-    /// Tabs are vertically centered in whatever height the strip gets.
-    var tabTop: CGFloat {
-        metrics.tabTop(stripHeight: bounds.height, scale: window?.backingScaleFactor ?? 2)
-    }
+    /// The tabs' top as the last layout applied it (``computeTabTop()``), so every frame drawn between layouts agrees.
+    var tabTop: CGFloat { appliedTabTop ?? computeTabTop() }
 }

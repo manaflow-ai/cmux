@@ -31,9 +31,9 @@ enum WorkspaceMetadataHandlers {
         registry.bind("palette.toggleWorkspacePin", requires: DaemonCapability.workspacePin.rawValue, daemon: {
             PinCommands(context: context).pinsAreTiles ? nil : context.services.activeDaemon
         }(), run: { invocation in
-            // Every selected row takes the right-clicked row's new state, as Finder's tags do.
+            // Every selected row takes the right-clicked row's new state (Finder's tags), else `pinned` (CLI, MCP) sets it.
             let commands = PinCommands(context: context)
-            let pinned = try !commands.isWorkspacePinned(context.workspace(invocation).model)
+            let pinned = try invocation["pinned"]?.boolValue ?? !commands.isWorkspacePinned(context.workspace(invocation).model)
             try commands.setWorkspacesPinned(WindowMembershipHandlers.rowTargets(invocation, context).map(\.id), pinned: pinned, origin: invocation.origin)
         })
         // The workspace menu reads Pin Workspace or Unpin Workspace for the right-clicked row.
@@ -42,7 +42,7 @@ enum WorkspaceMetadataHandlers {
             return PinCommands(context: context).isWorkspacePinned(workspace) ? PinStrings.unpinWorkspace : PinStrings.pinWorkspace
         }
         // Add to Top / Remove from Top on the workspace row (P1): the same layout path as `sidebar.item.add`.
-        registry.bind("workspace.toggleTop", unavailable: { SidebarDocWiring.layoutUnavailableReason(context.services.sidebarLayout) }, run: { invocation in
+        registry.bind("workspace.toggleTop", unavailable: { context.services.sidebarDoc.layoutUnavailableReason(context.services.sidebarLayout) }, run: { invocation in
             try PinCommands(context: context).toggleWorkspaceOnTop(try context.workspace(invocation).model.id, origin: invocation.origin)
         })
         ActionTargetTitles.set("workspace.toggleTop", in: registry) { invocation in
@@ -121,15 +121,9 @@ enum WorkspaceMetadataHandlers {
         }
     }
 
-    /// Working directory of the focused tab when the workspace is shown,
-    /// else of its first tab that reports one.
+    /// Working directory of the focused tab when the workspace is shown, else of its first tab that
+    /// reports one (any tab kind: `workspaces::directory`).
     private static func directory(of workspace: WorkspaceModel, _ context: AppActionContext) -> String? {
-        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        if context.activeWindow?.state.workspaceID == workspace.id,
-           let pane = context.activeWindow?.focusedPane, let id = pane.stripModel.selectedID,
-           let cwd = tabs.first(where: { $0.id == id.rawValue })?.cwd {
-            return cwd
-        }
-        return tabs.lazy.compactMap(\.cwd).first
+        WorkspaceVerbHandlers.directory(of: workspace, context, terminalsOnly: false)
     }
 }

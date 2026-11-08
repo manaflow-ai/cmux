@@ -1,5 +1,6 @@
 //! Cloud host dials: resolve through connect_info, check the record, use
-//! each token once, refetch once on a failed handshake, map the errors.
+//! each token once, refetch once on a failed handshake (a running machine is
+//! then tried again for a while), map the errors.
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -13,10 +14,48 @@ use cmux_link::overlay_addr::overlay_address;
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncBufReadExt, BufReader, DuplexStream};
 
+#[cfg(unix)]
+#[tokio::test]
+async fn relay_source_sends_scoped_connect_and_token_requests() {
+    use tokio::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cloud-relay");
+    let socket = dir.path().join("relay.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let source = RelaySource::socket(socket);
+    let task = tokio::spawn(async move {
+        for expected in [
+            serde_json::json!({"op":"connect_info","host":HOST}),
+            serde_json::json!({"op":"link_token","host":HOST,"services":["daemon"]}),
+        ] {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            assert_eq!(serde_json::from_str::<serde_json::Value>(line.trim()).unwrap(), expected);
+            let value = if expected["op"] == "connect_info" {
+                serde_json::to_value(record("running", &["daemon"])).unwrap()
+            } else {
+                serde_json::to_value(grant("token", HOST, &["daemon"])).unwrap()
+            };
+            let mut stream = reader.into_inner();
+            AsyncWriteExt::write_all(
+                &mut stream,
+                serde_json::json!({"ok":true,"value":value}).to_string().as_bytes(),
+            )
+            .await
+            .unwrap();
+            AsyncWriteExt::write_all(&mut stream, b"\n").await.unwrap();
+        }
+    });
+    assert_eq!(source.fetch(HOST).await.unwrap().host, HOST);
+    assert_eq!(source.mint_token(HOST, &[Service::Daemon]).await.unwrap().token, "token");
+    task.await.unwrap();
+}
+
 use super::super::dial::{Overlay, serve_dial_line};
 use super::*;
 
-const HOST: &str = "host_vm1";
+const HOST: &str = "host_0123456789abcdef0123";
 
 fn record(state: &str, services: &[&str]) -> ConnectInfo {
     serde_json::from_value(serde_json::json!({
@@ -32,7 +71,7 @@ fn record(state: &str, services: &[&str]) -> ConnectInfo {
 
 fn grant(token: &str, host: &str, services: &[&str]) -> LinkTokenGrant {
     serde_json::from_value(serde_json::json!({
-        "token": token, "expires_at": "2026-10-05T00:05:00Z",
+        "token": token, "expires_at": 1_790_000_301_000_u64,
         "host": host, "epoch": 4, "services": services
     }))
     .unwrap()
@@ -79,6 +118,13 @@ struct CloudOverlay {
     connects: Mutex<Vec<SocketAddr>>,
     far_ends: Mutex<Vec<DuplexStream>>,
     fail: bool,
+    /// Connects that fail before one succeeds: a new machine's receiver
+    /// admits the device only once its first policy read answers.
+    fail_first: Mutex<usize>,
+    /// Every connect waits forever (no handshake ever comes).
+    hang: bool,
+    /// The tunnel peer setup fails.
+    peer_fails: bool,
 }
 
 impl Overlay for CloudOverlay {
@@ -86,7 +132,16 @@ impl Overlay for CloudOverlay {
 
     async fn connect(&self, remote: SocketAddr) -> std::io::Result<DuplexStream> {
         self.connects.lock().unwrap().push(remote);
-        if self.fail {
+        if self.hang {
+            std::future::pending::<()>().await;
+        }
+        let early = {
+            let mut left = self.fail_first.lock().unwrap();
+            let early = *left > 0;
+            *left = left.saturating_sub(1);
+            early
+        };
+        if self.fail || early {
             return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "no handshake"));
         }
         let (near, far) = tokio::io::duplex(64 * 1024);
@@ -104,6 +159,9 @@ impl Overlay for CloudOverlay {
         key: [u8; 32],
         _info: &ConnectInfo,
     ) -> std::io::Result<()> {
+        if self.peer_fails {
+            return Err(std::io::Error::other("no route"));
+        }
         self.peers.lock().unwrap().push((host.to_string(), key));
         Ok(())
     }
@@ -136,11 +194,10 @@ async fn dial(
         caller.read_line(&mut reply).await.unwrap();
         reply
     };
-    let ((), reply) = tokio::time::timeout(std::time::Duration::from_secs(20), async {
-        tokio::join!(serve, read)
-    })
-    .await
-    .expect("the dial ends within 20 s");
+    let ((), reply) =
+        tokio::time::timeout(Duration::from_secs(60), async { tokio::join!(serve, read) })
+            .await
+            .expect("the dial ends within 60 s");
     let (_, idle) = tokio::io::duplex(1);
     (reply, idle)
 }
@@ -223,7 +280,9 @@ async fn a_service_the_policy_does_not_allow_is_refused() {
     assert!(overlay.connects.lock().unwrap().is_empty());
 }
 
-#[tokio::test]
+/// A paused machine is reported after the refetch; a running one after
+/// RUNNING_HANDSHAKE_WAIT of tries with the fresh record.
+#[tokio::test(start_paused = true)]
 async fn a_failed_handshake_refetches_once_then_reports_paused_or_unreachable() {
     for (state, code) in [("paused", "host_paused"), ("running", "unreachable")] {
         let overlay = CloudOverlay { fail: true, ..CloudOverlay::default() };
@@ -233,27 +292,156 @@ async fn a_failed_handshake_refetches_once_then_reports_paused_or_unreachable() 
         ]));
         let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
         assert!(reply.contains(&format!("\"error_code\":\"{code}\"")), "{state}: {reply}");
+        // The reply says what failed, not only the code.
+        let value: serde_json::Value = serde_json::from_str(reply.trim()).unwrap();
+        let detail = value["error_detail"].as_str().unwrap_or_default();
+        assert!(detail.starts_with("connect to "), "{state}: {reply}");
+        assert!(detail.contains("no handshake"), "{state}: {reply}");
+        assert!(
+            detail.ends_with(&format!("(after a fresh connect_info, state {state})")),
+            "{reply}"
+        );
         assert_eq!(*resolver.source.calls.lock().unwrap(), 2, "{state}: one refetch");
         assert_eq!(
             *resolver.source.mints.lock().unwrap(),
             0,
             "{state}: no token without a handshake"
         );
+        let connects = overlay.connects.lock().unwrap().len();
+        if state == "paused" {
+            assert_eq!(connects, 2, "{state}");
+        } else {
+            assert!(connects > 40, "{state}: {connects} tries in the wait");
+            assert!(detail.contains(&format!("{connects} tries in 4")), "{reply}");
+        }
+    }
+}
+
+/// RED (start-matrix-production 42279589445, 2026-11-06): a just-created
+/// machine's receiver read its first policy 5-19 s after it bound, and its
+/// first dial ended after two 5 s tries with "no handshake", so the start
+/// failed and nothing dialed again. A running machine's dial keeps trying.
+#[tokio::test(start_paused = true)]
+async fn a_running_machine_that_admits_the_device_late_still_connects() {
+    let overlay: &'static CloudOverlay =
+        Box::leak(Box::new(CloudOverlay { fail_first: Mutex::new(8), ..CloudOverlay::default() }));
+    let resolver: &'static CloudResolver<FakeSource> = Box::leak(Box::new(CloudResolver::new(
+        FakeSource::with(vec![
+            Ok(record("running", &["daemon"])),
+            Ok(record("running", &["daemon"])),
+        ])
+        .tokens(vec![Ok(grant("t1", HOST, &["daemon"]))]),
+    )));
+    let reply = spawn_dial(overlay, resolver).await.unwrap();
+    assert_eq!(reply, "{\"ok\":true,\"path_state\":\"tunnel\",\"relay_available\":false}\n");
+    assert_eq!(overlay.connects.lock().unwrap().len(), 9);
+    assert_eq!(*resolver.source.calls.lock().unwrap(), 2, "one refetch, then the fresh record");
+}
+
+/// A connect that never answers still ends the dial within the wait: each
+/// try after the refetch gets only the time left.
+#[tokio::test(start_paused = true)]
+async fn the_running_wait_bounds_every_try() {
+    let overlay = CloudOverlay { hang: true, ..CloudOverlay::default() };
+    let resolver = CloudResolver::new(FakeSource::with(vec![
+        Ok(record("running", &["daemon"])),
+        Ok(record("running", &["daemon"])),
+    ]));
+    let began = tokio::time::Instant::now();
+    let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
+    assert!(reply.contains("\"error_code\":\"unreachable\""), "{reply}");
+    assert!(began.elapsed() <= RUNNING_HANDSHAKE_WAIT, "{:?}", began.elapsed());
+}
+
+/// A link token the broker could not mint ("the Cloud broker is
+/// unavailable", 2026-11-06) is asked again a few times before the dial is
+/// refused; a mint that then answers connects.
+#[tokio::test(start_paused = true)]
+async fn an_unavailable_token_mint_is_asked_again_before_the_dial_is_refused() {
+    let unavailable =
+        || Err(ConnectInfoError::Unavailable("the Cloud broker is unavailable".into()));
+    let overlay: &'static CloudOverlay = Box::leak(Box::default());
+    let resolver: &'static CloudResolver<FakeSource> = Box::leak(Box::new(CloudResolver::new(
+        FakeSource::with(vec![Ok(record("running", &["daemon"]))]).tokens(vec![
+            unavailable(),
+            unavailable(),
+            Ok(grant("t1", HOST, &["daemon"])),
+        ]),
+    )));
+    let reply = spawn_dial(overlay, resolver).await.unwrap();
+    assert_eq!(reply, "{\"ok\":true,\"path_state\":\"tunnel\",\"relay_available\":false}\n");
+    assert_eq!(*resolver.source.mints.lock().unwrap(), 3);
+
+    let overlay = CloudOverlay::default();
+    let resolver = CloudResolver::new(
+        FakeSource::with(vec![Ok(record("running", &["daemon"]))]).tokens(vec![
+            unavailable(),
+            unavailable(),
+            unavailable(),
+            unavailable(),
+        ]),
+    );
+    let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
+    assert!(reply.contains("link_token: "), "{reply}");
+    assert_eq!(*resolver.source.mints.lock().unwrap(), 4, "three retries, then refused");
+}
+
+/// Only a running record gets the wait: a starting, pausing or failed one is
+/// reported after the refetch, as before.
+#[tokio::test(start_paused = true)]
+async fn a_machine_that_is_not_running_is_reported_without_the_wait() {
+    for state in ["starting", "pausing", "failed", "deleting"] {
+        let overlay = CloudOverlay { fail: true, ..CloudOverlay::default() };
+        let resolver = CloudResolver::new(FakeSource::with(vec![
+            Ok(record(state, &["daemon"])),
+            Ok(record(state, &["daemon"])),
+        ]));
+        let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
+        assert!(reply.contains("\"error_code\":\"unreachable\""), "{state}: {reply}");
         assert_eq!(overlay.connects.lock().unwrap().len(), 2, "{state}");
     }
+}
+
+/// A tunnel peer setup that fails is not a machine still reading its policy:
+/// it is reported after the refetch, with no wait.
+#[tokio::test(start_paused = true)]
+async fn a_failed_peer_setup_is_reported_without_the_running_wait() {
+    let overlay = CloudOverlay { peer_fails: true, ..CloudOverlay::default() };
+    let resolver = CloudResolver::new(FakeSource::with(vec![
+        Ok(record("running", &["daemon"])),
+        Ok(record("running", &["daemon"])),
+    ]));
+    let began = tokio::time::Instant::now();
+    let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
+    assert!(reply.contains("the tunnel peer setup failed"), "{reply}");
+    assert!(began.elapsed() < HANDSHAKE_RETRY_PAUSE, "{:?}", began.elapsed());
+    assert!(overlay.connects.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn backend_errors_and_unknown_ids_map_to_dial_errors() {
     let overlay = CloudOverlay::default();
-    for (error, code) in [
-        (ConnectInfoError::NotFound, "unknown_host"),
-        (ConnectInfoError::Forbidden, "not_authorized"),
-        (ConnectInfoError::NotBound, "unreachable"),
+    for (error, code, detail) in [
+        (ConnectInfoError::NotFound, "unknown_host", "connect_info: cloud.machine.not_found"),
+        (ConnectInfoError::Forbidden, "not_authorized", "connect_info: auth.forbidden"),
+        (
+            ConnectInfoError::NotBound,
+            "unreachable",
+            "connect_info: cloud.machine.not_bound: the machine is not bound yet",
+        ),
+        (
+            ConnectInfoError::Unavailable(
+                "the Cloud broker refused: cloud.native.no_ready_attempt".into(),
+            ),
+            "unreachable",
+            "connect_info: the Cloud broker refused: cloud.native.no_ready_attempt",
+        ),
     ] {
         let resolver = CloudResolver::new(FakeSource::with(vec![Err(error)]));
         let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
         assert!(reply.contains(&format!("\"error_code\":\"{code}\"")), "{reply}");
+        let value: serde_json::Value = serde_json::from_str(reply.trim()).unwrap();
+        assert_eq!(value["error_detail"], detail, "{reply}");
     }
     // A token the backend refuses, or one for another host: not authorized.
     for answer in [Err(ConnectInfoError::Forbidden), Ok(grant("t1", "host_other", &["daemon"]))] {
@@ -302,7 +490,7 @@ async fn forwarded_cloud_events_drop_records_and_peers() {
 }
 
 #[tokio::test]
-async fn the_relay_source_is_off_until_the_relay_ships() {
-    let resolver = CloudResolver::new(RelaySource);
+async fn a_missing_relay_is_unavailable() {
+    let resolver = CloudResolver::new(RelaySource::unavailable());
     assert!(matches!(resolver.resolve(HOST, false).await, Err(ConnectInfoError::Unavailable(_))));
 }

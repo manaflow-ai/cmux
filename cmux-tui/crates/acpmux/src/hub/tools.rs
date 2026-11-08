@@ -31,22 +31,46 @@ impl Hub {
     /// roots (`launch_roots.rs`) and cmux's tools as this spawn gives them,
     /// with the chat's choices. What Claude Code reported for the last
     /// process stays until its next system/init.
+    /// `reach_or_start` supplies the resolved `Spawn` profile: preset argv,
+    /// including `--system-prompt-file`, is already appended by `spawn_profile`.
     pub(super) async fn record_spawn_inputs(&self, session: &Session, profile: &HarnessProfile) {
         self.record_launch_roots(session, profile).await;
         let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         // Claude Code also leaves them out for `--strict-mcp-config`; an ACP
         // harness gets them in `mcpServers` whatever its args.
         let args: &[String] = if claude { &profile.argv } else { &[] };
-        let remote = session.meta().remote_origin;
+        let meta = session.meta();
+        let remote = meta.remote_origin;
         let left_out = crate::agent_tools::left_out(remote, &profile.env, args);
         session.launched_with_tools.store(if left_out { 2 } else { 1 }, Ordering::SeqCst);
         self.record_preview_format(session, crate::agent::preview_format(profile));
-        let mut cmux = if left_out {
-            Vec::new()
+        let tools = if left_out {
+            crate::agent_tools::AgentTools::default()
         } else {
-            crate::agent_tools::current().scoped(&profile.env).tool_rows(claude, claude)
+            crate::agent_tools::current().scoped(&profile.env)
+        };
+        let mut cmux = tools.tool_rows(claude, claude);
+        let all =
+            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
+        let source_tools = tools.listing(all);
+        // ACP receives its immutable server list without Claude's off switch.
+        let source_tools =
+            if claude { source_tools.without_off(&profile.env) } else { source_tools };
+        let sources = source_tools.context_parts(claude);
+        let preset = if !remote && claude {
+            let argv = profile.argv.clone();
+            tokio::task::spawn_blocking(move || crate::context_inventory::preset_source(&argv))
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
         };
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        crate::context_inventory::record_tool_sources(&mut m, sources);
+        if !remote && claude {
+            crate::context_inventory::record_preset_source(&mut m, preset);
+        }
         for row in &mut cmux {
             row.enabled = !m.tools.off.contains(&row.id);
             // What the harness last said of it stays until its next report.
@@ -172,7 +196,7 @@ impl Hub {
         }
         // Watchers hear it as `_acpmux/session_changed` kind `tools`.
         self.append(session, "mux", "tools", json!({"id": id, "enabled": enabled}));
-        self.save_meta(session);
+        self.save_meta_answered(session)?;
         // The route switch's restart: the process ends, and a new one resumes
         // the same conversation (`route_switch.rs`). Holding the turn lock, no
         // prompt starts on the process being stopped; a turn that holds it

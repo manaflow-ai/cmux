@@ -14,6 +14,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { HeaderPullRequest } from "../header/headerState";
 import { callChipHost } from "./host";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 /** One file of a pull request, for the card's by-kind breakdown of its `+/−`. */
 export type PullRequestFile = {
@@ -25,6 +26,12 @@ export type PullRequestFile = {
 /** The header's pull request with everything else the card draws. */
 export type LinkedPullRequest = HeaderPullRequest & {
   readonly author?: string;
+  /** The author's GitHub picture as a `data:image/…` URL (a cmux page's CSP allows only those);
+   *  absent until the host has it, when the card draws the monogram in the same box. */
+  readonly authorAvatar?: string;
+  /** GitHub's colour for each label, six hex digits without `#`; a label missing here gets a tone
+   *  picked from its name. */
+  readonly labelColors?: Readonly<Record<string, string>>;
   /** GitHub's ISO 8601 text; empty when the host did not say. */
   readonly createdAt?: string;
   readonly updatedAt?: string;
@@ -50,6 +57,9 @@ export type PullRequestAnswer = {
   readonly readFrom?: number;
   /** The host is reading it now, so the page asks again shortly. */
   readonly reading: boolean;
+  /** Only the host's cache was asked (a chip's ask): a card that opens asks for a read next, so
+   * "nothing" here is not yet the host's last word. */
+  readonly cacheOnly?: boolean;
 };
 
 /** How long the page waits before asking the host again while it reads. */
@@ -58,6 +68,8 @@ const MAX_KEPT = 200;
 
 const answers = new Map<string, PullRequestAnswer>();
 const asking = new Set<string>();
+/// Links a card asked to read while a cache-only ask (a chip's) was running: read once it settles.
+const readAfter = new Set<string>();
 const listeners = new Set<() => void>();
 /// Bumped by every answer the store takes, so a reader of many links can keep its snapshot until one changes.
 let version = 0;
@@ -75,6 +87,9 @@ function changed() {
 function same(previous: PullRequestAnswer | undefined, next: PullRequestAnswer): boolean {
   if (!previous) return false;
   if (previous.reading !== next.reading || previous.fetchedAt !== next.fetchedAt) return false;
+  if (previous.cacheOnly !== next.cacheOnly) return false;
+  // The author's picture loads after the read it belongs to, under the same `fetchedAt`.
+  if (previous.pullRequest?.authorAvatar !== next.pullRequest?.authorAvatar) return false;
   return previous.fetchedAt != null || previous.pullRequest === next.pullRequest;
 }
 
@@ -102,7 +117,12 @@ function readFromOf(
 }
 
 function ask(url: string, cached = false) {
-  if (asking.has(url)) return;
+  if (asking.has(url)) {
+    if (!cached) readAfter.add(url);
+    return;
+  }
+  // A read that starts now covers any read a card was waiting to make.
+  if (!cached) readAfter.delete(url);
   asking.add(url);
   let settled = false;
   void callChipHost("pr.inspect", cached ? { url, cached: true } : { url })
@@ -122,6 +142,8 @@ function ask(url: string, cached = false) {
         // When that answer's read began goes with the answer: a reply with no new one keeps ours.
         ...readFromOf(value, answers.get(url)),
         reading: value.reading === true,
+        // Cache-only until a full ask answers: a later cache poll never reopens a settled answer.
+        ...(cached && (answers.get(url)?.cacheOnly ?? !answers.has(url)) ? { cacheOnly: true } : {}),
       };
       if (same(answers.get(url), answer)) return;
       if (!answers.has(url) && answers.size >= MAX_KEPT) answers.delete(answers.keys().next().value!);
@@ -131,6 +153,7 @@ function ask(url: string, cached = false) {
     .finally(() => {
       asking.delete(url);
       if (settled) changed();
+      if (readAfter.delete(url)) ask(url);
     });
 }
 
@@ -139,7 +162,7 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
-/** Follows every answer the store takes (the Inspector's Changes reads many links at once). */
+/** Follows every answer the store takes (Session Info's Changes reads many links at once). */
 export function subscribePullRequests(listener: () => void): () => void {
   listeners.add(listener);
   return () => void listeners.delete(listener);
@@ -149,7 +172,9 @@ export function subscribePullRequests(listener: () => void): () => void {
  * What the host has for the pull request at `url`; asks while `open` (a shown card), and again
  * while the host says it is reading. Undefined before the first answer.
  */
-export function usePullRequestAnswer(url: string | undefined, open: boolean): PullRequestAnswer | undefined {
+export function usePullRequestAnswer(given: string | undefined, open: boolean): PullRequestAnswer | undefined {
+  // Read only (a guest), the owner's host is never asked about a pull request.
+  const url = useTranscriptReadOnly() ? undefined : given;
   // The snapshot is the answer itself, not a version counter: a counter leaves the map read
   // outside React's view, and the React Compiler then memoizes a stale answer forever (the card
   // stayed empty in the gallery build). An unchanged link keeps the same object, so this
@@ -172,9 +197,25 @@ export function usePullRequestAnswer(url: string | undefined, open: boolean): Pu
   return answer;
 }
 
+/**
+ * The state of the pull request at `url` ("open", "merged", …) for its chip's mark, from what the
+ * host already has: one cached-only ask when the chip first draws (`askPullRequest`, never a
+ * GitHub read), then whatever a hover card or Session Info's read brings in. Undefined until then.
+ */
+export function usePullRequestState(given: string | undefined): string | undefined {
+  const url = useTranscriptReadOnly() ? undefined : given;
+  const read = () => (url ? answers.get(url)?.pullRequest?.state : undefined);
+  const state = useSyncExternalStore(subscribe, read, read);
+  useEffect(() => {
+    if (url && !answers.has(url)) askPullRequest(url);
+  }, [url]);
+  return state || undefined;
+}
+
 /** Tests start from nothing. */
 export function resetPullRequestStore(): void {
   answers.clear();
   asking.clear();
+  readAfter.clear();
   changed();
 }

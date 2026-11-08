@@ -7,8 +7,11 @@ public import CmuxNextDesignTokens
 /// stores and `cmux.json` / the CLI accept.
 ///
 /// Group colors are user content, so blue is allowed here (the no-blue rule
-/// covers app chrome). Every token is one hue at low saturation, tuned so a
-/// window full of groups still reads as calm gray chrome.
+/// covers app chrome). The tokens draw the vibrant palette (``GroupPalette/vibrant``): clean,
+/// bright colors that read as color on dark and light glass. They replace the low-saturation set
+/// that went brown and olive under a dark veil (Leo 2026-11-06: "these are ugly-ass colors,
+/// bro. These are frumpy"); a sidebar group draws its token from the chosen palette
+/// (`GroupColor.paletteRGB`).
 public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sendable {
     case grey
     case blue
@@ -20,17 +23,15 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
     case cyan
     case orange
 
-    /// The color a new group, space or browser profile gets: the first of
+    /// The color a new space or browser profile gets: the first of
     /// `automaticOrder` not in `used`; never blue or grey. Nil when every
-    /// such color is in use.
+    /// such color is in use. Groups get none: no color until a person picks one.
     public static func automatic(used: Set<String>) -> GroupColor? {
         automaticOrder.first { !used.contains($0.rawValue) }
     }
 
-    /// The color a group with no stored color draws in: one of `automaticOrder`, picked from
-    /// the group's id, so it is the same on every launch and machine (Leo 2026-10-20: groups
-    /// made by agents and the CLI store none and all drew grey, as Chrome never does). A
-    /// group someone colored grey keeps grey; only a missing color takes this.
+    /// A stable palette color for an unbranded harness or session mark. Groups with no
+    /// user-chosen color use `GroupTint.none` and never call this fallback.
     public static func unset(id: String) -> GroupColor {
         // FNV-1a: `hashValue` is seeded per process, so it would change the color each launch.
         var hash: UInt64 = 0xCBF2_9CE4_8422_2325
@@ -72,17 +73,28 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
         case fill
     }
 
-    /// The color in its light or dark variant (`swatch`, `fill`), in sRGB.
+    /// The color in its light or dark variant (`swatch`, `fill`), in sRGB: the vibrant palette's color, and for a
+    /// background that carries text, that color taken toward the sidebar's black or white.
     public func rgb(_ role: Role, dark: Bool) -> ThemeRGB {
-        let (hue, chroma) = hueAndChroma
-        let (saturation, brightness): (CGFloat, CGFloat) = switch role {
-        case .swatch: dark ? (0.40, 0.68) : (0.42, 0.64)
-        case .fill: dark ? (0.34, 0.40) : (0.30, 0.86)
+        let swatch = ThemeRGB(hex: dark ? Self.vibrantDark[self] ?? 0xA1A1AA : Self.vibrantLight[self] ?? 0x8E8E93)
+        return switch role {
+        case .swatch: swatch
+        case .fill: dark ? swatch.mixed(toward: ThemeRGB(hex: 0x1C1C1E), 0.55) : swatch.mixed(toward: .white, 0.7)
         }
-        let color = NSColor(calibratedHue: hue / 360, saturation: saturation * chroma, brightness: brightness, alpha: 1)
-        guard let srgb = color.usingColorSpace(.sRGB) else { return ThemeRGB(red: brightness, green: brightness, blue: brightness) }
-        return ThemeRGB(red: srgb.redComponent, green: srgb.greenComponent, blue: srgb.blueComponent)
     }
+
+    /// The vibrant palette on dark glass: OKLCH lightness 0.72 at the most chroma sRGB holds (0.19), yellow and
+    /// orange lighter, since a dark veil turns a darker warm hue brown or olive (the group color gallery, 2026-11-07).
+    static let vibrantDark: [GroupColor: UInt32] = [
+        .grey: 0xA1A1AA, .red: 0xFD7273, .orange: 0xFE843D, .yellow: 0xF5BA14, .green: 0x20C45F,
+        .cyan: 0x14BBC2, .blue: 0x62A7FD, .purple: 0xB28BFD, .pink: 0xF46CBF,
+    ]
+
+    /// The vibrant palette on light glass: OKLCH lightness 0.66, chroma 0.16.
+    static let vibrantLight: [GroupColor: UInt32] = [
+        .grey: 0x8E8E93, .red: 0xE36364, .orange: 0xE57431, .yellow: 0xD6A20A, .green: 0x33AC5A,
+        .cyan: 0x10A6AD, .blue: 0x4693F1, .purple: 0x9F79E6, .pink: 0xD465A8,
+    ]
 
     /// Hue in degrees and relative chroma. Grey has no chroma.
     private var hueAndChroma: (hue: CGFloat, chroma: CGFloat) {

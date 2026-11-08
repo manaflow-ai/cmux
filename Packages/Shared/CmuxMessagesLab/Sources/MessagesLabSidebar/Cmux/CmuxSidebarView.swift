@@ -120,6 +120,9 @@ public final class CmuxSidebarView: NSView {
     /// Host items for a conversation's context menu after Pin and Read (MessagesLab v1.1
     /// `menuItemsFor`; Hide Alerts and Delete are left out until cmux can do them).
     public var menuItems: (String) -> [NSMenuItem] = { _ in [] }
+    /// Delete Conversation… (the row's menu, after the host's items) and a left swipe's Delete;
+    /// nil: neither is offered. The host asks first and decides what a delete does.
+    public var onDelete: ((String) -> Void)?
     /// An extra search section under the conversations for a query (nil: none), asked once
     /// per keystroke; a later keystroke cancels the answer.
     public var searchSection: (String) -> CmuxSidebarSearchSection? = { _ in nil }
@@ -288,6 +291,20 @@ public final class CmuxSidebarView: NSView {
         set { controller.filter = newValue ? .unread : .all }
     }
 
+    /// The empty list's Show All was clicked: the filter is off (``unreadOnly`` is false) and the
+    /// host's own filter controls follow.
+    public var onShowAll: (() -> Void)? {
+        get { controller.onShowAll }
+        set { controller.onShowAll = newValue }
+    }
+
+    /// Points added to the empty list's text (No Results, No Unread Chats and Show All): the host's
+    /// sidebar Text Size step. 0, the default, keeps MessagesLab's sizes.
+    public var emptyTextStep: CGFloat {
+        get { controller.emptyTextStep }
+        set { controller.emptyTextStep = newValue }
+    }
+
     /// Ends a search: the field empties and the list shows every conversation again.
     public func clearSearch() {
         guard !controller.searchField.stringValue.isEmpty else { return }
@@ -380,8 +397,10 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     // controller picks the title from the entry's unread count; the host keeps the mark). Hide
     // Alerts and Delete need owner support first: no item that does nothing.
     func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions {
-        owner?.entries.contains { $0.id == id } == true ? [.pin, .markRead] : [.pin]
+        guard let owner, owner.entries.contains(where: { $0.id == id }) else { return [.pin] }
+        return owner.onDelete == nil ? [.pin, .markRead] : [.pin, .markRead, .delete]
     }
+    func sidebar(_ sidebar: SidebarController, delete id: ConversationID) { owner?.onDelete?(id) }
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { owner?.menuItems(id) ?? [] }
 
     func sidebar(_ sidebar: SidebarController, search request: SidebarSearchRequest) {
