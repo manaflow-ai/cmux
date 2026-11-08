@@ -87,7 +87,9 @@ export function hostTerminalFontFamily(): string | null {
 export function hostTerminalFontFallbackFamilies(): string[] {
   if (typeof window === "undefined") return [];
   const families = (window as HostThemeWindow).cmuxTheme?.current?.terminal?.fallbackFamilies;
-  return Array.isArray(families) ? families.filter((family): family is string => typeof family === "string" && family.trim() !== "") : [];
+  return Array.isArray(families)
+    ? families.filter((family): family is string => typeof family === "string" && family.trim() !== "")
+    : [];
 }
 
 /** The terminal theme the host sends with every theme change (WebTheme.swift `terminal`), or null. */
@@ -227,7 +229,10 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   }
   rootStyle.setProperty("--cmux-diff-selection-bg-light", colorString(lightTheme.selectionBackground, "#abd8ff"));
   rootStyle.setProperty("--cmux-diff-selection-bg-dark", colorString(darkTheme.selectionBackground, "#3f638b"));
-  rootStyle.setProperty("--cmux-diff-code-font-family", codeFontFamily(appearance.fontFamily, appearance.fallbackFamilies));
+  rootStyle.setProperty(
+    "--cmux-diff-code-font-family",
+    codeFontFamily(appearance.fontFamily, appearance.fallbackFamilies),
+  );
   // Keep the host fallback aligned with the shared code type step used by the
   // page stylesheet (12/18), including hosts that do not provide appearance
   // metrics yet.
@@ -309,12 +314,15 @@ function colorString(value: unknown, fallback: string) {
 }
 
 /** Shared fallback faces keep private-use symbols and CJK in the same code/chat stack. */
-export const TERMINAL_FONT_FALLBACK_STACK = '"Symbols Nerd Font Mono", "Noto Sans Mono CJK JP", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+export const TERMINAL_FONT_FALLBACK_STACK =
+  '"Symbols Nerd Font Mono", "Noto Sans Mono CJK JP", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 
 export function codeFontFamily(fontFamily: unknown, fallbackFamilies: unknown[] = []) {
   const family = typeof fontFamily === "string" && fontFamily.trim() !== "" ? fontFamily.trim() : "Menlo";
-  const configured = fallbackFamilies.filter((value): value is string => typeof value === "string" && value.trim() !== "")
-    .map((value) => value.trim()).filter((value, index, values) => values.indexOf(value) === index && value !== family)
+  const configured = fallbackFamilies
+    .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+    .map((value) => value.trim())
+    .filter((value, index, values) => values.indexOf(value) === index && value !== family)
     .map((value) => JSON.stringify(value));
   return [JSON.stringify(family), ...configured, TERMINAL_FONT_FALLBACK_STACK].join(", ");
 }

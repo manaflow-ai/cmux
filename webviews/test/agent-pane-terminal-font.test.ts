@@ -40,7 +40,14 @@ const theme: AgentSessionTheme = {
 
 /** The host's script for one theme change: the shared web theme, then the pane's. */
 function hostApplies(fontFamily: string | null) {
-  const terminal = { type: "dark", background: "#101018", foreground: "#e8e8f0", palette: {}, fontFamily, fallbackFamilies: ["Custom Symbols"] };
+  const terminal = {
+    type: "dark",
+    background: "#101018",
+    foreground: "#e8e8f0",
+    palette: {},
+    fontFamily,
+    fallbackFamilies: ["Custom Symbols"],
+  };
   (window as ThemeWindow).cmuxTheme = { current: { variables: {}, colorScheme: "dark", terminal } };
   applyAgentTheme(theme);
 }

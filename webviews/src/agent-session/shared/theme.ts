@@ -116,12 +116,15 @@ const CODE_FONT_VARIABLES = ["--cmux-diff-code-font-family", "--cv-code-font"] a
  * mono stack applies.
  */
 function applyTerminalCodeFont(root: HTMLElement): void {
-  const host = (window as { cmuxTheme?: { current?: { terminal?: { fontFamily?: unknown; fallbackFamilies?: unknown } } | null } }).cmuxTheme;
+  const host = (
+    window as { cmuxTheme?: { current?: { terminal?: { fontFamily?: unknown; fallbackFamilies?: unknown } } | null } }
+  ).cmuxTheme;
   const family = host?.current?.terminal?.fontFamily;
   const fallbackFamilies = host?.current?.terminal?.fallbackFamilies;
   const face = typeof family === "string" ? family.trim() : "";
   for (const variable of CODE_FONT_VARIABLES) {
-    if (face) root.style.setProperty(variable, codeFontFamily(face, Array.isArray(fallbackFamilies) ? fallbackFamilies : []));
+    if (face)
+      root.style.setProperty(variable, codeFontFamily(face, Array.isArray(fallbackFamilies) ? fallbackFamilies : []));
     else root.style.removeProperty(variable);
   }
 }

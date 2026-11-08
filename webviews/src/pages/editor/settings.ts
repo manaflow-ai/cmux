@@ -366,8 +366,7 @@ export function editorFont(
       ? appearance.fontFamily
       : hostTerminalFontFamily();
   const family =
-    settings.fontFamily ??
-    codeFontFamily(terminal, appearance?.fallbackFamilies ?? hostTerminalFontFallbackFamilies());
+    settings.fontFamily ?? codeFontFamily(terminal, appearance?.fallbackFamilies ?? hostTerminalFontFallbackFamilies());
   const terminalSize =
     typeof appearance?.fontSize === "number" && Number.isFinite(appearance.fontSize) && appearance.fontSize > 0
       ? appearance.fontSize
