@@ -66,6 +66,20 @@ await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
     );
   }
 
+  async function dispatchSubmitReturn(page: Page) {
+    await page.evaluate(() => {
+      const target = document.activeElement ?? document.body;
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        bubbles: true,
+        cancelable: true,
+      });
+      if (event.keyCode !== 13) Object.defineProperty(event, "keyCode", { get: () => 13 });
+      target.dispatchEvent(event);
+    });
+  }
+
   async function compose(page: Page, preedit: string, committed: string, candidate = false) {
     await page.focus(".acpmux-md");
     await page.evaluate((data) => {
@@ -107,7 +121,7 @@ await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
         (expected) => document.querySelector(".acpmux-md")?.textContent === expected,
         probe.committed,
       );
-      await page.keyboard.press("Enter");
+      await dispatchSubmitReturn(page);
       await page.waitForFunction(() => {
         const log = (window as unknown as { cmuxGalleryLog: PromptCall[] }).cmuxGalleryLog;
         return log.some(({ method }) => method === "acpmux session/prompt");
