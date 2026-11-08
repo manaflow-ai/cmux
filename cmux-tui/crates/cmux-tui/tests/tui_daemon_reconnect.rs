@@ -270,3 +270,46 @@ fn open_pty() -> (File, OwnedFd) {
     // SAFETY: both descriptors are fresh, owned, and valid.
     unsafe { (File::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) }
 }
+
+/// The session's state directories under the fixture's state root.
+fn session_state_dirs(fixture: &Fixture) -> Vec<String> {
+    let prefix = format!("{}-", fixture.session);
+    fs::read_dir(fixture.dir.join("state"))
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| name.starts_with(&prefix))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Bench round 4 item 10 (W5-R): `daemon stop --end-terminals` with a TUI
+/// attached left the session's saved state (sqlite + WAL + launch
+/// snapshot). Nothing is left to resume after it, so it removes the state.
+/// A plain stop keeps it: `agent resume` and the next owner need it.
+#[test]
+fn w5r_stop_with_end_terminals_removes_the_session_state_and_a_plain_stop_keeps_it() {
+    let fixture = Fixture::new("w5r-state");
+    fixture.server("ensure", &[]);
+    let client = Client::start(&fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
+
+    fixture.server("stop", &[]);
+    assert!(client.wait(DEADLINE).is_some(), "the client still ran after the stop");
+    let kept = session_state_dirs(&fixture);
+    assert!(!kept.is_empty(), "a plain stop removed the session state");
+
+    fixture.server("ensure", &[]);
+    let client = Client::start(&fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
+
+    let stopped = fixture.server("stop", &["--end-terminals"]);
+    assert!(client.wait(DEADLINE).is_some(), "the client still ran after the stop");
+    assert_eq!(stopped["removed_session_state"], true, "{stopped}");
+    let left = session_state_dirs(&fixture);
+    assert!(left.is_empty(), "stop --end-terminals left the session state {left:?}: {stopped}");
+}
