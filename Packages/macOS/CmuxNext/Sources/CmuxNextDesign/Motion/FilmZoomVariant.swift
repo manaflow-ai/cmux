@@ -1,4 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+public import AppKit
 public import Foundation
 public import QuartzCore
 
@@ -188,6 +189,15 @@ public struct FilmZoomVariant: Sendable, Equatable {
                                  completion: @escaping @MainActor () -> Void) {
         driver.drive(layer, keyPath, value, completion: completion)
     }
+}
+
+/// ZOOM VARIANTS 6 (never merged): pane content whose frame at a new size lands in a commit (a terminal surface, in
+/// `TerminalFramePresenter`'s pass just before that commit). A Z4 unzoom sets ``filmFrameLanded`` on its zoomed pane's
+/// terminal and swaps its old picture for the live pane in that same commit.
+@MainActor
+public protocol FilmFrameLanding: NSView {
+    /// Called once, in the pass before the commit that shows this view's next frame at a new size (cleared first).
+    var filmFrameLanded: (@MainActor () -> Void)? { get set }
 }
 
 #endif
