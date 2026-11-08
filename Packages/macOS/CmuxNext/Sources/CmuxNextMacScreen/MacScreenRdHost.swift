@@ -43,6 +43,11 @@ nonisolated final class MacScreenRdHost: Sendable {
     /// signaling), cancelled by `disconnectViewer`.
     private let output = Mutex<Task<Void, Never>?>(nil)
     private let handler = Mutex<(@Sendable (Event) -> Void)?>(nil)
+    /// SECURITY: keeps the rd process's capture leaving out the app's windows only the person at this
+    /// Mac may see (`CaptureExcludedWindows`), from its start until the session ends.
+    private let processExclusions = Mutex<Task<Void, Never>?>(nil)
+    /// The same for the WebRTC capture (`ScreenCaptureBackend.exclusionsChanged()`).
+    private let webRTCExclusions = Mutex<Task<Void, Never>?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-rd-host")
 
     /// Serves a WebRTC viewer; nil is `ScreenStreamHost` (tests replace it: no WebRTC or capture there).
@@ -73,6 +78,8 @@ nonisolated final class MacScreenRdHost: Sendable {
         let process = self.process
         // task-owner: the host's output for this session; ends with the process or disconnectViewer
         let output = Task { [weak self] in
+            // The process ended or this session did: no more exclusion lists for it.
+            defer { self?.processExclusions.withLock { $0 }?.cancel() }
             var answered = false
             var answer: MacScreenRdDocument?
             var connected = false
@@ -164,6 +171,7 @@ nonisolated final class MacScreenRdHost: Sendable {
                                    turn: session.servers.turn,
                                    display: offer.display.map(String.init) ?? "main", maxFps: offer.maxFps.map { min($0, 120) },
                                    maxWidth: offer.maxWidth))
+                watchExclusions()
                 for candidate in offer.candidates { process.send(Later(candidate: candidate)) }
             case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
                 process.send(Later(candidate: candidate.candidate))
@@ -182,8 +190,18 @@ nonisolated final class MacScreenRdHost: Sendable {
     private func serveWebRTC(_ signaling: MacScreenForwardedSignaling) async throws {
         let logger = logger
         let log: @Sendable (String) -> Void = { line in logger.info("\(line, privacy: .public)") }
-        let host = ScreenStreamHost(name: session.name, viewOnly: session.viewOnly,
-                                    backend: { ScreenCaptureBackend(log: log) }, log: log)
+        // SECURITY: the capture leaves out the app's windows only the person at this Mac may see, and
+        // follows that list within `CaptureExcludedWindows.recheck` while this session lasts.
+        let host = ScreenStreamHost(name: session.name, viewOnly: session.viewOnly, backend: { [weak self] in
+            let backend = ScreenCaptureBackend(log: log)
+            backend.excludedWindowIDs = { CaptureExcludedWindows.windowIDs() }
+            let watch = Self.watchExcludedWindows { [weak backend] _ in backend?.exclusionsChanged() }
+            self?.webRTCExclusions.withLock { previous in
+                previous?.cancel()
+                previous = watch
+            }
+            return backend
+        }, log: log)
         host.onEvent = { [weak self] event in
             switch event {
             case .viewerConnected: self?.emit(.viewerConnected)
@@ -194,11 +212,47 @@ nonisolated final class MacScreenRdHost: Sendable {
         }
         webRTC.withLock { $0 = host }
         logger.info("serving a WebRTC viewer")
+        defer { webRTCExclusions.withLock { $0 }?.cancel() }
         try await host.serve(signaling)
+    }
+
+    /// Sends the rd process the windows its capture leaves out now (it applies the list to the running
+    /// capture, or at start), then the whole list again on every change until the session ends.
+    private func watchExclusions() {
+        let process = process
+        let watch = Self.watchExcludedWindows { ids in process.send(ExcludeWindows(excludeWindows: ids.sorted())) }
+        processExclusions.withLock { previous in
+            previous?.cancel()
+            previous = watch
+        }
+    }
+
+    /// Reads the app's windows that ask not to be shared every ``CaptureExcludedWindows/recheck`` until
+    /// cancelled, and calls `changed` with the list at once and on every change, in order.
+    private static func watchExcludedWindows(_ changed: @escaping @Sendable (Set<CGWindowID>) -> Void) -> Task<Void, Never> {
+        // task-owner: a capture's exclusion watch; cancelled when its session's capture ends
+        Task {
+            var last: Set<CGWindowID>?
+            // wakeup-allow: runs only while a screen share's capture runs (itself up to 120 frames a second),
+            // never idle; cancelled when the session's capture ends. No event says a window's sharing changed.
+            // concurrency-allow: an unstructured task off the main actor; each pass is one window-list read.
+            while !Task.isCancelled {
+                let ids = CaptureExcludedWindows.windowIDs()
+                if ids != last {
+                    changed(ids)
+                    last = ids
+                }
+                // wakeup-allow: the recheck period of the live capture's exclusion watch above (4 a second).
+                // concurrency-allow: off the main actor; bounded by the cancel at the session's end.
+                try? await Task.sleep(for: CaptureExcludedWindows.recheck)
+            }
+        }
     }
 
     /// Stop: the host stops its session (the viewer sees the link close) and exits.
     func disconnectViewer() {
+        processExclusions.withLock { $0 }?.cancel()
+        webRTCExclusions.withLock { $0 }?.cancel()
         process.stop()
         output.withLock { $0 }?.cancel()
         // Closing the peer connection waits on WebRTC's threads: never on the caller's (the main actor).
@@ -231,6 +285,15 @@ nonisolated final class MacScreenRdHost: Sendable {
 
     private struct Later: Encodable {
         var candidate: String
+    }
+
+    /// `{"exclude_windows":[123,456]}`: the window ids (CGWindowID) the capture leaves out, the whole list.
+    private struct ExcludeWindows: Encodable {
+        var excludeWindows: [CGWindowID]
+
+        enum CodingKeys: String, CodingKey {
+            case excludeWindows = "exclude_windows"
+        }
     }
 }
 

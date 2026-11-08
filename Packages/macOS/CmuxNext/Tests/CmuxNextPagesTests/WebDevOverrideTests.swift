@@ -120,6 +120,29 @@ struct WebDevOverrideTests {
         #expect(WebDevOverride().overlayRoot("agent-pane") == nil)
     }
 
+    /// SECURITY (cmux#37286): a bundled-only page never takes the overlay's files, wherever the
+    /// overlay keeps them: an app.js there would be same-origin script the page's policy allows.
+    @Test func aBundledOnlyPageNeverTakesTheOverlaysFiles() async throws {
+        let bundled = try temporaryDirectory()
+        let overlay = try temporaryDirectory()
+        defer { for dir in [bundled, overlay] { try? FileManager.default.removeItem(at: dir) } }
+        let id = try #require(PageDevServer.bundledOnlyPageIDs.first)
+        let page = PageDescriptor(id: id, resource: String(id.dropFirst("cmux.".count)), namespaces: [])
+        try write("bundled", to: bundled.appending(path: page.entry))
+        for folder in ["pages/\(page.resource)", bundled.lastPathComponent] {
+            try write("overlay", to: overlay.appending(path: "\(folder)/\(page.entry)"))
+            try write("overlay", to: overlay.appending(path: "\(folder)/app.js"))
+        }
+        #expect(WebDevOverride(overlay: overlay).overlayRoot(for: page, bundledRoot: bundled) == nil)
+        let handler = PageSchemeHandler(page: page, root: bundled, devServer: nil)
+        handler.liveOverride = { WebDevOverride(overlay: overlay) }
+        let document = try #require(URL(string: page.origin + "/"))
+        let script = try #require(URL(string: page.origin + "/app.js"))
+        let reply = try #require(await handler.reply(to: document))
+        #expect(String(decoding: reply.body, as: UTF8.self) == "bundled")
+        #expect(await handler.reply(to: script) == nil, "no bundled app.js here, and none from the overlay")
+    }
+
     @Test func pageFilesComeFromTheOverlay() async throws {
         let bundled = try temporaryDirectory()
         let overlay = try temporaryDirectory()

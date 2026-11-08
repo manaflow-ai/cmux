@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDevices
+import CmuxNextPages
 import CmuxNextRemote
 import CmuxNextCompat
 import CmuxNextServer
@@ -85,29 +86,26 @@ final class JoinConsentPersonLine: JoinConsentLine {
 }
 
 extension JoinConsentModel {
-    /// The model with its one-time sheet's panel, made on the first show. The app's activation loop reads
-    /// it again each time the app comes forward (AppDelegate), so a refusal acpmux recorded meanwhile shows
-    /// the sheet.
+    /// The model with its one-time ask, on its own card panel (``WebCardPanel/joinConsent(model:isPersonEvent:)``)
+    /// made on the first show. The app's activation loop reads it again each time the app comes forward
+    /// (AppDelegate), so a refusal acpmux recorded meanwhile shows the ask.
     static func app(_ services: AppServices) -> JoinConsentModel {
         let model = JoinConsentModel(services: .app(services))
         #if DEBUG
         model.fixtureActive = { [fixtures = services.debugFixtures] in fixtures.joinStatus != nil }
         #endif
-        var panel: JoinConsentAskPanel?
+        var panel: WebCardPanel?
         let person = PersonInputCheck(sources: services.personInput.sources)
         model.present = { [weak model] shown in
-            guard let model else { return }
-            if shown, panel == nil {
-                let made = JoinConsentAskPanel(model: model)
-                made.isPersonEvent = { person.isPerson($0) }
-                panel = made
+            guard let model, shown, model.ask != nil else {
+                panel?.dismiss()
+                return
             }
-            panel?.setShown(shown)
+            if panel == nil { panel = WebCardPanel.joinConsent(model: model) { person.isPerson($0) } }
+            panel?.present(card: JoinConsentCardProvider.route, over: nil, takeKeys: false)
         }
-        model.redraw = { [weak model] in
-            guard let model, model.ask != nil else { return }
-            panel?.setShown(true)
-        }
+        // The page follows the model's changes itself (`cmux.joinConsent.changes`): its buttons follow `writing`.
+        model.redraw = {}
         return model
     }
 

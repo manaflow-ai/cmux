@@ -192,8 +192,11 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
 
     /// The overlay folder of `page`, served from `root` when bundled: `pages/<resource>` for a page
     /// of this module's bundle, else the bundled folder's own name (`webviews-app`, `agent-pane`).
+    /// None for a bundled-only page (``PageDevServer/bundledOnlyPageIDs``): SECURITY, the overlay is
+    /// any folder `web-dev.json` names, in every build, and the server cards' Allow and Confirm trust
+    /// their page's script (cmux#37286). A signed web update (``WebBundleOverlay``) still applies.
     func overlayRoot(for page: PageDescriptor, bundledRoot root: URL) -> URL? {
-        guard overlay != nil else { return nil }
+        guard overlay != nil, !PageDevServer.bundledOnlyPageIDs.contains(page.id.lowercased()) else { return nil }
         let inPagesBundle = Bundle.module.url(forResource: page.resource, withExtension: nil, subdirectory: "pages") != nil
         let relative = inPagesBundle ? "pages/\(page.resource)" : root.lastPathComponent
         return overlayRoot(relative, entry: page.entry)

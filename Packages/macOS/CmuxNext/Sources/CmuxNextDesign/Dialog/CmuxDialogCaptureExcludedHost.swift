@@ -1,9 +1,10 @@
 public import AppKit
 
 /// Places dialogs with another host (the shared center's, the overlay page, by default) and leaves the window that
-/// shows them out of screen capture and screen sharing (`NSWindow.sharingType = .none`) while
-/// they show: a screenshot, a recording, screen sharing or an agent's capture never contains
-/// what they show (the Passwords reveal sheet). The person still sees them on screen.
+/// shows them out of screen capture while they show (the Passwords reveal sheet): cmux's own screen
+/// sharing and recorders leave every `.none` window out by id (`CaptureExcludedWindows`), and `NSWindow.sharingType = .none`
+/// asks every other capture to skip it, which macOS does not guarantee for another app's ScreenCaptureKit
+/// capture (since macOS 15.4). The person still sees them on screen.
 ///
 /// Every instance shares one record per window (one overlay panel serves every dialog of a
 /// window), so the window gets its own sharing type back only when the last excluded dialog on

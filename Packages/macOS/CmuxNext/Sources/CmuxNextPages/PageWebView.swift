@@ -294,10 +294,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     /// The DEBUG root override of a page (`CMUX_NEXT_PAGE_ROOT_cmux_history=/path`), else nil.
-    nonisolated static func debugRoot(for descriptor: PageDescriptor) -> URL? {
+    /// SECURITY (cmux#37286): never for a bundled-only page (``PageDevServer/bundledOnlyPageIDs``),
+    /// whose page must run only the app's own script.
+    nonisolated static func debugRoot(for descriptor: PageDescriptor,
+                                      environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
         #if DEBUG
+        guard !PageDevServer.bundledOnlyPageIDs.contains(descriptor.id.lowercased()) else { return nil }
         let name = "CMUX_NEXT_PAGE_ROOT_" + descriptor.id.replacingOccurrences(of: ".", with: "_")
-        return ProcessInfo.processInfo.environment[name].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        return environment[name].map { URL(fileURLWithPath: $0, isDirectory: true) }
         #else
         return nil
         #endif

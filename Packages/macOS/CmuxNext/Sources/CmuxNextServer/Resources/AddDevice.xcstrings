@@ -13886,6 +13886,137 @@
           }
         }
       }
+    },
+    "devices.join.ask.clickOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only your own click on Allow allows this, never a key, a script or another app."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يسمح بهذا إلا نقرتك أنت على «سماح»، وليس مفتاحًا أو نصًا برمجيًا أو تطبيقًا آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo dozvoljava samo vaš vlastiti klik na Dozvoli, nikad tipka, skripta ili druga aplikacija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun dit eget klik på Tillad tillader dette, aldrig en tast, et script eller en anden app."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur dein eigener Klick auf „Erlauben“ erlaubt das, nie eine Taste, ein Skript oder eine andere App."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tu propio clic en Permitir lo permite, nunca una tecla, un script u otra app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seul votre propre clic sur Autoriser l’autorise, jamais une touche, un script ou une autre app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo il tuo clic su Consenti lo consente, mai un tasto, uno script o un’altra app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "これを許可できるのは、あなた自身による「許可」のクリックだけです。キー、スクリプト、他のアプリでは許可されません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែការចុច អនុញ្ញាត ដោយខ្លួនអ្នកផ្ទាល់ប៉ុណ្ណោះ ដែលអនុញ្ញាតការនេះ មិនមែនគ្រាប់ចុច ស្គ្រីប ឬកម្មវិធីផ្សេងទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업은 직접 허용을 클릭해야만 허용됩니다. 키, 스크립트 또는 다른 앱으로는 허용되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare ditt eget klikk på Tillat tillater dette, aldri en tast, et skript eller en annen app."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zezwala na to tylko Twoje własne kliknięcie Zezwól, nigdy klawisz, skrypt ani inna aplikacja."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só o seu próprio clique em Permitir permite isso, nunca uma tecla, um script ou outro app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить это может только ваш собственный щелчок по «Разрешить», но не клавиша, скрипт или другое приложение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เฉพาะการคลิก อนุญาต ด้วยตัวคุณเองเท่านั้นที่อนุญาตสิ่งนี้ได้ ไม่ใช่แป้น สคริปต์ หรือแอปอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buna yalnızca İzin Ver'e kendi tıklamanız izin verir; asla bir tuş, betik veya başka bir uygulama değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити це може лише ваше власне клацання «Дозволити», а не клавіша, скрипт чи інша програма."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ cú nhấp Cho phép của chính bạn mới cho phép điều này, không phải phím, tập lệnh hay ứng dụng khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你亲自点按“允许”才能允许，按键、脚本或其他 App 都不行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你親自按一下「允許」才能允許，按鍵、腳本或其他 App 都不行。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

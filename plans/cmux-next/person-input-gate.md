@@ -35,7 +35,7 @@ An explicit, revocable grant on that gate (`AgentPaneActAsMe`), per Mac, **off b
 - **Who turns it on.** Only the person's own click on Allow in the app's consent card
   (`AgentPaneActAsMeCard`), read from the click itself by the strict check `PersonInputCheck` (HID
   input only: source pid 0 or the WindowServer, the HID source state), never from the button's
-  action. The card is the join consent sheet's pattern (`JoinConsentAskPanel`). A posted click, a
+  action. The join consent ask (`JoinConsentCardProvider` on `WebCardPanel`'s native click-only control) takes the same rule. A posted click, a
   key, an Accessibility press and DEBUG automation never turn it on. The card appears once per run
   of the app, when a Send, Retry or Approve that another process's input was behind is refused;
   asking grants nothing. An agent that sees it stops and tells the person, as the computer-use

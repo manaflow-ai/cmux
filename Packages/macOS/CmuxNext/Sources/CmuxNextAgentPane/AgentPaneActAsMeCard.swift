@@ -5,7 +5,7 @@ import CmuxNextDesignTokens
 
 /// The consent card of "Computer use can act as me" (``AgentPaneActAsMe``): the only in-app way to
 /// turn it on. A floating, non-activating glass panel at the top right of the main screen, as the join
-/// consent sheet (``JoinConsentAskPanel``'s pattern): Allow answers only from the person's own click,
+/// consent ask's pattern (JoinConsentCardProvider on WebCardPanel's native click-only control): Allow answers only from the person's own click,
 /// read from the click itself by the app's strict check (``PersonInputCheck``), never from the button's
 /// action, so a click or key another process posts, an Accessibility press or DEBUG automation never
 /// turns it on. Not Now and Turn Off take any press: closing and revoking need no proof.

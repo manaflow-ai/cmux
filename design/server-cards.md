@@ -1,8 +1,8 @@
 # Server cards: one floating card family
 
-The cards that pair and add machines (Pair Another Machine now; Add Device, Add Server, the
-approver, Add Machine and the join consent next) are one family: one floating panel, one React
-page, one card per route. Swift keeps the panel and the services that touch the system (the cloud
+The cards that pair and add machines (Pair Another Machine and the join consent ask now; Add
+Device, Add Server, the approver and Add Machine next) are one family: one floating panel, one
+React page, one card per route. The join consent ask alone has a panel of its own (below). Swift keeps the panel and the services that touch the system (the cloud
 calls, the invite socket, the clipboard); every card's look and every step it walks are React
 (`webviews/src/pages/server-cards`).
 
@@ -95,6 +95,56 @@ confirmation that swaps a button's label for a moment.
 
 Picked: **side**: the shortest card, the code first, and the QR in reach for a camera without a
 second column of text.
+
+## Join Consent (`#/join-consent`)
+
+The join consent's one-time ask (`#/join-consent`): the first request acpmux refused with
+`consent_required` asks the person at this Mac once whether the team's machines may see this screen
+or control this Mac. `JoinConsentModel` (Swift) keeps the person line, the grant gate and the device
+owner's confirm; `JoinConsentCardProvider` serves `cmux.joinConsent.*`; the card draws:
+
+- the title: who asked for what (`devices.join.ask.screen` or `.control`, with the requester);
+- the question (`devices.join.ask.screenQuestion` or `.controlQuestion`);
+- the note (`devices.join.ask.note`): it can change later in Settings > Devices;
+- why the last Allow did not take, in the danger color, when it did not;
+- Deny and Allow, Allow the default. Both are off, with a spinner in the footer, while a write is in
+  flight.
+
+### The panel
+
+The ask has a panel of its own, never the shared card panel:
+
+- 380 pt wide, at the top right of the main screen, 16 pt in from both edges;
+- at the status bar level, on every Space and over full screen, stationary, never moved by its
+  background;
+- it orders in over every app without activating cmux (a click on Allow makes the panel key);
+- left out of every capture cmux makes by its window id (screen sharing, `cmux rd serve`, the
+  recorders), and Computer Use refuses the window. It also sets `sharingType = .none`, but since
+  macOS 15.4 another app's capture may still show it, so the ask never relies on being unseen: only
+  the person's own click answers Allow.
+
+### What answers
+
+- Allow is the panel's native click-only button under the page (`PersonControl`), never a page
+  control, and it answers only the person's own click on it, read by the panel from the click's
+  own events (`CmuxDialogPersonClick`, with the app's strict HID-source check): never a key, page
+  script, an Accessibility press, a posted or programmatic click, or a click begun before Allow
+  showed, moved or the card last drew (cmux#33066, HQ#5121). Neither button has a key.
+- Deny answers the person's click or key; it writes nothing.
+- Escape and the panel's cancel do nothing: only Deny or Allow ends the ask.
+
+### Variants (gallery `pages.server-cards-join-consent`)
+
+The gallery entry `pages.server-cards-join-consent` shows three layouts over the same ask, then the pick
+asking for control, writing and showing an error:
+
+- **stacked** (the pick): the title, the question and the note each on their own line. The question
+  reads first after the title and the note sits apart as a caption, so the decision reads at a glance
+  at the corner of the screen.
+- **compact**: the note runs on after the question, with tighter padding. Shorter, but the note
+  competes with the question.
+- **banner**: an accent mark at the leading edge, the words beside it. It reads as a notification,
+  which undersells a decision about the screen.
 
 ## The server panel, pairing code, Health and Add Server
 

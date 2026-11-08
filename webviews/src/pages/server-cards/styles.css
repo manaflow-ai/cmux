@@ -65,6 +65,7 @@ body {
   color: var(--page-text-2);
 }
 
+/* The shared Spinner (cv-spinner turns it); the card only keeps it from shrinking in the footer. */
 .server-card-spinner {
   flex: none;
   color: var(--page-text-2);
@@ -219,4 +220,45 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Join Consent: the one-time ask, 380 wide at the screen's top right. Stacked puts the question and
+   the note on their own lines; compact runs the note after the question; banner adds a mark at the
+   leading edge, the words beside it. */
+.join-consent-frame {
+  width: 380px;
+}
+
+.join-consent-words {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.join-consent--compact {
+  gap: 12px;
+  padding: 16px 16px 12px;
+}
+
+.join-consent-note {
+  color: var(--page-text-2);
+}
+
+.join-consent--banner {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+}
+
+.join-consent--banner .server-card-footer {
+  grid-column: 1 / -1;
+}
+
+.join-consent-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--page-accent);
+  opacity: 0.85;
 }

@@ -183,8 +183,10 @@ nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDel
         guard let display = content.displays.first(where: { $0.frame.intersects(target.frame) }) ?? content.displays.first else {
             throw Failure(description: "ScreenCaptureKit lists no display for this process")
         }
-        // Every on-screen window of this app on that display: the Chromium page windows and the panels over the window.
-        let own = content.windows.filter { $0.isOnScreen && $0.frame.intersects(display.frame) }
+        // Every on-screen window of this app on that display: the Chromium page windows and the panels over the window,
+        // never one only the person may see (CaptureExcludedWindows: the join consent ask, a password).
+        let excluded = CaptureExcludedWindows.windowIDs()
+        let own = content.windows.filter { $0.isOnScreen && $0.frame.intersects(display.frame) && !excluded.contains($0.windowID) }
         let filter = SCContentFilter(display: display, including: own.isEmpty ? [target] : own)
         let configuration = SCStreamConfiguration()
         // Points, as the window list's nominal-resolution image: frames compare the same and WindowFrame scales them.

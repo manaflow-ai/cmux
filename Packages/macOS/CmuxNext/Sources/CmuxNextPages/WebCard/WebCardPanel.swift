@@ -59,6 +59,19 @@ public final class WebCardPanel: NSPanel {
     }
     /// Whether the panel is key for the person's click (tests stand in for a key panel).
     var isKeyForPerson: @MainActor (WebCardPanel) -> Bool = { $0.isKeyWindow }
+    /// Where a card shows, from its size, the parent window's frame and the screen's visible frame, at
+    /// its opening and at every later size the page reports; nil: ``placement(size:over:in:)`` (top
+    /// center) when it opens, then growing and shrinking from the top center. The join consent ask
+    /// sets the top right, so a wider card never runs off the screen's edge.
+    public var place: (@MainActor (CGSize, NSRect?, NSRect) -> NSRect)?
+    /// The parent frame and visible frame the card last opened in (``place`` reads them again on resize).
+    private var placedIn: (parent: NSRect?, visible: NSRect)?
+    /// Orders in over every app without activating cmux or taking the keys (an ask that shows while
+    /// another app is in front), in place of ``WindowActivation``'s plan.
+    public var ordersFrontRegardless = false
+    /// Whether Escape with no page listening hides the card. Off for a card only its owner closes
+    /// (the join consent ask): Escape then does nothing until the page hears it.
+    public var cancelHides = true
     /// The last size each card's page reported, in points.
     private var sizes: [String: NSSize] = [:]
     /// An opening waiting for its card's first size: where and how it shows.
@@ -106,6 +119,8 @@ public final class WebCardPanel: NSPanel {
         contentView = glass
         host.panel = self
         for card in cards { card.host = self }
+        // SECURITY: a card takes person-only actions, so no page probe (`debug.page`) or Web Inspector reaches it.
+        page.refusesProbes = true
     }
 
     override public var canBecomeKey: Bool { true }
@@ -261,7 +276,7 @@ public final class WebCardPanel: NSPanel {
 
     /// Escape outside the page: the card runs its own Cancel; with no page listening, the panel hides.
     override public func cancelOperation(_ sender: Any?) {
-        if !host.send(["command": "cancel"]) { orderOut(nil) }
+        if !host.send(["command": "cancel"]), cancelHides { orderOut(nil) }
     }
 
     /// Closing the card any other way closes its provider's session too.
@@ -298,18 +313,24 @@ public final class WebCardPanel: NSPanel {
     private func show(size: NSSize, parent: NSRect?, visible: NSRect, intent: WindowActivation.Intent) {
         pending = nil
         pendingTimeout.cancel()
-        setFrame(Self.placement(size: size, over: parent, in: visible), display: false)
-        WindowActivation.show(self, intent)
+        placedIn = (parent, visible)
+        setFrame(place?(size, parent, visible) ?? Self.placement(size: size, over: parent, in: visible), display: false)
+        if ordersFrontRegardless { orderFrontRegardless() } else { WindowActivation.show(self, intent) }
         if intent == .raise { page.focusPage() }
         placePersonControl()
         frameChanged()
     }
 
-    /// Grows or shrinks downward, keeping the top edge where the person saw it.
+    /// Grows or shrinks downward, keeping the top edge where the person saw it (where ``place`` puts it,
+    /// when set).
     private func fit(_ size: NSSize) {
         guard abs(size.height - frame.height) > 0.5 || abs(size.width - frame.width) > 0.5 else { return }
-        let top = frame.maxY
-        setFrame(NSRect(x: frame.midX - size.width / 2, y: top - size.height, width: size.width, height: size.height), display: true)
+        if let place, let placedIn {
+            setFrame(place(size, placedIn.parent, placedIn.visible), display: true)
+        } else {
+            let top = frame.maxY
+            setFrame(NSRect(x: frame.midX - size.width / 2, y: top - size.height, width: size.width, height: size.height), display: true)
+        }
         // Confirm moved on screen with the panel.
         frameChanged()
     }

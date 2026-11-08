@@ -17,8 +17,10 @@ import CmuxNextCompat
 /// agent that asked may also drive the screen (cmux Computer Use, any
 /// computer-use tool), so, as macOS's own privacy prompts and Chrome's
 /// permission prompts do:
-/// - the panel is left out of screen capture and screen sharing
-///   (`sharingType = .none`): a screenshot never shows the agent Allow;
+/// - the panel sets `sharingType = .none`, so cmux's own screen sharing and
+///   recorders leave it out by id (``CaptureExcludedWindows``), and every
+///   other capture is asked to skip it (not guaranteed for another app's
+///   ScreenCaptureKit capture since macOS 15.4);
 /// - Allow answers only the person's own click, from the HID system
 ///   (``CmuxDialogPersonClick`` with the app's strict check): no
 ///   Accessibility press, programmatic click, key or posted click allows;
@@ -66,7 +68,7 @@ final class CookieImportConsentPanel {
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
-        // Out of every screenshot, recording and screen share: an agent that reads the screen never sees it.
+        // Asks every capture to skip it; cmux's own leave it out by id (CaptureExcludedWindows).
         panel.sharingType = .none
         panel.contentView = makeContent()
         panel.allow = { [weak self] in self?.allowButton }

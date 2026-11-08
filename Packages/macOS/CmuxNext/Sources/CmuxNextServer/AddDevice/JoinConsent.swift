@@ -594,20 +594,11 @@ public nonisolated struct JoinConsentStrings {
     /// Who asked, when acpmux recorded only the refusal.
     static var teamMachine: String { s("devices.join.ask.teamMachine", "A machine on your team") }
 
-    // The one-time sheet.
-    static func askTitle(_ refusal: JoinConsentRefusal) -> String {
-        switch refusal.surface {
-        case .screen: String(format: s("devices.join.ask.screen", "%@ asked to see this screen."), refusal.requester)
-        case .control: String(format: s("devices.join.ask.control", "%@ asked to control this Mac."), refusal.requester)
-        }
-    }
-    static func askQuestion(_ surface: JoinConsentSurface) -> String {
-        switch surface {
-        case .screen: s("devices.join.ask.screenQuestion", "Allow screen sharing from your team's machines?")
-        case .control: s("devices.join.ask.controlQuestion", "Allow control from your team's machines?")
-        }
-    }
-    static var askNote: String { s("devices.join.ask.note", "You can change this later in Settings > Devices.") }
-    static var deny: String { s("devices.join.ask.deny", "Deny") }
+    // The one-time ask draws its own words on the server card page (`devices.join.ask.*`, webviews gen-strings).
+    /// The ask's native Allow (the panel's click-only button; the page draws Deny).
     static var allow: String { s("devices.join.ask.allow", "Allow") }
+    /// Why the ask refused an Allow that was not the person's own click.
+    static var clickOnly: String {
+        s("devices.join.ask.clickOnly", "Only your own click on Allow allows this, never a key, a script or another app.")
+    }
 }

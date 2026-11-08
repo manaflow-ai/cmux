@@ -7,8 +7,13 @@ extension PageDescriptor {
     /// The server cards (webviews/src/pages/server-cards): cmux-page://cmux.server-cards/, one card
     /// per route in one floating ``WebCardPanel`` (and the server panel's routes in the menu bar
     /// item's popover). A new card adds its ops' prefix here.
+    /// SECURITY (cmux#37286): the page names and lays out its cards around the native click-only
+    /// control, so it runs only the app's bundled script: no inline script (the strict policy's only
+    /// other script source), no eval, no remote script, frame, connection or media, and it is never
+    /// served by the dev server or a web-dev overlay (``PageDevServer/bundledOnlyPageIDs``).
     public static let serverCards = PageDescriptor(id: "cmux.server-cards", resource: "server-cards",
-                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.server."])
+                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.server.", "cmux.joinConsent."],
+                                                   csp: PageCSP(inlineScript: false))
 }
 
 /// "Pair Another Machine…" on the server card page (`#/pair-invite`, webviews/src/pages/server-cards):

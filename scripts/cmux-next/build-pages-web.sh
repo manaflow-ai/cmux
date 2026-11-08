@@ -70,6 +70,10 @@ SHIKI_PAGES="home-channels"
 # Pages with their own shiki (src/pages/<page>/shiki): the GitHub page's inline diffs on
 # @pierre/diffs, drawn as plain text, need Shiki's core but none of the pane's grammars.
 OWN_SHIKI_PAGES="github"
+# Pages whose script ships as its own file (app.js beside index.html, `script-src 'self'`) instead
+# of inline: their policy forbids inline script (PageCSP inlineScript false). The server cards'
+# Allow and Confirm trust the page's DOM, so it runs only bundled script files (cmux#37286).
+FILE_SCRIPT_PAGES="server-cards"
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
 "$ROOT/scripts/check-webviews-bun-version.sh"
@@ -112,9 +116,16 @@ for page in $PAGES; do
     [ -n "$loader" ] && printf '%s\n' "$loader"
     printf '<style>\n'
     [ -f "$WORK/$page/app.css" ] && cat "$WORK/$page/app.css"
-    printf '\n</style>\n</head>\n<body>\n<main id="root"></main>\n<script type="module">\n'
-    perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$WORK/$page/app.js"
-    printf '\n</script>\n</body>\n</html>\n'
+    printf '\n</style>\n</head>\n<body>\n<main id="root"></main>\n'
+    case " $FILE_SCRIPT_PAGES " in
+      *" $page "*) printf '<script type="module" src="./app.js"></script>\n' ;;
+      *)
+        printf '<script type="module">\n'
+        perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$WORK/$page/app.js"
+        printf '\n</script>\n'
+        ;;
+    esac
+    printf '</body>\n</html>\n'
   } | perl -pe 's/[ \t]+$//' > "$WORK/$page/index.html"
 
   out="$OUT_ROOT/$page/index.html"
@@ -123,6 +134,10 @@ for page in $PAGES; do
   else
     mkdir -p "$OUT_ROOT/$page"
     cp "$WORK/$page/index.html" "$out"
+    rm -f "$OUT_ROOT/$page/app.js"
+    case " $FILE_SCRIPT_PAGES " in
+      *" $page "*) cp "$WORK/$page/app.js" "$OUT_ROOT/$page/app.js" ;;
+    esac
     if [ -d "$WORK/$page/locales" ]; then
       rm -rf "$OUT_ROOT/$page/locales"
       cp -R "$WORK/$page/locales" "$OUT_ROOT/$page/locales"
