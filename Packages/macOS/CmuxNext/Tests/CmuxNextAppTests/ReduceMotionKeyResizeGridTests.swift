@@ -54,7 +54,11 @@ struct ReduceMotionKeyResizeGridTests {
         let resized = panes.indices.filter { hosts[$0].frame.size != frames[$0].size }
         try #require(!resized.isEmpty, "no pane changed size by the first frame after the press")
         let changedGrid = resized.filter { screen.sessions[$0].surfaceView.fittedGrid != grids[$0] }
-        try #require(!changedGrid.isEmpty, "no resized terminal fits a new grid: the press is too small to test")
+        try #require(!changedGrid.isEmpty, """
+            no resized terminal fits a new grid: the press is too small to test (\(resized.map { index in
+                "\(panes[index].rawValue): host \(frames[index].size) -> \(hosts[index].frame.size), grid \(String(describing: grids[index])) -> \(String(describing: screen.sessions[index].surfaceView.fittedGrid)), surface \(screen.sessions[index].surfaceView.frame.size)"
+            }.joined(separator: "; ")); the key's turn sent \(keyTurnGrids) grids)
+            """)
 
         #expect(movedInKeyTurn.isEmpty,
                 "the key's turn showed \(movedInKeyTurn) at their new frames before their programs had their grids: a Reduce Motion press shows at the next frame tick")
