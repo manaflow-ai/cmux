@@ -38,7 +38,7 @@ import { sendMorphRef } from "./sendMorph";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
 import { isStripMedia, readsAsText } from "./inlinePromptContentModel";
-import { recordedPromptParts } from "../inlinePrompt";
+import { recordedPromptParts, resendsAttachments } from "../inlinePrompt";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -52,6 +52,7 @@ import { NO_RETRY_TARGET, retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
 import { SkillWordsContext } from "./skillWords";
+import { tourBubbleText } from "../repoTour/tourModel";
 import { SentVideoTile } from "./SentVideoTile";
 import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
 import { recordedFiles, isImageOriginal, SENT_IMAGE_HEIGHT, sentImageWidth, sentImageSize } from "./userBubbleModel";
@@ -74,8 +75,10 @@ export function UserBubble({
   const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
   // Read before the frames go: a video's note and first frame are its tile (sentVideos.ts).
   const videos = useMemo(() => sentVideosOf(given), [given]);
+  // A repo tour's prompt reads as its first line; the rest is instructions to the agent (repoTour/).
   const text = useMemo(
     () =>
+      tourBubbleText(givenText) ??
       withoutSkillDollars(
         withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
         skills,
@@ -122,6 +125,14 @@ export function UserBubble({
             : [],
         )
   )?.filter((file) => !videos.some((video) => video.name === file.name && video.path === file.path));
+  // Every recorded non-text part is an attachment, including documents, audio and pasted blocks
+  // that do not become legacy file chips.
+  const hasAttachment = Boolean(
+    row.images?.length ||
+    row.retryAttachments?.length ||
+    files?.length ||
+    row.inlineParts?.some((part) => part.kind !== "text"),
+  );
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
@@ -143,7 +154,22 @@ export function UserBubble({
     (placed
       ? orderedParts!.some((part) => !isStripMedia(part))
       : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
-  const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
+  // An attachment-only inline prompt has no text bubble to host its media. Keep its attachments
+  // in the same strip as the legacy `images` shape, otherwise the estimator reserves a thumbnail
+  // row while the DOM draws nothing and the next virtualized row jumps into that space.
+  const inlineAttachmentOnly = Boolean(orderedParts?.length && orderedParts.every((part) => !readsAsText(part)));
+  const strip = (useComposerSettings().attachmentView === "strip" && hasInterleaved) || inlineAttachmentOnly;
+  // The legacy bands draw a prompt's `images` and files only when its recorded parts do not: an
+  // attachment-only row carries both shapes (send and replay record each), and drawing both drew
+  // every attachment twice.
+  const legacyBands = !hasInterleaved && !inlineAttachmentOnly;
+  // An attachment-only row whose recorded parts hold fewer images than its `images` (an image
+  // recorded only in the legacy shape beside an inline-recorded file) still draws those images.
+  const inlineImages = orderedParts?.filter((part) => part.kind === "image") ?? [];
+  const looseImages =
+    inlineAttachmentOnly && (row.images?.length ?? 0) > inlineImages.length
+      ? row.images!.filter((image) => !inlineImages.some((part) => part.id === image.id))
+      : [];
   // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
   const banded = (part: PromptContentPart) =>
     isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
@@ -187,24 +213,53 @@ export function UserBubble({
   // buttons when the steer is delivered, except where that footer draws no Retry (`promptRetry`). The
   // Messages view draws no footer for a turn that ended well (messagesRows.ts), so its prompts keep
   // their Retry; not while one is on its way, as a second send would duplicate it.
+  // An attachment-only prompt retries only when every attachment can go again: a Retry that sent
+  // none of them would send an empty prompt.
+  const retryAttachments = resendsAttachments(row);
   const retry =
     (messagesView || promptRetry) && !row.pending && row.delivery?.state !== "sending" ? (
-      <PromptRetry rowId={row.id} prompt={resend} />
+      <PromptRetry rowId={row.id} prompt={resend} hasAttachment={retryAttachments} />
     ) : null;
   const forkButton =
     forkThrough !== undefined ? (
       <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
     ) : null;
+  // No text to read draws no bubble: a prompt of images alone is its images (an empty glass
+  // bubble under them read as a lost message; Leo 2026-10-21).
+  const hasBubble = strip ? shownParts!.some(readsAsText) : hasInterleaved || Boolean(text.trim());
+  // Without a bubble, the sending clock sits beside the last attachment band drawn, as it sits
+  // beside a bubble, and takes no line of its own (model.ts reserves none).
+  const sendingMark =
+    !hasBubble && row.delivery?.state === "sending" && !row.steer ? <DeliveryMark delivery={row.delivery} /> : null;
+  const showsLegacyImages = legacyBands && (Boolean(row.images?.length) || videos.length > 0);
+  const showsLegacyFiles = legacyBands && Boolean(files?.length);
+  const lastBand =
+    stripMedia.length > 0
+      ? "strip"
+      : showsLegacyFiles
+        ? "files"
+        : looseImages.length > 0
+          ? "loose"
+          : showsLegacyImages
+            ? "images"
+            : undefined;
+  const markIn = (band: typeof lastBand) => (band === lastBand ? sendingMark : null);
   return (
     <>
-      {!hasInterleaved && (Boolean(row.images?.length) || videos.length > 0) && (
-        <SentImages images={row.images ?? []} leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null} />
+      {showsLegacyImages && (
+        <SentImages
+          images={row.images ?? []}
+          leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null}
+          trailing={markIn("images")}
+        />
       )}
-      {!hasInterleaved && Boolean(files?.length) && (
+      {looseImages.length > 0 && <SentImages images={looseImages} trailing={markIn("loose")} />}
+      {showsLegacyFiles && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
             <FileAttachment key={index} file={file} />
           ))}
+          {markIn("files")}
         </div>
       )}
       {stripMedia.length > 0 && (
@@ -220,12 +275,11 @@ export function UserBubble({
               </Fragment>
             ),
           )}
+          {markIn("strip")}
         </div>
       )}
       <div className="cv-user__body">
-        {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
-            bubble under them read as a lost message; Leo 2026-10-21). */}
-        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) && (
+        {hasBubble ? (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
               <InlinePromptContent
@@ -241,17 +295,19 @@ export function UserBubble({
             {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
             {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
-        )}
+        ) : sendingMark && !lastBand ? (
+          <div className="cv-user__bubble-wrap is-empty">{sendingMark}</div>
+        ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
-        {!row.failed && (text || pending) && (
+        {!row.failed && (text || hasAttachment || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
             pending={
               pending &&
               ((actions) =>
                 pending(actions, {
-                  retry: retry && <PromptRetry rowId={row.id} prompt={resend} held />,
+                  retry: retry && <PromptRetry rowId={row.id} prompt={resend} hasAttachment={retryAttachments} held />,
                   fork: forkButton,
                 }))
             }
@@ -357,10 +413,13 @@ export const SentImages = memo(function SentImages({
   images,
   className,
   leading,
+  trailing,
 }: {
   images: readonly PromptImage[];
   className?: string;
   leading?: ReactNode;
+  /// Drawn after the images: an attachment-only prompt's sending clock, positioned beside the band.
+  trailing?: ReactNode;
 }) {
   return (
     <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
@@ -368,6 +427,7 @@ export const SentImages = memo(function SentImages({
       {images.map((image) => (
         <SentImage key={image.id} image={image} />
       ))}
+      {trailing}
     </div>
   );
 });

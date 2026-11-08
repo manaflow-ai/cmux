@@ -328,6 +328,85 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   };
 }
 
+/**
+ * When the guest set up its carrier, in the guest's own clock: the bind file the platform writes at create, the bind
+ * the host finished, the carrier.json and grant the host wrote from it, the session host's start (it is respawned with
+ * the relay flags), and the host's journal lines about them. Each line is `<name> <epoch ms>`. The session host's pid and
+ * the journal may need root: the pid falls back to `sudo -n`, and the journal tries it first (journalctl run without
+ * root can exit 0 with nothing to show).
+ */
+export const GUEST_CARRIER_TIMELINE = [
+  'echo "guest_now $(date +%s%3N)"',
+  "for f in /var/lib/cmux/bind.json /var/lib/cmux/bound.json /var/lib/cmux/carrier.json /run/cmux/carrier-grant.json; do",
+  '  t=$(date -r "$f" +%s%3N 2>/dev/null || sudo -n date -r "$f" +%s%3N 2>/dev/null) && echo "$(basename "$f") $t"',
+  "done",
+  "pid=$(cat /run/cmux-host/daemon.pid 2>/dev/null || sudo -n cat /run/cmux-host/daemon.pid 2>/dev/null)",
+  'if [ -n "$pid" ] && [ -r "/proc/$pid/stat" ]; then',
+  "  bt=$(awk '/^btime/{print $2}' /proc/stat); st=$(awk '{print $22}' \"/proc/$pid/stat\"); hz=$(getconf CLK_TCK)",
+  '  echo "session_host_start $(( bt * 1000 + st * 1000 / hz ))"',
+  "fi",
+  "{ sudo -n journalctl -u cmux-host.service -o short-unix --no-pager -n 200 2>/dev/null || journalctl -u cmux-host.service -o short-unix --no-pager -n 200 2>/dev/null; } \\",
+  "  | grep -iE 'carrier|session host|relay|regist' | tail -8 | awk '{ t = $1; $1 = \"\"; $2 = \"\"; sub(/^ +/, \"\"); printf \"journal %.0f %s\\n\", t * 1000, $0 }'",
+  "true",
+].join("\n");
+
+/**
+ * GUEST_CARRIER_TIMELINE's lines as ms after create's answer, corrected by the guest's clock offset: guest_now against the
+ * midpoint of the exec (`before`, `after`, this computer's clock), so each offset is good to about half the exec's time.
+ */
+export function guestTimeline(stdout: string, answeredAt: number, before: number, after: number): string {
+  const rows = stdout.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+    const [name, at, ...rest] = l.split(" ");
+    return { name, at: Number(at), rest: rest.join(" ") };
+  }).filter((r) => Number.isFinite(r.at) && r.at > 0);
+  const now = rows.find((r) => r.name === "guest_now");
+  const skew = now ? now.at - Math.round((before + after) / 2) : 0;
+  const parts = rows.filter((r) => r.name !== "guest_now").map((r) => {
+    const ms = r.at - skew - answeredAt;
+    return `${r.name}${r.rest ? ` "${r.rest.slice(0, 80)}"` : ""} ${ms >= 0 ? "+" : ""}${ms} ms`;
+  });
+  return `after create's answer (guest clock ${skew >= 0 ? "+" : ""}${skew} ms, ±${Math.round((after - before) / 2)} ms): ${parts.join("; ") || "nothing read"}`;
+}
+
+/** A carrier answer's `relay`, as the dial takes it (cmux-tui carrier/answer.rs relay_route): a bare `relay+do://<host>`. */
+function relayDoProblem(text: unknown): string | null {
+  if (typeof text !== "string") return "relay is missing";
+  let url: URL;
+  try { url = new URL(text); } catch { return "relay is not a URL"; }
+  const bare = !url.username && !url.password && !url.search && !url.hash && (url.pathname === "" || url.pathname === "/");
+  return url.protocol === "relay+do:" && bare && url.hostname ? null : "relay is not a relay+do:// origin";
+}
+
+/** A ticket or grant as the dial takes it (answer.rs secret): 1 to 4096 visible ASCII bytes. */
+const visibleSecret = (v: unknown): boolean => typeof v === "string" && /^[\x21-\x7e]{1,4096}$/.test(v);
+
+/** A canonical 32-byte base64url key without padding (answer.rs key_bytes: it re-encodes to the same text). */
+export function canonicalKey(v: unknown): boolean {
+  if (typeof v !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(v)) return false;
+  const bytes = Buffer.from(v, "base64url");
+  return bytes.length === 32 && bytes.toString("base64url") === v;
+}
+
+/**
+ * What `cmux carrier dial` would refuse in a POST /v1/cloud/machines/{id}/carrier answer for a person who sent a
+ * noise_key (cmux-platform CarrierRoute.ts), or null when the dial would take it. The rules are answer.rs
+ * parse_answer's (relay, slot, ticket, expires_at, grant) and client.rs pinned_daemon's (the daemon key a dial pins),
+ * plus a ticket still live and a grant present, which a dial with a noise_key needs.
+ */
+export function carrierTicketProblem(status: number, body: any, nowS = Date.now() / 1000): string | null {
+  if (status !== 200 || body?.ok !== true) return `HTTP ${status} ${short(body?.error ?? body)}`;
+  const v = body.value ?? {};
+  const relay = relayDoProblem(v.relay);
+  if (relay) return relay;
+  if (typeof v.slot !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(v.slot)) return "slot is not 1 to 128 base64url characters";
+  if (!visibleSecret(v.ticket)) return "ticket is not 1 to 4096 visible ASCII bytes";
+  if (!Number.isSafeInteger(v.expires_at) || v.expires_at < 0) return "expires_at is missing";
+  if (v.expires_at <= nowS) return `the ticket is not live (expires_at ${v.expires_at})`;
+  if (!visibleSecret(v.grant)) return "grant is not 1 to 4096 visible ASCII bytes";
+  if (!canonicalKey(v.daemon_key)) return "no canonical 32-byte daemon_key: the dial refuses an answer without one";
+  return null;
+}
+
 /** The carrier dials still running, so a cancelled journey stops them instead of leaving them to their deadline. */
 const carrierDials = new Set<ReturnType<typeof spawn>>();
 
@@ -337,7 +416,7 @@ const carrierDials = new Set<ReturnType<typeof spawn>>();
  * line gets the daemon's answer. connectMs is the dial's own `cloud.connect ... ms=` (ticket, relay, Noise handshake);
  * replyMs runs from the spawn to the answer.
  */
-export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; retries: number; reply: string }> {
+export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; retries: number; failed: string[]; reply: string }> {
   const started = performance.now();
   // The team is the journey's own or none: an inherited CMUX_CLOUD_TEAM would send a header its API calls do not.
   const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
@@ -384,6 +463,7 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
     let status: any = undefined;
     let connectMs = NaN;
     let retries = 0;
+    const failed: string[] = [];
     while (status === undefined || !Number.isFinite(connectMs)) {
       const line = await within(status === undefined ? "status line" : "ok route line", err());
       if (line === null) throw new Error(`carrier dial: ${status === undefined ? "ended with no status line" : "ended with no ok route line"}`);
@@ -392,7 +472,10 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
       if (attempt && status === undefined) throw new Error(`carrier dial: a route line before the status line: ${short(line)}`);
       if (attempt) {
         if (attempt[1] === "ok") connectMs = Number(attempt[2]);
-        else retries += 1;
+        else {
+          retries += 1;
+          failed.push(`${attempt[1]} ${attempt[2]} ms`);
+        }
         continue;
       }
       if (status !== undefined) throw new Error(`carrier dial: unexpected line ${short(line)}`);
@@ -417,7 +500,7 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
       }
       if (answer?.id !== 1) continue;
       if (answer.ok !== true || typeof answer.data?.app !== "string") throw new Error(`carrier dial: identify answered ${short(answer)}`);
-      return { connectMs, replyMs: Math.round(performance.now() - started), retries, reply };
+      return { connectMs, replyMs: Math.round(performance.now() - started), retries, failed, reply };
     }
   } finally {
     if (!failed) child.stdin!.end();
@@ -1018,6 +1101,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
     }
+    let createAnsweredAt: number | null = null;
     const created = reuse
       ? await J.step("use machine", async () => {
           const m = await api.read("cloud.machine.get", { machine: reuse });
@@ -1027,6 +1111,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       : await J.step("create machine", async () => {
           const v = await api.op("cloud.machine.create", { name: `cloud journey ${tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
           machine = v.machine.id as string;
+          createAnsweredAt = Date.now();
           return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
         });
     const bound = await J.step("running (status)", async () => {
@@ -1471,10 +1556,27 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (cmux) {
       await J.step("connect (carrier dial)", async () => {
         const d = await carrierDial(cmux, api, created.id);
-        return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts: ${d.reply.slice(0, 160)}` };
+        return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}: ${d.reply.slice(0, 160)}` };
       });
     } else {
+      // Without a cmux binary (the production journeys) the dial cannot run; its platform half still can: the
+      // ticket, grant and daemon key it asks for, checked by the dial's own rules.
+      await J.step("connect (carrier ticket)", async () => {
+        const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/carrier`, { noise_key: randomBytes(32).toString("base64url") });
+        const problem = carrierTicketProblem(r.status, r.body);
+        if (problem) throw new Error(`carrier ticket: ${problem}`);
+        return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant and daemon key present` };
+      });
       J.skip("connect (carrier dial)", "--cmux is required for a carrier dial");
+    }
+    if (createAnsweredAt !== null) {
+      await J.step("guest carrier timeline", async () => {
+        const before = Date.now();
+        const r = await exec(GUEST_CARRIER_TIMELINE);
+        const after = Date.now();
+        if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
+        return { value: null, detail: guestTimeline(r.stdout, createAnsweredAt!, before, after) };
+      });
     }
 
     // POST /v1/handoffs {sessionId, machine} (backend/apps/api/src/handoffs/routes.ts). Production leaves the
@@ -1508,7 +1610,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (cmux) {
         await J.step("carrier dial after resume", async () => {
           const d = await carrierDial(cmux, api, created.id);
-          return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts: ${d.reply.slice(0, 160)}` };
+          return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}: ${d.reply.slice(0, 160)}` };
         });
       } else {
         J.skip("carrier dial after resume", "--cmux is required for a carrier dial");
