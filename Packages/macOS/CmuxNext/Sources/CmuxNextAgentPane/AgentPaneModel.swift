@@ -551,7 +551,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .attentionOpen where !transport.gestures.consume(): return Self.transportFailure(.gestureRequired)
         case .attentionOpen(let tab): return attentionTabs?.open(tab) == true ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
-        case .runAction(let id, let session): return runAction(id, session: session)
+        case .runAction(let id, let session, let environment): return runAction(id, session: session, environment: environment)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
@@ -694,7 +694,7 @@ public final class AgentPaneModel {
             return reply
         case .cloudEnvironment(let request):
             guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
-            if request.action == "update", !transport.gestures.consume() {
+            if request.action == "update" || request.action == "create", !transport.gestures.consume() {
                 return Self.transportFailure(.gestureRequired)
             }
             return await onCloudEnvironment(request)

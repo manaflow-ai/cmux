@@ -75,6 +75,28 @@ names) with `tab`, `url`, `confirm` (the tab still asks for Connect),
 stream's state, mode and frame counts). It carries no credential and no
 screen content. Connect and Take over stay the person's clicks in the pane.
 
+`app machines [--no-refresh]` works with every build: it reads the app's
+`machine.list`, the right sidebar's Machines section as the person sees it,
+`{machines: [{id, name, kind, isLocal, linkState, online, serverState,
+joined}]}`. `kind` is `local`, `cloud`, `ssh`, `server` or `joined`;
+`linkState` is `connected`, `connecting`, `offline` or `paused`; `joined` is
+the hub's row (`id`, `state`, `meshPeerId`, `joinTokenId`, `platform`,
+`hostname`, `lastHeartbeat`) or null. A machine reached through the hub alone
+has the id `joined:<id>`, which `cmux action run machine.reconnect --target
+machine:<id>` takes. It reads `cmux machine list` once first unless
+`--no-refresh`.
+
+`app join-line [--mint] [--name <name>] [--no-open]` works with every build:
+it calls the app's `device.join_line`, Add Device's "Any machine" way. It
+opens the card on that way unless `--no-open`; `--mint` presses Make Line
+(New Line after an expiry or a failure) and waits for the line, never over a
+line still showing. The reply is `{shown, way, offersInvite, phase}` with
+`phase` `idle`, `minting`, `showing`, `joined`, `expired`, `failed` or
+`unavailable`; `showing` adds `line`, `joinTokenId`, `expiresAt`,
+`secondsLeft` and `name`, `joined` adds the machine and its checks (no line),
+`failed` adds `failure`. The line carries a single-use token: the CLI prints
+it and nothing logs it. It is refused with Cloud turned off.
+
 Every command acts on one session. Without `--socket`, `--session` or
 `--all-sessions`, lists and bulk commands act only on the session the CLI
 finds (see [Discovery](#discovery)), so a script that lists and then closes
@@ -394,11 +416,16 @@ only with the shell's next mark.
 
 `list --agents` lists the terminals that run a coding agent, from one
 `session.snapshot`: the harness (Claude Code, Codex, … from hook or plugin
-agent records, else the app of an OSC 7501 status record), its state (`busy`,
-`idle`, `waiting-for-input` when a permission dialog or question waits,
-`ended`), the age of that state, the workspace and the title. Waiting agents
-sort first. `--json` prints `[{terminal, harness, state, title, workspace_id,
-workspace, cwd, updated_at_ms, age_ms, source}]`.
+agent records, else the app of an OSC 7501 status record), its status
+(`blocked` when a permission dialog, question or error waits, `done` when a
+turn finished and nobody has viewed the terminal yet, `working`, `idle`,
+`unknown`, or `ended`), the age of that state, the workspace and the title.
+Blocked agents sort first, then done, working, idle, unknown and ended.
+Listing never clears `done`; viewing the tab in a client does. `--json` prints
+`[{terminal, harness, status, state, title, workspace_id, workspace, cwd,
+updated_at_ms, age_ms, source}]`: `status` is the word above (`null` for an
+ended session) and `state` keeps the older words (`busy`, `idle`,
+`waiting-for-input`, `ended`) for existing scripts.
 
 `send` talks to the agent or shell in a terminal in one call. It types the
 message as one bracketed paste when the terminal has paste mode on (so a

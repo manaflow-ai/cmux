@@ -167,6 +167,8 @@ mod topology_help;
 mod wire;
 #[cfg(unix)]
 mod workflow;
+#[cfg(unix)]
+mod worktree_workspace;
 use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};
 

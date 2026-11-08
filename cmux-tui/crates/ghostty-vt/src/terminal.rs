@@ -55,6 +55,8 @@ pub use callbacks::{Callbacks, NotifyFn, PtyWriteFn};
 
 mod active_text;
 
+mod logical_text;
+
 mod clear_history;
 
 mod program_status;
