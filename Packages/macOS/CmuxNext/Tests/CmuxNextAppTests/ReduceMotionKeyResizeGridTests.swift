@@ -94,7 +94,21 @@ struct ReduceMotionKeyResizeGridTests {
     /// that, and Ghostty and the PTY kept the first press's size and grid until the pane moved again (a scripted resize
     /// burst can do this). Ctrl-Shift-L then Ctrl-Shift-H on p2 in one turn; then frame ticks to rest.
     @Test func aReduceMotionPressTakenBackBeforeTheTickLeavesNoSizeDrawnAhead() async throws {
-        let screen = try await Screen()
+        try await pressTakenBackLeavesNoSizeDrawnAhead(reduceMotion: true)
+    }
+
+    /// Review of b2b71104252 (P1): the same take-back with pane animations on (the default). The first press draws its
+    /// first refresh ahead (T-KEYS 3); the second takes it back in the same turn, so the screen has no motion and no held
+    /// snap, and no hold begins that could end. The key's turn must release each size drawn ahead that no placement
+    /// took. Before, nothing did: Ghostty and the PTY kept the first press's size and grid until the pane moved again.
+    @Test func anAnimatedPressTakenBackInItsTurnLeavesNoSizeDrawnAhead() async throws {
+        try await pressTakenBackLeavesNoSizeDrawnAhead(reduceMotion: false)
+    }
+
+    /// Ctrl-Shift-L then Ctrl-Shift-H on p2 in one turn; then frame ticks to rest: no terminal keeps the first press's
+    /// size or grid.
+    private func pressTakenBackLeavesNoSizeDrawnAhead(reduceMotion: Bool) async throws {
+        let screen = try await Screen(reduceMotion: reduceMotion)
         defer { screen.close() }
         let panes: [PaneID] = ["p1", "p2", "p3"]
         let hosts = try panes.map { try #require(screen.root.context.hosts[$0], "no host for \($0.rawValue)") }
