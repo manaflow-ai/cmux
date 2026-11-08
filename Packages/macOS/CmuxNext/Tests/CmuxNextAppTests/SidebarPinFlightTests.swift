@@ -252,6 +252,36 @@ struct SidebarPinFlightTests {
         }
     }
 
+    /// The flying view hides what it passes (p1 films 31fec6d8: its title printed over the rows' titles): it draws
+    /// above them on an opaque ground of its own while it flies.
+    static func checkOpaque(_ name: String, _ view: NSView, failures: inout [String]) {
+        let alpha = view.layer?.backgroundColor?.alpha ?? 0
+        if alpha < 1 { failures.append("\(name): flies see-through (ground alpha \(alpha))") }
+        if (view.layer?.zPosition ?? 0) < 1 { failures.append("\(name): flies under the rows it passes") }
+    }
+
+    /// A pin's item shows its pin glyph as the move goes, on the move's spring and begin (m70: the look changes on the same
+    /// curve and progress as the move), not at once on its first frame.
+    static func checkGlyph(_ name: String, _ item: NSView, failures: inout [String]) {
+        // The item's glyphs (its pin among them): the one that fades in.
+        let glyphs = item.subviews.filter { $0 is NSImageView && !$0.isHidden }.compactMap(\.layer)
+        guard !glyphs.isEmpty else { return failures.append("\(name): draws no glyph") }
+        let faded = glyphs.lazy.compactMap { layer in
+            (layer.animationKeys() ?? []).compactMap { layer.animation(forKey: $0) as? CASpringAnimation }
+                .first { $0.keyPath == "opacity" }.map { (layer, $0) }
+        }.first
+        let layer = faded?.0, fade = faded?.1
+        let move = (item.layer?.animationKeys() ?? []).compactMap { item.layer?.animation(forKey: $0) as? CASpringAnimation }
+            .first { $0.keyPath == "position" }
+        guard let layer, let fade, let move else { return failures.append("\(name): the pin glyph shows at once (no fade on the move)") }
+        let fadeFrom = (fade.fromValue as? NSNumber)?.doubleValue ?? 1
+        if fadeFrom > 0.001 { failures.append("\(name): the pin glyph starts at opacity \(fadeFrom)") }
+        let fadeBegin = layer.convertTime(fade.beginTime, to: nil), moveBegin = item.layer.map { $0.convertTime(move.beginTime, to: nil) } ?? 0
+        if abs(fadeBegin - moveBegin) > 0.0005 || fade.stiffness != move.stiffness || fade.damping != move.damping || fade.mass != move.mass {
+            failures.append("\(name): the pin glyph fades on another curve or begin than the move")
+        }
+    }
+
     /// Where each workspace other than `moved` is drawn at rest (row or item).
     static func rest(_ list: SidebarListView) -> [WorkspaceID: CGRect] {
         var frames: [WorkspaceID: CGRect] = [:]
@@ -281,6 +311,8 @@ struct SidebarPinFlightTests {
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
         var failures: [String] = []
         Self.checkBegin(pin ? "pinned d" : "unpinned d", of: arrived, turnEnd: now, failures: &failures)
+        Self.checkOpaque(pin ? "pinned d" : "unpinned d", arrived, failures: &failures)
+        if pin { Self.checkGlyph("pinned d", arrived, failures: &failures) }
         Self.checkPath(pin ? "pinned d" : "unpinned d", probes: probes, now: now, start: startFrame,
                        end: list.convert(arrived.bounds, from: arrived), failures: &failures)
         for (id, from) in before {
@@ -294,68 +326,41 @@ struct SidebarPinFlightTests {
 
     @Test func anUnpinMovesTheItemBackToItsRow() throws { try move(pin: false) }
 
-    /// The app's pin reaches the list in two updates: the rows (the workspace leaves the list), then a frame later the
-    /// blocks (the Pinned item). The row stays where it is drawn until the item takes over its frame, then moves.
-    @Test func aPinWhoseBlockComesLaterStartsOnTheRow() throws { try blockComesLater(pinStateWithTheRows: true) }
-
-    /// The app's document pin state comes with the blocks: at the rows' update the workspace is not pinned yet, its row
-    /// starts to close, and the block's item then flies from where the closing row is drawn (no wait at the key).
-    @Test func aPinWhoseStateComesWithTheBlockStartsOnTheClosingRow() throws { try blockComesLater(pinStateWithTheRows: false) }
-
-    func blockComesLater(pinStateWithTheRows: Bool) throws {
+    /// The rows reach the list before the blocks (the sidebar now sends them in one apply, `SidebarPinOneApplyTests`; a
+    /// client that sends two updates still must not jump): at the rows' update the row starts to close, and the block's
+    /// item then flies from where the closing row is drawn. Nothing waits for the second update (no hold, no timer).
+    @Test func aPinWhoseBlockComesLaterStartsOnTheClosingRow() throws {
         let (list, window) = Self.list(pins: [])
         defer { window.close() }
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        var pinnedNow = pinStateWithTheRows
+        var pinnedNow = false
         list.model.workspacePin = (isPinned: { pinnedNow && $0 == Self.moved }, toggle: { _ in })
-        let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
-        let startFrame = list.convert(start.bounds, from: start)
         let (sections, blocks) = Self.state([Self.moved])
         list.model.sections = sections
         list.reload(animated: true)
         CATransaction.flush()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
-        // Where the person sees the workspace when the block comes: the held or the closing row, as drawn.
-        let drawnRow = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
-        let drawnStart = pinStateWithTheRows ? startFrame : list.drawnFrame(of: drawnRow)
+        // The closing row's path, read before the item takes over (the row goes in that apply).
+        let closing = Self.probes(Self.moved, list, now: CACurrentMediaTime())
         pinnedNow = true
         list.blocks = blocks
         list.reload(animated: true)
-        let now = CACurrentMediaTime()
-        let probes = Self.probes(Self.moved, list, now: now)
+        let turnEnd = CACurrentMediaTime()
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
         var failures: [String] = []
+        Self.checkBegin("pinned d (rows first)", of: arrived, turnEnd: turnEnd, failures: &failures)
+        // Where the person sees the workspace when the item takes over: the closing row's path at the move's begin.
+        let now = Self.moveBegin(of: arrived) ?? turnEnd
+        let drawnStart: CGRect
+        switch Self.one(closing, at: now) {
+        case let .success(frame): drawnStart = frame
+        case let .failure(failure):
+            Issue.record("the closing row at the item's begin: \(failure.text)")
+            return
+        }
+        let probes = Self.probes(Self.moved, list, now: now)
         Self.checkPath("pinned d (rows first)", probes: probes, now: now, start: drawnStart,
-                       end: list.convert(arrived.bounds, from: arrived), failures: &failures)
-        #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
-        #expect(list.pinHolds.isEmpty, "the row still waits after its block came")
-    }
-
-    /// The app delivers an unpin's blocks a frame or two before its rows: the item stays where it is drawn until the
-    /// row comes, and the row then moves from it (no vanish, no grow-in at the row's slot).
-    @Test func anUnpinWhoseRowComesLaterStartsOnTheItem() throws {
-        let (list, window) = Self.list(pins: [Self.moved])
-        defer { window.close() }
-        Motion.reduceMotionOverride = false
-        defer { Motion.reduceMotionOverride = nil }
-        list.model.workspacePin = (isPinned: { _ in false }, toggle: { _ in })
-        let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
-        let startFrame = list.convert(start.bounds, from: start)
-        let (sections, blocks) = Self.state([])
-        list.blocks = blocks
-        list.reload(animated: true)
-        CATransaction.flush()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
-        #expect(!Self.copies(of: Self.moved, in: list).filter { !$0.isHiddenOrHasHiddenAncestor }.isEmpty,
-                "the item vanished before its row came")
-        list.model.sections = sections
-        list.reload(animated: true)
-        let now = CACurrentMediaTime()
-        let probes = Self.probes(Self.moved, list, now: now)
-        let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
-        var failures: [String] = []
-        Self.checkPath("unpinned d (blocks first)", probes: probes, now: now, start: startFrame,
                        end: list.convert(arrived.bounds, from: arrived), failures: &failures)
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
     }
