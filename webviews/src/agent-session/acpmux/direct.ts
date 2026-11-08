@@ -10287,11 +10287,19 @@ export class AcpmuxDirectClient {
       throw error;
     }
   }
-  /// Starts a GitHub issue fix in a local worktree and returns the created chat.
+  /// Reserve the chip's gesture before preparing the checkout. Trust can hold preparation;
+  /// only the final launch spends the exact-parameter ticket, once.
   async fixFromLink(url: string, cwd?: string, harness?: string, model?: string): Promise<string | undefined> {
     this.cancelTrustStart?.();
     const generation = this.selectionGeneration;
     const trustCancellation = this.trustCancellation;
+    const params = { url, ...(cwd ? { cwd } : {}), ...(harness ? { harness } : {}), ...(model ? { model } : {}) };
+    const ticket = postNative<{ ticket?: string }>("transport.gesture", {
+      intent: { method: "chat.fix_from_link", params },
+    }).then(
+      (reply) => reply?.ticket,
+      () => undefined,
+    );
     return new Promise<string>((resolve, reject) => {
       let settled = false;
       let running = false;
@@ -10309,27 +10317,27 @@ export class AcpmuxDirectClient {
       };
       const current = () =>
         !this.closed && generation === this.selectionGeneration && trustCancellation === this.trustCancellation;
+      const launch = async () => {
+        const proof = await ticket;
+        if (!current() || settled) return cancel();
+        const result = await this.request("chat.fix_from_link", { ...params, ...gestureMeta(proof) }, 120_000);
+        if (!current()) return cancel();
+        const sessionId = typeof result?.sessionId === "string" ? result.sessionId : undefined;
+        // l10n-allow: internal transport shape failure; the user sees the host error surface.
+        finish(sessionId, sessionId ? undefined : new Error("fix-from-link did not return a session"));
+      };
       const run = () => {
         if (settled || running) return;
         if (!current()) return cancel();
         running = true;
-        void this.request(
-          "chat.fix_from_link",
-          { url, ...(cwd ? { cwd } : {}), ...(harness ? { harness } : {}), ...(model ? { model } : {}) },
-          120_000,
-        ).then(
-          (result) => {
-            if (!current()) return cancel();
-            const sessionId = typeof result?.sessionId === "string" ? result.sessionId : undefined;
-            // l10n-allow: internal transport shape failure; the user sees the host error surface.
-            finish(sessionId, sessionId ? undefined : new Error("fix-from-link did not return a session"));
-          },
+        void this.request("chat.fix_from_link.prepare", params, 120_000).then(
+          () => void launch().catch((error: unknown) => finish(undefined, error)),
           (error: unknown) => {
             running = false;
             if (settled) return;
             if (!current()) return cancel();
-            // Keep the same chip gesture pending. Trust retries it once; declining or leaving
-            // the page settles it without creating a worktree or selecting another chat.
+            // The daemon checks its canonical checkout root, whether auto-discovered or
+            // selected through a subfolder. Retrying preparation never launches an agent.
             if (!this.routeTrustRefusal(error, run, cancel)) finish(undefined, error);
           },
         );

@@ -396,7 +396,7 @@ extension AgentPaneTransport {
                 } ?? false
                 let redeemed = redeemedQuestion || gestures.redeem(ticket, connection: id, pick: facts.pick, sessionId: facts.sessionId)
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
-                    && facts.sessionId.map(sessions.contains) == true
+                    && (facts.method == "chat.fix_from_link" || facts.sessionId.map(sessions.contains) == true)
                 ticketPick = granted
                 // A prompt that goes with its own ticket spends the start's credit too, as one
                 // without a ticket does: the credit never grants a later prompt (#23031).
@@ -429,8 +429,6 @@ extension AgentPaneTransport {
                     granted = gestures.takeSeedStart()
                 }
             } else {
-                let fixRetry = facts.method == "chat.fix_from_link"
-                    && fixTrustCredit.take(connection: id, cwd: box.param("cwd"), at: gestures.uptime)
                 // The start's credit is spent by the first prompt, whatever grants it.
                 let credit = facts.method == "session/prompt"
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
@@ -439,7 +437,7 @@ extension AgentPaneTransport {
                 // backs Send, Retry and Approve, nothing else (``AgentPaneUserGestures/consumePosted(for:)``).
                 granted = redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
                     && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
-                    || gestures.consumePosted(for: facts.method) || fixRetry
+                    || gestures.consumePosted(for: facts.method)
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
                 // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.
@@ -450,12 +448,6 @@ extension AgentPaneTransport {
                 }
                 if granted, facts.needsGesture, remoteWire, facts.method == "acp.trust.set" {
                     remoteTrustCredit.give(connection: id, at: ProcessInfo.processInfo.systemUptime)
-                }
-                if granted, facts.method == "chat.fix_from_link", !fixRetry {
-                    fixTrustCredit.begin(connection: id, cwd: box.param("cwd"), at: gestures.uptime)
-                }
-                if granted, facts.method == "acp.trust.set" {
-                    fixTrustCredit.trust(connection: id, cwd: box.param("cwd"), level: box.param("level"), at: gestures.uptime)
                 }
             }
             if !granted {

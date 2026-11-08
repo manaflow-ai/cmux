@@ -98,12 +98,21 @@ async fn issue_link_creates_fix_worktree_and_chat() {
     };
     daemon.set_trust_gate(Some(trust.clone()));
     let params = json!({"url": "https://github.com/acme/widget/issues/12", "cwd": repo});
-    let pending = call(&daemon, "chat.fix_from_link", params.clone()).await;
+    let pending = call(&daemon, "chat.fix_from_link.prepare", params.clone()).await;
     assert_eq!(pending["error"]["data"]["reason"], "trust.pending", "{pending}");
     assert!(!home.join(".cmux/worktrees").exists());
     acpmux::trust::set(&trust, repo.to_str().unwrap(), "untrusted").unwrap();
-    let declined = call(&daemon, "chat.fix_from_link", params.clone()).await;
+    let declined = call(&daemon, "chat.fix_from_link.prepare", params.clone()).await;
     assert_eq!(declined["error"]["data"]["reason"], "trust.untrusted", "{declined}");
+    assert!(!home.join(".cmux/worktrees").exists());
+    acpmux::trust::set(&trust, repo.to_str().unwrap(), "trusted").unwrap();
+    let prepared = call(&daemon, "chat.fix_from_link.prepare", params.clone()).await;
+    assert_eq!(prepared["result"]["cwd"], json!(repo), "{prepared}");
+    assert!(!home.join(".cmux/worktrees").exists(), "preparation must not create a worktree");
+    // Launch rechecks trust independently, even after a successful preparation.
+    acpmux::trust::set(&trust, repo.to_str().unwrap(), "untrusted").unwrap();
+    let revoked = call(&daemon, "chat.fix_from_link", params.clone()).await;
+    assert_eq!(revoked["error"]["data"]["reason"], "trust.untrusted", "{revoked}");
     assert!(!home.join(".cmux/worktrees").exists());
     acpmux::trust::set(&trust, repo.to_str().unwrap(), "trusted").unwrap();
     let result = call(&daemon, "chat.fix_from_link", params).await;

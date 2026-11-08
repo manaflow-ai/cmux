@@ -130,7 +130,7 @@ export function newTabScreenActions(deps: {
       deps.clearError?.();
       return callNative("chat.fix_from_link", {
         url,
-        ...((selectedCwd ?? cwd) ? { cwd: selectedCwd ?? cwd } : {}),
+        ...(selectedCwd ? { cwd: selectedCwd } : {}),
         ...(harness ? { harness } : {}),
         ...(model ? { model } : {}),
       })

@@ -851,8 +851,6 @@ public final class AgentPaneModel {
         guard id != sessionId else { return }
         if sessionId != nil { droppedPaths.clearForSessionChange() }
         sessionId = id
-        transport.sessions.add(id)
-        transport.clearFixTrustCredit()
         cloudReservationComposeKey = nil
         newTab = nil
         onQuestionKeySessionChange?()

@@ -64,6 +64,7 @@ pub async fn handle(
     hub: &std::sync::Arc<Hub>,
     conn: &std::sync::Arc<Conn>,
     params: Value,
+    prepare: bool,
 ) -> Result<Value, RpcError> {
     if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
         return Err(RpcError::invalid_params(
@@ -99,6 +100,11 @@ pub async fn handle(
         None,
     )
     .await?;
+    // Preparation only resolves the existing checkout and checks trust. No worktree,
+    // metadata fetch, session or prompt exists until the one gesture-authorized launch.
+    if prepare {
+        return Ok(json!({"cwd": checkout}));
+    }
     let issue_context = fetch_issue(&issue, checkout.to_str()).await?;
     let name =
         format!("{}-{}", issue.number, crate::subsession_worktree::slug(&issue_context.title));
