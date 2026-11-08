@@ -64,7 +64,7 @@
    14 on 22.75 before its sheet, and whatever the root's --cv-font-size is after. */
 .guest-mine{--cv-text:var(--agent-text);--cv-fg:var(--agent-text);--cv-font:var(--font-ui);--cv-font-size:var(--text-content);--cv-line-height:var(--text-content--line-height)}
 .guest-mine .cv-user{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
-.guest-mine .cv-user__bubble{--cv-bubble-pad-block:max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2);--cv-bubble-pad-inline:calc(4 * var(--grid-base));position:relative;box-sizing:border-box;max-width:70%;padding:var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);border-radius:var(--grid-cards-radius);font-family:var(--cv-font);font-size:var(--cv-font-size);line-height:var(--cv-line-height);letter-spacing:var(--cv-tracking, 0.045px);color:var(--cv-text);white-space:pre-wrap;overflow-wrap:break-word;-webkit-font-smoothing:antialiased}
+.guest-mine .cv-user__bubble{--cv-bubble-pad-block:max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2);--cv-bubble-pad-inline:calc(4 * var(--grid-base));position:relative;box-sizing:border-box;max-width:70%;padding:var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);border-radius:var(--grid-cards-radius);font-family:var(--cv-font);font-size:var(--cv-font-size);line-height:var(--cv-line-height);letter-spacing:var(--cv-tracking, 0px);color:var(--cv-text);white-space:pre-wrap;overflow-wrap:break-word;-webkit-font-smoothing:antialiased}
 .guest-mine .cv-user__bubble{
   --glass-tint:color-mix(in srgb, var(--cv-fg) 10%, transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
