@@ -35,6 +35,8 @@ struct TerminalFrameOwnership {
     /// and the landing sent 143x48 a third time: 3 SIGWINCHes). No timer: the landing, a newer final grid
     /// (``TerminalSurfaceView/reportFinalGrid(_:)``) or the next film snap ends it.
     var filmSnapGrid: TerminalGridSize?
+    /// The presenter's refresh in which the close sent `filmSnapGrid` (RESIZE P0 12 shared hold: the hold counts from it).
+    var filmSentEpoch: UInt64?
     #endif
     /// The presenter's refresh in which `ahead` and its grid went (``TerminalFramePresenter/currentEpoch``): the hold for
     /// the program's redraw at that grid counts from it (RESIZE P0 12).
@@ -92,7 +94,8 @@ extension TerminalSurfaceView {
             if ahead == frame.size, let presenter = framePresenter {
                 frameOwnership.inFlight = ahead
                 keepOrigin()
-                presenter.request(self, holdTicks: programHoldTicks, sentEpoch: frameOwnership.aheadSentEpoch)
+                presenter.request(self, holdTicks: filmHoldTicks(for: ahead) ?? programHoldTicks,
+                                  sentEpoch: filmSentEpoch ?? frameOwnership.aheadSentEpoch)
                 return
             }
         }
@@ -117,7 +120,7 @@ extension TerminalSurfaceView {
         // `ghostty_surface_set_size` at the asked size, and the grid report as for any new size.
         updateSurfaceSize()
         keepOrigin()
-        presenter.request(self, holdTicks: programHoldTicks)
+        presenter.request(self, holdTicks: filmHoldTicks(for: wanted.size) ?? programHoldTicks, sentEpoch: filmSentEpoch)
     }
 
     /// Refreshes a new size of this view waits for the program's redraw at its grid (``TerminalFramePresenter``,
@@ -152,6 +155,7 @@ extension TerminalSurfaceView {
         guard let size = frameOwnership.pendingAhead else { return }
         frameOwnership.pendingAhead = nil
         #if DEBUG || CMUX_BENCH_HOOKS
+        let filmSendsGrid = frameOwnership.filmSendsGrid
         frameOwnership.filmSendsGrid = false
         if filmSendsGrid {
             let why = surface == nil ? "no_surface" : !isShown ? "hidden" : frameOwnership.inFlight != nil ? "in_flight"
@@ -318,3 +322,28 @@ extension TerminalSurfaceView {
         return CGRect(x: area.minX, y: y, width: size.width, height: size.height)
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension TerminalSurfaceView {
+    /// CLOSE VARIANTS (film only) on the RESIZE P0 12 shared hold: the close sent the survivor's grid with its size, so the
+    /// frame of the size whose grid the close owns waits for the program's redraw at it, for at most 2 refreshes from the
+    /// send (lead: `request(view, holdTicks: 2, sentEpoch:)`). Any other size (a V6 growth step) does not wait.
+    func filmHoldTicks(for size: CGSize) -> UInt64? {
+        guard let owned = frameOwnership.filmSnapGrid, let surface, !frameOwnership.programMissedHold else { return nil }
+        let pixels = convertToBacking(size)
+        var columns: UInt16 = 0, rows: UInt16 = 0
+        guard pixels.width >= 1, pixels.height >= 1,
+              ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows),
+              TerminalGridSize(columns: Int(columns), rows: Int(rows)) == owned else { return nil }
+        FilmCloseVariant.count("film_hold")
+        return 2
+    }
+
+    var filmSentEpoch: UInt64? { frameOwnership.filmSnapGrid == nil ? nil : frameOwnership.filmSentEpoch }
+}
+#else
+extension TerminalSurfaceView {
+    func filmHoldTicks(for size: CGSize) -> UInt64? { nil }
+    var filmSentEpoch: UInt64? { nil }
+}
+#endif
