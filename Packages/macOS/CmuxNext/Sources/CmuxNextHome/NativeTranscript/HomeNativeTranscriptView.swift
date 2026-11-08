@@ -581,18 +581,23 @@ public final class HomeNativeTranscriptView: NSView {
         // rests at its newest message, wherever it was left (https://github.com/manaflow-ai/cmux/issues/34562).
         // A move that keeps it on screen keeps the reader's place: the window's Chief panel takes Home's chat
         // beside a link it opened, and gives it back, in one turn (`WindowController.syncChiefPanel`).
-        if !movedOnScreen { transcript.showNewest() }
+        if returnedToView { transcript.showNewest() }
     }
 
     /// Shown again in the same window (a hidden tab or container unhidden): at the newest message too.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        // Out of a hidden parked Home into the visible Chief panel: shown by the move, not returned to.
-        if !movedOnScreen { transcript.showNewest() }
+        // AppKit also sends this when the view leaves a hidden parent (the Chief panel takes it out of a
+        // parked Home): then it is not shown yet, and where it arrives decides.
+        if returnedToView { transcript.showNewest() }
     }
 
-    /// This view left its window and is back in it in the same main-actor turn: moved while on screen.
-    private var movedOnScreen: Bool { window != nil && windowLeftThisTurn === window }
+    /// The person sees this chat again now: in a window, with no hidden ancestor, and not just moved inside
+    /// its window in this turn (left it and came back: the Chief panel's take and give-back).
+    private var returnedToView: Bool {
+        guard let window, !isHiddenOrHasHiddenAncestor else { return false }
+        return windowLeftThisTurn !== window
+    }
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
