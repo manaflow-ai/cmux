@@ -241,7 +241,9 @@ await requireBrowserLane("composer-hat-fold-balance.test.ts", async () => {
       const opened = await toggle(page, undefined);
       expect(await page.locator(".acpmux-running-tray__head").getAttribute("aria-expanded")).toBe("true");
       const start = opened[0]!;
-      const openHeight = await page.evaluate(() => document.querySelector(".acpmux-dock")!.getBoundingClientRect().height);
+      const openHeight = await page.evaluate(
+        () => document.querySelector(".acpmux-dock")!.getBoundingClientRect().height,
+      );
       expect(openHeight - start.dock.h).toBeGreaterThan(20);
       oneWay(opened, true, openHeight);
       together(opened);

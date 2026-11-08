@@ -703,7 +703,7 @@ export default agentPaneEntry({
       },
     },
     "lone-command-open": {
-      note: 'The same hat expanded (Leo, 2026-11-08: "things don\'t balance out"): the header reads "1 command running" and keeps its time where the folded line had it, at the row\'s end over the line\'s own time; the shell line slides out as the title slides over, and the line grows in under the header on the shared fold. No other control shows or hides on the way.',
+      note: "The same hat expanded (Leo, 2026-11-08: \"things don't balance out\"): the header reads its counts and keeps its time where the folded line had it, at the row's end over the line's own time; the shell line slides out as the title slides over, and the line grows in under the header on the shared fold. No other control shows or hides on the way.",
       height: 420,
       snapshot: loneCommandChat(),
       play: async (ctx) => {

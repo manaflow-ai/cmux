@@ -97,7 +97,9 @@ export function Tick({
     const range = node.ownerDocument.createRange();
     range.selectNodeContents(incoming);
     const text = range.getBoundingClientRect?.().width;
-    const to = text ? Math.ceil(text) : incoming.scrollWidth;
+    // No new words (a lone hat's step as it opens): the cell narrows to nothing, never holding the old
+    // width until the leaving words go and then snapping shut.
+    const to = !incoming.textContent ? 0 : text ? Math.ceil(text) : incoming.scrollWidth;
     if (Math.abs(to - from) < 1) return undefined;
     const style = node.ownerDocument.defaultView?.getComputedStyle(node);
     const duration = cssTimeMs(style?.getPropertyValue("--acpmux-tick-slide") ?? "") ?? 180;

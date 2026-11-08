@@ -1838,6 +1838,14 @@ button.cv-subagent > :last-child {
   pointer-events: auto;
   transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
 }
+/* From an expand or a fold until the pointer leaves the hat, the tuck stays away: it fades out if it
+   showed and never fades in while the hat moves (SubagentTray.tsx `tuckQuiet`; Leo, 2026-11-08, on the
+   hat expanding and folding: "some elements in between"). Keyboard focus still shows it. */
+.acpmux-running-tray[data-tuck-quiet] > .acpmux-running-tray__tuck:not(:focus-visible) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+}
 .acpmux-running-tray__tuck:hover,
 .acpmux-tray-pull__tab:hover {
   color: var(--agent-text);
