@@ -133,7 +133,7 @@ fn a_hosted_png_reaches_a_snapshot_viewer() {
     let decode = |message: &serde_json::Value| {
         base64::engine::general_purpose::STANDARD.decode(message["data"].as_str().unwrap()).unwrap()
     };
-    let mut complete = Vec::new();
+    let (mut ready, mut complete) = (Vec::new(), Vec::new());
     loop {
         let mut line = String::new();
         let read = reader.read_line(&mut line);
@@ -152,7 +152,10 @@ fn a_hosted_png_reaches_a_snapshot_viewer() {
             // local READY (no history) can follow on a loaded host; a later
             // plain READY restarts the snapshot.
             Some("ready") if message["history"] == "local" => {}
-            Some("ready") => complete = decode(&message),
+            Some("ready") => {
+                ready = decode(&message);
+                complete = ready.clone();
+            }
             Some("history") => {
                 assert!(!complete.is_empty(), "history before its READY: {message}");
                 let mut raw = Vec::new();
@@ -171,7 +174,16 @@ fn a_hosted_png_reaches_a_snapshot_viewer() {
     let count = |tag: u16| tags.iter().filter(|seen| **seen == tag).count();
     assert_eq!(count(KITTY_IMAGE_STORAGE), 1, "{tags:?}");
     assert_eq!(count(KITTY_IMAGE_PAYLOAD), 1, "GHOSTSNP carries the PNG pixels once: {tags:?}");
-    ghostty_vt::reencode_ready(&complete).expect("READY plus history decode");
+    // The READY plus its history alone restore the image: the restored
+    // terminal re-encodes the host's storage record.
+    let storage = |snapshot: &[u8]| {
+        ghostty_vt::snapshot_records(snapshot)
+            .find(|record| record.tag == KITTY_IMAGE_STORAGE)
+            .map(|record| record.payload().to_vec())
+    };
+    let restored = ghostty_vt::reencode_ready(&complete).expect("READY plus history decode");
+    assert!(storage(&ready).is_some(), "the READY names the PNG");
+    assert_eq!(storage(&restored), storage(&ready), "GHOSTSNP alone restores the PNG");
     drop(writer);
     close_terminal_surface(&harness.socket, surface, 4);
     wait_for_no_host_records(&harness.host_root());
