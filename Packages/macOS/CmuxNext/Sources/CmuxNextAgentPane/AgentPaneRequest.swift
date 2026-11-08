@@ -163,6 +163,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
+    /// `chats.resume {ref}`: `/resume <ref>` in the composer: the chat a pasted session id, id start,
+    /// transcript path or resume command names, resumed through the app's shared Open Chat path.
+    case resumeChat(String)
     /// `chats.openInTerminal {key}`: Open in Terminal from an All chats row's right-click menu.
     case openChatInTerminal(String)
     /// `chats.watch {key}`: View Only from an All chats row's right-click menu.
@@ -427,6 +430,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
     case upload([AgentPaneUpload])
     case uploadStage(AgentPaneUploadStageRequest)
+    /// `chat.upload.begin {..., sessionId, promptId, ticket}`: a file the page uploads at the
+    /// person's Send, begun under that Send's ticket instead of a live gesture
+    /// (``AgentPaneModel/beginSendUpload(_:ticket:)``).
+    case uploadStageForSend(AgentPaneUploadStageRequest, AgentPaneUploadSendTicket)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -450,6 +457,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     public var carriesFiles: Bool {
         if case .upload = self { return true }
         if case .uploadStage = self { return true }
+        if case .uploadStageForSend = self { return true }
         return false
     }
 

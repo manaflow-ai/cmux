@@ -58,6 +58,9 @@ use url::Url;
 
 use crate::localization::catalog;
 
+mod link_sidecars;
+pub(crate) use link_sidecars::tunnel_route_record;
+
 pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
 const MAX_REMOTE_RUNTIME_WORKERS: usize = 4;
@@ -823,6 +826,7 @@ async fn run_client(
     ready: mpsc::SyncSender<Result<ClientReady, String>>,
 ) -> anyhow::Result<()> {
     let setup = async {
+        let sidecars = link_sidecars::PendingSidecars::start();
         let (connection, route) = connect_first_available(&options, shutdown.clone()).await?;
         if *shutdown.borrow() {
             let _ = connection.close().await;
@@ -843,7 +847,8 @@ async fn run_client(
         let socket = socket_preparation.bind()?;
         // The SSH route behind this socket, so a CLI at a version-skew dead
         // end can name the exact upgrade command (cli/skew.rs, cx-ytw1).
-        let route_record = write_tunnel_route(&local_socket, &route);
+        let route_record = link_sidecars::write_tunnel_route(&local_socket, &route);
+        let _sidecars = sidecars.attach(&connection, &local_socket).await;
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
         let bridge_multiplexer = multiplexer.clone();
         let mut bridge = tokio::spawn(async move {
@@ -1534,34 +1539,6 @@ fn route_failure_allows_fallback(error: &ConnectionError) -> bool {
 
 async fn wait_for_shutdown(shutdown: &mut watch::Receiver<bool>) {
     while !*shutdown.borrow() && shutdown.changed().await.is_ok() {}
-}
-
-/// `<socket>.route`: the SSH route a client runtime's local socket tunnels
-/// to. Only SSH routes are recorded (no credential is in them); the CLI only
-/// prints it, never runs it.
-pub(crate) fn tunnel_route_record(socket: &Path) -> PathBuf {
-    let mut path = socket.as_os_str().to_owned();
-    path.push(".route");
-    PathBuf::from(path)
-}
-
-fn write_tunnel_route(socket: &Path, route: &str) -> Option<PathBuf> {
-    if !route.starts_with("ssh://") {
-        return None;
-    }
-    let record = tunnel_route_record(socket);
-    let _ = fs::remove_file(&record);
-    #[cfg(unix)]
-    {
-        use std::io::Write as _;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file =
-            OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record).ok()?;
-        file.write_all(route.as_bytes()).ok()?;
-    }
-    #[cfg(not(unix))]
-    fs::write(&record, route).ok()?;
-    Some(record)
 }
 
 async fn wait_for_fatal(fatal: &mut watch::Receiver<Option<String>>) -> String {
@@ -2410,10 +2387,22 @@ async fn run_daemon(
         pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeReadySend);
         let mut shutdown_failures = Vec::new();
         if ready.send(Ok(info)).is_ok() {
-            let services = DaemonServices::with_local_sockets(
+            // A Cloud machine's carrier (a grant config) also bridges the
+            // acpmux service to this user's acpmux carrier socket, in the
+            // home `cmux acp` resolves.
+            #[cfg(unix)]
+            let acpmux_socket = options
+                .carrier_grant_config
+                .as_ref()
+                .and_then(|_| crate::acp::daemon_acpmux_home())
+                .map(|home| cmux_remote::acpmux_bridge::socket_path(&home));
+            #[cfg(not(unix))]
+            let acpmux_socket = None;
+            let services = DaemonServices::with_carrier_sockets(
                 workspace,
                 Some(mux_socket),
                 options.local_sockets.clone(),
+                acpmux_socket,
             );
             services.run_with_shutdown(clients, shutdown).await;
         } else {
@@ -3309,6 +3298,46 @@ mod tests {
 
     #[cfg(unix)]
     mod initial_route_budget;
+
+    /// Binds a stream socket at `path` that never listens, as a crashed
+    /// client leaves it. A connect to it is refused even while the returned
+    /// descriptor, or a copy that a concurrent fork inherited, is open.
+    /// (A dropped listener is not stale until every copy is closed.)
+    #[cfg(unix)]
+    fn bind_stale_client_socket(path: &Path) -> std::os::fd::OwnedFd {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::ffi::OsStrExt;
+
+        // SAFETY: socket(2) has no memory arguments; a valid result is a new
+        // descriptor that the OwnedFd takes.
+        let raw = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+        assert!(raw >= 0, "socket: {}", std::io::Error::last_os_error());
+        // SAFETY: `raw` is a new descriptor that nothing else owns.
+        let socket = unsafe { OwnedFd::from_raw_fd(raw) };
+        // SAFETY: F_SETFD with an int flag on a descriptor this test owns.
+        let cloexec = unsafe { libc::fcntl(socket.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+        assert_eq!(cloexec, 0, "fcntl: {}", std::io::Error::last_os_error());
+
+        // SAFETY: sockaddr_un is plain data; all-zero bytes are a valid value.
+        let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX).unwrap();
+        let bytes = path.as_os_str().as_bytes();
+        assert!(bytes.len() < address.sun_path.len(), "socket path too long");
+        for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
+            *slot = libc::c_char::from_ne_bytes([*byte]);
+        }
+        let length = libc::socklen_t::try_from(size_of::<libc::sockaddr_un>()).unwrap();
+        // SAFETY: `address` is an initialized sockaddr_un of `length` bytes.
+        let bound = unsafe {
+            libc::bind(
+                socket.as_raw_fd(),
+                std::ptr::from_ref(&address).cast::<libc::sockaddr>(),
+                length,
+            )
+        };
+        assert_eq!(bound, 0, "bind {}: {}", path.display(), std::io::Error::last_os_error());
+        socket
+    }
 
     fn instrumented_test_timeout(timeout: Duration) -> Duration {
         let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -6697,7 +6726,10 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = bind_stale_client_socket(&path);
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let lock_path = directory.path().join("mux.sock.lock");
@@ -6734,7 +6766,10 @@ mod tests {
     async fn concurrent_stale_client_socket_takeover_has_one_owner() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = bind_stale_client_socket(&path);
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let start = Arc::new(tokio::sync::Barrier::new(2));

@@ -1057,6 +1057,303 @@
         }
       }
     },
+    "settings.home.chiefPanelSeesScreen": {
+      "comment": "Settings > Chief > Chief Dock: the floating Chief gets one look at the screen when it opens.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chief Sees Your Screen When It Opens"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يرى Chief شاشتك عند فتحه"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Chief vidi tvoj ekran kad se otvori"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Chief ser din skærm, når den åbnes"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Chief sieht deinen Bildschirm beim Öffnen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Chief ve tu pantalla al abrirse"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Chief voit votre écran à l’ouverture"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Chief vede lo schermo quando si apre"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "開いたときに Chief が画面を見る"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "Chief មើលអេក្រង់របស់អ្នក ពេលបើក"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "열릴 때 Chief가 화면 보기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Chief ser skjermen din når den åpnes"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Chief widzi Twój ekran po otwarciu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O Chief vê sua tela ao abrir"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Chief видит ваш экран при открытии"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "Chief เห็นหน้าจอของคุณเมื่อเปิด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Chief açıldığında ekranınızı görsün"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Chief бачить ваш екран під час відкриття"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chief thấy màn hình của bạn khi mở"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "打开时 Chief 查看屏幕"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "開啟時 Chief 查看螢幕"}}
+      }
+    },
+    "settings.home.chiefPanelSeesScreen.help": {
+      "comment": "Settings > Chief > Chief Dock: help for the floating Chief's look at the screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يمنح فتح Chief العائم نظرة واحدة على الشاشة خلف cmux والنافذة في المقدمة، لتسأل عمّا تراه. يستخدم إذن تسجيل الشاشة الخاص بمساعد Computer Use ولا يطلبه أبدًا. تطفئه العين في اللوحة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Otvaranje plutajućeg Chiefa daje mu jedan pogled na ekran iza cmuxa i prozor ispred, pa možeš pitati o onome što vidiš. Koristi dozvolu za snimanje ekrana Computer Use pomoćnika i nikad je ne traži. Oko u panelu to isključuje."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Når du åbner den svævende Chief, får den ét kig på skærmen bag cmux og vinduet forrest, så du kan spørge om det, du ser. Den bruger Computer Use-hjælperens tilladelse til skærmoptagelse og beder aldrig om den. Øjet i panelet slår det fra."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Beim Öffnen wirft der schwebende Chief einen Blick auf den Bildschirm hinter cmux und das vordere Fenster, damit du nach dem Gesehenen fragen kannst. Er nutzt die Bildschirmaufnahme-Berechtigung des Computer-Use-Helfers und fragt nie danach. Das Auge im Bereich schaltet es aus."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Al abrir Chief flotante, echa un vistazo a la pantalla detrás de cmux y a la ventana delantera, para que preguntes por lo que ves. Usa el permiso de grabación de pantalla del asistente de Computer Use y nunca lo pide. El ojo del panel lo desactiva."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "À l’ouverture, Chief flottant jette un coup d’œil à l’écran derrière cmux et à la fenêtre au premier plan, pour que vous l’interrogiez sur ce que vous voyez. Il utilise l’autorisation d’enregistrement de l’écran de l’assistant Computer Use et ne la demande jamais. L’œil du panneau le désactive."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Quando apri Chief mobile, dà un’occhiata allo schermo dietro cmux e alla finestra in primo piano, così puoi chiedere di ciò che vedi. Usa il permesso di registrazione dello schermo dell’helper Computer Use e non lo chiede mai. L’occhio nel pannello lo disattiva."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "フローティング Chief を開くと、cmux の背後の画面と最前面のウインドウを一度見るので、見ているものについて質問できます。Computer Use ヘルパーの画面収録の許可を使い、許可を求めることはありません。パネルの目のボタンでオフにできます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ការបើក Chief អណ្ដែត ឲ្យវាមើលអេក្រង់នៅពីក្រោយ cmux និងបង្អួចខាងមុខម្ដង ដើម្បីអ្នកអាចសួរអំពីអ្វីដែលអ្នកឃើញ។ វាប្រើការអនុញ្ញាតថតអេក្រង់របស់ជំនួយការ Computer Use ហើយមិនដែលសុំវាទេ។ ភ្នែកក្នុងផ្ទាំងបិទវា។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "떠 있는 Chief를 열면 cmux 뒤의 화면과 맨 앞 창을 한 번 보므로, 보고 있는 것에 대해 물어볼 수 있습니다. Computer Use 도우미의 화면 기록 권한을 쓰며 권한을 요청하지 않습니다. 패널의 눈 버튼으로 끕니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Når du åpner den svevende Chief, får den ett blikk på skjermen bak cmux og vinduet foran, så du kan spørre om det du ser. Den bruker Computer Use-hjelperens tillatelse til skjermopptak og ber aldri om den. Øyet i panelet slår det av."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Otwarcie pływającego Chief daje mu jedno spojrzenie na ekran za cmux i okno na wierzchu, więc możesz zapytać o to, co widzisz. Używa uprawnienia nagrywania ekranu pomocnika Computer Use i nigdy o nie nie prosi. Oko w panelu to wyłącza."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ao abrir o Chief flutuante, ele dá uma olhada na tela atrás do cmux e na janela da frente, para você perguntar sobre o que vê. Usa a permissão de gravação de tela do auxiliar do Computer Use e nunca a pede. O olho no painel desliga isso."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "При открытии плавающий Chief один раз смотрит на экран за cmux и на переднее окно, чтобы вы могли спросить о том, что видите. Он использует разрешение на запись экрана помощника Computer Use и никогда его не запрашивает. Глаз в панели это выключает."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "การเปิด Chief แบบลอยให้มันดูหน้าจอหลัง cmux และหน้าต่างด้านหน้าหนึ่งครั้ง เพื่อให้คุณถามเกี่ยวกับสิ่งที่เห็นได้ ใช้สิทธิ์บันทึกหน้าจอของตัวช่วย Computer Use และไม่เคยขอสิทธิ์นี้ ปุ่มรูปตาในแผงใช้ปิด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Serbest Chief'i açmak, cmux'un arkasındaki ekrana ve öndeki pencereye bir kez bakmasını sağlar; böylece gördüğünüz şeyi sorabilirsiniz. Computer Use yardımcısının ekran kaydı iznini kullanır ve asla istemez. Paneldeki göz bunu kapatır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відкриваючи плаваючий Chief, ви даєте йому один раз глянути на екран за cmux і переднє вікно, щоб ви могли спитати про побачене. Він використовує дозвіл на запис екрана помічника Computer Use і ніколи його не просить. Око в панелі це вимикає."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi mở Chief nổi, nó xem một lần màn hình phía sau cmux và cửa sổ phía trước để bạn có thể hỏi về những gì mình thấy. Nó dùng quyền ghi màn hình của trình trợ giúp Computer Use và không bao giờ xin quyền đó. Biểu tượng mắt trong bảng tắt tính năng này."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "打开浮动 Chief 时，它会看一眼 cmux 背后的屏幕和最前面的窗口，方便你询问所见内容。它使用 Computer Use 助手的屏幕录制权限，从不请求该权限。面板中的眼睛按钮可关闭此功能。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "開啟浮動 Chief 時，它會看一眼 cmux 背後的螢幕和最前面的視窗，方便你詢問所見內容。它使用 Computer Use 輔助程式的螢幕錄製權限，從不要求該權限。面板中的眼睛按鈕可關閉此功能。"}}
+      }
+    },
+    "settings.choice.chiefPanelStyle.seeThrough": {
+      "comment": "Floating Chief style: the chat's bubbles over the workspace, as in Messages.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "See-Through"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "شفاف"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Providno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gennemsigtig"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Durchsichtig"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Transparente"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Transparent"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Trasparente"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "透明"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ថ្លា"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "투명"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gjennomsiktig"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przezroczysty"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Transparente"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Прозрачный"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โปร่งใส"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Şeffaf"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Прозорий"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Trong suốt"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "透明"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "透明"}}
+      }
+    },
+    "settings.choice.chiefPanelStyle.seeThroughBar": {
+      "comment": "Floating Chief style: the see-through message box alone, which grows into the see-through chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "See-Through Bar"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "شريط شفاف"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Providna traka"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gennemsigtig linje"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Durchsichtige Leiste"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Barra transparente"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Barre transparente"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Barra trasparente"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "透明バー"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "របារថ្លា"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "투명 바"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gjennomsiktig linje"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przezroczysty pasek"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Barra transparente"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Прозрачная строка"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แถบโปร่งใส"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Şeffaf Çubuk"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Прозорий рядок"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thanh trong suốt"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "透明栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "透明列"}}
+      }
+    },
+    "settings.home.chiefPanelStyle": {
+      "comment": "Settings > Chief > Chief Dock: how the floating Chief looks.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Floating Chief Style"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نمط Chief العائم"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Stil plutajućeg Chiefa"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Stil for svævende Chief"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Stil des schwebenden Chief"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Estilo de Chief flotante"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Style de Chief flottant"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Stile di Chief mobile"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "フローティング Chief のスタイル"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រចនាប័ទ្ម Chief អណ្ដែត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "떠 있는 Chief 스타일"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Stil for svevende Chief"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Styl pływającego Chief"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Estilo do Chief flutuante"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Стиль плавающего Chief"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "รูปแบบ Chief แบบลอย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Serbest Chief stili"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Стиль плаваючого Chief"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Kiểu Chief nổi"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "浮动 Chief 样式"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "浮動 Chief 樣式"}}
+      }
+    },
+    "settings.home.chiefPanelStyle.help": {
+      "comment": "Settings > Chief > Chief Dock: help for the floating Chief style.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "شكل Chief عندما يطفو فوق مساحة عمل. يبقى شريط الكتابة والحبة والفقاعة صغيرة حتى تنقر عليها، ثم تعرض المحادثة كاملة. اسحب أي نمط من مقبضه."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kako Chief izgleda kad lebdi iznad radnog prostora. Traka za pisanje, Pilula i Mjehurić ostaju mali dok ih ne klikneš, a onda prikažu cijeli razgovor. Svaki stil povuci za njegovu ručku."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hvordan Chief ser ud, når den svæver over et arbejdsområde. Skrivelinje, Pille og Boble forbliver små, til du klikker på dem, og viser så hele chatten. Træk enhver stil i dens håndtag."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "So sieht der Chief aus, wenn er über einem Arbeitsbereich schwebt. Eingabeleiste, Pille und Blase bleiben klein, bis du sie anklickst, und zeigen dann den ganzen Chat. Ziehe jeden Stil an seinem Griff."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Cómo se ve Chief cuando flota sobre un espacio de trabajo. Barra de redacción, Píldora y Burbuja se quedan pequeñas hasta que las pulsas y luego muestran todo el chat. Arrastra cualquier estilo por su asa."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "L’apparence de Chief quand il flotte au-dessus d’un espace de travail. Barre de saisie, Pilule et Bulle restent petites jusqu’au clic, puis affichent toute la discussion. Faites glisser chaque style par sa poignée."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Come appare Chief quando è sopra uno spazio di lavoro. Barra di scrittura, Pillola e Bolla restano piccole finché non le clicchi, poi mostrano tutta la chat. Trascina ogni stile dalla sua maniglia."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ワークスペースの上にフローティング表示するときの Chief の見た目。入力バー、ピル、バブルはクリックするまで小さいままで、クリックするとチャット全体を表示します。どのスタイルもグリップでドラッグできます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "របៀបដែល Chief មើលទៅ ពេលអណ្ដែតលើកន្លែងធ្វើការ។ របារសរសេរ គ្រាប់ថ្នាំ និងពពុះ នៅតូច រហូតដល់អ្នកចុច រួចបង្ហាញការជជែកទាំងមូល។ អូសរចនាប័ទ្មណាមួយតាមកន្លែងចាប់របស់វា។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "작업 공간 위에 떠 있을 때 Chief의 모양입니다. 입력 바, 알약, 버블은 클릭할 때까지 작게 있다가 전체 채팅을 보여 줍니다. 모든 스타일은 손잡이로 끌어 옮깁니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hvordan Chief ser ut når den svever over et arbeidsområde. Skrivelinje, Pille og Boble holder seg små til du klikker på dem, og viser så hele chatten. Dra enhver stil i håndtaket."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jak wygląda Chief, gdy unosi się nad obszarem roboczym. Pasek pisania, Pigułka i Bańka pozostają małe, dopóki ich nie klikniesz, a potem pokazują cały czat. Każdy styl przeciągnij za uchwyt."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Como o Chief aparece quando flutua sobre um espaço de trabalho. Barra de escrita, Pílula e Bolha ficam pequenas até você clicar nelas e então mostram o chat inteiro. Arraste qualquer estilo pela alça."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Как выглядит Chief, когда он парит над рабочим пространством. Строка ввода, Таблетка и Пузырь остаются маленькими, пока вы их не нажмёте, а затем показывают весь чат. Любой стиль перетаскивается за ручку."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ลักษณะของ Chief เมื่อลอยอยู่เหนือพื้นที่ทำงาน แถบพิมพ์ เม็ดยา และฟองจะเล็กอยู่จนกว่าคุณจะคลิก แล้วจึงแสดงแชตทั้งหมด ลากทุกรูปแบบได้ด้วยที่จับ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Chief'in bir çalışma alanının üzerinde serbestken görünümü. Yazma Çubuğu, Hap ve Baloncuk tıklayana kadar küçük kalır, sonra tüm sohbeti gösterir. Her stili tutamacından sürükleyin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Як виглядає Chief, коли він плаває над робочим простором. Рядок введення, Пігулка й Бульбашка лишаються малими, доки ви їх не натиснете, а тоді показують увесь чат. Будь-який стиль перетягуйте за ручку."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Giao diện của Chief khi nổi trên không gian làm việc. Thanh soạn, Viên thuốc và Bong bóng luôn nhỏ cho tới khi bạn bấm vào, rồi hiện toàn bộ cuộc trò chuyện. Kéo mọi kiểu bằng tay nắm của nó."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Chief 浮在工作区上方时的样子。输入栏、胶囊和气泡在你点击前保持小巧，点击后显示完整聊天。任何样式都可以拖动其手柄。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Chief 浮在工作區上方時的樣子。輸入列、膠囊和氣泡在你按下前保持小巧，按下後顯示完整聊天。任何樣式都可以拖動其把手。"}}
+      }
+    },
+    "settings.choice.chiefPanelStyle.composeBar": {
+      "comment": "Floating Chief style: only the message box, which grows into the chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Compose Bar"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "شريط الكتابة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Traka za pisanje"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Skrivelinje"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Eingabeleiste"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Barra de redacción"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Barre de saisie"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Barra di scrittura"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "入力バー"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "របារសរសេរ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "입력 바"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Skrivelinje"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pasek pisania"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Barra de escrita"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Строка ввода"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แถบพิมพ์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yazma Çubuğu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Рядок введення"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thanh soạn"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "输入栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "輸入列"}}
+      }
+    },
+    "settings.choice.chiefPanelStyle.pill": {
+      "comment": "Floating Chief style: a slim round pill.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Pill"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حبة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Pilula"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Pille"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Pille"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Píldora"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Pilule"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Pillola"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ピル"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គ្រាប់ថ្នាំ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "알약"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Pille"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pigułka"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pílula"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Таблетка"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เม็ดยา"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Hap"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Пігулка"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Viên thuốc"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "胶囊"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "膠囊"}}
+      }
+    },
+    "settings.choice.chiefPanelStyle.card": {
+      "comment": "Floating Chief style: the whole chat with no title bar.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Card"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بطاقة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kartica"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kort"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Karte"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tarjeta"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Carte"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Scheda"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "カード"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កាត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "카드"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kort"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Karta"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Cartão"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Карточка"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "การ์ด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kart"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Картка"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thẻ"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "卡片"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "卡片"}}
+      }
+    },
+    "settings.choice.chiefPanelStyle.panel": {
+      "comment": "Floating Chief style: the whole chat under a title bar.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Panel"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لوحة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Panel"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Panel"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Bereich"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Panel"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Panneau"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Pannello"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "パネル"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទាំង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "패널"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Panel"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Panel"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Painel"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Панель"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แผง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Panel"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Панель"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Bảng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "面板"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "面板"}}
+      }
+    },
+    "settings.choice.chiefPanelStyle.bubble": {
+      "comment": "Floating Chief style: a round button that grows into the chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Bubble"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "فقاعة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mjehurić"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Boble"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Blase"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Burbuja"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Bulle"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Bolla"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "バブル"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពពុះ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "버블"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Boble"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Bańka"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Bolha"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Пузырь"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ฟอง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Baloncuk"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Бульбашка"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Bong bóng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "气泡"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "泡泡"}}
+      }
+    },
     "settings.choice.groupPaletteGlass": {
       "comment": "Group palette choice: no color.",
       "extractionState": "manual",
@@ -95645,268 +95942,6 @@
         }
       }
     },
-    "settings.tabs.cmdWClosesPinnedTabs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W Closes Pinned Tabs"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W يغلق علامات التبويب المثبتة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W zatvara prikačene kartice"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W lukker fastgjorte faner"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W schließt angeheftete Tabs"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W cierra las pestañas fijadas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W ferme les onglets épinglés"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W chiude le schede fissate"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W でピン留めしたタブを閉じる"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W បិទផ្ទាំងដែលបានខ្ទាស់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W로 고정된 탭 닫기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W lukker festede faner"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W zamyka przypięte karty"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W Fecha Abas Fixadas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W закрывает закреплённые вкладки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W ปิดแท็บที่ปักหมุด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W Sabitlenmiş Sekmeleri Kapatır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W закриває закріплені вкладки"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W đóng các thẻ đã ghim"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W 关闭固定的标签页"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W 關閉固定的分頁"
-          }
-        }
-      }
-    },
-    "settings.tabs.cmdWClosesPinnedTabs.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عند الإيقاف، يحدد Cmd-W على علامة تبويب مثبتة علامة التبويب التالية ويحتفظ بالعلامة المثبتة. أغلق علامة التبويب المثبتة من قائمتها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kada je isključeno, Cmd-W na prikačenoj kartici bira sljedeću karticu i zadržava prikačenu. Zatvorite prikačenu karticu iz njenog menija."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når den er slået fra, vælger Cmd-W på en fastgjort fane den næste fane og beholder den fastgjorte fane. Luk en fastgjort fane fra dens menu."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wenn aus, wählt Cmd-W auf einem angehefteten Tab den nächsten Tab und behält den angehefteten Tab. Schließe einen angehefteten Tab über sein Menü."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Si está desactivado, Cmd-W en una pestaña fijada selecciona la siguiente pestaña y conserva la fijada. Cierra una pestaña fijada desde su menú."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Désactivé, Cmd-W sur un onglet épinglé sélectionne l’onglet suivant et garde l’onglet épinglé. Fermez un onglet épinglé depuis son menu."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se disattivato, Cmd-W su una scheda fissata seleziona la scheda successiva e mantiene quella fissata. Chiudi una scheda fissata dal suo menu."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフのとき、ピン留めしたタブで Cmd-W を押すと次のタブを選択し、ピン留めしたタブは残ります。ピン留めしたタブはそのメニューから閉じます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ពេលបិទ Cmd-W លើផ្ទាំងដែលបានខ្ទាស់ ជ្រើសផ្ទាំងបន្ទាប់ ហើយរក្សាផ្ទាំងដែលបានខ្ទាស់។ បិទផ្ទាំងដែលបានខ្ទាស់ពីម៉ឺនុយរបស់វា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "끄면 고정된 탭에서 Cmd-W를 누를 때 다음 탭을 선택하고 고정된 탭은 유지합니다. 고정된 탭은 탭 메뉴에서 닫으세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når av, velger Cmd-W på en festet fane neste fane og beholder den festede fanen. Lukk en festet fane fra menyen dens."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gdy wyłączone, Cmd-W na przypiętej karcie wybiera następną kartę i zachowuje przypiętą. Zamknij przypiętą kartę z jej menu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quando desativado, Cmd-W em uma aba fixada seleciona a próxima aba e mantém a fixada. Feche uma aba fixada pelo menu dela."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Если выключено, Cmd-W на закреплённой вкладке выбирает следующую вкладку и оставляет закреплённую. Закройте закреплённую вкладку через её меню."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เมื่อปิด Cmd-W บนแท็บที่ปักหมุดจะเลือกแท็บถัดไปและเก็บแท็บที่ปักหมุดไว้ ปิดแท็บที่ปักหมุดจากเมนูของแท็บ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kapalıyken sabitlenmiş bir sekmede Cmd-W sonraki sekmeyi seçer ve sabitlenmiş sekmeyi tutar. Sabitlenmiş bir sekmeyi menüsünden kapatın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Якщо вимкнено, Cmd-W на закріпленій вкладці вибирає наступну вкладку й залишає закріплену. Закрийте закріплену вкладку з її меню."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Khi tắt, Cmd-W trên một thẻ đã ghim sẽ chọn thẻ tiếp theo và giữ thẻ đã ghim. Đóng thẻ đã ghim từ menu của nó."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭时，在固定的标签页上按 Cmd-W 会选择下一个标签页并保留固定的标签页。请从标签页菜单关闭固定的标签页。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉時，在固定的分頁上按 Cmd-W 會選取下一個分頁並保留固定的分頁。請從分頁選單關閉固定的分頁。"
-          }
-        }
-      }
-    },
     "settings.computerUse.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -167067,127 +167102,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Inter (default)"
+            "value": "cmux Inter"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (افتراضي)"
+            "value": "cmux Inter"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Zadano)"
+            "value": "cmux Inter"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Predeterminado)"
+            "value": "cmux Inter"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Par défaut)"
+            "value": "cmux Inter"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Predefinito)"
+            "value": "cmux Inter"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (デフォルト)"
+            "value": "cmux Inter"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (លំនាំដើម)"
+            "value": "cmux Inter"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (기본값)"
+            "value": "cmux Inter"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Domyślne)"
+            "value": "cmux Inter"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Padrão)"
+            "value": "cmux Inter"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (По умолчанию)"
+            "value": "cmux Inter"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (ค่าเริ่มต้น)"
+            "value": "cmux Inter"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Varsayılan)"
+            "value": "cmux Inter"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Типово)"
+            "value": "cmux Inter"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Mặc định)"
+            "value": "cmux Inter"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (默认)"
+            "value": "cmux Inter"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (預設)"
+            "value": "cmux Inter"
           }
         }
       }
@@ -168387,127 +168422,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "System (default)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "النظام"
+            "value": "النظام (افتراضي)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistemski"
+            "value": "Sistemski (Zadano)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Predeterminado)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Système"
+            "value": "Système (Par défaut)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Predefinito)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "システム"
+            "value": "システム (デフォルト)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប្រព័ន្ធ"
+            "value": "ប្រព័ន្ធ (លំនាំដើម)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "시스템"
+            "value": "시스템 (기본값)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Systemowa"
+            "value": "Systemowa (domyślna)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Padrão)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Системный"
+            "value": "Системный (По умолчанию)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ระบบ"
+            "value": "ระบบ (ค่าเริ่มต้น)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistem"
+            "value": "Sistem (Varsayılan)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Системний"
+            "value": "Системний (Типово)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hệ thống"
+            "value": "Hệ thống (Mặc định)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "系统"
+            "value": "系统 (默认)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "系統"
+            "value": "系統 (預設)"
           }
         }
       }
@@ -185074,6 +185109,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理程式可以建議後續任務，你可以在目前聊天旁把它們當成子聊天開始。變更後啟動的代理程式生效。"
+          }
+        }
+      }
+    },
+    "settings.agents.promptSuggestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggest Next Prompt"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اقتراح الطلب التالي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predlaži sljedeći upit"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå næste prompt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächsten Prompt vorschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir la siguiente instrucción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggérer la prochaine instruction"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggerisci il prossimo prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のプロンプトを提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ណែនាំសំណើបន្ទាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 프롬프트 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå neste ledetekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponuj następny prompt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir o próximo prompt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предлагать следующий запрос"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แนะนำพรอมต์ถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki istemi öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропонувати наступний запит"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gợi ý lời nhắc tiếp theo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建议下一条提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建議下一則提示"
+          }
+        }
+      }
+    },
+    "settings.agents.promptSuggestions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد كل دور، يقترح Claude أو Codex طلبك التالي كنص رمادي في محرر فارغ؛ يقبله Tab أو السهم الأيمن. كل اقتراح هو استدعاء إضافي للنموذج يُحتسب ضمن الاستخدام. ينطبق على المحادثات التي تبدأ أو يُعاد تشغيلها بعد التغيير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon poteza, Claude ili Codex predlaže vaš sljedeći upit kao sivi tekst u praznom polju za pisanje; Tab ili strelica desno ga prihvata. Svaki prijedlog je jedan dodatni poziv modela koji se računa u potrošnju. Važi za razgovore pokrenute ili ponovo pokrenute nakon promjene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter en tur foreslår Claude eller Codex din næste prompt som grå tekst i et tomt skrivefelt; Tab eller højre pil tager den. Hvert forslag er ét ekstra modelkald, der tæller med i forbruget. Gælder for chats, der startes eller genstartes efter ændringen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach einem Zug schlägt Claude oder Codex deinen nächsten Prompt als graue Schrift in einem leeren Eingabefeld vor; Tab oder Pfeil nach rechts übernimmt ihn. Jeder Vorschlag ist ein zusätzlicher Modellaufruf, der zur Nutzung zählt. Gilt für Chats, die nach der Änderung gestartet oder neu gestartet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras cada turno, Claude o Codex sugiere tu siguiente instrucción como texto gris en un editor vacío; Tab o la flecha derecha la acepta. Cada sugerencia es una llamada adicional al modelo que cuenta para el uso. Se aplica a los chats iniciados o reiniciados después del cambio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après chaque tour, Claude ou Codex suggère votre prochaine instruction en texte gris dans un champ de saisie vide ; Tab ou la flèche droite l’accepte. Chaque suggestion est un appel supplémentaire au modèle, compté dans l’utilisation. S’applique aux chats lancés ou relancés après le changement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo un turno, Claude o Codex suggerisce il tuo prossimo prompt come testo grigio in un compositore vuoto; Tab o la freccia destra lo accetta. Ogni suggerimento è una chiamata in più al modello che conta nell’utilizzo. Vale per le chat avviate o riavviate dopo la modifica."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターンの後、Claude または Codex が次のプロンプトを空の入力欄にグレーの文字で提案します。Tab または右矢印キーで採用できます。提案ごとにモデル呼び出しが 1 回追加され、使用量に含まれます。変更後に開始または再起動したチャットに適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពីវេនមួយ Claude ឬ Codex ណែនាំសំណើបន្ទាប់របស់អ្នកជាអក្សរពណ៌ប្រផេះក្នុងប្រអប់សរសេរទទេ ហើយ Tab ឬព្រួញស្ដាំទទួលយកវា។ ការណែនាំនីមួយៗគឺជាការហៅម៉ូដែលបន្ថែមមួយដងដែលរាប់ក្នុងការប្រើប្រាស់។ អនុវត្តចំពោះការជជែកដែលចាប់ផ្ដើម ឬចាប់ផ្ដើមឡើងវិញក្រោយការផ្លាស់ប្ដូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "턴이 끝나면 Claude 또는 Codex가 빈 입력창에 다음 프롬프트를 회색 텍스트로 제안합니다. Tab 또는 오른쪽 화살표로 받아들일 수 있습니다. 제안마다 모델 호출이 한 번 더 발생하며 사용량에 포함됩니다. 변경 후 시작하거나 다시 시작한 채팅에 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter en tur foreslår Claude eller Codex din neste ledetekst som grå tekst i et tomt skrivefelt; Tab eller høyre pil tar den. Hvert forslag er ett ekstra modellkall som teller mot forbruket. Gjelder chatter som startes eller startes på nytt etter endringen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po każdej turze Claude lub Codex proponuje Twój następny prompt jako szary tekst w pustym polu edycji; Tab lub strzałka w prawo go przyjmuje. Każda propozycja to jedno dodatkowe wywołanie modelu, które wlicza się do użycia. Dotyczy czatów uruchomionych lub uruchomionych ponownie po zmianie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após cada turno, o Claude ou o Codex sugere seu próximo prompt como texto cinza no editor vazio; Tab ou a seta para a direita o aceita. Cada sugestão é uma chamada extra ao modelo que conta no uso. Vale para chats iniciados ou reiniciados depois da mudança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После хода Claude или Codex предлагает ваш следующий запрос серым текстом в пустом поле ввода; Tab или стрелка вправо принимает его. Каждое предложение — это ещё один вызов модели, который учитывается в использовании. Действует для чатов, запущенных или перезапущенных после изменения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจบแต่ละรอบ Claude หรือ Codex จะแนะนำพรอมต์ถัดไปของคุณเป็นข้อความสีเทาในช่องเขียนที่ว่างอยู่ กด Tab หรือลูกศรขวาเพื่อใช้ การแนะนำแต่ละครั้งคือการเรียกโมเดลเพิ่มหนึ่งครั้งที่นับรวมในการใช้งาน มีผลกับแชทที่เริ่มหรือเริ่มใหม่หลังการเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her turdan sonra Claude veya Codex, boş yazma alanında bir sonraki isteminizi gri metin olarak önerir; Tab veya sağ ok tuşu onu alır. Her öneri, kullanıma sayılan fazladan bir model çağrısıdır. Değişiklikten sonra başlatılan veya yeniden başlatılan sohbetler için geçerlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після ходу Claude або Codex пропонує ваш наступний запит сірим текстом у порожньому полі введення; Tab або стрілка праворуч приймає його. Кожна пропозиція — це ще один виклик моделі, що враховується у використанні. Діє для чатів, запущених або перезапущених після зміни."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau mỗi lượt, Claude hoặc Codex gợi ý lời nhắc tiếp theo của bạn dưới dạng chữ xám trong ô soạn thảo trống; nhấn Tab hoặc mũi tên phải để dùng. Mỗi gợi ý là một lần gọi mô hình thêm và được tính vào mức sử dụng. Áp dụng cho các cuộc trò chuyện bắt đầu hoặc khởi động lại sau thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每轮结束后，Claude 或 Codex 会在空白输入框中以灰色文字建议你的下一条提示；按 Tab 或右箭头即可采用。每条建议都是一次额外的模型调用，会计入用量。适用于更改后开始或重新开始的聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每輪結束後，Claude 或 Codex 會在空白輸入框中以灰色文字建議你的下一則提示；按 Tab 或向右鍵即可採用。每則建議都是一次額外的模型呼叫，會計入用量。適用於變更後開始或重新開始的聊天。"
           }
         }
       }
@@ -219029,6 +219326,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "左上"
+          }
+        }
+      }
+    },
+    "settings.group.developerTools": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدوات المطور"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razvojni alati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udviklerværktøjer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwicklerwerkzeuge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Developer Tools"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas de desarrollo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils de développement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumenti per sviluppatori"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デベロッパツール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍អ្នកអភិវឌ្ឍន៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개발자 도구"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utviklerverktøy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narzędzia deweloperskie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferramentas do Desenvolvedor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструменты разработчика"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องมือนักพัฒนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geliştirici Araçları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інструменти розробника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Công cụ nhà phát triển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开发者工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開發者工具"
+          }
+        }
+      }
+    },
+    "settings.developerTools.appPages": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدوات المطور لصفحات cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razvojni alati za cmux stranice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udviklerværktøjer til cmux-sider"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwicklerwerkzeuge für cmux-Seiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Developer Tools for cmux Pages"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas de desarrollo para páginas de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils de développement pour les pages cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumenti per sviluppatori per le pagine di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ページのデベロッパツール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍អ្នកអភិវឌ្ឍន៍សម្រាប់ទំព័រ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 페이지용 개발자 도구"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utviklerverktøy for cmux-sider"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narzędzia deweloperskie dla stron cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferramentas do Desenvolvedor para páginas do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструменты разработчика для страниц cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องมือนักพัฒนาสำหรับหน้า cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sayfaları için Geliştirici Araçları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інструменти розробника для сторінок cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Công cụ nhà phát triển cho các trang cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 页面的开发者工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 頁面的開發者工具"
+          }
+        }
+      }
+    },
+    "settings.developerTools.appPages.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل «فحص العنصر» في قائمة النقر بزر الماوس الأيمن و«تبديل أدوات المطور» (⌥⌘I) في محادثات الوكلاء والصفحة الرئيسية وMarkdown والإعدادات. علامات تبويب المتصفح تتضمنها دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregledaj element u meniju desnog klika i Prebaci razvojne alate (⌥⌘I) rade u chatovima s agentima, na Početnoj, u Markdownu i Postavkama. Kartice preglednika ih uvijek imaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undersøg element i højrekliksmenuen og Slå udviklerværktøjer til/fra (⌥⌘I) virker i agentchats, Hjem, Markdown og Indstillinger. Browserfaner har dem altid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Element untersuchen“ im Kontextmenü und „Entwicklerwerkzeuge ein-/ausblenden“ (⌥⌘I) funktionieren in Agent-Chats, Home, Markdown und Einstellungen. Browser-Tabs haben sie immer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspeccionar elemento en el menú contextual y Alternar herramientas de desarrollo (⌥⌘I) funcionan en los chats de agentes, Inicio, Markdown y Ajustes. Las pestañas del navegador siempre los tienen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspecter l’élément dans le menu contextuel et Afficher/masquer les outils de développement (⌥⌘I) fonctionnent dans les discussions d’agents, l’Accueil, Markdown et les Réglages. Les onglets du navigateur les ont toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ispeziona elemento nel menu contestuale e Attiva/Disattiva Strumenti sviluppatore (⌥⌘I) funzionano nelle chat degli agenti, in Home, Markdown e Impostazioni. I pannelli del browser li hanno sempre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右クリックメニューの「要素を検証」と「デベロッパツールを切り替え」(⌥⌘I) が、エージェントチャット、ホーム、Markdown、設定で使えます。ブラウザタブでは常に使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យធាតុ នៅក្នុងម៉ឺនុយចុចស្ដាំ និង បិទ/បើកឧបករណ៍អ្នកអភិវឌ្ឍន៍ (⌥⌘I) ដំណើរការក្នុងការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម Markdown និងការកំណត់។ ផ្ទាំងកម្មវិធីរុករកតែងតែមានវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 클릭 메뉴의 요소 검사와 개발자 도구 전환(⌥⌘I)을 에이전트 채팅, 홈, Markdown, 설정에서 사용할 수 있습니다. 브라우저 탭에는 항상 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspiser element i høyreklikkmenyen og Slå utviklerverktøy av/på (⌥⌘I) virker i agentchatter, Hjem, Markdown og Innstillinger. Nettleserfaner har dem alltid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zbadaj element w menu prawego przycisku i Przełącz narzędzia deweloperskie (⌥⌘I) działają w czatach z agentami, na stronie głównej, w Markdownie i Ustawieniach. Karty przeglądarki mają je zawsze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspecionar elemento no menu de contexto e Alternar Ferramentas do Desenvolvedor (⌥⌘I) funcionam em chats de agentes, Início, Markdown e Ajustes. As abas do navegador sempre os têm."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Просмотреть элемент» в контекстном меню и «Инструменты разработчика» (⌥⌘I) работают в чатах с агентами, на главной, в Markdown и в настройках. Во вкладках браузера они есть всегда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบองค์ประกอบในเมนูคลิกขวา และสลับเครื่องมือนักพัฒนา (⌥⌘I) ใช้ได้ในแชทเอเจนต์ หน้าหลัก Markdown และการตั้งค่า แท็บเบราว์เซอร์มีเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağ tık menüsündeki Öğeyi incele ve Geliştirici Araçlarını Aç/Kapat (⌥⌘I), ajan sohbetlerinde, Ana Sayfa'da, Markdown'da ve Ayarlar'da çalışır. Tarayıcı sekmelerinde her zaman vardır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Переглянути елемент» у контекстному меню та «Перемкнути інструменти розробника» (⌥⌘I) працюють у чатах з агентами, на головній, у Markdown і в налаштуваннях. Вкладки браузера мають їх завжди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểm tra phần tử trong menu chuột phải và Bật/tắt công cụ nhà phát triển (⌥⌘I) hoạt động trong chat với tác tử, Trang chủ, Markdown và Cài đặt. Tab trình duyệt luôn có chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右键菜单中的“检查元素”和“切换开发者工具”(⌥⌘I) 可在智能体聊天、主页、Markdown 和设置中使用。浏览器标签页始终可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右鍵選單中的「檢查元素」和「切換開發者工具」(⌥⌘I) 可在代理聊天、首頁、Markdown 和設定中使用。瀏覽器分頁一律可用。"
           }
         }
       }

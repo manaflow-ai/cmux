@@ -124,8 +124,8 @@ import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
-import { hatChevronLook, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
-import { DoneMark } from "./DoneMark";
+import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
+import { DoneCheck, DoneMark } from "./DoneMark";
 import { Tick } from "./trayMotion";
 import { useTrayMotion } from "./trayMotionModel";
 import { useTraySeen } from "./traySeen";
@@ -283,6 +283,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [latestAt] = useState(() => experimentArm(trayLatestLook));
   const [chevronAt] = useState(() => experimentArm(hatChevronLook));
   const [doneLook] = useState(() => experimentArm(hatDoneLook));
+  const [checkPlace] = useState(() => experimentArm(hatDoneCheckPlace));
   const [rowMotion] = useState(() => experimentArm(hatRowMotionLook));
   const showLatest = latestAt !== "tooltip";
   const latestPlacement = latestAt === "tooltip" ? undefined : latestAt;
@@ -641,7 +642,13 @@ export const SubagentTray = memo(function SubagentTray({
           aria-controls={open && opensPanel !== "header" ? listId : undefined}
           onClick={toggle}
         >
-          {(head === "stack" || lone) && drawnMarks.length > 0 ? (
+          {loneEnd?.status === "done" && doneLook === "check" && checkPlace === "leading" ? (
+            // The `leading` arm (hatParts.experiment.ts `hatDoneCheckPlace`): a lone finished item's check
+            // in the lines' glyph column; its time ends the row alone.
+            <span className="acpmux-lineage__icon" data-state="done" style={{ width: ROW_ICON }} aria-hidden="true">
+              <DoneCheck />
+            </span>
+          ) : (head === "stack" || lone) && drawnMarks.length > 0 ? (
             // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
             // as the sidebar's status row stacks them before "8 done".
             <span className="acpmux-running-tray__stack" data-tray-stack aria-hidden="true">
@@ -708,7 +715,7 @@ export const SubagentTray = memo(function SubagentTray({
             // header is all that says so.
             <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneEnd.status}>
               {loneEnd.status === "done" ? (
-                <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot />
+                <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot place={checkPlace} />
               ) : loneEnd.status === "running" && !loneEnd.retry && loneEnd.time !== undefined ? (
                 loneEnd.time
               ) : (

@@ -165,6 +165,26 @@ public final class OverlayHandle {
         host?.updateMouseRouting()
     }
 
+    /// From now on the overlay takes clicks again, in place: no dismiss and present, which moves
+    /// its content to another view and makes a web page draw a blank frame (the cookie import
+    /// card's first click, and its tab getting the keyboard back).
+    public func startTakingMouse() {
+        guard options.passesThroughClicks else { return }
+        options.passesThroughClicks = false
+        host?.cachedRegions = nil
+        host?.updateMouseRouting()
+    }
+
+    /// Hides the overlay where it is, or shows it again, and takes no clicks while hidden: a card
+    /// that waits off screen keeps its place and its drawn content for when it shows again.
+    public func setHiddenInPlace(_ hidden: Bool) {
+        let view = clipView ?? content
+        guard view.isHidden != hidden else { return }
+        view.isHidden = hidden
+        host?.cachedRegions = nil
+        host?.updateMouseRouting()
+    }
+
     public func dismiss() {
         guard !isDismissed else { return }
         isDismissed = true

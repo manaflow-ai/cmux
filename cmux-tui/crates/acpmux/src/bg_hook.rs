@@ -219,27 +219,309 @@ as asked."
     }}))
 }
 
-/// The hook process: reads the call on stdin, prints a deny or nothing, and always exits 0.
-/// `home` is the daemon's (`agent_tools::bg_hooks` passes it), where the chat's MCP config is.
+/// The hook's mark on a command a Claude Code subagent runs that may run the acpmux CLI, or
+/// None: the same call with `export ACPMUX_CALLER_SUBAGENT=TYPE:ID` on a line before it
+/// (`cli::sender::SUBAGENT_ENV`), so the send says which subagent of the session sent it.
+///
+/// A subagent runs in its lead's process with the lead's whole environment, the caller token
+/// too, so without the mark its every `acpmux send` was the lead's: the receiver answered the
+/// lead's chat instead of the subagent that asked (round-2 orchestration eval, 2026-11-08). Claude
+/// Code names the subagent only in the hook's input (`agent_id`, `agent_type`; absent for the
+/// lead's own calls), and a hook can change only the call's input, not its environment.
+///
+/// Which command may run the CLI is not a match of its text: a wrapper script, an alias, a
+/// variable (`$A send`) or a path under another name runs it too. Every command is marked but
+/// one made only of [`PLAIN_TOOLS`], which never start another program by a name the subagent
+/// chose ([`may_run_acpmux`]); so the read-only commands a harness runs without asking stay as
+/// they were. The mark carries no permission decision: the call is allowed or asked as before,
+/// and acpmux's own read-only judgment reads the command without it ([`without_subagent_mark`]).
+pub fn subagent_mark(input: &Value) -> Option<Value> {
+    if input.get("tool_name").and_then(Value::as_str) != Some("Bash") {
+        return None;
+    }
+    let id = input.get("agent_id").and_then(Value::as_str)?;
+    let kind = input
+        .get("agent_type")
+        .and_then(Value::as_str)
+        .filter(|k| crate::cli::sender::subagent_word(k))
+        .unwrap_or("subagent");
+    if !crate::cli::sender::subagent_word(id) {
+        return None;
+    }
+    let command = input.pointer("/tool_input/command")?.as_str()?;
+    let env = crate::cli::sender::SUBAGENT_ENV;
+    if !may_run_acpmux(command) || command.contains(env) {
+        return None;
+    }
+    let mut tool_input = input.get("tool_input").filter(|t| t.is_object())?.clone();
+    tool_input.set("command", json!(format!("export {env}={kind}:{id}\n{command}")));
+    Some(json!({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "updatedInput": tool_input,
+    }}))
+}
+
+/// Programs that start no program a subagent's Bash call names (the arguments that would are
+/// checked in [`plain_command`]): a command made only of these cannot reach the acpmux CLI on
+/// the call's own words, so the hook leaves it unmarked ([`subagent_mark`]). A program the
+/// person's own setup starts (a git hook, a pager, a diff driver) runs unmarked; the mark is a
+/// label, not a guard. Every program `hub/shell_readonly.rs` passes as a read is here.
+const PLAIN_TOOLS: &[&str] = &[
+    "pwd", "ls", "cat", "head", "tail", "wc", "echo", "printf", "true", "false", "which", "type",
+    "stat", "du", "df", "basename", "dirname", "realpath", "readlink", "cut", "tr", "nl", "cmp",
+    "comm", "grep", "egrep", "fgrep", "rg", "column", "whoami", "id", "uname", "jq", "test", "[",
+    "diff", "uniq", "date", "hostname", "sort", "sed", "cd", "mkdir", "touch", "cp", "mv", "rm",
+    "ln", "chmod", "file", "find", "git",
+];
+
+/// git's own commands: `git NAME` for any other NAME may run a `git-NAME` program or an alias.
+const GIT_COMMANDS: &[&str] = &[
+    "status",
+    "diff",
+    "log",
+    "show",
+    "add",
+    "commit",
+    "push",
+    "pull",
+    "fetch",
+    "checkout",
+    "switch",
+    "restore",
+    "branch",
+    "merge",
+    "reset",
+    "stash",
+    "rev-parse",
+    "worktree",
+    "tag",
+    "remote",
+    "config",
+    "clone",
+    "init",
+    "grep",
+    "blame",
+    "describe",
+    "shortlog",
+    "rev-list",
+    "show-ref",
+    "for-each-ref",
+    "ls-files",
+    "ls-tree",
+    "cat-file",
+    "cherry-pick",
+    "revert",
+    "apply",
+    "mv",
+    "rm",
+    "clean",
+    "reflog",
+    "merge-base",
+    "name-rev",
+    "count-objects",
+    "range-diff",
+    "diff-tree",
+    "version",
+];
+
+/// Whether a subagent's Bash `command` may run the acpmux CLI: it names acpmux, or one of its
+/// commands runs a program not known to run nothing else ([`PLAIN_TOOLS`]). The commands are
+/// the shell's (`host_load::for_each_command`: `$(...)`, `sh -c`, `eval` and wrappers included).
+pub fn may_run_acpmux(command: &str) -> bool {
+    if command.contains("acpmux") {
+        return true;
+    }
+    let mut other = false;
+    crate::host_load::for_each_command(command, &mut |argv: &[&str]| {
+        other |= !plain_command(argv);
+    });
+    other
+}
+
+/// Whether one simple command runs only a [`PLAIN_TOOLS`] program: named plainly (no
+/// substitution or variable), git with one of its own commands, find with no `-exec`.
+fn plain_command(argv: &[&str]) -> bool {
+    let Some(first) = argv.first() else { return true };
+    if first.contains(['$', '`']) {
+        return false;
+    }
+    let program = first.rsplit('/').next().unwrap_or(first);
+    if !PLAIN_TOOLS.contains(&program) {
+        return false;
+    }
+    let rest = argv.get(1..).unwrap_or_default();
+    let names_a_program = |flags: &[&str]| {
+        rest.iter().any(|a| flags.iter().any(|f| a == f || a.starts_with(&format!("{f}="))))
+    };
+    match program {
+        "find" => !rest.iter().any(|a| a.starts_with("-exec") || a.starts_with("-ok")),
+        // `--pre CMD` runs CMD on each file.
+        "rg" => !names_a_program(&["--pre"]),
+        "sort" => !names_a_program(&["--compress-program"]),
+        // GNU sed's `e` command and `s///e` run the pattern space.
+        "sed" => {
+            let args: Vec<String> = rest.iter().map(|a| (*a).to_owned()).collect();
+            crate::hub::shell_readonly::sed_prints_only(&args)
+        }
+        "git" => {
+            let mut words = rest.iter();
+            while let Some(w) = words.next() {
+                if *w == "-C" {
+                    words.next();
+                } else if *w == "-c" || w.starts_with("--config-env") {
+                    // A config value can name a program (`core.pager`, `diff.external`).
+                    return false;
+                } else if !w.starts_with('-') {
+                    return GIT_COMMANDS.contains(w);
+                }
+            }
+            true
+        }
+        _ => true,
+    }
+}
+
+/// `command` without the hook's mark line ([`subagent_mark`]) when it starts with one, else as
+/// it is. The mark only sets `ACPMUX_CALLER_SUBAGENT` to two plain words: it runs nothing.
+pub fn without_subagent_mark(command: &str) -> &str {
+    let prefix = format!("export {}=", crate::cli::sender::SUBAGENT_ENV);
+    let Some((line, rest)) = command.split_once('\n') else { return command };
+    let marked = line.strip_prefix(&prefix).and_then(|value| value.split_once(':')).is_some_and(
+        |(kind, id)| {
+            crate::cli::sender::subagent_word(kind) && crate::cli::sender::subagent_word(id)
+        },
+    );
+    if marked { rest } else { command }
+}
+
+/// The answer to a subagent's `PostToolUse` (its Bash or acpmux MCP call ended): the notices the
+/// daemon left for it (`subagent_notice.rs`: reports of turns it asked for without waiting), taken
+/// once, as `additionalContext`, which Claude Code adds to that subagent's own context. None for
+/// the lead's own call (no `agent_id`) or when none waits.
+pub fn subagent_notices(home: &std::path::Path, session: &str, input: &Value) -> Option<Value> {
+    let agent = input.get("agent_id").and_then(Value::as_str)?;
+    let dir = crate::subagent_notice::agent_dir(home, session, agent)?;
+    let texts: Vec<String> = crate::subagent_notice::take_all(&dir)
+        .iter()
+        .filter_map(|n| n.get("text").and_then(Value::as_str).map(str::to_owned))
+        .collect();
+    (!texts.is_empty()).then(|| {
+        json!({"hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": texts.join("\n\n"),
+        }})
+    })
+}
+
+/// A subagent's `SubagentStop`: it reads no more notices, so the daemon gives the ones left for it
+/// to its lead (`hub/lane_report_subagents.rs`), and none of its tool calls runs any more
+/// (`subagent_call.rs`). Prints nothing: blocking the stop to hand one over would make the
+/// subagent's answer to it its last message, the result its lead reads.
+pub fn subagent_stopped(home: &std::path::Path, session: &str, input: &Value) {
+    let Some(agent) = input.get("agent_id").and_then(Value::as_str) else { return };
+    if let Some(dir) = crate::subagent_notice::agent_dir(home, session, agent) {
+        let _ = crate::subagent_notice::mark_stopped(&dir);
+    }
+    crate::subagent_call::end_agent(home, session, agent);
+}
+
+/// The MCP tools through which an agent reaches acpmux without Bash: acpmux's own server, and
+/// cmux's in front of it (its listed tools, and `cmux_exec`, whose script calls them). acpmux's
+/// hook runs on these for a subagent ([`mcp_matcher`]) and records which subagent makes each call
+/// (`subagent_call.rs`): the incident's subagent ran `acpmux run` and `acpmux send` through
+/// `cmux.acpmux_bg_start` in a `cmux_exec` script, so its lane reports went to its lead (W5-M,
+/// 2026-11-08).
+pub const MCP_CALLS: &[&str] = &[
+    "mcp__acpmux__bg_start",
+    "mcp__acpmux__send",
+    "mcp__cmux__acpmux_bg_start",
+    "mcp__cmux__acpmux_send",
+    "mcp__cmux__cmux_exec",
+];
+
+/// [`MCP_CALLS`] as one hooks.json matcher (a regex of alternatives).
+pub fn mcp_matcher() -> String {
+    MCP_CALLS.join("|")
+}
+
+/// Whether `input` is a call of one of [`MCP_CALLS`].
+fn mcp_call(input: &Value) -> bool {
+    input.get("tool_name").and_then(Value::as_str).is_some_and(|t| MCP_CALLS.contains(&t))
+}
+
+/// A subagent's [`MCP_CALLS`] call starts (`PreToolUse`): records which subagent makes it, by its
+/// tool use id, for acpmux's MCP server (`subagent_call.rs`). Nothing for the lead's own call (no
+/// `agent_id`). Prints nothing: the call runs as asked.
+pub fn subagent_call_starts(home: &std::path::Path, session: &str, input: &Value) {
+    let text = |key: &str| input.get(key).and_then(Value::as_str);
+    let (Some(agent), Some(call), true) = (text("agent_id"), text("tool_use_id"), mcp_call(input))
+    else {
+        return;
+    };
+    let kind =
+        text("agent_type").filter(|k| crate::cli::sender::subagent_word(k)).unwrap_or("subagent");
+    let _ = crate::subagent_call::record(home, session, call, agent, kind);
+}
+
+/// A subagent's [`MCP_CALLS`] call ended (`PostToolUse`, `PostToolUseFailure`): its id names
+/// nobody any more (`subagent_call.rs`).
+pub fn subagent_call_ends(home: &std::path::Path, session: &str, input: &Value) {
+    if let (Some(call), true) = (input.get("tool_use_id").and_then(Value::as_str), mcp_call(input))
+    {
+        crate::subagent_call::end(home, session, call);
+    }
+}
+
+/// The hook process: reads the call on stdin, prints a deny, a subagent's mark
+/// ([`subagent_mark`]), a subagent's notices ([`subagent_notices`]) or nothing, and always
+/// exits 0. `home` is the daemon's (`agent_tools::bg_hooks` passes it), where the chat's MCP
+/// config and its subagents' notices are.
 pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let mut text = String::new();
     let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text);
     let Ok(input) = serde_json::from_str::<Value>(&text) else { return Ok(()) };
     let Ok(session) = std::env::var(crate::acpmux_mcp::SESSION_ENV) else { return Ok(()) };
     let home = home.unwrap_or_else(crate::config::home);
+    match input.get("hook_event_name").and_then(Value::as_str) {
+        Some("PostToolUse") => {
+            subagent_call_ends(&home, &session, &input);
+            if let Some(answer) = subagent_notices(&home, &session, &input) {
+                println!("{answer}");
+            }
+            return Ok(());
+        }
+        Some("PostToolUseFailure") => {
+            subagent_call_ends(&home, &session, &input);
+            return Ok(());
+        }
+        Some("SubagentStop") => {
+            subagent_stopped(&home, &session, &input);
+            return Ok(());
+        }
+        Some("PreToolUse") if mcp_call(&input) => {
+            subagent_call_starts(&home, &session, &input);
+            return Ok(());
+        }
+        _ => {}
+    }
     let config = crate::agent_tools::mcp_config_path(&home, &session);
     let route = std::fs::read(&config)
         .ok()
         .and_then(|raw| serde_json::from_slice(&raw).ok())
         .and_then(|c: Value| route(&c));
-    let Some(answer) = decide(&input, route) else { return Ok(()) };
-    // The same call turned away just before runs as asked (the replacement may be unusable).
-    // Keyed by what the call runs, not its per-call ids.
-    let what = json!([input.get("cwd"), input.get("tool_input")]);
-    let key = crate::sha256::sha256_hex(what.to_string().as_bytes());
-    // Unrecorded, a repeat could not get through: then the call runs.
-    if first_time(&denied_path(&config), &key).unwrap_or(false) {
-        println!("{answer}");
+    if let Some(answer) = decide(&input, route) {
+        // The same call turned away just before runs as asked (the replacement may be unusable).
+        // Keyed by what the call runs, not its per-call ids.
+        let what = json!([input.get("cwd"), input.get("tool_input")]);
+        let key = crate::sha256::sha256_hex(what.to_string().as_bytes());
+        // Unrecorded, a repeat could not get through: then the call runs.
+        if first_time(&denied_path(&config), &key).unwrap_or(false) {
+            println!("{answer}");
+            return Ok(());
+        }
+    }
+    if let Some(mark) = subagent_mark(&input) {
+        println!("{mark}");
     }
     Ok(())
 }
@@ -425,6 +707,111 @@ mod tests {
             "echo 'open && swift build",
         ] {
             assert!(slow_reason(slow).is_some(), "{slow}");
+        }
+    }
+
+    mod agent_messaging {
+        use super::*;
+
+        /// Claude Code names a subagent only in the hook's input (`agent_id`, `agent_type`; read on
+        /// 2.1.319): its acpmux command gets the mark, with no permission decision, and the lead's
+        /// own calls and any other command run unchanged.
+        #[test]
+        fn a_subagents_acpmux_command_is_marked_and_nothing_else_is() {
+            let call = |command: &str, agent: Option<(&str, &str)>| {
+                let mut input = json!({"tool_name": "Bash", "cwd": "/w",
+                    "tool_input": {"command": command, "description": "ask beta", "timeout": 5000}});
+                if let Some((kind, id)) = agent {
+                    input.set("agent_type", json!(kind));
+                    input.set("agent_id", json!(id));
+                }
+                input
+            };
+            let sub = Some(("general-purpose", "a0a68e7af3df5967e"));
+            let mark = subagent_mark(&call("acpmux send beta --wait 'hi'", sub)).unwrap();
+            let out = &mark["hookSpecificOutput"];
+            assert_eq!(out["hookEventName"], "PreToolUse");
+            assert!(out.get("permissionDecision").is_none(), "asks or allows as before: {out}");
+            assert_eq!(
+                out["updatedInput"]["command"],
+                "export ACPMUX_CALLER_SUBAGENT=general-purpose:a0a68e7af3df5967e\nacpmux send beta --wait 'hi'"
+            );
+            assert_eq!(
+                out["updatedInput"]["description"], "ask beta",
+                "the rest of the call stays"
+            );
+            assert_eq!(out["updatedInput"]["timeout"], 5000);
+            // The lead's own call, another command, a marked one, an odd id: unchanged.
+            assert_eq!(subagent_mark(&call("acpmux send beta hi", None)), None);
+            assert_eq!(subagent_mark(&call("git status", sub)), None);
+            let again = "export ACPMUX_CALLER_SUBAGENT=x:y\nacpmux ls";
+            assert_eq!(subagent_mark(&call(again, sub)), None);
+            assert_eq!(subagent_mark(&call("acpmux ls", Some(("x", "a1;rm -rf /")))), None);
+            // A type that is no plain word is named `subagent`.
+            let odd = subagent_mark(&call("acpmux ls", Some(("my agent", "a1")))).unwrap();
+            let command = odd["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
+            assert!(
+                command.starts_with("export ACPMUX_CALLER_SUBAGENT=subagent:a1\n"),
+                "{command}"
+            );
+        }
+    }
+
+    mod caller_identity {
+        use super::*;
+
+        fn sub_call(command: &str) -> Value {
+            json!({"tool_name": "Bash", "cwd": "/w", "agent_type": "general-purpose",
+                "agent_id": "a0a68e7af3df5967e", "tool_input": {"command": command}})
+        }
+
+        fn marked(command: &str) -> Option<String> {
+            let mark = subagent_mark(&sub_call(command))?;
+            let out = mark["hookSpecificOutput"]["updatedInput"]["command"].as_str()?.to_owned();
+            Some(out)
+        }
+
+        /// The mark does not hang on the word "acpmux" in the command: a wrapper script, an
+        /// alias, a variable or an absolute path under another name runs the same CLI, and a
+        /// subagent's send through one went out as its lead's.
+        #[test]
+        fn a_subagents_command_through_a_wrapper_alias_or_other_path_is_marked() {
+            let prefix = "export ACPMUX_CALLER_SUBAGENT=general-purpose:a0a68e7af3df5967e\n";
+            for command in [
+                "./scripts/tell beta 'hi'",
+                "amx send beta hi",
+                "/opt/tools/bin/agent-send beta hi",
+                "$A send beta hi",
+                "cd /w && python3 tools/notify.py beta",
+                "ls && ./tell beta hi",
+                "echo $(./tell beta hi)",
+                "sh -c 'tell beta hi'",
+                "git -c core.pager=./tell log",
+                "git submodule foreach ./tell",
+                "git rebase --exec ./tell main",
+                "rg --pre ./tell foo",
+                "sort --compress-program=./tell a.txt",
+                "sed 's/x/./e' a.txt",
+            ] {
+                let got = marked(command).unwrap_or_else(|| panic!("not marked: {command}"));
+                assert_eq!(got, format!("{prefix}{command}"), "{command}");
+            }
+        }
+
+        /// A command made only of tools that never start another program stays as it was, so
+        /// the harness judges it as before (Claude Code runs a read-only command unasked).
+        #[test]
+        fn a_subagents_plain_read_only_command_is_not_changed() {
+            for command in [
+                "ls -la",
+                "git status",
+                "git -C /w log --oneline -5",
+                "rg -n foo src | head -20",
+                "cat a.txt && wc -l b.txt",
+                "sed -n '1,40p' src/main.rs",
+            ] {
+                assert_eq!(marked(command), None, "{command}");
+            }
         }
     }
 

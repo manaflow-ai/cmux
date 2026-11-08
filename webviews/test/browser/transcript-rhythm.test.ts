@@ -68,7 +68,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               const r = el.getBoundingClientRect();
               return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, height: r.height };
             };
-            const header = rect('[data-row-id="grid-header"] .cv-disclosure__line');
+            const header = rect('[data-row-id="grid-header"] .cv-agentmsg__line');
             const prompt = rect('[data-row-id="grid-prompt"] .cv-user__bubble');
             const message = rect('[data-row-id="grid-message"] .cv-md');
             const group = rect(".acpmux-activity .cv-tools > .cv-tool");
@@ -76,8 +76,9 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               ".acpmux-thinking .cv-worked, .acpmux-working .cv-worked, .acpmux-activityLine .cv-activity",
             );
             const composer = rect(".acpmux-composer-box");
-            // A received message's line leads with its sender (IncomingMessageCard.tsx `leading`).
-            const headerIcon = rect('[data-row-id="grid-header"] .cv-disclosure__line > :first-child');
+            // A received message's line leads with its sender's mark in the icon column
+            // (AgentMessageRow.tsx, IncomingMessageCard.tsx ReceivedMark).
+            const headerIcon = rect('[data-row-id="grid-header"] .cv-agentmsg__line > :first-child');
             const toolIcon = rect(".acpmux-activity .cv-tool__icon");
             const chevron = rect(".acpmux-activity .cv-tool__chevron");
             // A reply's own action row, when it draws one: a turn's copy now lives in its footer
@@ -392,9 +393,12 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           }
           console.log(`TRANSCRIPT_CARDS ${JSON.stringify({ width, theme, measured })}`);
           for (const [line, actual] of Object.entries(measured)) {
+            // An opened message is the received card for every kind (AgentMessageRow.tsx `card`,
+            // Leo, 2026-11-07: "They should look basically the same as the other ones"): the card
+            // starts at the icon box (16) and its text the card's padding (12) in, 28.
             const expected =
               line === "message/text"
-                ? 24
+                ? 28
                 : line === "subsession/nesting"
                   ? 16
                   : line === "card/lead" || line.endsWith("/under-gap") || line === "message/gap"

@@ -7640,41 +7640,6 @@
       },
       "shortcuts": [
         {
-          "id": "feed.show",
-          "title": {
-            "en": "Show Feed",
-            "ar": "إظهار الموجز",
-            "bs": "Prikaži feed",
-            "da": "Vis feed",
-            "de": "Feed anzeigen",
-            "es": "Mostrar feed",
-            "fr": "Afficher le flux",
-            "it": "Mostra feed",
-            "ja": "フィードを表示",
-            "km": "បង្ហាញ​ព័ត៌មាន",
-            "ko": "피드 보기",
-            "no": "Vis feed",
-            "pl": "Pokaż kanał",
-            "pt-BR": "Mostrar feed",
-            "ru": "Показать ленту",
-            "th": "แสดงฟีด",
-            "tr": "Akışı Göster",
-            "uk": "Показати стрічку",
-            "vi": "Hiện bảng tin",
-            "zh-CN": "显示动态",
-            "zh-TW": "顯示動態"
-          },
-          "shortcut": {
-            "key": "i",
-            "modifiers": [
-              "shift",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
           "id": "jumpToUnread",
           "title": {
             "en": "Jump to Latest Unread",

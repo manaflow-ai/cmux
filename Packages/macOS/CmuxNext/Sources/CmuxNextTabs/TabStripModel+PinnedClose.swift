@@ -1,42 +1,35 @@
-/// What the user's Cmd-W does to a tab (PINNED-ITEMS-END-TO-END P3).
+/// What the user's Cmd-W does to a tab.
 public enum TabKeyboardClose: Hashable, Sendable {
-    /// Close the tab (an unpinned tab).
+    /// Close the tab, pinned or not, as Chrome's Cmd-W does (cmux-ad i8). The close then selects
+    /// by the one close rule (``FocusAfterClose/tab(selected:old:surviving:shown:)``).
     case close
-    /// Keep the pinned tab and select this tab instead.
+    /// Keep a tab that cannot close (Home's tab) and select this tab instead.
     case select(TabID)
-    /// Keep the pinned tab: nothing else to select.
-    case keep
     /// Do nothing and say nothing: a tab that cannot close (Home's tab) with nothing else to
     /// select. Cmd-W in the Home Chief pane is not an error (plans/cmux-next/home-chief-pane.md).
     case ignore
 }
 
 extension TabStripModel {
-    /// What Cmd-W does to `id`. A pinned tab closes when `closesPinned`
-    /// (`tabs.cmdWClosesPinnedTabs`, on by default, as Chrome's Cmd-W closes a
-    /// pinned tab); with it off, Cmd-W keeps a pinned tab and selects the next
-    /// visible tab in strip order (the previous one when it is last), and only an
-    /// explicit close (the tab menu, the CLI or MCP by id) closes it. A tab that
-    /// cannot close (``TabItem/isClosable`` false: Home's tab) is always kept.
-    public func keyboardClose(_ id: TabID, closesPinned: Bool = false) -> TabKeyboardClose {
+    /// What Cmd-W does to `id`: it closes it, pinned or not, as Chrome's Cmd-W does (Lawrence
+    /// 2026-11-08, cmux-ad i8: "make it consistent, match chrome's behavior"). Only a tab that
+    /// cannot close (``TabItem/isClosable`` false: Home's tab, `pinned-dock-v1`) is kept: the next
+    /// visible tab in strip order is selected (the previous one when it is last), else nothing.
+    public func keyboardClose(_ id: TabID) -> TabKeyboardClose {
         let ordered = orderedTabs
-        guard let index = ordered.firstIndex(where: { $0.id == id }) else { return .close }
-        // A tab that cannot close (Home's tab, `pinned-dock-v1`) is kept like a pinned one,
-        // whatever `closesPinned` says.
-        let keeps = !ordered[index].isClosable || (ordered[index].isPinned && !closesPinned)
-        guard keeps else { return .close }
+        guard let index = ordered.firstIndex(where: { $0.id == id }), !ordered[index].isClosable else { return .close }
         let collapsed = Set(groups.filter(\.isCollapsed).map(\.id))
         func visible(_ tab: TabItem) -> Bool { tab.groupID.map { !collapsed.contains($0) } ?? true }
         if let next = ordered[(index + 1)...].first(where: visible) { return .select(next.id) }
         if let previous = ordered[..<index].last(where: visible) { return .select(previous.id) }
-        return ordered[index].isClosable ? .keep : .ignore
+        return .ignore
     }
 }
 
 extension TabStripModel {
     // Chrome's close commands (`TabStripModel::GetTabsClosedByCommand`): Close Other Tabs and
     // Close Tabs to the Right (and cmux's Close Tabs to the Left) never close a pinned tab. Only
-    // Close Tab, the CLI or MCP naming the tab (and Cmd-W, with `tabs.cmdWClosesPinnedTabs` on) closes a pinned tab.
+    // Close Tab, Cmd-W, the CLI or MCP naming the tab closes a pinned tab.
     // None of them lists a tab that cannot close (Home's tab, `pinned-dock-v1`).
 
     /// The tabs Close Other Tabs closes for `keep`, in strip order: every other unpinned tab.

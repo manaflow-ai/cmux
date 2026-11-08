@@ -45,7 +45,7 @@ use zeroize::Zeroizing;
 
 use super::answer::{CarrierAnswer, CarrierSource, Prefetched, SourceError, TicketCache};
 use super::contract::{
-    Backoff, Failure, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line,
+    Backoff, Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line,
 };
 
 /// The relay's frame bound for a carrier (the Mac's remote client uses the same).
@@ -54,6 +54,10 @@ const MAX_FRAME_BYTES: usize = 65_535;
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(15);
 /// The Noise handshake of one attempt, at most.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long an established session tries to resume before it gives up.
+/// After that its streams end, and the next stream (`held`) or the
+/// caller's next dial opens a fresh session instead of resuming forever.
+pub(super) const RESUME_DEADLINE: Duration = Duration::from_secs(10);
 
 /// A connected carrier session.
 pub(super) struct Dialed {
@@ -78,6 +82,8 @@ pub(super) struct DialPlan {
     /// Where each attempt's phases line goes: the connect log only, never
     /// stderr ([`phases_line`]).
     pub phases: Arc<dyn Fn(String) + Send + Sync>,
+    /// The dial's fresh sessions, shared with the caller's own retries.
+    pub fresh_sessions: FreshSessions,
 }
 
 /// A failure of the connection step: a provider error is the relay's (or,
@@ -100,6 +106,10 @@ pub(super) fn classify(error: &ConnectionError, step: Step) -> Failure {
         ConnectionError::Crypto(
             CryptoError::DaemonKeyMismatch { .. } | CryptoError::Unauthorized(_),
         ) => Failure::fatal(Step::Handshake, detail),
+        // The session host restarted and lost the session: a fresh one.
+        ConnectionError::SessionUnavailable => {
+            Failure::session_gone(step.max(Step::Handshake), detail)
+        }
         _ if error.is_retryable_carrier_failure() => {
             Failure::retry(step.max(Step::Handshake), detail)
         }
@@ -113,7 +123,12 @@ pub(super) fn pinned_daemon(answer: &CarrierAnswer) -> Result<[u8; 32], Failure>
 }
 
 fn source_failure(error: SourceError) -> Failure {
-    Failure { step: Step::Ticket, detail: error.detail, retryable: error.retryable }
+    Failure {
+        step: Step::Ticket,
+        detail: error.detail,
+        retryable: error.retryable,
+        fresh_session: false,
+    }
 }
 
 /// A [`LinkGroup`] that records how far an attempt got: the relay's
@@ -214,12 +229,13 @@ impl LinkGroup for Tracked {
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         self.step.advance(Step::Parked);
         self.step.mark(|marks| {
-            marks.lanes += 1;
             marks.first_open.get_or_insert_with(Instant::now);
         });
         let link = self.inner.open(request).await?;
         self.step.advance(Step::Handshake);
+        // A lane counts once the relay has allocated it, not on the ask.
         self.step.mark(|marks| {
+            marks.lanes += 1;
             marks.first_allocated.get_or_insert_with(Instant::now);
         });
         Ok(link)
@@ -320,6 +336,7 @@ async fn attempt(
         limits: SessionLimits::default(),
         reconnect: ReconnectPolicy {
             attempt_timeout: HANDSHAKE_TIMEOUT.min(remaining.max(Duration::from_millis(1))),
+            maximum_duration: Some(RESUME_DEADLINE),
             ..ReconnectPolicy::default()
         },
     };
@@ -338,12 +355,19 @@ async fn attempt(
     let mux = match OpenedMuxControl::open(&multiplexer).await {
         Ok(mux) => mux,
         Err(error) => {
+            // The link dropped after the handshake and the resume reached a
+            // session host that restarted meanwhile (the updater restarts
+            // it at boot): it no longer has this session, so the next
+            // attempt opens a fresh one.
+            let gone = connection.session_unavailable();
             multiplexer.shutdown().await;
             let _ = connection.close().await;
-            return Err(Failure::fatal(
-                Step::Handshake,
-                format!("the daemon did not open its mux control stream: {error}"),
-            ));
+            let detail = format!("the daemon did not open its mux control stream: {error}");
+            return Err(if gone {
+                Failure::session_gone(Step::Handshake, detail)
+            } else {
+                Failure::fatal(Step::Handshake, detail)
+            });
         }
     };
     step.mark(|marks| marks.mux_open = Some(Instant::now()));
@@ -442,7 +466,8 @@ pub(super) struct Resume {
 impl ResumeHooks for Resume {
     fn attempt_ended(&self, result: Result<(), &ConnectionError>, elapsed: Duration) {
         let outcome = result.err().map(resume_outcome);
-        (self.log)(route_line(&self.machine, Phase::Resume, outcome, elapsed));
+        let detail = result.err().map(ToString::to_string);
+        (self.log)(route_line(&self.machine, Phase::Resume, outcome, detail.as_deref(), elapsed));
     }
 }
 
@@ -467,7 +492,8 @@ pub(super) async fn dial(
         let phase = Phase::of_attempt(attempts);
         let outcome = result.as_ref().err().map(|f| f.step);
         let elapsed = started.elapsed();
-        (plan.log)(route_line(&plan.machine, phase, outcome, elapsed));
+        let detail = result.as_ref().err().map(|f| f.detail.as_str());
+        (plan.log)(route_line(&plan.machine, phase, outcome, detail, elapsed));
         (plan.phases)(phases_line(
             &plan.machine,
             PhasesOf::Attempt(phase),
@@ -482,9 +508,16 @@ pub(super) async fn dial(
         if !failure.retryable {
             return Err(failure);
         }
+        if failure.fresh_session {
+            if !plan.fresh_sessions.take() {
+                return Err(Failure { retryable: false, fresh_session: false, ..failure });
+            }
+            // The daemon is up and answered: no backoff.
+            continue;
+        }
         let remaining = plan.deadline.saturating_duration_since(Instant::now());
         let Some(delay) = backoff.next(remaining, &jitter) else {
-            return Err(Failure { retryable: false, ..failure });
+            return Err(Failure { retryable: false, fresh_session: false, ..failure });
         };
         tokio::time::sleep(delay).await;
     }

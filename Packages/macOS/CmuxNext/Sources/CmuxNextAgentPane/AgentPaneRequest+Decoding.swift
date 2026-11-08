@@ -30,7 +30,11 @@ extension AgentPaneRequest {
                 guard parsed.count == list.count else { return .unsupported(method) }
                 batch = parsed.map { AgentPaneUploadBatchEntry(name: $0.0, size: $0.1) }
             }
-            return .uploadStage(.begin(name: name, size: size, batchToken: batchToken, batch: batch))
+            let begin = AgentPaneUploadStageRequest.begin(name: name, size: size, batchToken: batchToken, batch: batch)
+            // A begin that names a Send (any of its three fields) goes only under that Send's ticket.
+            guard ["sessionId", "promptId", "ticket"].contains(where: { params[$0] != nil }) else { return .uploadStage(begin) }
+            guard let ticket = AgentPaneUploadSendTicket(beginParams: params) else { return .unsupported(method) }
+            return .uploadStageForSend(begin, ticket)
         case "chat.upload.chunk":
             guard let token = params["token"] as? String, (1...128).contains(token.utf8.count),
                   let offset = (params["offset"] as? NSNumber)?.intValue, offset >= 0,
@@ -451,6 +455,10 @@ extension AgentPaneRequest {
         case "chats.open":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
             else { self = .unsupported(method) }
+        case "chats.resume":
+            if let ref = params?["ref"] as? String, !ref.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, ref.utf8.count <= 4096 {
+                self = .resumeChat(ref)
+            } else { self = .unsupported(method) }
         case "chats.openInTerminal":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChatInTerminal(key) }
             else { self = .unsupported(method) }

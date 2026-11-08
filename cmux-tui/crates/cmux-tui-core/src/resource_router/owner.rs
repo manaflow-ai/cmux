@@ -343,12 +343,6 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ConversationTyping
         | ResourceOperation::ConversationDraft
         | ResourceOperation::ConversationEvents
-        | ResourceOperation::CloudVmResize
-        | ResourceOperation::CloudVmSnapshot
-        | ResourceOperation::CloudVmSnapshots
-        | ResourceOperation::CloudVmDeleteSnapshot
-        | ResourceOperation::CloudVmRestore
-        | ResourceOperation::CloudVmFork
         | ResourceOperation::CloudVmScpEndpoint
         | ResourceOperation::CloudVmTunnelEnroll
         | ResourceOperation::CloudVmTunnelRevoke
