@@ -12,7 +12,8 @@ import { useToolRunLook } from "../toolRunLook";
 import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
 import { isThought } from "./thoughts";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { EditCounts, useEditTotals } from "./EditCounts";
+import { EditCounts } from "./EditCounts";
+import { useEditTotals } from "./editCountsModel";
 import { FailedCount } from "./FailedCount";
 import { ToolLabel } from "./ToolVerb";
 
