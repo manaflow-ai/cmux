@@ -645,10 +645,11 @@ fn disk_file(
 /// Read the ref itself, distinct from the stash's worktree contents.
 fn stash_ref(folder: &Path) -> anyhow::Result<Option<String>> {
     let output = local(folder)
-        .args(["show-ref", "--verify", "--hash", "refs/stash"])
+        // `show-ref --verify` exits 128 for a missing ref; `rev-parse --quiet` exits 1.
+        .args(["rev-parse", "--verify", "--quiet", "refs/stash"])
         .output()
         .context("cannot read refs/stash")?;
-    if output.status.code() == Some(1) {
+    if output.status.code() == Some(1) && output.stdout.is_empty() {
         return Ok(None);
     }
     if !output.status.success() {
