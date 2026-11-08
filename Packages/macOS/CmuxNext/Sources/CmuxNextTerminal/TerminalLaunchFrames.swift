@@ -11,7 +11,9 @@ import CmuxNextCompat
 /// clear pixels (a see-through window, where the terminal draws no background of its own;
 /// `CGImage.showsClearPixels`) is a PNG that keeps them, so the pane's glass shows through it as through the live
 /// terminal; a JPEG has no alpha and painted them one opaque color (white) until the live frame drew (Leo,
-/// 2026-11-07: "why did the background task become a white background?"). An opaque frame stays a JPEG. The
+/// 2026-11-07: "why did the background task become a white background?"). An opaque frame stays a JPEG. Either
+/// keeps the one name a frame always had (`<key>@<scale>x.jpg`; the read tells the formats apart by their bytes), so
+/// a key never has two files and a keeper write racing the quit's save replaces one file, as before. The
 /// launch reads and decodes every frame off the main thread from its start (``prefetch(on:keep:mark:markAt:)``, in
 /// the app's `main` before `NSApplication.run`): a pane shows its frame at once when the read has ended
 /// (``LaunchRead``: no main-actor hop), never waiting for it; one shown before then stays held clear, as with
@@ -463,7 +465,7 @@ public final class TerminalLaunchFrames {
                 keeping.insert(key)
                 continue
             }
-            frames["\(key)@\(max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded()))))x"] = frame
+            frames["\(key)@\(max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded()))))x.jpg"] = frame
         }
         await Task.detached { [keeping] in Self.write(frames, keeping: keeping, to: directory) }.value
     }
@@ -471,63 +473,43 @@ public final class TerminalLaunchFrames {
     /// Every saved frame in `directory`, decoded, with its point size and scale, by tab key (for each
     /// key the first scale a save may have written).
     private nonisolated static func readAll(in directory: URL, _ reader: LaunchFileReader) -> [String: Frame] {
-        // Saved frames only: files a killed write left (`<key>@1x.png.sb-<id>`) never take a slot. A key has one file per
-        // scale, except when a keeper write that lost the race to a quit's save landed at the other extension: then the
-        // newer is the one written last, as one name would have kept it, and the older is the fallback when the newer does
-        // not decode. The cap counts keys and scales, so it never cuts the newer file of a pair.
-        var files: [String: [String]] = [:]
-        for name in (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [] where owner(of: name) != nil {
-            files[String(name.dropLast(".png".count)), default: []].append(name)
-        }
-        func modified(_ file: String) -> Date {
-            (try? FileManager.checked.attributesOfItem(atPath: directory.appending(path: file).path))?[.modificationDate] as? Date ?? .distantPast
-        }
-        let stems = Set(files.keys.sorted().prefix(maximumFiles))
+        // Saved frames only, then the cap: files a killed write left (`<key>@1x.jpg.sb-<id>`) never take a slot.
+        let names = Set(((try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [])
+            .filter { owner(of: $0) != nil }.sorted().prefix(maximumFiles))
         var frames: [String: Frame] = [:]
         for scale in [2, 1, 3] {
-            let suffix = "@\(scale)x"
-            for stem in stems where stem.hasSuffix(suffix) {
-                let key = String(stem.dropLast(suffix.count))
-                guard frames[key] == nil, isFileSafe(key), let names = files[stem] else { continue }
-                for name in names.count < 2 ? names : names.sorted(by: { modified($0) > modified($1) }) {
-                    guard let frame = reader.image(at: directory.appending(path: name), maximumBytes: maximumBytes) else { continue }
-                    frames[key] = Frame(image: frame, size: NSSize(width: CGFloat(frame.width) / CGFloat(scale), height: CGFloat(frame.height) / CGFloat(scale)), scale: scale)
-                    break
-                }
+            let suffix = "@\(scale)x.jpg"
+            for name in names where name.hasSuffix(suffix) {
+                let key = String(name.dropLast(suffix.count))
+                guard frames[key] == nil, isFileSafe(key),
+                      let frame = reader.image(at: directory.appending(path: name), maximumBytes: maximumBytes) else { continue }
+                frames[key] = Frame(image: frame, size: NSSize(width: CGFloat(frame.width) / CGFloat(scale), height: CGFloat(frame.height) / CGFloat(scale)), scale: scale)
             }
         }
         return frames
     }
 
-    /// Writes `frames` (by `<key>@<scale>x`, the name without its extension) as the saved set.
     private nonisolated static func write(_ frames: [String: CGImage], keeping: Set<String>, to directory: URL) {
-        var files: [String: Data] = [:], unsaved: Set<String> = []
-        for (stem, frame) in frames {
-            if let file = encoded(frame) { files["\(stem).\(file.ext)"] = file.data } else { unsaved.insert(stem) }
-        }
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for (name, data) in files {
-            let url = directory.appending(path: name)
-            guard (try? data.write(to: url, options: [.atomic])) != nil else {
-                unsaved.insert(String(name.dropLast(".png".count)))
-                continue
-            }
-            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        }
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil {
-            // After the writes: a frame that could not be saved keeps the one its key had.
-            guard !keeping.contains(owner(of: old) ?? old), !unsaved.contains(String(old.dropLast(".png".count))) else { continue }
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
+            guard !keeping.contains(owner(of: old) ?? old) else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
+        }
+        for (name, frame) in frames {
+            let url = directory.appending(path: name)
+            // A frame that does not encode within the read's cap is not written: its key keeps the file it had.
+            guard let data = encoded(frame), (try? data.write(to: url, options: [.atomic])) != nil else { continue }
+            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
     }
 
-    /// The frame's file data and extension: a PNG with clear pixels, else a JPEG; nil when it does not encode or is larger
-    /// than the read takes (`maximumBytes`), so a frame is never saved as a file the next launch refuses.
-    nonisolated static func encoded(_ frame: CGImage, maximumBytes: Int = maximumBytes) -> (data: Data, ext: String)? {
-        let png = frame.showsClearPixels
-        guard let data = frame.pageImageData(png: png, jpegQuality: jpegQuality), data.count <= maximumBytes else { return nil }
-        return (data, png ? "png" : "jpg")
+    /// The frame's file data: a PNG with clear pixels, else a JPEG; nil when it does not encode or is larger than the read
+    /// takes (`maximumBytes`), so a frame is never saved as a file the next launch refuses.
+    nonisolated static func encoded(_ frame: CGImage, maximumBytes: Int = maximumBytes) -> Data? {
+        guard let data = frame.pageImageData(png: frame.showsClearPixels, jpegQuality: jpegQuality), data.count <= maximumBytes
+        else { return nil }
+        return data
     }
 
     /// Writes one terminal's frame (the keeper), replacing the key's file at any scale; with `keeping`, also removes the
@@ -538,21 +520,17 @@ public final class TerminalLaunchFrames {
                                      maximumBytes: Int = maximumBytes, stillWanted: () -> Bool = { true }) {
         let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let file = encoded(frame, maximumBytes: maximumBytes)
-        let name = "\(key)@\(scale)x.\(file?.ext ?? "")"
+        let name = "\(key)@\(scale)x.jpg"
         let url = directory.appending(path: name)
-        var saved = false
-        if let data = file?.data,
+        if let data = encoded(frame, maximumBytes: maximumBytes),
            stillWanted(),
            (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-            saved = true
         }
         guard stillWanted() else { return }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
-            // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone. A
-            // frame that could not be saved (not encoded, over the cap, or its write failed) keeps the one its key had.
-            guard let tab = owner(of: old), tab == key ? saved : keeping.map({ !$0.contains(tab) }) == true else { continue }
+            // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone.
+            guard let tab = owner(of: old), tab == key || keeping.map({ !$0.contains(tab) }) == true else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
@@ -565,16 +543,14 @@ public final class TerminalLaunchFrames {
         }
     }
 
-    /// A saved frame's file extensions (a key has one file at a time, else the read takes the newer).
-    nonisolated static let fileExtensions = ["png", "jpg"]
     /// The quality of a frame saved as a JPEG (an opaque frame).
     nonisolated static let jpegQuality = 0.9
 
-    /// The tab key of a saved frame (`<key>@<scale>x.png` or `.jpg`, scale 1 to 3); nil for any other file, such as
-    /// Foundation's atomic-write file beside one before its rename (`<key>@2x.png.sb-<id>`).
+    /// The tab key of a saved frame (`<key>@<scale>x.jpg`, scale 1 to 3); nil for any other file, such as Foundation's
+    /// atomic-write file beside one before its rename (`<key>@2x.jpg.sb-<id>`).
     nonisolated static func owner(of file: String) -> String? {
-        guard let ext = fileExtensions.first(where: { file.hasSuffix("x.\($0)") }), let at = file.lastIndex(of: "@") else { return nil }
-        let scale = file[file.index(after: at)..<file.index(file.endIndex, offsetBy: -"x.\(ext)".count)]
+        guard file.hasSuffix("x.jpg"), let at = file.lastIndex(of: "@") else { return nil }
+        let scale = file[file.index(after: at)..<file.index(file.endIndex, offsetBy: -"x.jpg".count)]
         guard scale.count == 1, let digit = scale.first, ("1"..."3").contains(digit) else { return nil }
         return String(file[..<at])
     }

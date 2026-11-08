@@ -148,64 +148,18 @@ import os
         let directory = try await Self.saved(["tab-clear": Self.frame(size, scale: scale),
                                               "tab-opaque": Self.solid(size, scale: scale, red: 0.1, green: 0.1, blue: 0.1)])
         defer { try? FileManager.default.removeItem(at: directory) }
+        // One name per key, as before (so a keeper write and the quit's save replace one file); the bytes are a PNG for
+        // the see-through frame and a JPEG for the opaque one.
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
-        #expect(names == ["tab-clear@\(Int(scale))x.png", "tab-opaque@\(Int(scale))x.jpg"],
-                "a see-through terminal's frame is saved with its clear pixels, an opaque one as a JPEG")
+        #expect(names == ["tab-clear@\(Int(scale))x.jpg", "tab-opaque@\(Int(scale))x.jpg"])
+        let png: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
+        #expect(try Array(Data(contentsOf: directory.appending(path: "tab-clear@\(Int(scale))x.jpg")).prefix(4)) == png,
+                "a see-through terminal's frame is saved with its clear pixels")
+        #expect(try Array(Data(contentsOf: directory.appending(path: "tab-opaque@\(Int(scale))x.jpg")).prefix(4)) != png)
         let frames = await Self.launch(directory)
         #expect(frames.show("tab-clear", on: pane.session, in: pane.content, reveal: reveal))
         let shown = try #require(pane.held?.layer?.contents.flatMap { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID ? unsafeDowncast($0 as AnyObject, to: CGImage.self) : nil })
         #expect(Self.centerAlpha(shown) == 0, "the last frame painted the pane's glass one opaque color")
-    }
-
-    /// Review of #38056 (P1): a keeper write that lost the race to the quit's save could land at the other extension and
-    /// leave two files for one key (base had the same race on one name, where the last write won). The read takes the
-    /// newer file, the one written last, never one extension by rule.
-    @Test func twoFilesOfOneKeyShowTheNewer() async throws {
-        let reveal = LaunchReveal(deadline: .seconds(60))
-        let pane = Pane(reveal: reveal)
-        defer { pane.close() }
-        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
-        let size = pane.session.surfaceView.bounds.size, scale = pane.window.backingScaleFactor
-        // The quit's frame, opaque (a JPEG), written last.
-        let directory = try await Self.saved(["tab-1": Self.solid(size, scale: scale, red: 0.9, green: 0.1, blue: 0.1)])
-        defer { try? FileManager.default.removeItem(at: directory) }
-        // The keeper's older frame of the same key, clear (a PNG).
-        let older = try #require(Self.frame(size, scale: scale).cgImage(forProposedRect: nil, context: nil, hints: nil)
-            .flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) })
-        let png = directory.appending(path: "tab-1@\(Int(scale))x.png")
-        try older.write(to: png)
-        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -60)], ofItemAtPath: png.path)
-        let frames = await Self.launch(directory)
-        #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
-        let shown = try #require(pane.held?.layer?.contents.flatMap { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID ? unsafeDowncast($0 as AnyObject, to: CGImage.self) : nil })
-        #expect(Self.centerAlpha(shown) == 255, "the older file of the key showed, not the one written last")
-    }
-
-    /// Review 2 of #38056 (P2): the read capped its files (``TerminalLaunchFrames/maximumFiles``) before it chose between a
-    /// key's two files, so at the cap the newer one could be cut and the older one shown. One file per key and scale is
-    /// chosen first; the cap counts what is left.
-    @Test func theNewerFileOfAKeyWinsAtTheFileCap() async throws {
-        let reveal = LaunchReveal(deadline: .seconds(60))
-        let pane = Pane(reveal: reveal)
-        defer { pane.close() }
-        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
-        let size = pane.session.surfaceView.bounds.size, scale = pane.window.backingScaleFactor, at = Int(scale)
-        // The quit's older frame, opaque (a JPEG); the keeper's newer one, clear (a PNG), sorting after it.
-        let directory = try await Self.saved(["tab-1": Self.solid(size, scale: scale, red: 0.9, green: 0.1, blue: 0.1)])
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let jpg = directory.appending(path: "tab-1@\(at)x.jpg")
-        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -60)], ofItemAtPath: jpg.path)
-        let newer = try #require(Self.frame(size, scale: scale).cgImage(forProposedRect: nil, context: nil, hints: nil)
-            .flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) })
-        try newer.write(to: directory.appending(path: "tab-1@\(at)x.png"))
-        // Other terminals' frames, sorting first, up to the cap with the one file tab-1 keeps.
-        for index in 0..<(TerminalLaunchFrames.maximumFiles - 1) {
-            try Data("other".utf8).write(to: directory.appending(path: String(format: "tab-0%02d@%dx.jpg", index, at)))
-        }
-        let frames = await Self.launch(directory)
-        #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
-        let shown = try #require(pane.held?.layer?.contents.flatMap { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID ? unsafeDowncast($0 as AnyObject, to: CGImage.self) : nil })
-        #expect(Self.centerAlpha(shown) == 0, "the cap cut the newer file of the key and the older one showed")
     }
 
     /// Review 3 of #38056 (P2): a see-through frame is a PNG, much larger than its JPEG, and the read refuses a file over
@@ -222,34 +176,10 @@ import os
         defer { try? FileManager.default.removeItem(at: directory) }
         let clear = try #require(Self.frame(size, scale: scale).cgImage(forProposedRect: nil, context: nil, hints: nil))
         TerminalLaunchFrames.writeOne(clear, key: "tab-1", scale: at, to: directory, keeping: nil, maximumBytes: 64)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["tab-1@\(at)x.jpg"],
-                "a frame the read would refuse replaced the saved one")
         let frames = await Self.launch(directory)
         #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "the key lost its saved frame")
-    }
-
-    /// Review 4 of #38056 (P2): a frame that encoded but whose write failed still removed the key's other file, so the
-    /// next launch had no frame (base kept its one file when a write failed). A key's other files go only after its new
-    /// file is written. The write fails here because a folder holds the new file's name. Review 5 (P2): the read then
-    /// chose that newer name and never fell back to the older file; it takes the newest file of a key that decodes.
-    @Test func aFailedWriteKeepsTheSavedFrame() async throws {
-        let reveal = LaunchReveal(deadline: .seconds(60))
-        let pane = Pane(reveal: reveal)
-        defer { pane.close() }
-        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
-        let size = pane.session.surfaceView.bounds.size, scale = pane.window.backingScaleFactor, at = Int(scale)
-        let directory = try await Self.saved(["tab-1": Self.solid(size, scale: scale, red: 0.9, green: 0.1, blue: 0.1)])
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -60)],
-                                              ofItemAtPath: directory.appending(path: "tab-1@\(at)x.jpg").path)
-        try FileManager.default.createDirectory(at: directory.appending(path: "tab-1@\(at)x.png/blocked"), withIntermediateDirectories: true)
-        let clear = try #require(Self.frame(size, scale: scale).cgImage(forProposedRect: nil, context: nil, hints: nil))
-        TerminalLaunchFrames.writeOne(clear, key: "tab-1", scale: at, to: directory, keeping: nil)
-        #expect(FileManager.default.fileExists(atPath: directory.appending(path: "tab-1@\(at)x.jpg").path),
-                "a write that failed removed the key's saved frame")
-        let frames = await Self.launch(directory)
-        #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal),
-                "the read chose the newer name that does not decode and did not fall back to the saved frame")
+        let shown = try #require(pane.held?.layer?.contents.flatMap { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID ? unsafeDowncast($0 as AnyObject, to: CGImage.self) : nil })
+        #expect(Self.centerAlpha(shown) == 255, "the frame over the cap replaced the saved one")
     }
 
     /// The alpha at the center of `image` (0...255).
