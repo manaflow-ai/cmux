@@ -3749,7 +3749,11 @@ fn provider_connection_state_errors_use_selected_locale() {
 
 #[test]
 fn provider_runtime_user_notices_are_catalog_backed() {
-    let source = include_str!("machine_provider_runtime.rs");
+    let sources = [
+        include_str!("machine_provider_runtime.rs"),
+        include_str!("machine_provider_runtime/projection.rs"),
+        include_str!("machine_provider_runtime/updates.rs"),
+    ];
     for hardcoded in [
         concat!("Open ", "{url}"),
         concat!("Machine provider ", "update failed: {error}"),
@@ -3762,7 +3766,7 @@ fn provider_runtime_user_notices_are_catalog_backed() {
         concat!("returned an invalid managed workspace ", "authority binding"),
     ] {
         assert!(
-            !source.contains(hardcoded),
+            !sources.iter().any(|source| source.contains(hardcoded)),
             "provider notice bypasses the localization catalog: {hardcoded}"
         );
     }
