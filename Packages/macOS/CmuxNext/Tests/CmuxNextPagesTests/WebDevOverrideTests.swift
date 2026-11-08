@@ -136,9 +136,11 @@ struct WebDevOverrideTests {
         #expect(WebDevOverride(overlay: overlay).overlayRoot(for: page, bundledRoot: bundled) == nil)
         let handler = PageSchemeHandler(page: page, root: bundled, devServer: nil)
         handler.liveOverride = { WebDevOverride(overlay: overlay) }
-        let reply = try #require(await handler.reply(to: #require(URL(string: page.origin + "/"))))
+        let document = try #require(URL(string: page.origin + "/"))
+        let script = try #require(URL(string: page.origin + "/app.js"))
+        let reply = try #require(await handler.reply(to: document))
         #expect(String(decoding: reply.body, as: UTF8.self) == "bundled")
-        #expect(await handler.reply(to: #require(URL(string: page.origin + "/app.js"))) == nil, "no bundled app.js here, and none from the overlay")
+        #expect(await handler.reply(to: script) == nil, "no bundled app.js here, and none from the overlay")
     }
 
     @Test func pageFilesComeFromTheOverlay() async throws {
