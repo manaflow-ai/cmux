@@ -191,6 +191,10 @@ path = "tests/test_nightly_next_ring.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_rollback_drill.py"
+lane = "manual"
+
+[[test]]
 path = "tests/test_nightly_next_rolling_dmg_identity.py"
 lane = "linux-guard"
 
