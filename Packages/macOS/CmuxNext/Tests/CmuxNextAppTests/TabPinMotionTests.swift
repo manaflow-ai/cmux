@@ -38,6 +38,56 @@ struct TabPinMotionTests {
         #expect(moving.isEmpty, "\(moving.count) layers still move with motion off")
     }
 
+    /// The curve starts on the first frame that can show the pin (Chrome: an animation starts at the time of the first
+    /// frame that ticks it), not at the key turn. That frame (tick 0) shows the old frame and the next one curve(1
+    /// refresh), also when the key turn crosses a refresh. The K12 film at cb761d6 (cmux21, 120 Hz): the curve began at
+    /// the key turn and the first moved frame showed curve(2.6 refreshes), 82.5 pt in one step.
+    @Test(.enabled("the strip animates only in a window on a screen") { await hasDisplay() })
+    func aPinsCurveStartsOnTheFirstFrameThatCanShowIt() throws {
+        let first = Self.ids[0]
+        let (strip, model, window) = try Self.strip(pinned: [first])
+        defer { window.closeAfterTest() }
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let refresh = 1.0 / 120
+        // A vsync at `grid`; the key turn writes the frames 1.3 refreshes after it (it crossed a refresh), so the first
+        // frame that can show the pin begins at the vsync after that, 2 refreshes after `grid`.
+        let grid = CACurrentMediaTime()
+        strip.frameClock = MotionFrameClock(now: { grid + 1.3 * refresh }, vsync: { (grid, refresh) }, refresh: { refresh })
+        let firstFrame = grid + 2 * refresh
+        let cell = try #require(strip.cells[Self.moved])
+        let start = Self.shown(cell, at: grid)
+        model.tabs = Self.tabs(pinned: [first, Self.moved])
+        strip.sync(fromModel: true)
+        let end = cell.layer.frame
+        let begin = try #require(TabMoveMotionTargetTests.moveBegin(Array(strip.cells.values)), "the pin did not animate")
+        var failures: [String] = []
+        if abs(begin - firstFrame) > 0.0001 {
+            failures.append(String(format: "the curve begins %.2f refreshes after the vsync, not 2 (the first frame after the turn)",
+                                   (begin - grid) / refresh))
+        }
+        // Up to the first frame the tab shows where it was (a move that begins later holds its start, never the model).
+        for time in [grid + 1.5 * refresh, firstFrame] {
+            let shown = Self.shown(cell, at: time)
+            if abs(shown.minX - start.minX) > 0.5 {
+                failures.append(String(format: "at %.1f refreshes the tab shows at x %.1f, it was at %.1f", (time - grid) / refresh, shown.minX, start.minX))
+            }
+        }
+        // The first moved frame: the strip's move curve at 1 refresh.
+        let motion = try #require(MotionMove.tween(.tabMove, in: Motion.tabs))
+        let probe = CALayer()
+        let curve = motion.additive("position", from: NSValue(point: CGPoint(x: -100, y: 0)), to: NSValue(point: .zero))
+        curve.beginTime = firstFrame
+        probe.add(curve, forKey: "curve")
+        let progress = 1 + MotionPath(probe, "position").value(at: firstFrame + refresh).x / 100
+        let expected = start.minX + (end.minX - start.minX) * progress
+        let moved = Self.shown(cell, at: firstFrame + refresh).minX
+        if abs(moved - expected) > 0.5 {
+            failures.append(String(format: "the first moved frame shows x %.1f, curve(1 refresh) is %.1f (progress %.3f)", moved, expected, progress))
+        }
+        #expect(failures.isEmpty, "\(failures.joined(separator: "\n"))")
+    }
+
     // MARK: - The rig
 
     static let ids = (0..<6).map { TabID("tab\($0)") }

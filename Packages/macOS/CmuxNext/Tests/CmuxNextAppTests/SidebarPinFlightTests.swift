@@ -367,6 +367,51 @@ struct SidebarPinFlightTests {
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
     }
 
+    /// The pin's curve starts on the first frame that can show it, the vsync after the turn (Chrome: an animation starts
+    /// at the time of the first frame that ticks it): that frame shows the row where it was and the next one curve(1
+    /// refresh) of the move's spring, also when the turn crosses a refresh. Before: one refresh from the turn on any
+    /// phase, so the first moved frame showed between 0 and 1 refresh of the curve.
+    @Test func aPinsCurveStartsOnTheFirstFrameThatCanShowIt() throws {
+        let (list, window) = Self.list(pins: [])
+        defer { window.close() }
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let refresh = 1.0 / 120
+        let grid = CACurrentMediaTime()
+        list.frameClock = MotionFrameClock(now: { grid + 1.3 * refresh }, vsync: { (grid, refresh) }, refresh: { refresh })
+        let firstFrame = grid + 2 * refresh
+        let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
+        let startFrame = list.convert(start.bounds, from: start)
+        Self.show([Self.moved], on: list)
+        list.reload(animated: true)
+        let probes = Self.probes(Self.moved, list, now: grid)
+        let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
+        let end = list.convert(arrived.bounds, from: arrived)
+        var failures: [String] = []
+        let begin = try #require(Self.moveBegin(of: arrived), "the pin did not animate")
+        if abs(begin - firstFrame) > 0.0001 {
+            failures.append(String(format: "the curve begins %.2f refreshes after the vsync, not 2 (the first frame after the turn)",
+                                   (begin - grid) / refresh))
+        }
+        for time in [grid + 1.5 * refresh, firstFrame] {
+            switch Self.one(probes, at: time) {
+            case let .success(frame) where abs(frame.minY - startFrame.minY) > 0.5:
+                failures.append(String(format: "at %.1f refreshes the row shows at y %.1f, it was at %.1f", (time - grid) / refresh, frame.minY, startFrame.minY))
+            case let .failure(failure): failures.append("at \((time - grid) / refresh) refreshes: \(failure.text)")
+            default: break
+            }
+        }
+        let spring = try #require(arrived.layer.flatMap { layer in
+            (layer.animationKeys() ?? []).filter { $0.hasPrefix("\(SidebarDragSpring.batchKey).") }
+                .compactMap { layer.animation(forKey: $0) as? CASpringAnimation }.first
+        }, "the pin's move has no spring")
+        let expected = startFrame.minY + (end.minY - startFrame.minY) * MotionPath.springProgress(spring, at: refresh)
+        if case let .success(frame) = Self.one(probes, at: firstFrame + refresh), abs(frame.minY - expected) > 0.5 {
+            failures.append(String(format: "the first moved frame shows y %.1f, curve(1 refresh) is %.1f", frame.minY, expected))
+        }
+        #expect(failures.isEmpty, "\(failures.joined(separator: "\n"))")
+    }
+
     @Test func aPinMovesTheRowToItsPinnedSlot() throws { try move(pin: true) }
 
     @Test func anUnpinMovesTheItemBackToItsRow() throws { try move(pin: false) }
