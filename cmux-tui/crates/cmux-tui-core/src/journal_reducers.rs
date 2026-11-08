@@ -234,13 +234,6 @@ impl<'a> RosterEvent<'a> {
         true
     }
 
-    /// The plugin saw the agent's own idle prompt (`native.visible.idle`,
-    /// the screen detector's prompt-box rules): positive evidence that no
-    /// dialog covers it.
-    fn plugin_visible_idle(&self) -> bool {
-        self.payload.pointer("/native/visible/idle").and_then(Value::as_bool) == Some(true)
-    }
-
     fn plugin_event_name(&self) -> Option<&str> {
         if !self.plugin_event() {
             return None;
@@ -556,18 +549,6 @@ struct PluginExitFence {
     highest_tagged_generation: Option<u64>,
     #[serde(default)]
     untagged_exit_at_ms: Option<u64>,
-}
-
-/// The last state a userland plugin saw on a terminal's screen, kept whether
-/// or not that observation won source arbitration. A hook cannot say that a
-/// dialog went away without an answer (Claude Code fires no hook when the
-/// person dismisses a permission dialog with Esc), so the roster keeps the
-/// screen's own record of the dialog: [`AgentRoster::note_screen_evidence`]
-/// keeps it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ScreenEvidence {
-    producer: String,
-    state: String,
 }
 
 impl RosterEntry {
@@ -964,54 +945,6 @@ impl AgentRoster {
         entry || fence || evidence
     }
 
-    /// Record `producer`'s observation of `terminal_id` and return whether it
-    /// ends a blocker the same producer saw: its previous observation was
-    /// `blocked` and this one is `working` or `idle`. Repeated reports of the
-    /// same state change nothing, so the plugin's stable-blocker refreshes
-    /// keep the record at `blocked`.
-    fn note_screen_evidence(
-        &mut self,
-        terminal_id: &str,
-        producer: &str,
-        state: AgentState,
-    ) -> bool {
-        if state == AgentState::Done {
-            self.screen_evidence.remove(terminal_id);
-            return false;
-        }
-        let previous = self.screen_evidence.insert(
-            terminal_id.to_string(),
-            ScreenEvidence { producer: producer.to_string(), state: state.as_str().to_string() },
-        );
-        matches!(state, AgentState::Working | AgentState::Idle)
-            && previous.is_some_and(|previous| {
-                previous.producer == producer && previous.state == AgentState::Blocked.as_str()
-            })
-    }
-
-    /// Whether a plugin observation replaces a hook-owned `blocked` row even
-    /// while the hook is fresh. Blocked is the one hook state whose end can
-    /// come without a hook: a dialog dismissed with Esc interrupts the turn,
-    /// so neither the tool's completion nor the turn's end is reported. The
-    /// screen must prove the dialog gone (`cleared_blocker`), observed after
-    /// the hook reported the block: the same plugin saw the blocker and now
-    /// sees it gone, or it sees the agent's own idle prompt
-    /// (`native.visible.idle`), which no dialog shows. A dismissal faster than
-    /// the plugin's scan leaves only the second proof. A plain screen `idle`
-    /// proves nothing, so a hook question the screen rules do not recognize
-    /// stays blocked.
-    fn screen_clears_hook_blocker(
-        existing: &RosterEntry,
-        cleared_blocker: bool,
-        state: AgentState,
-        observed_at_ms: u64,
-    ) -> bool {
-        cleared_blocker
-            && existing.agent_state() == AgentState::Blocked
-            && matches!(state, AgentState::Working | AgentState::Idle)
-            && observed_at_ms > existing.updated_at_ms
-    }
-
     fn record_plugin_exit_fence(
         &mut self,
         plugin_id: &str,
@@ -1065,12 +998,7 @@ impl AgentRoster {
         {
             return None;
         }
-        if !roster.screen_evidence.values().all(|evidence| {
-            evidence.producer != AGENT_HOOK_PRODUCER_ID
-                && valid_component(&evidence.producer)
-                && agent_state_from_str(&evidence.state)
-                    .is_some_and(|state| state != AgentState::Done)
-        }) {
+        if !roster.screen_evidence.values().all(ScreenEvidence::valid) {
             return None;
         }
         if !roster.plugin_exit_fences.iter().all(|(plugin_id, fence)| {
@@ -1119,6 +1047,10 @@ fn valid_decimal_generation(value: &str) -> bool {
         && value.bytes().all(|byte| byte.is_ascii_digit())
         && value.parse::<u64>().is_ok()
 }
+
+#[path = "journal_reducers_screen_evidence.rs"]
+mod screen_evidence;
+use screen_evidence::ScreenEvidence;
 
 #[cfg(test)]
 #[path = "journal_reducers_blocker_tests.rs"]
