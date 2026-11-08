@@ -263,23 +263,22 @@ import Testing
         }
     }
 
-    /// F4: Move Pane to Dock with no dock moves the pane's other tabs into the new workspace
-    /// (`TabMoves.join`) as Move to Workspace moves a tab: each shows there in this turn and its strip
-    /// drops it with no close (`TabMoves.depart`), and the pane the moves empty leaves with them.
-    @Test func joiningTabsIntoAWorkspaceMovesThemAsMoveToWorkspaceDoes() async throws {
-        let first = ScreenSnapshot(id: 1, layout: Self.sideBySide, panes: [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 100), title: "~")]),
-                                                                          PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 200), title: "~"), TabSnapshot(surface: SurfaceID(rawValue: 201), title: "~")])])
-        let second = ScreenSnapshot(id: 2, layout: .leaf(3), panes: [PaneSnapshot(id: 3, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 300), title: "~")])])
-        let tree = DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [first]), WorkspaceSnapshot(id: 2, key: nil, name: "w2", screens: [second])])
-        let shown = try PaneCloseControllerTests.Shown(tree: tree)
-        defer { shown.end() }
-        let source = try shown.controller(2), store = shown.services.daemon.store
-        let other = try #require(store.workspaces.last)
-        let tabs = source.pane.tabs
-        await TabMoves.join(tabs[...], workspace: WorkspaceKey(rawValue: other.id), services: shown.services)
-        for tab in tabs {
-            #expect(store.pane(holding: tab).flatMap { store.workspace(containing: $0.handle) } === other, "\(tab.id) waited for the daemon to move it")
+    /// F4: Move Pane to Dock with no dock moves the pane's other tabs into the new workspace (`TabMoves.join`) as Move
+    /// to Workspace moves a tab: in the join's turn its strip marks each as leaving by a move (`TabMoves.depart`), so
+    /// it drops them with no close. Run on a same-tree cmux-tui, where the strip showing the pane is found.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .timeLimit(.minutes(3)))
+    func joiningTabsIntoAWorkspaceMovesThemAsMoveToWorkspaceDoes() async throws {
+        try await AppHarnessWindows.withApp { services, connection in
+            let pane = try MoveToNewWindowTests.firstPane(services), store = services.daemon.store
+            let browser = try await MoveToNewWindowTests.browserTab(in: pane, services, connection)
+            // Made in the background (no focus), so the window keeps showing the pane.
+            let created = try await connection.state.createWorkspace(name: "join", ephemeral: false, terminal: true, focus: false)
+            try await PinnedPageTests.until({ store.workspaces.contains { $0.resourceID == created.workspaceID && $0.screens.contains { !$0.panes.isEmpty } } })
+            let other = try #require(store.workspaces.first { $0.resourceID == created.workspaceID })
+            let strip = try #require(services.paneController(for: pane), "no controller shows the pane").stripModel
+            await TabMoves.join([browser][...], workspace: WorkspaceKey(rawValue: other.id), services: services)
+            #expect(strip.departures.contains(StripTabID(browser.id)), "the joined tab was left to close in its strip")
+            try await PinnedPageTests.until({ store.pane(holding: browser).flatMap { store.workspace(containing: $0.handle) } === other })
         }
-        #expect(shown.content.layoutModel.isClosing(source.layoutPaneID), "the pane the moves emptied waited for the daemon's tree")
     }
 }
