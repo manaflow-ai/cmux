@@ -138,7 +138,13 @@ export function useTranscriptDisclosure(
   const setOpen = useCallback<DisclosureSetter>(
     (value) => {
       const current = read(sessionId, key) ?? (opens || inherited(sessionId, from));
-      save(sessionId, key, typeof value === "function" ? value(current) : value);
+      const next = typeof value === "function" ? value(current) : value;
+      // A line the reader set takes the place of the lines it inherits from: one they had set takes
+      // the same choice, so a run line they closed never reopens as its group line when the run splits
+      // back into groups. A line they never set keeps its own default.
+      if (from !== "")
+        for (const other of from.split("\n")) if (read(sessionId, other) !== undefined) save(sessionId, other, next);
+      save(sessionId, key, next);
     },
     [sessionId, key, opens, from],
   );

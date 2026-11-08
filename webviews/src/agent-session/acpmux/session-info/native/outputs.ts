@@ -3,7 +3,7 @@
 import type { Translate } from "../../i18n";
 import type { Artifact } from "../../conversation/artifactPreview";
 import type { TurnFile } from "../../diff";
-import { OUTPUTS_SHOWN, type OutputArtifact, type OutputLink } from "../OutputsSection";
+import { OUTPUTS_SHOWN, type OutputArtifact, type OutputLink } from "../outputsSectionModel";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 import { nativeExternalUrl, safeExternalUrl } from "./links";
 

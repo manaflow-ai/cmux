@@ -130,6 +130,32 @@ import Testing
         #expect(shown.count == 3)
     }
 
+    /// Leo 2026-11-05 (ask-71821f1cda): "randomly there's these workspaces that appear and disappear". A chat whose acpmux
+    /// session is gone leaves its workspace in the daemon tree, hidden while the watch is live. When the watch dropped (an
+    /// acpmux restart, sleep, a socket blip) the filter kept every row until the next page, so every such workspace showed
+    /// for the gap and vanished again. Through a gap the rows the watch last showed stay, and the gone ones stay hidden.
+    @Test func aGoneSessionStaysHiddenWhileTheWatchReconnects() throws {
+        let fixture = try Fixture()
+        fixture.lanes.live = true
+        let filter: (WorkspaceModel) -> Bool = { fixture.lanes.keepsWorkspace($0, turns: fixture.turns) }
+        fixture.lanes.lanes["s-idle"] = nil
+        #expect(Self.activity(fixture.sections(workspaceFilter: filter)).count == 3)
+
+        // The watch closes (`AgentTurnStateFeed.lost`): not live, no lanes until it reconnects.
+        fixture.lanes.live = false
+        fixture.lanes.lanes = [:]
+        let gap = Self.activity(fixture.sections(workspaceFilter: filter))
+        #expect(gap["idle"] == nil, "the gone session's workspace showed again while the watch was down")
+        #expect(Set(gap.keys) == ["working", "waiting", "failed"], "the live work stays through the gap")
+
+        // The next complete page: the same rows.
+        for (session, state) in [("s-working", "working"), ("s-waiting", "input"), ("s-failed", "failed")] {
+            fixture.lanes.lanes[session] = try Self.lane(session, state)
+        }
+        fixture.lanes.live = true
+        #expect(Set(Self.activity(fixture.sections(workspaceFilter: filter)).keys) == ["working", "waiting", "failed"])
+    }
+
     @Test func aStaleAgentTabDoesNotDropAWorkspaceWithOtherContent() throws {
         let fixture = try Fixture()
         fixture.lanes.live = true

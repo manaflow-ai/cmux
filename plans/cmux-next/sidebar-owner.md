@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: a group drawn as its one row folds like any group. Leo, verbatim: "when you're collapsing a group, the
+  text needs to fade faster". A group of one member titled as the group draws that row in the header's place
+  (`standsForGroup`) and no header, so its collapse found no open header: the row faded over the whole `.move` spring and
+  its slot shut to nothing. `SidebarRowTransition.foldingHeader` takes the row's `standingHeader` as the open header: the
+  row fades on `fadeOut` under the collapsed header, and an expand brings it out at full height in place (F1 of #36457).
+  Regression: `SidebarSingleMemberGroupTests/collapsingASameNameGroupFoldsItsOneRowUnderTheHeader`.
 - 2026-11-07: the Updated card hidden mid-drag, review of #38020. Hiding the card mid-drag lays it out at its rest,
   so it comes back there, and taking the card away (its page goes too) stops dropping drag messages, so the next
   drag's first move is not lost. Leo, verbatim: "what if you could, like, drag around the updated to nightly, and
@@ -702,7 +708,7 @@ density; a pill too tall to center under the window's top stops 1 pt below it. T
 alone, centers on the trailing column (`SidebarStyle.trailingColumnFrame`) that the rows' status marks, unread dots
 and footer Search share; with the chooser segment shown the pair keeps the row's trailing inset. Debug
 `chrome.topRowLine`: `lights` (default), `tabs`, `titlebar`, `off`. Regression: `TopRowAlignmentTests`,
-`TopRowSidebarColumnTests`; live lines: `debug.top_alignment`, tour `top-alignment`.
+`TopRowSidebarColumnTests`; live lines: `debug.top_alignment`, tours `top-alignment`, `top-alignment-cozy` and `top-alignment-spacious` (one tour holds 30 steps).
 
 ## The notice card's rows share one leading edge and show whole (2026-11-05)
 
@@ -1600,6 +1606,20 @@ An empty group now keeps only its header at rest. The header's existing + appear
   `SidebarHoverCardMetrics`), read on every configure so a change applies to the next card.
 - Commits: the "(red)" test commit (`PinnedSummaryDensityTests`, `AAPinnedDensityGalleryTests`, fleet step
   b756692bcd72c93601f38a3e), then the fix. Before|After sheets: ~/fun/cmux-galleries/pinned-density/.
+
+## A collapsed group never reorders: held slots and fixed anchors (2026-11-07)
+
+- Leo 2026-11-07: "this is also just insanely weird sidebar group behaviour. see i selected you and then i collapse
+  the group you're in then i click elsewhere and then all sorts of wack nonsense occurs".
+- Running members of a collapsed group the document stopped placing for a moment (an item or ref in flight) listed
+  as new rows below the current workspace (`SidebarDocSections.sections`, `newRowsPlace` `afterCurrent`), so every
+  click elsewhere moved them out of the group, under the clicked row; opened again, the group listed without them
+  until the document placed them back.
+- Now a row that listed keeps its slot (its group, under the same row) until the document places it again
+  (`holdSlots`, `noteSlots`), and a new row keeps the place it first took (`anchors`). A fold repaints the selection
+  on every row it keeps (no stuck highlight). The peek rule is unchanged: a collapsed group draws its active member
+  and the members selected while it was collapsed (`shown(inCollapsed:)`), so a click elsewhere moves no row.
+- Tests: `SidebarDocHeldSlotTests`, red commit first.
 
 ## A relaunch's first frame has the live rows' heights (2026-11-07)
 

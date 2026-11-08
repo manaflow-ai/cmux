@@ -143,6 +143,21 @@ test("an opened group stays open when calls join it and change its count and wor
   expect(now[0]!.open).toBe(true);
 });
 
+test("a run line the reader closed stays closed when the run splits back into its group", async () => {
+  const two = [command("c1", "git pull"), command("c2", "git status")];
+  const container = await mount(<ToolRows row={run("r1", two)} sessionId="closed" />);
+  await open(container, /^Ran 2 commands$/);
+  // A read joins: the run's line opens where the reader opened the group's.
+  await update(<ToolRows row={run("r1", [...two, read("c3", "notes.md")])} sessionId="closed" />);
+  const runLine = container.querySelector<HTMLButtonElement>(".cv-tool.is-run")!;
+  expect(runLine.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => runLine.click());
+  expect(runLine.getAttribute("aria-expanded")).toBe("false");
+  // The read leaves the run again (a call that runs again leaves the latest run for the live line).
+  await update(<ToolRows row={run("r1", two)} sessionId="closed" />);
+  expect(lines(container)).toEqual([{ text: "Ran 2 commands", open: false }]);
+});
+
 test("an opened run stays open when an aside joins its row to the one before", async () => {
   const before = run("r1", [command("a1", "git pull"), command("a2", "git status")]);
   const later = run("r2", [command("b1", "gh pr merge 1"), read("b2", "approvals.json")]);

@@ -17,6 +17,8 @@ import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
 import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
 import type { CloudMachine } from "../cloudMachines";
+import { setNativeHost } from "../native";
+import { resetToastAvoidanceReports } from "../toastAvoidance";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -212,6 +214,65 @@ const firstRunProps = {
   onOpenSession: () => {},
   onShowAll: () => {},
 };
+
+/// What the page told the host about toasts (`pane.toastAvoidance`), with the composer card drawn
+/// 90 px tall at the page's foot.
+function watchToastReports() {
+  resetToastAvoidanceReports();
+  const reports: unknown[] = [];
+  setNativeHost(async (method, params) => {
+    if (method === "pane.toastAvoidance") reports.push(params.rects);
+    return undefined;
+  });
+  Object.assign(dom!.window, {
+    requestAnimationFrame: scope.requestAnimationFrame,
+    cancelAnimationFrame: scope.cancelAnimationFrame,
+  });
+  const drawn = dom!.window.Element.prototype.getBoundingClientRect;
+  dom!.window.Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (!this.classList.contains("nt-composer")) return drawn.call(this);
+    return { left: 40, top: 620, right: 860, bottom: 710, width: 820, height: 90, x: 40, y: 620 } as DOMRect;
+  };
+  return reports;
+}
+
+/// A few macrotask turns: the composer's measure runs on the next frame (a 0 ms timer here).
+const nextTurns = () =>
+  act(async () => {
+    for (let turn = 0; turn < 3; turn++) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+
+test("in the stage layout the composer card at the page's foot is what the app's toasts avoid", async () => {
+  const reports = watchToastReports();
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} />));
+    await nextTurns();
+    expect(container.querySelector('[data-layout="stage"] .nt-composer')).toBeTruthy();
+    expect(reports.at(-1)).toEqual([{ left: 40, top: 620, right: 860, bottom: 710 }]);
+    // The page goes: the toasts stop avoiding a composer that left.
+    act(() => root!.unmount());
+    root = undefined;
+    await nextTurns();
+    expect(reports.at(-1)).toEqual([]);
+  } finally {
+    setNativeHost(undefined);
+    resetToastAvoidanceReports();
+  }
+});
+
+test("away from the page's foot (Minimal) the composer card asks the toasts for nothing", async () => {
+  const reports = watchToastReports();
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} template="minimal" />));
+    await nextTurns();
+    expect(container.querySelector('[data-layout="stage"]')).toBeNull();
+    expect(container.querySelector(".nt-composer")).toBeTruthy();
+    expect(reports).toEqual([]);
+  } finally {
+    setNativeHost(undefined);
+    resetToastAvoidanceReports();
+  }
+});
 
 test("cancelling a saved environment browse keeps the New Tab project", async () => {
   let resolveBrowse!: (folder: string | undefined) => void;
