@@ -271,7 +271,7 @@ img.bc-extension-icon {
   user-select: text;
 }
 .bc-omnibox-input::selection {
-  background: var(--ds-color-selection);
+  background: var(--cmux-selection-fill, var(--cmux-text-selection, var(--ds-color-selection)));
 }
 .bc-omnibox-input::placeholder {
   color: var(--ds-color-faint);
