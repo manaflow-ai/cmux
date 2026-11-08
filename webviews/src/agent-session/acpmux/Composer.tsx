@@ -915,8 +915,13 @@ function ComposerFrame({
     restore: (restoredText, restoredAttachments) => restoreDraft(restoredText, restoredAttachments),
     focus: () => field.current?.focus(),
   });
-  // A new chat's stack follows it to its session, and to the tab's key once the tab is known.
-  const stashedFor = useRef({ sessionId, newChatKey });
+  // A new chat's stack follows it to its session, and to the tab's key once the tab is known. A
+  // composer that opens on a session takes the tab's new-chat stack too: a chat New Tab started
+  // comes up with its session already, and the drafts stashed there go with it.
+  const stashedFor = useRef<{ sessionId: string | undefined; newChatKey: string }>({
+    sessionId: undefined,
+    newChatKey,
+  });
   useEffect(() => {
     const before = stashedFor.current;
     if (!before.sessionId && sessionId) void moveStash(before.newChatKey, sessionId);

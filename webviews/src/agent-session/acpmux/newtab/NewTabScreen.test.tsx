@@ -1215,7 +1215,8 @@ test("⌃S on New Tab stashes the draft and empties the prompt; ⌃S on the empt
         editor.dispatchEvent(
           new dom!.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
         );
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        // A few turns: the drop waits a frame (useDraftStash.ts).
+        for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
       });
     };
     await control();
@@ -1227,6 +1228,23 @@ test("⌃S on New Tab stashes the draft and empties the prompt; ⌃S on the empt
     expect(promptValue()).toBe("half a thought");
     expect(daemon.get(chat!)).toEqual([]);
     expect(stashedNow(chat!)).toEqual([]);
+    // A page that goes the moment a draft comes back keeps the stashed copy.
+    await control();
+    expect(promptValue()).toBe("");
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+    await act(async () => {
+      editor.dispatchEvent(
+        new dom!.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
+      );
+      // Until the draft is back in the prompt; its drop waits for the next frame.
+      for (let turn = 0; turn < 50 && promptValue() === ""; turn++) await Promise.resolve();
+      expect(promptValue()).toBe("half a thought");
+      // Closed before that frame: an unmount runs at once.
+      root!.unmount();
+      root = createRoot(container);
+      for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(daemon.get(chat!)?.map((entry) => entry.text)).toEqual(["half a thought"]);
   } finally {
     resetStashForTests();
   }

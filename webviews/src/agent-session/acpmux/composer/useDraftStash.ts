@@ -77,7 +77,10 @@ export function useDraftStash(chat: string, composer: StashedComposer) {
       }
       io.current.restore(entry.text, entry.attachments);
       io.current.focus();
-      await dropStashed(on, entry.id);
+      // Dropped once the composer has drawn it back, and only while it still shows the chat: one
+      // closed or switched away first keeps the stashed copy.
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+      if (showing(on)) await dropStashed(on, entry.id);
     })();
   };
   /// ⌃S: a draft is stashed (one acpmux does not take stays in the prompt); an empty prompt
