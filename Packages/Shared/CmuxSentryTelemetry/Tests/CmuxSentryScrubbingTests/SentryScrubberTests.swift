@@ -106,6 +106,16 @@ import Testing
         #expect(scrubber.scrub("push with \(token) now") == "push with <redacted-secret> now")
     }
 
+    /// A quoted value ends only at its own closing quote, past escaped quotes (cmux#38555 review F1).
+    @Test func redactsAQuotedValueToItsOwnClosingQuote() {
+        #expect(scrubber.scrub(#"password="before'AFTERsecret" next"#) == #"password="<redacted-secret>" next"#)
+        #expect(scrubber.scrub(#"token='before"AFTERsecret' next"#) == #"token='<redacted-secret>' next"#)
+        #expect(
+            scrubber.scrub(#"{"password":"a\"AFTERsecret","n":1}"#) == #"{"password":"<redacted-secret>","n":1}"#
+        )
+        #expect(scrubber.scrub(#"sid="x'AFTERsecret""#) == #"sid="<redacted-secret>""#)
+    }
+
     @Test func leavesWordsThatShareATokenPrefix() {
         #expect(scrubber.scrub("npm_config_cache and hf_hub and glpat-x") == "npm_config_cache and hf_hub and glpat-x")
     }

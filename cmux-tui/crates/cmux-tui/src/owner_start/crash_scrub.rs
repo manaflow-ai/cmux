@@ -85,6 +85,19 @@ mod tests {
         assert_eq!(scrub("npm_config_cache and hf_hub", None), "npm_config_cache and hf_hub");
     }
 
+    /// A quoted value ends only at its own closing quote, past escaped quotes (cmux#38555 review F1).
+    #[test]
+    fn a_quoted_value_is_redacted_to_its_own_closing_quote() {
+        let mixed = r#"password="before'AFTERsecret" next"#;
+        assert_eq!(scrub(mixed, None), r#"password="<redacted-secret>" next"#);
+        let single = r#"token='before"AFTERsecret' next"#;
+        assert_eq!(scrub(single, None), r#"token='<redacted-secret>' next"#);
+        let escaped = r#"{"password":"a\"AFTERsecret","n":1}"#;
+        assert_eq!(scrub(escaped, None), r#"{"password":"<redacted-secret>","n":1}"#);
+        let sid = r#"sid="x'AFTERsecret""#;
+        assert_eq!(scrub(sid, None), r#"sid="<redacted-secret>""#);
+    }
+
     #[test]
     fn home_becomes_tilde_and_other_users_are_redacted() {
         assert_eq!(scrub("open /home/maya/x failed", Some("/home/maya")), "open ~/x failed");
