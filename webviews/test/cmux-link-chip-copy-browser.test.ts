@@ -33,6 +33,7 @@ await requireBrowserLane("cmux-link-chip-copy-browser.test.ts", async () => {
     `<div class="cv-md" id="code"><p>See ${chip} now</p><div class="cv-codeblock"><pre>  if (a) {\n    b();\n  }</pre></div><p>done</p></div>` +
     `<div class="cv-md" id="shadow"><p>See ${chip} now</p><div class="cv-codeblock"><div class="cv-codeblock__body" id="host"></div></div><p>done</p></div>` +
     `<div class="cv-md" id="math"><p>See ${chip} and <span class="cv-math" data-tex="x^2"><span aria-hidden="true">x²</span></span> here</p></div>` +
+    `<div id="across"><div class="cv-md"><p>Open ${chip} first</p></div><div class="cv-md"><p>Then <span class="cv-math" data-tex="y^2"><span aria-hidden="true">y²</span></span> after</p></div></div>` +
     `<div class="cv-md" id="table"><table><tbody><tr><td>Where</td><td>${chip}</td></tr><tr><td>Then</td><td>ship  it</td></tr></tbody></table></div>` +
     `<script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = '<pre><div data-line>  x = 1;</div><div data-line>    y = 2;</div></pre>';</script>` +
     `</body>`;
@@ -105,7 +106,8 @@ await requireBrowserLane("cmux-link-chip-copy-browser.test.ts", async () => {
   // with the chip's title where its link was.
   const own = new Map<string, string>();
   test("the page's own copy, before the transcript's copy listeners", async () => {
-    for (const selector of ["#typed", "#code", "#shadow", "#table tbody"]) own.set(selector, await copied(selector));
+    for (const selector of ["#typed", "#code", "#shadow", "#across", "#table tbody"])
+      own.set(selector, await copied(selector));
     expect(own.get("#code")).toContain("  if (a) {\n    b();\n  }");
     expect(own.get("#shadow")).toContain("  x = 1;\n    y = 2;");
     await page.evaluate(() => {
@@ -157,6 +159,42 @@ await requireBrowserLane("cmux-link-chip-copy-browser.test.ts", async () => {
   test("a chip and an equation: the TeX and the chip's link", async () => {
     const text = await copied("#math");
     expect(text).toBe(`See ${WORKSPACE} and $x^2$ here`);
+  });
+
+  test("across messages, a chip and an equation: the chip's link, the math as the page copies it", async () => {
+    // mathCopy.ts declines a selection across replies; the chip still copies as its link.
+    const text = await copied("#across");
+    expect(text).toContain(WORKSPACE);
+    expect(text).not.toContain(TITLE);
+    expect(text).toBe(asLink(own.get("#across")!));
+  });
+
+  test("reading a backward selection over a chip keeps it backward", async () => {
+    // As selectionReplyTarget reads it before checking the direction: the anchor stays after the focus.
+    const [anchor, focus] = await page.evaluate(() => {
+      const typed = document.getElementById("typed")!;
+      const selection = document.getSelection()!;
+      const last = typed.lastChild!;
+      selection.setBaseAndExtent(last, 3, typed.firstChild!, 2);
+      (window as unknown as Api).selectionText(selection);
+      const at = (node: Node | null, offset: number) => {
+        const range = document.createRange();
+        range.setStart(node!, offset);
+        return range;
+      };
+      const anchorAt = at(selection.anchorNode, selection.anchorOffset);
+      const focusAt = at(selection.focusNode, selection.focusOffset);
+      return [
+        [selection.anchorNode === last, selection.anchorOffset],
+        [
+          selection.focusNode === typed.firstChild,
+          selection.focusOffset,
+          anchorAt.compareBoundaryPoints(Range.START_TO_START, focusAt),
+        ],
+      ];
+    });
+    expect(anchor).toEqual([true, 3]);
+    expect(focus).toEqual([true, 2, 1]);
   });
 
   test("a chip in a table: the cells as the page copies them, the chip as its link", async () => {

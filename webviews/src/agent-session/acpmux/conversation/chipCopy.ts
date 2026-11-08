@@ -63,7 +63,12 @@ export function chipText(selected: Range): string | null {
     ...[...(scope?.querySelectorAll("*") ?? [])].filter((element) => element.shadowRoot && inScope(element)),
   ].sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
   const selection = owner.getSelection();
-  const kept = selection ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index)) : [];
+  // The person's selection as they made it: its anchor and focus, so a backward one stays backward
+  // (a Reply placed at its focus, Shift-arrow growing the same end).
+  const kept =
+    selection && selection.rangeCount > 0 && selection.anchorNode && selection.focusNode
+      ? ([selection.anchorNode, selection.anchorOffset, selection.focusNode, selection.focusOffset] as const)
+      : null;
   const read = (start: Node, startOffset: number, end: Node, endOffset: number) => {
     if (!selection) return "";
     selection.setBaseAndExtent(start, startOffset, end, endOffset);
@@ -98,8 +103,8 @@ export function chipText(selected: Range): string | null {
     text += text.endsWith("\n") ? tail.replace(/^\n/, "") : tail;
   } finally {
     if (selection) {
-      selection.removeAllRanges();
-      for (const each of kept) selection.addRange(each);
+      if (kept) selection.setBaseAndExtent(...kept);
+      else selection.removeAllRanges();
     }
   }
   last = { key, startContainer: range.startContainer, endContainer: range.endContainer, text };

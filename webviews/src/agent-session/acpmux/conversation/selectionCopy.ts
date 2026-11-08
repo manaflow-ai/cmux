@@ -12,10 +12,11 @@
 // the link, as the plain link did before the chips (review of #38166): in a reply's copy, and in
 // any other selection that holds one (a sent prompt's text, a reply's code or table), whose plain
 // text is then the page's with each chip's words swapped for its link (chipCopy.ts). With math,
-// mathCopy.ts's copy does the same.
+// mathCopy.ts's copy does the same; math it declines (across messages) keeps the chips' links here.
 import { copyHref, htmlMarkdown } from "../richClipboard";
 import { safeHref } from "../replyHref";
 import { chipText, chipsAsLinks, withWholeChips } from "./chipCopy";
+import { mathCopyOf } from "./mathCopy";
 
 export { withWholeChips };
 
@@ -96,11 +97,11 @@ export function selectionHtml(selected: Range): string | null {
 
 /** The plain text of a selection outside a reply's copy that holds a cmux link chip, each chip as
  * its link (chipCopy.ts: the page's own text around it, code and tables included); null when it
- * holds none (the page's own copy) or holds math (mathCopy.ts's, which turns chips into links too). */
+ * holds none (the page's own copy) or is one mathCopy.ts copies (which turns chips into links too).
+ * Math that copy declines (a selection across messages) reads as the page's, its chips as links. */
 export function chipSelectionText(selected: Range): string | null {
-  const range = withWholeChips(selected);
-  for (const element of document.querySelectorAll(MATH)) if (range.intersectsNode(element)) return null;
-  return chipText(range);
+  if (mathCopyOf(selected)) return null;
+  return chipText(withWholeChips(selected));
 }
 
 function onCopy(event: ClipboardEvent) {

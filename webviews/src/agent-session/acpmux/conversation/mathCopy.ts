@@ -27,19 +27,31 @@ function elementOf(node: Node): Element | null {
   return node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
 }
 
-function onCopy(event: ClipboardEvent) {
-  const selection = document.getSelection();
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !event.clipboardData) return;
-  const range = withWholeChips(selection.getRangeAt(0)).cloneRange();
+/**
+ * The range this copy puts on the clipboard for `selected`, reaching to each equation and chip an end
+ * is inside, and its text; null when this copy does not take it (no math, across replies, a shadow
+ * root, or not installed). selectionCopy.ts asks it too, so a selection with math this copy declines
+ * still copies its chips as their links there.
+ */
+export function mathCopyOf(selected: Range): { range: Range; text: string } | null {
+  if (!installed) return null;
+  const range = withWholeChips(selected).cloneRange();
   const first = elementOf(range.startContainer)?.closest<HTMLElement>(MATH);
   if (first) range.setStartBefore(first);
   const last = elementOf(range.endContainer)?.closest<HTMLElement>(MATH);
   if (last) range.setEndAfter(last);
-  if (!elementOf(range.commonAncestorContainer)?.closest(".cv-md")) return;
+  if (!elementOf(range.commonAncestorContainer)?.closest(".cv-md")) return null;
   const text = plainText(range);
-  if (text === null) return;
-  event.clipboardData.setData("text/plain", text);
-  event.clipboardData.setData("text/html", html(range));
+  return text === null ? null : { range, text };
+}
+
+function onCopy(event: ClipboardEvent) {
+  const selection = document.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !event.clipboardData) return;
+  const copy = mathCopyOf(selection.getRangeAt(0));
+  if (!copy) return;
+  event.clipboardData.setData("text/plain", copy.text);
+  event.clipboardData.setData("text/html", html(copy.range));
   event.preventDefault();
 }
 
