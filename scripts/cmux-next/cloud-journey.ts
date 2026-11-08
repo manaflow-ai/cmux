@@ -328,8 +328,8 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   };
 }
 
-/** An awk function that reads one string field of a journalctl JSON line. */
-const JOURNAL_FIELD = `function field(name,   r) { if (match($0, "\\"" name "\\":\\"[^\\"]*\\"")) { r = substr($0, RSTART, RLENGTH); sub(/^"[^"]*":"/, "", r); sub(/"$/, "", r); return r } return "" }`;
+/** An awk function that reads one string field of a journalctl JSON line, past escaped quotes (`\"` reads as `"`). */
+export const JOURNAL_FIELD = `function field(name,   r) { if (match($0, "\\"" name "\\":\\"([^\\"\\\\\\\\]|\\\\\\\\.)*\\"")) { r = substr($0, RSTART, RLENGTH); sub(/^"[^"]*":"/, "", r); sub(/"$/, "", r); gsub(/\\\\"/, "\\"", r); return r } return "" }`;
 
 /**
  * When the guest set up its carrier: the bind the host finished (bound.json; the platform's bind.json is gone by now,
@@ -401,7 +401,12 @@ export function guestTimeline(stdout: string, answeredAt: number, before: number
     return Number.isFinite(mono) ? [`${e.name}${e.text ? ` "${e.text.slice(0, 80)}"` : ""} ${rel(mono)}`] : [];
   })];
   const step = clock.length > 1 ? Math.round(clock[clock.length - 1].boot - clock[0].boot) : 0;
-  return `after create's answer (±${half} ms${step ? `; the guest's wall clock stepped ${step >= 0 ? "+" : ""}${step} ms after boot` : ""}): ${parts.join("; ")}`;
+  // A machine bound before create answered is a claimed spare (made and bound ahead, handed out at create). Its boot
+  // time is the snapshot base's, so the bind, not the boot, is what says so.
+  const bound = events.find((e) => e.name === "bound.json" && e.wall !== undefined);
+  const boundMs = bound ? Math.round(mid - (upNow - toMono(bound.wall!)) - answeredAt) : NaN;
+  const spare = boundMs < 0 ? `; a claimed spare: bound ${-boundMs} ms before create answered` : "";
+  return `after create's answer (±${half} ms${step ? `; the guest's wall clock stepped ${step >= 0 ? "+" : ""}${step} ms after boot` : ""}${spare}): ${parts.join("; ")}`;
 }
 
 /** A carrier answer's `relay`, as the dial takes it (cmux-tui carrier/answer.rs relay_route): a bare `relay+do://<host>`. */

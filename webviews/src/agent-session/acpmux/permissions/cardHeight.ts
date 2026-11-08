@@ -33,9 +33,10 @@ export function cardFont(): string {
 
 /// The letter-spacing the card's text at `size` px is drawn with, in px: its type-scale step's
 /// `--text-STEP--letter-spacing`, which the Interface Font sets (System UI, tight and cmux Inter
-/// track; the stacks they share with System UI and Inter don't tell them apart).
-export function cardLetterSpacing(size: number): number {
-  const name = typeScale.steps.find((entry) => entry.size === size)?.name;
+/// track; the stacks they share with System UI and Inter don't tell them apart). `step` names the
+/// token when it isn't the size's own: the buttons draw body-size labels with detail's tracking.
+export function cardLetterSpacing(size: number, step?: string): number {
+  const name = step ?? typeScale.steps.find((entry) => entry.size === size)?.name;
   return name ? chatUiTracking(chatDisplay().uiFont, name) * size : 0;
 }
 
@@ -58,11 +59,13 @@ function textHeight(text: string, width: number, size: number, line: number, mon
   }
 }
 
-function textWidth(text: string, size: number, weight = 400): number {
+function textWidth(text: string, size: number, weight = 400, step?: string): number {
   try {
     return (
       layoutWithLines(
-        prepareWithSegments(text, `${weight} ${size}px ${cardFont()}`, { letterSpacing: cardLetterSpacing(size) }),
+        prepareWithSegments(text, `${weight} ${size}px ${cardFont()}`, {
+          letterSpacing: cardLetterSpacing(size, step),
+        }),
         Infinity,
         size,
       ).lines[0]?.width ?? 0
@@ -147,11 +150,12 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
     ...(external ? [translate("permission.external.openSettings")] : []),
   ];
   const taken = new Set(labels);
-  // Buttons are 12px either side of their label; a plan's Approve plan carries its build menu's
-  // chevron segment (PermissionCard `PlanBuildSplit`).
+  // Buttons are 12px either side of their label, which tracks as the detail step (styles.css); a
+  // plan's Approve plan carries its build menu's chevron segment (PermissionCard `PlanBuildSplit`).
+  const button = (label: string, weight = 400) => textWidth(label, body.size, weight, "detail");
   const widths = labels.map(
     (label, index) =>
-      textWidth(label, body.size, allowOnce && index === 0 ? 500 : 400) +
+      button(label, allowOnce && index === 0 ? 500 : 400) +
       24 +
       (plan && allowOnce && index === 0 ? PLAN_BUILD_CHEVRON : 0),
   );
@@ -159,7 +163,7 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
     const label = optionButtonLabel(option, translate, taken);
     taken.add(label);
     // Custom action labels are ellipsized at 14ch; transcript cards omit keyboard shortcuts.
-    widths.push(Math.min(textWidth(label, body.size), 14 * textWidth("0", body.size)) + 24);
+    widths.push(Math.min(button(label), 14 * button("0")) + 24);
   }
   const rows = wrappedRows(widths, room, GAP);
   height += BAND + EDGE + rows * CONTROL_ROW + Math.max(0, rows - 1) * GAP;

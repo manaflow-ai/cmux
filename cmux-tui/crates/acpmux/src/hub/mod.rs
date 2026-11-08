@@ -143,6 +143,7 @@ pub use model_options::{
 };
 pub mod ledger;
 mod model_hint;
+mod model_probe;
 mod models_view;
 mod paging;
 mod personal_stats;
@@ -215,6 +216,7 @@ mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
 mod start_retry;
+mod start_watch;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
