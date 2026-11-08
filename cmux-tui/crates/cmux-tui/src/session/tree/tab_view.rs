@@ -25,6 +25,9 @@ pub struct TabView {
     pub program_status: Option<ShownProgramStatus>,
     /// `tab-attention-v1`: an agent needs the person to act in this tab.
     pub attention: Option<TabAttentionView>,
+    /// The git branch (or abbreviated commit when detached) of the PTY's
+    /// directory, when the daemon resolved one.
+    pub git_branch: Option<String>,
 }
 
 #[derive(Clone, Copy)]

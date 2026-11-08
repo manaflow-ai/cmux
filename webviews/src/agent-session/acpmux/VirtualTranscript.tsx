@@ -80,7 +80,7 @@ import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll } from "./summary/heldWhileScrolling";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
-import { leaveOnScreenRef } from "../../ui/tabReach";
+import { keepTabOnScreen, leaveOnScreenRef } from "../../ui/tabReach";
 import {
   transcriptRepositoriesFrom,
   type RepositoryCache,
@@ -1439,6 +1439,9 @@ function TranscriptView({
   /// composer does, so the column matches the composer's and nothing reflows as a chat starts to scroll.
   const [lane, setLane] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  // Tab into the rows lands on one in view, never on a row mounted past the view's edge, which
+  // focusing would scroll to (ui/tabReach.ts keepTabOnScreen, #38090).
+  useLayoutEffect(() => (ref.current ? keepTabOnScreen(ref.current) : undefined), []);
   const stopJump = useCallback(() => {
     // Find, reveal and an asynchronous send own their new placement, even without a jump in flight.
     wheelGlide.current?.stop();

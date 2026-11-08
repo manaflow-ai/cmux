@@ -98,6 +98,10 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "release-to-auto",
     // `run --sandboxed <task>` (cli/sandbox_run.rs): without it a following `--json` would be eaten.
     "sandboxed",
+    // `terminal screen read|copy --unwrap`: soft wraps joined into logical lines.
+    "unwrap",
+    // `terminal screen wait --new`: only output printed from now on matches.
+    "new",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

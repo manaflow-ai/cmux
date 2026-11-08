@@ -121,6 +121,42 @@ describe("the hover intent", () => {
     expect(changes).toEqual([true, false]);
   });
 
+  test("a pointer back while the close runs reopens at once; after it, the dwell again", () => {
+    const { timers, advance } = manualTimers();
+    const changes: boolean[] = [];
+    const intent = new PreviewIntent((open) => changes.push(open), timers, 400, 180, 265);
+    intent.host(true);
+    advance(400);
+    intent.host(false);
+    advance(180);
+    expect(changes).toEqual([true, false]);
+    advance(100);
+    intent.host(true);
+    expect(changes).toEqual([true, false, true]);
+    intent.host(false);
+    advance(180);
+    advance(265);
+    intent.host(true);
+    advance(399);
+    expect(changes).toEqual([true, false, true, false]);
+    advance(1);
+    expect(changes).toEqual([true, false, true, false, true]);
+  });
+
+  test("a return after close() (Escape, a click) waits the dwell", () => {
+    const { timers, advance } = manualTimers();
+    const changes: boolean[] = [];
+    const intent = new PreviewIntent((open) => changes.push(open), timers, 400, 180, 265);
+    intent.host(true);
+    advance(400);
+    intent.close();
+    intent.host(false);
+    intent.host(true);
+    expect(changes).toEqual([true, false]);
+    advance(400);
+    expect(changes).toEqual([true, false, true]);
+  });
+
   test("close() closes at once and cancels a pending open", () => {
     const { timers, advance } = manualTimers();
     const changes: boolean[] = [];
@@ -398,7 +434,7 @@ describe("the card", () => {
     Object.defineProperty(window.HTMLElement.prototype, "scrollHeight", {
       configurable: true,
       get(this: HTMLElement) {
-        return this.classList.contains("wn-preview-list") ? 120 : 0;
+        return this.classList.contains("wn-preview-body") ? 120 : 0;
       },
     });
     const rect = window.HTMLElement.prototype.getBoundingClientRect;
@@ -441,15 +477,16 @@ describe("the card", () => {
     act(() => root?.unmount());
     const host = dom.window.document.getElementById("root")!;
     root = createRoot(host);
-    const opened: string[] = [];
+    const opened: unknown[] = [];
     await act(async () =>
       root!.render(
         <UpdatedCard
           data={data}
           strings={createStrings(table)}
-          actions={{ openChangelog: () => opened.push("open"), dismiss: () => undefined }}
+          actions={{ openChangelog: (target) => opened.push(target ?? "open"), dismiss: () => undefined }}
           closeButton={false}
           decoration={null}
+          previewMode="above"
           {...props}
         />,
       ),
@@ -457,13 +494,17 @@ describe("the card", () => {
     return { host, opened };
   }
 
-  test("What's New ↗ sits on the title line and opens the full page", async () => {
-    const { host, opened } = await render({});
+  // Lawrence 2026-11-07, "this ui is very bad": What's New beside the title cut it to "Updated to ...".
+  // The title line is the title alone; open, the header goes on with the full version and What's New.
+  test("the title line is the title alone; open, the header shows the full version and What's New, which opens the full page", async () => {
+    const { host, opened } = await render({ previewOpen: true });
     const head = host.querySelector(".wn-card-head")!;
     expect(head.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
-    const link = head.querySelector<HTMLButtonElement>(".wn-card-link")!;
-    expect(link.textContent).toBe("What's New ↗");
+    expect(head.querySelector(".wn-card-link")).toBeNull();
     expect(host.querySelector(".wn-card-primary")).toBeNull();
+    expect(host.querySelector(".wn-card-version")?.textContent).toBe(data.version);
+    const link = host.querySelector<HTMLButtonElement>(".wn-preview-whatsnew")!;
+    expect(link.textContent).toBe("What's New ↗");
     await act(async () => link.click());
     expect(opened).toEqual(["open"]);
   });
@@ -485,7 +526,43 @@ describe("the card", () => {
     ]);
     expect(host.querySelector(".wn-preview")?.getAttribute("aria-hidden")).toBe("false");
     await act(async () => rows[1]!.click());
-    expect(opened).toEqual(["open"]);
+    // Leo 2026-11-08: "if someone clicks it... maybe just bring them to the section in what's new".
+    expect(opened).toEqual([{ area: "agentChat", title: "Unread and Running chats" }]);
+  });
+
+  // Leo 2026-11-08: "the sections should be more obvious what's what". Beside the sidebar (the shipped
+  // look, UpdatedNotes) the changes stand under their app areas in What's New's order, each header
+  // naming the area and its count; What's New opens the page at the top, a row opens it at its change.
+  test("beside the sidebar, the changes stand under their areas' headers and a row opens What's New at it", async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { UpdatedNotes } = await import("../src/pages/changelog/UpdatedNotes");
+    const { createStrings } = await import("../src/pages/shared/i18n");
+    const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+    act(() => root?.unmount());
+    const host = dom.window.document.getElementById("root")!;
+    root = createRoot(host);
+    const opened: unknown[] = [];
+    await act(async () =>
+      root!.render(
+        <UpdatedNotes
+          data={data}
+          strings={createStrings(table)}
+          actions={{ openChangelog: (target) => opened.push(target ?? "open"), dismiss: () => undefined }}
+          mode="beside"
+        />,
+      ),
+    );
+    const sections = [...host.querySelectorAll<HTMLElement>(".wn-notes-section")];
+    expect(sections.map((section) => section.dataset.area)).toEqual(["agentChat", "tabs"]);
+    expect(sections.map((section) => section.querySelector(".wn-notes-area-name")?.textContent)).toEqual([
+      "Agent Chat",
+      "Tabs",
+    ]);
+    expect(sections.map((section) => section.querySelector(".wn-notes-area-count")?.textContent)).toEqual(["2", "1"]);
+    expect(sections[0]!.querySelectorAll(".wn-notes-row")).toHaveLength(2);
+    act(() => host.querySelector<HTMLButtonElement>(".wn-notes-whatsnew")!.click());
+    act(() => sections[0]!.querySelectorAll<HTMLButtonElement>(".wn-notes-row")[1]!.click());
+    expect(opened).toEqual(["open", { area: "agentChat", title: "Unread and Running chats" }]);
   });
 
   test("the host's pointer opens it after the dwell, asking for the room above the card, and hands the room back once it has closed", async () => {
@@ -531,6 +608,7 @@ describe("the card", () => {
             actions={{ openChangelog: () => undefined, dismiss: () => undefined }}
             closeButton={false}
             decoration={null}
+            previewMode="above"
             hostPointer={false}
             onPreviewSize={(h: number) => sizes.push(h)}
           />,
@@ -682,7 +760,7 @@ async function withSurface(
   Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
     configurable: true,
     get(this: HTMLElement) {
-      return this.classList.contains("wn-preview-list") ? 100 : 0;
+      return this.classList.contains("wn-preview-body") ? 100 : 0;
     },
   });
   const globals = {
@@ -725,6 +803,9 @@ async function withSurface(
   try {
     const { mountUpdateSurface } = await import("../src/pages/changelog/surface");
     const host = dom.window.document.getElementById("root")!;
+    // The in-card preview is the look before the popover beside the sidebar: the host sends it in
+    // the theme's slot (UpdatedCardPreviewMode `above`).
+    dom.window.document.documentElement.setAttribute("data-cmux-decoration-updated-card-preview", "above");
     await act(async () => mountUpdateSurface(host, "updated", client));
     await until(() => sizes.length > 0 && pointer !== undefined);
     expect(pointer).toBeDefined();
@@ -782,8 +863,8 @@ test("the preview opens on the card's curve, 265ms, the native glass's twin", ()
   expect(css).toContain("--wn-preview-motion: 265ms;");
   expect(css).toContain("--wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);");
   expect(css).toMatch(/\.wn-preview \{\s*transition: height var\(--wn-preview-motion\) var\(--wn-preview-ease\);/);
-  const tsx = readFileSync(new URL("../src/pages/changelog/UpdateSurfaces.tsx", import.meta.url), "utf8");
-  expect(tsx).toContain("const PREVIEW_CLOSE_MS = 265;");
+  const tsx = readFileSync(new URL("../src/pages/changelog/updatedPreview.ts", import.meta.url), "utf8");
+  expect(tsx).toContain("export const PREVIEW_CLOSE_MS = 265;");
   const swift = readFileSync(
     new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift", import.meta.url),
     "utf8",
@@ -810,4 +891,26 @@ test("Escape on a hover-opened preview closes the preview, not the card", async 
     await act(async () => void escape());
     expect(ops).toContain("cmux.changelog.surface.dismiss");
   });
+});
+
+// Review F2 of #38332: a click on a row opens What's New under the row's area, so the list must file
+// each change where the page does: a curated change by its title, else by what its summary adds; a
+// commit by its subject's label. Every shipped nightly's rows agree with the page's.
+test("the preview files each change under the area What's New files it", async () => {
+  const { sheetRows } = await import("../src/pages/changelog/SheetPage");
+  const { mergedView } = await import("../src/pages/changelog/model");
+  const nightlies = (await import("../src/pages/changelog/fixtures/nightly-next-50.json")).default as ReleaseNotes[];
+  let compared = 0;
+  const mismatches: string[] = [];
+  for (const build of nightlies) {
+    const page = new Map(sheetRows(mergedView([build], "en")).map((row) => [row.title, row.area]));
+    for (const row of previewEntries(data, [build], "en")) {
+      if (!page.has(row.title)) continue;
+      compared++;
+      if (page.get(row.title) !== row.area)
+        mismatches.push(`${build.build}: ${row.title} (${row.area} vs ${page.get(row.title)})`);
+    }
+  }
+  expect(compared).toBeGreaterThan(50);
+  expect(mismatches).toEqual([]);
 });
