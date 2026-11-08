@@ -3197,9 +3197,9 @@ function TranscriptView({
           // rewrap): it ends, and nothing is noted, so the first pass after them measures no move
           // from a row they moved (that drew the thread back by the ride's last step, under the card).
           // The turn ending (the live line leaves for the footer, and what ran folds above the reply)
-          // lands at once, and the chase lands with it (followChase `land`: at once within a line,
-          // else within 50 ms at no more than a line a frame): nothing settles on after the turn
-          // rests (base's glide ended there too, its room gone).
+          // joins the chase, and the chase lands (followChase `land`: at once when that frame stays
+          // within a landing frame's move, else within 50 ms at no more than a line a frame): nothing
+          // settles on after the turn rests (base's glide ended there too, its room gone).
           const lineLeft = Boolean(oldRows.at(-1)?.below) && !rows.at(-1)?.below;
           // Only a live turn moves on the chase: a reply streaming, a send's rows, what a running
           // turn brings. The open's settle and an idle chat's passes (rows drawn at their measured

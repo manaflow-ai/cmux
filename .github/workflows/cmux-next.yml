@@ -140,6 +140,7 @@ on:
       - scripts/cmux-next/settings-exports.txt
       - scripts/cmux-next/check-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - cmux-tui/**
       - CLI/**
       - cmuxCLITests/**
@@ -428,6 +429,7 @@ on:
       - scripts/cmux-next/settings-exports.txt
       - scripts/cmux-next/check-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - cmux-tui/**
       - CLI/**
       - cmuxCLITests/**
