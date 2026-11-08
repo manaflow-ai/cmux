@@ -25,6 +25,7 @@ bindgen = ["uniffi/cli"]
 cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
 cmux-rd-proto.workspace = true
+cmux-terminal-prediction.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
