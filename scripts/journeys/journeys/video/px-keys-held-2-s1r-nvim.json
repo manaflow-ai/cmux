@@ -118,7 +118,7 @@
   },
   {
    "do": "type",
-   "text": "nvim -u NONE -c \"set nowrap\" /tmp/jr-tui-border.py",
+   "text": "/opt/homebrew/bin/nvim -u NONE -c \"set nowrap\" /tmp/jr-tui-border.py",
    "enter": true,
    "mark": "tui-p0",
    "title": "set-up: nvim in p0"

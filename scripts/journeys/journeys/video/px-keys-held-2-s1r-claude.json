@@ -118,7 +118,7 @@
   },
   {
    "do": "type",
-   "text": "claude",
+   "text": "/opt/homebrew/bin/claude",
    "enter": true,
    "mark": "tui-p0",
    "title": "set-up: claude in p0"

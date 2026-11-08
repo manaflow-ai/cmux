@@ -118,7 +118,7 @@
   },
   {
    "do": "type",
-   "text": "htop",
+   "text": "/opt/homebrew/bin/htop",
    "enter": true,
    "mark": "tui-p0",
    "title": "set-up: htop in p0"
