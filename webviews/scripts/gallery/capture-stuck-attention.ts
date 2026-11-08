@@ -30,9 +30,12 @@ const variants = [
   "quick-loop-ring",
 ];
 const layouts = [
-  { name: "dark-normal", width: 900, scheme: "dark" },
-  { name: "light-normal", width: 900, scheme: "light" },
-  { name: "dark-narrow", width: 420, scheme: "dark" },
+  { name: "dark-normal-reduced", width: 900, scheme: "dark", reducedMotion: true },
+  { name: "light-normal-reduced", width: 900, scheme: "light", reducedMotion: true },
+  { name: "dark-narrow-reduced", width: 420, scheme: "dark", reducedMotion: true },
+  { name: "dark-normal-motion", width: 900, scheme: "dark", reducedMotion: false },
+  { name: "light-normal-motion", width: 900, scheme: "light", reducedMotion: false },
+  { name: "dark-narrow-motion", width: 420, scheme: "dark", reducedMotion: false },
 ] as const;
 const results: Array<Record<string, unknown>> = [];
 try {
@@ -43,7 +46,7 @@ try {
         const context = await browser.newContext({
           viewport: { width: layout.width, height: 720 },
           deviceScaleFactor: 2,
-          reducedMotion: "reduce",
+          reducedMotion: layout.reducedMotion ? "reduce" : "no-preference",
           colorScheme: layout.scheme,
         });
         const page = await context.newPage();
@@ -55,6 +58,7 @@ try {
             entryPath: "src/agent-session/acpmux/StuckAgentPane.gallery.ts",
             theme: layout.scheme === "light" ? "Apple System Colors Light" : "Apple System Colors",
             colorScheme: layout.scheme,
+            reducedMotion: String(layout.reducedMotion),
             width: String(layout.width),
             height: "720",
           });
@@ -100,12 +104,14 @@ try {
               ),
               source: document.documentElement.dataset.gallerySource,
               revision: document.documentElement.dataset.galleryRevision,
+              reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
             };
           });
           // Keep the failing variant's state even when a play assertion fails. The packet and image
           // identify whether the real composer, gallery driver, or attention transition regressed.
           await page.screenshot({ path: path.join(out, `${variant}-${layout.name}.png`), fullPage: false });
-          results.push({ variant, layout: layout.name, reducedMotion: true, ...readback });
+          results.push({ variant, layout: layout.name, ...readback });
+          assert.equal(readback.reducedMotion, layout.reducedMotion, `${variant}: motion environment`);
           assert.ok(readback.composer, `${variant}: real composer missing`);
           assert.ok(readback.playReport, `${variant}: gallery play did not run`);
           assert.notEqual(

@@ -69,8 +69,23 @@ const editNudge = async (ctx: PlayContext) => {
     throw new Error("the existing draft was not entered");
   const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog;
   const callsBefore = log.length;
+  const beforeNudge = bounds(ctx);
+  const banner = ctx.document.querySelector(".acpmux-stuck-banner")!;
+  const bannerTop = banner.getBoundingClientRect().top;
   await ctx.click({ selector: ".acpmux-stuck-nudge" });
   await ctx.waitFor(() => ctx.document.querySelector(editor)?.textContent?.includes(diagnosis));
+  const afterNudge = bounds(ctx);
+  // Inserting a multiline draft grows the existing composer upwards. Its bottom edge
+  // stays fixed, and the diagnosis must follow its top by exactly the same distance.
+  if (
+    Math.abs(afterNudge.x - beforeNudge.x) > 0.5 ||
+    Math.abs(afterNudge.width - beforeNudge.width) > 0.5 ||
+    Math.abs(afterNudge.y + afterNudge.height - beforeNudge.y - beforeNudge.height) > 0.5 ||
+    afterNudge.height < beforeNudge.height - 0.5 ||
+    afterNudge.height - beforeNudge.height > 160 ||
+    Math.abs(banner.getBoundingClientRect().top - bannerTop - (afterNudge.y - beforeNudge.y)) > 0.5
+  )
+    throw new Error("nudge growth moved the composer anchor or separated the diagnosis");
   const text = ctx.document.querySelector(editor)?.textContent ?? "";
   if (!text.includes("Please try a different approach")) throw new Error("nudge did not prefill the real composer");
   if (!text.includes(existingDraft)) throw new Error("nudge replaced the existing draft");
@@ -86,6 +101,16 @@ const editNudge = async (ctx: PlayContext) => {
   selection?.removeAllRanges();
   selection?.addRange(range);
   await ctx.type(" Check the smaller auth fixture first.", { selector: editor });
+  // Typing can grow the field on its existing spring. Finish that bounded motion
+  // before measuring the independent attention-clear transition.
+  await ctx.waitFor(
+    () =>
+      !ctx.document
+        .querySelector(box)!
+        .getAnimations({ subtree: true })
+        .some((animation) => animation.playState === "running" || animation.pending),
+    { capMs: 2000 },
+  );
   if (
     !ctx.document.querySelector(editor)?.textContent?.includes("smaller auth fixture") ||
     !ctx.document.querySelector(editor)?.textContent?.includes(existingDraft)
@@ -107,6 +132,14 @@ const clearOnProgress = async (ctx: PlayContext) => {
     !ctx.document.querySelector(editor)?.textContent?.includes("Check the auth regression too.")
   )
     throw new Error("progress cleared the person's draft");
+};
+
+const nudgeChecks = {
+  layoutShiftMax: {
+    value: 0.05,
+    reason:
+      "Prefilling the multiline hint grows the composer like typing; play asserts its fixed bottom edge and matching banner movement. Attention transitions themselves keep identical geometry.",
+  },
 };
 
 export default agentPaneEntry({
@@ -131,11 +164,13 @@ export default agentPaneEntry({
       note: "Nudge pre-fills the real composer and remains editable; it neither sends nor cancels the agent.",
       snapshot: loop,
       play: editNudge,
+      checks: nudgeChecks,
     },
     "clears-on-progress": {
       note: "Progress removes the ring and diagnosis without moving the composer or deleting an edited draft.",
       snapshot: loop,
       play: clearOnProgress,
+      checks: nudgeChecks,
     },
     "attention-transition": {
       note: "A live episode arrives through the bridge with no composer geometry change.",

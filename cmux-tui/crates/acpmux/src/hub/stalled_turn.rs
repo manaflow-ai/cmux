@@ -368,6 +368,36 @@ mod loop_episode_tests {
         );
         assert_eq!(summary["state"], "running");
         assert_eq!(session.state_seq.load(Ordering::SeqCst), before + 2);
+
+        // A turn can finish while stuck. Publishing the next turn before its prompt is
+        // written must not revive that episode; both reset paths must notify watchers.
+        for reset_on_prompt_write in [false, true] {
+            for id in ["next-a", "next-b", "next-c"] {
+                hub.note_tool_update(
+                    &session,
+                    &json!({
+                        "sessionUpdate": "tool_call", "toolCallId": id, "kind": "execute",
+                        "rawInput": {"command": "cargo test"}, "status": "failed"
+                    }),
+                );
+            }
+            assert!(hub.session_summary(&session)["loopEpisode"].is_object());
+            let before_reset = session.state_seq.load(Ordering::SeqCst);
+            if reset_on_prompt_write {
+                hub.watch_stalled_turn(&session, None);
+            } else {
+                let mut next = session.turn.lock().unwrap().take().unwrap();
+                assert_eq!(hub.session_summary(&session)["loopEpisode"], Value::Null);
+                next.turn_id = "next-turn".into();
+                *session.turn.lock().unwrap() = Some(next);
+                assert_eq!(hub.session_summary(&session)["loopEpisode"], Value::Null);
+                hub.hold_stalled_count(&session);
+            }
+            assert_eq!(session.state_seq.load(Ordering::SeqCst), before_reset + 1);
+            assert_eq!(hub.session_summary(&session)["loopEpisode"], Value::Null);
+            hub.watch_stalled_turn(&session, None);
+            assert_eq!(session.state_seq.load(Ordering::SeqCst), before_reset + 1);
+        }
         hub.shutdown_all().await;
     }
 }
