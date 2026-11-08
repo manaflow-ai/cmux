@@ -82,27 +82,25 @@ extension HistoryService {
         writes.enqueue(body) { [weak self] in self?.onChange?() }
     }
 
-    /// Seeds a profile's omnibox from the daemon's visit summaries once the daemon imported its older build's log,
-    /// which goes in ``writes`` ahead of every waiting write, so a clear made while the daemon was away still clears it.
+    /// Seeds a profile's omnibox from the daemon's visit summaries, after the daemon imported its older build's log (queued in
+    /// ``writes`` ahead of every waiting write, so a clear made while the daemon was away still clears it). The read waits in
+    /// ``writes`` behind every pending clear and remove, and reads again past one queued while it ran, so no cleared page comes back.
     func seedWhenConnected(_ history: InMemoryBrowserHistory, profile: BrowserProfileID) {
         let wireID = BrowserProfileRecord.wireID(for: profile)
-        let seed: @MainActor () -> Void = { [weak self, weak history] in
-            // task-owner: one wait for the local daemon, then a one-shot read of the profile's visit summaries
-            Task {
-                guard let daemon = await self?.connectedDaemonHistory() else { return }
-                let summaries = (try? await daemon.summaries(profile: wireID)) ?? []
-                let entries = summaries.compactMap { summary in
-                    URL(string: summary.url).map {
-                        BrowserHistoryEntry(url: $0, title: summary.title, visitCount: summary.visitCount,
-                                            lastVisit: Date(timeIntervalSince1970: summary.lastVisitMS / 1_000))
-                    }
-                }
-                history?.merge(entries)
+        if let supportDirectory {
+            writes.enqueue(ahead: true) { daemon, _ in
+                try await Self.handOver(LegacyHistoryFile.visitLogURL(profile: wireID, supportDirectory: supportDirectory),
+                                        supportDirectory: supportDirectory, profile: wireID, to: daemon)
             }
         }
-        guard let supportDirectory else { return seed() }
-        writes.enqueue(ahead: true, { daemon, _ in try await Self.handOver(LegacyHistoryFile.visitLogURL(profile: wireID, supportDirectory: supportDirectory),
-                                                                       supportDirectory: supportDirectory, profile: wireID, to: daemon) }, done: seed)
+        writes.read({ try await $0.summaries(profile: wireID) }, use: { [weak history] summaries in
+            history?.merge(summaries.compactMap { summary in
+                URL(string: summary.url).map {
+                    BrowserHistoryEntry(url: $0, title: summary.title, visitCount: summary.visitCount,
+                                        lastVisit: Date(timeIntervalSince1970: summary.lastVisitMS / 1_000))
+                }
+            })
+        })
     }
 
     /// Imports `log` (an app-local `History.sqlite`) into the daemon's store of `profile`, then deletes it and

@@ -48,10 +48,35 @@ public final class HistoryWriteQueue<Client: Sendable> {
 
     /// Writes not yet sent (the one being sent included).
     public var count: Int { items.count }
+    /// Every write but a visit (a clear, a remove, an import) moves it: a ``read(_:use:)`` whose answer may
+    /// predate one reads again behind it.
+    public private(set) var changes: UInt64 = 0
 
     /// Queues `write` behind every earlier one (`ahead`: before every waiting one, behind only the one
     /// being sent); `done` runs once it was sent (or refused). A visit refused for room never runs `done`.
     public func enqueue(visit: Bool = false, ahead: Bool = false, _ write: @escaping Write, done: (@MainActor () -> Void)? = nil) {
+        if !visit { changes &+= 1 }
+        insert(visit: visit, ahead: ahead, write, done: done)
+    }
+
+    /// Queues `read` behind every earlier write and hands its answer to `use`, unless a clear or remove was
+    /// queued meanwhile (``changes`` moved): then it reads again behind that one, so `use` never gets what
+    /// a pending or just-queued clear removes (an omnibox seed never brings back a cleared page).
+    public func read<Value: Sendable>(_ read: @escaping @Sendable (Client) async throws -> Value,
+                                      use: @escaping @MainActor @Sendable (Value) -> Void) {
+        let started = changes
+        insert(visit: false, ahead: false, { [weak self] client, _ in
+            let value = try await read(client)
+            await self?.deliver(value, started: started, read: read, use: use)
+        }, done: nil)
+    }
+
+    private func deliver<Value: Sendable>(_ value: Value, started: UInt64, read: @escaping @Sendable (Client) async throws -> Value,
+                                          use: @escaping @MainActor @Sendable (Value) -> Void) {
+        if changes == started { use(value) } else { self.read(read, use: use) }
+    }
+
+    private func insert(visit: Bool, ahead: Bool, _ write: @escaping Write, done: (@MainActor () -> Void)?) {
         if items.count >= capacity {
             if let index = items.indices.first(where: { items[$0].isVisit && items[$0].id != sending }) {
                 items.remove(at: index)

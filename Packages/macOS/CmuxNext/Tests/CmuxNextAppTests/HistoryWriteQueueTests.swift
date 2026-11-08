@@ -63,6 +63,16 @@ import Testing
             }
         }
 
+        /// Runs once during the next ``list()`` (a clear queued while a read is under way).
+        var onRead: (() -> Void)?
+
+        /// A read of the stored visits (the omnibox seed's summaries).
+        func list() -> [String] {
+            onRead?()
+            onRead = nil
+            return stored
+        }
+
         func refuse() throws {
             attempts += 1
             throw DaemonError.command(cmd: "history.clear", message: "invalid range", code: "cmux.invalid_params")
@@ -232,6 +242,35 @@ import Testing
         let error = try #require(thrown, "a failed import looked like a finished one")
         #expect(DaemonHistoryClient.isLinkDrop(error), "\(error)")
         #expect(FileManager.default.fileExists(atPath: log.path))
+    }
+
+    /// cmux#38186 review, the exact sequence: a legacy log, the omnibox seed queued at launch, then a clear made
+    /// before the daemon connects. The import goes first and the seed reads before the clear runs, but the clear
+    /// was queued after the seed: the seed reads again behind it, so the merge never brings the cleared visits back.
+    @Test func aSeedQueuedBeforeAnOfflineClearReadsAgainBehindIt() async {
+        let daemon = Daemon()
+        let queue = Self.queue(daemon)
+        let seeded: [String] = await withCheckedContinuation { seeded in
+            queue.enqueue(ahead: true) { client, _ in try await client.send { $0.append("https://legacy.example/") } }
+            queue.read({ await $0.list() }, use: { seeded.resume(returning: $0) })
+            queue.enqueue { client, _ in try await client.send { $0.removeAll() } }
+            daemon.reconnect()
+        }
+        #expect(seeded.isEmpty, "the seed merged visits the clear removed")
+        #expect(daemon.stored.isEmpty)
+    }
+
+    /// The other order: a clear queued while the seed's read is under way also sends the read again behind it.
+    @Test func aClearQueuedWhileTheSeedReadsSendsItAgain() async {
+        let daemon = Daemon()
+        daemon.up = true
+        daemon.stored = ["https://a.example/"]
+        let queue = Self.queue(daemon)
+        daemon.onRead = { queue.enqueue { client, _ in try await client.send { $0.removeAll() } } }
+        let seeded: [String] = await withCheckedContinuation { seeded in
+            queue.read({ await $0.list() }, use: { seeded.resume(returning: $0) })
+        }
+        #expect(seeded.isEmpty, "a read answered before the clear was used after it")
     }
 
     /// The app's own wiring: an omnibox visit and a Clear History wait in the same queue while the local
