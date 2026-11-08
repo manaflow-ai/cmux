@@ -216,6 +216,25 @@ export function inboxCounts(notice: InboxNotice): { messages: number; senders: s
 /// A thread's newest sender: its newest message's, else its last named.
 const newestFrom = (thread: InboxThread): string => thread.messages?.at(-1)?.from ?? thread.from.at(-1) ?? "";
 
+/// A thread's sender as acpmux identified it: its session id, else its record's label.
+const senderIdentity = (thread: InboxThread) => ({
+  session: thread.sender?.session || thread.fromSession,
+  label: thread.sender?.label,
+});
+
+/// Whether the later thread's newest sender is the earlier one's own chat, not only its name: the
+/// later one names no identity of its own, or both name the same session (else the same record).
+/// Two chats can share a name (cmux#38642 review), so a matching name alone never lends one's
+/// record, session, family or unverified mark to the other.
+const sameSender = (held: InboxThread, next: InboxThread): boolean => {
+  if (newestFrom(held) !== newestFrom(next)) return false;
+  const a = senderIdentity(held);
+  const b = senderIdentity(next);
+  if (!b.session && !b.label) return true;
+  if (a.session && b.session) return a.session === b.session;
+  return !!a.label && a.label === b.label;
+};
+
 /// Two notices as one: a thread in both once, with the later one's newest message.
 export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice {
   const threads = first.threads.map((thread) => ({ ...thread }));
@@ -234,9 +253,9 @@ export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice
       blocker: held.blocker || next.blocker,
       promptIds: [...held.promptIds, ...next.promptIds],
     };
-    // The later notice names the newest sender; when it is the earlier one's and says less of it,
-    // the earlier one's record, session, family and unverified mark still hold.
-    if (newestFrom(held) === newestFrom(next)) {
+    // The later notice names the newest sender; when it is the earlier one's own chat and says less
+    // of it, the earlier one's record, session, family and unverified mark still hold.
+    if (sameSender(held, next)) {
       if (!next.sender && held.sender) joined.sender = held.sender;
       if (!next.fromSession && held.fromSession) joined.fromSession = held.fromSession;
       if (!next.fromHarness && held.fromHarness) joined.fromHarness = held.fromHarness;
