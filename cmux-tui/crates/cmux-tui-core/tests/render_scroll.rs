@@ -7,6 +7,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::sync_channel;
 use std::time::{Duration, Instant};
 mod support;
 use cmux_tui_core::platform::transport;
@@ -485,4 +486,73 @@ fn automation_reads_follow_the_live_screen_while_scrolled_back() {
         !daemon_position(&fixture.surface).1,
         "the output did not snap the scrolled-back render viewport"
     );
+}
+
+/// A producer can fill a terminal while the render consumer is paused. The
+/// viewport must remain on the rows the person selected, and the coalesced
+/// render frame must still contain every selected row (including styled wide
+/// graphemes) after the producer catches up.
+#[test]
+fn stalled_local_render_consumer_holds_a_complete_scrollback_view() {
+    const FIRST_LINES: u32 = 800;
+    const TOTAL_LINES: u32 = 6_000;
+    const SCROLL_DELTA: i64 = -12;
+    let mut fixture = Fixture::new("test-render-scroll-stress-local");
+    let surface = fixture.surface.clone();
+    let (ready, release) = sync_channel(0);
+    let producer = std::thread::spawn(move || {
+        let write = |from: u32, through: u32| {
+            let mut output = String::new();
+            for line in from..=through {
+                output.push_str(&format!("\x1b[3{}mstress-{line:06} 界宽\x1b[0m\n", line % 8));
+            }
+            surface.write_bytes(output.as_bytes()).unwrap();
+        };
+        write(1, FIRST_LINES);
+        ready.send(()).unwrap();
+        release.recv().unwrap();
+        write(FIRST_LINES + 1, TOTAL_LINES);
+    });
+
+    ready.recv_timeout(Duration::from_secs(10)).expect("the first producer batch completed");
+    wait_for(
+        || fixture.surface.with_terminal(|term| (term.history_rows() >= FIRST_LINES - 4).then_some(())),
+        Duration::from_secs(10),
+    )
+    .expect("the first batch reached the terminal");
+    fixture.scroll(20, SCROLL_DELTA);
+    let held = fixture
+        .surface
+        .with_terminal(|term| term.viewport_text().ok())
+        .flatten()
+        .expect("the scrolled viewport");
+    let held_rows: Vec<String> = held.lines().map(str::trim_end).filter(|row| !row.is_empty()).map(str::to_owned).collect();
+    assert!(!held_rows.is_empty(), "the scrolled viewport was blank: {held:?}");
+
+    release.send(()).unwrap();
+    producer.join().unwrap();
+    wait_for(
+        || fixture.surface.with_terminal(|term| (term.history_rows() >= TOTAL_LINES - 4).then_some(())),
+        Duration::from_secs(15),
+    )
+    .expect("the fast producer reached the terminal");
+    let after = fixture
+        .surface
+        .with_terminal(|term| term.viewport_text().ok())
+        .flatten()
+        .expect("the final scrolled viewport");
+    assert_eq!(after, held, "output while scrolled back moved the local viewport");
+
+    let mut seen = Vec::new();
+    fixture.render.drain(&mut seen, Duration::from_millis(500));
+    for row in held_rows
+        .iter()
+        .filter_map(|row| row.split_whitespace().find(|part| part.starts_with("stress-")).map(str::to_owned))
+    {
+        assert!(
+            seen.iter().any(|event| rows_text(event).iter().any(|rendered| rendered.contains(&row))),
+            "render stream lost selected row {row:?}: {}",
+            describe(&seen)
+        );
+    }
 }

@@ -129,7 +129,7 @@ impl HostedReader {
         pty.stream_progress.notify();
         // Published by the frame lane, once per frame (FrameRequests).
         if let Some((offset, at_bottom)) = scroll_changed {
-            pty.frame_requests.defer_scroll(offset, at_bottom);
+            pty.defer_output_scroll(generation, offset, at_bottom);
         }
         pty.request_frame_from_reader(generation);
         if let Some(title) = title_update
