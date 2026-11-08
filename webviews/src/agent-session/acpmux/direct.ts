@@ -3331,11 +3331,14 @@ export class AcpmuxDirectClient {
 
   /// The selected chat's tail as this page read it (its newest `KEPT_EVENTS` records and what they
   /// need to draw, or every record with `whole`), once its attach answered; undefined before, or for
-  /// a replay.
+  /// a replay. With `whole`, also a chat drawn from the Mac's copy (`peerCopy`), whose attach never
+  /// answered: the tail carries the copy, so a redraw of it is the copy again (its generation and
+  /// `lastSeq`, offline), and an attach continues it rather than reading the chat from nothing.
   private currentTail(whole = false): KeptTail | undefined {
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return undefined;
-    if (this.attachedGeneration !== this.selectionGeneration) return undefined;
+    const copy = whole && this.peerCopy?.sessionId === sessionId ? this.peerCopy : undefined;
+    if (this.attachedGeneration !== this.selectionGeneration && !copy) return undefined;
     const events = whole ? this.events : this.events.slice(-KEPT_EVENTS);
     // The kept page may start inside a turn whose prompt was in the history we just cut off.
     // Keep that prompt beside the page, as attach does: without it the first cached frame draws
@@ -3353,6 +3356,7 @@ export class AcpmuxDirectClient {
       }
     }
     return {
+      ...(copy ? { peerCopy: { ...copy, attaching: false } } : {}),
       events,
       // The machine and session its rows are of, which the attach's detail does not name
       // (`keptPeer`): a tail drawn later is told from another machine's journal by them (`attach`).
@@ -4640,11 +4644,29 @@ export class AcpmuxDirectClient {
   /// Ctrl-B: moves the selected Claude Code chat's foreground work to the background, only the
   /// call `toolCallId` started or all of it (Claude Code's `background_tasks`). acpmux answers
   /// `{backgrounded}` and refuses another harness's chat; a Claude that never answers fails it
-  /// after 10 s.
+  /// after 10 s. The request's own deadline only marks it waiting (#35206), so the 10 s is this
+  /// call's: the notice says the work still runs, and a late answer settles the request alone.
   backgroundWork(toolCallId?: string): Promise<unknown> {
     if (!this.selectedSessionId) return Promise.reject(new Error());
     const params = { sessionId: this.selectedSessionId, ...(toolCallId ? { toolCallId } : {}) };
-    return this.request("_acpmux/process/background", params, 10_000);
+    const request = this.request("_acpmux/process/background", params, 10_000);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(Object.assign(new Error(translate("error.timedOut")), { code: "native.timed_out", origin: "native" })),
+        10_000,
+      );
+      request.then(
+        (answer) => {
+          clearTimeout(timer);
+          resolve(answer);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
   }
 
   /// Reads every listed chat's usage now and lays it over the list and the chat's own summary

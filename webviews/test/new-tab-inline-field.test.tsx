@@ -162,12 +162,12 @@ function pastedChipCount() {
   return host.querySelectorAll('.acpmux-attachment-pasted, .acpmux-md-inline-chip[data-kind="file"]').length;
 }
 
-test("a file pasted on the field draws in the field with its retry and remove controls, not in the strip", async () => {
+test("a file pasted on the field draws in the field with its remove control, not in the strip", async () => {
   const field = await render([]);
   const editor = await type(field, "read ");
   // Bun's File: jsdom's has no arrayBuffer(). The New Tab page reads a pasted file itself and takes
   // no non-image one (it goes when the chat starts, #22231), so this one ends as a failed chip: the
-  // state whose controls (Retry, ×) the page must still draw.
+  // state whose × the page must still draw.
   const file = new File(["notes for the agent"], "notes.txt", { type: "text/plain" });
   const paste = new dom.window.Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(paste, "clipboardData", {
@@ -179,8 +179,9 @@ test("a file pasted on the field draws in the field with its retry and remove co
   const chip = host.querySelector<HTMLElement>(failed);
   expect(chip).not.toBeNull();
   expect(chip!.getAttribute("title")).toContain("notes.txt");
-  // In the field, with its own Retry and ×; the strip below the field leaves a placed file out.
-  expect(chip!.querySelector(".acpmux-md-inline-retry")).not.toBeNull();
+  // In the field, with its own ×; the strip below the field leaves a placed file out. A file the
+  // page refused fails the same way again, so it shows no Retry (#37877).
+  expect(chip!.querySelector(".acpmux-md-inline-retry")).toBeNull();
   const remove = chip!.querySelector<HTMLButtonElement>(".acpmux-md-inline-remove");
   expect(remove).not.toBeNull();
   expect(host.querySelectorAll(".nt-box .acpmux-attachment").length).toBe(0);

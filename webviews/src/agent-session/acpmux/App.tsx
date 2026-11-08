@@ -6616,6 +6616,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       rowCount: () => rowsRef.current.length,
       rowIds: () => rowsRef.current.map((row) => row.id),
       sessionId: () => directClient.current?.selectedSession,
+      toast: (text) => notices.transient(text),
       automation: {
         snapshot: () => automationView.current!.snapshot,
         // The chat's own actions only, once it connects: never the native host (automation.ts pageAction).

@@ -5,6 +5,7 @@ use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+use crate::local_owner::CarriedLaunch;
 use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
@@ -164,14 +165,15 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     };
     // The new owner takes the stopped owner's session (its `identify`), so a
     // restart by `--socket` alone never starts a "main" owner beside it.
-    let ensure_after_stop = |session: Option<String>, previous_pid: Option<u32>| {
+    // It starts with the stopped owner's launch flags and environment.
+    let ensure_after_stop = |session: Option<String>, stopped: Option<(u32, CarriedLaunch)>| {
         run_ensure(
             session,
             (None, None),
             None,
             (socket.clone(), socket_is_derived),
             (false, false),
-            (None, previous_pid),
+            (None, stopped),
             global.output,
         )
     };
@@ -444,6 +446,8 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     1,
                 );
             }
+            // Read while the old owner still runs: the new one repeats it.
+            let launch = restart.then(|| CarriedLaunch::of_owner(pid));
             let result = match exchange(
                 &mut connection,
                 json!({
@@ -485,13 +489,13 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             if let Err(message) = wait_for_close(&mut connection, deadline) {
                 return local_error("server.stop_incomplete", &message, global.output, 3);
             }
-            if restart {
+            if let Some(launch) = launch {
                 // The old owner closes its socket before it exits; the new
                 // owner starts once the old process is gone.
                 if let Err(message) = wait_for_exit(pid, Instant::now() + Duration::from_secs(10)) {
                     return local_error("server.stop_incomplete", &message, global.output, 3);
                 }
-                return ensure_after_stop(Some(actual_session.to_owned()), Some(pid));
+                return ensure_after_stop(Some(actual_session.to_owned()), Some((pid, launch)));
             }
             print_success(
                 json!({
@@ -778,20 +782,25 @@ fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::Front
 /// existed and `started` for one this call spawned. `socket` is the socket
 /// path and whether it was derived from the session name; the owner pair is
 /// the reap grace and `--exit-with-pid`, the flag pair `--restore-progress`
-/// and `--replace-unresponsive`. `previous_pid` is the owner a `server
-/// restart` stopped: an owner this call starts then reports `restarted`.
+/// and `--replace-unresponsive`. `stopped` is the owner a `server restart`
+/// stopped and its launch: an owner this call starts repeats that launch and
+/// reports `restarted` with the carried flags.
 fn run_ensure(
     expected_session: Option<String>,
     (terminal_reap_grace, exit_with_pid): (Option<Duration>, Option<crate::local_owner::ExitWith>),
     install_key: Option<cmux_tui_core::server::FrontendKey>,
     (socket, socket_is_derived): (std::path::PathBuf, bool),
     (progress, replace_unresponsive): (bool, bool),
-    (websocket, previous_pid): (Option<crate::local_owner::EnsureWebSocket>, Option<u32>),
+    (websocket, stopped): (
+        Option<crate::local_owner::EnsureWebSocket>,
+        Option<(u32, CarriedLaunch)>,
+    ),
     output: OutputMode,
 ) -> i32 {
     let messages = &crate::localization::catalog().local_server;
     let socket_output = socket.to_string_lossy().into_owned();
-    let spec = crate::local_owner::OwnerSpec {
+    let (previous_pid, launch) = stopped.unzip();
+    let mut spec = crate::local_owner::OwnerSpec {
         session: expected_session.clone().unwrap_or_else(|| "main".to_string()),
         socket,
         socket_is_derived,
@@ -807,7 +816,12 @@ fn run_ensure(
         // ...and the Chief brains the app gave it (taken out at start too).
         chief_brains: cmux_tui_core::chief_brains::taken(),
         websocket,
+        carried_env: Vec::new(),
     };
+    let carried_flags = launch.as_ref().map(CarriedLaunch::flags);
+    if let Some(launch) = launch {
+        launch.apply(&mut spec);
+    }
     let replaced = if replace_unresponsive {
         match crate::local_owner::replace_if_unresponsive(&spec) {
             Ok(replaced) => replaced.map(|replaced| replaced.pid),
@@ -868,6 +882,9 @@ fn run_ensure(
             }
             if let Some(pid) = previous_pid {
                 result.set("previous_pid", json!(pid));
+            }
+            if let Some(flags) = &carried_flags {
+                result.set("carried_launch", json!(flags));
             }
             print_success(result, output)
         }
