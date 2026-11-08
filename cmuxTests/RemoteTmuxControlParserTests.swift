@@ -544,7 +544,7 @@ import Testing
     @Test @MainActor func sessionDigestSubscribesOnTheAttachedSessionNotAPane() {
         #expect(
             RemoteTmuxControlConnection.sessionDigestSubscriptionCommand
-                == "refresh-client -B 'cmux_sessions::#{S:#{session_id}=#{session_name},}'"
+                == "refresh-client -B 'cmux_sessions::#{S:#{session_id}=#{session_name}:#{W:#{window_id}.}|,}'"
         )
     }
 }

@@ -246,6 +246,10 @@ jobs:
           # dashboard (cmuxterm-hq build-fleet/ci-dash); JSON data only, read
           # through env and never expanded into a script. Into the snapshot as `gates`.
           FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
+          # Optional sanitized hosted-light discovery hints from the existing
+          # runner-state variable; the janitor never lists runners or runs for this.
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          CI_HOSTED_LIGHT_CANDIDATES_DISABLED: ${{ vars.CI_HOSTED_LIGHT_CANDIDATES_DISABLED }}
         run: python3 scripts/ci/queue_janitor.py
 
       # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on
