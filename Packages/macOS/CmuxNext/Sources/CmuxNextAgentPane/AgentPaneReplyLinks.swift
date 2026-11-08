@@ -286,7 +286,20 @@ extension AgentPaneModel {
         let cwd = sessionId.flatMap(transport.sessions.folder(of:)) ?? handshakeCwd
         guard let path = AgentPaneReplyPaths.machinePath(text, cwd: cwd) else { return .failure(.pathInvalid) }
         guard !AgentPaneReplyPaths.isDeniedOnMachine(path) else { return .failure(.pathDenied) }
-        guard transport.gestures.consume() else { return .failure(.gestureRequired) }
+        // Outside the chat's folder there, `agentPane.links.outsideRoots` decides, as it does for a
+        // local chat: plain text opens nothing, Ask shows the same sheet first.
+        let folder = cwd.flatMap { AgentPaneReplyPaths.machinePath(".", cwd: $0) }
+        let inside = folder.map { $0 == "/" || path == $0 || path.hasPrefix($0 + "/") } ?? false
+        switch inside ? .open : replyLinks.settings().outsideRoots {
+        case .text: return .failure(.pathOutsideRoots)
+        case .open:
+            guard transport.gestures.consume() else { return .failure(.gestureRequired) }
+        case .confirm:
+            guard transport.gestures.consume() else { return .failure(.gestureRequired) }
+            guard await confirmOutside(path) else { return .failure(.notConfirmed) }
+            // The chat may have changed while the sheet was up.
+            guard remoteChat, onOpenMachineFile != nil else { return .failure(.pathOutsideRoots) }
+        }
         return await open(path) ? .success(()) : .failure(.openFailed)
     }
 
