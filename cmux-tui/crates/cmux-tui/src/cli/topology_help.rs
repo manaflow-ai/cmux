@@ -225,8 +225,8 @@ USAGE
 screen read --unwrap joins rows the terminal soft-wrapped into the lines the
 program printed; --lines <n> reads the last n lines of scrollback and screen
 (logical lines with --unwrap). copy --unwrap does the same for screen and
-scrollback. screen wait prints its result either way and exits 1 when the
-timeout passes without a match; --new matches only output printed below the
+scrollback. screen wait prints its result either way; when the timeout passes
+without a match it says timed_out: true and exits 124. --new matches only output printed below the
 cursor's line after the call, never a typed command's echo or older output. keep on stops the owner from ending the terminal
 when it has no tab; keep off lets it end after the reap grace period.
 status prints the program status records (OSC 7501) the terminal's
@@ -234,7 +234,9 @@ programs reported: state, progress, kind, app, title and msg per record id.
 wait --until prompt returns when the shell shows its prompt; --until idle
 when no command runs and no program reports work. Both need OSC 133 shell
 integration to see commands, and print the terminal record; a passed
---timeout exits 124.
+--timeout exits 124. process wait prints outcome once the process ends; when
+the timeout passes first it prints state pending, timed_out: true and exits
+124.
 list --agents lists the terminals that run a coding agent (Claude Code,
 Codex, or a program reporting OSC 7501 status): harness, state (blocked,
 done, working, idle, unknown, ended), age, workspace and title. done is a

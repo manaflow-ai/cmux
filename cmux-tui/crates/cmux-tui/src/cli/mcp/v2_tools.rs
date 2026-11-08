@@ -529,7 +529,9 @@ impl V2Tool {
         }
         if self.waits() {
             text.push_str(&format!(
-                " timeout_ms defaults to {DEFAULT_WAIT_MS} and may be at most {MAX_WAIT_MS}."
+                " timeout_ms defaults to {DEFAULT_WAIT_MS} and may be at most {MAX_WAIT_MS}. \
+                 An answer whose time ran out (no match, or a process still running) has \
+                 timed_out true and waited_ms."
             ));
         }
         if self.paginated {

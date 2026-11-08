@@ -883,7 +883,8 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
         && plan.view == super::command::ResponseView::TerminalProgramStatus)
         .then(|| result.pointer("/extra/last_command").cloned())
         .flatten();
-    let result = plan.view.project(result);
+    let mut result = plan.view.project(result);
+    wait_timeout::mark(plan, &mut result);
     let shown = match global.output {
         OutputMode::Human => human_view(plan, &result),
         output => agent_roster::machine_view(plan, &result, output),
@@ -904,12 +905,15 @@ fn last_command_line(last: &Value) -> String {
     }
 }
 
-/// A printed result that exits 1: a `terminal <id> screen wait` timeout
-/// (spec/commands.md) or an `agent message unsend` whose outcome is `failed`.
+/// A printed result that does not exit 0: a `screen wait` or `process wait`
+/// whose time ran out exits 124 (wire/wait_timeout.rs), an `agent message
+/// unsend` whose outcome is `failed` exits 1.
 fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
     use cmux_tui_core::resource::ResourceOperation as Op;
+    if let Some(code) = wait_timeout::exit_code(plan, result) {
+        return code;
+    }
     i32::from(match &plan.operation {
-        WireOperation::Typed(Op::TerminalWait) => result["matched"] == false,
         WireOperation::Typed(Op::AgentMessageUnsend) => result["value"]["outcome"] == "failed",
         _ => false,
     })
@@ -1175,6 +1179,7 @@ mod notify_desktop;
 mod retry;
 mod sanitize;
 mod socket;
+pub(super) mod wait_timeout;
 mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use hints::connect_failure;
