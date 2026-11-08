@@ -449,7 +449,9 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// restored WebKit page for a reopened tab with a saved history (cx-d0d.59).
     func takeAdoption(for tab: TabModel) -> (any BrowserTab)? {
         if let page = adoptions.removeValue(forKey: tab.surface) { return page }
-        guard tab.browserEngine != BrowserEngineTag.cef.rawValue, let services, services.machines.daemon(forTab: tab).isLocal,
+        // A person's new tab (a stand-in) is never a reopen: no closed tab's history (#37384).
+        guard tab.browserEngine != BrowserEngineTag.cef.rawValue, !ProvisionalTab.isProvisional(surface: tab.surface),
+              let services, services.machines.daemon(forTab: tab).isLocal,
               !staysOffThisMacLocalhost(tab.id) else { return nil }
         let cache = services.cache, profile = cache.browserProfile?(tab.id) ?? .default
         guard let state = closedHistories.claim(tab.url, profile: profile, chromium: false, tab: tab.id) else { return nil }

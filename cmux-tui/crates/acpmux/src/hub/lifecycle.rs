@@ -108,6 +108,7 @@ impl Hub {
             route,
             subsession,
             lineage,
+            created_by,
             disallowed_tools,
             checked_cwd,
             additional_directories,
@@ -278,6 +279,7 @@ impl Hub {
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
+        meta.created_by = created_by;
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
@@ -1630,6 +1632,7 @@ impl Hub {
             }
         }
         if !list.is_empty() {
+            self.recheck_live_models(agent, &list);
             self.known_models.lock().unwrap().insert(agent.to_owned(), list);
         }
     }

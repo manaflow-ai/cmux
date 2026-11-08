@@ -17,6 +17,7 @@ import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { agentCall, type AgentCall } from "./agentCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
+import { commandGroupSaid } from "./commandActions";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -414,6 +415,17 @@ export function isRunning(tool: Tool): boolean {
   return tool.status === "pending" || tool.status === "in_progress";
 }
 
+/// Whether a call's output shapes a row of its own that the loop in `toolGroups` makes from it, not
+/// a command row: a who-else answer, a dispatch card, or a sent-message row per recipient (a single
+/// `acpmux send`, a batch, the acpmux MCP send), each reading its state or answer out of the call's
+/// output. The same readers in the same order as `toolGroups`; liveToolOutput.ts keeps such a
+/// call's output updates on the pane, so those rows take each one.
+export function outputShapesRows(item: AcpmuxActivity): boolean {
+  const tool = item.tool;
+  if (!tool) return false;
+  return Boolean(whoElseCall(item) || dispatchCall(item) || acpmuxSendCalls(tool) || acpmuxMcpSends(tool));
+}
+
 /// A shell call in flight with nothing to show yet: Claude sends a call before its input, which
 /// the model is still writing (a Bash with no command for up to 20s), and one a turn left that way
 /// never gets any. Its row would only say "Running a command", so the transcript draws none
@@ -428,8 +440,8 @@ export function isDraftCall(tool: Tool): boolean {
     isRunning(tool) &&
     tool.kind === "execute" &&
     isBareShellName(tool, tool.title) &&
-    // A description alone is still nothing to show: the row reads as its command, never as Bash's
-    // description (toolPaths.ts toolLabel).
+    // A description alone is still nothing to show: a running row reads as its command, never as
+    // Bash's description (commandActions.ts commandSaid).
     !tool.output &&
     !tool.background &&
     !tool.diffs?.length &&
@@ -478,7 +490,14 @@ export function toolGroupLabel(
       // header does, joined as the run's sentence: "Finished 2 background tasks and ran 3 commands"
       // (toolRunSummary.ts).
       const finished = running ? undefined : finishedBackgroundPhrase(t, calls);
-      if (!finished) return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+      // Commands that all did one thing say it, "Searched memory twice" (commandActions.ts).
+      if (!finished)
+        return (
+          commandGroupSaid(
+            t,
+            calls.map((item) => item.tool!),
+          ) ?? t(running ? "tools.running" : "tools.ran", { n: calls.length })
+        );
       const ran = calls.length === 1 ? t("toolRun.ran.one") : t("toolRun.ran.other", { n: calls.length });
       const text = [finished, ran].join(t("toolRun.and"));
       return text.charAt(0).toUpperCase() + text.slice(1);
@@ -524,7 +543,7 @@ export function fileName(path: string): string {
 /// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
 export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
 
-export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunStretch[] {
+export function runStretches(row: Pick<AcpmuxRow, "foldRun">, groups: readonly ToolGroup[]): RunStretch[] {
   const stretches: RunStretch[] = [];
   let current: RunStretch | undefined;
   const close = () => {
@@ -545,6 +564,17 @@ export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunS
   close();
   if (row.foldRun !== true) for (const stretch of stretches) stretch.fold = false;
   return stretches;
+}
+
+/// How a run's stretch starts, one answer for ToolRows (TurnRows.tsx) to draw and for model.ts to
+/// estimate, so the two never drift apart. `lineOpen`: a folding stretch's summary line starts open
+/// (`runOpen`, a steered turn's opened Worked for). `groupsClosed`: the groups of a stretch a folded
+/// run keeps on their own lines start closed (ToolGroupRow `folded`), unless `runOpen` opens them too.
+export function stretchStart(row: AcpmuxRow, stretch: RunStretch): { lineOpen: boolean; groupsClosed: boolean } {
+  return {
+    lineOpen: stretch.fold && row.runOpen === true,
+    groupsClosed: row.foldRun === true && !stretch.fold && row.runOpen !== true,
+  };
 }
 
 /// An entry a folded run keeps in sight beside its summary lines: a coordination card (who else

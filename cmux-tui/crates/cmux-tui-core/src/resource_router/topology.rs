@@ -282,9 +282,16 @@ fn create_workspace(
     // `placement` names the new workspace's place in the sidebar order for
     // this create (an agent's workspace on top, #29875); absent: the
     // `workspaces.newPlacement` setting.
-    match create_placement(&request.fields)? {
+    // `created_by` (ask-48544d7525): an agent or script workspace goes
+    // below its creator instead.
+    let created_by = crate::state::created_by::CreatedBy::from_fields(&request.fields);
+    let create = || match create_placement(&request.fields)? {
         Some(placement) => placement.scoped(|| create_workspace_placed(mux, request)),
         None => create_workspace_placed(mux, request),
+    };
+    match created_by {
+        Some(created_by) => created_by.scoped(create),
+        None => create(),
     }
 }
 

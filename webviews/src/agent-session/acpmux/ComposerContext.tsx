@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
-import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
+import { BrowseFailure } from "./BrowseFailure";
+import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
@@ -13,11 +14,9 @@ import {
   ServerIcon,
   type RunRowDetails,
   type EnvironmentFaceStyle,
-  SECTION_LABELS,
-  environmentStateLabel,
-  useMachineRefresh,
   type SavedEnvironmentRows,
 } from "./EnvironmentPicker";
+import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
 import {
   isCloudMachineRow,
@@ -49,7 +48,8 @@ import {
   type ExtraFolderControl,
   type ExtraFolderRows,
 } from "./extraFolders";
-import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
+import type { BrowseRequest } from "./AddProjectPanel";
+import type { BrowseResult } from "./addProjectPanelModel";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
@@ -316,6 +316,15 @@ export function ComposerContext({
   // so Sign in for Cloud goes away once the app says the person is signed in (an older chat's
   // menu otherwise never asks, and keeps offering sign-in to someone already signed in).
   const readsCloudAccount = !cloudMachines && (newChat || onConnect !== undefined);
+  // The app is asked once when the composer mounts, not when the menu opens, so the menu's first
+  // frame already has this page's answer (cloudMachines.ts keeps only the signed-in yes or no
+  // across pages; the account's machines are always this page's own reply).
+  const accountAsked = useRef(false);
+  useEffect(() => {
+    if (!readsCloudAccount || accountAsked.current) return;
+    accountAsked.current = true;
+    void refreshCloudMachines();
+  }, [readsCloudAccount]);
   const onRefreshMachines = readsCloudAccount
     ? () => {
         onRefreshPeers?.();
@@ -1000,7 +1009,7 @@ export function ComposerContext({
                         label: t(CONTEXT_LABELS.addComputer),
                         onSelect: () => onboardingConnect?.("addMachine"),
                       },
-                      ...(cloudSignedIn !== true
+                      ...(cloudSignedIn === false
                         ? [
                             {
                               id: "cloudSignIn",
@@ -1019,7 +1028,7 @@ export function ComposerContext({
                     ]
                   : !started && onConnect && !connectOnlyWhenEmpty
                     ? [
-                        ...(cloudSignedIn !== true
+                        ...(cloudSignedIn === false
                           ? [
                               {
                                 id: "cloudSignIn",

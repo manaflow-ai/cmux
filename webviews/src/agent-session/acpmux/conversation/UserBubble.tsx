@@ -11,8 +11,8 @@
 // (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts, cx-ncc.61).
 // Fork forks the chat through the prompt's own turn, as its right-click Fork does. The images a
 // prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
-// once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
-// block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt. A video
+// once sent). A long prompt opens collapsed on its first twenty lines with Show more, and a pasted
+// block is the bubble's own text under that fold (PromptText.tsx); Copy still copies the whole prompt. A video
 // it sent with its frames is its poster and length among them, playing on a click (SentVideoTile.tsx).
 import {
   Fragment,
@@ -25,7 +25,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { PresentationContext } from "./PresentationContext";
+import { PresentationContext } from "./presentationContextModel";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -34,23 +34,19 @@ import { DeliveryMark } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
+import { sendMorphRef } from "./sendMorph";
 import { PromptText } from "./PromptText";
-import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
+import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
+import { isStripMedia, readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
-import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
-import { SourceBadge, useSourceLabel, withSourceLabel } from "../composer/SourceBadge";
-import {
-  ForkButton,
-  forkWithFeedback,
-  MessageCopy,
-  MessageFooterRow,
-  MessageTime,
-  PinButton,
-  PromptRetry,
-  ROW_ICON,
-} from "./MessageActions";
+import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+
+import { SourceBadge } from "../composer/SourceBadge";
+import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
+import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, PromptRetry } from "./MessageActions";
+import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
 import { NO_RETRY_TARGET, retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -58,20 +54,7 @@ import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalo
 import { SkillWordsContext } from "./skillWords";
 import { SentVideoTile } from "./SentVideoTile";
 import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
-
-/// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
-/// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
-/// original path is drawn by that image instead.
-export function recordedFiles(
-  parts: AcpmuxRow["inlineParts"],
-  originals: ReadonlySet<string> = new Set(),
-): FileAttachmentInfo[] | undefined {
-  return parts?.flatMap((part): FileAttachmentInfo[] =>
-    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
-      ? [{ ...part, path: attachmentPath(part.uri) }]
-      : [],
-  );
-}
+import { recordedFiles, isImageOriginal, SENT_IMAGE_HEIGHT, sentImageWidth, sentImageSize } from "./userBubbleModel";
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
@@ -131,8 +114,10 @@ export function UserBubble({
   const files = (
     recorded?.length
       ? recorded
-      : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
-          file.kind === "link" && !file.mimeType.startsWith("video/")
+      : // A video that went with its frames is its tile; one sent without them (`withoutFrames`:
+        // an agent that takes no images, a prompt past its budget) is the file chip its echo draws.
+        row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
+          file.kind === "link" && !(file.mimeType.startsWith("video/") && file.video?.frames.length)
             ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
             : [],
         )
@@ -354,11 +339,6 @@ function imageOriginals(row: AcpmuxRow): ReadonlySet<string> {
   );
 }
 
-/// A file part that is an image's retained original: drawn as the image, never again as a file.
-function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<string>): boolean {
-  return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
-}
-
 function UserFooter({
   className,
   pending,
@@ -404,36 +384,6 @@ function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
   ));
 }
 
-/// The sent thumbnail's height (conversation.css), and the narrowest and
-/// widest a video's tile draws as a share of that: a tall phone recording or a wide screen
-/// recording is cropped to fill past those bounds rather than drawn as a sliver.
-export const SENT_IMAGE_HEIGHT = 120;
-const SENT_IMAGE_RATIO = { min: 0.75, max: 1.6 };
-/// The widest a sent image draws: a wider one shrinks to it, whole.
-const SENT_IMAGE_MAX_WIDTH = 320;
-
-/// A video tile's width at SENT_IMAGE_HEIGHT for a video of `size`: square only while no size is known.
-export function sentImageWidth(size: { width?: number; height?: number }): number {
-  const ratio =
-    size.width && size.height
-      ? Math.min(SENT_IMAGE_RATIO.max, Math.max(SENT_IMAGE_RATIO.min, size.width / size.height))
-      : 1;
-  return Math.round(SENT_IMAGE_HEIGHT * ratio);
-}
-
-/// A sent image's thumbnail box for an image of `size`: the whole image in its own shape, at most
-/// SENT_IMAGE_HEIGHT tall and SENT_IMAGE_MAX_WIDTH wide and never larger than the image, so a wide
-/// screenshot is a whole strip, never a magnified crop of its middle (Leo, 2026-11-05: "I don't
-/// think we have good enough looking previews for these"). Square while no size is known.
-export function sentImageSize(size: { width?: number; height?: number }): { width: number; height: number } {
-  if (!size.width || !size.height) return { width: SENT_IMAGE_HEIGHT, height: SENT_IMAGE_HEIGHT };
-  const scale = Math.min(1, SENT_IMAGE_HEIGHT / size.height, SENT_IMAGE_MAX_WIDTH / size.width);
-  return {
-    width: Math.max(1, Math.round(size.width * scale)),
-    height: Math.max(1, Math.round(size.height * scale)),
-  };
-}
-
 /// One sent image, read from acpmux by its id (conversation/imageEntries.ts keeps it, so a
 /// re-render or a remount draws the same <img> at once). Its slot holds the thumbnail's own shape
 /// from its first frame when its size is known (the pane sent it, it drew before, its header says
@@ -448,6 +398,9 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   const [failed, setFailed] = useState<string>();
   // The app it came from, at the thumbnail's top-right corner (composer/SourceBadge.tsx).
   const from = useSourceLabel(image.source);
+  // The pane's own send: the thumbnail's first frame is over the composer's chip, then it moves to
+  // the slot it holds from that frame (sendMorph.ts).
+  const morph = useMemo(() => sendMorphRef(image.id), [image.id]);
   if (shown.status === "missing") return null;
   const { width, height } = sentImageSize(shown);
   // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
@@ -465,12 +418,20 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // sent-image band appears after the transcript row has already been placed and pushes the
   // prompt and everything below it down by a frame.
   if (shown.src === undefined)
-    return <span className="cv-user__image-placeholder" aria-hidden="true" style={{ ...shape, flexBasis: width }} />;
+    return (
+      <span
+        ref={morph}
+        className="cv-user__image-placeholder"
+        aria-hidden="true"
+        style={{ ...shape, flexBasis: width }}
+      />
+    );
   const src = shown.src;
   // A pasted image's name is WebKit's "image.png": name it by its size instead (imageLabel.ts).
   const label = imageLabel(t, { name: image.name, width: shown.width, height: shown.height });
   const thumbnail = (
     <img
+      ref={morph}
       className={shown.fresh ? "cv-user__image cv-enter" : "cv-user__image"}
       src={src}
       alt={label}

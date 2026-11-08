@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR eac3825cf596ed94785df12d8ceb43b49ceedb2ce08e3e1e77d6b39a7c2f136d. */
+/* cmux-tui mux protocol 12, IR 85d48312afa033913baf00baf6d8023710286adfb8dee65e731ca5d4bf025153. */
 
 
 import type * as T from "./types.js";
@@ -524,6 +524,11 @@ export type SizeStateEvent = { event: "size-state" } & {
   "surface": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type StashChangedEvent = { event: "stash-changed" } & {
+  "revision": bigint;
+};
+
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type StatusEvent = { event: "status" } & {
   "message": string;
@@ -803,6 +808,7 @@ export type KnownCmuxEvent =
   | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
+  | StashChangedEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -887,6 +893,7 @@ export type KnownSubscribeEvent =
   | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
+  | StashChangedEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent

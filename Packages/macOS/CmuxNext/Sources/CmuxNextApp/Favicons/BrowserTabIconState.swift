@@ -36,7 +36,7 @@ enum BrowserTabIconState: Equatable {
 
     /// The icon of the cmux page at `url`, nil for any other address.
     static func pageIcon(_ url: URL?) -> IconName? {
-        if HistoryPageAddress.matches(url) { return .history }
+        if url?.isHistoryPage == true { return .history }
         if BookmarkPageAddress.matches(url) { return .bookmarkManager }
         if AgentActivityPageAddress.matches(url) { return .agentActivity }
         if ScreenshotsPageAddress.matches(url) { return .sitePermissionImages }

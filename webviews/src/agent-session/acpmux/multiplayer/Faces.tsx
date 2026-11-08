@@ -3,6 +3,8 @@
 // answered an ask. Render only: no timer, no observer; the typing dots are a CSS wave that reduced
 // motion stills.
 import "./multiplayer.css";
+import { useEffect, useState } from "react";
+import { callChipHost } from "../chips/host";
 import { useT } from "../i18n";
 import { machineColor } from "../machineColor";
 import { useAvatarPicture } from "../../../pages/home-channels/avatars";
@@ -11,12 +13,62 @@ import { initials, isGuest, type Participant } from "./participants";
 /// Faces the header shows before "+N".
 export const PRESENCE_STACK = 3;
 
+/// An https picture the page could not load itself, as the host loaded it (`data:`), or null when the
+/// host would not: asked once per link for the page's life.
+const inlined = new Map<string, string | null>();
+const inlining = new Map<string, Promise<string | null>>();
+
+/// Asks the host for an https picture as an inline image (the chip host's `image.load`, `auto`: the
+/// host applies the person's remote-image setting and spends no click). A page without a host (the
+/// guest page) answers nothing.
+function inline(src: string): Promise<string | null> {
+  const known = inlined.get(src);
+  if (known !== undefined) return Promise.resolve(known);
+  let asked = inlining.get(src);
+  if (!asked) {
+    asked = callChipHost("image.load", { src, auto: true }).then((reply) => {
+      const data = (reply as { src?: unknown } | undefined)?.src;
+      const shown = typeof data === "string" && data.startsWith("data:image/") ? data : null;
+      inlined.set(src, shown);
+      inlining.delete(src);
+      return shown;
+    });
+    inlining.set(src, asked);
+  }
+  return asked;
+}
+
 /// A person's picture, or their initials on their own hue (the hash the pane gives machines). The
 /// picture is the record's, else the one Home's avatar service has for that id (avatars.ts; a page
 /// without the service, such as the agent pane today, reads none).
+/// An https picture (a signed-in guest's `fromAvatar`) loads as itself where the page may load it
+/// (the guest page); where the page's policy refuses links (the app's `img-src data:`), the host
+/// loads it inline, and a picture neither can load draws the initials.
 export function Face({ person, size = 16 }: { person: Participant; size?: number }) {
   const served = useAvatarPicture(person.avatar ? undefined : person.id);
-  const picture = person.avatar ?? served ?? undefined;
+  const wanted = person.avatar ?? served ?? undefined;
+  const [broken, setBroken] = useState<string>();
+  const [hosted, setHosted] = useState<{ src: string; data: string | null }>();
+  const remote = wanted?.startsWith("https://") === true;
+  const known = remote && wanted ? inlined.get(wanted) : undefined;
+  useEffect(() => {
+    if (!remote || !wanted || broken !== wanted || known !== undefined) return;
+    let live = true;
+    void inline(wanted).then((data) => live && setHosted({ src: wanted, data }));
+    return () => {
+      live = false;
+    };
+  }, [remote, wanted, broken, known]);
+  const fromHost = known ?? (hosted && hosted.src === wanted ? hosted.data : undefined);
+  // An https picture the page could not load (or the host already inlined) shows the host's copy;
+  // any other picture that does not load shows the initials.
+  const picture = !wanted
+    ? undefined
+    : remote && (broken === wanted || known)
+      ? (fromHost ?? undefined)
+      : broken === wanted
+        ? undefined
+        : wanted;
   return (
     <span
       className="cv-face"
@@ -24,7 +76,18 @@ export function Face({ person, size = 16 }: { person: Participant; size?: number
       aria-hidden="true"
     >
       {/* A small face has room for one letter, as Home's avatars. */}
-      {picture ? <img src={picture} alt="" draggable={false} /> : initials(person.name, size >= 24 ? 2 : 1)}
+      {picture ? (
+        <img
+          src={picture}
+          alt=""
+          draggable={false}
+          // A profile picture link tells its host nothing about the chat it is drawn in.
+          referrerPolicy="no-referrer"
+          onError={() => setBroken(picture)}
+        />
+      ) : (
+        initials(person.name, size >= 24 ? 2 : 1)
+      )}
     </span>
   );
 }

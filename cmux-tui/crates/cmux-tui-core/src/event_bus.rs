@@ -293,6 +293,8 @@ impl SurfaceSessionScope {
             | MuxEvent::PairingResolved { .. }
             | MuxEvent::MachineUsageChanged(_)
             | MuxEvent::AppsChanged(_)
+            | MuxEvent::StashChanged { .. }
+            | MuxEvent::TasksChanged(_)
             | MuxEvent::Empty => true,
         }
     }

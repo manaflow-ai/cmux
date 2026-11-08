@@ -217,6 +217,12 @@ public final class SettingsController {
         await reloadAfterWrite()
     }
 
+    /// Whether a layer below cmux-next.json (MDM recommended, the team's default) fills `key` when
+    /// the file leaves it unset, so only a value in the file keeps the person's choice of the default.
+    func layerBelowFileSets(_ key: String) -> Bool {
+        lastSource?.managed.recommended[key] != nil || teamPolicy.defaults[key] != nil
+    }
+
     /// Writes a shortcut override for `id`; nil unbinds it.
     public func setShortcut(_ shortcut: Shortcut?, for id: ActionID) async throws {
         let value: JSONValue = shortcut.map { .string(ShortcutBindingFormat.configString(SettingsApplier.stroke(for: $0))) } ?? .null
@@ -274,7 +280,7 @@ public final class SettingsController {
     /// Writes `browser.keepNeighborTabsAwake` (0...3) through `setSetting`;
     /// the default (1) removes the key.
     public func setKeepNeighborTabsAwake(_ radius: Int) async throws {
-        let value: JSONValue? = radius == BrowserHibernationSetting.defaultNeighborRadius ? nil : .number(Double(radius))
+        let value: JSONValue? = Double(radius) == BrowserHibernationSetting.neighborRadiusDefault ? nil : .number(Double(radius))
         try await setSetting(at: BrowserHibernationSetting.neighborRadiusPath, to: value, by: .currentRun())
     }
 
@@ -471,13 +477,13 @@ extension SettingsController {
                 }
             }
             self.sources = sources
-            let settingPath = ThemeFileSetting.path.joined(separator: ".")
+            let settingPath = ThemeFileSetting.configPath.joined(separator: ".")
             guard let name = ThemeFileSetting.name(in: root) else {
                 overlay = nil
                 activeSource = nil
                 goodSource = nil
                 applied = root
-                diagnostics = root.value(at: ThemeFileSetting.path).map { _ in
+                diagnostics = root.value(at: ThemeFileSetting.configPath).map { _ in
                     [SettingsDiagnostic(kind: .invalidValue, path: settingPath,
                                         message: "expected a theme file name, such as \"tokyo\" for themes/tokyo.json")]
                 } ?? []

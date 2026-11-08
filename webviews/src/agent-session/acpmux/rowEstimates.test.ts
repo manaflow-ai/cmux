@@ -20,9 +20,15 @@ import {
   placeRows,
   statusEdge,
   type AcpmuxRow,
+  type AcpmuxActivity,
 } from "./model";
 import { turnView } from "./conversation/turns";
-import { COLLAPSED_PROMPT_LINES, pasteChipHeight, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
+import {
+  COLLAPSED_PROMPT_LINES,
+  pasteChipHeight,
+  PASTE_ROW_HEIGHT,
+  PROMPT_MORE_HEIGHT,
+} from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
 import { BUBBLE } from "./transcriptSpacing";
@@ -326,16 +332,16 @@ test("a Chief's waiting steer keeps Send now in its existing action row", () => 
 // bubble leaves its line, transcriptSpacing.ts BUBBLE), with its 28px hover row under it and the
 // 8px message gap. Estimated any taller, the row shrinks once drawn and the rows below jump up.
 // Before: a prompt was estimated at its whole text, 2,000 lines tall.
-test("a 2,000-line prompt is estimated at its collapsed height, at most ten lines", () => {
+test("a 2,000-line prompt is estimated at its collapsed height, at most twenty lines", () => {
   const { lineHeight } = currentChatMetrics();
   const padding = BUBBLE.oneLine - lineHeight;
   const text = Array.from({ length: 2000 }, (_, index) => `line ${index + 1}`).join("\n");
   const [long] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
   expect(long).toBeCloseTo(padding + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
-  expect(long!).toBeLessThan(padding + 10.5 * lineHeight + 24 + 28 + 8);
+  expect(long!).toBeLessThan(padding + 20.5 * lineHeight + 24 + 28 + 8);
 });
 
-test("a prompt of ten lines or fewer is estimated whole, with no Show more line", () => {
+test("a prompt of twenty lines or fewer is estimated whole, with no Show more line", () => {
   const { lineHeight } = currentChatMetrics();
   const text = Array.from({ length: 3 }, (_, index) => `line ${index + 1}`).join("\n\n");
   const [short] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
@@ -349,8 +355,29 @@ test("a prompt with a 2,300-line paste is its typed line and one card", () => {
   const paste = Array.from({ length: 2300 }, (_, index) => `frame ${index}`).join("\n");
   const text = `${typed}\n${paste}`;
   const pasted = [{ start: typed.length + 1, end: text.length }];
+  const before = globalThis.cmuxExperiments;
+  try {
+    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "card" };
+    const [card] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
+    expect(card).toBeCloseTo(BUBBLE.oneLine + pasteChipHeight(currentChatMetrics().lineHeight), 5);
+    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "row" };
+    const [row] = heightsOf([{ id: "u2", version: 1, at: 0, kind: "user", text, pasted }]);
+    expect(row).toBeCloseTo(BUBBLE.oneLine + PASTE_ROW_HEIGHT, 5);
+  } finally {
+    globalThis.cmuxExperiments = before;
+  }
+});
+
+// The default draws a paste as the bubble's own text (Leo, 2026-11-07: "We want to show the actual
+// characters"): a long one is estimated as the prompt's folded lines and its Show more, as typed text is.
+test("a prompt with a 2,300-line paste drawn as text is estimated at the prompt's fold", () => {
+  const { lineHeight } = currentChatMetrics();
+  const typed = "Why does this fail?";
+  const paste = Array.from({ length: 2300 }, (_, index) => `frame ${index}`).join("\n");
+  const text = `${typed}\n${paste}`;
+  const pasted = [{ start: typed.length + 1, end: text.length }];
   const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
-  expect(height).toBeCloseTo(BUBBLE.oneLine + pasteChipHeight(currentChatMetrics().lineHeight), 5);
+  expect(height).toBeCloseTo(BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
 });
 
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is
@@ -568,6 +595,60 @@ test("an unlabeled card's first line keeps room for its corner actions (cmux#306
   expect(scrollbar(`short\n${line}`, "")).toBe(0);
   // A labeled card's actions sit in its header row, so its first line has the full width.
   expect(scrollbar(`${line}\nshort`, "python")).toBe(0);
+});
+
+// Successful discovery must not add phantom summary lines around coordination entries: the
+// virtualizer estimates exactly the same visible run as ToolRows before its first DOM measure.
+test("hidden discovery contributes no compact height around coordination messages", () => {
+  const send: AcpmuxActivity = {
+    kind: "tool",
+    text: "SendMessage",
+    tool: {
+      id: "height-send",
+      title: "SendMessage",
+      kind: "other",
+      status: "completed",
+      inputSummary: JSON.stringify({ to: "helper", message: "Check the result" }),
+    },
+  };
+  const discovery: AcpmuxActivity = {
+    kind: "tool",
+    text: "ToolSearch",
+    tool: {
+      id: "height-discovery",
+      title: "ToolSearch",
+      kind: "other",
+      status: "completed",
+      provenance: { claudeTool: "ToolSearch" },
+      output: "Loaded 2 tools",
+    },
+  };
+  const activity = (items: AcpmuxActivity[], foldRun?: boolean): AcpmuxRow => ({
+    id: "visible-run",
+    version: 1,
+    at: 0,
+    kind: "activity",
+    items,
+    foldRun,
+  });
+  for (const folded of [undefined, true]) {
+    const plain = heightsOf([activity([send], folded)])[0]!;
+    expect(heightsOf([activity([discovery, send, discovery], folded)])[0]).toBe(plain);
+    const failed = { ...discovery, tool: { ...discovery.tool!, status: "failed", output: "Discovery unavailable" } };
+    expect(heightsOf([activity([failed, send], folded)])[0]).toBeGreaterThan(plain);
+  }
+  expect(heightsOf([activity([discovery])])[0]).toBeGreaterThan(0);
+  expect(heightsOf([activity([discovery], true)])[0]).toBeGreaterThan(0);
+  const answer = reply("discovery-answer", "Done.");
+  const summary = footer("discovery-footer");
+  const without = layoutConversation([answer, summary], 720);
+  const withHidden = layoutConversation([answer, activity([discovery]), summary], 720);
+  expect(withHidden.heights[0]).toBe(without.heights[0]);
+  expect(withHidden.heights[1]).toBeGreaterThan(0);
+  expect(withHidden.tops[2]).toBeGreaterThan(without.tops[1]);
+  expect(withHidden.totalHeight).toBeGreaterThan(without.totalHeight);
+  // Preserve the pre-existing empty activity placeholder, rather than erasing unrelated rows.
+  expect(heightsOf([activity([])])[0]).toBeGreaterThan(0);
 });
 
 const permissionAsk = (overrides: Partial<NonNullable<AcpmuxRow["permission"]>> = {}): AcpmuxRow => ({

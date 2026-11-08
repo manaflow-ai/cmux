@@ -81,6 +81,7 @@ enum AppActions {
         PaneHandlers.bind(into: registry, context: context)
         DividerActions(host: services).bind(into: registry)
         ColumnHandlers.bind(into: registry, context: context)
+        NewAtPlacement.bind(into: registry, context: context)
         CanvasHandlers.bind(into: registry, context: context)
         ColumnDocking.bind(into: registry, context: context)
         ColumnAvailability.bind(into: registry, context: context)
