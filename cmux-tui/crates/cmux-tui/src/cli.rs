@@ -354,18 +354,14 @@ fn parse_local_command(
         "identify" if help() => return Ok(Some(ParsedCommand::Help(Some("identify".into())))),
         "identify" if rest.is_empty() => CommandPlan::Identify,
         "identify" => {
-            return Err(UsageError::new(format!(
-                "identify takes no arguments: {}",
-                rest.join(" ")
-            )));
+            let message = crate::localization::catalog().pane_cli.identify_arguments;
+            return Err(UsageError::new(message.replace("{words}", &rest.join(" "))));
         }
         "skill" if help() => return Ok(Some(ParsedCommand::Help(Some("skill".into())))),
         "skill" if rest.is_empty() || rest == ["show"] => CommandPlan::SkillShow,
         "skill" => {
-            return Err(UsageError::new(format!(
-                "skill takes one action, show: {}",
-                rest.join(" ")
-            )));
+            let message = crate::localization::catalog().pane_cli.skill_arguments;
+            return Err(UsageError::new(message.replace("{words}", &rest.join(" "))));
         }
         _ => return Ok(None),
     };
@@ -559,7 +555,7 @@ fn set_output_mode(
 fn print_scope_help(scope: Option<&str>) {
     let text = scope
         .map(scope_help)
-        .unwrap_or_else(|| Cow::Owned(root_help(&crate::localization::catalog().local_server)));
+        .unwrap_or_else(|| Cow::Owned(root_help(crate::localization::catalog())));
     write_stdout(&text);
 }
 
@@ -604,7 +600,7 @@ fn scope_help_for(
         "raw" => Cow::Borrowed(RAW_HELP),
         "identify" => Cow::Borrowed(catalog.pane_cli.identify_help),
         "skill" => Cow::Borrowed(catalog.pane_cli.skill_help),
-        _ => return Cow::Owned(root_help(&catalog.local_server)),
+        _ => return Cow::Owned(root_help(catalog)),
     };
     if scope == "server" || !PUBLIC_SCOPES.contains(&scope) {
         return help;
@@ -669,16 +665,14 @@ Run `cmux <scope> --help` for scope-specific paths, and add --help to an
 action for its options.
 ";
 
-const ROOT_HELP_AGENT_COMMANDS: &str = "
-AGENT COMMANDS
-  identify      Print this terminal's session, workspace, screen, pane, tab and terminal
-  skill show    Print the agent guide for this cmux build
-";
-
-fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
+fn root_help(catalog: &crate::localization::Catalog) -> String {
+    let messages = &catalog.local_server;
     format!(
-        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}{ROOT_HELP_AGENT_COMMANDS}",
-        messages.root_remote_usage, messages.root_server_usage, messages.root_server_scope,
+        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}{}",
+        messages.root_remote_usage,
+        messages.root_server_usage,
+        messages.root_server_scope,
+        catalog.pane_cli.root_agent_commands,
     )
 }
 
@@ -1053,7 +1047,7 @@ mod tests {
 
     #[test]
     fn startup_help_is_explicitly_discoverable() {
-        let help = root_help(&crate::localization::catalog_for_locale("en_US.UTF-8").local_server);
+        let help = root_help(crate::localization::catalog_for_locale("en_US.UTF-8"));
         assert!(help.contains("cmux help start"));
         assert!(help.starts_with("cmux - "));
         assert!(!help.contains("cmux-tui"));

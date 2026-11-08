@@ -173,7 +173,10 @@ fn run_hook(command: &str, stale_socket: Option<&Path>, session: &str) {
     if command.contains("codex 'SessionStart'") {
         assert_eq!(value["hookSpecificOutput"]["hookEventName"], "SessionStart", "{value}");
         let context = value["hookSpecificOutput"]["additionalContext"].as_str().unwrap();
-        assert!(context.contains("cmux skill show"), "{context}");
+        // It names this build's CLI, the launcher the shim's hooks run.
+        let cli = std::fs::canonicalize(env!("CARGO_BIN_EXE_cmux-tui")).unwrap();
+        assert!(context.contains(&*cli.to_string_lossy()), "{context}");
+        assert!(context.contains(" skill show`"), "{context}");
     } else {
         assert_eq!(value, serde_json::json!({}));
     }

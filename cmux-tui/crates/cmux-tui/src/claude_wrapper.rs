@@ -151,16 +151,19 @@ fn session_hook_settings(
     executable: &Path,
 ) -> anyhow::Result<Map<String, Value>> {
     let mut settings = agent_hook_install::claude_session_hook_settings(emit_binary)?;
-    let context = serde_json::json!({"hooks": [{
-        "type": "command",
-        "command": crate::agent_session_context::hook_command(executable)?,
-        "timeout": 10,
-    }]});
-    let mut extra = Map::new();
-    extra.insert("SessionStart".into(), Value::Array(vec![context]));
-    let mut fragment = Map::new();
-    fragment.insert("hooks".into(), Value::Object(extra));
-    merge_settings(&mut settings, fragment);
+    // A path the hook command cannot spell drops only this hook.
+    if let Some(command) = crate::agent_session_context::hook_command(executable) {
+        let context = serde_json::json!({"hooks": [{
+            "type": "command",
+            "command": command,
+            "timeout": 10,
+        }]});
+        let mut extra = Map::new();
+        extra.insert("SessionStart".into(), Value::Array(vec![context]));
+        let mut fragment = Map::new();
+        fragment.insert("hooks".into(), Value::Object(extra));
+        merge_settings(&mut settings, fragment);
+    }
     // The hooks drive cmux notifications; Claude's own would duplicate them.
     settings.insert("preferredNotifChannel".into(), Value::from("notifications_disabled"));
     Ok(settings)
@@ -787,6 +790,14 @@ mod tests {
         let last = groups.last().unwrap();
         assert_eq!(last["hooks"][0]["timeout"], 10);
         assert!(last["hooks"][0].get("async").is_none(), "Claude must read its output");
+
+        // A path the command cannot spell drops only the context hook.
+        use std::os::unix::ffi::OsStrExt as _;
+        let invalid = Path::new(std::ffi::OsStr::from_bytes(b"/opt/\xff/cmux-tui"));
+        let hooks = session_hook_settings(None, invalid).unwrap();
+        let text = serde_json::to_string(&hooks["hooks"]).unwrap();
+        assert!(!text.contains("session-context"), "{text}");
+        assert!(hooks["hooks"]["SessionStart"].as_array().is_some_and(|groups| !groups.is_empty()));
     }
 
     /// Unreadable or malformed `--settings` values fail so the launch proceeds without hooks.

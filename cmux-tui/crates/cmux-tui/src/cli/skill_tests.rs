@@ -3,6 +3,7 @@ use crate::cli::command::{CommandPlan, ParsedCommand};
 
 const TERM: &str = "term_0123456789abcdef0123456789abcdef";
 const PANE: &str = "pane_0123456789abcdef0123456789abcdef";
+const NEW_PANE: &str = "pane_fedcba9876543210fedcba9876543210";
 const TAB: &str = "tab_0123456789abcdef0123456789abcdef";
 const WORKSPACE: &str = "ws_0123456789abcdef0123456789abcdef";
 
@@ -41,6 +42,7 @@ fn words(command: &str) -> Vec<String> {
 fn argv(command: &str) -> Vec<String> {
     let command = command
         .replace("<term>", TERM)
+        .replace("<new-pane>", NEW_PANE)
         .replace("<pane>", PANE)
         .replace("<tab>", TAB)
         .replace("<ws>", WORKSPACE);
@@ -70,6 +72,18 @@ fn pane_cli_skill_every_recipe_command_parses_with_this_cli() {
         }
     }
     assert!(checked >= 20, "only {checked} recipe commands");
+}
+
+/// No recipe runs a command in the caller's own pane: `run` shows its new tab
+/// in the pane it names, so it goes to a pane the recipe split.
+#[test]
+fn pane_cli_skill_no_recipe_runs_in_the_callers_pane() {
+    let runs: Vec<_> =
+        RECIPES.iter().flat_map(|recipe| recipe.commands).filter(|c| c.contains(" run ")).collect();
+    assert!(!runs.is_empty());
+    for command in runs {
+        assert!(command.contains("pane <new-pane> run"), "{command}");
+    }
 }
 
 /// `identify` and `skill show` are commands; their `--help` is their own
@@ -117,15 +131,39 @@ fn pane_cli_skill_and_identify_help_is_localized() {
     }
     let english = crate::localization::catalog_for_locale("en_US.UTF-8");
     let japanese = crate::localization::catalog_for_locale("ja_JP.UTF-8");
-    assert_ne!(english.pane_cli.identify_help, japanese.pane_cli.identify_help);
-    assert_ne!(english.pane_cli.session, japanese.pane_cli.session);
+    let (en, ja) = (&english.pane_cli, &japanese.pane_cli);
+    for (english, japanese) in [
+        (en.identify_help, ja.identify_help),
+        (en.session, ja.session),
+        (en.outside_terminal, ja.outside_terminal),
+        (en.not_in_workspace, ja.not_in_workspace),
+        (en.unreachable, ja.unreachable),
+        (en.identify_arguments, ja.identify_arguments),
+        (en.skill_arguments, ja.skill_arguments),
+        (en.root_agent_commands, ja.root_agent_commands),
+    ] {
+        assert_ne!(english, japanese);
+    }
+    for messages in [en, ja] {
+        assert!(messages.not_in_workspace.contains("{terminal}"));
+        assert!(
+            messages.unreachable.contains("{socket}") && messages.unreachable.contains("{error}")
+        );
+        assert!(messages.identify_arguments.contains("{words}"));
+        assert!(messages.skill_arguments.contains("{words}"));
+        assert!(messages.root_agent_commands.contains("skill show"));
+    }
+    for catalog in [english, japanese] {
+        let help = crate::cli::root_help(catalog);
+        assert!(help.contains(catalog.pane_cli.root_agent_commands), "{help}");
+    }
 }
 
 /// The guide's scope table lists every public scope with the root help's
 /// own description, and its usage blocks are the scopes' help text.
 #[test]
 fn pane_cli_skill_the_guide_renders_from_the_cli_metadata() {
-    let guide = render(&None);
+    let guide = render(&None, None);
     for scope in crate::cli::PUBLIC_SCOPES {
         let row = guide
             .lines()
@@ -134,6 +172,10 @@ fn pane_cli_skill_the_guide_renders_from_the_cli_metadata() {
         assert!(row.len() > format!("| `{scope}` |  |").len(), "{scope} has no description");
     }
     assert!(guide.contains("| `session` | Inspect and control a session |"), "{guide}");
+    assert!(
+        guide.contains("| `server` | Manage one named local durable session owner |"),
+        "{guide}"
+    );
     for help in [crate::cli::TERMINAL_HELP, crate::cli::PANE_HELP, crate::cli::TAB_HELP] {
         let block = usage_block(help);
         assert!(block.lines().count() >= 5, "{block}");
@@ -149,7 +191,7 @@ fn pane_cli_skill_the_guide_renders_from_the_cli_metadata() {
 /// off the person's pane.
 #[test]
 fn pane_cli_skill_the_guide_covers_identity_targeting_waits_errors_and_cleanup() {
-    let guide = render(&None);
+    let guide = render(&None, None);
     for needle in [
         "cmux --json identify",
         "caller.pane",
@@ -184,7 +226,8 @@ fn pane_cli_skill_the_guide_names_the_callers_place() {
             "terminal_id": "term_1",
         },
     });
-    let guide = render(&Some(identity));
+    let guide = render(&Some(identity), Some(std::path::Path::new("/opt/cmux/cmux-tui")));
+    assert!(guide.contains("this build's CLI, `/opt/cmux/cmux-tui`"), "{guide}");
     for row in [
         "| session | `session_1` (name `bench`) |",
         "| workspace | `ws_1` |",

@@ -25,6 +25,9 @@ const RESPONSE_LIMIT: u64 = 16 * 1024 * 1024;
 /// Why a read did not answer.
 #[derive(Debug)]
 pub(super) enum Failure {
+    /// The `--session` or `--socket` route is not valid: exit 2, as for every
+    /// other command.
+    Usage(Value),
     /// The session cannot be reached or spoke no protocol: exit 3.
     Transport(Value),
     /// The session refused the read (a resource error object).
@@ -34,6 +37,7 @@ pub(super) enum Failure {
 impl Failure {
     fn report(self, output: OutputMode) -> i32 {
         match self {
+            Self::Usage(error) => super::wire::print_local_error(&error, output, 2),
             Self::Transport(error) => super::wire::print_local_error(&error, output, 3),
             Self::Resource(error) => super::wire::print_local_error(&error, output, 1),
         }
@@ -70,8 +74,9 @@ pub(super) fn read_identity(
     global: &GlobalArgs,
     caller_terminal: Option<&str>,
 ) -> Result<Value, Failure> {
+    let messages = &crate::localization::catalog().pane_cli;
     let (socket, derived) = super::wire::resolve_socket_with_origin(global).map_err(|error| {
-        Failure::Transport(json!({
+        Failure::Usage(json!({
             "code": "usage.invalid",
             "message": error.to_string(),
             "details": {},
@@ -82,7 +87,10 @@ pub(super) fn read_identity(
         cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
             Failure::Transport(json!({
                 "code": "socket.unreachable",
-                "message": format!("cannot connect to session socket {}: {error}", socket.display()),
+                "message": messages
+                    .unreachable
+                    .replace("{socket}", &socket.display().to_string())
+                    .replace("{error}", &error.to_string()),
                 "details": {"socket": socket.display().to_string()},
                 "retryable": true,
             }))
@@ -104,7 +112,7 @@ pub(super) fn read_identity(
             "terminal_id": null,
             "error": {
                 "code": "caller.outside_terminal",
-                "message": "this process does not run in a cmux-tui terminal (CMUX_TUI_TERMINAL_ID is not set)",
+                "message": messages.outside_terminal,
             },
         }),
         Some(terminal) => {
@@ -237,7 +245,10 @@ fn caller_records(
         record.get(field).and_then(Value::as_str).map(str::to_owned).ok_or_else(|| {
             Failure::Resource(json!({
                 "code": "selector.not_found",
-                "message": format!("the caller's terminal {terminal} is not in a workspace"),
+                "message": crate::localization::catalog()
+                    .pane_cli
+                    .not_in_workspace
+                    .replace("{terminal}", terminal),
                 "details": {"terminal": terminal},
                 "retryable": false,
             }))

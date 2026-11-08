@@ -87,7 +87,13 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
         // After the handoff: the read connects from a helper thread, which
         // must not exist when the detached child forks.
         let (socket, terminal) = route.unzip();
-        session_context::print(socket.as_deref(), terminal.flatten().as_deref());
+        // Inside cmux-tui (`exe_prefix` re-enters it) this executable is the
+        // build's CLI; the standalone helper is not.
+        let cli = (!exe_prefix.is_empty())
+            .then(env::current_exe)
+            .and_then(Result::ok)
+            .map(|path| path.canonicalize().unwrap_or(path));
+        session_context::print(socket.as_deref(), terminal.flatten().as_deref(), cli.as_deref());
     }
     Ok(())
 }

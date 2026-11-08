@@ -1269,6 +1269,18 @@ pub(crate) struct PaneCliMessages {
     pub guide: &'static str,
     /// The terminal row when the caller is not placed; `{why}` is the reason.
     pub not_found: &'static str,
+    /// Why there is no caller when `CMUX_TUI_TERMINAL_ID` is not set.
+    pub outside_terminal: &'static str,
+    /// The caller's `{terminal}` has no tab, pane, screen or workspace.
+    pub not_in_workspace: &'static str,
+    /// The session `{socket}` refused the connection with `{error}`.
+    pub unreachable: &'static str,
+    /// Usage error for words after `identify`; `{words}` are the words.
+    pub identify_arguments: &'static str,
+    /// Usage error for words after `skill` other than `show`.
+    pub skill_arguments: &'static str,
+    /// The `AGENT COMMANDS` block at the end of the root help.
+    pub root_agent_commands: &'static str,
     pub identify_help: &'static str,
     pub skill_help: &'static str,
 }
@@ -1330,6 +1342,16 @@ static ENGLISH: Catalog = Catalog {
         outer_app: "outer app",
         guide: "agent guide",
         not_found: "not found ({why})",
+        outside_terminal: "this process does not run in a cmux-tui terminal (CMUX_TUI_TERMINAL_ID is not set)",
+        not_in_workspace: "the caller's terminal {terminal} is not in a workspace",
+        unreachable: "cannot connect to session socket {socket}: {error}",
+        identify_arguments: "identify takes no arguments: {words}",
+        skill_arguments: "skill takes one action, show: {words}",
+        root_agent_commands: "
+AGENT COMMANDS
+  identify      Print this terminal's session, workspace, screen, pane, tab and terminal
+  skill show    Print the agent guide for this cmux build
+",
         identify_help: "USAGE
   cmux identify
 
@@ -2108,6 +2130,16 @@ static JAPANESE: Catalog = Catalog {
         outer_app: "外側のアプリ",
         guide: "エージェントガイド",
         not_found: "見つかりません（{why}）",
+        outside_terminal: "このプロセスは cmux-tui ターミナルで動いていません（CMUX_TUI_TERMINAL_ID が設定されていません）",
+        not_in_workspace: "呼び出し元のターミナル {terminal} はワークスペースにありません",
+        unreachable: "セッションソケット {socket} に接続できません: {error}",
+        identify_arguments: "identify は引数を取りません: {words}",
+        skill_arguments: "skill のアクションは show だけです: {words}",
+        root_agent_commands: "
+AGENT COMMANDS
+  identify      このターミナルのセッション、ワークスペース、スクリーン、ペイン、タブ、ターミナルを表示
+  skill show    この cmux ビルドのエージェントガイドを表示
+",
         identify_help: "使用方法
   cmux identify
 

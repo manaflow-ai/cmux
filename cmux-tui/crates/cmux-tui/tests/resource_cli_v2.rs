@@ -416,6 +416,22 @@ fn pane_cli_identify_reports_an_unreachable_session() {
     assert_eq!(error["code"], "socket.unreachable", "{error}");
 }
 
+/// A `--session` name that is not one path element is a usage error (exit
+/// 2), as for every other command, not an unreachable session.
+#[test]
+fn pane_cli_identify_rejects_an_invalid_session_name_as_usage() {
+    let output = cmux_command()
+        .args(["--session", "a/b", "--json", "identify"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2), "stderr:\n{}", stderr(&output));
+    assert!(output.stdout.is_empty());
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["code"], "usage.invalid", "{error}");
+}
+
 #[test]
 fn hyphenated_resource_actions_and_flat_auxiliary_scopes_are_usage_errors() {
     for args in [

@@ -490,15 +490,21 @@ script reads either answer the same way. Outside a cmux-tui terminal, or when
 the session does not place the terminal, `caller.found` is false and
 `caller.error` says why; `session` and `machine` are still the ones this CLI
 reaches. `outer_app.socket_path` is the cmux app the environment names
-(`CMUX_SOCKET_PATH`); this answer is not from it. Exit codes: 0, 3 when the
-session cannot be reached, 1 when it refuses a read.
+(`CMUX_SOCKET_PATH`); this answer is not from it. Exit codes: 0, 2 for an
+invalid `--session` name, 3 when the session cannot be reached, 1 when it
+refuses a read.
 
 `skill show` prints the agent guide for this build as Markdown: the caller's
 live ids (as `identify` reports them), the targeting rules, task recipes, waits,
 errors and exit codes, the scope table and the terminal, pane and tab paths.
 The recipes are data that a test runs through this parser, and the scope table
 and paths come from the help text, so the guide never names a command the build
-lacks. With `--json` it prints `{name, version, markdown}`.
+lacks. The guide names the executable that printed it: in a cmux app
+terminal the `cmux` on PATH can be the app's CLI, so an agent runs that path
+when `cmux --json identify` does not answer `kind: "cmux-tui"`. Its recipes
+never `run` in the caller's own pane: `pane run` shows its new tab in the pane
+it names, so the recipes split first. With `--json` it prints
+`{name, version, markdown}`.
 
 Claude Code and Codex started through the cmux-tui shims receive a short form of
 the same place at session start (`SessionStart` `additionalContext`); see
