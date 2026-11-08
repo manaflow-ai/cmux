@@ -93,4 +93,29 @@ struct CloseSeveralSelectsActedOnTabTests {
         try await Self.run("closeTab", pinned: false, selected: 2, actedOn: 3, closed: [3], selects: 2)
         try await Self.run("closeTab", pinned: true, selected: 2, actedOn: 2, closed: [2], selects: 1)
     }
+
+    /// Live terminals leave in the gesture's turn while the daemon reads what they run (`TabCloseGuard`'s hide): the kept
+    /// tab is selected in that same turn. Before, the pinned tab before the closing one showed for the whole read.
+    @Test func closeOthersOnLiveTerminalsSelectsTheKeptTabInTheGesturesTurn() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let pane = try #require(services.paneController(for: model))
+            for _ in 0..<2 { _ = try await connection.newTab(in: model.handle) }
+            try await PinnedPageTests.until({ pane.orderedIDs.count == 3 }, report: { "the pane holds \(pane.orderedIDs.map(\.rawValue))" })
+            let ids = pane.orderedIDs.map(\.rawValue) // T t1 t2, all terminals
+            try await connection.setTabPinned(try #require(store.tab(id: ids[0])).surface, true)
+            try await PinnedPageTests.until({ pane.stripModel.orderedTabs.first?.isPinned == true && pane.orderedIDs.map(\.rawValue) == ids })
+            try await TabCloseSelectsBeforeTests.select(ids[1], in: pane)
+            try #require(TabCloseGuard.asks([try #require(store.tab(id: ids[1]))], services: services), "the terminal close warning does not apply")
+            let hold = services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            #expect(services.registry.perform("closeOtherTabsInPane", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: ids[2]), origin: .user)))
+            #expect(!pane.orderedIDs.map(\.rawValue).contains(ids[1]), "the closing terminal did not leave in the gesture's turn")
+            #expect(pane.stripModel.selectedID?.rawValue == ids[2], "in the gesture's turn the pane selects \(pane.stripModel.selectedID?.rawValue ?? "none"), not the kept tab")
+            hold.release()
+            try await TabCloseSelectsBeforeTests.expect(pane, services, closed: [ids[1]], selects: ids[2], "Close Others on live terminals")
+        }
+    }
 }
