@@ -1467,7 +1467,7 @@ div.cv-subagent-done[data-toggle-line]::before {
   /* The tray's box is part of the transcript's dock. Its arrival must not move visible rows; the
      dock and VirtualTranscript settle their measured height in one frame, then the ink settles in
      (translate moves no layout). */
-  --acpmux-tray-enter: acpmux-tray-settle-in var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both; /* motion-allow: the house settle (schemas/motion-scale `settle`, #37845), a measured length beside the steps */
+  --acpmux-tray-enter: acpmux-tray-settle-in var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
   --acpmux-tray-leave: acpmux-tray-leave var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
 }
 /* A line that joins or leaves the open list grows from, or folds to, 0 height with its opacity on the

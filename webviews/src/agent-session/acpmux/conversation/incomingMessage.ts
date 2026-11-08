@@ -30,12 +30,22 @@
 // A record with no provenance and no `_meta.origin` (acpmux's mark of the proven person's prompt)
 // predates both: it keeps its bubble as it was, with no mark, since every person's prompt before
 // that mark was recorded so (only the explicit `unverified` kind marks a prompt).
+// A record with that mark is the person's, whatever its client: the owner's own `acpmux send` at a
+// plain terminal keeps a CLI client, yet its text is never read for a sender's label or a notice,
+// as the composer's identical text is not (`ownerRecord`).
 // acpmux's inbox notice (hub/inbox.rs, kind `inbox_notice`) is no prompt to draw as written: its
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
 import { relayEnvelope, withoutRelayEnvelope } from "./relayEnvelope";
-import { legacyNotice, noticeBody, provenanceNotice, renderedNotice, type AgentNotice } from "./agentNotice";
+import {
+  legacyNotice,
+  noticeBody,
+  noticeRowText,
+  provenanceNotice,
+  renderedNotice,
+  type AgentNotice,
+} from "./agentNotice";
 
 /// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
 /// `family_role`): the chat that started it, one it started, one further up, or another below or
@@ -100,6 +110,10 @@ export type IncomingMessage = {
   /// A tool's or reconciler's notice (agentNotice.ts): its severity, title, machine and links. The
   /// line draws the title, never the message's first line; `text` is the body alone.
   notice?: AgentNotice;
+  /// The line's words when the text's first line is not them: a digest of several messages, whose
+  /// text opens with its first sender's name (incomingMessage.ts `digestBody`), reads its first
+  /// message's first line, never that name beside the senders the line already names.
+  preview?: string;
 };
 
 /// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
@@ -311,11 +325,24 @@ const AGENT_KINDS = new Set([
   "notice",
 ]);
 
+/// Whether acpmux recorded the prompt as the person's own (`_meta.origin`, prompt_provenance.rs
+/// `marked`: no provenance, and the origin acpmux alone writes). The owner's own `acpmux send` at a
+/// plain terminal is recorded so (server/requests.rs `owner_terminal`), with a CLI client: like the
+/// composer's prompt, its text is never read for a sender's label (`[P1] fix the race` is the
+/// person's words, not a message from "P1"). A record from before that mark has no origin and is
+/// read as it always was.
+function ownerRecord(msg: Parameters<typeof promptOf>[1]): boolean {
+  if (msg?._meta?.provenance) return false;
+  const origin = msg?._meta?.origin as { actor?: unknown } | undefined;
+  return origin?.actor === "person";
+}
+
 /// Whether acpmux recorded the message as another agent's: its provenance says so, or (an older
 /// acpmux with none) it came by `acpmux send` at a shell or its outbox.
 function fromAgent(msg: Parameters<typeof promptOf>[1]): boolean {
   const provenance = msg?._meta?.provenance as { kind?: unknown } | undefined;
   if (provenance) return typeof provenance.kind === "string" && AGENT_KINDS.has(provenance.kind);
+  if (ownerRecord(msg)) return false;
   return typeof msg?.client === "string" && (CLI_CLIENT.test(msg.client) || OUTBOX_CLIENT.test(msg.client));
 }
 
@@ -340,7 +367,7 @@ function promptOf(
   text: string,
   msg:
     | {
-        _meta?: { provenance?: unknown };
+        _meta?: { provenance?: unknown; origin?: unknown };
         client?: unknown;
         fromHarness?: unknown;
         fromModel?: unknown;
@@ -426,11 +453,41 @@ function promptOf(
       ),
     ];
     if (senders.length > 0) {
+      const parts = digestParts(text, provenance.messages);
+      // Tools' notices alone (a background command's end, acpmux hub/bg_notify.rs, waited behind a
+      // busy turn with another): one notice, the most severe, the rest counted and opened below it.
+      const notices = parts.flatMap((part) => (part.notice ? [part.notice] : []));
+      if (notices.length && notices.length === parts.length) {
+        const first = mostSevere(notices);
+        const body =
+          parts.length === 1
+            ? parts[0]!.text
+            : parts.map((part) => `**${escapeTitle(part.notice!.title)}**\n${part.text}`.trim()).join("\n\n");
+        const more = notices.length - 1;
+        return {
+          kind: "message",
+          message: {
+            name: first.sender,
+            notice: { ...first, links: notices.flatMap((n) => n.links).slice(0, 16), ...(more && { more }) },
+            ...remote,
+            text: body,
+            raw: text,
+          },
+        };
+      }
       const name = senders.length > 3 ? `${senders.slice(0, 3).join(", ")} +${senders.length - 3}` : senders.join(", ");
-      const body = digestBody(text) || text.trim();
+      const body = digestBody(parts) || text.trim();
+      const preview = parts.length > 1 ? (parts[0]!.notice?.title ?? messagePreview(parts[0]!.text)) : undefined;
       return {
         kind: "message",
-        message: { name, ...digestReply(provenance.messages), ...remote, text: body, raw: text },
+        message: {
+          name,
+          ...digestReply(provenance.messages),
+          ...remote,
+          text: body,
+          raw: text,
+          ...(preview && { preview }),
+        },
       };
     }
   }
@@ -448,8 +505,11 @@ function promptOf(
   // A notice an older acpmux kept no provenance for, and tell-coordinator's page (agentNotice.ts
   // `legacyNotice`): only from `acpmux send` at a shell or its outbox, or a sender that named
   // itself, never the person's own prompt in the pane.
+  // The person's own record (`ownerRecord`) is none of those, whatever its client.
+  const owner = ownerRecord(msg);
   const viaSend =
     (!provenance &&
+      !owner &&
       typeof msg?.client === "string" &&
       (CLI_CLIENT.test(msg.client) || OUTBOX_CLIENT.test(msg.client))) ||
     (provenance?.kind === "agent_message" && provenance.from === NAMED_SENDER);
@@ -524,11 +584,11 @@ function promptOf(
       },
     };
   }
-  if (!provenance && typeof msg?.client === "string" && OUTBOX_CLIENT.test(msg.client)) {
+  if (!provenance && !owner && typeof msg?.client === "string" && OUTBOX_CLIENT.test(msg.client)) {
     const named = fromFirst(text.trim());
     if (named) return { kind: "message", message: { ...named, ...remote, ...harness, raw: text } };
   }
-  if (!provenance && typeof msg?.client === "string" && CLI_CLIENT.test(msg.client)) {
+  if (!provenance && !owner && typeof msg?.client === "string" && CLI_CLIENT.test(msg.client)) {
     const named = namedFirst(text.trim()) ?? fromFirst(text.trim()) ?? addressedFirst(text.trim(), context);
     if (named) return { kind: "message", message: { ...named, ...remote, ...harness, raw: text } };
   }
@@ -754,20 +814,47 @@ function namesSender(name: string, known: readonly unknown[]): boolean {
 /// each message under its sender's name in bold, without that line and without the signature
 /// that only repeats the sender (`[lane-a] Merged`); one message alone is just its text. Empty
 /// when `text` is not in that form.
-function digestBody(text: string): string {
+/// The messages of a digest's text, oldest first, each under the sender its line names; one whose
+/// own provenance (`messages`, in the same order, acpmux `digest_provenance`) is a tool's notice
+/// carries it, its text without the rendered head and Links line. Not a digest's text: none.
+function digestParts(text: string, messages: readonly unknown[]): DigestPart[] {
   const rest = text.trim().replace(DIGEST_LEAD, "");
   const parts = [...rest.matchAll(DIGEST_PART)];
-  if (!parts.length || parts[0]!.index !== 0) return "";
-  const messages = parts.map((part, index) => {
+  if (!parts.length || parts[0]!.index !== 0) return [];
+  return parts.map((part, index) => {
     const sender = part[1]!.trim();
     const end = parts[index + 1]?.index ?? rest.length;
     const body = withoutRelayEnvelope(rest.slice(part.index! + part[0].length, end)).trim();
+    const sent = (messages[index] as { provenance?: Record<string, unknown> } | null)?.provenance;
+    const notice = sent?.kind === "notice" || sent?.kind === "who_else" ? provenanceNotice(sent) : undefined;
+    if (notice) return { sender, notice, text: noticeBody(body) };
     const signed = agentSigned(body, [sender]);
     return { sender: signed?.name ?? sender, text: signed?.text ?? body };
   });
-  if (messages.length === 1) return messages[0]!.text;
-  return messages.map((message) => `**${message.sender}**\n${message.text}`).join("\n\n");
 }
+
+type DigestPart = { sender: string; text: string; notice?: AgentNotice };
+
+/// A digest's text as its card shows it: one message as it was sent, several each under its
+/// sender's name (a notice under its title too).
+function digestBody(parts: readonly DigestPart[]): string {
+  if (parts.length === 1) return parts[0]!.notice ? noticeRowText(parts[0]!.notice, parts[0]!.text) : parts[0]!.text;
+  return parts
+    .map(({ sender, text, notice }) =>
+      notice ? `**${sender}**\n${noticeRowText(notice, text)}` : `**${sender}**\n${text}`,
+    )
+    .join("\n\n");
+}
+
+const SEVERITY_RANK: Record<AgentNotice["severity"], number> = { info: 0, warn: 1, fire: 2 };
+
+/// The first of the most severe notices.
+function mostSevere(notices: readonly AgentNotice[]): AgentNotice {
+  return notices.reduce((best, n) => (SEVERITY_RANK[n.severity] > SEVERITY_RANK[best.severity] ? n : best));
+}
+
+/// A title as bold Markdown's words: its own marks kept as written.
+const escapeTitle = (title: string) => title.replace(/[\\`*_[\]<>]/g, "\\$&");
 
 const DIGEST_LEAD =
   /^\d+ messages? from other agents arrived while you were busy\.(?: Each follows as it was sent, oldest first\.)?\s*/;
