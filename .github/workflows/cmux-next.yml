@@ -2877,6 +2877,7 @@ jobs:
   # rerun_main(), no gateway), app-compile-fleet skips and the Mac Release compile cascades. Fails open:
   # a failed read or a trusted base that predates the mode writes nothing, which is "no gateway".
   app-compile-placement:
+    environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     needs: [path_route, push-head-preflight]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1 }}
     name: cmux-next app compile placement
