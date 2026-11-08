@@ -12,7 +12,7 @@ launches each engine's MCP server, reads its tool catalog, and maps one op set o
 | `click` | `click` on Calculator's `1` button, by the element id the latest state gave |
 | `type_text` | `type_text` `5` |
 | `press_key` | `press_key` `Escape` |
-| e2e | read the window, click clear, 1, 2, multiply, 7, equals, read until the display shows 84 |
+| e2e | read the window, click clear, read again unless the click returned the state, click 1, 2, multiply, 7, equals, read until the display shows 84 |
 
 Three catalog shapes exist today, picked from the tools an engine lists: `app` (calls name the app),
 `window` (a pid and a window id) and `tree` (a window id, JSON tree). A button an engine's state

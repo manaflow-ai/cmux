@@ -14,7 +14,8 @@ minute on the host lands on every engine alike. The target app is relaunched at 
 engine's turn and before each end-to-end sample, and cleared (Escape, untimed) before each sample.
 
 The end-to-end loop is what an agent does for "12 x 7" in Calculator: read the window, click
-clear, 1, 2, multiply, 7, equals, read the window again, and check that the display reads 84.
+clear, read it again (All Clear renumbers elements) unless the click returned the new state, click
+1, 2, multiply, 7, equals, read the window again, and check that the display reads 84.
 Its time is the wall time of all of that, through the engine's own tools.
 
 Writes DIR/cu-bench.json (schema below), DIR/summary.md, DIR/samples.jsonl (one line per call)
@@ -365,7 +366,9 @@ class Adapter:
     def resolve(self, pid: int | None) -> None:
         self.pid, self.target, self.state = pid, None, None
         if self.profile == "app":
-            self.target = {"app": self.app_name}
+            p = props(self.tools["get_app_state"])
+            key = next((k for k in ("app", "app_name", "name", "bundle_id") if k in p), "app")
+            self.target = {key: self.bundle_id if key == "bundle_id" and self.bundle_id else self.app_name}
             return
         doc = None
         if "list_windows" in self.tools:
@@ -605,6 +608,11 @@ def turn(engine: Engine, app: TargetApp, samples: int, e2e_samples: int, log) ->
         for _ in range(samples):
             if op in ("click", "type_text", "press_key"):
                 soft_reset(engine)
+            if op == "click":
+                try:  # untimed: clearing can renumber Calculator's elements
+                    a.refresh()
+                except Exception:
+                    pass
             call = a.op(op)
             if call is None:
                 sample = {"ok": False, "ms": 0.0, "error": f"no {op} target in the state (button '1' not found)"}
@@ -635,7 +643,9 @@ def end_to_end(engine: Engine, app: TargetApp, log) -> dict:
             else:
                 mode = "clicks"
             modes.add(mode)
-            a.call(*call)
+            result, _ = a.call(*call)
+            if step == "clear" and find_element(result, "1") is None:
+                a.refresh()  # All Clear removes display nodes, so ids from before it may be stale
         final, ok = None, False
         for _ in range(4):  # an agent reads until the display settles
             final = a.refresh()
@@ -643,6 +653,7 @@ def end_to_end(engine: Engine, app: TargetApp, log) -> dict:
                 ok = True
                 break
             time.sleep(0.15)
+        engine.keep_first("e2e", final, None)
         row = {"ok": ok, "reads_84": ok, "ms": (time.monotonic() - started) * 1000,
                "mode": "+".join(sorted(modes)), "display": display_values(final)[:12] if final else None}
         if not ok:
