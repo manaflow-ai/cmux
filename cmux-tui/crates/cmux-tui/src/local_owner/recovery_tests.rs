@@ -62,7 +62,11 @@ fn connection_limit_after_starting_has_its_own_busy_deadline() {
         Some(&spec.session),
         &|| false,
         now + ENSURE_DEADLINE,
-        now + ENSURE_DEADLINE + Duration::from_secs(5),
+        &super::RestoreBound::with(
+            now + ENSURE_DEADLINE + Duration::from_secs(5),
+            Duration::ZERO,
+            super::restore_bound::process_work,
+        ),
         &RestoreProgress::silent(),
     );
     stop.send(()).unwrap();

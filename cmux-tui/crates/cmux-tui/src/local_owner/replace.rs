@@ -30,8 +30,10 @@
 //! the registry that long: every request holds it for one commit.
 //!
 //! The caller decides when an owner is stuck: an owner also holds connections
-//! unanswered while it restores its session (up to `RESTORE_DEADLINE`), and
-//! this probe cannot tell the two apart. Nor can it tell a wedged owner at its
+//! unanswered while it restores its session, and the probe alone cannot tell
+//! the two apart. Where the kernel's work counters can be read (macOS), an
+//! owner that works through the probe is kept and awaited like any restoring
+//! owner: a replace would only start its restore over. Nor can it tell a wedged owner at its
 //! connection limit from a healthy one whose clients all stay connected. A
 //! stopped listener is the exception (`listener_is_stopped`): plain ensure
 //! reports it unavailable at once. The app offers the option only after a
@@ -137,10 +139,28 @@ pub(crate) fn replace_if_unresponsive(spec: &OwnerSpec) -> Result<Option<Replace
     // Read on the probed connection; refuse only once the owner is stuck, so
     // a healthy owner never fails here.
     let key = probe.peer_process_key();
+    let pid = listener_pid(key.as_deref()).and_then(|pid| u32::try_from(pid).ok());
+    let before = pid.and_then(super::restore_bound::process_work);
     if !unresponsive(spec, probe) {
         return replace_if_wedged(spec);
     }
+    // Silent through the probe, but working (CPU time or disk bytes advanced
+    // over it): an owner restoring a large registry, not a stuck one. A
+    // replace would throw its restore away and the next owner would start it
+    // over (2026-11-08), so it is kept and the normal ensure awaits it.
+    if let (Some(pid), Some(before)) = (pid, before)
+        && super::restore_bound::process_work(pid).is_some_and(|after| after.advanced_from(before))
+    {
+        return Ok(None);
+    }
     stop(spec, key)
+}
+
+/// The pid of the process listening on the session socket (`key`, from
+/// `transport::Stream::peer_process_key`), when the kernel names it and it is
+/// not this process.
+pub(super) fn listener_pid(key: Option<&str>) -> Option<u64> {
+    listener_of(key.map(str::to_owned)).ok().map(|listener| u64::from(listener.pid))
 }
 
 /// Stops the session's owner when it answers but its workspace registry lock
