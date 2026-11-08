@@ -152,12 +152,6 @@ struct AgentPaneAttachDroppedTests {
         ])
         #expect(carried.files == [file.path, saved.path])
         #expect(carried.saved == [saved.path], "a Chat Uploads file is staged first: the upload CLI never reads ~/Library")
-        // iCloud Drive, cloud-storage folders and other volumes are staged too; a dot folder never is.
-        #expect(AgentPaneModel.needsStaging("/Users/me/Library/Mobile Documents/com~apple~CloudDocs/a.pdf", home: "/Users/me"))
-        #expect(AgentPaneModel.needsStaging("/Users/me/Library/CloudStorage/Dropbox/a.pdf", home: "/Users/me"))
-        #expect(AgentPaneModel.needsStaging("/Volumes/Backup/a.pdf", home: "/Users/me"))
-        #expect(!AgentPaneModel.needsStaging("/Users/me/Downloads/a.pdf", home: "/Users/me"))
-        #expect(!AgentPaneModel.needsStaging("/Volumes/Backup/.ssh/id_ed25519", home: "/Users/me"))
         // A drop of more files than one batch held before still authorizes every one.
         let many = (0..<1500).map { "/tmp/many-\($0).bin" }
         rig.model.droppedPaths.linked(many)

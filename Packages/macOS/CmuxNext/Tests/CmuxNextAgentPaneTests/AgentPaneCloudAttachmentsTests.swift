@@ -148,6 +148,17 @@ import Testing
             return .init(paths: ["/work/0/notes.txt"], undo: {})
         }) { $0 }
         #expect(chips[0]["path"] == .string("/work/0/notes.txt") && chips[0]["saved"] == .bool(true))
+        // A relative link to it stages the file it names, not a link that would dangle in the copy.
+        let link = saved.deletingLastPathComponent().appendingPathComponent("link.txt")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "notes.txt")
+        let linked: JSONValue = .object(["id": .string("link:" + link.path), "kind": .string("link"), "name": .string("link.txt"), "path": .string(link.path)])
+        let viaLink = try #require(AgentPaneCloudAttachments([linked], files: [link.path], staged: [link.path]))
+        _ = try await viaLink.withUploaded(in: pastes, upload: { paths in
+            let kind = try FileManager.default.attributesOfItem(atPath: paths[0])[.type] as? FileAttributeType
+            #expect(kind == .typeRegular, "a link was copied")
+            #expect(try Data(contentsOf: URL(fileURLWithPath: paths[0])) == Data("notes".utf8))
+            return .init(paths: ["/work/1/notes.txt"], undo: {})
+        }) { $0 }
     }
 
     /// A link chip whose path the pane never authorized (page script made it up) is still refused,
