@@ -1034,8 +1034,13 @@ impl Call {
             "sleep" => SleepCall::parse(args).map(Call::Sleep),
             "watch" => WatchCall::parse(args).map(Call::Watch),
             "mcp" => {
+                // On the socket the arguments ride in `mcp_args`: the
+                // envelope's own `tool` key would clobber the MCP `tool`.
+                if let Some(wire) = args.get("mcp_args").and_then(Value::as_str) {
+                    return Ok(Call::Mcp(wire.to_owned()));
+                }
                 let mut a = args.as_object().cloned().unwrap_or_default();
-                for k in ["tool", "from", "turn_key"] {
+                for k in ["from", "turn_key"] {
                     a.remove(k);
                 }
                 Ok(Call::Mcp(Value::Object(a).to_string()))
@@ -1212,11 +1217,7 @@ impl Call {
             Call::Stop => json!({"tool": "stop", "end_turn": true}),
             Call::Sleep(c) => c.to_json(),
             Call::Watch(c) => c.to_json(),
-            Call::Mcp(args) => {
-                let mut v: Value = serde_json::from_str(args).unwrap_or_else(|_| json!({}));
-                v["tool"] = json!("mcp");
-                v
-            }
+            Call::Mcp(args) => json!({"tool": "mcp", "mcp_args": args}),
             Call::Remember { text } => json!({"tool": "remember", "text": text}),
             Call::Control(c) => c.to_json(),
             Call::CloudWorkspace(r) => {

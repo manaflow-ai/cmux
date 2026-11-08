@@ -120,8 +120,10 @@ pub struct Task {
 }
 
 impl Task {
+    /// True once the hub has finished the task (and sent its one note);
+    /// a terminal `status` read from the server alone does not end it.
     pub fn ended(&self) -> bool {
-        matches!(self.status.as_str(), "completed" | "failed" | "cancelled")
+        self.ended_ms.is_some()
     }
 }
 

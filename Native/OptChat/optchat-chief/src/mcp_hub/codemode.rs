@@ -388,11 +388,15 @@ pub fn command(runtime: &Runtime, file: &Path) -> Command {
             .arg(file);
         }
         "node" => {
+            // The script goes in by --eval, so the permission model grants
+            // no file read at all (loading a file needs read access to every
+            // folder above it, /tmp included). Types are stripped (Node 22.18+).
             cmd.arg("--permission")
-                .arg(format!("--allow-fs-read={}", file.display()))
                 .arg("--max-old-space-size=512")
                 .arg("--no-warnings")
-                .arg(file);
+                .arg("--input-type=module-typescript")
+                .arg("--eval")
+                .arg(std::fs::read_to_string(file).unwrap_or_default());
         }
         _ => {
             cmd.arg("run").arg(file);
