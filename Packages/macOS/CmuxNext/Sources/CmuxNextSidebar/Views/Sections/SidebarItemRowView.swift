@@ -155,6 +155,8 @@ class SidebarItemRowView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
+    /// diag (not for merge): a backing layer that logs who adds or removes its animations after a pin's flight starts.
+    override func makeBackingLayer() -> CALayer { PinDiagLayer() }
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
     var onDragEnded: ((_ windowPoint: NSPoint) -> Void)? // the release, which decides the drop

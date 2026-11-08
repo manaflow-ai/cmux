@@ -5,6 +5,46 @@ import os
 
 let pinDiag = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.pindiag")
 
+/// diag (not for merge): logs every animation add/remove on a pinned item's layer, with the caller's stack, for 150 ms
+/// after its flight starts (`armedAt`).
+final class PinDiagLayer: CALayer {
+    /// When the flight armed the log (a layer KVC value, so the layer keeps no extra stored state).
+    static let armedKey = "pinDiagArmedAt"
+
+    private func trace(_ op: String, _ key: String?) {
+        guard key != Self.armedKey, let armedAt = value(forKey: Self.armedKey) as? Double else { return }
+        let dt = CACurrentMediaTime() - armedAt
+        guard dt < 0.15 else { return }
+        let stack = Thread.callStackSymbols.dropFirst(2).prefix(18).map { line in
+            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+            return parts.count > 5 ? "\(parts[1]):\(parts[3])+\(parts[5])" : line
+        }.joined(separator: " | ")
+        let keys = (animationKeys() ?? []).joined(separator: "+")
+        let line = "\(op) key=\(key ?? "nil") t+\(String(format: "%.4f", dt)) main=\(Thread.isMainThread) keys=\(keys)"
+        pinDiag.notice("layerop \(line, privacy: .public) stack=\(stack, privacy: .public)")
+    }
+
+    override func add(_ anim: CAAnimation, forKey key: String?) {
+        trace("add", key)
+        super.add(anim, forKey: key)
+    }
+
+    override func removeAnimation(forKey key: String) {
+        trace("remove", key)
+        super.removeAnimation(forKey: key)
+    }
+
+    override func removeAllAnimations() {
+        trace("removeAll", nil)
+        super.removeAllAnimations()
+    }
+
+    override func removeFromSuperlayer() {
+        trace("removeFromSuperlayer", nil)
+        super.removeFromSuperlayer()
+    }
+}
+
 // Pin and unpin motion (cmux-ad m70, Lawrence 2026-11-08: "animation when i pin stuff and unpin stuff is not very good.
 // like it needs to translate properly from its original position to new position").
 //
@@ -43,11 +83,12 @@ struct SidebarPinFlight {
     func start(_ token: MotionSpring, now: CFTimeInterval) {
         let diagFrom = NSStringFromRect(start(now)), diagTo = NSStringFromRect(view.frame), diagType = String(describing: type(of: view))
         pinDiag.notice("flight start view=\(diagType, privacy: .public) from=\(diagFrom, privacy: .public) to=\(diagTo, privacy: .public)")
+        (view.layer as? PinDiagLayer)?.setValue(CACurrentMediaTime(), forKey: PinDiagLayer.armedKey)
         SidebarDragSpring.fly(view, from: start(now), token, now: now)
         let diagKeys = (view.layer?.animationKeys() ?? []).joined(separator: ",")
         pinDiag.notice("flight keys=\(diagKeys, privacy: .public)")
         let diagLayer = view.layer.map(ObjectIdentifier.init)
-        for delay in [0.008, 0.03, 0.08] {
+        for delay in [0.0, 0.008, 0.03, 0.08] {
             // concurrency-allow: diagnostic build only (not for merge): reads the flying layer later on the main queue
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak view] in
                 guard let view, let layer = view.layer else { return }
