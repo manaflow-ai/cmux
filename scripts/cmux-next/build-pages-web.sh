@@ -56,6 +56,7 @@ server-cards
 settings
 stash
 stats
+skills
 tasks
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).

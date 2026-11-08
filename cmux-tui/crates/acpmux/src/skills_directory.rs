@@ -1,10 +1,11 @@
 //! Curated skills, MCP servers and plugins installable across agent harnesses.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 pub const RPC_LIST: &str = "skills.directory.list";
@@ -37,6 +38,15 @@ pub struct Entry {
 struct Catalog {
     schema_version: u64,
     entries: Vec<Entry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagedMarker {
+    id: String,
+    version: String,
+    harness: String,
+    managed_by: String,
 }
 
 fn catalog() -> Catalog {
@@ -108,10 +118,102 @@ fn write_marker(dir: &Path, entry: &Entry, harness: &str) -> Result<()> {
     Ok(())
 }
 
-fn read_object(path: &Path) -> Result<Map<String, Value>> {
-    if !path.is_file() {
-        return Ok(Map::new());
+fn safe_metadata(path: &Path) -> Result<Option<fs::Metadata>> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                bail!("refusing symlink target {}", path.display());
+            }
+            Ok(Some(metadata))
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("inspect {}", path.display())),
     }
+}
+
+fn validate_managed_dir(dir: &Path, entry: &Entry, harness: &str) -> Result<bool> {
+    let Some(metadata) = safe_metadata(dir)? else { return Ok(false) };
+    ensure!(metadata.is_dir(), "refusing unmanaged {}", dir.display());
+    let marker = dir.join(MARKER);
+    let Some(marker_metadata) = safe_metadata(&marker)? else {
+        bail!("refusing to replace unmanaged {}", dir.display());
+    };
+    ensure!(marker_metadata.is_file(), "refusing unmanaged {}", dir.display());
+    let marker: ManagedMarker = serde_json::from_slice(
+        &fs::read(&marker).with_context(|| format!("read {}", marker.display()))?,
+    )
+    .with_context(|| format!("invalid managed marker {}", marker.display()))?;
+    ensure!(marker.id == entry.id, "managed marker id mismatch for {}", dir.display());
+    ensure!(marker.harness == harness, "managed marker harness mismatch for {}", dir.display());
+    ensure!(
+        marker.managed_by == "cmux.skills-directory",
+        "managed marker owner mismatch for {}",
+        dir.display()
+    );
+    ensure!(!marker.version.is_empty(), "managed marker version missing for {}", dir.display());
+    Ok(true)
+}
+
+fn validate_managed_file(path: &Path) -> Result<()> {
+    if let Some(metadata) = safe_metadata(path)? {
+        ensure!(metadata.is_file(), "refusing non-file target {}", path.display());
+    }
+    Ok(())
+}
+
+fn validate_directory(path: &Path) -> Result<()> {
+    if let Some(metadata) = safe_metadata(path)? {
+        ensure!(metadata.is_dir(), "refusing non-directory target {}", path.display());
+    }
+    Ok(())
+}
+
+// The home is the trusted anchor (it may itself be a platform symlink). Every
+// component below it, including configured harness roots, must be a real directory.
+fn validate_target_path(root: &Path, path: &Path) -> Result<()> {
+    for parent in path.ancestors().skip(1) {
+        if root.starts_with(parent) {
+            break;
+        }
+        validate_directory(parent)?;
+    }
+    safe_metadata(path)?;
+    Ok(())
+}
+
+fn managed_dir(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
+    let dir = target_root(root, harness)?
+        .join(if entry.kind == "skill" { "skills" } else { "plugins" })
+        .join(&entry.id);
+    validate_target_path(root, &dir)?;
+    Ok(dir)
+}
+
+fn config_path(root: &Path, harness: &str) -> Result<PathBuf> {
+    let path = match harness {
+        "codex" => target_root(root, harness)?.join("config.toml"),
+        "opencode" => target_root(root, harness)?.join("opencode.json"),
+        "claude" => claude_mcp_path(root),
+        _ => target_root(root, harness)?.join("settings.json"),
+    };
+    validate_target_path(root, &path)?;
+    Ok(path)
+}
+
+fn read_toml_table(path: &Path) -> Result<Option<toml::Table>> {
+    let Some(metadata) = safe_metadata(path)? else { return Ok(None) };
+    ensure!(metadata.is_file(), "configuration must be a file: {}", path.display());
+    Ok(Some(
+        fs::read_to_string(path)
+            .with_context(|| format!("read {}", path.display()))?
+            .parse::<toml::Table>()
+            .with_context(|| format!("parse Codex config {}", path.display()))?,
+    ))
+}
+
+fn read_object(path: &Path) -> Result<Map<String, Value>> {
+    let Some(metadata) = safe_metadata(path)? else { return Ok(Map::new()) };
+    ensure!(metadata.is_file(), "configuration must be a file: {}", path.display());
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let value: Value =
         serde_json::from_slice(&bytes).with_context(|| format!("parse {}", path.display()))?;
@@ -130,10 +232,9 @@ fn write_object(path: &Path, object: Map<String, Value>) -> Result<()> {
 }
 
 fn install_skill(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
-    let base = target_root(root, harness)?.join("skills").join(&entry.id);
-    if base.exists() && !base.join(MARKER).is_file() {
-        bail!("refusing to replace unmanaged skill {}", base.display());
-    }
+    let base = managed_dir(root, harness, entry)?;
+    validate_managed_dir(&base, entry, harness)?;
+    validate_managed_file(&base.join("SKILL.md"))?;
     ensure_dir(&base)?;
     let body = entry.skill.as_deref().unwrap_or(&entry.description);
     let document = if body.trim_start().starts_with("---") {
@@ -147,10 +248,10 @@ fn install_skill(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
 }
 
 fn install_plugin(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
-    let base = target_root(root, harness)?.join("plugins").join(&entry.id);
-    if base.exists() && !base.join(MARKER).is_file() {
-        bail!("refusing to replace unmanaged plugin {}", base.display());
-    }
+    let base = managed_dir(root, harness, entry)?;
+    validate_managed_dir(&base, entry, harness)?;
+    validate_directory(&base.join(".claude-plugin"))?;
+    validate_managed_file(&base.join(".claude-plugin").join("plugin.json"))?;
     ensure_dir(&base)?;
     let manifest = json!({"name": entry.id, "version": entry.version, "description": entry.description, "managedBy": "cmux.skills-directory"});
     ensure_dir(&base.join(".claude-plugin"))?;
@@ -162,23 +263,27 @@ fn install_plugin(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> 
     Ok(base)
 }
 
-fn remove_managed_dir(dir: &Path, kind: &str) -> Result<()> {
-    if !dir.join(MARKER).is_file() {
+fn remove_managed_dir(dir: &Path, entry: &Entry, harness: &str) -> Result<()> {
+    if !validate_managed_dir(dir, entry, harness)? {
         return Ok(());
     }
-    let owned = if kind == "skill" {
+    let owned = if entry.kind == "skill" {
         vec![dir.join("SKILL.md"), dir.join(MARKER)]
     } else {
         vec![dir.join(".claude-plugin/plugin.json"), dir.join(MARKER)]
     };
     for path in owned {
-        if path.is_file() {
+        if let Some(metadata) = safe_metadata(&path)? {
+            ensure!(metadata.is_file(), "refusing non-file target {}", path.display());
             fs::remove_file(path)?;
         }
     }
-    let manifest_dir = dir.join(".claude-plugin");
-    if manifest_dir.is_dir() && fs::read_dir(&manifest_dir)?.next().is_none() {
-        fs::remove_dir(manifest_dir)?;
+    if entry.kind == "plugin" {
+        let manifest_dir = dir.join(".claude-plugin");
+        validate_directory(&manifest_dir)?;
+        if manifest_dir.is_dir() && fs::read_dir(&manifest_dir)?.next().is_none() {
+            fs::remove_dir(manifest_dir)?;
+        }
     }
     if dir.is_dir() && fs::read_dir(dir)?.next().is_none() {
         fs::remove_dir(dir)?;
@@ -284,25 +389,19 @@ fn install_mcp(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
 fn validate_install_target(root: &Path, harness: &str, entry: &Entry) -> Result<()> {
     match entry.kind.as_str() {
         "skill" | "plugin" => {
-            let dir = target_root(root, harness)?
-                .join(if entry.kind == "skill" { "skills" } else { "plugins" })
-                .join(&entry.id);
-            if dir.exists() && !dir.join(MARKER).is_file() {
-                bail!("refusing to replace unmanaged {} {}", entry.kind, dir.display());
+            let dir = managed_dir(root, harness, entry)?;
+            validate_managed_dir(&dir, entry, harness)?;
+            if entry.kind == "skill" {
+                validate_managed_file(&dir.join("SKILL.md"))?;
+            } else {
+                validate_directory(&dir.join(".claude-plugin"))?;
+                validate_managed_file(&dir.join(".claude-plugin").join("plugin.json"))?;
             }
         }
         "mcp" => {
-            let path = match harness {
-                "codex" => target_root(root, harness)?.join("config.toml"),
-                "opencode" => target_root(root, harness)?.join("opencode.json"),
-                "claude" => claude_mcp_path(root),
-                _ => target_root(root, harness)?.join("settings.json"),
-            };
+            let path = config_path(root, harness)?;
             if harness == "codex" {
-                if path.is_file() {
-                    let table = fs::read_to_string(&path)?
-                        .parse::<toml::Table>()
-                        .context("parse Codex config")?;
+                if let Some(table) = read_toml_table(&path)? {
                     let servers = table
                         .get("mcp_servers")
                         .map(|v| v.as_table().context("mcp_servers is not a table"))
@@ -313,7 +412,7 @@ fn validate_install_target(root: &Path, harness: &str, entry: &Entry) -> Result<
                         bail!("refusing to replace unmanaged MCP server {}", entry.id);
                     }
                 }
-            } else if path.is_file() {
+            } else {
                 let object = read_object(&path)?;
                 let key = if harness == "opencode" { "mcp" } else { "mcpServers" };
                 let servers = object
@@ -333,13 +432,46 @@ fn validate_install_target(root: &Path, harness: &str, entry: &Entry) -> Result<
     Ok(())
 }
 
+fn validate_remove_target(root: &Path, harness: &str, entry: &Entry) -> Result<()> {
+    match entry.kind.as_str() {
+        "skill" | "plugin" => {
+            let dir = managed_dir(root, harness, entry)?;
+            if validate_managed_dir(&dir, entry, harness)? {
+                if entry.kind == "skill" {
+                    validate_managed_file(&dir.join("SKILL.md"))?;
+                } else {
+                    validate_directory(&dir.join(".claude-plugin"))?;
+                    validate_managed_file(&dir.join(".claude-plugin").join("plugin.json"))?;
+                }
+            }
+        }
+        "mcp" => {
+            let path = config_path(root, harness)?;
+            if harness == "codex" {
+                if let Some(table) = read_toml_table(&path)? {
+                    let _ = table
+                        .get("mcp_servers")
+                        .map(|value| value.as_table().context("mcp_servers is not a table"))
+                        .transpose()?;
+                }
+            } else {
+                let object = read_object(&path)?;
+                let key = if harness == "opencode" { "mcp" } else { "mcpServers" };
+                let _ = object
+                    .get(key)
+                    .map(|value| value.as_object().context("MCP server table must be an object"))
+                    .transpose()?;
+            }
+        }
+        _ => bail!("unsupported entry kind"),
+    }
+    Ok(())
+}
+
 fn is_installed(root: &Path, harness: &str, entry: &Entry) -> bool {
     match entry.kind.as_str() {
-        "skill" => target_root(root, harness)
-            .map(|p| p.join("skills").join(&entry.id).join(MARKER).is_file())
-            .unwrap_or(false),
-        "plugin" => target_root(root, harness)
-            .map(|p| p.join("plugins").join(&entry.id).join(MARKER).is_file())
+        "skill" | "plugin" => managed_dir(root, harness, entry)
+            .and_then(|dir| validate_managed_dir(&dir, entry, harness))
             .unwrap_or(false),
         "mcp" => match harness {
             "codex" => target_root(root, harness)
@@ -438,23 +570,18 @@ pub fn remove(params: &Value, root: Option<&Path>) -> Result<Value> {
     let root = home(root);
     let targets = requested_targets(params, &e)?;
     for harness in &targets {
+        validate_remove_target(&root, harness, &e)?;
+    }
+    for harness in &targets {
         match e.kind.as_str() {
             "skill" | "plugin" => {
-                let dir = target_root(&root, harness)?
-                    .join(if e.kind == "skill" { "skills" } else { "plugins" })
-                    .join(&e.id);
-                remove_managed_dir(&dir, &e.kind)?;
+                let dir = managed_dir(&root, harness, &e)?;
+                remove_managed_dir(&dir, &e, harness)?;
             }
             "mcp" => {
-                let path = match harness.as_str() {
-                    "opencode" => target_root(&root, harness)?.join("opencode.json"),
-                    "codex" => target_root(&root, harness)?.join("config.toml"),
-                    "claude" => claude_mcp_path(&root),
-                    _ => target_root(&root, harness)?.join("settings.json"),
-                };
+                let path = config_path(&root, harness)?;
                 if harness == "codex" {
-                    if let Ok(text) = fs::read_to_string(&path)
-                        && let Ok(mut table) = text.parse::<toml::Table>()
+                    if let Some(mut table) = read_toml_table(&path)?
                         && let Some(servers) =
                             table.get_mut("mcp_servers").and_then(toml::Value::as_table_mut)
                         && servers
@@ -547,5 +674,75 @@ mod tests {
         let request = json!({"id":"filesystem-tools","targets":["claude","codex"]});
         assert!(install(&request, Some(root)).is_err());
         assert!(!root.join(".claude.json").exists());
+    }
+    #[test]
+    fn invalid_markers_never_authorize_overwrite_or_removal() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = private_test_root(&temp);
+        let request = json!({"id":"terminal-workflows","targets":["claude"]});
+        install(&request, Some(root)).unwrap();
+        let dir = root.join(".claude/skills/terminal-workflows");
+        let original = fs::read(dir.join("SKILL.md")).unwrap();
+        let marker = fs::read(dir.join(MARKER)).unwrap();
+        for field in ["id", "harness", "managedBy", "version"] {
+            let mut invalid: Value = serde_json::from_slice(&marker).unwrap();
+            invalid[field] = if field == "version" { json!("") } else { json!("someone-else") };
+            fs::write(dir.join(MARKER), serde_json::to_vec(&invalid).unwrap()).unwrap();
+            assert!(install(&request, Some(root)).is_err(), "{field}");
+            assert!(remove(&request, Some(root)).is_err(), "{field}");
+            assert!(!is_installed(root, "claude", &entry("terminal-workflows").unwrap()));
+            assert_eq!(fs::read(dir.join("SKILL.md")).unwrap(), original);
+        }
+        fs::write(dir.join(MARKER), b"not json").unwrap();
+        assert!(install(&request, Some(root)).is_err());
+        assert!(remove(&request, Some(root)).is_err());
+        assert_eq!(fs::read(dir.join("SKILL.md")).unwrap(), original);
+    }
+
+    #[test]
+    fn removal_checks_later_configs_before_touching_earlier_targets() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = private_test_root(&temp);
+        let request = json!({"id":"filesystem-tools","targets":["claude","codex"]});
+        install(&request, Some(root)).unwrap();
+        let claude_before = fs::read(root.join(".claude.json")).unwrap();
+        fs::write(root.join(".codex/config.toml"), "[invalid").unwrap();
+        assert!(remove(&request, Some(root)).is_err());
+        assert_eq!(fs::read(root.join(".claude.json")).unwrap(), claude_before);
+    }
+
+    #[test]
+    fn plugin_can_be_updated_with_existing_manifest_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = private_test_root(&temp);
+        let request = json!({"id":"review-kit","targets":["claude"]});
+        install(&request, Some(root)).unwrap();
+        install(&request, Some(root)).unwrap();
+        remove(&request, Some(root)).unwrap();
+        assert!(!root.join(".claude/plugins/review-kit").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_targets_and_ancestors_are_never_mutated() {
+        use std::os::unix::fs::symlink;
+        for relative in [".claude/skills/terminal-workflows", ".claude/skills", ".claude"] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = private_test_root(&temp);
+            let request = json!({"id":"terminal-workflows","targets":["claude"]});
+            install(&request, Some(root)).unwrap();
+            let path = root.join(relative);
+            let outside = root.join("saved");
+            fs::rename(&path, &outside).unwrap();
+            symlink(&outside, &path).unwrap();
+            let original =
+                fs::read(root.join(".claude/skills/terminal-workflows/SKILL.md")).unwrap();
+            assert!(install(&request, Some(root)).is_err(), "{relative}");
+            assert!(remove(&request, Some(root)).is_err(), "{relative}");
+            assert_eq!(
+                fs::read(root.join(".claude/skills/terminal-workflows/SKILL.md")).unwrap(),
+                original
+            );
+        }
     }
 }
