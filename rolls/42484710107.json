@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42484710107",
+  "recorded_at": "2026-11-08T13:31:13Z",
+  "reason": "cmux-tui eb277eb0cbe7 changes the image's cmux-tui (pinned 020abdb81b30)",
+  "dry_run": false,
+  "cmux_tui": "eb277eb0cbe7d633df3ad33332bab6152863a191",
+  "fixes": [
+    {
+      "sha": "eb277eb0cbe7d633df3ad33332bab6152863a191",
+      "mergedAt": "2026-11-08T13:07:51Z",
+      "subject": "cmux-motion: Option-drag selects terminal text while a program has the mouse, in Rust over the app FFI (step A) (#38439)"
+    },
+    {
+      "sha": "4d80440f5b0ce96a1fc56d8ee31b750e38fa8f1d",
+      "mergedAt": "2026-11-08T13:07:25Z",
+      "subject": "Cloud repo pick: clone the head first and fill the rest under the sync barrier (#38099)"
+    },
+    {
+      "sha": "6f0b700d79133954520cbb6d37228b8afdfba15f",
+      "mergedAt": "2026-11-08T05:06:53-08:00",
+      "subject": "Fork Conversation by reference: a fork shows its chat's history, copies none (#37020)"
+    },
+    {
+      "sha": "bd62392436d6f094acf804ecdc36f12da793b735",
+      "mergedAt": "2026-11-08T13:03:26Z",
+      "subject": "Cmd-W closes a pinned tab like any other tab, one close path (cmux-ad i8) (#38442)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T13:31:13Z",
+    "snapshot_id": "sh-71e0ae8185c84e9b957e468ab897d74a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42484710107): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "90a2fb099bdb710e8feca0e6645ca159b4c741d0",
+    "image": "cloud-native-auto-eb277eb0-42484710107-1",
+    "revision": "ci-42484710107-1",
+    "at": "2026-11-08T13:31:13Z"
+  },
+  "rolled_back": false
+}
