@@ -16,7 +16,8 @@ import { agentMessage } from "./agentMessages";
 import { MessageCard } from "./MessageCard";
 import { AcpmuxSendLine } from "./SentMessageLine";
 import { ToolGroupRow } from "./ToolGroupRow";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = { recipient: "chip" | "link" | "plain"; open?: boolean };
 

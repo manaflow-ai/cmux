@@ -204,6 +204,10 @@ pub(super) async fn handle_notification(
                         &params,
                         &mut forwarded,
                     );
+                    super::remote_guard::attest_person(
+                        &mut forwarded,
+                        person_admitted(conn, &params),
+                    );
                     person_stop::mark(conn, &params, &peer, &mut forwarded);
                     cancel_refused::forward(conn, peer, key, turn, forwarded).await;
                 }
@@ -1710,7 +1714,20 @@ async fn dispatch_request_with_identity(
                 let name = declared
                     .as_deref()
                     .filter(|name| conn.origin == super::Origin::Peer || *name != own)?;
-                Some(crate::prompt_provenance::named_sender(name, &s.id))
+                // An agent harness's own shell says its harness too (`cli/sender.rs`): only its
+                // claim (`claimed.fromHarness`); a peer's is bound below instead.
+                let named = crate::prompt_provenance::named_sender(name, &s.id);
+                let harness = (conn.origin == super::Origin::Local)
+                    .then(|| crate::prompt_provenance::declared_harness(&params))
+                    .flatten()
+                    .and_then(|declared| declared.harness);
+                Some(match harness {
+                    Some(harness) => crate::prompt_provenance::with_claimed(
+                        named,
+                        [(crate::prompt_provenance::FROM_HARNESS, harness)],
+                    ),
+                    None => named,
+                })
             });
             let provenance =
                 stamp_bound_sender(hub, conn, &s.id, &params, provenance, person_message);
@@ -1719,6 +1736,35 @@ async fn dispatch_request_with_identity(
                 crate::prompt_provenance::stamp_chief(p, |id| {
                     hub.resolve(id).ok().filter(|from| from.id == id).map(|from| from.meta())
                 })
+            });
+            // Who the daemon knows sent it, apart from what the sender claims
+            // (`prompt_provenance.rs` `verified`, `transport`, `claimed`): the proven person's
+            // prompt carries none; one no proof attributes is `unverified`, never the person's.
+            let transport = transport_of(conn);
+            let provenance = match provenance {
+                Some(p) => Some(crate::prompt_provenance::observed(p, transport)),
+                None if person_admitted(conn, &params) => None,
+                // A proven session's note to itself: that session's, as the daemon knows.
+                None if conn.caller() == Some(s.id.as_str()) => {
+                    let name = hub.session_name(&s.id);
+                    Some(crate::prompt_provenance::observed(
+                        crate::prompt_provenance::session_message(&s.id, &name, &s.id),
+                        transport,
+                    ))
+                }
+                None => Some(crate::prompt_provenance::unverified(
+                    &s.id,
+                    transport,
+                    claimed_labels(&params),
+                )),
+            };
+            // A peer's prompt keeps its sender and names the peer that passed it on beside it.
+            let provenance = provenance.map(|p| match conn.origin {
+                super::Origin::Peer => {
+                    let via = mux_meta(&params).and_then(|m| m.get("via")).and_then(Value::as_str);
+                    crate::prompt_provenance::forwarded_by_peer(p, via)
+                }
+                _ => p,
             });
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
@@ -1742,17 +1788,20 @@ async fn dispatch_request_with_identity(
             // Only a peer daemon may carry this metadata.  A local or web caller can
             // name arbitrary `_meta` fields, but sender identity is stamped by the
             // proven caller/provenance below; accepting it here would let a client
-            // forge durable message records in another session's journal.
-            let message_sender = (conn.origin == super::Origin::Peer && !web)
-                .then(|| mux_meta(&params).and_then(|m| m.get("messageSender")))
-                .flatten()
-                .and_then(|sender| {
-                    let sender: crate::protocol::MessageSender =
-                        serde_json::from_value(sender.clone()).ok()?;
-                    (!sender.name.is_empty() && !sender.session_id.is_empty())
-                        .then(|| serde_json::to_value(sender).ok())
-                        .flatten()
-                });
+            // forge durable message records in another session's journal. A paired
+            // `client` device is served as a peer too (`pairing::origin_of`), so the
+            // proof is the peer token, not the origin.
+            let message_sender =
+                (conn.origin == super::Origin::Peer && conn.auth == ConnAuth::PeerToken && !web)
+                    .then(|| mux_meta(&params).and_then(|m| m.get("messageSender")))
+                    .flatten()
+                    .and_then(|sender| {
+                        let sender: crate::protocol::MessageSender =
+                            serde_json::from_value(sender.clone()).ok()?;
+                        (!sender.name.is_empty() && !sender.session_id.is_empty())
+                            .then(|| serde_json::to_value(sender).ok())
+                            .flatten()
+                    });
             let on_accepted = Some(composer::on_accepted(hub, conn, &s, &params)?);
             // A key replaces its sender's queued prompts (`supersede.rs`), which knows agents and
             // the owner only: a person's prompt neither replaces nor is replaced.
@@ -1839,15 +1888,11 @@ async fn dispatch_request_with_identity(
                 steer_now: steer && flag("steerNow") == Some(true),
                 interrupt_turn: None,
                 provenance,
+                // The peer's word only on a peer daemon's own link (`person_admitted`): a paired
+                // machine's client connection is served as Peer too, and its flag proves nothing.
                 human_authenticated: person_message
                     && (conn.is_person()
-                        || (conn.origin == super::Origin::Peer
-                            && mux_meta(&params)
-                                .and_then(|meta| {
-                                    meta.get(crate::prompt_provenance::PERSON_VERIFIED)
-                                })
-                                .and_then(Value::as_bool)
-                                == Some(true))),
+                        || (conn.origin == super::Origin::Peer && person_admitted(conn, &params))),
                 agent,
                 class,
                 after_turn: None,
@@ -1885,7 +1930,11 @@ async fn dispatch_request_with_identity(
                         given_provenance,
                     ),
             };
-            let agent_message = opts.provenance.is_some() && !person_message;
+            // An unverified prompt names no other sender: its activity is counted as an
+            // unnamed prompt's was (`prompt_provenance::is_unverified`).
+            let agent_message = opts.provenance.is_some()
+                && !crate::prompt_provenance::is_unverified(opts.provenance.as_ref())
+                && !person_message;
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
             // The person's own `acpmux send` names the machine it ran on (`cli/sender.rs`): the
             // recorded client says it (`acpmux-cli#…@big-red`), and the transcript shows "via CLI on
@@ -3012,7 +3061,10 @@ async fn dispatch_request_with_identity(
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
         method::MUX_HANDOFF_START => {
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
-            hub.handoff_start(&params, control).await
+            // Its first prompt is the person's only by the same proof as a prompt's.
+            let sender = (!person_admitted(conn, &params))
+                .then(|| crate::prompt_provenance::HandoffSender { transport: transport_of(conn) });
+            hub.handoff_start(&params, control, sender).await
         }
         method::MUX_HANDOFF_DISCARD => heap(|| hub.handoff_discard(&params)).await,
         // Anything else that names a session goes to the agent untouched, from the unix
@@ -3093,6 +3145,69 @@ async fn queue_text(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
 /// peer daemon said of its own proven caller, else what a relay on this machine's unix socket
 /// said of the machine it relays for (`prompt_provenance::FROM_RELAY`); a client's claim is dropped. A person's prompt and
 /// none are left as they are. Out of `dispatch_request`, whose future must stay small.
+/// How a prompt reached this daemon, as it saw it (`prompt_provenance::TRANSPORT`).
+fn transport_of(conn: &Conn) -> &'static str {
+    if conn.is_trigger() {
+        return "trigger";
+    }
+    match conn.origin {
+        super::Origin::Local => "unix",
+        super::Origin::LocalApp => "app",
+        super::Origin::Web => "web",
+        super::Origin::Peer => "peer",
+    }
+}
+
+/// Whether a prompt naming no sender is the person's, by a proof and never by a label: the
+/// connection proved the person (`hub/person.rs`: the app's own pane), a paired phone sent it (a
+/// Web connection with the device's `client` credential, `pairing.rs` `origin_of`), or a peer link
+/// forwarded one its own daemon's connection proved (`remote_guard::PERSON_PROVEN`, that peer's
+/// word, recorded as come over `peer`). A local process of the user (a shell, a script, an agent
+/// outside acpmux, the Cloud mobile carrier's unix connection) proves nothing: socket access,
+/// the listener token and environment tags are not the person.
+pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
+    if conn.is_person() {
+        return true;
+    }
+    if !conn.auth.authenticated() {
+        return false;
+    }
+    match conn.origin {
+        // The listener token a dashboard or browser socket holds proves no person; a paired
+        // read-only device sends no prompt.
+        super::Origin::Web => conn.auth == ConnAuth::Device,
+        // Only the forwarding daemon's own proof (`remote_guard::attest_person`, by this same
+        // rule there), on a peer daemon's own link (`PeerToken`). A paired machine's `client`
+        // credential is served as Peer too (`pairing.rs` `origin_of`, `Device`): it is a client,
+        // and its own `personVerified` proves nothing. Its `via` is no proof either: it labels
+        // any client but the owner's, a unix one too.
+        super::Origin::Peer => {
+            conn.auth == ConnAuth::PeerToken
+                && params
+                    .pointer("/_meta/acpmux")
+                    .and_then(|m| m.get(super::remote_guard::PERSON_PROVEN))
+                    .and_then(Value::as_bool)
+                    == Some(true)
+        }
+        super::Origin::Local | super::Origin::LocalApp => false,
+    }
+}
+
+/// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`).
+fn claimed_labels(params: &Value) -> serde_json::Map<String, Value> {
+    let mut out = serde_json::Map::new();
+    let Some(mux) = params.pointer("/_meta/acpmux") else { return out };
+    for key in ["cliHost", "fromHarness", "via"] {
+        if let Some(value) = mux.get(key).and_then(Value::as_str) {
+            let value = value.trim();
+            if !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control) {
+                out.insert(key.to_owned(), json!(value));
+            }
+        }
+    }
+    out
+}
+
 fn stamp_bound_sender(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -3118,7 +3233,15 @@ fn stamp_bound_sender(
         }
         _ => None,
     };
-    Some(crate::prompt_provenance::stamp_sender(provenance, bound.as_ref()))
+    let caller_bound = conn.caller().is_some_and(|caller| !conn.is_person() && caller != to)
+        && bound.as_ref().is_some_and(|b| b.session_id.is_some());
+    let mut provenance = crate::prompt_provenance::stamp_sender(provenance, bound.as_ref());
+    // A caller token proved the sending session: the daemon bound who sent it, whatever name it
+    // gave (`prompt_provenance::VERIFIED`).
+    if let (true, Some(fields)) = (caller_bound, provenance.as_object_mut()) {
+        fields.insert(crate::prompt_provenance::VERIFIED.to_owned(), json!(true));
+    }
+    Some(provenance)
 }
 
 fn preparation_budget(deadline: Option<&Value>, now: u64) -> Result<std::time::Duration, RpcError> {

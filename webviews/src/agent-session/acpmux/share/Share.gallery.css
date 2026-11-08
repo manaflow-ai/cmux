@@ -13,3 +13,15 @@
   background: transparent;
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
 }
+
+:root[data-share-look="row-hover"] .share-dialog__row:not(:hover, [data-popup-open]) {
+  box-shadow: none;
+}
+:root[data-share-look="row-filled"] .share-dialog__row {
+  background: var(--ds-color-hover);
+}
+:root[data-share-look="row-bleed"] .share-dialog__row {
+  box-shadow: none;
+  border-radius: 0;
+  border-block-end: var(--cmux-hairline, 0.5px) solid var(--ds-color-separator);
+}

@@ -116,6 +116,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var followsUIScale = true {
         didSet { if followsUIScale != oldValue { applyUIScale() } }
     }
+    /// True for a page that belongs to the Chief chat (``PageDescriptor/followsChatZoom``: Bring your
+    /// history, shown over Home at first launch): Agent Chat Zoom (`agentPane.zoom`) scales it too, as it scales an agent chat and the
+    /// Chief chat, so it keeps their size and Cmd-= / Cmd-- / Cmd-0 on it (`home.zoomIn`) zoom it live.
+    public var followsChatZoom = false {
+        didSet {
+            guard followsChatZoom != oldValue else { return }
+            observeUIScale() // track `agentPane.zoom` only while the page follows it
+            applyUIScale()
+        }
+    }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
@@ -379,6 +389,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
+        followsChatZoom = descriptor.followsChatZoom
         applyUIScale()
         observeUIScale()
         PageRegistry.add(self)
@@ -470,15 +481,18 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     private func observeUIScale() {
+        uiScaleObservation?.cancel()
+        let chatZoom = followsChatZoom
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
         }
     }
 
-    /// Page zoom follows `uiScale` times this page's additional zoom; the chrome multiplier remains
+    /// Page zoom follows `uiScale` times this page's additional zoom (and Agent Chat Zoom for a page that
+    /// ``followsChatZoom``); the chrome multiplier remains
     /// a separate `--cmux-interface-scale` token.
     func applyUIScale() {
         evaluateInPage(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))

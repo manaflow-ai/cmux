@@ -654,6 +654,9 @@ pub struct Hub {
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
+    /// The model ids Codex chats reported that each live list lacked, by profile name, each
+    /// already probed again for once (`recheck_live_models`).
+    pub(super) live_rechecks: StdMutex<HashMap<String, std::collections::HashSet<String>>>,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,
@@ -1004,6 +1007,7 @@ impl Hub {
             peer_notices_done: Arc::new(Notify::new()),
             known_models: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
+            live_rechecks: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             startup_work_done: tokio::sync::watch::channel(true).0,
@@ -1393,6 +1397,8 @@ impl Hub {
         // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
         // policy change refuses it as while it moved (`queue::moving_error`).
         let moving = meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned());
+        // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
+        let wait_start = meta.wait_start;
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -1463,7 +1469,7 @@ impl Hub {
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
             person: AtomicBool::new(false),
-            wait_start: AtomicBool::new(false),
+            wait_start: AtomicBool::new(wait_start),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),

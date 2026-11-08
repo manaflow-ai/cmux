@@ -2775,6 +2775,8 @@ fn run_server(
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
     #[cfg(unix)]
+    cmux_tui_core::server::set_link_share_app_scheme(&mux, share_room::app_scheme().as_deref());
+    #[cfg(unix)]
     cmux_tui_core::server::start_link_share_bridge(&mux, share_room::url().as_deref());
     // Ends terminals that have had no tab placement for the reap grace
     // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close

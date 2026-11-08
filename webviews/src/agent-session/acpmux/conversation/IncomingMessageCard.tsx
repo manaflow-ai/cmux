@@ -58,7 +58,7 @@ import { laneNotice } from "./laneReport";
 import "./AgentMessageRow.css";
 import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { Face } from "../multiplayer/Faces";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -70,7 +70,7 @@ import { SEVERITY_LABEL } from "./noticeMarkModel";
 import { noticeMarkdown } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
-import { useSessionRef } from "./SessionRef";
+import { useSessionRef } from "./sessionRefModel";
 import { useSessionHover } from "../started/useSessionHover";
 import { resolveSessionRef, senderRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
 import { senderHarness, senderAbout, senderLabel } from "./incomingMessageCardModel";
@@ -153,7 +153,9 @@ export function SenderName({
   const chief = useChiefFace(message.chief);
   const sender = useSenderChat(message.chief ? "" : (message.lookup ?? message.name), message.sessionId);
   const recorded = useSenderSessionName(message, false);
-  const name = (message.chief && chief?.name) || senderLabel(recorded, sender.host);
+  const name =
+    (message.chief && chief?.name) ||
+    (message.unverified && !message.name.trim() ? t("message.unverifiedSender") : senderLabel(recorded, sender.host));
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const listed = message.chief || readOnly ? undefined : sender.sessionId;
@@ -242,6 +244,10 @@ export function SenderName({
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
       {host &&
         (readOnly ? <span className="cv-received__host">{host}</span> : <MachineMenu host={host} onOpen={onOpen} />)}
+      {/* acpmux could not verify who sent it (Leo, 2026-11-05: "why is it sending it as if it were
+          me?"): never the person's, and the name it gives is only a claim. */}
+      {message.unverified && <span className="cv-received__host">{t("message.unverified")}</span>}
+      {message.edited && <span className="cv-received__host">{t("message.edited")}</span>}
       {sessionId && card}
     </span>
   );
