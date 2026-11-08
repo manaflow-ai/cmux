@@ -10,6 +10,7 @@
 // over the page's (WebKit sends no pointer moves while a Chromium window has the key). The page asks
 // the host for the room above the card while the preview is open and hands it back once it has
 // closed. What's New on the title line, and every row, open the full page.
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -277,6 +278,99 @@ describe("the preview's rows", () => {
     const rows = previewEntries(data, span, "en");
     expect(rows).toHaveLength(60);
     expect(rows.at(-1)!.title).toBe("Change number 60 keeps working");
+  });
+
+  // A pull request's changelog sentence restates its title: "Show in Mini points the floating mini
+  // at any chat, …" over "Show in Mini points the floating mini at any agent chat (…)". Each line is
+  // cut to one line in the preview, so the row read "Show in Mini points the fl…" twice. A row whose
+  // second line opens with the title's words shows the title alone; a different line stays.
+  test("never show a second line that repeats the title", () => {
+    const span = [
+      {
+        build: "1",
+        shortVersion: "1.0.0-nightly.1",
+        date: "2026-11-07",
+        highlights: [],
+        changes: [],
+        items: [
+          {
+            title:
+              "cmux NEXT: Show in Mini points the floating mini at any chat, and its reply box keeps typing to it (#37728)",
+            pr: 37728,
+            description:
+              "Show in Mini points the floating mini at any agent chat (chat menu and palette); the mini wears that chat's avatar and state.",
+          },
+          {
+            title: "fix(terminal): paste keeps its spaces (#6)",
+            pr: 6,
+            description: "Paste keeps its spaces.",
+          },
+          {
+            title: "feat(sidebar): groups take a palette color (#7)",
+            pr: 7,
+            description: "A new group picks its color from the theme instead of a random pastel.",
+          },
+        ],
+      },
+    ] as unknown as ReleaseNotes[];
+    const rows = previewEntries(data, span, "en");
+    expect(rows.map((row) => [row.title, row.detail])).toEqual([
+      ["Show in Mini points the floating mini at any chat, and its reply box keeps typing to it", undefined],
+      ["Paste keeps its spaces", undefined],
+      ["Groups take a palette color", "A new group picks its color from the theme instead of a random pastel."],
+    ]);
+  });
+
+  test("drop a host item's second line that repeats its title", () => {
+    const host: UpdateHighlights = {
+      ...data,
+      items: [
+        {
+          id: "mini",
+          title: "Show in Mini points the floating mini at any chat",
+          summary: "Show in Mini points the floating mini at any agent chat from the chat menu.",
+          category: "new",
+        },
+      ],
+      rest: [],
+    };
+    expect(previewEntries(host, undefined, "en").map((row) => row.detail)).toEqual([undefined]);
+  });
+
+  // A leading article on either line is not a new word: "The host pressure warning…" over "Host
+  // pressure warning…" repeats, as the notes' own comparison (model.ts echoKey) reads it.
+  test("a leading the, a or an does not hide a repeat", () => {
+    const span = [
+      {
+        build: "1",
+        shortVersion: "1.0.0-nightly.1",
+        date: "2026-11-07",
+        highlights: [],
+        changes: [],
+        items: [
+          {
+            title: "fix(sidebar): the host pressure warning names the busy machine (#8)",
+            pr: 8,
+            description: "Host pressure warning names the busy machine and its load.",
+          },
+          {
+            title: "feat(agent): chat folder opens in Finder (#9)",
+            pr: 9,
+            description: "A chat folder opens in Finder from the chat menu.",
+          },
+          {
+            title: "fix(sidebar): the sidebar keeps its width (#10)",
+            pr: 10,
+            description: "Dragging the edge past the window keeps the last width.",
+          },
+        ],
+      },
+    ] as unknown as ReleaseNotes[];
+    expect(previewEntries(data, span, "en").map((row) => row.detail)).toEqual([
+      undefined,
+      undefined,
+      "Dragging the edge past the window keeps the last width.",
+    ]);
   });
 });
 
@@ -577,7 +671,7 @@ async function withSurface(
   body: (surface: {
     dom: JSDOM;
     host: HTMLElement;
-    sizes: { height: number; overlay?: number }[];
+    sizes: { height: number; overlay?: number; preview?: number }[];
     ops: string[];
     pointer: (event: unknown) => void;
     state: () => string | null | undefined;
@@ -608,7 +702,7 @@ async function withSurface(
   };
   const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
   Object.assign(scope, globals);
-  const sizes: { height: number; overlay?: number }[] = [];
+  const sizes: { height: number; overlay?: number; preview?: number }[] = [];
   const ops: string[] = [];
   let pointer: ((event: unknown) => void) | undefined;
   const client = {
@@ -616,7 +710,7 @@ async function withSurface(
       ops.push(op);
       if (op === "cmux.changelog.surface.get") return Promise.resolve(data);
       if (op === "cmux.changelog.surface.size") {
-        sizes.push(params as { height: number; overlay?: number });
+        sizes.push(params as { height: number; overlay?: number; preview?: number });
         return Promise.resolve(null);
       }
       if (op === "cmux.changelog.list") return Promise.resolve({ builds: [], current: data.version });
@@ -660,6 +754,42 @@ test("the sidebar's surface reports the preview's room with the card's height, a
     await until(() => sizes.at(-1)?.overlay === 0);
     expect(sizes.at(-1)?.overlay).toBe(0);
   });
+});
+
+// Leo 2026-11-08: "it turns from glass when it's unhovered into opaque when it does get hovered". The
+// host draws the card's glass behind the page; the page says the open preview's height as its motion
+// starts and 0 as its close starts, before the room goes back, so the glass runs the same motion.
+test("the sidebar's surface says the open preview's height for the host's glass as the motion starts", async () => {
+  await withSurface(async ({ sizes, pointer, state }) => {
+    expect(sizes.at(-1)?.preview).toBe(0);
+    await act(async () => pointer({ inside: true }));
+    await until(() => state() === "open");
+    expect(sizes.at(-1)).toMatchObject({ overlay: 100, preview: 100 });
+    await act(async () => pointer({ inside: false }));
+    await until(() => state() === "closed");
+    // The glass starts closing with the page; the room is still there until the close has run.
+    expect(sizes.at(-1)).toMatchObject({ overlay: 100, preview: 0 });
+    await until(() => sizes.at(-1)?.overlay === 0);
+    expect(sizes.at(-1)?.preview).toBe(0);
+  });
+});
+
+// Leo 2026-11-08: "the animation also seems like it's a little bit slow". The preview opens on the
+// card's own curve, a fast start that settles long, the native glass's twin (Motion+AppKit.swift
+// cardCurve and cardDuration), and the room goes back once that motion has run.
+test("the preview opens on the card's curve, 265ms, the native glass's twin", () => {
+  const css = readFileSync(new URL("../src/pages/changelog/updateSurfaces.css", import.meta.url), "utf8");
+  expect(css).toContain("--wn-preview-motion: 265ms;");
+  expect(css).toContain("--wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);");
+  expect(css).toMatch(/\.wn-preview \{\s*transition: height var\(--wn-preview-motion\) var\(--wn-preview-ease\);/);
+  const tsx = readFileSync(new URL("../src/pages/changelog/UpdateSurfaces.tsx", import.meta.url), "utf8");
+  expect(tsx).toContain("const PREVIEW_CLOSE_MS = 265;");
+  const swift = readFileSync(
+    new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift", import.meta.url),
+    "utf8",
+  );
+  expect(swift).toContain("CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)");
+  expect(swift).toContain("cardDuration: TimeInterval = 0.265");
 });
 
 // Review F2 of #37615: a preview the host's hover opened has no focus inside the card, so Escape

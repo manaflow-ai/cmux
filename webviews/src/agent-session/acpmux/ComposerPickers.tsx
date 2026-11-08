@@ -56,7 +56,7 @@ import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
 import { PlanUsageCardBody } from "./PlanUsageCard";
 import { planUsedFraction } from "./usageLimits";
-import { contextBreakdown } from "./session-info/ContextSection";
+import { contextBreakdown } from "./session-info/contextSectionModel";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { compactingUsage } from "./usageStats";

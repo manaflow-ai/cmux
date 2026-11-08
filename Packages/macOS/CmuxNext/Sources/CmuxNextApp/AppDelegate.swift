@@ -421,15 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            // `app.quitBehavior: "end"` (first release) is now "end-keep-layout"; "ask" (the removed quit alert) goes.
-            _ = try? await settings.migrateLegacyQuitBehavior()
-            _ = try? await settings.migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
-            _ = try? await settings.migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
-            // Classic cmux keys next reads under another name (`ClassicSettingRename`).
-            _ = try? await settings.migrateClassicSettings()
-            // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
-            _ = try? await settings.importClassicShortcuts(marker: .standard)
-            _ = try? await settings.importClassicPreferences(marker: .standard)
+            await settings.runLaunchMigrations(marker: .standard) // legacy keys, classic imports, stored defaults
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
@@ -544,7 +536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
         services.input.endRelaunchBehind("external open")
         let auth = services.cloud.auth
-        let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
+        let destination = OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url)
         guard destination == .auth else { return }
         Task {
             guard await !auth.handleCallback(url) else { return }

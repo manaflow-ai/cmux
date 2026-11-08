@@ -37,8 +37,8 @@ import { isFailed, isRunning, type SentEntry } from "./toolGroups";
 import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { ToolRow } from "./ToolRow";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useMessageLineLook } from "./messageLineLook";
 import { sentMessageLook } from "./sentMessageLook.experiment";
 import { DisclosureRow } from "../subagents/DisclosureRow";
@@ -421,10 +421,11 @@ function SendRaw({ tool, reveal }: { tool: Tool; reveal: number }) {
       />
     );
   // A shell call is the plain command row every other command draws (ToolRow.tsx), closed until
-  // opened, never a Shell card inside the message (ask-64e107ccf0).
+  // opened, never a Shell card inside the message (ask-64e107ccf0). It reads as its command line,
+  // not as what it did or its description: Raw is the call as it was made.
   return (
     <div className="cv-tools">
-      <ToolRow item={item} />
+      <ToolRow item={item} asRun />
     </div>
   );
 }

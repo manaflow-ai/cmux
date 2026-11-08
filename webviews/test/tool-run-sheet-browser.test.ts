@@ -69,7 +69,9 @@ await requireBrowserLane("tool-run-sheet-browser.test.ts", async () => {
           expect(measured.visibleRows).toBe(5);
           expect(measured.redundantGroupHeaders).toBe(0);
           expect(measured.discoveryRows).toBe(0);
-          await fixture.getByRole("button", { name: /^Ran echo baseline/ }).click();
+          // A finished shell row says what it did (commandActions.ts commandSaid): `echo` is not in the
+          // verb table, so the row reads as its description, not "Ran echo baseline".
+          await fixture.getByRole("button", { name: /^Check the baseline/ }).click();
           expect(await fixture.textContent()).toContain("baseline passed");
           await fixture.getByRole("button", { name: "Find the retry handler" }).click();
           // An opened call is its arguments as labeled fields and its output (ToolDetail), never one JSON block.

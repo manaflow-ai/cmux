@@ -58,7 +58,7 @@ import { laneNotice } from "./laneReport";
 import "./AgentMessageRow.css";
 import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { Face } from "../multiplayer/Faces";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -67,10 +67,10 @@ import { useMessageLineLook } from "./messageLineLook";
 import type { AgentNotice } from "./agentNotice";
 import { NoticeMark } from "./NoticeMark";
 import { SEVERITY_LABEL } from "./noticeMarkModel";
-import { noticeMarkdown } from "./agentNotice";
+import { noticeMarkdown, titleParts } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
-import { useSessionRef } from "./SessionRef";
+import { useSessionRef } from "./sessionRefModel";
 import { useSessionHover } from "../started/useSessionHover";
 import { resolveSessionRef, senderRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
 import { senderHarness, senderAbout, senderLabel } from "./incomingMessageCardModel";
@@ -122,6 +122,24 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
   );
 }
 
+/// A notice's title on its line: what it is about, cut first when the line is short, then the outcome
+/// that ends it (`(exit 2)`) and how many more notices went in with it, which the line always shows
+/// whole (Leo, 2026-11-08: "why was there a yellow warning symbol?": the cut hid the exit).
+function NoticeTitle({ notice }: { notice: AgentNotice }) {
+  const { lead, end } = titleParts(notice.title);
+  return (
+    <>
+      <span className="cv-notice__lead">{lead}</span>
+      {end && <span className="cv-notice__end">{end}</span>}
+      {notice.more ? (
+        <span className="cv-notice__more" data-find-skip="">
+          +{notice.more}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 /// The name a received line gives its sender: the recorded session's own, from the session metadata
 /// (senderIdentity.ts), as its preview and session card name it, whatever name the message fell back
 /// to (a raw `acp:<id>` when its provenance carried no `fromName`). A Chief, an app's persona and a
@@ -153,7 +171,9 @@ export function SenderName({
   const chief = useChiefFace(message.chief);
   const sender = useSenderChat(message.chief ? "" : (message.lookup ?? message.name), message.sessionId);
   const recorded = useSenderSessionName(message, false);
-  const name = (message.chief && chief?.name) || senderLabel(recorded, sender.host);
+  const name =
+    (message.chief && chief?.name) ||
+    (message.unverified && !message.name.trim() ? t("message.unverifiedSender") : senderLabel(recorded, sender.host));
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const listed = message.chief || readOnly ? undefined : sender.sessionId;
@@ -242,6 +262,10 @@ export function SenderName({
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
       {host &&
         (readOnly ? <span className="cv-received__host">{host}</span> : <MachineMenu host={host} onOpen={onOpen} />)}
+      {/* acpmux could not verify who sent it (Leo, 2026-11-05: "why is it sending it as if it were
+          me?"): never the person's, and the name it gives is only a claim. */}
+      {message.unverified && <span className="cv-received__host">{t("message.unverified")}</span>}
+      {message.edited && <span className="cv-received__host">{t("message.edited")}</span>}
       {sessionId && card}
     </span>
   );
@@ -413,8 +437,8 @@ export function IncomingMessageLine({
   const body = useMemo(() => (whole ? text : dedupeReferences(text, repository)), [whole, text, repository]);
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
   const preview = useMemo(
-    () => agentNotice?.title ?? notice?.preview ?? messagePreview(body),
-    [agentNotice, body, notice],
+    () => agentNotice?.title ?? notice?.preview ?? message.preview ?? messagePreview(body),
+    [agentNotice, body, notice, message.preview],
   );
   // A sub-session family's sender says who it is to this chat.
   const from = person
@@ -493,7 +517,7 @@ export function IncomingMessageLine({
                 {t(SEVERITY_LABEL[agentNotice.severity])}
               </span>
             )}
-            {preview || t("message.noText")}
+            {agentNotice ? <NoticeTitle notice={agentNotice} /> : preview || t("message.noText")}
           </span>
         ) : null
       }

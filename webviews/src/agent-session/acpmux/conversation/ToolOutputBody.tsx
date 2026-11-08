@@ -12,7 +12,8 @@ import { ChevronRight } from "./icons";
 import { Markdown } from "./Markdown";
 import { menuPartRef } from "./menuParts";
 import { watchOutputViewport } from "./outputViewport";
-import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
+import { OutputMore } from "./toolOutput";
+import { previewedOutput, useOutput } from "./toolOutputModel";
 import type { ToolResult } from "./toolResult";
 
 /// Its own component keeps the sideways watcher mounted with the Raw body when a reader switches
@@ -100,7 +101,7 @@ export const ToolOutput = memo(function ToolOutput({
         <span className="cv-tool-output__actions" data-find-skip="">
           {!rendered && <WrapButton kind="output" />}
           {ownCopy && experimentArm(hoverActions) === "all" && (
-            <CopyButton text={raw.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
+            <CopyButton text={raw.text ?? ""} label={t("turn.copy")} />
           )}
         </span>
         {rendered ? (

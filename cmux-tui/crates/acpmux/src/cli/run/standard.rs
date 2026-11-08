@@ -701,7 +701,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A relay names its sender by where it came from when it gave no --from: another
             // agent's message, which queues and steers as one, never the person's.
             let relayed = relay.relayed_from.clone().filter(|_| relay.relay.is_some());
-            prompt_id.from_agent = from.or(relayed).or_else(crate::cli::sender::of_this_process);
+            // The harness or app it runs in says where it came from: provenance beside the prompt,
+            // self-reported (Leo, 2026-11-07: "ACPMux should also auto-detect that you sent it
+            // from...").
+            (prompt_id.from_agent, prompt_id.sender_harness) =
+                crate::sender_harness::of_this_send(from.or(relayed));
+            prompt_id.from_harness =
+                crate::cli::sender::harness_of_this_process().map(str::to_owned);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
