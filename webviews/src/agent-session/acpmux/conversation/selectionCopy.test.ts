@@ -49,12 +49,11 @@ test("a selection in one reply copies as clean HTML and Markdown", () => {
   expect(htmlMarkdown(html)).toBe("## Plan\n\n- **ship** it\n- then [check](https://example.com/) run needs you");
 });
 
-test("a selection across replies keeps Markdown", () => {
+test("a selection across replies containing an image keeps browser copy", () => {
   const range = doc.createRange();
   range.setStartBefore(doc.getElementById("heading")!);
   range.setEndAfter(doc.getElementById("other")!);
-  expect(htmlMarkdown(selectionHtml(range)!)).toContain("## Plan");
-  expect(htmlMarkdown(selectionHtml(range)!)).toEndWith("another reply");
+  expect(selectionHtml(range)).toBeNull();
 });
 
 test("a selection that starts or ends inside an equation is mathCopy's", () => {
