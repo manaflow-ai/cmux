@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemoteLocalhostService
@@ -62,7 +63,7 @@ enum CloudHandlers {
                     return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
                 }
                 if request.takesPlainPath, actionOrigin == .user, window != nil {
-                    CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat)
+                    CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat, environment: invocation["environment"]?.stringValue)
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
@@ -130,6 +131,11 @@ enum CloudHandlers {
     /// (``ActionRunScope``) decides: a composite action from the CLI stays the CLI's.
     static func origin(of invocation: ActionInvocation) -> ActionOrigin {
         ActionRunScope.current?.origin ?? invocation.origin
+    }
+
+    /// Whether a machine change goes: a person's own run yes; an agent's or a script's once the person allows it (CloudChangeRequest).
+    static func allows(_ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext) -> @MainActor () async -> Bool {
+        let person = origin(of: invocation) == .user; return { person ? true : await CloudChangeRequest().allowed(registry.descriptor(for: id)?.title ?? id.rawValue, in: context.services.windows.active?.window) }
     }
 
     /// The origin of a connect an invocation starts: `user` only for the

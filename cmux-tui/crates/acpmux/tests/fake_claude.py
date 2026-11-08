@@ -94,11 +94,22 @@ token usage, and `total_cost_usd` as the process's running total (0.25 more
 per cost-probe turn, from 0 at each start). "cost-restore X" first restores
 the running total X, as a resumed Claude Code does; "cost-zero" reports a
 zeroed total, as a crashed one's last result can.
+"calls-probe" is a turn of three model calls, as Claude Code streams them (a real turn's first
+three, from its transcript): each call's message_delta reads the whole context again, a subagent
+call streams beside them, and the result's usage adds the main loop's three up.
 "rate-limits-probe" sends two rate_limit_event lines as Claude Code 2.1.307 does
 (`utilization` a 0-1 fraction): the session and weekly windows, then the
 session window alone, moved. FAKE_CLAUDE_LIMITS=1 sends them on every prompt.
 """
 import json
+
+# "calls-probe"'s three model calls: each reads the context the one before it held, mostly from
+# the prompt cache.
+CALLS_PROBE = [
+    {"input_tokens": 2, "cache_creation_input_tokens": 6246, "cache_read_input_tokens": 125325, "output_tokens": 476},
+    {"input_tokens": 2, "cache_creation_input_tokens": 895, "cache_read_input_tokens": 131571, "output_tokens": 249},
+    {"input_tokens": 2, "cache_creation_input_tokens": 663, "cache_read_input_tokens": 132466, "output_tokens": 392},
+]
 import os
 import sys
 import uuid
@@ -1132,6 +1143,12 @@ while True:
             send({"type": "stream_event", "event": {"type": "message_delta", "usage": {
                 "input_tokens": 1200, "cache_read_input_tokens": 3000, "cache_creation_input_tokens": 0,
                 "output_tokens": 300}}})
+        if said.strip() == "calls-probe":
+            for u in CALLS_PROBE:
+                send({"type": "stream_event", "event": {"type": "message_delta", "usage": u}})
+            send({"type": "stream_event", "parent_tool_use_id": "toolu_sub", "event": {
+                "type": "message_delta", "usage": {"input_tokens": 5, "cache_read_input_tokens": 9000,
+                                                   "cache_creation_input_tokens": 0, "output_tokens": 70}}})
         # "cache-probe": a main-loop call that read 150K tokens from the prompt cache and wrote 500
         # more at the 5 minute tier (cache_creation), as Claude Code 2.1.310 streams them.
         if said.strip() == "cache-probe":
@@ -1399,6 +1416,10 @@ while True:
             result["total_cost_usd"] = COST
             result["usage"] = {"input_tokens": 100, "output_tokens": 20,
                                "cache_read_input_tokens": 300, "cache_creation_input_tokens": 40}
+        if said.strip() == "calls-probe":
+            keys = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
+            result["usage"] = {k: sum(u[k] for u in CALLS_PROBE) for k in keys}
+            result["num_turns"] = len(CALLS_PROBE)
         if said.strip() == "switched-probe":
             result["modelUsage"] = {"claude-opus-1m": {"inputTokens": 90000, "contextWindow": 1000000},
                                     "claude-sonnet-x": {"inputTokens": 1200, "contextWindow": 200000}}

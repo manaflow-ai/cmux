@@ -26,6 +26,8 @@ public final class OverlayPagePool<Provider: PageProvider> {
     /// the toasts', whose buttons answered the first click as native controls before they moved to the page.
     /// A dialog's pool keeps the descriptor's answer: a first click only brings its window forward.
     public let acceptsFirstMouse: Bool
+    /// The app's overlay pages' shared web content process (``PageOverlayProcess``); nil gives each view its own.
+    let overlayProcess: PageOverlayProcess?
     private let makeProvider: @MainActor () -> Provider
     private var spare: (view: PageWebView, provider: Provider)?
     private var claimed: [ObjectIdentifier: Provider] = [:]
@@ -33,10 +35,11 @@ public final class OverlayPagePool<Provider: PageProvider> {
     var testRoot: URL?
 
     public init(route: String, refusesProbes: Bool = false, acceptsFirstMouse: Bool = false,
-                makeProvider: @escaping @MainActor () -> Provider) {
+                overlayProcess: PageOverlayProcess? = nil, makeProvider: @escaping @MainActor () -> Provider) {
         self.route = route
         self.refusesProbes = refusesProbes
         self.acceptsFirstMouse = acceptsFirstMouse
+        self.overlayProcess = overlayProcess
         self.makeProvider = makeProvider
     }
 
@@ -80,7 +83,8 @@ public final class OverlayPagePool<Provider: PageProvider> {
             PageWebView(descriptor: .overlay, root: $0, testRoot: true, routes: routes, route: route,
                         options: PageEngineOptions(acceptsFirstMouse: acceptsFirstMouse))
         } ?? PageWebView(descriptor: .overlay, routes: routes, route: route,
-                         options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: acceptsFirstMouse))
+                         options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: acceptsFirstMouse),
+                         overlayProcess: overlayProcess)
         guard let view = made else { return nil }
         // Before any probe can pick it (this turn), so none that picked a spare reads the dialog it is claimed for.
         view.refusesProbes = refusesProbes
