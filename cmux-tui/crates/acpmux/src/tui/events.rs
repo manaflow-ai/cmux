@@ -10,7 +10,7 @@ impl App {
         match m {
             method::SESSION_UPDATE => {
                 if let Some(id) = sid {
-                    self.transcripts.entry(id).or_default().apply_update(&p);
+                    self.transcripts.entry(id).or_insert_with(Transcript::paging).apply_update(&p);
                 }
             }
             method::MUX_EVENT => {
@@ -40,7 +40,10 @@ impl App {
                             },
                         );
                     }
-                    self.transcripts.entry(id.clone()).or_default().apply_event(&p);
+                    self.transcripts
+                        .entry(id.clone())
+                        .or_insert_with(Transcript::paging)
+                        .apply_event(&p);
                     self.follow_removed_rows(&id);
                 }
             }
@@ -224,7 +227,7 @@ impl App {
                     self.details.insert(id, detail);
                     return;
                 }
-                let mut t = Transcript::default();
+                let mut t = Transcript::paging();
                 for e in &events {
                     t.apply_event(e);
                 }
@@ -234,7 +237,40 @@ impl App {
                 t.mode = detail.get("currentModeId").and_then(Value::as_str).map(str::to_owned);
                 t.model = detail.get("model").and_then(Value::as_str).map(str::to_owned);
                 self.details.insert(id.clone(), detail);
+                self.history_more.insert(id.clone(), has_more);
                 self.transcripts.insert(id, t);
+            }
+            AppMsg::Older { id, events, has_more } => {
+                self.history_in_flight.remove(&id);
+                // An empty page has nothing older to give: stop asking.
+                let has_more = has_more && !events.is_empty();
+                self.history_more.insert(id.clone(), has_more);
+                if let Some(t) = self.transcripts.get_mut(&id) {
+                    let added = t.prepend_events(&events);
+                    self.shift_folds(&id, added);
+                    // `offset` counts rows: keep the rows on screen where they are by keeping
+                    // the distance to the end, which the prepended rows do not change.
+                    if let Some(v) = self.viewport.get_mut(&id)
+                        && !v.follow
+                    {
+                        v.keep_below = Some(v.total.saturating_sub(v.offset));
+                    }
+                    if self.transcript_anchor.as_ref().is_some_and(|(a, _, _)| *a == id) {
+                        self.transcript_anchor = None;
+                    }
+                    if self.selection.as_ref().is_some_and(|s| s.session == id) {
+                        self.selection = None;
+                    }
+                    self.status = if has_more {
+                        "loaded earlier history; scroll up for more".into()
+                    } else {
+                        "loaded all available history".into()
+                    };
+                }
+            }
+            AppMsg::OlderFailed { id, error } => {
+                self.history_in_flight.remove(&id);
+                self.status = format!("earlier history failed: {error}");
             }
             AppMsg::RecoveryFailed { id, after_seq, error } => {
                 self.recovery_pages.remove(&id);

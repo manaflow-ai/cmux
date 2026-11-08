@@ -234,7 +234,7 @@ def prepare(scenario, control, args, app_pid, bundle):
             reason = "no Chromium renderer appeared within 90 s"
         return reason
     if scenario == "chromium-hidden":
-        return refused(run_action("newTab"))
+        return refused(run_action("newTab"))  # New Workspace (Cmd-N): the Chromium tab's workspace hides
     if scenario == "minimized":
         return refused(run_action("minimizeWindow"))
     return None
