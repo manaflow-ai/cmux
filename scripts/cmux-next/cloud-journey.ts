@@ -411,6 +411,8 @@ export function carrierTicketProblem(status: number, body: any, nowS = Date.now(
 
 /** The carrier dials still running, so a cancelled journey stops them instead of leaving them to their deadline. */
 const carrierDials = new Set<ReturnType<typeof spawn>>();
+/** Their state dirs, which a cancel (SIGTERM skips `finally`) removes too. */
+const carrierStateDirs = new Set<string>();
 
 /**
  * `cmux carrier dial` (design/cloud-carrier.md): this device reaches the machine's session daemon over its relay slot,
@@ -443,6 +445,7 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
   const started = performance.now();
   // The dial's own state dir, so its connect log holds only this dial's lines (the device key is not kept there).
   const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-carrier-"));
+  carrierStateDirs.add(stateDir);
   const phases = () => {
     try {
       return dialPhases(readFileSync(path.join(stateDir, "carrier", "connect.log"), "utf8"));
@@ -497,10 +500,7 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
     let retries = 0;
     const failed: string[] = [];
     // A dial that gives up still says which attempts failed and how.
-    const attempts = (message: string) => {
-      const tried = phases();
-      return new Error(`${message}${failed.length ? ` (failed attempts: ${failed.join(", ")})` : ""}${tried.length ? ` (phases: ${tried.join("; ")})` : ""}`);
-    };
+    const attempts = (message: string) => new Error(failed.length ? `${message} (failed attempts: ${failed.join(", ")})` : message);
     while (status === undefined || !Number.isFinite(connectMs)) {
       const line = await within(status === undefined ? "status line" : "ok route line", err()).catch((e: Error) => {
         throw attempts(e.message);
@@ -549,10 +549,15 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
       if (answer.ok !== true || typeof answer.data?.app !== "string") throw new Error(`carrier dial: identify answered ${short(answer)}`);
       return { connectMs, replyMs: Math.round(performance.now() - started), retries, failed, phases: phases(), reply };
     }
+  } catch (e) {
+    // Every way a dial fails shows each attempt's phases, read before the dir goes.
+    const tried = phases();
+    throw tried.length ? new Error(`${(e as Error).message} (phases: ${tried.join("; ")})`) : e;
   } finally {
     if (!failed) child.stdin!.end();
     child.kill("SIGTERM");
     rmSync(stateDir, { recursive: true, force: true });
+    carrierStateDirs.delete(stateDir);
   }
 }
 
@@ -1081,6 +1086,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
     for (const dial of carrierDials) dial.kill("SIGTERM");
+    for (const dir of carrierStateDirs) rmSync(dir, { recursive: true, force: true });
     void cleanup().finally(() => {
       J.flush();
       writeProbe();
