@@ -1,0 +1,293 @@
+{
+  "version": 1,
+  "build": "4248649677701",
+  "notes": "notes/4248649677701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 38487,
+      "title": "Agent pane: a sub-session's ask reaches the chat above it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38536,
+      "title": "cmux NEXT: reduce-motion-audit counts animations that may move with Reduce Motion on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34111,
+      "title": "probe(next): synthetic Return brief in Session Info with owner-evidence gates (HQ 6236/17)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38329,
+      "title": "cmux-host, cmux-remote: the relay Register reads a ticket kept ahead and registers at once after a resume",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38516,
+      "title": "perf(transcript): read each tool call's dispatch shape once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38454,
+      "title": "base red: read the pinned FFI release through the release-assets API when its download fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38415,
+      "title": "test(cloud): openDesktopNeedsTheCarrierDesktop sets the record's desktop, which opensCarrierDesktop reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38365,
+      "title": "cloud journey: the carrier dial names its failed attempts; a guest carrier timeline after create's answer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38332,
+      "title": "Updated card: changes under area headers, steady hover, click to the change",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38237,
+      "title": "Settings > Server: This Mac on Your Tailnet signs this Mac in and out of your tailnet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38523,
+      "title": "measure: one latency bench for every computer-use engine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38473,
+      "title": "acpmux tests: the full-suite reds after #38015, #35486, #36878, #36125 and #37949",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29543,
+      "title": "cmux NEXT: a send's uploads hold its ticket, so attachments with no saved copy go by reference",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38513,
+      "title": "acpmux test: cancel_owner's fake peer reads past pings, so its silent case waits out the Stop",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38458,
+      "title": "ci(cmux-tui): cache the Zig packages in every job that builds ghostty-vt-sys; retry longer",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38338,
+      "title": "cmux-tui test: native_workflow reads a child's events through the daemon, not a second store open",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38534,
+      "title": "Privacy: list every host NEXT talks to, guard it in CI, seed secrets through the scrubber",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38491,
+      "title": "bench: baseline-ram measures the idle footprint per Chromium switch set",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38374,
+      "title": "acpmux: agent-to-agent messaging an agent gets right the first time",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38439,
+      "title": "cmux-motion: Option-drag selects terminal text while a program has the mouse, in Rust over the app FFI (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38386,
+      "title": "Inspect Element from the right-click menu starts on the right-clicked element",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38099,
+      "title": "Cloud repo pick: clone the head first and fill the rest under the sync barrier",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37020,
+      "title": "Fork Conversation by reference: a fork shows its chat's history, copies none",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38495,
+      "title": "fix(next): prompt for non-gesture external app redirects",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38442,
+      "title": "Cmd-W closes a pinned tab like any other tab, one close path (cmux-ad i8)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38418,
+      "title": "Agent chat finishes notify while cmux is in the background",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38387,
+      "title": "Agent chat: right-click or hold Send for Send, Queue for later and Send in side chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38519,
+      "title": "Composer hat: the done check matches the Stop square and gets its own column after the time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38280,
+      "title": "cmux-host updater: a snapshot restore starts the connect hold before the next look can flip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38471,
+      "title": "Agent chat: the needs-input dot grows in when an ask opens, as it shrinks out once answered",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38344,
+      "title": "cmux NEXT crash ratchet: record the Mute Tab page-mute SPI waivers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38385,
+      "title": "ci(cmux-tui): the macOS job keeps a warm Cargo target per runner on owned Macs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38340,
+      "title": "perf(close): a pane close's key turn presents nothing; its first frame tick presents once",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38396,
+      "title": "ci(cmux-tui): a focused test listing that hangs fails in 3 minutes and names its binary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38394,
+      "title": "Fix: the page notice and the link bubble are cut like their page too",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38441,
+      "title": "perf(next): split-scale bench: split and pane transitions across splits, pane content and workspaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38489,
+      "title": "Cloud chat terminals start in the chat's folder on its machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38161,
+      "title": "Agent chat: a reply's hover counts input once, split into cached and uncached, with the turn's context size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38453,
+      "title": "ci(base-red): require a webview replay's whole final verdict line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38451,
+      "title": "acpmux: placement skips a registry-stopped host or a down peer; a refused remote start says \"refused by HOST\" first and last",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38411,
+      "title": "bench(web-ui): all chats at 500 (History, New Tab live chats): scroll frame work, React per frame, mount, press to paint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38382,
+      "title": "relay: park a Connect past a stale daemon registration, and hand a dead daemon's circuits to the new one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38343,
+      "title": "Cloud carrier: serve holds one session per machine, and the connect log gets per-step times",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38419,
+      "title": "fix(tabs): Close Others / to the Left / to the Right select the tab they start from",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38414,
+      "title": "Agent chat: web results show each site's icon, and a fetch is one link card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38313,
+      "title": "Fix: a page card is cut like its page under a pane in front (zoom, docks)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38470,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-5a6c3e53f42b543078880dca1c844b191b11a962",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    }
+  ]
+}
