@@ -731,3 +731,47 @@ fn care_a_worktree_its_caller_still_knows_goes_from_aside_and_comes_back() {
     restore(&store, &manifest, None).unwrap();
     assert_eq!(std::fs::read_to_string(wt.join("notes.txt")).unwrap(), "not pushed\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn care_a_worktree_git_cannot_remove_from_aside_goes_back_to_its_path() {
+    let (base, main) = repository("aside-back");
+    let wt = base.join("wt-b");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/b", wt.to_str().unwrap()]);
+    write(&wt.join("notes.txt"), "not pushed\n");
+    let repo = scan(&main);
+    let (worktree, facts) = facts_of(&repo, &wt);
+    let store = Store::open(base.join("store")).unwrap();
+    let made = inode(&wt);
+    let still: Arc<cmux_worktree_care::procs::Still> =
+        Arc::new(
+            move |_, at| {
+                if inode(at) == made { Ok(()) } else { Err("another folder".into()) }
+            },
+        );
+    // Locked after the scan, so git refuses `worktree remove --force` once it is aside.
+    let (repo_dir, path) = (main.clone(), wt.clone());
+    let lock: Arc<Open> = Arc::new(move |_| {
+        git(&repo_dir, &["worktree", "lock", path.to_str().unwrap()]);
+        Ok(None)
+    });
+    let error = archive::reclaim(
+        &repo,
+        worktree,
+        facts,
+        Action::Archive,
+        "test",
+        &store,
+        &*nothing(),
+        &*lock,
+        Some(&*still),
+    )
+    .unwrap_err();
+    assert!(error.ends_with("it stays"), "{error}");
+    // Back at its own path, with its work, and git knows it there: nothing hidden aside.
+    assert_eq!(std::fs::read_to_string(wt.join("notes.txt")).unwrap(), "not pushed\n");
+    let listed = git(&main, &["worktree", "list", "--porcelain"]);
+    assert!(listed.contains(&format!("worktree {}", wt.display())), "{listed}");
+    assert!(!listed.contains("cmux-discard"), "{listed}");
+    assert!(store.list().is_empty());
+}

@@ -617,9 +617,13 @@ impl Hub {
                 }
                 rows.push(match archives.remove(&*root.to_string_lossy()) {
                     Some(archive) => json!({"sessionId": id, "removed": true, "archive": archive}),
-                    // Gone, but not through this archive: nothing here says its work was kept.
+                    // Gone from its path but not through this archive: care's own reason when it
+                    // gave one (a worktree git could not remove stays aside, and that says where),
+                    // else nothing here says its work was kept.
                     None => json!({"sessionId": id, "removed": false,
-                        "error": "its folder went without an archive from here"}),
+                    "error": last_error.get(&*root.to_string_lossy()).cloned().unwrap_or_else(
+                        || "its folder went without an archive from here".to_owned(),
+                    )}),
                 });
                 false
             });
@@ -654,6 +658,11 @@ pub(crate) fn still_made_at(
 ) -> Result<(), &'static str> {
     let born =
         || std::fs::File::open(at).ok().and_then(|f| crate::store::MadeWorktree::born_of(&f));
+    // Off unix a folder's identity is not recorded (`CwdPin`): nothing proves the folder is the
+    // one made, so Keep leaves it, and says why.
+    if !cfg!(unix) {
+        return Err("this system keeps no record of which folder was made; it stays");
+    }
     if made.pin.is_none()
         || crate::cwd_pin::CwdPin::of(at) != made.pin
         || made.born.is_some_and(|t| born() != Some(t))

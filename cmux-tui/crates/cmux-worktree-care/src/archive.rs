@@ -209,7 +209,21 @@ fn remove_aside(
     if let Err(error) = git::write(main, None, &repair, Bound::Unbounded) {
         return Err(back(format!("git could not follow it aside ({error})")));
     }
-    remove(&aside).map_err(|error| format!("{error}; it stays at {}", aside.display()))
+    // git could not remove it: it goes back where it was, and git follows it there, so a worktree
+    // that stays is never left under a hidden name.
+    remove(&aside).map_err(|error| {
+        let returned =
+            path.symlink_metadata().is_err() && std::fs::rename(&aside, path).is_ok() && {
+                let repair: [&OsStr; 3] =
+                    ["worktree".as_ref(), "repair".as_ref(), path.as_os_str()];
+                git::write(main, None, &repair, Bound::Unbounded).is_ok()
+            };
+        if returned {
+            format!("{error}; it stays")
+        } else {
+            format!("{error}; it stays at {}", aside.display())
+        }
+    })
 }
 
 /// Whether the worktree is still what was archived: the same status and
