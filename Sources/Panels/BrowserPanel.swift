@@ -10539,7 +10539,8 @@ enum BrowserDataImporter {
                 try querySQLiteRows(
                     sourceDatabaseURL: databaseURL,
                     sql: """
-                    SELECT host, name, value, path, expiry, isSecure, isHttpOnly, sameSite, originAttributes
+                    SELECT host, name, value, path, expiry, isSecure, isHttpOnly, sameSite, originAttributes,
+                           (SELECT user_version FROM pragma_user_version)
                     FROM moz_cookies
                     """
                 ) { statement in
@@ -10554,7 +10555,8 @@ enum BrowserDataImporter {
                         isSecure: sqliteColumnInt64(statement, index: 5) != 0,
                         isHTTPOnly: sqliteColumnInt64(statement, index: 6) != 0,
                         sameSite: sqliteColumnInt64(statement, index: 7),
-                        originAttributes: sqliteColumnText(statement, index: 8) ?? ""
+                        originAttributes: sqliteColumnText(statement, index: 8) ?? "",
+                        schemaVersion: sqliteColumnInt64(statement, index: 9)
                     ) else { return }
                     if let cookie = imported.makeHTTPCookie() {
                         cookies.append(cookie)

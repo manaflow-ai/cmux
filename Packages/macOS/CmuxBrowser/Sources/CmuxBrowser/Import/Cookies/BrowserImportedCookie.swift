@@ -64,7 +64,8 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         isSecure: Bool,
         isHTTPOnly: Bool,
         sameSite: Int64,
-        originAttributes: String
+        originAttributes: String,
+        schemaVersion: Int64
     ) -> BrowserImportedCookie? {
         guard !name.isEmpty else { return nil }
         // A partitioned (CHIPS) cookie belongs to one embedding site; importing it

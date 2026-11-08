@@ -12,7 +12,8 @@ struct BrowserImportedCookieTests {
         expiry: Int64 = 1_825_694_055_176,
         isHTTPOnly: Bool = false,
         sameSite: Int64 = 0,
-        originAttributes: String = ""
+        originAttributes: String = "",
+        schemaVersion: Int64 = 17
     ) -> BrowserImportedCookie? {
         BrowserImportedCookie.firefox(
             host: ".example.test",
@@ -23,7 +24,8 @@ struct BrowserImportedCookieTests {
             isSecure: true,
             isHTTPOnly: isHTTPOnly,
             sameSite: sameSite,
-            originAttributes: originAttributes
+            originAttributes: originAttributes,
+            schemaVersion: schemaVersion
         )
     }
 
@@ -52,11 +54,18 @@ struct BrowserImportedCookieTests {
         #expect(abs(expires.timeIntervalSince(expiryDate)) < 1)
     }
 
-    @Test("reads a Firefox expiry stored in seconds by older profiles")
+    @Test("reads a Firefox expiry stored in seconds by cookie schema 15 and older")
     func firefoxSecondExpiry() throws {
-        let cookie = try #require(firefoxRow(expiry: 1_825_694_055))
+        let cookie = try #require(firefoxRow(expiry: 1_825_694_055, schemaVersion: 15))
         let expires = try #require(cookie.expiresDate)
         #expect(abs(expires.timeIntervalSince(expiryDate)) < 1)
+    }
+
+    @Test("reads a long-expired millisecond expiry as milliseconds")
+    func firefoxSmallMillisecondExpiry() throws {
+        let cookie = try #require(firefoxRow(expiry: 2_000_000_000, schemaVersion: 16))
+        let expires = try #require(cookie.expiresDate)
+        #expect(abs(expires.timeIntervalSince1970 - 2_000_000) < 1)
     }
 
     @Test("keeps a Firefox cookie HttpOnly")
