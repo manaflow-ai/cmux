@@ -108,7 +108,9 @@ public struct PushPayload: Codable, Sendable, Equatable {
     /// acpmux's refusal says why rather than the prompt showing a lone Deny.
     public var phoneOptions: [PushOption] {
         guard options.contains(where: { $0.kind == .allowOnce }) else { return options }
-        return options.filter { $0.kind == .allowOnce || $0.kind == .rejectOnce }
+        // A plan's Approve and auto-accept edits moves the chat to a mode that does not ask, which a
+        // phone may not pick (acpmux `remote.mode_move_refused`).
+        return options.filter { ($0.kind == .allowOnce && $0.id != "acceptEdits") || $0.kind == .rejectOnce }
     }
     public var questions: [PushQuestion]
     public var tail: [String]

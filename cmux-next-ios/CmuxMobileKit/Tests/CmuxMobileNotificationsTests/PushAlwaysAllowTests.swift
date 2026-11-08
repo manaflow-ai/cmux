@@ -39,4 +39,12 @@ import Testing
         #expect(p.phoneOptions.map(\.id) == ["yes", "no"])
         #expect(PushForm(payload: p).rows.map(\.id) == ["yes", "no"])
     }
+
+    /// A plan's Approve and auto-accept edits moves the chat to Accept edits, which a phone may not
+    /// pick (acpmux `remote.mode_move_refused`): the long-press form leaves it out, as the Feed does.
+    @Test func aPlanNeverOffersAutoAcceptEdits() throws {
+        let p = try #require(permission([("yes", "allow_once"), ("acceptEdits", "allow_once"), ("no", "reject_once")]))
+        #expect(p.phoneOptions.map(\.id) == ["yes", "no"])
+        #expect(PushForm(payload: p).rows.map(\.id) == ["yes", "no"])
+    }
 }

@@ -340,7 +340,7 @@ export default componentEntry<Props>({
       props: { permission: claudePlan, harness: "claude" },
     },
     "plan-claude-accept-edits": {
-      note: 'Chosen. Where the harness has the mode (Claude Code), Approve and auto-accept edits (key 2) sits as a tonal button beside the filled Approve plan (⌘↩): it approves and leaves plan mode for Accept edits, as Claude Code\'s own prompt does. Keep planning stays at the leading edge. Flat fills, no borders.',
+      note: "Chosen. Where the harness has the mode (Claude Code), Approve and auto-accept edits (key 2) sits as a tonal button beside the filled Approve plan (⌘↩): it approves and leaves plan mode for Accept edits, as Claude Code's own prompt does. Keep planning stays at the leading edge. Flat fills, no borders.",
       props: { permission: claudePlanAcceptEdits, harness: "claude" },
     },
     "plan-accept-edits-stacked": {

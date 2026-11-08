@@ -100,7 +100,7 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   await new Promise((resolve) => setTimeout(resolve, 0));
   const shownEffort = () =>
     (summary?.configOptions ?? []).find((option: { id: string }) => option.id === "effort")?.currentValue;
-  return { shownEffort, shownGoal: () => summary?.goal };
+  return { shownEffort, shownGoal: () => summary?.goal, shownMode: () => summary?.modes?.currentModeId };
 }
 
 test("a reopened goal uses its persisted state, then follows completion and clearing", async () => {
@@ -175,4 +175,31 @@ test("an attach that names the old options with the change as its last event sho
   const daemon = fakeDaemon("medium", [userEvent(1, "hi"), configEvent(2, "high")]);
   const { shownEffort } = await connect(daemon);
   expect(shownEffort()).toBe("high");
+});
+
+// Review of #38410: a plan approved with Approve and auto-accept edits moves Claude Code to Accept
+// edits by itself; acpmux reports it as `current_mode_update` (claude_stdio status line). The pane
+// dropped that update, so the mode menu stayed on Plan until a reload.
+test("a mode the harness moves to by itself shows in the mode menu at once", async () => {
+  const modes = {
+    currentModeId: "plan",
+    availableModes: ["default", "acceptEdits", "plan"].map((id) => ({ id, name: id })),
+  };
+  const modeEvent = (seq: number, mode: string) => ({
+    sessionId: CHAT,
+    seq,
+    at: START + seq * 1000,
+    dir: "in",
+    kind: "current_mode_update",
+    msg: {
+      method: "session/update",
+      params: { sessionId: CHAT, update: { sessionUpdate: "current_mode_update", currentModeId: mode } },
+    },
+  });
+  const daemon = fakeDaemon("high", [userEvent(1, "plan it")], { modes });
+  const { shownMode } = await connect(daemon);
+  expect(shownMode()).toBe("plan");
+  daemon.push(modeEvent(2, "acceptEdits"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(shownMode()).toBe("acceptEdits");
 });

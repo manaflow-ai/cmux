@@ -376,6 +376,8 @@ const usageSetup = (update: any, used: number): number | undefined => {
 };
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
+/// The agent's own change of its mode: `currentModeId`.
+const MODE_KIND = "current_mode_update";
 const SESSION_INFO_KIND = "session_info_update";
 /// The agent's guess at the next prompt after a turn (acpmux claude_stdio/prompt_suggestions.rs):
 /// `suggestion` a string, or null to take it back. Never a transcript row. It comes on the attach's
@@ -6975,6 +6977,15 @@ export class AcpmuxDirectClient {
     }
     if (update?.sessionUpdate === SUGGESTION_KIND) {
       this.heardSuggestion(update.suggestion, event.seq ?? 0);
+      return;
+    }
+    // The harness moved its own mode (acpmux claude_stdio: Claude Code's status line, after a plan
+    // approved with auto-accept edits): the mode menu follows it at once. Older than the options the
+    // attach read, it is history.
+    if (update?.sessionUpdate === MODE_KIND) {
+      const mode = update.currentModeId;
+      if (typeof mode !== "string" || !this.summary?.modes || (event.seq && event.seq < this.configSeq)) return;
+      this.summary = { ...this.summary, modes: { ...this.summary.modes, currentModeId: mode } };
       return;
     }
     if (update?.sessionUpdate === CONFIG_KIND) {

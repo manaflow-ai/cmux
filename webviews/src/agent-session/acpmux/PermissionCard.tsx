@@ -363,8 +363,7 @@ export function PermissionCard({
         return true;
       }
       // On a plan approval key 2 (and ⌥⌘2) is Approve and auto-accept edits, the second answer.
-      const option =
-        action === "allow_once" ? allowOnce : acceptEdits ?? (alwaysAtSource ? undefined : allowAlways);
+      const option = action === "allow_once" ? allowOnce : (acceptEdits ?? (alwaysAtSource ? undefined : allowAlways));
       if (!option) return false;
       answerByKey(option);
       return true;
