@@ -71,6 +71,14 @@ class SideWayTests(unittest.TestCase):
         self.assertIsNone(ssm.side_way({"pane_width_change": None}))
         self.assertIsNone(ssm.trace_stats({"samples": []})["pane_width_change"])
 
+    def test_a_parked_page_is_not_a_mover(self):
+        def sample(t, x, width):
+            return {"t": t, "panes": [pane("pane_aaaaaa", 0, 600)], "page": [[600, 900, width, 900, 0, x, x, 600]]}
+        parked = [sample(0, -99840, 1391), sample(8.33, -99840, 1391), sample(250, -99840, 695)]
+        self.assertEqual(ssm.trace_movers(parked).keys() & {"page 0"}, set())
+        shown = [sample(0, 368, 1391), sample(8.33, 368, 1391), sample(250, 368, 695)]
+        self.assertIn("page 0", ssm.trace_movers(shown))
+
     def test_panes_that_came_back_go_by_their_peak(self):
         stats = ssm.trace_stats(self.two_panes([450, 520, 600, 520, 450]))
         self.assertEqual((stats["pane_width_change"], stats["pane_width_peak"]), (0.0, 300.0))

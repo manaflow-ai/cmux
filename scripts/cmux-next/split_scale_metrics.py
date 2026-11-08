@@ -67,9 +67,16 @@ def pct(values, q):
     return round(values[min(len(values) - 1, int(round((len(values) - 1) * q)))], 2)
 
 
+# A page window this far left of every screen is parked (a pre-warmed page the app keeps off screen): its resize after
+# a split is deferred off-screen work, which nobody sees, so it is not a mover (split-scale smoke 7bd5eed3: x -99840).
+PARKED_X = -10000
+
+
 def trace_movers(samples):
-    """{mover: [(t, values)]}: one_motion_series' movers plus every divider (`divider ID`)."""
-    out = series(samples)
+    """{mover: [(t, values)]}: one_motion_series' movers plus every divider (`divider ID`), less the parked pages
+    (every point's page window x left of PARKED_X)."""
+    out = {key: points for key, points in series(samples).items()
+           if not (key.startswith("page ") and points and all(p[1][0] < PARKED_X for p in points))}
     for sample in samples:
         t = float(sample.get("t", 0))
         for row in sample.get("dividers") or []:
