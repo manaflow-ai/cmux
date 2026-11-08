@@ -14,6 +14,10 @@ final class NativeNewTabRowView: NSView {
     private let detail = NSTextField(labelWithString: "")
     private let hint = NSTextField(labelWithString: "")
     private(set) var content: NativeNewTabRowContent?
+    /// The title label (tests read its frame).
+    var titleField: NSTextField { title }
+    /// The detail label (tests read its frame).
+    var detailField: NSTextField { detail }
     private(set) var selected = false
     /// Runs the row, as a click on it does.
     var activate: @MainActor () -> Void = {}
