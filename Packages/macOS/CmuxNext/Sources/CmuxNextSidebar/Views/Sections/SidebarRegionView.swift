@@ -103,6 +103,8 @@ final class SidebarRegionView: NSView {
         }
     }
     private(set) var itemViews: [LayoutItemID: SidebarItemRowView] = [:]
+    /// Unpinned workspaces' item views, hidden here for their next pin (`park`, `unparkItem`).
+    var parkedItems = SidebarParkedItems()
     /// The workspaces a pin flies in this apply (`SidebarListView.pinFlights`): a new item for one of them is placed
     /// in its slot at once, never grown from an empty frame; the list's flight moves it from where the row was.
     var flyingWorkspaces: Set<WorkspaceID> = []
@@ -267,7 +269,7 @@ final class SidebarRegionView: NSView {
                 guard let section = sections[sectionID], let item = section.items.first(where: { $0.id == id }) else { continue }
                 liveItems.insert(id)
                 let new = itemViews[id] == nil
-                let view = itemViews[id] ?? makeItem(id)
+                let view = itemViews[id] ?? makeItem(id, workspace: content.infos[id]?.workspace)
                 let style: SidebarItemRowView.Style = switch row.kind {
                 // An icon-only built-in item (the account, an icon-only Settings)
                 // has no fill until hover in every arrangement (Lawrence
@@ -309,8 +311,8 @@ final class SidebarRegionView: NSView {
             view.alphaValue = 0
         }
         for (id, view) in itemViews where !liveItems.contains(id) && !pressed.contains(ObjectIdentifier(view)) {
-            view.removeFromSuperview()
             itemViews[id] = nil
+            park(view)
         }
         // A hidden flown-out item the blocks took out is gone: nothing to show again.
         if !flownOut.isEmpty { flownOut = flownOut.filter { id in itemViews.values.contains { $0.info.workspace == id } } }
@@ -369,8 +371,9 @@ final class SidebarRegionView: NSView {
         needsDisplay = true
     }
 
-    private func makeItem(_ id: LayoutItemID) -> SidebarItemRowView {
-        let view = SidebarItemRowView()
+    /// `id`'s item view: `workspace`'s parked one (an unpin left it here) or a new one, wired to `id`.
+    private func makeItem(_ id: LayoutItemID, workspace: WorkspaceID?) -> SidebarItemRowView {
+        let view = unparkItem(workspace) ?? SidebarItemRowView()
         view.onPressWithModifiers = { [weak self] flags in
             if let onActivateWithModifiers = self?.onActivateWithModifiers {
                 onActivateWithModifiers(id, flags)
@@ -383,7 +386,7 @@ final class SidebarRegionView: NSView {
             // A press on another row ends a rename in progress, as a press on the list's rows does.
             if let rename = self?.docList?.inlineRename, rename.isActive { rename.end(commit: true) }
         }
-        addSubview(view)
+        if view.superview !== self { addSubview(view) }
         itemViews[id] = view
         // A client-only item (What's New) only opens: no drag, no menu.
         guard !id.isTransient else { return view }
