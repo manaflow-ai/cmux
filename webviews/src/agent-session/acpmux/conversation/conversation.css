@@ -1640,8 +1640,19 @@
   --cv-code-corner-veil-fade: 8px;
   --cv-code-corner-veil-height: 19px;
 }
+/* A mask cuts everything outside the body's border box, and a highlighted card's horizontal
+   scrollbar hangs below that box into the card's bottom inset (HighlightedCode.tsx `codeUnsafeCSS`,
+   6px in WebKit). So the body takes that inset as padding instead of margin: the card is just as
+   tall, and the mask's box (and its solid lower layer) reaches the card's bottom inset, with the
+   scrollbar painted at rest and on hover (cross-model review of #37521;
+   code-corner-veil-scrollbar.test.ts). Content-box sizing keeps the host's line-count min-height
+   off the padding. `--cv-codeblock-body-inset` is `.cv-codeblock__body`'s bottom margin. */
 .cv-codeblock--corner .cv-codeblock__body {
   --cv-code-corner-veil: 0;
+  --cv-codeblock-body-inset: 13px;
+  box-sizing: content-box;
+  margin-bottom: 0;
+  padding-bottom: var(--cv-codeblock-body-inset);
   -webkit-mask-image:
     linear-gradient(
       to left,

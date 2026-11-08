@@ -46,7 +46,7 @@ pre[data-file] { display: flow-root; }
 /// An unlabeled card's first line keeps room after its end for the actions floating over its corner
 /// (conversation.css `--cv-code-corner-reserve`, which the shadow root inherits), so it never runs
 /// under them once scrolled to its end, and wraps short of them (cmux#30689).
-const cornerUnsafeCSS = `${codeUnsafeCSS}
+export const cornerUnsafeCSS = `${codeUnsafeCSS}
 [data-line="1"] { padding-inline-end: var(--cv-code-corner-reserve, 0px); }
 `;
 

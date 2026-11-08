@@ -11,7 +11,8 @@
 // its start, its middle and its end: the line fades out before the bare glyphs and never paints
 // under them (conversation.css `--cv-code-corner-veil`). `hover` ships (the veil comes with the
 // glyphs); `always` keeps it at rest too, `cut` has no fade and `wide` fades over 24px.
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { File as PierreFile } from "@pierre/diffs";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { DiffHunk, TurnFile } from "../diff";
@@ -19,6 +20,8 @@ import { ArtifactContext } from "./artifactPreview";
 import { codeActionsLook } from "./codeActions.experiment";
 import { CodeHeader } from "./CodeHeader";
 import { codeHeaderClass } from "./codeHeaderModel";
+import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, registerAgentDiffTheme } from "../diffTheme";
+import { cornerUnsafeCSS, DiffsHost } from "./HighlightedCode";
 import { CopyButton } from "./CopyButton";
 import { cornerAction } from "./cornerActions";
 import { WrapLines } from "./icons";
@@ -28,7 +31,7 @@ import { Markdown } from "./Markdown";
 import { ShellBlock } from "./ShellBlock";
 import { ToolOutput } from "./ToolOutputBody";
 
-type Surface = "code" | "diff" | "output" | "table";
+type Surface = "code" | "highlighted" | "diff" | "output" | "table";
 /// How the scrolling text under an unlabeled card's corner glyphs is hidden (conversation.css).
 type Veil = "hover" | "always" | "cut" | "wide";
 type Props = { surface: Surface; veil?: Veil };
@@ -101,6 +104,58 @@ function HighlightedCorner() {
   );
 }
 
+/// An unlabeled card as HighlightedCode.tsx draws it once highlighted: Pierre's lines in their shadow
+/// root, the horizontal scrollbar hanging below the body's box into the card's bottom inset
+/// (`codeUnsafeCSS`, 6px in WebKit). The gallery has no highlight worker, so Pierre highlights on
+/// the main thread here; the markup and the shadow CSS are the app's. The corner veil's mask must
+/// leave that scrollbar painted (cross-model review of #37521).
+function PierreCorner() {
+  const host = useRef<HTMLDivElement>(null);
+  const [painted, setPainted] = useState(false);
+  useLayoutEffect(() => {
+    const el = host.current;
+    if (!el) return;
+    registerAgentDiffTheme();
+    const file = new PierreFile(
+      {
+        theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
+        themeType: document.documentElement.dataset.theme === "light" ? "light" : "dark",
+        disableFileHeader: true,
+        disableLineNumbers: true,
+        overflow: "scroll",
+        unsafeCSS: cornerUnsafeCSS,
+        onPostRender: (node, _instance, phase) => {
+          if (phase !== "unmount" && node.shadowRoot?.querySelector("[data-line]")) setPainted(true);
+        },
+      },
+      undefined,
+      true,
+    );
+    file.render({ fileContainer: el, file: { name: "snippet.ts", contents: SNIPPET, lang: "ts" } });
+    return () => {
+      file.cleanUp();
+      el.shadowRoot?.replaceChildren();
+    };
+  }, []);
+  return (
+    <div className={`cv-codeblock${codeHeaderClass("corner")}`} data-gallery-pierre={painted ? "painted" : "pending"}>
+      <CodeHeader look="corner" lang="ts">
+        <button
+          type="button"
+          className={cornerAction()}
+          aria-pressed={false}
+          aria-label="Wrap lines"
+          title="Wrap lines"
+        >
+          <WrapLines />
+        </button>
+        <CopyButton text={SNIPPET} label="Copy code" />
+      </CodeHeader>
+      <DiffsHost ref={host} className="cv-codeblock__body selectable" />
+    </div>
+  );
+}
+
 /// The table's Open shows only where the page can open an artifact; the stage's opens nothing.
 const openNothing = () => {};
 
@@ -121,6 +176,11 @@ function Stage({ surface, veil = "hover" }: Props) {
             <Markdown>{CODE}</Markdown>
           </div>
         )}
+        {surface === "highlighted" && (
+          <div style={{ width: "min(608px, calc(100vw - 32px))" }}>
+            <PierreCorner />
+          </div>
+        )}
         {surface === "diff" && <EditDiff file={FILE} />}
         {surface === "output" && (
           <>
@@ -139,12 +199,14 @@ function Stage({ surface, veil = "hover" }: Props) {
 /// the file's name and counts before its buttons.
 const BLOCK: Record<Surface, string> = {
   code: ".cv-codeblock",
+  highlighted: ".cv-codeblock",
   diff: ".cv-edit-diff",
   output: ".cv-shell",
   table: ".cv-table-block",
 };
 const BUTTONS: Record<Surface, string> = {
   code: ".cv-codeblock .cv-codeblock__actions > button",
+  highlighted: ".cv-codeblock .cv-codeblock__actions > button",
   diff: ".cv-edit-diff__header > button",
   output: ".cv-shell__actions > button",
   table: ".cv-table-tools > button",
@@ -172,7 +234,9 @@ const pressed =
 /// shows (a diff, an output or a table has no `.cv-codeblock`).
 const activeSurface = (ctx: Parameters<Play>[0]): Surface => {
   const surface = ctx.document.querySelector<HTMLElement>("[data-gallery-surface]")?.dataset.gallerySurface;
-  return surface === "diff" || surface === "output" || surface === "table" ? surface : "code";
+  return surface === "highlighted" || surface === "diff" || surface === "output" || surface === "table"
+    ? surface
+    : "code";
 };
 
 /// The unlabeled card hovered (at its centre, on its text, not its glyphs), then its first line
@@ -190,6 +254,15 @@ const veiled =
     await ctx.waitFor(() => Math.abs(scroller.scrollLeft - left) < 1);
   };
 
+/// The highlighted card painted, then at rest (the pointer off the stage) or hovered on its text.
+const PIERRE_CARD = "[data-gallery-pierre]";
+const pierre =
+  (hover: boolean): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector('[data-gallery-pierre="painted"]'));
+    if (hover) await ctx.hover({ selector: PIERRE_CARD });
+  };
+
 const VEILS: { veil: Veil; at: "start" | "mid" | "end"; note: string }[] = [
   { veil: "hover", at: "start", note: "veil (ships): the long first line at its start fades out before the glyphs." },
   { veil: "hover", at: "mid", note: "veil (ships): scrolled halfway, the line still never runs under the glyphs." },
@@ -199,42 +272,54 @@ const VEILS: { veil: Veil; at: "start" | "mid" | "end"; note: string }[] = [
   { veil: "wide", at: "mid", note: "a 24px fade before the glyphs: scrolled halfway." },
 ];
 
-const variants = Object.fromEntries(
-  (["code", "diff", "output", "table"] as const)
-    .flatMap((surface) => [
-      [surface, { note: `${surface}: at rest.`, props: { surface } }],
-      [
-        `${surface}-block-hover`,
-        {
-          note: `${surface}: the pointer on the block, on no button.`,
-          props: { surface },
-          play: onBlock(surface),
-        },
-      ],
-      [
-        `${surface}-button-hover`,
-        {
-          note: `${surface}: the pointer on its last button.`,
-          props: { surface },
-          play: onButton(surface),
-        },
-      ],
-      [
-        `${surface}-pressed`,
-        {
-          note: `${surface}: its first button held down.`,
-          props: { surface },
-          play: pressed(surface),
-        },
-      ],
-    ])
-    .concat(
-      VEILS.map(({ veil, at, note }) => [
-        `code-veil-${veil}-${at}`,
-        { note, props: { surface: "code" as const, veil }, play: veiled(at) },
-      ]),
-    ),
-);
+const variants = {
+  ...Object.fromEntries(
+    (["code", "diff", "output", "table"] as const)
+      .flatMap((surface) => [
+        [surface, { note: `${surface}: at rest.`, props: { surface } }],
+        [
+          `${surface}-block-hover`,
+          {
+            note: `${surface}: the pointer on the block, on no button.`,
+            props: { surface },
+            play: onBlock(surface),
+          },
+        ],
+        [
+          `${surface}-button-hover`,
+          {
+            note: `${surface}: the pointer on its last button.`,
+            props: { surface },
+            play: onButton(surface),
+          },
+        ],
+        [
+          `${surface}-pressed`,
+          {
+            note: `${surface}: its first button held down.`,
+            props: { surface },
+            play: pressed(surface),
+          },
+        ],
+      ])
+      .concat(
+        VEILS.map(({ veil, at, note }) => [
+          `code-veil-${veil}-${at}`,
+          { note, props: { surface: "code" as const, veil }, play: veiled(at) },
+        ]),
+      ),
+  ),
+  "highlighted-rest": {
+    note: "highlighted: an unlabeled highlighted card whose first line overflows, at rest; its scrollbar shows under its lines.",
+    props: { surface: "highlighted" as const },
+    play: pierre(false),
+  },
+  "highlighted-hover": {
+    note: "highlighted: the same card hovered: the veil fades its first line before the glyphs, and the scrollbar still shows.",
+    props: { surface: "highlighted" as const },
+    play: pierre(true),
+  },
+};
 
 export default componentEntry<Props>({
   id: "agent-pane.code-toolbar-buttons",
@@ -244,6 +329,7 @@ export default componentEntry<Props>({
   height: 320,
   covers: [
     "agent-session/acpmux/conversation/CodeHeader.tsx",
+    "agent-session/acpmux/conversation/HighlightedCode.tsx",
     "agent-session/acpmux/conversation/cornerActions.ts",
     "agent-session/acpmux/conversation/CopyButton.tsx",
     "agent-session/acpmux/conversation/BlockParts.tsx",
