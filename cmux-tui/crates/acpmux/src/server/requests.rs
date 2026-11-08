@@ -1755,9 +1755,15 @@ async fn dispatch_request_with_identity(
             // (`prompt_provenance.rs` `verified`, `transport`, `claimed`): the proven person's
             // prompt carries none; one no proof attributes is `unverified`, never the person's.
             let transport = transport_of(conn);
+            // The owner's own terminal send, claiming no agent, harness or relay: the person's
+            // prompt again, though it proves no person (`owner_terminal`, the trust boundary).
+            let unproven_owner = provenance.is_none()
+                && !person_admitted(conn, &params)
+                && declared.is_none()
+                && owner_terminal(conn, &params);
             let provenance = match provenance {
                 Some(p) => Some(crate::prompt_provenance::observed(p, transport)),
-                None if person_admitted(conn, &params) => None,
+                None if unproven_owner || person_admitted(conn, &params) => None,
                 // A proven session's note to itself: that session's, as the daemon knows.
                 None if conn.caller() == Some(s.id.as_str()) => {
                     let name = hub.session_name(&s.id);
@@ -1915,6 +1921,7 @@ async fn dispatch_request_with_identity(
                 human_authenticated: person_message
                     && (conn.is_person()
                         || (conn.origin == super::Origin::Peer && person_admitted(conn, &params))),
+                unproven_owner,
                 agent,
                 class,
                 after_turn: None,
@@ -3187,7 +3194,9 @@ fn transport_of(conn: &Conn) -> &'static str {
 /// forwarded one its own daemon's connection proved (`remote_guard::PERSON_PROVEN`, that peer's
 /// word, recorded as come over `peer`). A local process of the user (a shell, a script, an agent
 /// outside acpmux, the Cloud mobile carrier's unix connection) proves nothing: socket access,
-/// the listener token and environment tags are not the person.
+/// the listener token and environment tags are not the person. An unnamed prompt from the owner's
+/// own terminal is still recorded as the person's ([`owner_terminal`]), which proves nothing to
+/// a peer or a protected hold.
 pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
     if conn.is_person() {
         return true;
@@ -3214,6 +3223,45 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
         }
         super::Origin::Local | super::Origin::LocalApp => false,
     }
+}
+
+/// Whether an unnamed prompt is the owner's own terminal send (`acpmux send` at
+/// a plain shell of this machine's user), recorded as the person's prompt as it was before #37497,
+/// so every client draws the owner's bubble.
+///
+/// The trust boundary: the unix socket is reachable only by this machine's user, and among that
+/// user's processes the daemon tells an agent from the person by what it can check or what the
+/// CLI declares, never by the text. An agent in an acpmux session holds a caller token
+/// (`hub/person.rs` (a)), proven or not, and its send is that session's. An agent harness's own
+/// shell outside acpmux (Claude Code, Codex, an `AI_AGENT` tool) names itself and its harness
+/// (`cli/sender.rs` `implicit`, `harness_of`: `fromAgent`, `fromHarness`), and a send whose
+/// environment or process chain shows a harness, an MCP client or an app that is no terminal
+/// says so (`sender_harness.rs`: `senderHarness`; a shell under a terminal or cmux claims none). A relay names what it
+/// carries (`fromRelay`, `via`: the lane-gh broker, the Cloud mobile carrier). A trigger, the
+/// app's own transport (`LocalApp`, whose pane proves the person instead) and every non-unix
+/// transport are no terminal. Any of those stays `unverified`. What is left is a plain unix
+/// connection of the user that claims nothing: the person at their terminal. A script of the
+/// same user that strips every label is let through, as it was before #37497; it still never
+/// releases a protected hold (`PromptOptions::unproven_owner`), never counts as an authenticated
+/// person (`human_authenticated` needs the proven person) and is never forwarded to a peer as
+/// the person's (`attest_person` reads `person_admitted` only).
+fn owner_terminal(conn: &Conn, params: &Value) -> bool {
+    let claims = params.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|mux| {
+        [
+            "fromAgent",
+            crate::prompt_provenance::FROM_HARNESS,
+            crate::sender_harness::META_KEY,
+            "fromRelay",
+            "via",
+        ]
+        .iter()
+        .any(|key| mux.get(*key).is_some_and(|v| !v.is_null()))
+    });
+    conn.origin == super::Origin::Local
+        && !conn.is_trigger()
+        && conn.caller().is_none()
+        && conn.unproven_caller.get().is_none()
+        && !claims
 }
 
 /// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`).
