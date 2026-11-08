@@ -2189,6 +2189,8 @@
       "params": {
         "action": "share chat",
         "args": {
+          "role": "talk",
+          "signedInRole": "talk",
           "surface": "1",
           "ttl": "/tmp/contract",
           "uses": "1"
@@ -2196,7 +2198,7 @@
         "cli": true,
         "wait": true
       },
-      "source": "cmux share chat --surface 1 --ttl /tmp/contract --uses 1"
+      "source": "cmux share chat --surface 1 --ttl /tmp/contract --uses 1 --role talk --signed-in-role talk"
     },
     {
       "params": {

@@ -31891,6 +31891,24 @@
           "min" : 1,
           "name" : "uses",
           "required" : false
+        },
+        {
+          "kind" : "enum",
+          "name" : "role",
+          "required" : false,
+          "values" : [
+            "talk",
+            "view"
+          ]
+        },
+        {
+          "kind" : "enum",
+          "name" : "signedInRole",
+          "required" : false,
+          "values" : [
+            "talk",
+            "view"
+          ]
         }
       ],
       "cli" : "offered",
