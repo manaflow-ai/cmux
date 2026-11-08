@@ -314,7 +314,10 @@ fn write_location(out: &mut String, location: &Option<Value>) {
         |pointer: &str| identity.pointer(pointer).and_then(Value::as_str).unwrap_or("-").to_owned();
     let _ = writeln!(
         out,
-        "You run in a cmux terminal. `cmux` on your PATH talks to this session by default.\n"
+        "You run in a cmux terminal. Run this session's own cmux as `\"$CMUX_TUI_CLI\"`: the \
+         pane sets it to the absolute path of the session's build, and a `cmux` on PATH can be \
+         another, older install. Every `cmux` in this guide means `\"$CMUX_TUI_CLI\"` (for \
+         example `\"$CMUX_TUI_CLI\" --json identify`); it talks to this session by default.\n"
     );
     let _ = writeln!(out, "| object | id |\n| --- | --- |");
     let _ =

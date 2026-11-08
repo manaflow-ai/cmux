@@ -121,6 +121,7 @@
 //! them (`event-*`).
 
 pub(crate) mod filter;
+mod host_reply;
 pub(crate) mod read;
 pub(crate) mod source;
 #[cfg(feature = "event-stream")]
@@ -254,6 +255,9 @@ pub fn read() -> std::io::Result<Event> {
         _ => unreachable!(),
     }
 }
+
+#[doc(hidden)]
+pub use host_reply::{scan_host_reply, HostReply};
 
 /// Parse one buffered terminal event without reading from the process input stream.
 ///

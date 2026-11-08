@@ -234,7 +234,7 @@ fn probe(global: &GlobalArgs) -> Option<(PathBuf, DaemonBuild, Route)> {
     probe_socket(socket)
 }
 
-fn probe_socket(socket: PathBuf) -> Option<(PathBuf, DaemonBuild, Route)> {
+pub(super) fn probe_socket(socket: PathBuf) -> Option<(PathBuf, DaemonBuild, Route)> {
     let stream = UnixStream::connect(&socket).ok()?;
     let peer_uid = cmux_tui_core::platform::unix_peer_uid(&stream).ok()?;
     let peer_pid = cmux_tui_core::platform::transport::Stream::peer_process_key(&stream)
@@ -294,7 +294,7 @@ fn tunnel_ssh_destination(socket: &Path) -> Option<String> {
     plain.then(|| destination.to_owned())
 }
 
-fn own_build_id() -> &'static str {
+pub(super) fn own_build_id() -> &'static str {
     cmux_build_identity::BUILD_IDENTITY
 }
 

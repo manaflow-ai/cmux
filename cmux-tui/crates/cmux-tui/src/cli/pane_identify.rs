@@ -52,6 +52,7 @@ fn run_headless(global: &GlobalArgs) -> Option<i32> {
     let (socket, derived) = super::wire::resolve_socket_with_origin(global).ok()?;
     let terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| id.starts_with("term_"));
     let identity = read_identity_at(&socket, derived, terminal.as_deref()).ok()?;
+    let identity = with_daemon_build(identity, &socket);
     Some(print(global, &without_app(identity, &app_error)))
 }
 
@@ -80,7 +81,7 @@ fn explicitly_routed(global: &GlobalArgs) -> bool {
 
 fn run(global: &GlobalArgs, socket: &Path, terminal: &str) -> i32 {
     match read_identity(socket, terminal) {
-        Ok(identity) => print(global, &identity),
+        Ok(identity) => print(global, &with_daemon_build(identity, socket)),
         Err(failure) => failure.report(global.output),
     }
 }
@@ -261,10 +262,40 @@ fn identity_value(
     })
 }
 
-/// `identity` with `build`: this CLI's build id, the daemon's (`daemon`,
-/// from `identify`'s `daemon-build-v1`) and whether they match, plus a
-/// `warning` when they do not (W5-Q). Not yet: as it is.
-fn with_build(_identity: &mut Value, _own: &str, _daemon: Option<&super::skew::DaemonBuild>) {}
+/// `identity` with `build`: this CLI's build id (`cli`), the daemon's
+/// (`daemon`, from `identify`'s `daemon-build-v1`; null from an older
+/// daemon), the daemon's own `cmux` (`daemon_cli`) and whether the builds
+/// match (`matches`, null when unknown), plus a `warning` when they do not
+/// (W5-Q): an agent that runs an older `cmux` on PATH learns which one to run.
+fn with_build(identity: &mut Value, own: &str, daemon: Option<&super::skew::DaemonBuild>) {
+    let Some(object) = identity.as_object_mut() else { return };
+    let matches = daemon.map(|daemon| daemon.build_id == own);
+    object.insert(
+        "build".into(),
+        json!({
+            "cli": own,
+            "daemon": daemon.map(|daemon| daemon.build_id.as_str()),
+            "daemon_cli": daemon.map(|daemon| daemon.cli_path.display().to_string()),
+            "matches": matches,
+        }),
+    );
+    let warning = daemon.filter(|_| matches == Some(false)).map(|daemon| {
+        crate::localization::catalog()
+            .pane_cli
+            .build_mismatch
+            .replace("{own}", own)
+            .replace("{daemon}", &daemon.build_id)
+            .replace("{cli}", &daemon.cli_path.display().to_string())
+    });
+    object.insert("warning".into(), json!(warning));
+}
+
+/// [`with_build`] for the daemon at `socket`, asked over its own connection.
+fn with_daemon_build(mut identity: Value, socket: &Path) -> Value {
+    let daemon = super::skew::probe_socket(socket.to_path_buf()).map(|(_, daemon, _)| daemon);
+    with_build(&mut identity, super::skew::own_build_id(), daemon.as_ref());
+    identity
+}
 
 /// The human answer: one labelled line per object.
 fn human(identity: &Value) -> String {
@@ -300,6 +331,9 @@ fn human(identity: &Value) -> String {
         rows.push((labels.outer_app, format!("{app} (`cmux app identify`)")));
     }
     rows.push((labels.guide, "cmux skill show".to_owned()));
+    if let Some(warning) = at("/warning").as_str() {
+        rows.push((labels.warning, warning.to_owned()));
+    }
     let width = rows.iter().map(|(label, _)| label.chars().count()).max().unwrap_or(0);
     rows.into_iter()
         .map(|(label, value)| {

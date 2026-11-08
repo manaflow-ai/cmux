@@ -1,6 +1,8 @@
 //! What an agent learns about cmux when its session starts in a cmux
 //! terminal: that it runs in cmux, the ids of its session, workspace, screen,
-//! pane, tab and terminal, and that `cmux skill show` prints the guide.
+//! pane, tab and terminal, that `"$CMUX_TUI_CLI"` is the session's own
+//! `cmux` and `"$CMUX_TUI_CLI" skill show` prints the guide, and which other
+//! agents run in the session and how to reach them (W5-Q).
 //!
 //! It goes to the model as the `SessionStart` hook's `additionalContext`.
 //! Claude Code gets it from the extra `SessionStart` hook the `claude` shim
@@ -40,10 +42,51 @@ pub(crate) struct Peer {
     pub harness: String,
 }
 
-/// The session's agents other than `own_terminal` from `agent.list` and
-/// `tab.list` records. Not yet: none (W5-Q).
-pub(crate) fn peers_from(_agents: &[Value], _tabs: &[Value], _own_terminal: &str) -> Vec<Peer> {
-    Vec::new()
+/// The most peers the context names; `agent list` shows every one.
+const MAX_PEERS: usize = 12;
+
+/// The session's agents other than `own_terminal`, from `agent.list` and
+/// `tab.list` records: terminal agents whose session did not end (the
+/// daemon's `done`), once per terminal, named by their tab when that is an
+/// agent name (`agent start NAME`), else by terminal id.
+pub(crate) fn peers_from(agents: &[Value], tabs: &[Value], own_terminal: &str) -> Vec<Peer> {
+    let tab_name = |terminal: &str| {
+        tabs.iter()
+            .filter(|tab| tab.get("content_id").and_then(Value::as_str) == Some(terminal))
+            .find_map(|tab| tab.get("name").and_then(Value::as_str).filter(|name| agent_name(name)))
+            .map(str::to_owned)
+    };
+    let mut peers: Vec<Peer> = Vec::new();
+    let mut seen = Vec::new();
+    for agent in agents {
+        let Some(terminal) = agent.get("terminal_id").and_then(Value::as_str) else { continue };
+        let state = agent.get("state").and_then(Value::as_str).unwrap_or_default();
+        if terminal == own_terminal || state == "done" || seen.contains(&terminal) {
+            continue;
+        }
+        seen.push(terminal);
+        let harness = agent
+            .pointer("/extra/agent")
+            .or_else(|| agent.get("agent"))
+            .and_then(Value::as_str)
+            .unwrap_or("agent")
+            .to_owned();
+        let name = tab_name(terminal).unwrap_or_else(|| terminal.to_owned());
+        peers.push(Peer { name, harness });
+        if peers.len() == MAX_PEERS {
+            break;
+        }
+    }
+    peers
+}
+
+/// `agent start`'s name rule: a lowercase letter, then up to 31 lowercase
+/// letters, digits, `-` or `_`.
+fn agent_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|first| first.is_ascii_lowercase())
+        && name.chars().count() <= 32
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
 }
 
 /// Whether the hook for `source`'s `native_event` carries the context: the
@@ -74,6 +117,13 @@ pub(crate) fn read(socket: &Path, terminal: &str) -> Place {
             .map(str::to_owned)
     };
     let mut place = Place { terminal: terminal.to_owned(), ..Place::default() };
+    let list = |operation: &str| {
+        inbox::request(socket, operation, json!({}), false, deadline)
+            .ok()
+            .and_then(|records| records.as_array().cloned())
+            .unwrap_or_default()
+    };
+    place.peers = peers_from(&list("agent.list"), &list("tab.list"), terminal);
     let session = inbox::request(socket, "session.get", json!({}), false, deadline).ok();
     place.session_name = text(&session, "name");
     place.session_id = text(&session, "id");
@@ -107,14 +157,29 @@ pub(crate) fn text(place: &Place) -> String {
         Some(name) if !name.is_empty() => format!("{} (\"{name}\")", id(&place.workspace)),
         _ => id(&place.workspace),
     };
+    let cli = match &place.cli {
+        Some(path) => format!("`\"$CMUX_TUI_CLI\"` ({path})"),
+        None => "`\"$CMUX_TUI_CLI\"`".to_owned(),
+    };
+    let peers = if place.peers.is_empty() {
+        "No other agent runs in this session now.".to_owned()
+    } else {
+        let names: Vec<String> =
+            place.peers.iter().map(|peer| format!("{} ({})", peer.name, peer.harness)).collect();
+        format!("Other agents in this session: {}.", names.join(", "))
+    };
     format!(
         "cmux: you run in a cmux terminal (a cmux-tui pane). Session {session}; workspace \
-         {workspace}; screen {}; pane {}; tab {}; terminal {}. The `cmux` CLI on PATH controls \
-         this session, and `current` names your own pane, not the one the person looks at. \
-         Run `cmux skill show` for the full agent guide (identity, targeting, `terminal send \
-         --wait`, `screen wait`, reads, errors, cleanup) and `cmux --json identify` to check \
-         where you are. Do not move the person's focus, type into your own terminal, or close \
-         panes you did not open.",
+         {workspace}; screen {}; pane {}; tab {}; terminal {}. Run this session's own cmux as \
+         {cli}; a `cmux` on PATH can be another, older build. `current` names your own pane, \
+         not the one the person looks at. Run `\"$CMUX_TUI_CLI\" skill show` for the full \
+         agent guide (identity, targeting, `terminal send --wait`, `screen wait`, reads, errors, \
+         cleanup) and `\"$CMUX_TUI_CLI\" --json identify` to check where you are. {peers} To \
+         talk to an agent of this session, use `\"$CMUX_TUI_CLI\" terminal NAME send --text \
+         '...' --wait idle` (`\"$CMUX_TUI_CLI\" agent list` names them); Claude Code's \
+         SendMessage and other cross-session tools do not reach them and can reach another \
+         person's session. Do not move the person's focus, type into your own terminal, or \
+         close panes you did not open.",
         id(&place.screen),
         id(&place.pane),
         id(&place.tab),
@@ -139,9 +204,12 @@ pub(crate) fn output(text: Option<&str>) -> Value {
 /// Prints the context for the caller `terminal` of the session at `socket`
 /// as the hook's one JSON object (the empty object outside a terminal).
 pub(crate) fn print(socket: &Path, terminal: Option<&str>) {
+    let cli = std::env::var("CMUX_TUI_CLI")
+        .ok()
+        .filter(|path| Path::new(path).is_absolute() && !path.contains(['\n', '\r']));
     let text = terminal
         .filter(|terminal| terminal.starts_with("term_"))
-        .map(|terminal| text(&read(socket, terminal)));
+        .map(|terminal| text(&Place { cli: cli.clone(), ..read(socket, terminal) }));
     let mut stdout = io::stdout().lock();
     let _ = writeln!(stdout, "{}", output(text.as_deref()));
     let _ = stdout.flush();
@@ -173,8 +241,8 @@ mod tests {
             "pane pane_1",
             "tab tab_1",
             "terminal term_1",
-            "cmux skill show",
-            "cmux --json identify",
+            "skill show",
+            "--json identify",
         ] {
             assert!(text.contains(needle), "{needle}: {text}");
         }

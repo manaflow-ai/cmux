@@ -51,6 +51,10 @@ pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
 /// phase it exists to report.
 pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 
+/// How long after a terminal size change its output is the agent's redraw
+/// (SIGWINCH), not a working signal (W5-Q, bench round 4 screen #8).
+pub(crate) const RESIZE_REDRAW_GRACE_MS: u64 = 1_000;
+
 /// Recent PTY output is a working signal for a screen source. It upgrades an
 /// otherwise idle screen and expires through one deterministic re-evaluation.
 /// A read of the agent's own idle prompt (`visible_idle`) is held only
@@ -249,6 +253,11 @@ struct TrackedTerminal {
     /// When output last advanced the revision. The first observation only
     /// anchors the tracker and is not treated as fresh activity.
     last_output_at: Option<Instant>,
+    /// Terminal size `(cols, rows)` at the last [`ScreenDetectTracker::observe_size`].
+    size: Option<(u16, u16)>,
+    /// When the size last changed: output until [`RESIZE_REDRAW_GRACE_MS`]
+    /// after it is the agent's redraw, no working signal.
+    resized_at: Option<Instant>,
     /// The last evaluation used output activity to upgrade idle to working.
     /// This creates one expiry re-evaluation even when the screen is unchanged.
     evaluated_with_activity: bool,
@@ -300,8 +309,17 @@ pub struct ScreenDetectTracker {
 }
 
 impl ScreenDetectTracker {
-    /// Record the terminal's current size (W5-Q). Not yet: nothing.
-    pub fn observe_size(&mut self, _terminal_id: &str, _cols: u16, _rows: u16, _now: Instant) {}
+    /// Record the terminal's current size. A change (a pane move, a split,
+    /// a window resize) makes the agent redraw its whole screen; output
+    /// within [`RESIZE_REDRAW_GRACE_MS`] after it does not read as working.
+    /// The first size only anchors the terminal.
+    pub fn observe_size(&mut self, terminal_id: &str, cols: u16, rows: u16, now: Instant) {
+        let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        if entry.size.is_some_and(|size| size != (cols, rows)) {
+            entry.resized_at = Some(now);
+        }
+        entry.size = Some((cols, rows));
+    }
 
     /// Record the terminal's current output revision. Returns `true` when
     /// the screen changed since the last evaluation and either output has
@@ -317,7 +335,13 @@ impl ScreenDetectTracker {
         } else if entry.revision != revision {
             entry.revision = revision;
             entry.quiet_since = Some(now);
-            entry.last_output_at = Some(now);
+            // A redraw that answers a size change is no output of work.
+            let redraw = entry.resized_at.is_some_and(|at| {
+                now.saturating_duration_since(at).as_millis() as u64 <= RESIZE_REDRAW_GRACE_MS
+            });
+            if !redraw {
+                entry.last_output_at = Some(now);
+            }
         }
         let output_active = entry
             .last_output_at

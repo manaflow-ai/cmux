@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use base64::Engine as _;
 use cmux_tui_core::{BrowserFrame, Rect, SurfaceId};
+use crossterm::event::HostReply;
 use ghostty_vt::{KittyImage, KittyImageFormat, KittyPlacement};
 
 const ESC: &str = "\x1b";
@@ -1181,6 +1182,17 @@ fn split_pending_input(bytes: &[u8]) -> StartupTerminalInput {
     let mut events = Vec::new();
     let mut offset = 0;
     while offset < bytes.len() {
+        // A host's late OSC reply (a color query `host_colors.rs` stopped
+        // waiting for) is no input: drop it, or wait for its end.
+        let rest = bytes.get(offset..).unwrap_or_default();
+        match host_reply(rest) {
+            HostReply::Complete(length) => {
+                offset += length;
+                continue;
+            }
+            HostReply::Partial if rest.len() > 2 => break,
+            HostReply::Partial | HostReply::NotAReply => {}
+        }
         if let Some((event, consumed)) = parse_one_input_event(&bytes[offset..]) {
             events.push(event);
             offset += consumed;
@@ -1200,6 +1212,11 @@ fn parse_incomplete_input_lossy(bytes: &[u8]) -> Vec<crossterm::event::Event> {
     let mut events = Vec::new();
     let mut offset = 0;
     while offset < bytes.len() {
+        // The start of a host reply whose end never came is still no input.
+        let rest = bytes.get(offset..).unwrap_or_default();
+        if rest.len() > 2 && host_reply(rest) == HostReply::Partial {
+            break;
+        }
         if let Some((event, consumed)) = parse_one_input_event(&bytes[offset..]) {
             events.push(event);
             offset += consumed;
@@ -1266,6 +1283,12 @@ pub(crate) fn finish_startup_input(
         pending.events.extend(parse_incomplete_input_lossy(&pending.incomplete));
     }
     pending.events
+}
+
+/// A host OSC reply at the start of `bytes` (vendored Crossterm's scanner;
+/// `vendor/crossterm/CMUX_PATCH.md`).
+fn host_reply(bytes: &[u8]) -> HostReply {
+    crossterm::event::scan_host_reply(bytes)
 }
 
 fn parse_one_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, usize)> {

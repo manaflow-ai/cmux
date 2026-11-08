@@ -81,17 +81,17 @@ pub(crate) fn parse_event(
                     }
                     b'[' => parse_csi(buffer),
                     b'\x1B' => Ok(Some(InternalEvent::Event(Event::Key(KeyCode::Esc.into())))),
-                    _ => parse_event(&buffer[1..], input_available).map(|event_option| {
-                        event_option.map(|event| {
-                            if let InternalEvent::Event(Event::Key(key_event)) = event {
-                                let mut alt_key_event = key_event;
-                                alt_key_event.modifiers |= KeyModifiers::ALT;
-                                InternalEvent::Event(Event::Key(alt_key_event))
-                            } else {
-                                event
-                            }
-                        })
-                    }),
+                    // cmux patch: a host's OSC reply (a color query answered
+                    // late) is no input. The whole reply is dropped; `ESC ]`
+                    // alone with nothing after it is still Alt+].
+                    b']' => match crate::event::scan_host_reply(buffer) {
+                        crate::event::HostReply::Complete(_) => Err(could_not_parse_event_error()),
+                        crate::event::HostReply::Partial if buffer.len() > 2 || input_available => {
+                            Ok(None)
+                        }
+                        _ => parse_alt_event(buffer, input_available),
+                    },
+                    _ => parse_alt_event(buffer, input_available),
                 }
             }
         }
@@ -125,6 +125,21 @@ pub(crate) fn parse_event(
                 .map(InternalEvent::Event)
         }),
     }
+}
+
+/// `ESC` and the event of the bytes after it, with Alt added to a key.
+fn parse_alt_event(buffer: &[u8], input_available: bool) -> io::Result<Option<InternalEvent>> {
+    parse_event(buffer.get(1..).unwrap_or_default(), input_available).map(|event_option| {
+        event_option.map(|event| {
+            if let InternalEvent::Event(Event::Key(key_event)) = event {
+                let mut alt_key_event = key_event;
+                alt_key_event.modifiers |= KeyModifiers::ALT;
+                InternalEvent::Event(Event::Key(alt_key_event))
+            } else {
+                event
+            }
+        })
+    })
 }
 
 // converts KeyCode to KeyEvent (adds shift modifier in case of uppercase characters)
