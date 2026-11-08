@@ -212,11 +212,22 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
     /// so the drag state ends with the view (the screen ends the gesture).
     override func viewWillMove(toSuperview newSuperview: NSView?) {
         super.viewWillMove(toSuperview: newSuperview)
-        if newSuperview == nil {
-            isDragging = false
-            isHovered = false
-            stopKeyMonitor()
-        }
+        if newSuperview == nil { endInteraction() }
+    }
+
+    /// Its split or edge left the layout while the screen moves (`ScreenContentView.parkDivider(_:)`): hidden in place,
+    /// so the change removes no view (a removal makes AppKit rebuild the window's layer tree in the next display pass),
+    /// and its drag and hover end as when it leaves the tree. A hidden view takes no clicks and shows no cursor.
+    func park() {
+        if !isHidden { isHidden = true }
+        endInteraction()
+    }
+
+    /// Ends the drag and hover state; only a change repaints.
+    private func endInteraction() {
+        if isDragging { isDragging = false }
+        if isHovered { isHovered = false }
+        stopKeyMonitor()
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
