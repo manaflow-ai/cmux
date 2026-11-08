@@ -239,6 +239,7 @@ final class SidebarListView: NSView {
                 }
             })
         }
+        BackdropImageStore.shared.desktop.follow(self)
         // A favicon arrived: the link rows draw it (one configure per realized link row).
         faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
