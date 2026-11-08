@@ -11,9 +11,14 @@ public struct StandardWindowButtons {
     private var buttons: [NSWindow.ButtonType: NSButton] = [:]
     /// Types AppKit answered with no button, and the window shape that answer holds for.
     private var absent: [NSWindow.ButtonType: Shape] = [:]
+    /// The types whose absent answer is kept: the ones a titled window without a document or toolbar button never has.
+    /// The traffic lights are not here: while a window leaves full screen they are briefly in the full-screen titlebar
+    /// (`WindowTitlebar.trafficLightsFrame`), and a nil kept from that moment would hide them for good.
+    private static let keepsAbsent: Set<NSWindow.ButtonType> = [.documentIconButton, .documentVersionsButton, .toolbarButton]
 
-    /// What decides which buttons a window has: its style, whether it shows a document, and its frame view (AppKit
-    /// replaces that on a style or full-screen change). An absent answer is good while the shape is the same.
+    /// A part of what decides whether a window has one of those buttons: its style, whether it shows a document, and
+    /// its frame view. Not complete (AppKit may make a document icon lazily); a window that sets `representedURL`
+    /// asks again.
     private struct Shape: Equatable {
         let style: NSWindow.StyleMask.RawValue
         let document: Bool
@@ -51,6 +56,6 @@ public struct StandardWindowButtons {
     /// AppKit may ask the window again while it searches).
     public mutating func store(_ button: NSButton?, for type: NSWindow.ButtonType, in window: NSWindow) {
         buttons[type] = button?.window === window ? button : nil
-        absent[type] = button == nil ? Shape(window) : nil
+        absent[type] = button == nil && Self.keepsAbsent.contains(type) ? Shape(window) : nil
     }
 }

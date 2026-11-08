@@ -76,4 +76,15 @@ import Testing
             return
         }
     }
+
+    @Test func aMissingTrafficLightIsNotKept() {
+        var buttons = StandardWindowButtons()
+        let w = window()
+        defer { w.close() }
+        buttons.store(nil, for: .closeButton, in: w)
+        guard case .unknown = buttons.answer(.closeButton, in: w) else {
+            Issue.record("a nil traffic light was kept; it can be one AppKit moved during a full-screen exit")
+            return
+        }
+    }
 }
