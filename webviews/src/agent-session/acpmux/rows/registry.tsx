@@ -35,6 +35,8 @@ import { FailoverRow } from "./FailoverRow";
 import { ReadOnlyRecapRow, RecapRow } from "./RecapRow";
 import { MemoryOfferRow } from "./MemoryOfferRow";
 import { MEMORY_OFFER } from "../conversation/memoryInbox";
+import { PromptCoachRow } from "./PromptCoachRow";
+import { PROMPT_COACH } from "../conversation/promptCoach";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { AgentPairRow } from "./AgentPairRow";
 import { SessionStartRow } from "./SessionStartRow";
@@ -84,6 +86,7 @@ export const defaultRegistry: NativeRegistry = {
   failover: FailoverRow,
   recap: RecapRow,
   [MEMORY_OFFER]: MemoryOfferRow,
+  [PROMPT_COACH]: PromptCoachRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
@@ -122,6 +125,8 @@ export const readOnlyRegistry: NativeRegistry = {
   recap: ReadOnlyRecapRow,
   // An offer to write the owner's instructions file is the owner's own.
   [MEMORY_OFFER]: NoRow,
+  // How the owner could have prompted better is feedback for the owner, not for a guest.
+  [PROMPT_COACH]: NoRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,

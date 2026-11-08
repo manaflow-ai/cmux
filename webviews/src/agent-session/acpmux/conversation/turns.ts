@@ -73,6 +73,7 @@ import { currentLanguage, translatorFor } from "../i18n";
 import { writeCall } from "./writeLabelModel";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { MEMORY_OFFER } from "./memoryInbox";
+import { PROMPT_COACH } from "./promptCoach";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -1814,6 +1815,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === "recap" ||
   // A memory offer waits for the person's Accept or Dismiss (MemoryOfferCard.tsx).
   row.kind === MEMORY_OFFER ||
+  // A prompt coach card is about the whole chat's first prompt (PromptCoachCard.tsx).
+  row.kind === PROMPT_COACH ||
   // A policy the harness cannot keep: the agent runs without the asks the person chose.
   row.kind === "policyUnenforced" ||
   // A paused agent pair waits for the person's Resume.

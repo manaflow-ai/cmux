@@ -176,6 +176,15 @@ import {
   memoryRowId,
   settleMemoryOffer,
 } from "./conversation/memoryInbox";
+import {
+  coachIdOf,
+  coachOfferFromRecord,
+  coachRowId,
+  PROMPT_COACH,
+  promptCoachFromRecord,
+} from "./conversation/promptCoach";
+import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
+import { promptCoachEnabled } from "./chatDisplay";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -611,6 +620,9 @@ const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
 /// The capability id an acpmux that serves the memory inbox names (`memory_offer` records and
 /// `_acpmux/memory_resolve`): without it no memory card draws.
 const MEMORY_INBOX_CAPABILITY = "memory-inbox-v1";
+/// The capability id an acpmux that serves the prompt coach names (`coach_offer` and `coach` records,
+/// `_acpmux/prompt_coach`): without it the page never asks for a rewrite.
+const PROMPT_COACH_CAPABILITY = "prompt-coach-v1";
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
@@ -7162,6 +7174,26 @@ export class AcpmuxDirectClient {
         // Some of an offer's facts settled (accepted or dismissed, here or from another client).
         const offerId = typeof msg.offerId === "string" ? msg.offerId : "";
         if (offerId) this.settleMemoryRow(offerId, msg);
+      } else if (event.kind === "coach_offer") {
+        // The chat qualified for the prompt coach (the person corrected the agent three or more times
+        // before moving on): no row of its own. Once the batch it came in is folded, the page asks
+        // acpmux once to write the rewrite, unless that batch already held it (`askCoaches`).
+        const offer = this.supportsPromptCoach ? coachOfferFromRecord(msg) : undefined;
+        if (offer) this.considerCoach(offer.coachId, this.selectedSessionId);
+      } else if (event.kind === "coach") {
+        // The rewrite acpmux wrote for a `coach_offer` (conversation/PromptCoachCard.tsx): one card,
+        // whole, under the turn it lands in. Never asked for again, drawn or not. A replay draws it
+        // too (it has no capabilities; only a daemon that serves the coach logs one); the setting off
+        // or a chat whose card the person dismissed on this device draws nothing.
+        const coachId = coachIdOf(msg);
+        if (coachId) this.coachMade.add(coachId);
+        const sessionId = this.selectedSessionId ?? "";
+        const draws = this.supportsPromptCoach || this.replayThrough !== undefined || this.fedMode;
+        const coach = draws ? promptCoachFromRecord(msg, sessionId) : undefined;
+        if (coach && promptCoachEnabled() && !promptCoachDismissed(sessionId)) {
+          const id = coachRowId(coach.coachId);
+          this.rows.set(id, { id, version: 1, at: event.at, kind: PROMPT_COACH, coach });
+        }
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
       } else if (event.kind === "host_notice") {
@@ -9915,6 +9947,10 @@ export class AcpmuxDirectClient {
   get supportsAgentLogin(): boolean {
     return AGENT_LOGIN_CAPABILITIES.some((id) => this.capabilities?.has(id) || this.features.has(id));
   }
+  /// Whether this acpmux serves the prompt coach (`prompt-coach-v1` in its capabilities).
+  get supportsPromptCoach(): boolean {
+    return this.capabilities?.has(PROMPT_COACH_CAPABILITY) === true || this.features.has(PROMPT_COACH_CAPABILITY);
+  }
   /// Whether this acpmux serves the memory inbox (`memory-inbox-v1` in its capabilities).
   get supportsMemoryInbox(): boolean {
     return this.capabilities?.has(MEMORY_INBOX_CAPABILITY) === true || this.features.has(MEMORY_INBOX_CAPABILITY);
@@ -11026,6 +11062,47 @@ export class AcpmuxDirectClient {
   dismissRecap(rowId: string, key: string): void {
     rememberRecapDismissed(key);
     if (this.rows.get(rowId)?.recap?.key !== key) return;
+    this.rows.delete(rowId);
+    this.emit();
+  }
+  /// Prompt coach ids whose `coach` record this page has read: never asked for again.
+  private readonly coachMade = new Set<string>();
+  /// Prompt coach ids this page asked acpmux for (`_acpmux/prompt_coach`): at most once each.
+  private readonly coachAsked = new Set<string>();
+  /// `coach_offer` records folded in the batch being applied, by coach id, with their chat.
+  private readonly coachWaiting = new Map<string, string>();
+  /// A `coach_offer` was folded: decide once the batch it came in is applied, since a history page
+  /// that holds its `coach` record too has it after the offer.
+  private considerCoach(coachId: string, sessionId: string | undefined): void {
+    if (!sessionId || this.fedMode || this.replayThrough !== undefined) return;
+    if (this.coachAsked.has(coachId) || this.coachMade.has(coachId)) return;
+    const first = this.coachWaiting.size === 0;
+    this.coachWaiting.set(coachId, sessionId);
+    if (first) queueMicrotask(() => this.askCoaches());
+  }
+  /// Asks acpmux to write each waiting rewrite (`_acpmux/prompt_coach`, one small-model call that
+  /// logs the `coach` record): only with the setting on, for a chat whose card was not dismissed on
+  /// this device, and none whose `coach` record was read meanwhile. Fire and forget: the record
+  /// draws the card, `{made: false}` means nothing to do, and a failure is only logged.
+  private askCoaches(): void {
+    const waiting = [...this.coachWaiting];
+    this.coachWaiting.clear();
+    if (this.closed || this.disposed) return;
+    for (const [coachId, sessionId] of waiting) {
+      if (this.coachMade.has(coachId) || this.coachAsked.has(coachId)) continue;
+      if (!promptCoachEnabled() || promptCoachDismissed(sessionId)) continue;
+      this.coachAsked.add(coachId);
+      this.typed("_acpmux/prompt_coach", { sessionId, coachId }).catch((error: unknown) =>
+        console.debug("cmux: prompt coach request failed", error),
+      );
+    }
+  }
+  /// The prompt coach card's ×: the chat never draws one again on this device, and its row goes. The
+  /// row goes only when it is that chat's, not a card a switch drew since.
+  dismissPromptCoach(rowId: string, sessionId: string): void {
+    if (!sessionId) return;
+    rememberPromptCoachDismissed(sessionId);
+    if (this.rows.get(rowId)?.coach?.sessionId !== sessionId) return;
     this.rows.delete(rowId);
     this.emit();
   }

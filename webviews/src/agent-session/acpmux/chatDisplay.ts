@@ -109,6 +109,11 @@ export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
 /// cmux-next.json only: the command rules and presets the running tray names background commands
 /// with (session-info/commandLabelSettings.ts; Swift CommandLabelsSetting). Not part of ChatDisplay.
 export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
+/// Settings > Agent Chat > Prompt Coach, on unless set false: after a chat that took several
+/// corrections, a card shows how its first prompt could have said it all at once
+/// (conversation/PromptCoachCard.tsx). Off, the page asks acpmux for no rewrite and draws no card.
+/// Not part of ChatDisplay.
+export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
 
 /// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
 /// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
@@ -307,6 +312,7 @@ let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
 let featureTipsOn = true;
 let commandLabels = "null";
+let promptCoachOn = true;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -334,6 +340,7 @@ export function setChatDisplay(value: unknown): void {
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] !== false;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
+  const coach = raw[PROMPT_COACH_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
   if (
     same &&
@@ -345,10 +352,12 @@ export function setChatDisplay(value: unknown): void {
     view === transcriptView &&
     nextPresentation === presentation &&
     tips === featureTipsOn &&
-    labels === commandLabels
+    labels === commandLabels &&
+    coach === promptCoachOn
   )
     return;
   commandLabels = labels;
+  promptCoachOn = coach;
   minimapOn = minimap;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
@@ -437,6 +446,12 @@ export const defaultPresentation = (): Presentation => presentation;
 export const useDefaultPresentation = (): Presentation =>
   useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
+/// Whether the prompt coach is on (PROMPT_COACH_KEY): the client reads it before it asks for or
+/// draws a rewrite (direct.ts), and a card already drawn hides when it goes off (rows/PromptCoachRow.tsx).
+export const promptCoachEnabled = (): boolean => promptCoachOn;
+const promptCoachSnapshot = () => promptCoachOn;
+export const usePromptCoachOn = (): boolean =>
+  useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
 const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);

@@ -44,6 +44,7 @@ import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
 import type { InboxNotice } from "./conversation/inboxNotice";
 import { MEMORY_OFFER, memoryCardState, type MemoryOffer } from "./conversation/memoryInbox";
+import { COACH_LINE_PX, coachLines, PROMPT_COACH, type PromptCoach } from "./conversation/promptCoach";
 import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
@@ -441,6 +442,8 @@ export type AcpmuxRow = {
   recap?: AcpmuxRecap;
   /// A memory inbox row's offer (conversation/memoryInbox.ts): facts for the instructions file.
   memory?: MemoryOffer;
+  /// A prompt coach row's rewrite (conversation/promptCoach.ts): the chat's first prompt said at once.
+  coach?: PromptCoach;
   /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
@@ -2220,6 +2223,13 @@ function fallbackRowHeight(
         (card.error ? 22 : 0),
     );
   }
+  // A prompt coach card (conversation/PromptCoachCard.tsx): 12px padding, its 24px label line, 8px,
+  // the rewrite block's 16px padding and 20px lines (at most eight, then it scrolls), 12px padding.
+  // Off in Settings, it draws nothing.
+  if (row.kind === PROMPT_COACH && row.coach)
+    return finish(
+      promptCoachEnabled() ? 12 + 24 + 8 + 16 + coachLines(row.coach.rewrite, width) * COACH_LINE_PX + 12 : 0,
+    );
   // A session start draws nothing (rows/SessionStartRow.tsx): no height, no gap.
   if (row.kind === "sessionStart") return finish(0);
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
@@ -3316,7 +3326,7 @@ import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { currentChatMetrics } from "./chatDisplay";
+import { currentChatMetrics, promptCoachEnabled } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";

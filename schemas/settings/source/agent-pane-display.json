@@ -920,6 +920,33 @@
           ]
         },
         {
+          "key": "agentPane.display.promptCoach",
+          "note": "Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.",
+          "title": {
+            "key": "settings.agentPane.display.promptCoach",
+            "text": "Prompt Coach"
+          },
+          "help": {
+            "key": "settings.agentPane.display.promptCoach.help",
+            "text": "After a chat that took several corrections, shows how its first prompt could have said it all at once."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "prompt",
+            "coach",
+            "rewrite",
+            "corrections",
+            "tips",
+            "one shot",
+            "first prompt",
+            "copy"
+          ]
+        },
+        {
           "key": "agentPane.display.statusVerbs.mode",
           "name": "statusVerbsMode",
           "note": "The live line's short working verbs (webviews/.../statusVerbs.ts). Thinking is the default; Rotate opts into the per-turn -ing verbs and Custom reads the comma list.",

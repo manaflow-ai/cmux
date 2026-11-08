@@ -79,6 +79,9 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let presentationPath = ["agentPane", "display", "presentation"]
     nonisolated static let presentationDefault = "transcript"
     nonisolated static let presentationValues = ["transcript", "messages"]
+    /// `agentPane.display.promptCoach`: Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.
+    nonisolated static let promptCoachPath = ["agentPane", "display", "promptCoach"]
+    nonisolated static let promptCoachDefault = true
     /// `agentPane.display.statusVerbs.mode`: The live line's short working verbs (webviews/.../statusVerbs.ts). Thinking is the default; Rotate opts into the per-turn -ing verbs and Custom reads the comma list.
     nonisolated static let statusVerbsModePath = ["agentPane", "display", "statusVerbs", "mode"]
     nonisolated static let statusVerbsModeDefault = "thinking"

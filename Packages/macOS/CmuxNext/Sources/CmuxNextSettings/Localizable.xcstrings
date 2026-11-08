@@ -165775,6 +165775,270 @@
         }
       }
     },
+    "settings.agentPane.display.promptCoach": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Coach"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مدرب الطلبات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Savjetnik za upite"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-coach"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-Coach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asesor de prompts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach de prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach dei prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトコーチ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រូបង្វឹកប្រអប់បញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프롬프트 코치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ledetekst-coach"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trener promptów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach de prompts"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помощник по запросам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โค้ชพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstem koçu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помічник із запитів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Huấn luyện lời nhắc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示词教练"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示詞教練"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.promptCoach.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After a chat that took several corrections, shows how its first prompt could have said it all at once."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد محادثة احتاجت إلى عدة تصحيحات، يعرض كيف كان يمكن لطلبها الأول أن يقول كل شيء دفعة واحدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon razgovora koji je trebao nekoliko ispravki, pokazuje kako je prvi upit mogao sve reći odjednom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter en chat, der krævede flere rettelser, vises hvordan den første prompt kunne have sagt det hele på én gang."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt nach einem Chat mit mehreren Korrekturen, wie der erste Prompt alles auf einmal hätte sagen können."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras un chat que necesitó varias correcciones, muestra cómo su primer prompt podría haberlo dicho todo de una vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après une discussion qui a demandé plusieurs corrections, montre comment le premier prompt aurait pu tout dire d'un coup."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo una chat che ha richiesto diverse correzioni, mostra come il primo prompt avrebbe potuto dire tutto in una volta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何度か修正が必要だったチャットのあとに、最初のプロンプトで一度に伝える書き方を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពីការជជែកដែលត្រូវកែតម្រូវច្រើនដង បង្ហាញពីរបៀបដែលប្រអប់បញ្ចូលដំបូងអាចនិយាយទាំងអស់ក្នុងពេលតែមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여러 번 고쳐야 했던 채팅이 끝나면, 첫 프롬프트로 한 번에 말할 수 있었던 방법을 보여줍니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter en chat som trengte flere rettelser, viser hvordan den første ledeteksten kunne ha sagt alt på én gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po czacie, który wymagał kilku poprawek, pokazuje, jak pierwszy prompt mógł powiedzieć wszystko od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depois de um chat que precisou de várias correções, mostra como o primeiro prompt poderia ter dito tudo de uma vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После чата, где понадобилось несколько исправлений, показывает, как первый запрос мог сказать всё сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจากแชตที่ต้องแก้ไขหลายครั้ง จะแสดงว่าพรอมต์แรกจะบอกทุกอย่างได้ในครั้งเดียวอย่างไร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Birkaç düzeltme gerektiren bir sohbetten sonra, ilk istemin her şeyi tek seferde nasıl söyleyebileceğini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після чату, де знадобилося кілька виправлень, показує, як перший запит міг сказати все одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau một cuộc trò chuyện cần sửa nhiều lần, cho thấy lời nhắc đầu tiên có thể nói hết mọi thứ cùng lúc như thế nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在需要多次修正的对话之后，显示第一条提示词如何一次说清所有内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在需要多次修正的對話之後，顯示第一則提示詞如何一次說清所有內容。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.trayTucked": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
