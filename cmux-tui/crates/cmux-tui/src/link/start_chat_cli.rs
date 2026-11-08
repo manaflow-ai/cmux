@@ -74,7 +74,7 @@ cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
 cmux link start-chat reserve|release --request JSON (the session credential on stdin)\n       \
-cmux link start-chat warm-spare --request JSON (the session credential on stdin)\n       \
+cmux link start-chat warm-spare --request JSON (the session credential, then the install token, on stdin)\n       \
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
 
 /// The error code a work root the machine's user cannot write answers with:

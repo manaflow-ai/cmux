@@ -133,38 +133,36 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return read.object ?? Data(#"{"ok":false,"error_code":"bad_answer"}"#.utf8)
     }
 
-    /// A fresh spare warm (``startChatWarmSpare(platform:team:account:access:)``), bound to the one identity that asked.
+    /// The login copy a fresh spare warm asks for (``startChatWarmSpare(platform:account:access:install:)``): Rust's
+    /// `copy`, answered only for a machine the person owns, in the backend team it warmed.
     public struct SpareWarm: Sendable, Equatable {
         public var machineID: String
-        /// The platform's answer for the machine (vm_kind) to `account` in `team`: "owner" only is a pre-copy target.
-        public var vmKind: String?
-        /// The account and team the warm was asked for; its answer means nothing for any other.
+        /// The account and the backend team (`team_…`, the install token's) the warm was asked for.
         public var account: String
-        public var team: String?
+        public var team: String
 
-        public init(machineID: String, vmKind: String?, account: String, team: String?) {
-            (self.machineID, self.vmKind, self.account, self.team) = (machineID, vmKind, account, team)
+        public init(machineID: String, account: String, team: String) {
+            (self.machineID, self.account, self.team) = (machineID, account, team)
         }
 
-        /// Whether the person's login may be pre-copied onto this machine now: the signed-in account and team are still
-        /// the ones the warm was asked for, and that person owns the machine. Never a team guest: nobody asked for this copy.
+        /// Whether the copy may still go: the signed-in account and the install token's team are the warm's.
         public func copyAllowed(account current: String?, team currentTeam: String?) -> Bool {
-            vmKind == "owner" && current == account && currentTeam == team
+            current == account && currentTeam == team
         }
     }
 
-    /// `cmux link start-chat warm-spare --request JSON`, the session `access` token on stdin: the person's spare, warmed.
-    /// Nil when Rust's policy answered from its record (not fresh), there is no spare, or the call failed.
-    public func startChatWarmSpare(platform: URL, team: String?, account: String, access: String) async -> SpareWarm? {
+    /// `cmux link start-chat warm-spare --request JSON`, the session `access` token then the `install` token on stdin:
+    /// the person's spare, warmed. Rust reads the team from the install token and refuses without one. Nil when there
+    /// is nothing to copy: an answer from the record, no spare, a machine they do not own, or a refusal.
+    public func startChatWarmSpare(platform: URL, account: String, access: String, install: String) async -> SpareWarm? {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        var request: [String: String] = ["platform": platform.absoluteString, "account": account]
-        request["team"] = team
-        guard let payload = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
+        guard let payload = try? JSONSerialization.data(withJSONObject: ["platform": platform.absoluteString, "account": account], options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
-                                        stdin: Data((access + "\n").utf8)),
+                                        stdin: Data((access + "\n" + install + "\n").utf8)),
               let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
-              reply["fresh"] as? Bool == true, let machineID = reply["machine"] as? String else { return nil }
-        return SpareWarm(machineID: machineID, vmKind: reply["vm_kind"] as? String, account: account, team: team)
+              let copy = reply["copy"] as? [String: Any], let machineID = copy["machine"] as? String,
+              copy["account"] as? String == account, let team = copy["team"] as? String else { return nil }
+        return SpareWarm(machineID: machineID, account: account, team: team)
     }
 
     /// `cmux link start-chat plan --request JSON`, the cmux `access` token on stdin.
