@@ -345,6 +345,17 @@
       "title" : "Start New Chats In",
       "type" : "string"
     },
+    "agentPane.savedPrompts" : {
+      "default" : {
+
+      },
+      "description" : "Prompts every chat's / menu offers: a name and its text. Typing /name writes the text into the composer, with {{date}}, {{time}}, {{folder}} and {{branch}} filled in.",
+      "properties" : {
+
+      },
+      "title" : "Saved Prompts",
+      "type" : "object"
+    },
     "agentPane.scrollToBottomOnSend" : {
       "default" : true,
       "description" : "When off, sending while you are reading up keeps your place and shows new messages below.",
@@ -2976,6 +2987,27 @@
         "hosted"
       ],
       "title" : "Engine",
+      "type" : "string"
+    },
+    "home.chiefPanel.seesScreen" : {
+      "default" : true,
+      "description" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off.",
+      "title" : "Chief Sees Your Screen When It Opens",
+      "type" : "boolean"
+    },
+    "home.chiefPanel.style" : {
+      "default" : "composeBar",
+      "description" : "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip.",
+      "enum" : [
+        "composeBar",
+        "pill",
+        "card",
+        "panel",
+        "bubble",
+        "seeThrough",
+        "seeThroughBar"
+      ],
+      "title" : "Floating Chief Style",
       "type" : "string"
     },
     "home.chiefPetEnabled" : {
