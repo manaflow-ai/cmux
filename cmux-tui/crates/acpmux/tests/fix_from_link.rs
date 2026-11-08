@@ -34,7 +34,7 @@ fn hub() -> Arc<Hub> {
 async fn call(hub: &Arc<Hub>, method: &str, params: Value) -> Value {
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, mut out_rx) = mpsc::channel(4096);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::LocalApp));
     in_tx.send(Message::request(1, method, params).to_line()).await.unwrap();
     loop {
         let line =
@@ -89,12 +89,24 @@ async fn issue_link_creates_fix_worktree_and_chat() {
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "first"]);
 
     let daemon = hub();
-    let result = call(
-        &daemon,
-        "chat.fix_from_link",
-        json!({"url": "https://github.com/acme/widget/issues/12", "cwd": repo}),
-    )
-    .await;
+    let trust = acpmux::trust::Paths {
+        claude_json: home.join("claude.json"),
+        codex_config: home.join("codex.toml"),
+        record: home.join("trust.json"),
+        agent_home: None,
+        cmux_worktrees: Some(home.join(".cmux/worktrees")),
+    };
+    daemon.set_trust_gate(Some(trust.clone()));
+    let params = json!({"url": "https://github.com/acme/widget/issues/12", "cwd": repo});
+    let pending = call(&daemon, "chat.fix_from_link", params.clone()).await;
+    assert_eq!(pending["error"]["data"]["reason"], "trust.pending", "{pending}");
+    assert!(!home.join(".cmux/worktrees").exists());
+    acpmux::trust::set(&trust, repo.to_str().unwrap(), "untrusted").unwrap();
+    let declined = call(&daemon, "chat.fix_from_link", params.clone()).await;
+    assert_eq!(declined["error"]["data"]["reason"], "trust.untrusted", "{declined}");
+    assert!(!home.join(".cmux/worktrees").exists());
+    acpmux::trust::set(&trust, repo.to_str().unwrap(), "trusted").unwrap();
+    let result = call(&daemon, "chat.fix_from_link", params).await;
     assert!(result.get("error").is_none(), "{result}");
     assert_eq!(result["result"]["branch"], "fix/12-fix-widget");
     assert!(result["result"]["sessionId"].as_str().is_some());

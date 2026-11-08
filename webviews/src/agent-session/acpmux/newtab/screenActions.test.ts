@@ -17,9 +17,7 @@ test("fix-from-link selects the created chat while New Tab stays mounted", async
     runShell: () => {},
   });
 
-  actions.onFixFromLink?.("https://github.com/acme/widget/issues/12");
-  await Promise.resolve();
-  await Promise.resolve();
+  await actions.onFixFromLink?.("https://github.com/acme/widget/issues/12");
 
   expect(calls).toEqual(["chat.fix_from_link", "select:session-fix-12"]);
   expect(params).toEqual({ url: "https://github.com/acme/widget/issues/12", cwd: "/tmp/widget" });
@@ -39,9 +37,7 @@ test("fix-from-link sends the project picked on the page", async () => {
     runShell: () => {},
   });
 
-  actions.onFixFromLink?.("https://github.com/acme/widget/issues/13", "/tmp/picked-checkout");
-  await Promise.resolve();
-  await Promise.resolve();
+  await actions.onFixFromLink?.("https://github.com/acme/widget/issues/13", "/tmp/picked-checkout");
 
   expect(params).toEqual({ url: "https://github.com/acme/widget/issues/13", cwd: "/tmp/picked-checkout" });
 });
