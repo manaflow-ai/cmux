@@ -272,12 +272,19 @@ final class ScreenContentView: NSView {
                 (arrivals, handoff) = (played.arrivals, (giver, played.slide))
             }
         }
-        let departing = (zooming ? animate : splits) && structural && arrivals.isEmpty
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // ZOOM VARIANTS film selector (never merged): Z1-Z3 snap the zoom to its final frames (`ScreenContentView+FilmZoom`).
+        let filmZoom = structural && (zooming || unzooming) ? DesignSettings.shared.filmZoom.active : nil
+        let filmSnaps = filmZoom != nil
+        #else
+        let filmSnaps = false
+        #endif
+        let departing = (zooming ? animate : splits) && structural && arrivals.isEmpty && !filmSnaps
             && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
         // An unzoom: the other panes come back in place under the zoomed one, which springs back to its slot.
-        let returning = animate && structural && unzooming
+        let returning = animate && structural && unzooming && !filmSnaps
         // A zoom: the zoomed pane covers the other panes, which stay as they are under it (`PaneZoomMotion`).
-        let covering = animate && structural && zooming
+        let covering = animate && structural && zooming && !filmSnaps
         if structural { zoomMotion.begin(covering ? baseGeometry.panes.keys.first : returning ? paneFrames.keys.first { baseGeometry.panes[$0] != nil } : nil, in: baseGeometry, variant: motionState.current) }
         // A split still springing when the next structural update lands (the daemon's echo of the
         // split moves the tab into the new pane ~75 ms in) keeps springing from where it shows,
@@ -299,7 +306,7 @@ final class ScreenContentView: NSView {
         closingPanes.carry(drift: drift, viewShift: carried ? baseGeometry.viewShift(offset: offset) : nil)
         // A release seeds only the layout it made (`releasedDivider` from this gesture, not a stale one).
         if let released = releasedDivider, CACurrentMediaTime() - released.time > 0.5 { releasedDivider = nil }
-        let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
+        let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits) && !filmSnaps
         // A structural change that snaps may show at the next tick, its terminals drawn ahead (CLOSE MOTION 3).
         let holdsSnap = snapWaitsForFrame && structural && !animateFrames
         if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
@@ -350,6 +357,9 @@ final class ScreenContentView: NSView {
         }
         // Out of a zoom: the covered panes it kept that this layout did not take back (closed while zoomed) go now.
         if structural, !zoomed { context.releaseRetired(of: screenID, until: .zoom) }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let filmZoom { prepareFilmZoom(filmZoom, zooming: zooming, before: before, after: baseGeometry) }
+        #endif
         var closing: [(pane: PaneID, frame: AnimatedFrame?)] = []
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             let frame = paneFrames.removeValue(forKey: pane)
@@ -461,6 +471,10 @@ final class ScreenContentView: NSView {
         // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
         // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
         if structural { forcesPresentation = true }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        frameInput.filmSnapSendsGrid = filmSnaps
+        defer { frameInput.filmSnapSendsGrid = false }
+        #endif
         if holdsSnap, !holdsSnapForContent() { releaseSnapDeparted() }
         if presents { applyPresentation() }
         let moving = animate && hasMotion

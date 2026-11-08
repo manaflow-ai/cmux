@@ -26,7 +26,12 @@ extension ScreenContentView {
                 .pixelEdges(scale)
             guard placed.size != host.frame.size else { continue }
             resized = true
-            host.drawAhead(sizeChange: CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height), keyPress: false)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            let keyPress = frameInput.filmSnapSendsGrid
+            #else
+            let keyPress = false
+            #endif
+            host.drawAhead(sizeChange: CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height), keyPress: keyPress)
         }
         guard resized else { return false }
         (frameInput.snapWaitsForContent, frameInput.presentationWaiting) = (true, true)

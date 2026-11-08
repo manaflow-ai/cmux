@@ -57,6 +57,14 @@ import Foundation
             guard let screen = store.screensByHandle[handle], screen.pinned != pinned else { return nil }
             screen.pinned = pinned
             return .screenPinned(screen: handle, pinned: !pinned)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        case .zoomPane(let handle, let pane):
+            guard let screen = store.screensByHandle[handle], screen.zoomedPane != pane,
+                  pane.map({ zoomed in screen.panes.contains { $0.handle == zoomed } }) ?? true else { return nil }
+            let previous = screen.zoomedPane
+            screen.zoomedPane = pane
+            return .screenZoom(screen: handle, pane: previous)
+        #endif
         case .renameWorkspace(let key, let name):
             guard let workspace = store.workspacesByKey[key], workspace.name != name else { return nil }
             let previous = workspace.name
@@ -194,6 +202,10 @@ import Foundation
             store.screensByHandle[screen]?.icon = icon
         case .screenPinned(let screen, let pinned):
             store.screensByHandle[screen]?.pinned = pinned
+        #if DEBUG || CMUX_BENCH_HOOKS
+        case .screenZoom(let screen, let pane):
+            store.screensByHandle[screen]?.zoomedPane = pane
+        #endif
         case .workspaceName(let key, let name):
             store.workspacesByKey[key]?.setName(name)
         case .workspaceColor(let key, let color):

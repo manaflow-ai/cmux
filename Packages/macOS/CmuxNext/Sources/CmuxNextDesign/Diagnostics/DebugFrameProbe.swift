@@ -58,6 +58,10 @@ public final class DebugFrameProbe {
             return stats
         case "reset":
             clear()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        case let film where film.hasPrefix("zoom_variant"):
+            return FilmZoomVariant.select(film)
+        #endif
         default:
             break
         }

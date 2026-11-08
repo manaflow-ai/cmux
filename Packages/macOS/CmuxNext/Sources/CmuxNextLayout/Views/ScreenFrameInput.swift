@@ -16,4 +16,11 @@ struct ScreenFrameInput {
     var snapWaitsForContent = false
     /// The panes that change took out, shown as they were until it shows.
     var snapDeparted: [PaneID] = []
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// ZOOM VARIANTS film selector (never merged): the held snap is a film zoom's, whose terminals send their final grids
+    /// in the key's turn (``PaneHostView`` `drawAhead(sizeChange:keyPress:)` as a key press), not at the landing.
+    var filmSnapSendsGrid = false
+    /// The film zoom's motion (pictures, masks), started by the presentation that shows its final layout.
+    var filmZoomPending: (@MainActor () -> Void)?
+    #endif
 }
