@@ -257,6 +257,42 @@ struct CloudRelayChatLoginTests {
         try await Task.sleep(for: .seconds(2))
     }
 
+    /// The machine's link ends during the login step (prod and staging, 2026-11-06..08: "link ended, owner unknown", then
+    /// "ready ... owner owner" 3 s later). A link that comes back is dialed again and reads its owner, and the chat sends; one
+    /// that stays down answers the retryable `login_pending`, never the terminal `login_unverified`, and sends nothing.
+    @Test func aLinkThatEndsDuringTheLoginIsDialedAgain() async throws {
+        for comesBack in [true, false] {
+            let f = Self.fixture()
+            defer { f.machine.disconnect() }
+            _ = Steps.shared.take()
+            let dials = Box(0)
+            CloudStartSession.bindRelayChat(into: f.services.registry, context: AppActionContext(services: f.services), reason: { nil },
+                                            steps: .init(login: { machine, _, still in
+                                                Steps.shared.append("login")
+                                                await machine.appLink?.end(reason: "down")
+                                                machine.harnessLogin = Self.decision(outcome: "installed")
+                                                try still()
+                                            }, relay: { Self.relay }, link: { machine in
+                                                dials.value += 1
+                                                Steps.shared.append("link")
+                                                guard dials.value == 1 || comesBack else { return false }
+                                                return (try? await machine.appLink?.connect(origin: .script)) != nil
+                                            }))
+            let invoke = try #require(f.services.registry.action(for: "cloudRelayChat")?.invoke)
+            let run = f.services.registry.capturingRun { invoke(Self.invocation(f.machine)) }
+            let fields = try Self.fields(await run.results.first?.value)
+            if comesBack {
+                #expect(fields["delivered"] == .bool(true), "\(fields)")
+                #expect(Steps.shared.take() == ["link", "login", "link", "send"])
+            } else {
+                #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_pending"), "\(fields)")
+                #expect(Steps.shared.take() == ["link", "login", "link"])
+            }
+        }
+    }
+
+    @MainActor final class Box { var value: Int; init(_ value: Int) { self.value = value } }
+
     /// A sign-out or team switch while the login step waited: nothing is sent, and the code is a terminal login one.
     @Test func anAccountChangeDuringTheLoginSendsNothing() async throws {
         let run = try await Self.relayChat(Self.decision(outcome: "installed"), accountChanges: true)
