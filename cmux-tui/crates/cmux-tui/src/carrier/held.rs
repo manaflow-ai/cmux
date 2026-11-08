@@ -10,6 +10,12 @@
 //! while it waits fails at `ticket`. A failed dial fails only its own
 //! connection: the next waiting one dials itself, as each did before.
 //!
+//! Retiring (a credential for another person) never waits for that lock:
+//! it bumps the slot's generation, and a session dialed under an older
+//! generation (a dial still running included) takes no new stream. The
+//! session is closed once its last stream ends, by the next connection, or
+//! by its idle close, whichever comes first.
+//!
 //! Idle close: when a session's last stream ends, it is closed once it has
 //! carried no stream for [`DEFAULT_IDLE`] (one timer per idle spell, which
 //! does nothing if a stream started meanwhile). A machine nothing uses
@@ -41,14 +47,24 @@ pub(super) struct Held {
     /// Bumped by each stream start: an idle close armed before it does
     /// nothing.
     epoch: AtomicU64,
-    /// No new stream may start on it (another person's credential, idle).
+    /// No new stream may start on it (idle).
     retired: AtomicBool,
     closed: AtomicBool,
+    /// The slot's generation when its dial began; a later one retires it.
+    generation: u64,
+    slot_generation: Arc<AtomicU64>,
 }
 
 impl Held {
+    /// No new stream may start on it: idle-closed, or dialed before a
+    /// credential for another person arrived.
+    fn retired(&self) -> bool {
+        self.retired.load(Ordering::Acquire)
+            || self.slot_generation.load(Ordering::Acquire) != self.generation
+    }
+
     fn alive(&self) -> bool {
-        !self.retired.load(Ordering::Acquire)
+        !self.retired()
             && !self.closed.load(Ordering::Acquire)
             && !self.connection.session_unavailable()
             && !self.multiplexer.session_unavailable()
@@ -71,6 +87,8 @@ type Shared = Arc<Mutex<Option<Arc<Held>>>>;
 pub(super) struct Slot {
     held: Shared,
     idle: Duration,
+    /// Bumped by [`Slot::retire`]; read without the lock.
+    generation: Arc<AtomicU64>,
 }
 
 /// One connection's claim on the held session. [`Lease::end`] gives it
@@ -80,6 +98,21 @@ pub(super) struct Lease {
     held: Arc<Held>,
     slot: Shared,
     idle: Duration,
+}
+
+/// Why a connection got no stream. `dialed`: the failure is a dial's,
+/// whose attempts wrote their own route and phases lines; otherwise it
+/// came from the held session (or the wait for another connection's dial)
+/// and nothing has logged it yet.
+pub(super) struct Refused {
+    pub failure: Failure,
+    pub dialed: bool,
+}
+
+impl Refused {
+    fn waiting(failure: Failure) -> Self {
+        Self { failure, dialed: false }
+    }
 }
 
 /// A connection's mux control stream, ready to carry.
@@ -93,7 +126,7 @@ pub(super) struct Stream {
 
 impl Slot {
     pub(super) fn new(idle: Duration) -> Self {
-        Self { held: Arc::new(Mutex::new(None)), idle }
+        Self { held: Arc::new(Mutex::new(None)), idle, generation: Arc::new(AtomicU64::new(0)) }
     }
 
     fn lease(&self, held: &Arc<Held>) -> Lease {
@@ -105,7 +138,7 @@ impl Slot {
     /// A mux control stream for one connection: on the held session when it
     /// is alive, else on a session `dial` makes (and the slot then holds).
     /// Everything stays inside `deadline`; `dial` keeps it itself.
-    pub(super) async fn stream<F, Fut>(&self, deadline: Instant, dial: F) -> Result<Stream, Failure>
+    pub(super) async fn stream<F, Fut>(&self, deadline: Instant, dial: F) -> Result<Stream, Refused>
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<Dialed, Failure>>,
@@ -115,7 +148,7 @@ impl Slot {
         for _ in 0..2 {
             let mut guard = tokio::time::timeout_at(deadline, self.held.lock())
                 .await
-                .map_err(|_| Failure::deadline(Step::Ticket))?;
+                .map_err(|_| Refused::waiting(Failure::deadline(Step::Ticket)))?;
             match guard.as_ref() {
                 Some(held) if held.alive() => {
                     let held = held.clone();
@@ -123,21 +156,22 @@ impl Slot {
                     drop(guard);
                     match on_held(&held, lease, deadline).await {
                         Ok(stream) => return Ok(stream),
-                        Err(Some(failure)) => return Err(failure),
+                        Err(Some(failure)) => return Err(Refused::waiting(failure)),
                         Err(None) => continue,
                     }
                 }
                 Some(_) => {
-                    if let Some(gone) = guard.take() {
-                        gone.retired.store(true, Ordering::Release);
-                        if gone.streams.load(Ordering::Acquire) == 0 {
-                            gone.close().await;
-                        }
+                    if let Some(gone) = guard.take()
+                        && gone.streams.load(Ordering::Acquire) == 0
+                    {
+                        gone.close().await;
                     }
                 }
                 None => {}
             }
-            let Dialed { connection, multiplexer, mux, vmk } = dial().await?;
+            let generation = self.generation.load(Ordering::Acquire);
+            let Dialed { connection, multiplexer, mux, vmk } =
+                dial().await.map_err(|failure| Refused { failure, dialed: true })?;
             let held = Arc::new(Held {
                 connection,
                 multiplexer,
@@ -146,24 +180,31 @@ impl Slot {
                 epoch: AtomicU64::new(0),
                 retired: AtomicBool::new(false),
                 closed: AtomicBool::new(false),
+                generation,
+                slot_generation: self.generation.clone(),
             });
             let lease = self.lease(&held);
             *guard = Some(held);
             return Ok(Stream { mux, vmk, lease, dialed: true });
         }
-        Err(Failure::fatal(Step::Handshake, "the held session refused a stream twice"))
+        Err(Refused::waiting(Failure::fatal(
+            Step::Handshake,
+            "the held session refused a stream twice",
+        )))
     }
 
     /// Later connections dial a new session: a credential for another
-    /// person replaced the one the held session was dialed with. Streams
-    /// already on it keep it until they end.
-    pub(super) async fn retire(&self) {
-        let gone = self.held.lock().await.take();
-        if let Some(gone) = gone {
-            gone.retired.store(true, Ordering::Release);
-            if gone.streams.load(Ordering::Acquire) == 0 {
-                gone.close().await;
-            }
+    /// person replaced the one the held session (or a dial still running)
+    /// used. Streams already on it keep it until they end. Never waits: a
+    /// session nobody uses is closed now only if the slot is free, else by
+    /// the next connection or its idle close.
+    pub(super) fn retire(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        let Ok(mut guard) = self.held.try_lock() else { return };
+        let idle = guard.as_ref().is_some_and(|held| held.streams.load(Ordering::Acquire) == 0);
+        if idle && let Some(gone) = guard.take() {
+            drop(guard);
+            tokio::spawn(async move { gone.close().await });
         }
     }
 
@@ -212,7 +253,7 @@ impl Lease {
         if held.streams.fetch_sub(1, Ordering::AcqRel) != 1 {
             return;
         }
-        if held.retired.load(Ordering::Acquire) {
+        if held.retired() {
             held.close().await;
             return;
         }
