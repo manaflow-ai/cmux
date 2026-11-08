@@ -257,13 +257,18 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let socket = root.path().join("session.sock");
         let listener = UnixListener::bind(&socket).unwrap();
+        // The server answers until the test's own `done` connection, so a
+        // read that stops early fails the asserts below instead of hanging.
         let server = std::thread::spawn(move || {
             let mut asked = Vec::new();
-            for _ in 0..6 {
+            loop {
                 let (stream, _) = listener.accept().unwrap();
                 let mut reader = BufReader::new(stream);
                 let mut line = String::new();
                 reader.read_line(&mut line).unwrap();
+                if line.trim() == "done" {
+                    return asked;
+                }
                 let request: Value = serde_json::from_str(&line).unwrap();
                 let params = &request["params"];
                 let result = match request["operation"].as_str().unwrap() {
@@ -286,9 +291,9 @@ mod tests {
                 let mut stream = reader.into_inner();
                 writeln!(stream, "{response}").unwrap();
             }
-            asked
         });
         let place = read(&socket, "term_1");
+        writeln!(std::os::unix::net::UnixStream::connect(&socket).unwrap(), "done").unwrap();
         let asked = server.join().unwrap();
         assert_eq!(
             place,

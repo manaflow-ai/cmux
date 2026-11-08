@@ -75,10 +75,12 @@ pub(super) fn read_identity(
     caller_terminal: Option<&str>,
 ) -> Result<Value, Failure> {
     let messages = &crate::localization::catalog().pane_cli;
-    let (socket, derived) = super::wire::resolve_socket_with_origin(global).map_err(|error| {
+    // The only failure is an invalid `--session` name; the text is the one
+    // every other command prints for it (wire.rs).
+    let (socket, derived) = super::wire::resolve_socket_with_origin(global).map_err(|_| {
         Failure::Usage(json!({
             "code": "usage.invalid",
-            "message": error.to_string(),
+            "message": crate::localization::catalog().startup.invalid_session_name,
             "details": {},
             "retryable": false,
         }))

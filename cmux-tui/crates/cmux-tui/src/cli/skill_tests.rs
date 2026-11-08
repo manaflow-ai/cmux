@@ -78,8 +78,12 @@ fn pane_cli_skill_every_recipe_command_parses_with_this_cli() {
 /// in the pane it names, so it goes to a pane the recipe split.
 #[test]
 fn pane_cli_skill_no_recipe_runs_in_the_callers_pane() {
-    let runs: Vec<_> =
-        RECIPES.iter().flat_map(|recipe| recipe.commands).filter(|c| c.contains(" run ")).collect();
+    // `pane <id> run`, not a shell command such as `npm run dev` in a write.
+    let runs: Vec<_> = RECIPES
+        .iter()
+        .flat_map(|recipe| recipe.commands)
+        .filter(|command| argv(command).windows(3).any(|w| w[0] == "pane" && w[2] == "run"))
+        .collect();
     assert!(!runs.is_empty());
     for command in runs {
         assert!(command.contains("pane <new-pane> run"), "{command}");
