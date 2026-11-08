@@ -67,8 +67,10 @@ pub const GRANT_TYP: &str = "cmux-carrier+jwt";
 /// The longest a grant may live (`exp - iat`), in seconds.
 pub const MAX_GRANT_LIFETIME_SECS: u64 = 300;
 
-/// The longest grant this verifier reads.
-pub const MAX_GRANT_BYTES: usize = 4096;
+/// The longest grant this verifier reads: room for [`MAX_GRANT_CHATS`]
+/// chats of 128 bytes and a [`MAX_NAME_CHARS`] name of 4-byte characters,
+/// base64url-encoded, within cmux-remote's 16 KiB handshake payload.
+pub const MAX_GRANT_BYTES: usize = 16 * 1024 - 2 * 1024;
 
 /// The most service names a grant may carry.
 pub const MAX_GRANT_SERVICES: usize = 16;
