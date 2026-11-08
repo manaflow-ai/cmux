@@ -205,7 +205,7 @@ async fn a_local_prompt_records_its_provenance_on_its_user_message() {
     assert_eq!(second.pointer("/_meta/origin/actor"), Some(&json!("person")), "{second}");
 }
 
-/// The owner's own `acpmux send` or `cmux chat send` from a plain terminal of their machine is
+/// The owner's own `acpmux send` from a plain terminal of their machine is
 /// their prompt, drawn as their bubble (regression of #37497, manaflow-ai/cmux#37497 comment
 /// 6716711734: it drew as "Unverified sender"). Only what the daemon checks or the CLI declares
 /// tells an agent from them (`requests.rs` `owner_terminal`): a harness claim, a named sender, a

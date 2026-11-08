@@ -3202,7 +3202,7 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
     }
 }
 
-/// Whether an unnamed prompt is the owner's own terminal send (`acpmux send`, `cmux chat send` at
+/// Whether an unnamed prompt is the owner's own terminal send (`acpmux send` at
 /// a plain shell of this machine's user), recorded as the person's prompt as it was before #37497,
 /// so every client draws the owner's bubble.
 ///
