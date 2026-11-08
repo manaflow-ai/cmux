@@ -40,7 +40,7 @@ use cmux_transport::{
 use tokio::sync::{broadcast, watch};
 use tokio::time::Instant;
 
-use crate::probe_schedule::{PathProbe, ProbeConfig};
+use crate::probe_schedule::{PathWatch, ProbeConfig};
 use crate::underlay::{DueProbes, Origin, Received, Underlay, is_transient};
 
 /// Times one carrier is re-polled after a transient receive error before the
@@ -51,17 +51,6 @@ const TRANSIENT_RETRIES: usize = 8;
 const EVENT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 /// Path events a slow subscriber may fall behind before it misses some.
 const EVENT_BACKLOG: usize = 64;
-/// The shortest silence window: below it, scheduling jitter alone would
-/// look like a dead path.
-const SILENCE_FLOOR: std::time::Duration = std::time::Duration::from_millis(100);
-
-/// How long the current path may stay silent, and then leave a probe
-/// unanswered, before the underlay acts: four smoothed round trips, at
-/// least [`SILENCE_FLOOR`].
-pub fn silence_window(rtt_us: Option<u64>) -> std::time::Duration {
-    let rtt = std::time::Duration::from_micros(rtt_us.unwrap_or(0));
-    rtt.saturating_mul(4).max(SILENCE_FLOOR)
-}
 
 /// `path.changed` (transport.md 12a): the path the session uses and how it
 /// performs. Sent on every switch, and every 5 s while the session carries
@@ -96,17 +85,13 @@ struct Slot {
     sent: u64,
     received: u64,
     failed: bool,
-    probe: PathProbe,
+    /// Probes and silence: shared with the mesh's peer paths.
+    watch: PathWatch,
     /// The last round trip measured, smoothed jitter (mean deviation of
     /// successive round trips, RFC 3550 style) and smoothed probe loss.
     last_rtt_us: Option<u64>,
     jitter_us: f64,
     loss_pct: f64,
-    /// The first send on this path since it last delivered an
-    /// authenticated datagram: how long it has been silent.
-    unanswered_since: Option<Instant>,
-    /// The outstanding probe that already made this path suspect.
-    flagged_probe: Option<u64>,
 }
 
 struct Shared {
@@ -346,19 +331,16 @@ impl MultipathControl {
                     .unwrap_or(PathId(shared.next_id));
             };
             let carrier = Box::new(carrier);
-            let probe = PathProbe::default();
             shared.slots.push(Slot {
                 id,
                 carrier,
                 sent: 0,
                 received: 0,
                 failed: false,
-                probe,
+                watch: PathWatch::default(),
                 last_rtt_us: None,
                 jitter_us: 0.0,
                 loss_pct: 0.0,
-                unanswered_since: None,
-                flagged_probe: None,
             });
             (id, shared.waker.take())
         };
@@ -464,7 +446,7 @@ impl Underlay for Multipath {
             }
             slot.carrier.send(datagram);
             slot.sent += 1;
-            slot.unanswered_since.get_or_insert_with(Instant::now);
+            slot.watch.sent(Instant::now());
         }
     }
 
@@ -488,67 +470,22 @@ impl Underlay for Multipath {
         let Some(config) = shared.probes else {
             return DueProbes { pings: Vec::new(), next: next_event };
         };
-        let current = shared.selector.current();
-        let chosen = shared.selector.chosen();
-        let mut due = DueProbes { pings: Vec::new(), next: next_event };
-        let mut lost = Vec::new();
-        let mut silent = Vec::new();
         let Shared { slots, selector, last_probe_id, .. } = &mut *shared;
-        for slot in slots.iter_mut().filter(|slot| !slot.failed) {
-            let Some(view) = selector.path(slot.id) else { continue };
-            let is_current = current == Some(slot.id);
-            // The chosen path's silence: probe it at once when it went
-            // quiet, and make it suspect when that probe is not answered
-            // within the window.
-            let mut silence_at = None;
-            let window = silence_window(view.rtt_us);
-            if chosen == Some(slot.id) {
-                match slot.probe.outstanding() {
-                    Some((probe, sent)) if slot.flagged_probe != Some(probe) => {
-                        if now >= sent + window {
-                            slot.flagged_probe = Some(probe);
-                            silent.push(slot.id);
-                        } else {
-                            silence_at = Some(sent + window);
-                        }
-                    }
-                    Some(_) => {}
-                    None => match slot.unanswered_since {
-                        Some(since) if now >= since + window => slot.probe.due_now(now),
-                        Some(since) => silence_at = Some(since + window),
-                        None => {}
-                    },
-                }
-            }
-            let step = config.step(&mut slot.probe, &view, is_current, last_probe_id, now);
-            if step.lost {
-                lost.push(slot.id);
-            }
-            if let Some(id) = step.ping {
-                due.pings.push((slot.id, id));
-                // A probe just sent on the chosen path (a silence probe
-                // among them) is judged one window from now, not at its
-                // 1 s timeout.
-                if chosen == Some(slot.id) {
-                    let at = now + window;
-                    silence_at = Some(silence_at.map_or(at, |old: Instant| old.min(at)));
-                }
-            }
-            for next in [step.next, silence_at] {
-                due.next = match (due.next, next) {
-                    (Some(a), Some(b)) => Some(a.min(b)),
-                    (a, b) => a.or(b),
-                };
-            }
-        }
-        for id in lost {
+        let live = slots.iter_mut().filter(|slot| !slot.failed);
+        let watched =
+            config.watch(selector, live.map(|slot| (slot.id, &mut slot.watch)), last_probe_id, now);
+        for id in watched.lost {
             shared.probe(id, ProbeOutcome::Lost);
         }
-        for id in silent {
+        for id in watched.silent {
             let _ = shared.selector.on_silence(id);
             shared.publish();
         }
-        due
+        let next = match (next_event, watched.next) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        DueProbes { pings: watched.pings, next }
     }
 
     fn set_max_datagram(&mut self, bytes: usize) {
@@ -559,7 +496,7 @@ impl Underlay for Multipath {
         let mut shared = lock(&self.shared);
         let Some(config) = shared.probes else { return };
         let Some(slot) = shared.slot_mut(path) else { return };
-        if let Some(rtt_us) = config.answer(&mut slot.probe, id, now) {
+        if let Some(rtt_us) = config.answer(&mut slot.watch.probe, id, now) {
             shared.probe(path, ProbeOutcome::Answered { rtt_us });
         }
     }
@@ -628,7 +565,7 @@ impl Underlay for Multipath {
 
     fn authenticated(&mut self, origin: Origin) {
         if let Some(slot) = lock(&self.shared).slot_mut(origin.path) {
-            slot.unanswered_since = None;
+            slot.watch.heard();
             slot.carrier.authenticated(origin);
         }
     }
@@ -651,7 +588,7 @@ impl Underlay for Multipath {
 
 /// A path's medium: where its peer address is in the interface table for a
 /// direct path, else what its kind implies.
-fn medium_for(networks: &[LocalNetwork], kind: PathKind, peer: Option<SocketAddr>) -> Medium {
+pub(crate) fn medium_for(networks: &[LocalNetwork], kind: PathKind, peer: Option<SocketAddr>) -> Medium {
     match peer {
         Some(peer) if kind.class().is_direct() && !networks.is_empty() => {
             medium_of(peer.ip(), networks)

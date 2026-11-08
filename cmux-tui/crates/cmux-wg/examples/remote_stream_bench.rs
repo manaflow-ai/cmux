@@ -27,6 +27,13 @@
 //!   peer address as a path and reports which one carried the stream. Only
 //!   viewer-clock numbers (input to photon, frame gaps, bulk) are reported.
 //!
+//! - `--path wg-mesh` runs the same `--paths` and `--drop-at` through two
+//!   `WgMesh` ends (the `cmux link` and acpmux engine) instead: the viewer's
+//!   peer gets one candidate address per path, the host learns the viewer's
+//!   addresses from its datagrams. The lines marked `bench: candidates` are
+//!   all that needs a mesh with several addresses per peer; without them
+//!   the mode runs against a mesh that holds one.
+//!
 //! `longest_frame_gap_ms` is the longest wait between two frames at the
 //! viewer: a path that dropped shows up there as a stall.
 //!
@@ -46,12 +53,12 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use cmux_wg::testing::config_pair;
+use cmux_wg::testing::{config_pair, random_keypair};
 use cmux_wg::{
     Multipath, MultipathControl, PathId, PathKind, Priority, ProbeConfig, SocketPath, WgNet,
 };
@@ -881,6 +888,109 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
+/// One overlay address of a bench mesh end.
+fn mesh_address(last: u16) -> cmux_wg::InterfaceAddress {
+    cmux_wg::InterfaceAddress {
+        address: IpAddr::V6(Ipv6Addr::new(0xfd7c, 0x6d78, 0, 0, 0, 0, 0, last)),
+        prefix: 128,
+    }
+}
+
+fn mesh_end(socket: UdpSocket, private: [u8; 32], last: u16) -> io::Result<cmux_wg::WgMesh> {
+    let config = cmux_wg::WgMeshConfig {
+        private_key: zeroize::Zeroizing::new(private),
+        addresses: vec![mesh_address(last)],
+        mtu: cmux_wg::DEFAULT_MTU,
+    };
+    cmux_wg::WgMesh::start(config, socket).map_err(|error| io::Error::other(error.to_string()))
+}
+
+/// Two mesh ends: the host on one loopback socket behind one in-process
+/// link per `--paths` entry, and the viewer, whose host peer has a
+/// candidate per link. Returns the cut switch of each link.
+async fn start_wg_mesh(
+    args: &Args,
+) -> io::Result<(cmux_wg::WgMesh, cmux_wg::WgMesh, SocketAddr, Vec<Arc<AtomicBool>>)> {
+    let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
+    let host_socket = UdpSocket::bind("127.0.0.1:0").await?;
+    let host_udp = host_socket.local_addr()?;
+    let (host_private, host_public) = random_keypair();
+    let (viewer_private, viewer_public) = random_keypair();
+    let host = mesh_end(host_socket, host_private, 2)?;
+    let viewer = mesh_end(UdpSocket::bind("127.0.0.1:0").await?, viewer_private, 1)?;
+    let mut cuts = Vec::new();
+    let mut fronts = Vec::new();
+    for (kind, rtt_ms) in &args.paths {
+        let cut = Arc::new(AtomicBool::new(false));
+        fronts.push((*kind, impair_cuttable(host_udp, *rtt_ms, args.loss_pct, cut.clone()).await?));
+        cuts.push(cut);
+    }
+    let first = fronts.first().map(|(_, front)| *front).ok_or_else(|| io::Error::other("--paths"))?;
+    // bench: candidates begin
+    let candidates = fronts
+        .iter()
+        .map(|(kind, address)| cmux_wg::PeerCandidate { address: *address, kind: Some(*kind) })
+        .collect();
+    // bench: candidates end
+    let host_network = cmux_wg::IpNetwork::new(mesh_address(2).address, 128).map_err(io::Error::other)?;
+    let viewer_network = cmux_wg::IpNetwork::new(mesh_address(1).address, 128).map_err(io::Error::other)?;
+    viewer
+        .add_peer(cmux_wg::WgPeer {
+            public_key: host_public,
+            preshared_key: None,
+            allowed_ips: vec![host_network],
+            route: Some(first.into()),
+            candidates, // bench: candidates
+            persistent_keepalive: None,
+        })
+        .await
+        .map_err(err)?;
+    host.add_peer(cmux_wg::WgPeer {
+        public_key: viewer_public,
+        preshared_key: None,
+        allowed_ips: vec![viewer_network],
+        route: None,
+        candidates: Vec::new(), // bench: candidates
+        persistent_keepalive: None,
+    })
+    .await
+    .map_err(err)?;
+    Ok((viewer, host, SocketAddr::new(mesh_address(2).address, STREAM_PORT), cuts))
+}
+
+/// `--path wg-mesh`: the `--paths` stream, cut and bulk runs through two
+/// mesh ends.
+async fn run_wg_mesh(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
+    let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
+    if args.paths.is_empty() {
+        return Err(io::Error::other("--path wg-mesh needs --paths"));
+    }
+    let (viewer_net, host_net, target, cuts) = start_wg_mesh(args).await?;
+    if let Some((at, index)) = args.drop_at
+        && let Some(cut) = cuts.get(index).cloned()
+    {
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(at)).await;
+            cut.store(true, Ordering::Relaxed);
+        });
+    }
+    let mut listener = host_net.listen(STREAM_PORT).await.map_err(err)?;
+    let viewer = viewer_net.connect(target).await.map_err(err)?;
+    let (host, _) = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
+    stream_session(host, viewer, args, clock, record.clone()).await;
+    viewer_net.shutdown().await;
+    host_net.shutdown().await;
+    // Bulk on a fresh pair over the same path set, nothing cut.
+    let (viewer_net, host_net, target, _cuts) = start_wg_mesh(args).await?;
+    let mut listener = host_net.listen(BULK_PORT).await.map_err(err)?;
+    let viewer = viewer_net.connect(SocketAddr::new(target.ip(), BULK_PORT)).await.map_err(err)?;
+    let (host, _) = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
+    lock(&record).bulk_mbit_s = bulk(host, viewer, args.bulk_bytes).await;
+    viewer_net.shutdown().await;
+    host_net.shutdown().await;
+    Ok(())
+}
+
 async fn run_one_process(
     args: &Args,
     path: &str,
@@ -895,6 +1005,7 @@ async fn run_one_process(
         "tcp" => run_tcp(&args, clock, record.clone()).await?,
         "wg-tcp" => run_wg_tcp(&args, clock, record.clone()).await?,
         "wg-dgram" => run_wg_dgram(&args, clock, record.clone()).await?,
+        "wg-mesh" => run_wg_mesh(&args, clock, record.clone()).await?,
         other => return Err(io::Error::other(format!("unknown path {other}"))),
     }
     Ok(())
