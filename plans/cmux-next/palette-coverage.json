@@ -576,8 +576,7 @@
       "verb": "chief edit"
     },
     {
-      "verb": "chief engine",
-      "palette": "home.toggleChiefSettings"
+      "verb": "chief engine"
     },
     {
       "verb": "chief list",
@@ -604,7 +603,7 @@
     },
     {
       "verb": "chief stop",
-      "palette": "agentPane.stopTurn"
+      "palette": "home.stopChief"
     },
     {
       "verb": "chief usage",
@@ -778,8 +777,7 @@
       "reason": "keep: a read for scripts and agents (branches); the app shows the same state on screen"
     },
     {
-      "verb": "git checkpoint create",
-      "palette": "agentPane.createCheckpoint"
+      "verb": "git checkpoint create"
     },
     {
       "verb": "git checkpoint diff",
@@ -884,7 +882,7 @@
     },
     {
       "verb": "harness install",
-      "palette": "agent.harness.updateAll"
+      "palette": "agent.harness.addFromRegistry"
     },
     {
       "verb": "harness list",
@@ -1180,7 +1178,7 @@
     },
     {
       "verb": "pane swap",
-      "palette": "palette.swapWithSession"
+      "palette": "swapPaneLeft"
     },
     {
       "verb": "pane viewport width set",
