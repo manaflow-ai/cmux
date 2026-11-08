@@ -230,15 +230,26 @@ import os
 
     /// Review 4 of #38056 (P2): a frame that encoded but whose write failed still removed the key's other file, so the
     /// next launch had no frame (base kept its one file when a write failed). A key's other files go only after its new
-    /// file is written. The write fails here because a folder holds the new file's name.
+    /// file is written. The write fails here because a folder holds the new file's name. Review 5 (P2): the read then
+    /// chose that newer name and never fell back to the older file; it takes the newest file of a key that decodes.
     @Test func aFailedWriteKeepsTheSavedFrame() async throws {
-        let directory = try await Self.saved(["tab-1": Self.solid(Self.size, scale: 2, red: 0.9, green: 0.1, blue: 0.1)])
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let size = pane.session.surfaceView.bounds.size, scale = pane.window.backingScaleFactor, at = Int(scale)
+        let directory = try await Self.saved(["tab-1": Self.solid(size, scale: scale, red: 0.9, green: 0.1, blue: 0.1)])
         defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory.appending(path: "tab-1@2x.png/blocked"), withIntermediateDirectories: true)
-        let clear = try #require(Self.frame(Self.size, scale: 2).cgImage(forProposedRect: nil, context: nil, hints: nil))
-        TerminalLaunchFrames.writeOne(clear, key: "tab-1", scale: 2, to: directory, keeping: nil)
-        #expect(FileManager.default.fileExists(atPath: directory.appending(path: "tab-1@2x.jpg").path),
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -60)],
+                                              ofItemAtPath: directory.appending(path: "tab-1@\(at)x.jpg").path)
+        try FileManager.default.createDirectory(at: directory.appending(path: "tab-1@\(at)x.png/blocked"), withIntermediateDirectories: true)
+        let clear = try #require(Self.frame(size, scale: scale).cgImage(forProposedRect: nil, context: nil, hints: nil))
+        TerminalLaunchFrames.writeOne(clear, key: "tab-1", scale: at, to: directory, keeping: nil)
+        #expect(FileManager.default.fileExists(atPath: directory.appending(path: "tab-1@\(at)x.jpg").path),
                 "a write that failed removed the key's saved frame")
+        let frames = await Self.launch(directory)
+        #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal),
+                "the read chose the newer name that does not decode and did not fall back to the saved frame")
     }
 
     /// The alpha at the center of `image` (0...255).
