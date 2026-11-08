@@ -35,6 +35,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.cloud",
         "cmux.cloud-progress",
         "cmux.coderouter",
+        "cmux.cookie-import",
         "cmux.debug-settings",
         "cmux.diff",
         "cmux.editor",
@@ -51,6 +52,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.machines",
         "cmux.markdown",
         "cmux.mobile-pairing",
+        "cmux.onboarding",
         // What shows over a window's content (dialogs).
         "cmux.overlay",
         "cmux.page-info",
