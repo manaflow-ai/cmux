@@ -6,12 +6,12 @@
 ///
 /// - `home.chiefDock.edge`: the edge the Chief docks to (its panel's Dock button): `left` (the default), `right`,
 ///   `top` or `bottom`.
+/// - `home.chiefPanel.style`: how the floating Chief looks: `composeBar` (the default: only the message box, which
+///   grows into the chat with the keys), `pill`, `card`, `panel` or `bubble`.
 /// - `home.chiefDock.openBeside`: a workspace, tab or subagent link clicked in the Chief opens its workspace with the
 ///   Chief floating over it; on when unset.
 public nonisolated struct ChiefDockSetting {
     public nonisolated init() {}
-    /// `home.chiefPanel.style`.
-    public static let stylePath = ["home", "chiefPanel", "style"]
 
     /// The edge; one that is not an edge is the default plus a diagnostic.
     static func parseEdge(_ root: JSONValue) -> (String, SettingsDiagnostic?) {
@@ -21,5 +21,15 @@ public nonisolated struct ChiefDockSetting {
                                                     message: "expected one of " + edgeValues.joined(separator: ", ")))
         }
         return (edge, nil)
+    }
+
+    /// The style; one that is not a style is the default plus a diagnostic.
+    static func parseStyle(_ root: JSONValue) -> (String, SettingsDiagnostic?) {
+        guard let value = root.value(at: stylePath) else { return (styleDefault, nil) }
+        guard let style = value.stringValue, styleValues.contains(style) else {
+            return (styleDefault, SettingsDiagnostic(kind: .invalidValue, path: stylePath.joined(separator: "."),
+                                                     message: "expected one of " + styleValues.joined(separator: ", ")))
+        }
+        return (style, nil)
     }
 }

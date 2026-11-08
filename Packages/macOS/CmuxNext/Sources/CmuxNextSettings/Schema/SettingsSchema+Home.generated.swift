@@ -58,6 +58,10 @@ extension ChiefDockSetting {
     public nonisolated static let edgePath = ["home", "chiefDock", "edge"]
     public nonisolated static let edgeDefault = "left"
     public nonisolated static let edgeValues = ["left", "right", "top", "bottom"]
+    /// `home.chiefPanel.style`: The compose bar: the least on screen that still takes a message (user 2026-11-07).
+    public nonisolated static let stylePath = ["home", "chiefPanel", "style"]
+    public nonisolated static let styleDefault = "composeBar"
+    public nonisolated static let styleValues = ["composeBar", "pill", "card", "panel", "bubble"]
     /// `home.chiefDock.openBeside`: On: a link clicked in the Chief opens its workspace with the Chief floating over it.
     public nonisolated static let openBesidePath = ["home", "chiefDock", "openBeside"]
     public nonisolated static let openBesideDefault = true
@@ -259,6 +263,22 @@ nonisolated enum HomeSettingsSchema {
                 ]),
                 default: .string(ChiefDockSetting.edgeDefault),
                 keywords: ["chief", "dock", "window", "edge", "left", "right", "top", "bottom", "side", "home"]
+            ),
+            SettingDescriptor(
+                ChiefDockSetting.stylePath,
+                section: .home,
+                group: group,
+                title: SettingsText.keyed("settings.home.chiefPanelStyle", "Floating Chief Style"),
+                help: SettingsText.keyed("settings.home.chiefPanelStyle.help", "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip."),
+                kind: .choice([
+                    SettingChoice("composeBar", SettingsText.keyed("settings.choice.chiefPanelStyle.composeBar", "Compose Bar")),
+                    SettingChoice("pill", SettingsText.keyed("settings.choice.chiefPanelStyle.pill", "Pill")),
+                    SettingChoice("card", SettingsText.keyed("settings.choice.chiefPanelStyle.card", "Card")),
+                    SettingChoice("panel", SettingsText.keyed("settings.choice.chiefPanelStyle.panel", "Panel")),
+                    SettingChoice("bubble", SettingsText.keyed("settings.choice.chiefPanelStyle.bubble", "Bubble")),
+                ]),
+                default: .string(ChiefDockSetting.styleDefault),
+                keywords: ["chief", "floating", "style", "compose", "pill", "card", "panel", "bubble", "minimal", "home"]
             ),
             SettingDescriptor(
                 ChiefDockSetting.openBesidePath,

@@ -563,6 +563,73 @@
           }
         },
         {
+          "key": "home.chiefPanel.style",
+          "note": "The compose bar: the least on screen that still takes a message (user 2026-11-07).",
+          "title": {
+            "key": "settings.home.chiefPanelStyle",
+            "text": "Floating Chief Style"
+          },
+          "help": {
+            "key": "settings.home.chiefPanelStyle.help",
+            "text": "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "composeBar",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.composeBar",
+                "text": "Compose Bar"
+              }
+            },
+            {
+              "value": "pill",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.pill",
+                "text": "Pill"
+              }
+            },
+            {
+              "value": "card",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.card",
+                "text": "Card"
+              }
+            },
+            {
+              "value": "panel",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.panel",
+                "text": "Panel"
+              }
+            },
+            {
+              "value": "bubble",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.bubble",
+                "text": "Bubble"
+              }
+            }
+          ],
+          "default": "composeBar",
+          "keywords": [
+            "chief",
+            "floating",
+            "style",
+            "compose",
+            "pill",
+            "card",
+            "panel",
+            "bubble",
+            "minimal",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "ChiefDockSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "home.chiefDock.openBeside",
           "note": "On: a link clicked in the Chief opens its workspace with the Chief floating over it.",
           "title": {

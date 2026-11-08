@@ -28,6 +28,7 @@ struct ChiefPanelStyleWindowTests {
         f.frame()
         let view = try #require(f.controller.chiefPanelView)
         view.style = style
+        f.controller.focusStagePane(toward: nil) // the keys on the stage: a collapsing style rests
         f.controller.frameChiefPanelDidChange()
         f.frame()
         try #require(f.controller.frameChiefPanelShown, "the link opened no Chief")
@@ -62,8 +63,8 @@ struct ChiefPanelStyleWindowTests {
         defer { f.close() }
         let start = view.frame
         let savedBefore = f.state.chiefPanel.floatingFrame
-        try Self.drag(view, by: CGVector(dx: -420, dy: -160), in: f)
-        #expect(abs(view.frame.minX - (start.minX - 420)) <= 1 && abs(view.frame.minY - (start.minY - 160)) <= 1,
+        try Self.drag(view, by: CGVector(dx: -420, dy: -20), in: f)
+        #expect(abs(view.frame.minX - (start.minX - 420)) <= 1 && abs(view.frame.minY - (start.minY - 20)) <= 1,
                 "\(style): the panel did not follow the hand: \(start) -> \(view.frame)")
         #expect(f.state.chiefPanel.floatingFrame != savedBefore, "\(style): the new place was not kept")
         let left = view.frame
@@ -100,7 +101,7 @@ struct ChiefPanelStyleWindowTests {
         #expect(view.frame == resting, "\(style): without the keys it did not rest again: \(view.frame)")
     }
 
-    @Observable final class StyleBox { var style = ChiefPanelStyle.panel }
+    @MainActor @Observable final class StyleBox { var style = ChiefPanelStyle.panel }
 
     /// The panel follows its style source (the setting) live, and a later change of the source switches it again.
     @Test func thePanelFollowsTheStyleSettingLive() async throws {

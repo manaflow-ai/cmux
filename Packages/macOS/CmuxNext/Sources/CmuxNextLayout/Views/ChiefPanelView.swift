@@ -1,37 +1,41 @@
 public import AppKit
-import CmuxNextDesign
+import CmuxNextCompat
+public import CmuxNextDesign
 
-/// A window's Chief panel on screen (``ChiefPanel``, user 2026-11-06): a slim bar (the Chief's name, Dock or Float,
-/// Hide) over the Chief chat it holds, on the overlay glass. Floating, it has rounded corners and a shadow, its bar
-/// drags it and its rim resizes it; docked, it draws square at its edge. It holds the Chief's own view, which the
-/// window lends it from Home's Chief pane while another workspace shows (``hold(_:)``, ``release()``), so the draft,
-/// scroll and selection are the ones Home shows.
+/// A window's Chief panel on screen (``ChiefPanel``, user 2026-11-06): the Chief chat it holds, on the overlay glass,
+/// in one of the ``ChiefPanelStyle`` looks. Floating, it has rounded corners and a shadow, its grip (the bar, the
+/// strip, or the resting shape's left edge) drags it anywhere in the window and its rim resizes it; docked, it draws
+/// square at its edge under the bar. The collapsing styles rest small while the keys are elsewhere and grow into the
+/// whole chat while the Chief has them. It holds the Chief's own view, which the window lends it from Home's Chief
+/// pane while another workspace shows (``hold(_:)``, ``release()``), so the draft, scroll and selection are the ones
+/// Home shows.
 ///
 /// ```swift
 /// let panel = ChiefPanelView(title: "Chief", actions: .init(toggleDock: dock, hide: hide, moved: save))
+/// panel.follow { settings.chiefPanelStyle }
 /// panel.hold(chiefView)
 /// let stage = panel.place(window.chiefPanel, in: host.bounds, gap: 6) // the stage's area (y runs down)
 /// ```
 @MainActor
-public final class ChiefPanelView: NSView {
+public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     /// What the bar's buttons and the hand moves ask of the window.
     public struct Actions {
         /// Dock (floating) or Float (docked).
         public var toggleDock: @MainActor () -> Void
         /// Hide.
         public var hide: @MainActor () -> Void
-        /// A drag or a resize ended at this frame, in the superview's coordinates (y up).
-        public var moved: @MainActor (NSRect) -> Void
+        /// A drag or a resize ended: the floating place to keep.
+        public var moved: @MainActor (ChiefPanelFrame) -> Void
         /// Stop the Chief's answer (Esc while it answers).
         public var stop: @MainActor () -> Void
 
         /// - Parameters:
         ///   - toggleDock: Dock or Float.
         ///   - hide: Hide.
-        ///   - moved: A drag or resize ended at this frame.
+        ///   - moved: A drag or resize ended at this floating place.
         ///   - stop: Stop the Chief's answer; nothing by default.
         public init(toggleDock: @escaping @MainActor () -> Void, hide: @escaping @MainActor () -> Void,
-                    moved: @escaping @MainActor (NSRect) -> Void, stop: @escaping @MainActor () -> Void = {}) {
+                    moved: @escaping @MainActor (ChiefPanelFrame) -> Void, stop: @escaping @MainActor () -> Void = {}) {
             self.toggleDock = toggleDock
             self.hide = hide
             self.moved = moved
@@ -39,10 +43,14 @@ public final class ChiefPanelView: NSView {
         }
     }
 
-    /// The bar's height.
+    /// The bar's height (``ChiefPanelStyle/panel`` and docked).
     public static let barHeight: CGFloat = 30
+    /// The grip strip's height (``ChiefPanelStyle/card`` and the collapsing styles grown).
+    static let stripHeight: CGFloat = 18
     /// How far in from a floating panel's edge a press resizes it.
     static let resizeBand: CGFloat = 6
+    /// The least a collapsing style grows to with the keys.
+    static let grownSize = CGSize(width: 320, height: 360)
 
     /// The bar's buttons and the hand moves.
     public var actions: Actions
@@ -51,22 +59,31 @@ public final class ChiefPanelView: NSView {
     public var chiefIsAnswering: Bool { (chief as? any ChiefPanelContent)?.chiefIsAnswering == true }
     /// Floating (corners, shadow, drag, resize) or docked (square).
     public private(set) var floating = true
-    /// How the floating panel looks (``ChiefPanelStyle``).
-    public var style: ChiefPanelStyle = .panel
-    /// Where a press moves the panel, in this view's coordinates.
+    /// How the floating panel looks; docked it always shows the bar.
+    public var style: ChiefPanelStyle = .default {
+        didSet { if style != oldValue { applyShape() } }
+    }
+    /// Where a press moves the panel (and, resting, a click opens it), in this view's coordinates (y down).
     public var gripRect: NSRect { bar.frame }
-    /// Follows `source` (the setting).
-    public func follow(_ source: @escaping @MainActor () -> ChiefPanelStyle) {}
     /// The Chief view this panel shows now; nil while it is in Home's pane.
     public private(set) weak var chief: NSView?
 
+    private enum Chrome { case bar, strip, rest }
     private let backdrop = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, interactive: true)
     private let bar = NSView()
     private let title: NSTextField
     private let dockButton = NSButton()
     private let hideButton = NSButton()
+    private let gripMark = NSImageView()
+    private let chiefMark = NSImageView()
     private let body = NSView()
-    private var press: (start: NSPoint, frame: NSRect, edges: Set<NSRectEdge>)?
+    /// The floating place (or the docked rect), in the superview (y up): a collapsing style's whole chat.
+    private var expanded = NSRect.zero
+    /// A click on the resting shape grows it until the keys leave.
+    private var holdsOpen = false
+    private var press: (start: NSPoint, frame: NSRect, expanded: NSRect, edges: Set<NSRectEdge>, moved: Bool)?
+    private var styleTask: Task<Void, Never>?
+    private var sourcedStyle: ChiefPanelStyle?
 
     /// - Parameters:
     ///   - title: The bar's name of the Chief.
@@ -88,6 +105,7 @@ public final class ChiefPanelView: NSView {
             button.bezelStyle = .accessoryBarAction
             button.isBordered = false
             button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyDown
             button.setAccessibilityIdentifier(id)
             button.target = self
         }
@@ -96,7 +114,17 @@ public final class ChiefPanelView: NSView {
         let hide = String(localized: "layout.chiefPanel.hide", defaultValue: "Hide the Chief", bundle: .module)
         hideButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: hide)
         hideButton.toolTip = hide
-        for view in [self.title, dockButton, hideButton] { bar.addSubview(view) }
+        let grip = String(localized: "layout.chiefPanel.grip", defaultValue: "Move the Chief", bundle: .module)
+        gripMark.image = NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: grip)
+        gripMark.contentTintColor = .tertiaryLabelColor
+        gripMark.frameCenterRotation = 90
+        bar.toolTip = grip
+        chiefMark.image = NSImage(systemSymbolName: "bubble.left.fill",
+                                  accessibilityDescription: String(localized: "layout.chiefPanel.open", defaultValue: "Open the Chief", bundle: .module))
+        chiefMark.contentTintColor = .controlAccentColor
+        chiefMark.symbolConfiguration = .init(scale: .large)
+        for view in [self.title, dockButton, hideButton, gripMark, chiefMark] { bar.addSubview(view) }
+        body.wantsLayer = true
         addSubview(backdrop)
         addSubview(body)
         addSubview(bar)
@@ -107,22 +135,38 @@ public final class ChiefPanelView: NSView {
     required init?(coder: NSCoder) { nil }
 
     override public var isFlipped: Bool { true }
+    override public var mouseDownCanMoveWindow: Bool { false }
+
+    /// A press in the window's top row on a floating panel moves the panel, never the window; on a docked panel's
+    /// bar it moves the window, as any titlebar background does.
+    public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
+        !floating && bar.frame.contains(convert(windowPoint, from: nil)) && press == nil ? .movesWindow : .staysPut
+    }
+
+    /// Follows `source` (the style setting) live: its value now, then each change.
+    public func follow(_ source: @escaping @MainActor @Sendable () -> ChiefPanelStyle) {
+        styleTask?.cancel()
+        let (first, later) = ObservationStream.current(source)
+        sourcedStyle = first
+        style = first
+        styleTask = Task { [weak self] in
+            for await next in later {
+                guard let self else { return }
+                if next != self.sourcedStyle { self.sourcedStyle = next; self.style = next }
+            }
+        }
+    }
 
     /// Floating or docked: the corners, the shadow and the Dock/Float button follow.
     public func setFloating(_ floating: Bool) {
         self.floating = floating
         applyDockedWorkspaceChrome(floating: floating)
         layer?.masksToBounds = false
-        backdrop.cornerRadius = floating ? Metrics.surfaceCornerRadius : 0
-        body.wantsLayer = true
-        body.layer?.cornerRadius = floating ? Metrics.surfaceCornerRadius : 0
-        body.layer?.masksToBounds = floating
         let label = floating ? String(localized: "layout.chiefPanel.dock", defaultValue: "Dock the Chief to the Side", bundle: .module)
             : String(localized: "layout.chiefPanel.float", defaultValue: "Float the Chief", bundle: .module)
         dockButton.image = NSImage(systemSymbolName: floating ? "sidebar.left" : "macwindow.on.rectangle", accessibilityDescription: label)
         dockButton.toolTip = label
-        window?.invalidateCursorRects(for: self)
-        needsLayout = true
+        applyShape()
     }
 
     /// Takes `view` (the Chief's) into the panel, out of wherever it was; nothing when it is here already.
@@ -130,9 +174,9 @@ public final class ChiefPanelView: NSView {
         guard view.superview !== body else { return }
         chief = view
         view.removeFromSuperview()
-        view.autoresizingMask = [.width, .height]
-        view.frame = body.bounds
+        view.autoresizingMask = []
         body.addSubview(view)
+        needsLayout = true
     }
 
     /// Lets the held view go, for Home's pane to take back; the view it held, nil when none.
@@ -141,6 +185,7 @@ public final class ChiefPanelView: NSView {
         guard let view = chief else { return nil }
         chief = nil
         if view.superview === body { view.removeFromSuperview() }
+        view.autoresizingMask = [.width, .height]
         return view
     }
 
@@ -150,25 +195,35 @@ public final class ChiefPanelView: NSView {
         return responder.isDescendant(of: self)
     }
 
-    /// The held Chief's message box (`target`, else the first view in it that takes the keys) takes the keys.
+    /// The held Chief's message box (`target`, else the first view in it that takes the keys) takes the keys; a
+    /// resting style grows into the chat first.
     public func focusChief(_ target: NSView? = nil) {
         guard let chief, let window else { return }
-        window.makeFirstResponder(target ?? firstKeyView(in: chief) ?? chief)
+        holdsOpen = true
+        applyShape()
+        layoutSubtreeIfNeeded()
+        if !window.makeFirstResponder(target ?? firstKeyView(in: chief) ?? chief), !hasKeys {
+            holdsOpen = false
+            applyShape()
+        }
     }
 
     /// Places the panel for `panel` in its superview's `bounds` (y up) and returns the stage's area (y down): all
-    /// of it under a floating panel, the rest beside a docked one, `gap` apart.
+    /// of it under a floating panel, the rest beside a docked one, `gap` apart. A press in progress keeps the
+    /// panel where the hand has it.
     public func place(_ panel: ChiefPanel, in bounds: CGRect, gap: CGFloat) -> CGRect {
-        var (rect, stage) = panel.split(CGRect(origin: .zero, size: bounds.size))
+        let size = bounds.size
+        var (rect, stage) = panel.split(CGRect(origin: .zero, size: size))
         switch panel.dockedEdge {
         case .left?: stage = CGRect(x: stage.minX + gap, y: stage.minY, width: max(0, stage.width - gap), height: stage.height)
         case .right?: stage.size.width = max(0, stage.width - gap)
         case .top?: stage = CGRect(x: stage.minX, y: stage.minY + gap, width: stage.width, height: max(0, stage.height - gap))
         case .bottom?: stage.size.height = max(0, stage.height - gap)
-        case nil: break
+        case nil: rect = panel.floatingFrame.rect(in: size, minimum: leastFloating)
         }
-        frame = CGRect(x: rect.minX, y: bounds.height - rect.maxY, width: rect.width, height: rect.height).integral
-        window?.invalidateCursorRects(for: self)
+        guard press == nil else { return stage }
+        expanded = CGRect(x: rect.minX, y: size.height - rect.maxY, width: rect.width, height: rect.height).integral
+        applyShape()
         return stage
     }
 
@@ -189,18 +244,119 @@ public final class ChiefPanelView: NSView {
         }
     }
 
+    /// The window's first responder moved (the window tells its panel): a collapsing style grows with the keys and
+    /// rests without them.
+    public func firstResponderDidChange() {
+        guard press == nil else { return }
+        if !hasKeys { holdsOpen = false }
+        if floating && style.collapses { applyShape() }
+    }
+
+    // MARK: Shapes
+
+    private var chrome: Chrome {
+        guard floating else { return .bar }
+        switch style {
+        case .panel: return .bar
+        case .card: return .strip
+        case .composeBar, .pill, .bubble: return holdsOpen || hasKeys ? .strip : .rest
+        }
+    }
+
+    /// The resting shape's size for the style.
+    private var restSize: CGSize {
+        switch style {
+        case .composeBar: CGSize(width: 240, height: 52)
+        case .pill: CGSize(width: 200, height: 40)
+        default: CGSize(width: 44, height: 44)
+        }
+    }
+
+    /// The smallest floating place the style keeps: a collapsing style's place may be as small as its resting shape.
+    private var leastFloating: CGSize { style.collapses ? restSize : ChiefPanelFrame.minimumSize }
+
+    /// The resting shape in `place` (y up): along its bottom, the compose bar full width, the pill and the bubble
+    /// at its right.
+    private func rest(in place: NSRect) -> NSRect {
+        switch style {
+        case .composeBar: return NSRect(x: place.minX, y: place.minY, width: place.width, height: restSize.height)
+        case .pill:
+            let w = min(place.width, 320)
+            return NSRect(x: place.maxX - w, y: place.minY, width: w, height: restSize.height)
+        default: return NSRect(x: place.maxX - restSize.width, y: place.minY, width: restSize.width, height: restSize.height)
+        }
+    }
+
+    /// A collapsing style's chat grown from `place`: at least ``grownSize``, from the same bottom corner, inside the
+    /// window.
+    private func grown(from place: NSRect) -> NSRect {
+        let w = max(place.width, Self.grownSize.width), h = max(place.height, Self.grownSize.height)
+        let x = style == .composeBar ? place.minX : place.maxX - w
+        return inside(NSRect(x: x, y: place.minY, width: w, height: h))
+    }
+
+    /// `rect` moved (and, past the window's size, shrunk) to lie inside the superview.
+    private func inside(_ rect: NSRect) -> NSRect {
+        guard let host = superview?.bounds, host.width > 0, host.height > 0 else { return rect }
+        let w = min(rect.width, host.width), h = min(rect.height, host.height)
+        return NSRect(x: min(max(host.minX, rect.minX), host.maxX - w), y: min(max(host.minY, rect.minY), host.maxY - h), width: w, height: h)
+    }
+
+    /// The floating place that keeps the resting shape at `shape` (y up), from the place `before` a drag.
+    private func place(resting shape: NSRect, before: NSRect) -> NSRect {
+        let top = superview?.bounds.maxY ?? shape.maxY
+        let h = max(shape.height, min(before.height, top - shape.minY))
+        switch style {
+        case .composeBar: return NSRect(x: shape.minX, y: shape.minY, width: shape.width, height: h)
+        default:
+            let w = max(shape.width, min(before.width, shape.maxX - (superview?.bounds.minX ?? 0)))
+            return NSRect(x: shape.maxX - w, y: shape.minY, width: w, height: h)
+        }
+    }
+
+    private func applyShape() {
+        guard superview != nil, expanded.width > 0 else { needsLayout = true; return }
+        let chrome = chrome
+        let shown = !floating ? expanded : chrome == .rest ? rest(in: expanded) : style.collapses ? grown(from: expanded) : expanded
+        if frame != shown { frame = shown }
+        let radius: CGFloat = !floating ? 0 : chrome == .rest ? min(shown.height / 2, style == .composeBar ? 14 : shown.height / 2) : Metrics.surfaceCornerRadius
+        backdrop.cornerRadius = radius
+        body.layer?.cornerRadius = radius
+        body.layer?.masksToBounds = floating
+        body.isHidden = chrome == .rest && style == .bubble
+        title.isHidden = chrome != .bar
+        dockButton.isHidden = chrome == .rest
+        hideButton.isHidden = chrome == .rest
+        gripMark.isHidden = chrome != .rest || style == .bubble
+        chiefMark.isHidden = !(chrome == .rest && style == .bubble)
+        window?.invalidateCursorRects(for: self)
+        needsLayout = true
+    }
+
     override public func layout() {
         super.layout()
-        let h = Self.barHeight
         backdrop.frame = bounds
-        bar.frame = NSRect(x: 0, y: 0, width: bounds.width, height: h)
-        let button: CGFloat = 24
-        hideButton.frame = NSRect(x: bounds.width - button - 6, y: (h - button) / 2, width: button, height: button)
-        dockButton.frame = hideButton.frame.offsetBy(dx: -button - 2, dy: 0)
-        title.sizeToFit()
-        title.frame.origin = NSPoint(x: 12, y: (h - title.frame.height) / 2)
-        body.frame = NSRect(x: 0, y: h, width: bounds.width, height: max(0, bounds.height - h))
-        chief?.frame = body.bounds
+        let w = bounds.width, h = bounds.height
+        switch chrome {
+        case .bar, .strip:
+            let strip = chrome == .bar ? Self.barHeight : Self.stripHeight
+            let button: CGFloat = chrome == .bar ? 24 : 16
+            bar.frame = NSRect(x: 0, y: 0, width: w, height: strip)
+            hideButton.frame = NSRect(x: w - button - (chrome == .bar ? 6 : 4), y: (strip - button) / 2, width: button, height: button)
+            dockButton.frame = hideButton.frame.offsetBy(dx: -button - 2, dy: 0)
+            title.sizeToFit()
+            title.frame.origin = NSPoint(x: 12, y: (strip - title.frame.height) / 2)
+            body.frame = NSRect(x: 0, y: strip, width: w, height: max(0, h - strip))
+            chief?.frame = body.bounds
+        case .rest:
+            let grip: CGFloat = style == .bubble ? w : style == .pill ? 16 : 20
+            bar.frame = NSRect(x: 0, y: 0, width: grip, height: h)
+            gripMark.frame = NSRect(x: (grip - 14) / 2 + 2, y: (h - 14) / 2, width: 14, height: 14)
+            chiefMark.frame = bar.bounds
+            body.frame = NSRect(x: grip, y: 0, width: max(0, w - grip), height: h)
+            // The chat keeps its grown height, its bottom (the message box) showing through the shape.
+            chief?.frame = NSRect(x: 0, y: 0, width: body.bounds.width, height: max(h, grown(from: expanded).height - Self.stripHeight))
+        }
     }
 
     @objc private func toggleDockPressed() { actions.toggleDock() }
@@ -208,8 +364,10 @@ public final class ChiefPanelView: NSView {
 
     // MARK: Moving and resizing (floating only)
 
-    /// The edges a press at `point` (this view's coordinates, y down) resizes, as the superview names them (y up).
+    /// The edges a press at `point` (this view's coordinates, y down) resizes, as the superview names them (y up);
+    /// none while the panel rests.
     private func resizeEdges(at point: NSPoint) -> Set<NSRectEdge> {
+        guard chrome != .rest else { return [] }
         let b = Self.resizeBand
         var edges = Set<NSRectEdge>()
         if point.x <= b { edges.insert(.minX) }
@@ -222,42 +380,53 @@ public final class ChiefPanelView: NSView {
     override public func hitTest(_ point: NSPoint) -> NSView? {
         guard floating, let superview, frame.contains(point) else { return super.hitTest(point) }
         let local = convert(point, from: superview)
-        // The rim's resize band and the bar's empty space are the panel's own: they move or resize it.
+        // The rim's resize band and the grip's empty space are the panel's own: they move or resize it.
         if !resizeEdges(at: local).isEmpty { return self }
         let hit = super.hitTest(point)
-        if local.y < Self.barHeight, hit === bar || hit === title { return self }
+        if bar.frame.contains(local), let hit, hit === bar || !(hit is NSButton) && hit.isDescendant(of: bar) { return self }
         return hit
     }
 
     override public func mouseDown(with event: NSEvent) {
         guard floating, let superview else { return super.mouseDown(with: event) }
-        press = (superview.convert(event.locationInWindow, from: nil), frame, resizeEdges(at: convert(event.locationInWindow, from: nil)))
+        press = (superview.convert(event.locationInWindow, from: nil), frame, expanded, resizeEdges(at: convert(event.locationInWindow, from: nil)), false)
     }
 
     override public func mouseDragged(with event: NSEvent) {
-        guard let press, let superview else { return super.mouseDragged(with: event) }
+        guard var press, let superview else { return super.mouseDragged(with: event) }
         let point = superview.convert(event.locationInWindow, from: nil)
         let dx = point.x - press.start.x, dy = point.y - press.start.y
-        let start = press.frame, least = ChiefPanelFrame.minimumSize
+        if !press.moved, hypot(dx, dy) < 3 { return }
+        press.moved = true
+        self.press = press
+        let start = press.frame, least = leastFloating
         var next = start
-        if press.edges.isEmpty {
-            next.origin = NSPoint(x: start.minX + dx, y: start.minY + dy)
-        }
+        if press.edges.isEmpty { next.origin = NSPoint(x: start.minX + dx, y: start.minY + dy) }
         if press.edges.contains(.minX) { next.origin.x = min(start.maxX - least.width, start.minX + dx); next.size.width = start.maxX - next.minX }
         if press.edges.contains(.maxX) { next.size.width = max(least.width, start.width + dx) }
         if press.edges.contains(.minY) { next.origin.y = min(start.maxY - least.height, start.minY + dy); next.size.height = start.maxY - next.minY }
         if press.edges.contains(.maxY) { next.size.height = max(least.height, start.height + dy) }
-        frame = next.integral
+        next = press.edges.isEmpty ? inside(next).integral : next.intersection(superview.bounds).integral
+        frame = next
+        expanded = chrome == .rest ? place(resting: next, before: press.expanded).integral : next
     }
 
     override public func mouseUp(with event: NSEvent) {
-        guard press != nil else { return super.mouseUp(with: event) }
-        press = nil
-        actions.moved(frame)
+        guard let press, let superview else { return super.mouseUp(with: event) }
+        self.press = nil
+        guard press.moved else {
+            if chrome == .rest { focusChief() }
+            return
+        }
+        let size = superview.bounds.size
+        actions.moved(ChiefPanelFrame.fitting(CGRect(x: expanded.minX, y: size.height - expanded.maxY, width: expanded.width, height: expanded.height),
+                                              in: size, minimum: leastFloating))
     }
 
     override public func resetCursorRects() {
         guard floating else { return }
+        addCursorRect(bar.frame, cursor: .openHand)
+        guard chrome != .rest else { return }
         let b = Self.resizeBand
         addCursorRect(NSRect(x: 0, y: 0, width: b, height: bounds.height), cursor: .resizeLeftRight)
         addCursorRect(NSRect(x: bounds.width - b, y: 0, width: b, height: bounds.height), cursor: .resizeLeftRight)
