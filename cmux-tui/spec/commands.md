@@ -10708,3 +10708,52 @@ stops the host.
 `{"cmd":"remote-host-app"}`. The verified app's own credentials for cmux
 Remote's app socket: `{socket, secret, host_pid}`. The host admits only that
 app process; the secret is never logged or journaled.
+
+## Skills (skills-v1)
+
+Settings > Skills lists every Agent Skill (`<name>/SKILL.md`) that Claude Code
+and Codex would load on this machine, turns one on or off where its harness
+reads that, and makes a new one (`cmux-tui-core/src/skills_catalog.rs`). Only
+the owner's own Unix connection is served; a remote or relayed client gets
+`skills.not_trusted`. A skill is named by `skill_id`, because the envelope's
+`id` is the request number. Every write and `skills-locate` lists first and
+acts only on a listed skill.
+
+Skill = `object{id:string, harness:"claude"|"codex",
+scope:"user"|"project"|"plugin"|"admin"|"system", name:string,
+description:string, file:string, dir:string, project:string?, plugin:string?,
+enabled:boolean, toggle:"skill"|"plugin"|null, mode:string?,
+problem:"no_frontmatter"|"no_description"|"unreadable"|"too_large"|null,
+shadowed:boolean}`.
+
+### skills-list
+
+Request `{projects?: array<string>}`. Without `projects`, the git roots of this
+daemon's terminals' folders (at most 32). Data
+`{home:string, projects:array<object{root:string,name:string}>, skills:array<Skill>}`,
+sorted by harness, scope, project and name.
+
+### skills-set-enabled
+
+Request `{skill_id:string, enabled:boolean}`. Claude Code skills write
+`skillOverrides` (user skills in the user `settings.json`, project skills in the
+project's `.claude/settings.local.json`); plugin skills write the plugin's
+`enabledPlugins` entry; Codex skills write a `[[skills.config]]` `path` rule in
+`config.toml`. Other entries of the file keep their order, text and comments.
+Data `{skill:Skill}`. Errors `skills.not_found`, `skills.not_toggleable`,
+`skills.settings_unreadable` (the file does not parse; it is never written),
+`skills.write_failed`.
+
+### skills-create
+
+Request `{harness:"claude"|"codex", scope:"user"|"project", project?:string,
+name:string, description:string}`. The name is lowercase letters, digits and
+single hyphens, at most 64 characters. Makes `<folder>/<name>/SKILL.md` with
+`name` and `description` frontmatter and never replaces a folder. Data
+`{skill:Skill}`. Errors `skills.bad_name`, `skills.bad_description`,
+`skills.exists`, `skills.bad_scope`, `skills.write_failed`.
+
+### skills-locate
+
+Request `{skill_id:string}`. Data `{file:string, dir:string}` of a listed skill,
+else `skills.not_found`.

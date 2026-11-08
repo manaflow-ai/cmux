@@ -112,6 +112,9 @@ mod image_paste;
 #[cfg(unix)]
 mod scripts;
 #[cfg(unix)]
+#[path = "server/skills_wire.rs"]
+mod skills_wire;
+#[cfg(unix)]
 pub use browser_runtime::BROWSER_RUNTIME_CAPABILITY;
 #[path = "server/window_title.rs"]
 mod window_title;

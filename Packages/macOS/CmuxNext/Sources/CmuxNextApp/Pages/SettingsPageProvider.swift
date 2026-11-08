@@ -46,9 +46,9 @@ final class SettingsPageProvider: PageProvider {
     var sharesList: (@MainActor () async throws -> JSONValue)?
     var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
-    /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
-    /// hooks `cmux agent hook` installs; nil in tests without an app.
-    var integrations: (any PageProvider)?
+    /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`), the hooks `cmux agent hook`
+    /// installs, and Settings > Skills (`SettingsSkills`); nil in tests without an app.
+    var integrations, skills: (any PageProvider)?
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
@@ -226,6 +226,7 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.shares.revoke":
             guard let id = params["share_id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("share_id") }
             return try await Self.host(sharesRevoke, "shares")(id)
+        case "cmux.settings.skills.list", "cmux.settings.skills.run": return try await Self.host(skills, "skills").call(op, params: params, context: context)
         case "cmux.settings.devices.run": return try await Self.host(devicesRun, "devices")(params)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }

@@ -100,6 +100,7 @@ pub mod startup_timings;
 use cmux_tui_util::short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
+mod skills_catalog;
 mod state;
 pub mod store_schemas;
 pub mod wait_pattern;

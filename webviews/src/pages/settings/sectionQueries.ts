@@ -4,7 +4,7 @@
 // options) finds them in the cache: no card mounts empty and fills in a frame later.
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
-import type { AgentsState, ChannelsState, SharesState, TailnetState } from "./ops";
+import type { AgentsState, ChannelsState, SharesState, SkillsState, TailnetState } from "./ops";
 import { settingsKeys } from "./queries";
 import type { SettingsStore } from "./store";
 
@@ -74,6 +74,19 @@ export function sharesQuery(store: SettingsStore) {
   });
 }
 
+/** The Skills list's key; a toggle or a new skill refreshes it. */
+export const SKILLS_KEY = [...settingsKeys.all, "skills"] as const;
+
+/** Settings > Skills: every skill this Mac's harnesses load (null: the host has no Skills part). */
+export function skillsQuery(store: SettingsStore) {
+  return queryOptions<SkillsState | null>({
+    queryKey: SKILLS_KEY,
+    queryFn: () => store.skills(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The section a route shows: the focused key's home, else the path's category or schema section. */
 export function routeSection(section: string | undefined, focus: string | undefined | null): string {
   const home = focus ? homes.get(focus) : undefined;
@@ -96,6 +109,7 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
+  if (cards.has("skills")) reads.push({ options: skillsQuery(store), revalidate: true });
   if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {
     const ring = store.getSnapshot().rows.get("updates.channel")?.value;

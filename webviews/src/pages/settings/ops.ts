@@ -857,6 +857,56 @@ export type SharesState = {
   titles?: Record<string, string>;
 };
 
+/** Settings > Skills (`cmux.settings.skills.list`): every skill this Mac's harnesses load, as the
+ * daemon's `skills-list` answers it (capability `skills-v1`), sorted by harness, scope, project, name. */
+export type SkillHarness = "claude" | "codex";
+export type SkillScope = "user" | "project" | "plugin" | "admin" | "system";
+export type SkillProblem = "no_frontmatter" | "no_description" | "unreadable" | "too_large";
+export type Skill = {
+  id: string;
+  harness: SkillHarness;
+  scope: SkillScope;
+  name: string;
+  description: string;
+  /** The skill's SKILL.md, absolute. */
+  file: string;
+  dir: string;
+  /** The project root, for a project skill. */
+  project: string | null;
+  /** `name@marketplace` for a plugin skill. */
+  plugin: string | null;
+  enabled: boolean;
+  /** What the switch turns on or off: this skill, its whole plugin, or nothing (null: no switch). */
+  toggle: "skill" | "plugin" | null;
+  /** How the harness loads it, when not fully (`name-only`, `user-invocable-only`). */
+  mode: string | null;
+  problem: SkillProblem | null;
+  /** Another skill with the same name wins over this one. */
+  shadowed: boolean;
+};
+export type SkillProject = { root: string; name: string };
+export type SkillsState = {
+  /** False when this Mac's daemon is not connected (or too old): the card says so instead of listing. */
+  available: boolean;
+  home?: string;
+  projects?: SkillProject[];
+  skills?: Skill[];
+};
+export type SkillsRun =
+  | { action: "set_enabled"; id: string; enabled: boolean }
+  | {
+      action: "create";
+      harness: SkillHarness;
+      scope: "user" | "project";
+      project?: string;
+      name: string;
+      description: string;
+    }
+  | { action: "open"; id: string }
+  | { action: "reveal"; id: string };
+/** A gesture's answer: the changed or new skill, or the daemon's refusal code (`skills.exists`). */
+export type SkillsRunResult = { skill?: Skill; error?: string | null };
+
 /** Settings > Devices (`cmux.settings.devices.state`): this Mac and the person's other devices on
  * the device hub, Mac Screen access to this Mac, relays and the access history. The host sends
  * every text localized; the page draws and forwards each gesture (`cmux.settings.devices.run`). */
@@ -1202,6 +1252,10 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
+  /** Native: every skill this Mac's harnesses load (Settings > Skills). */
+  "cmux.settings.skills.list": [Record<string, never>, SkillsState];
+  /** Native: one Skills gesture; a daemon refusal answers its code in `error`. */
+  "cmux.settings.skills.run": [SkillsRun, SkillsRunResult];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */

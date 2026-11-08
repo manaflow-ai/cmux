@@ -216,20 +216,17 @@ struct PageFactory {
         let devices = services.deviceHub.settingsModel
         provider.devicesState = { (try? JSONValue.parse(JSONEncoder().encode(devices.state))) ?? .null }
         provider.devicesRun = { params in
-            let run: MacScreenDevicesSettings.Run
-            do {
-                run = try JSONDecoder().decode(MacScreenDevicesSettings.Run.self,
-                                               from: JSONSerialization.data(withJSONObject: params.foundationObject))
-            } catch {
+            guard let run = try? JSONDecoder().decode(MacScreenDevicesSettings.Run.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
                 throw PageError.invalidParams("unknown devices action")
             }
-            let result = await devices.run(run)
-            return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
+            return (try? JSONValue.parse(JSONEncoder().encode(await devices.run(run)))) ?? .object([:])
         }
         provider.sharesList = { [weak services] in try await SettingsSharedLinks.list(services) }
         provider.sharesRevoke = { [weak services] id in try await SettingsSharedLinks.revoke(services, shareID: id) }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
+        provider.skills = SettingsSkills(connection: { [weak services] in services?.machines.local.connection }, open: { [weak services] url in
+            services.map { $0.linkOpener.openFile(url, from: $0.windows.active?.focusedPane, asText: true) } ?? true })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }

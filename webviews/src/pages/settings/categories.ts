@@ -36,6 +36,7 @@ export const CATEGORY_CARDS = [
   "cloudEnvironments",
   "contextMenus",
   "sharedLinks",
+  "skills",
   "tailnet",
 ] as const;
 

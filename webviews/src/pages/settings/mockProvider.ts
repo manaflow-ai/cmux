@@ -30,6 +30,10 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
+  type Skill,
+  type SkillsRun,
+  type SkillsRunResult,
+  type SkillsState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -504,6 +508,8 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.settings.devices.state": () => this.devices,
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
+      "cmux.settings.skills.list": () => this.skills,
+      "cmux.settings.skills.run": (params) => this.runSkills(params as unknown as SkillsRun),
       "cmux.settings.tailnet.state": () => {
         this.onTailnetRead?.();
         if (this.tailnetDropReads > 0) {
@@ -616,6 +622,8 @@ export class MockSettingsProvider {
       "cmux.settings.environments.run",
       "cmux.settings.shares.list",
       "cmux.settings.shares.revoke",
+      "cmux.settings.skills.list",
+      "cmux.settings.skills.run",
       "cmux.settings.tailnet.state",
       "cmux.settings.tailnet.start",
       "cmux.settings.tailnet.login",
@@ -711,6 +719,63 @@ export class MockSettingsProvider {
       ),
     };
     return { share_id: id, state: "revoked" };
+  }
+
+  /** Settings > Skills as this Mac's daemon answers `skills-list` (every scope, a plugin, a problem,
+   * an overridden and a turned-off skill). */
+  skills: SkillsState = mockSkills();
+  /** Every Skills gesture the page sent, in order (tests). */
+  skillRuns: SkillsRun[] = [];
+  /** A daemon refusal code the next gesture answers instead (tests). */
+  skillRefusal: string | null = null;
+
+  private runSkills(run: SkillsRun): SkillsRunResult {
+    this.skillRuns.push(run);
+    if (this.skillRefusal) {
+      const error = this.skillRefusal;
+      this.skillRefusal = null;
+      return { error };
+    }
+    const skills = this.skills.skills ?? [];
+    if (run.action === "create") {
+      if (!/^[a-z0-9-]{1,64}$/.test(run.name)) return { error: "skills.bad_name" };
+      const root =
+        run.scope === "project"
+          ? run.project!
+          : `${this.skills.home}/.${run.harness === "claude" ? "claude" : "codex"}`;
+      const dir = `${root}${run.scope === "project" ? `/.${run.harness === "claude" ? "claude" : "codex"}` : ""}/skills/${run.name}`;
+      const skill: Skill = {
+        id: `${run.harness}:${run.scope}:${run.name}`,
+        harness: run.harness,
+        scope: run.scope,
+        name: run.name,
+        description: run.description,
+        file: `${dir}/SKILL.md`,
+        dir,
+        project: run.scope === "project" ? run.project! : null,
+        plugin: null,
+        enabled: true,
+        toggle: run.harness === "claude" ? "skill" : null,
+        mode: null,
+        problem: null,
+        shadowed: false,
+      };
+      if (skills.some((other) => other.id === skill.id)) return { error: "skills.exists" };
+      this.skills = { ...this.skills, skills: [...skills, skill] };
+      return { skill };
+    }
+    const target = skills.find((skill) => skill.id === run.id);
+    if (!target) return { error: "skills.not_found" };
+    if (run.action !== "set_enabled") return {};
+    if (!target.toggle) return { error: "skills.not_toggleable" };
+    const next = skills.map((skill) =>
+      skill.id === target.id ||
+      (target.toggle === "plugin" && skill.plugin === target.plugin && skill.harness === target.harness)
+        ? { ...skill, enabled: run.enabled }
+        : skill,
+    );
+    this.skills = { ...this.skills, skills: next };
+    return { skill: next.find((skill) => skill.id === target.id)! };
   }
 
   /** Settings > Server > This Mac on Your Tailnet as acpmux answers the app's relay: signed out; null is
@@ -1804,4 +1869,153 @@ export function mockShares(now: number): SharesState {
       },
     ],
   };
+}
+
+/** One skill as the daemon lists it; `patch` sets what differs. */
+export function mockSkill(patch: Partial<Skill> & Pick<Skill, "id" | "harness" | "scope" | "name">): Skill {
+  const home = "/Users/sam";
+  const dir = `${home}/.${patch.harness}/skills/${patch.name}`;
+  return {
+    description: "",
+    file: `${dir}/SKILL.md`,
+    dir,
+    project: null,
+    plugin: null,
+    enabled: true,
+    toggle: patch.harness === "claude" ? "skill" : null,
+    mode: null,
+    problem: null,
+    shadowed: false,
+    ...patch,
+  };
+}
+
+/** Settings > Skills: two harnesses, every scope, one project, a plugin with two skills, a problem
+ * row, an overridden row and turned-off rows. */
+export function mockSkills(): SkillsState {
+  const home = "/Users/sam";
+  const app = `${home}/code/app`;
+  const projectSkill = (name: string, description: string, harness: "claude" | "codex" = "claude") => {
+    const dir = `${app}/.${harness === "claude" ? "claude" : "agents"}/skills/${name}`;
+    return { file: `${dir}/SKILL.md`, dir, project: app, description, scope: "project" as const, harness, name };
+  };
+  const pluginDir = `${home}/.claude/plugins/cache/team/review/skills`;
+  return {
+    available: true,
+    home,
+    projects: [{ root: app, name: "app" }],
+    skills: [
+      mockSkill({
+        id: "claude:user:release-notes",
+        harness: "claude",
+        scope: "user",
+        name: "release-notes",
+        description: "Write the What’s New entry for a change people will notice, in the house voice.",
+      }),
+      mockSkill({
+        id: "claude:user:triage",
+        harness: "claude",
+        scope: "user",
+        name: "triage",
+        description: "Sort a bug report into fix now, batch or skip, with a one-line reason for each.",
+        enabled: false,
+      }),
+      mockSkill({
+        id: "claude:user:scratch",
+        harness: "claude",
+        scope: "user",
+        name: "scratch",
+        problem: "no_description",
+      }),
+      mockSkill({
+        id: "claude:project:app:deploy",
+        ...projectSkill("deploy", "Ship the app to staging, check the health page, then promote it."),
+      }),
+      mockSkill({
+        id: "claude:project:app:triage",
+        ...projectSkill("triage", "This project’s triage rules: label, owner and milestone."),
+        shadowed: true,
+      }),
+      mockSkill({
+        id: "claude:plugin:review@team:review",
+        harness: "claude",
+        scope: "plugin",
+        name: "review",
+        description:
+          "Review the current diff for correctness first, then style, and report each finding with its line.",
+        file: `${pluginDir}/review/SKILL.md`,
+        dir: `${pluginDir}/review`,
+        plugin: "review@team",
+        toggle: "plugin",
+      }),
+      mockSkill({
+        id: "claude:plugin:review@team:security",
+        harness: "claude",
+        scope: "plugin",
+        name: "security",
+        description: "Check the diff for secrets, injection and unsafe file access.",
+        file: `${pluginDir}/security/SKILL.md`,
+        dir: `${pluginDir}/security`,
+        plugin: "review@team",
+        toggle: "plugin",
+      }),
+      mockSkill({
+        id: "claude:admin:policy",
+        harness: "claude",
+        scope: "admin",
+        name: "policy",
+        description: "Your organization’s rules for code an agent writes.",
+        file: "/Library/Application Support/ClaudeCode/skills/policy/SKILL.md",
+        dir: "/Library/Application Support/ClaudeCode/skills/policy",
+        toggle: null,
+      }),
+      mockSkill({
+        id: "codex:user:changelog",
+        harness: "codex",
+        scope: "user",
+        name: "changelog",
+        description: "Summarize merged pull requests into a changelog section.",
+        toggle: "skill",
+        mode: "user-invocable-only",
+      }),
+      mockSkill({
+        id: "codex:project:app:fixtures",
+        ...projectSkill("fixtures", "", "codex"),
+        problem: "no_frontmatter",
+        toggle: "skill",
+        enabled: false,
+      }),
+      mockSkill({
+        id: "codex:system:skill-creator",
+        harness: "codex",
+        scope: "system",
+        name: "skill-creator",
+        description: "Make a new skill: its folder, its SKILL.md and a first description.",
+        file: `${home}/.codex/skills/.system/skill-creator/SKILL.md`,
+        dir: `${home}/.codex/skills/.system/skill-creator`,
+        mode: "name-only",
+      }),
+    ],
+  };
+}
+
+/** 60 skills: the mock's, then personal and project ones, so the list reads at scale. */
+export function mockManySkills(): SkillsState {
+  const base = mockSkills();
+  const extra: Skill[] = Array.from({ length: 49 }, (_, at) =>
+    mockSkill({
+      id: `claude:user:extra-${at}`,
+      harness: at % 3 === 0 ? "codex" : "claude",
+      scope: "user",
+      name: `workflow-${String(at + 1).padStart(2, "0")}`,
+      description:
+        at % 4 === 0
+          ? "A long description that runs past the row's width so its end fades instead of cutting mid-word, and unfolds in full."
+          : "Steps for one repeatable task.",
+      toggle: "skill",
+      enabled: at % 5 !== 0,
+    }),
+  );
+  const skills = [...(base.skills ?? []), ...extra];
+  return { ...base, skills };
 }

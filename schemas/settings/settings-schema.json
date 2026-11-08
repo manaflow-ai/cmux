@@ -1392,6 +1392,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "skills",
+        "lead" : [
+          "skills"
+        ],
+        "symbol" : "wand.and.stars",
+        "title" : {
+          "key" : "settings.category.skills",
+          "text" : "Skills"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.chiefChat",
             "rows" : [
@@ -2088,6 +2111,7 @@
       {
         "categories" : [
           "agents",
+          "skills",
           "chief"
         ],
         "id" : "ai",

@@ -49,6 +49,9 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
+  type SkillsRun,
+  type SkillsRunResult,
+  type SkillsState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -728,6 +731,20 @@ export class SettingsStore {
       if (!reply.ok) error ??= reply.error.message;
     }
     return error;
+  }
+
+  /** Settings > Skills: every skill this Mac's harnesses load; null when the host has no Skills
+   * part or the read failed. */
+  async skills(): Promise<SkillsState | null> {
+    const reply = await this.request("cmux.settings.skills.list", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Skills gesture: the host's answer, a daemon refusal as its code in `error`, and a host
+   * failure (no Skills part, a refused write) as its message there too. */
+  async runSkills(run: SkillsRun): Promise<SkillsRunResult> {
+    const reply = await this.request("cmux.settings.skills.run", run);
+    return reply.ok ? reply.value : { error: reply.error.message };
   }
 
   /** One Devices gesture, then a fresh read of the part; answers the host's result (a refusal

@@ -2151,6 +2151,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "toml",
+ "toml_edit 0.22.27",
  "tungstenite",
  "uds_windows",
  "url",
