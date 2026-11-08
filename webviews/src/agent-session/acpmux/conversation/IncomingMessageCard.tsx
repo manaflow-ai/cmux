@@ -419,8 +419,8 @@ export function IncomingMessageLine({
   const body = useMemo(() => (whole ? text : dedupeReferences(text, repository)), [whole, text, repository]);
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
   const preview = useMemo(
-    () => agentNotice?.title ?? notice?.preview ?? messagePreview(body),
-    [agentNotice, body, notice],
+    () => agentNotice?.title ?? notice?.preview ?? message.preview ?? messagePreview(body),
+    [agentNotice, body, notice, message.preview],
   );
   // A sub-session family's sender says who it is to this chat.
   const from = person

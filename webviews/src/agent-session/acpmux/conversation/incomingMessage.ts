@@ -35,7 +35,14 @@
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
 import { relayEnvelope, withoutRelayEnvelope } from "./relayEnvelope";
-import { legacyNotice, noticeBody, provenanceNotice, renderedNotice, type AgentNotice } from "./agentNotice";
+import {
+  legacyNotice,
+  noticeBody,
+  provenanceNotice,
+  renderedNotice,
+  type AgentNotice,
+  type NoticeSeverity,
+} from "./agentNotice";
 
 /// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
 /// `family_role`): the chat that started it, one it started, one further up, or another below or
@@ -100,6 +107,10 @@ export type IncomingMessage = {
   /// A tool's or reconciler's notice (agentNotice.ts): its severity, title, machine and links. The
   /// line draws the title, never the message's first line; `text` is the body alone.
   notice?: AgentNotice;
+  /// The closed line's preview when the text's first line is not it: a turn of several messages
+  /// (`agent_digest`), whose text starts with its first sender's name in bold, previews that first
+  /// message's words (Leo, 2026-11-07, on a line that read "acpmux acpmux": "why was this blank?").
+  preview?: string;
 };
 
 /// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
@@ -427,10 +438,18 @@ function promptOf(
     ];
     if (senders.length > 0) {
       const name = senders.length > 3 ? `${senders.slice(0, 3).join(", ")} +${senders.length - 3}` : senders.join(", ");
-      const body = digestBody(text) || text.trim();
+      const read = digestRead(text);
       return {
         kind: "message",
-        message: { name, ...digestReply(provenance.messages), ...remote, text: body, raw: text },
+        message: {
+          name,
+          ...digestReply(provenance.messages),
+          ...remote,
+          ...(read?.notice && { notice: read.notice }),
+          ...(read?.preview !== undefined && { preview: read.preview }),
+          text: read?.text ?? text.trim(),
+          raw: text,
+        },
       };
     }
   }
@@ -752,21 +771,85 @@ function namesSender(name: string, known: readonly unknown[]): boolean {
 /// A turn of agent messages as acpmux writes it (hub/digest.rs `digest_blocks`): a line saying
 /// what follows, then each message under `[agent message 2 of 3] from <sender>`. The card shows
 /// each message under its sender's name in bold, without that line and without the signature
-/// that only repeats the sender (`[lane-a] Merged`); one message alone is just its text. Empty
-/// when `text` is not in that form.
-function digestBody(text: string): string {
+/// that only repeats the sender (`[lane-a] Merged`); one message alone is just its text. A message
+/// that is a tool's notice (`[notice from acpmux · WARN] TITLE`, agentNotice.ts `renderedNotice`)
+/// reads as one: its title, severity and body. Undefined when `text` is not in that form.
+///
+/// The closed line never previews the first sender's bold name (Leo, 2026-11-07, on a line that
+/// read "acpmux acpmux": "why was this blank?"). A turn of notices alone is one notice row: the
+/// most severe notice's mark and title (the first of those), every notice under it. Any other
+/// turn of several previews its first message: a notice's title, else its first line.
+function digestRead(text: string): { text: string; preview?: string; notice?: AgentNotice } | undefined {
   const rest = text.trim().replace(DIGEST_LEAD, "");
   const parts = [...rest.matchAll(DIGEST_PART)];
-  if (!parts.length || parts[0]!.index !== 0) return "";
-  const messages = parts.map((part, index) => {
+  if (!parts.length || parts[0]!.index !== 0) return undefined;
+  const messages = parts.map((part, index): DigestMessage => {
     const sender = part[1]!.trim();
     const end = parts[index + 1]?.index ?? rest.length;
     const body = withoutRelayEnvelope(rest.slice(part.index! + part[0].length, end)).trim();
+    const read = renderedNotice(body);
+    if (read) return { sender: read.notice.sender, text: read.body, notice: read.notice };
     const signed = agentSigned(body, [sender]);
     return { sender: signed?.name ?? sender, text: signed?.text ?? body };
   });
-  if (messages.length === 1) return messages[0]!.text;
-  return messages.map((message) => `**${message.sender}**\n${message.text}`).join("\n\n");
+  if (messages.length === 1) {
+    const only = messages[0]!;
+    return { text: only.text, ...(only.notice && { notice: only.notice }) };
+  }
+  const notices = messages.flatMap((message) => (message.notice ? [message.notice] : []));
+  if (notices.length === messages.length) {
+    const named = new Set(notices.map((notice) => notice.sender)).size > 1;
+    return {
+      text: messages.map((message) => noticePart(message, message.notice!, named)).join("\n\n"),
+      notice: digestNotice(notices),
+    };
+  }
+  const first = messages[0]!;
+  return {
+    text: messages
+      .map((message) =>
+        message.notice
+          ? `**${message.sender}**\n${noticeTitle(message.notice)}${message.text ? `\n${message.text}` : ""}`
+          : `**${message.sender}**\n${message.text}`,
+      )
+      .join("\n\n"),
+    preview: first.notice ? first.notice.title : messagePreview(first.text),
+  };
+}
+
+type DigestMessage = { sender: string; text: string; notice?: AgentNotice };
+
+const SEVERITY_RANK: Record<NoticeSeverity, number> = { info: 0, warn: 1, fire: 2 };
+
+/// A notice's title as a turn's text names it: its severity first when it is not info, in the word
+/// its rendered head uses (`WARN · …`).
+const noticeTitle = (notice: AgentNotice) =>
+  notice.severity === "info" ? notice.title : `${notice.severity.toUpperCase()} · ${notice.title}`;
+
+/// One notice of a turn of notices: its title in bold (after its sender's name when the turn has
+/// several senders), then its body. Its links join the turn's, at its end.
+function noticePart(message: DigestMessage, notice: AgentNotice, named: boolean): string {
+  const head = named ? `**${message.sender}** · ${noticeTitle(notice)}` : `**${noticeTitle(notice)}**`;
+  return message.text ? `${head}\n${message.text}` : head;
+}
+
+/// The one notice a turn of notices draws as: the most severe one's mark and title (the first of
+/// those), its sender and machine when every notice shares them, every notice's links once.
+function digestNotice(notices: readonly AgentNotice[]): AgentNotice {
+  const top = notices.reduce((best, notice) =>
+    SEVERITY_RANK[notice.severity] > SEVERITY_RANK[best.severity] ? notice : best,
+  );
+  const shared = <T>(values: readonly T[]): T | undefined =>
+    values.every((value) => value === values[0]) ? values[0] : undefined;
+  const host = shared(notices.map((notice) => notice.host));
+  const links = [...new Map(notices.flatMap((notice) => notice.links.map((link) => [link.url, link] as const))).values()];
+  return {
+    sender: shared(notices.map((notice) => notice.sender)) ?? top.sender,
+    ...(host && { host }),
+    severity: top.severity,
+    title: top.title,
+    links: links.slice(0, 16),
+  };
 }
 
 const DIGEST_LEAD =
