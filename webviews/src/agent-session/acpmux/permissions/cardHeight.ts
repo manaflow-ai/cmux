@@ -22,6 +22,8 @@ const body = step("body");
 const detail = step("detail");
 const caption = step("caption");
 const padding = gridLength("cards-padding");
+// The UI font's stack; SF Pro tracks itself, so no letter-spacing (type-scale.json).
+const font = typeScale.font.stack.join(", ");
 
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
 function textHeight(text: string, width: number, size: number, line: number, mono = false, weight = 400): number {
@@ -29,10 +31,7 @@ function textHeight(text: string, width: number, size: number, line: number, mon
   if (!mono) text = text.replace(/\s+/g, " ");
   try {
     return layout(
-      prepare(text, `${weight} ${size}px ${mono ? "monospace" : typeScale.font.family}`, {
-        whiteSpace: "pre-wrap",
-        letterSpacing: mono ? 0 : (typeScale.steps.find((entry) => entry.size === size)?.tracking ?? 0) * size,
-      }),
+      prepare(text, `${weight} ${size}px ${mono ? "monospace" : font}`, { whiteSpace: "pre-wrap" }),
       room,
       line,
     ).height;
@@ -46,9 +45,7 @@ function textWidth(text: string, size: number, weight = 400): number {
   try {
     return (
       layoutWithLines(
-        prepareWithSegments(text, `${weight} ${size}px ${typeScale.font.family}`, {
-          letterSpacing: (typeScale.steps.find((entry) => entry.size === size)?.tracking ?? 0) * size,
-        }),
+        prepareWithSegments(text, `${weight} ${size}px ${font}`),
         Infinity,
         size,
       ).lines[0]?.width ?? 0
