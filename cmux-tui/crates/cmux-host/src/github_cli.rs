@@ -135,12 +135,21 @@ pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
 
 /// One line to the agent socket and its one JSON reply, read within `wait`.
 pub(crate) fn agent_reply(socket: &Path, line: &str, wait: Duration) -> Result<Value, Refused> {
-    let mut stream = UnixStream::connect(socket).map_err(|e| {
+    let stream = UnixStream::connect(socket).map_err(|e| {
         refused(
             "vm.agent_unreachable",
             format!("{} ({e}); `cmux github` works on a cmux Cloud machine", socket.display()),
         )
     })?;
+    reply_on(stream, line, wait)
+}
+
+/// [`agent_reply`] on a connected socket: one line out, one JSON line back.
+pub(crate) fn reply_on(
+    mut stream: UnixStream,
+    line: &str,
+    wait: Duration,
+) -> Result<Value, Refused> {
     let io = |e: std::io::Error| refused("vm.agent_unreachable", e.to_string());
     stream.set_read_timeout(Some(wait)).map_err(io)?;
     stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(io)?;
