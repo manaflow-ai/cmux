@@ -353,6 +353,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-cli-update-job",
     "agent-session-share-create",
     "agent-session-share-invite",
+    "agent-session-share-invite-chat",
     "agent-session-share-kick",
     "agent-session-share-list",
     "agent-session-share-open-link",
