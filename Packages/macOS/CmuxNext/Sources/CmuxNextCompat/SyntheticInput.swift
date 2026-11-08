@@ -20,25 +20,29 @@ internal import ObjectiveC
 /// ended at the first synthesized move.
 @MainActor
 public enum SyntheticInput {
-    private struct Key: Hashable {
+    /// A registered event not dispatched yet, with the button its press or release changes.
+    private struct Pending {
         var type: UInt
         var timestamp: TimeInterval
+        var bit: Int
 
         /// The posted event's own stamp: the queue keeps it to the nanosecond, so a dispatched
         /// event's timestamp can differ from the one it was made with in the last digits (a
         /// capture's press read as the person's, its button never held). Within a microsecond is
         /// the same event; the oldest pending one of that type is taken first.
-        func matches(_ other: Key) -> Bool {
-            type == other.type && abs(timestamp - other.timestamp) < 0.000_001
+        func matches(_ event: NSEvent) -> Bool {
+            type == event.type.rawValue && abs(timestamp - event.timestamp) < 0.000_001
         }
     }
 
-    /// The registered events not dispatched yet, and the buttons synthetic presses hold
-    /// (`NSEvent.pressedMouseButtons` bits: 1 left, 2 right, 4 middle). Changed on the main
-    /// actor as events are posted and dispatched; the swapped getter reads `held` on any thread.
+    /// The registered events not dispatched yet, the buttons synthetic presses hold
+    /// (`NSEvent.pressedMouseButtons` bits: 1 left, 2 right, 1 << n other button n), and whether
+    /// the getter is swapped. Changed on the main actor as events are posted and dispatched; the
+    /// swapped getter reads `held` on any thread.
     private struct State {
-        var pending: [Key] = []
+        var pending: [Pending] = []
         var held = 0
+        var swapped = false
     }
 
     private nonisolated static let state = Mutex(State())
@@ -46,7 +50,9 @@ public enum SyntheticInput {
 
     public static func register(_ events: [NSEvent]) {
         state.withLock { state in
-            state.pending.append(contentsOf: events.map { Key(type: $0.type.rawValue, timestamp: $0.timestamp) })
+            state.pending.append(contentsOf: events.map {
+                Pending(type: $0.type.rawValue, timestamp: $0.timestamp, bit: buttonBit($0))
+            })
             if state.pending.count > limit { state.pending.removeFirst(state.pending.count - limit) }
         }
     }
@@ -55,29 +61,34 @@ public enum SyntheticInput {
     /// once per event as it is dispatched; a synthetic press or release
     /// changes the buttons its later events see held.
     public static func isUserInput(_ event: NSEvent) -> Bool {
-        let key = Key(type: event.type.rawValue, timestamp: event.timestamp)
         let bit = buttonBit(event)
-        let user = state.withLock { state in
-            guard let index = state.pending.firstIndex(where: key.matches) else { return true }
+        let (user, held) = state.withLock { state -> (Bool, Int) in
+            guard let index = state.pending.firstIndex(where: { $0.matches(event) }) else { return (true, state.held) }
             // Events dispatch in the order they were posted: one registered before this one that never came
             // was taken by a tracking loop (`nextEvent(matching:)`: a native button's or a text selection's),
             // so its release lets go of its button here.
-            for skipped in state.pending[..<index] {
-                state.held &= ~releasedBit(skipped.type)
+            for skipped in state.pending[..<index] where isRelease(skipped.type) {
+                state.held &= ~skipped.bit
             }
             state.pending.removeSubrange(...index)
             switch event.type {
             case .leftMouseDown, .rightMouseDown, .otherMouseDown: state.held |= bit
             default: state.held &= ~bit
             }
-            return false
+            return (false, state.held)
         }
         if !user, bit != 0 { _ = installed }
+        // A release a tracking loop took with no synthetic event after it: the person's own mouse
+        // event, with no hardware button down, ends the synthetic press (hover and focus-follows-mouse
+        // skip while a button is held).
+        if user, held != 0, isMouse(event.type), hardwareButtons == 0 {
+            state.withLock { $0.held = 0 }
+        }
         return user
     }
 
     /// The `pressedMouseButtons` bit a press or release of `event` changes, or 0 (not a press or release).
-    private static func buttonBit(_ event: NSEvent) -> Int {
+    private nonisolated static func buttonBit(_ event: NSEvent) -> Int {
         switch event.type {
         case .leftMouseDown, .leftMouseUp: 1
         case .rightMouseDown, .rightMouseUp: 2
@@ -86,14 +97,22 @@ public enum SyntheticInput {
         }
     }
 
-    /// The button a release of raw event type `type` lets go of, or 0.
-    private nonisolated static func releasedBit(_ type: UInt) -> Int {
-        switch NSEvent.EventType(rawValue: type) {
-        case .leftMouseUp: 1
-        case .rightMouseUp: 2
-        case .otherMouseUp: 4
-        default: 0
+    private nonisolated static func isRelease(_ type: UInt) -> Bool {
+        [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(NSEvent.EventType(rawValue: type))
+    }
+
+    private static func isMouse(_ type: NSEvent.EventType) -> Bool {
+        switch type {
+        case .mouseMoved, .leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp,
+             .rightMouseDragged, .otherMouseDown, .otherMouseUp, .otherMouseDragged, .scrollWheel: true
+        default: false
         }
+    }
+
+    /// The buttons the hardware holds, without synthetic presses: what the no-activate guard reads, since
+    /// an agent's press is not the person choosing the app.
+    public nonisolated static var hardwareButtons: Int {
+        state.withLock { $0.swapped } ? NSEvent.cmuxPressedMouseButtonsWithSynthetic : NSEvent.pressedMouseButtons
     }
 
     /// The buttons synthetic presses hold now.
@@ -105,13 +124,15 @@ public enum SyntheticInput {
               let held = class_getClassMethod(NSEvent.self, #selector(getter: NSEvent.cmuxPressedMouseButtonsWithSynthetic))
         else { return false }
         method_exchangeImplementations(system, held)
+        state.withLock { $0.swapped = true }
         return true
     }()
 }
 
 extension NSEvent {
     /// After `SyntheticInput` swaps the two getters this name runs AppKit's
-    /// own `pressedMouseButtons`, and `pressedMouseButtons` runs this body.
+    /// own `pressedMouseButtons` (``SyntheticInput/hardwareButtons``), and
+    /// `pressedMouseButtons` runs this body.
     @objc fileprivate dynamic class var cmuxPressedMouseButtonsWithSynthetic: Int {
         cmuxPressedMouseButtonsWithSynthetic | SyntheticInput.held
     }
