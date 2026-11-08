@@ -15,12 +15,16 @@ SCRIPT = ROOT / "cmux-tui/dist/scripts/package_npm_artifact.py"
 EXECUTABLES = (
     "cmux-tui-darwin-arm64/bin/cmux-tui",
     "cmux-tui-darwin-arm64/bin/cmux-tui-hook",
+    "cmux-tui-darwin-arm64/bin/cmux-agent-screen-detection",
     "cmux-tui-darwin-x64/bin/cmux-tui",
     "cmux-tui-darwin-x64/bin/cmux-tui-hook",
+    "cmux-tui-darwin-x64/bin/cmux-agent-screen-detection",
     "cmux-tui-linux-x64/bin/cmux-tui",
     "cmux-tui-linux-x64/bin/cmux-tui-hook",
+    "cmux-tui-linux-x64/bin/cmux-agent-screen-detection",
     "cmux-tui-linux-arm64/bin/cmux-tui",
     "cmux-tui-linux-arm64/bin/cmux-tui-hook",
+    "cmux-tui-linux-arm64/bin/cmux-agent-screen-detection",
     "cmux/bin/cmux.js",
     "cmux-relay-darwin-arm64/bin/chatmux-relay",
     "cmux-relay-darwin-x64/bin/chatmux-relay",
@@ -98,6 +102,7 @@ def make_package_fixture(packages: Path) -> None:
                     "files": [
                         "bin/cmux-tui",
                         "bin/cmux-tui-hook",
+                        "bin/cmux-agent-screen-detection",
                         "bin/cmux-tui-ssh/manifest.json",
                         "THIRD_PARTY_LICENSES.md",
                     ],
@@ -105,7 +110,7 @@ def make_package_fixture(packages: Path) -> None:
             )
             + "\n"
         )
-        for binary in ("cmux-tui", "cmux-tui-hook"):
+        for binary in ("cmux-tui", "cmux-tui-hook", "cmux-agent-screen-detection"):
             executable = package / "bin" / binary
             executable.parent.mkdir(parents=True, exist_ok=True)
             executable.write_text("#!/bin/sh\nexit 0\n")

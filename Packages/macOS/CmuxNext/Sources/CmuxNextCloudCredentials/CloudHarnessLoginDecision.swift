@@ -123,6 +123,9 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         public var readsMachine: Bool
         public var guestTakesLogin: Bool
         public var skippedTeamMachine: Bool
+        /// Whether a start would race the spare warm's login copy on its machine (Rust's `warm_copy_conflict`): only
+        /// such a start waits on it. Nil from an app FFI pinned before the field: no start waits then.
+        public var warmCopyConflict: Bool?
         public var summary: String
 
         /// ``provider`` as a transfer provider; nil for a harness with no transfer (pi, opencode).
@@ -151,7 +154,7 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
 
     public var step: Step { verdict.step }
     /// Why a run that may show no prompt fails at once (``Step/refuse``); nil when it goes on. A
-    /// headless Codex start with no choice goes on as on base (its broker or the machine's own login).
+    /// headless Claude or Codex start with no login choice refuses (``Reason/needsLoginChoice``).
     public var refusal: Reason? { verdict.step == .refuse ? verdict.reason : nil }
     public var reason: Reason { verdict.reason }
     /// Whether this build passes a login: DEV and dogfood builds unless the setting turns it off; a
@@ -174,8 +177,13 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     /// new machine's guest has none yet: its cmux-host writes /etc/cmux/vm-kind only once it binds. The transfer's
     /// budget and spacing (``CloudCredentialTransfer/guestCheckTries``). A failed exec or any recorded kind ends it;
     /// every exec and pause counts against `budget`, slow ones included, and a read cut off by it keeps the last answer.
+    /// A start onto `warmCopy`'s machine first waits for a spare warm's copy there only when its verdict races it
+    /// (``Verdict/warmCopyConflict``; Rust's `wait-copy` keeps the copy in flight).
     public mutating func readGuest(exec: @escaping @Sendable (String) async -> String?, pause: @escaping @Sendable () async throws -> Void,
-                                   budget: Duration = CloudCredentialTransfer.guestCheckBudget) async throws {
+                                   budget: Duration = CloudCredentialTransfer.guestCheckBudget, warmCopy: (cli: CloudMoveCLI, machine: String)? = nil) async throws {
+        if let warmCopy, verdict.step != .refuse, verdict.warmCopyConflict == true, let provider = verdict.transferProvider {
+            await warmCopy.cli.startChatWaitCopy(machine: warmCopy.machine, provider: provider.rawValue)
+        }
         try await readGuest(exec: exec, pause: pause, budget: budget, clock: ContinuousClock())
     }
 

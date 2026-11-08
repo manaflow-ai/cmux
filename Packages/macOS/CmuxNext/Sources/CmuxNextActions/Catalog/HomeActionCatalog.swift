@@ -25,6 +25,13 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
         }
     }
 
+    /// Which Chief an Archive, Make Primary or Delete acts on: its id from the CLI, a pick of the
+    /// user's Chiefs in the palette.
+    private static var chiefArgument: ActionArgument {
+        ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string,
+                       suggestions: ActionSuggestions(source: ActionSuggestions.homeChiefs, pinned: []))
+    }
+
     private static var all: [ActionDescriptor] {
         [
             ActionDescriptor(
@@ -231,27 +238,27 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 id: "home.archiveChief", title: t("action.home.archiveChief", "Archive Chief"),
                 keywords: ["home", "chief", "archive", "remove", "agent"],
                 category: .window, symbol: "archivebox", surfaces: [.keyboard],
-                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                arguments: [chiefArgument],
                 cliName: "home archive-chief",
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // The primary Chief: texts to the cmux line go to it (`chief.update {is_default}`); `cmux chief primary` runs it.
             ActionDescriptor(
                 id: "home.setPrimaryChief", title: t("action.home.setPrimaryChief", "Make Primary Chief"),
                 keywords: ["home", "chief", "primary", "default", "text", "imessage", "sms"],
                 category: .window, symbol: "star", surfaces: [.keyboard],
-                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                arguments: [chiefArgument],
                 cliName: "home primary-chief",
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // Deleting cannot be undone (Archive Chief can): it asks first.
             ActionDescriptor(
                 id: "home.deleteChief", title: t("action.home.deleteChief", "Delete Chief…"),
                 keywords: ["home", "chief", "delete", "remove", "agent"],
                 category: .window, symbol: "trash", surfaces: [.keyboard],
-                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                arguments: [chiefArgument],
                 cliName: "home delete-chief", destructive: true,
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // On Home the tab keys move through the chat list (Lawrence 2026-10-21): Ctrl-Tab /
             // Ctrl-Shift-Tab, Cmd-Shift-] / [ and Ctrl-1…9, scoped to the Home page and the docked Home
@@ -460,6 +467,22 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["chief", "home", "stop", "all", "agents", "subagents", "cancel"], category: .agents,
                 symbol: "stop.circle.fill", surfaces: [.palette, .menu], mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // Start now on an agent the Chief queued behind its cap (user 2026-11-08): the agent
+            // pill's context menu, the palette, `cmux home start-agent --agent <name>` and MCP ask the
+            // Chief of the Chief Home showing `conversation` (the key window's without one) to start it
+            // past the cap. The pill's menu is MessagesLab's own, with no ContextMenuCatalog placement:
+            // the Home takes this row from `makeContextMenuItem` (HomeChiefTurnActions.swift), and
+            // HomeChiefHomes binds the handler.
+            ActionDescriptor(
+                id: "home.startQueuedAgent", title: t("action.home.startQueuedAgent", "Start Queued Agent Now"),
+                keywords: ["chief", "home", "agent", "subagent", "queue", "queued", "waiting", "start", "now", "cap"],
+                category: .agents, symbol: "play.circle", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "agent", title: String(localized: "argument.newTab.agent", defaultValue: "Agent",
+                                                                        table: "NewTabActions", bundle: .module), kind: .string),
+                            Self.conversation],
+                cliName: "home start-agent",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // DEV and NIGHTLY: MessagesLab's flight recorder writes the last ~10 s of the
             // Home transcript to ~/Library/Logs/<app>/blink-<time>/ (Debug menu, palette).
