@@ -459,6 +459,39 @@ mod tests {
         assert_eq!(event["fingerprint"], json!(["owner-panic", "a.rs:1"]));
     }
 
+    /// docs/privacy.md, Telemetry: the same seeds as the app's SeededSecretTests (each token split so the
+    /// repository's secret scanning does not read it as a real one). None may be left in the event sent.
+    #[test]
+    fn seeded_secrets_never_leave_in_a_panic_event() {
+        let seeds = [
+            ("sk-".to_owned() + "ant-api03-SEEDanthropicKEY0123456789abcdef", "SEEDanthropicKEY"),
+            ("gh".to_owned() + "p_SEEDgithubPAT0123456789abcdefABCD", "SEEDgithubPAT"),
+            ("github".to_owned() + "_pat_11SEEDGITHUBFINE0123456789_abcdefghijklmnopqrstuvwxyzAB", "SEEDGITHUBFINE"),
+            ("gl".to_owned() + "pat-SEEDgitlab0123456789abcd", "SEEDgitlab"),
+            ("np".to_owned() + "m_SEEDnpmTOKEN0123456789abcdefghijklmn", "SEEDnpmTOKEN"),
+            ("hf".to_owned() + "_SEEDhuggingface0123456789abcdefghij", "SEEDhuggingface"),
+            ("AI".to_owned() + "zaSEEDgoogleKey0123456789abcdefghijklm", "SEEDgoogleKey"),
+            ("xo".to_owned() + "xb-SEEDslack-0123456789-abcdefABCDEF", "SEEDslack"),
+            ("AK".to_owned() + "IASEEDAWSKEY012345", "SEEDAWSKEY"),
+            ("ey".to_owned() + "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZWVkIn0.SEEDjwtSignature0123456789", "SEEDjwtSignature"),
+            ("Authorization: Bearer SEEDbearer0123456789abcdef".to_owned(), "SEEDbearer"),
+            ("password=SEEDpasswordValue99".to_owned(), "SEEDpasswordValue"),
+            ("https://seeduser:SEEDurlPassword99@git.corp.dev/r.git".to_owned(), "SEEDurlPassword"),
+            ("https://seeduser:SEEDurlPassword99@git.corp.dev/r.git".to_owned(), "seeduser"),
+            ("seeded.person@corp-mail.dev".to_owned(), "seeded.person"),
+            ("/Users/seededalice/plan.txt".to_owned(), "seededalice"),
+            ("/home/seededbob/.ssh/id_ed25519".to_owned(), "seededbob"),
+        ];
+        let text = seeds.iter().map(|(seed, _)| seed.as_str()).collect::<Vec<_>>().join(" | ");
+        for kind in ["panic", "memory"] {
+            let line = json!({"message": text, "location": text, "backtrace": text, "kind": kind}).to_string();
+            let sent = String::from_utf8(envelope(&event_for(&line, Some("/home/other")).unwrap())).unwrap();
+            for (_, marker) in &seeds {
+                assert!(!sent.contains(marker), "{kind}: {marker} survived: {sent}");
+            }
+        }
+    }
+
     #[test]
     fn each_line_goes_once_and_a_failed_send_retries_next_time() {
         let dir =
