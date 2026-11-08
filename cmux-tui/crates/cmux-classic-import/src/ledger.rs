@@ -287,7 +287,7 @@ mod tests {
           "runs" : 1,
           "schema" : 1,
           "source" : { "bundleID" : "com.cmuxterm.app", "createdAt" : 1761000000.5, "modifiedAt" : 1761000001.75,
-                       "path" : "/Users/me/Library/Application Support/cmux/session-com.cmuxterm.app.json", "size" : 4096 },
+                       "path" : "/s/session-com.cmuxterm.app.json", "size" : 4096 },
           "state" : "inProgress",
           "updatedAt" : 1761000002.25,
           "workspaces" : {
