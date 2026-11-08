@@ -29,7 +29,10 @@ extension TabCell {
         titleFade.stopMarquee(animated: false)
         if let from = pinStartForm {
             pinStartForm = nil
-            return retimePin(path, from: from, now: now, end: end)
+            // The width's move began at the change (`TabStripMove.begin`), before this layout: the look's samples start
+            // there too, so frame 0 shows the old look and each frame after it the look at the width's progress. From
+            // `now` the frames between the begin and this layout would show the new look's model at once.
+            return retimePin(path, from: from, now: min(now, path.lastBegin ?? now), end: end)
         }
         // What shows on screen now (before this layout): the start of the path as the user sees it.
         // The first sample is laid out in the new state (a tab that lost its selection has no x
