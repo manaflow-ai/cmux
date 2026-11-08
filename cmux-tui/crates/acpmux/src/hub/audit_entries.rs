@@ -6,6 +6,9 @@
 use super::review_queue::{ASK_CHARS, Ask, Kind, ask_text, line, vendor};
 use super::*;
 
+/// How long a purge waits for the audit log's rewrite.
+const AUDIT_PURGE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// What an answer decided: `allow`, `deny` or `answer` (a question's allow with answers), and
 /// the option it picked. None for a prompt nobody answered (withdrawn, or its turn stopped).
 pub(crate) fn decision(
@@ -55,7 +58,8 @@ pub(crate) fn answered_by(decided: &str, by: Option<&Value>) -> Value {
 impl Hub {
     /// One stored record of `session`, for the review index and the audit trail.
     pub(super) fn observe_for_review(&self, session: &Session, record: &EventRecord) {
-        if record.dir != "mux" {
+        // A purged chat (an incognito space's) leaves no history.
+        if record.dir != "mux" || session.purged.load(Ordering::SeqCst) {
             return;
         }
         match record.kind.as_str() {
@@ -106,6 +110,22 @@ impl Hub {
         Some(entry)
     }
 
+    /// `session` is being purged: its audit entries leave the log (`audit_log.rs`), waited for
+    /// up to [`AUDIT_PURGE_WAIT`].
+    pub(super) async fn audit_purge(&self, session_id: &str) {
+        let Some(done) = self.audit.purge(session_id) else {
+            tracing::warn!(session = %session_id, "audit: the writer is gone; nothing purged");
+            return;
+        };
+        match tokio::time::timeout(AUDIT_PURGE_WAIT, done).await {
+            Ok(Ok(Ok(_))) => {}
+            Ok(Ok(Err(why))) => {
+                tracing::warn!(session = %session_id, "audit: purge failed: {why}");
+            }
+            _ => tracing::warn!(session = %session_id, "audit: purge did not finish in time"),
+        }
+    }
+
     /// A queued prompt its owner approved (`allow`, from `control`) or declined (`deny`).
     pub(super) fn audit_queued(
         &self,
@@ -115,6 +135,9 @@ impl Hub {
         approved: bool,
         control: Option<Control>,
     ) {
+        if session.purged.load(Ordering::SeqCst) {
+            return;
+        }
         let mut entry = self.entry_base(session, now_ms());
         entry["kind"] = json!("queued");
         entry["promptId"] = json!(prompt_id);
@@ -138,6 +161,9 @@ impl Hub {
         accepted: bool,
         from_app: bool,
     ) -> Result<Value, RpcError> {
+        if session.purged.load(Ordering::SeqCst) {
+            return Err(RpcError::invalid_params(format!("session {} was purged", session.id)));
+        }
         if !session.meta().pull_requests.iter().any(|u| u == url) {
             return Err(RpcError::invalid_params(format!(
                 "session {} opened no pull request {url}",

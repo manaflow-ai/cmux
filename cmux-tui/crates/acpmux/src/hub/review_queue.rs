@@ -46,6 +46,9 @@ pub(crate) const ASK_CHARS: usize = 200;
 const DETAIL_CHARS: usize = 400;
 /// What of a long text is read before it is masked and cut.
 const READ_CHARS: usize = 4096;
+/// How long an ask a read no longer saw pending keeps its audit context for the decision record
+/// that may still be on its way (`respond_permission` drops the pending entry before the record).
+pub(crate) const SETTLE_MS: u64 = 60_000;
 /// A read's items when the request names no limit.
 pub(crate) const DEFAULT_LIMIT: usize = 200;
 pub(crate) const MAX_LIMIT: usize = 1000;
@@ -98,6 +101,10 @@ struct Pr {
 #[derive(Default)]
 struct Inner {
     asks: HashMap<String, HashMap<String, Ask>>,
+    /// Asks a read found no longer pending, by (session, permission), with when: out of the
+    /// queue, but kept [`SETTLE_MS`] for the audit entry of a decision still being recorded.
+    /// Reads never walk them; each read drops the expired ones.
+    settling: HashMap<(String, String), (Ask, u64)>,
     prs: HashMap<String, Vec<Pr>>,
     noted: u64,
 }
@@ -129,12 +136,22 @@ impl Index {
     /// The ask a `permission_decision` record of `session` answered, taken out of the index.
     pub(crate) fn take_ask(&self, session: &str, permission_id: &str) -> Option<Ask> {
         let mut inner = self.lock();
-        let asks = inner.asks.get_mut(session)?;
+        let key = (session.to_owned(), permission_id.to_owned());
+        let settled = inner.settling.remove(&key).map(|(a, _)| a);
+        let Some(asks) = inner.asks.get_mut(session) else { return settled };
         let ask = asks.remove(permission_id);
         if asks.is_empty() {
             inner.asks.remove(session);
         }
-        ask
+        ask.or(settled)
+    }
+
+    /// Drops the settling asks set aside before `now - SETTLE_MS`.
+    fn expire_settling(&self, now: u64) {
+        let mut inner = self.lock();
+        if !inner.settling.is_empty() {
+            inner.settling.retain(|_, (_, at)| now.saturating_sub(*at) < SETTLE_MS);
+        }
     }
 
     /// The pull request at `url` that `session` opened at `at`.
@@ -151,6 +168,11 @@ impl Index {
     pub(crate) fn sizes(&self) -> (usize, usize) {
         let inner = self.lock();
         (inner.asks.len(), inner.prs.len())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn settling(&self) -> usize {
+        self.lock().settling.len()
     }
 }
 
@@ -331,6 +353,7 @@ impl Hub {
     /// This daemon's own queue items (no peer's), unsorted, and how many sessions the read
     /// visited.
     pub(crate) fn review_queue_local(&self, now: u64) -> (Vec<Value>, usize) {
+        self.review_index.expire_settling(now);
         let (asking, with_prs, noted) = {
             let inner = self.review_index.lock();
             let asking: Vec<String> = inner.asks.keys().cloned().collect();
@@ -345,12 +368,12 @@ impl Hub {
         for id in asking {
             visited += 1;
             let Some(session) = lookup(&id) else {
-                self.drop_stale_asks(&id, &[], noted);
+                self.drop_stale_asks(&id, &[], noted, now);
                 continue;
             };
             let pending = session.pending_permissions();
             let held: Vec<&str> = pending.iter().map(|(k, _)| k.as_str()).collect();
-            self.drop_stale_asks(&id, &held, noted);
+            self.drop_stale_asks(&id, &held, noted, now);
             if pending.is_empty() {
                 continue;
             }
@@ -424,14 +447,28 @@ impl Hub {
         (items, visited)
     }
 
-    /// Drops the asks of session `id` the index learned at or before `noted` that it no longer
-    /// holds (`held`): one learned after the read began stays for the next read.
-    fn drop_stale_asks(&self, id: &str, held: &[&str], noted: u64) {
+    /// Moves the asks of session `id` the index learned at or before `noted` that it no longer
+    /// holds (`held`) out of the queue's index into `settling`: one learned after the read began
+    /// stays for the next read, and a decision record that comes after still finds its ask.
+    fn drop_stale_asks(&self, id: &str, held: &[&str], noted: u64, now: u64) {
         let mut inner = self.review_index.lock();
         let Some(asks) = inner.asks.get_mut(id) else { return };
-        asks.retain(|k, a| a.noted > noted || held.contains(&k.as_str()));
+        let stale: Vec<String> = asks
+            .iter()
+            .filter(|(k, a)| a.noted <= noted && !held.contains(&k.as_str()))
+            .map(|(k, _)| k.clone())
+            .collect();
+        let mut moved = Vec::with_capacity(stale.len());
+        for k in stale {
+            if let Some(a) = asks.remove(&k) {
+                moved.push((k, a));
+            }
+        }
         if asks.is_empty() {
             inner.asks.remove(id);
+        }
+        for (k, a) in moved {
+            inner.settling.insert((id.to_owned(), k), (a, now));
         }
     }
 }
