@@ -182,7 +182,8 @@ extension DaemonConnection {
             return Self.created(try await requestPaneCreation(SplitRequest(pane: pane, direction: direction, options: options, before: before)),
                                 options: options)
         }
-        if let placed = try await spawnPlacedByMove(options, into: .split(pane, direction)) { return placed }
+        // The move lands the tab on the right or bottom edge only, so a before split skips it (#38602 review F1).
+        if !before, let placed = try await spawnPlacedByMove(options, into: .split(pane, direction)) { return placed }
         var options = served(options)
         options.env = await terminalEnvironment(options.env)
         return try await request(SplitRequest(pane: pane, direction: direction, options: options, before: before))
