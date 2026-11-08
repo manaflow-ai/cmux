@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42501692754",
+  "recorded_at": "2026-11-08T16:58:49Z",
+  "reason": "cmux-tui 522ee949726a changes the image's cmux-tui (pinned 4ef656c47ccc)",
+  "dry_run": false,
+  "cmux_tui": "522ee949726a474e77e12a1bc5a476832dc7e9fa",
+  "fixes": [
+    {
+      "sha": "53226c0cbd80b22e5cc6e4ad3690a77266ed6dcf",
+      "mergedAt": "2026-11-08T16:31:54Z",
+      "subject": "Cloud start: a headless Codex start with no login choice refuses at once; the refusal says the agent isn't signed in (#38651)"
+    },
+    {
+      "sha": "74da125111ef9aecf02416279e8fefb3230271a7",
+      "mergedAt": "2026-11-08T16:31:14Z",
+      "subject": "Palette: Archive, Make Primary and Delete Chief pick the Chief (#38544)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T16:58:49Z",
+    "snapshot_id": "sh-621156eb527c420bb9fb5d82f43992ba",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42501692754): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "44b904d964fd7f99ab5be515380b06c52da2212d",
+    "image": "cloud-native-auto-522ee949-42501692754-1",
+    "revision": "ci-42501692754-1",
+    "at": "2026-11-08T16:58:49Z"
+  },
+  "rolled_back": false
+}
