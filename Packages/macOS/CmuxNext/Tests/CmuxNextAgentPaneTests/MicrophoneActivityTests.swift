@@ -166,6 +166,26 @@ import Testing
         rig.activity.unwatch(owner)
     }
 
+    @Test func aClosedMetersQueuedLevelNeverReachesTheNextMeter() async {
+        let rig = Rig(), owner = Owner()
+        var levels: [Float] = []
+        rig.activity.watch(owner, onLevel: { levels.append($0) }, onChange: { _ in })
+        let first = rig.opened.first, firstForwarding = rig.activity.levelForwarding
+        // A level sits in the first meter's stream when the default input changes: that meter
+        // closes and a second one opens before the stream is read.
+        first?.update(rms: 1)
+        rig.activity.defaultInputChanged()
+        await firstForwarding?.value
+        #expect(levels.isEmpty)
+        // The second meter's levels still arrive.
+        let second = rig.opened.last
+        second?.update(rms: 0.5)
+        second?.finish()
+        await rig.activity.levelForwarding?.value
+        #expect(levels.count == 1)
+        rig.activity.unwatch(owner)
+    }
+
     @Test func aNewDefaultInputMovesTheMeter() {
         let rig = Rig(), owner = Owner()
         rig.activity.watch(owner) { _ in }

@@ -16,6 +16,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UdpSocket;
 use zeroize::Zeroizing;
 
+use super::acpmux::AcpmuxTarget;
 use super::control::{Peers, serve_overlay};
 use super::dial::{Overlay, serve_dial};
 use super::mesh::MeshOverlay;
@@ -52,7 +53,7 @@ fn mesh(node: Node) -> MeshOverlay {
         }],
         mtu: super::state::LINK_MTU,
     };
-    MeshOverlay::new(WgMesh::start(config, node.socket).unwrap(), Zeroizing::new(node.private))
+    MeshOverlay::new(WgMesh::start(config, node.socket).unwrap())
 }
 
 async fn within<T>(future: impl Future<Output = T>) -> T {
@@ -89,7 +90,8 @@ async fn exchange(a: Node, b: Node) {
     let entry = tokio::net::UnixListener::bind(&entry_path).unwrap();
     let listener = overlay_a.listen(cmux_link::LINK_PORT).await.unwrap();
     let peers = Arc::new(Peers::load(peers_path).unwrap());
-    let server = tokio::spawn(serve_overlay(listener, peers, Some(session), None));
+    let server =
+        tokio::spawn(serve_overlay(listener, peers, Some(session), None, AcpmuxTarget::Off));
 
     let (mut caller, link_side) = tokio::io::duplex(64 * 1024);
     let dial = tokio::spawn(async move { serve_dial(link_side, &overlay_b, &pairings_b).await });
@@ -255,8 +257,13 @@ async fn a_revoke_closes_the_owner_session_on_the_dialing_side() {
     let session = directory.path().join("s.sock");
     let listener = overlay_a.listen(cmux_link::LINK_PORT).await.unwrap();
     let peers = Arc::new(Peers::load(peers_path.clone()).unwrap());
-    let server =
-        tokio::spawn(serve_overlay(listener, peers.clone(), Some(session), Some(Arc::new(owner))));
+    let server = tokio::spawn(serve_overlay(
+        listener,
+        peers.clone(),
+        Some(session),
+        Some(Arc::new(owner)),
+        AcpmuxTarget::Off,
+    ));
 
     let (mut caller, link_side) = tokio::io::duplex(64 * 1024);
     let dial = tokio::spawn(async move { serve_dial(link_side, &overlay_b, &pairings_b).await });
@@ -333,7 +340,13 @@ async fn a_revoke_closes_the_daemon_stream_before_removing_its_wireguard_peer() 
     });
     let listener = overlay_a.listen(cmux_link::LINK_PORT).await.unwrap();
     let peers = Arc::new(Peers::load(path.clone()).unwrap());
-    let server = tokio::spawn(serve_overlay(listener, peers.clone(), Some(session), None));
+    let server = tokio::spawn(serve_overlay(
+        listener,
+        peers.clone(),
+        Some(session),
+        None,
+        AcpmuxTarget::Off,
+    ));
     let (mut caller, link_side) = tokio::io::duplex(64 * 1024);
     let dial = tokio::spawn(async move { serve_dial(link_side, &overlay_b, &pairings_b).await });
     caller
@@ -407,6 +420,7 @@ async fn outgoing_revocation_and_endpoint_updates_work_across_two_real_meshes() 
         Arc::new(Peers::load(path_a).unwrap()),
         Some(session),
         None,
+        AcpmuxTarget::Off,
     ));
     let local_path = directory.path().join("l.sock");
     let local = tokio::net::UnixListener::bind(&local_path).unwrap();
@@ -415,7 +429,6 @@ async fn outgoing_revocation_and_endpoint_updates_work_across_two_real_meshes() 
         local,
         overlay_b.clone(),
         peers_b.clone(),
-        Arc::new(super::cloud::CloudResolver::new(super::cloud::RelaySource::unavailable())),
         Arc::from("{}"),
     ));
     let mut caller = tokio::net::UnixStream::connect(local_path).await.unwrap();

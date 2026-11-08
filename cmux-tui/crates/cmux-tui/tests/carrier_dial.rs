@@ -83,6 +83,39 @@ fn a_carrier_dial_carries_the_daemon_stream_both_ways() {
     assert!(!ms.is_empty() && ms.bytes().all(|b| b.is_ascii_digit()), "nothing after ms=: {route}");
 }
 
+/// A fresh machine's daemon registers after the dial's Connect: the relay
+/// parks the Connect until then. A Register 20 s later, past the relay
+/// client's 15 s control timeout, is still inside the dial's one deadline
+/// (30 s here), so the first attempt connects: one route line, ok, and no
+/// retry.
+#[test]
+fn a_dial_parked_until_the_daemon_registers_20_s_later_connects_on_its_first_attempt() {
+    let world = world_parked(Duration::from_secs(20));
+    let mut child = dial(&world);
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply, json!({"ok": true, "path_state": "relay", "route": "carrier"}));
+    let route = line(&mut stderr);
+    let prefix =
+        format!("cloud.connect route=carrier machine={MACHINE} phase=connect outcome=ok ms=");
+    let ms: u64 = route
+        .strip_prefix(&prefix)
+        .and_then(|ms| ms.trim_end().parse().ok())
+        .unwrap_or_else(|| panic!("not the first attempt's ok line: {route}"));
+    assert!(ms >= 20_000, "connected after {ms} ms, before the daemon registered");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    stdin.write_all(b"{\"cmd\":\"identify\",\"id\":1}\n").unwrap();
+    stdin.flush().unwrap();
+    assert_eq!(line(&mut stdout), "{\"cmd\":\"identify\",\"id\":1}\n");
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+    // The connect log has every attempt's route line: this one alone.
+    let log = world.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), route, "the dial retried");
+}
+
 #[test]
 fn a_named_team_goes_to_the_platform_as_x_cmux_team() {
     let world = world(200, Arc::new(AtomicUsize::new(0)));

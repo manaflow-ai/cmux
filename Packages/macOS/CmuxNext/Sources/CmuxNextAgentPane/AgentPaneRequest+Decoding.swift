@@ -5,6 +5,13 @@ import Foundation
 extension AgentPaneRequest {
     private static let maximumUploadStageChunk = 512 * 1024
 
+    /// A Cloud environment id as the platform makes them (`env_` and up to 64 letters, digits, `_`
+    /// or `-`): the only `environment` `action.run` passes on.
+    static func isCloudEnvironmentID(_ id: String) -> Bool {
+        id.hasPrefix("env_") && (5...68).contains(id.count)
+            && id.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-") }
+    }
+
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
@@ -572,9 +579,13 @@ extension AgentPaneRequest {
             // A `session` that is there must be a usable id: a malformed one is refused, never
             // dropped (which would run the action on whatever the tab shows).
             let session = params?["session"].map { $0 as? String }
+            // An `environment` is New Cloud Machine's only, and a Cloud environment id (`env_…`);
+            // any other is refused, never dropped (which would make a machine in another one).
+            let environment = params?["environment"].map { $0 as? String }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
-               session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true {
-                self = .runAction(id, session: session ?? nil)
+               session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
+               environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true {
+                self = .runAction(id, session: session ?? nil, environment: environment ?? nil)
             } else {
                 self = .unsupported(method)
             }

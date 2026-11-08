@@ -36,7 +36,7 @@ extension AgentPaneModel {
     /// sign-in and its continuation. An action the app did not run (turned off, or not for this tab)
     /// is an `unavailable` failure, so the page can say so; one that ran and
     /// then stopped reports itself in the app (its refusal or toast).
-    func runAction(_ id: String, session: String? = nil) -> [String: Any] {
+    func runAction(_ id: String, session: String? = nil, environment: String? = nil) -> [String: Any] {
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id)
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
@@ -46,7 +46,9 @@ extension AgentPaneModel {
             return AgentPaneReply.failure(code: "unavailable", message: "This chat is no longer shown.")
         }
         if gated, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
-        if onRunAction(id, Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]) { return AgentPaneReply.success() }
+        var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
+        if let environment { arguments["environment"] = environment }
+        if onRunAction(id, arguments) { return AgentPaneReply.success() }
         return AgentPaneReply.failure(code: "unavailable", message: "The app did not run \(id).")
     }
 }
