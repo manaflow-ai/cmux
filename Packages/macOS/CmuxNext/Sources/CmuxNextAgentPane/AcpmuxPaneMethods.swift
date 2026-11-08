@@ -148,6 +148,9 @@ nonisolated enum AcpmuxPaneMethods {
         // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
         // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
         "_acpmux/subsession/limits",
+        // Model races: candidates and reviewer run only under the selected parent chat's
+        // existing authorization and isolated worktree guard (acpmux hub/races.rs).
+        "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
         // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp,
         // Session Info's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
         // already lists, on its running process; it starts nothing and refuses other harnesses.
@@ -272,11 +275,19 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
+        "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
     /// side chat names the chat it is beside (cx-jlzsf).
     public static let scopedSessionParams: [String: Set<String>] = ["_acpmux/side": ["chat"]]
+
+    /// Race requests use `parent` instead of `sessionId`; it is the same pane-scoped session
+    /// reference and is checked by `sessionRefusal` below.
+    public static let primarySessionParams: [String: String] = [
+        "_acpmux/race/start": "parent", "_acpmux/race/get": "parent",
+        "_acpmux/race/list": "parent", "_acpmux/race/cancel": "parent", "_acpmux/race/stats": "parent",
+    ]
 
     /// Params beside `sessionId` that may name a session: none is fine, a named one (even `null`)
     /// must be a string in the pane's scope. Only an accepted offer names its child chat (the one
@@ -358,6 +369,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/secret_submit": .always,
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
+        // Racing starts additional agent turns; the launch button supplies a fresh click.
+        "_acpmux/race/start": .always,
         // Hand back delivers held messages, which runs turns.
         "_acpmux/agent_hold": .always,
         "_acpmux/app_reply": .always,

@@ -563,6 +563,116 @@
           }
         },
         {
+          "key": "home.chiefPanel.style",
+          "note": "The compose bar: the least on screen that still takes a message (user 2026-11-07).",
+          "title": {
+            "key": "settings.home.chiefPanelStyle",
+            "text": "Floating Chief Style"
+          },
+          "help": {
+            "key": "settings.home.chiefPanelStyle.help",
+            "text": "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "composeBar",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.composeBar",
+                "text": "Compose Bar"
+              }
+            },
+            {
+              "value": "pill",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.pill",
+                "text": "Pill"
+              }
+            },
+            {
+              "value": "card",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.card",
+                "text": "Card"
+              }
+            },
+            {
+              "value": "panel",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.panel",
+                "text": "Panel"
+              }
+            },
+            {
+              "value": "bubble",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.bubble",
+                "text": "Bubble"
+              }
+            },
+            {
+              "value": "seeThrough",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.seeThrough",
+                "text": "See-Through"
+              }
+            },
+            {
+              "value": "seeThroughBar",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.seeThroughBar",
+                "text": "See-Through Bar"
+              }
+            }
+          ],
+          "default": "composeBar",
+          "keywords": [
+            "chief",
+            "floating",
+            "style",
+            "compose",
+            "pill",
+            "card",
+            "panel",
+            "bubble",
+            "minimal",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "ChiefDockSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "home.chiefPanel.seesScreen",
+          "note": "On: the eye in the panel shows it, and a click turns it off (user 2026-11-07, default picked by the Chief).",
+          "title": {
+            "key": "settings.home.chiefPanelSeesScreen",
+            "text": "Chief Sees Your Screen When It Opens"
+          },
+          "help": {
+            "key": "settings.home.chiefPanelSeesScreen.help",
+            "text": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "chief",
+            "screen",
+            "see",
+            "context",
+            "screenshot",
+            "eye",
+            "floating",
+            "privacy",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "ChiefDockSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "home.chiefDock.openBeside",
           "note": "On: a link clicked in the Chief opens its workspace with the Chief floating over it.",
           "title": {

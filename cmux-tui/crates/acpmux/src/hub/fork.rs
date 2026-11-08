@@ -508,6 +508,7 @@ impl Hub {
             // an agent started of its own chat is that chat's sub-session (`sub`).
             subsession,
             subsession_limits: Default::default(),
+            races: Default::default(),
             // A fork is the person's branch of the chat, never a spawn (`lineage.rs`), unless
             // its agent started it (`sub`).
             created_by,

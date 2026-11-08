@@ -27,6 +27,12 @@
 //!
 //! After a failed ticket ask the model waits the credential backoff (full
 //! jitter, 1 s doubling to 60 s), as cmux-remote does.
+//!
+//! `HARNESS_CASE=slow-fetch` adds a ticket request in flight when the
+//! machine resumes, one that takes [`SLOW_FETCH`] (a pooled connection that
+//! died in the pause hangs to its 20 s bound): just before the resume an
+//! asker that gives up after half a second asks for a ticket, and the
+//! platform holds that one request.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -56,6 +62,11 @@ const MINT_LATENCY: Duration = Duration::from_secs(6);
 const MINTS_PER_PHASE: usize = 3;
 /// `host cloud carrier-ticket`'s read of the agent's answer.
 const CLI_WAIT: Duration = Duration::from_secs(30);
+/// How long the ticket request in flight at the resume takes (`slow-fetch`).
+const SLOW_FETCH: Duration = Duration::from_secs(22);
+
+/// The platform holds the next ticket request for [`SLOW_FETCH`].
+static SLOW_NEXT_TICKET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn wall_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
@@ -145,7 +156,11 @@ fn answer(path: &str) -> (Duration, u16, Value) {
             (MINT_LATENCY, 200, json!({ "ok": false, "error": { "code": "harness" } }))
         }
         p if p.ends_with("/carrier") => (
-            BASE_LATENCY,
+            if SLOW_NEXT_TICKET.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                SLOW_FETCH
+            } else {
+                BASE_LATENCY
+            },
             200,
             json!({ "ok": true, "value": { "relay": "relay+do://relay.example", "slot": "slot_0123456789abcdefghijkl", "ticket": format!("ticket-{now}"), "expires_at": now / 1000 + 300 } }),
         ),
@@ -274,6 +289,25 @@ fn register(root: &Path, profile: &Profile, deadline: Instant) -> u32 {
     }
 }
 
+/// `slow-fetch`: a ticket request in flight, held for [`SLOW_FETCH`], when
+/// the machine resumes. An asker that gives up after half a second starts it.
+fn slow_fetch_in_flight(root: &Path, deadline: Instant) {
+    SLOW_NEXT_TICKET.store(true, std::sync::atomic::Ordering::SeqCst);
+    let asker = root.to_owned();
+    std::thread::spawn(move || {
+        let line = json!({ "carrier_ticket": {} }).to_string();
+        let _ = ask_line(&asker, &line, Duration::from_millis(500));
+    });
+    while SLOW_NEXT_TICKET.load(std::sync::atomic::Ordering::SeqCst) {
+        assert!(Instant::now() < deadline, "the slow ticket request did not start");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn slow_fetch_case() -> bool {
+    std::env::var("HARNESS_CASE").as_deref() == Ok("slow-fetch")
+}
+
 fn run_once(origin: &str, profile: &Profile) -> (Duration, u32, Duration, u32) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -299,6 +333,9 @@ fn run_once(origin: &str, profile: &Profile) -> (Duration, u32, Duration, u32) {
 
     // Let the start's mints and reports drain, then pause and resume.
     std::thread::sleep(Duration::from_secs(25));
+    if slow_fetch_case() {
+        slow_fetch_in_flight(root, deadline);
+    }
     let resumed = Instant::now();
     github_asks(root);
     role.on_event(&HostEvent::Resumed).unwrap();
@@ -347,7 +384,9 @@ fn carrier_register_harness() {
     }
     *TEST_ORIGIN.lock().unwrap() = None;
     let profile_name = std::env::var("HARNESS_PROFILE").unwrap_or_else(|_| "before".to_owned());
-    eprintln!("HARNESS profile {profile_name}, {runs} runs");
+    let case =
+        if slow_fetch_case() { ", a slow ticket request in flight at the resume" } else { "" };
+    eprintln!("HARNESS profile {profile_name}, {runs} runs{case}");
     eprintln!("HARNESS {}", summary("start -> registered", starts, &start_failed));
     eprintln!("HARNESS {}", summary("resume -> registered", resumes, &resume_failed));
 }
