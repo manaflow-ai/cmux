@@ -156,3 +156,27 @@ fn a_from_folder_start_never_begins_past_the_deadline() {
     assert_eq!(fake.ran.len(), 1, "{:?}", fake.ran);
     assert!(error["details"]["again"].as_str().unwrap().contains("--from-folder"), "{error}");
 }
+
+/// The app's refusals are checked before any step runs, so `--environment` never makes a machine for a folder
+/// the start refuses: home, a folder above it, the disk's root, and a folder in or holding one of home's
+/// credential folders, in any case.
+#[test]
+fn from_folder_refuses_home_above_it_and_credential_folders_before_any_step() {
+    use super::super::folder::local_folder_in;
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("me");
+    for dir in ["proj/src", ".ssh/keys", ".config/gh", "Code/.Cargo"] {
+        std::fs::create_dir_all(home.join(dir)).unwrap();
+    }
+    let at = |dir: &str| home.join(dir).to_string_lossy().into_owned();
+    let above = root.path().to_string_lossy().into_owned();
+    let refused = [String::from("/"), above, at(""), at(".ssh/keys"), at(".config")];
+    for dir in &refused {
+        assert!(local_folder_in(dir, false, Some(&home)).is_err(), "{dir}");
+    }
+    let project = std::fs::canonicalize(home.join("proj")).unwrap().to_string_lossy().into_owned();
+    assert_eq!(local_folder_in(&at("proj"), false, Some(&home)).ok(), Some(project));
+    // A project's own `.cargo` is no folder of home's: the copy leaves it out instead.
+    assert!(local_folder_in(&at("Code"), false, Some(&home)).is_ok());
+    assert!(local_folder_in(&at("proj/src"), false, None).is_ok());
+}

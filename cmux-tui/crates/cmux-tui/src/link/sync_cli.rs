@@ -63,7 +63,7 @@ mod seed_pull;
 pub(super) use seed_pull::{
     SeedBase, SeedPulled, failure_code as seed_pull_failure_code, is_sha, seed_pull,
 };
-mod skips;
+pub(crate) mod skips;
 mod store;
 
 pub(crate) use store::{Config as StoreConfig, configure as configure_store};

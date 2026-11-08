@@ -419,24 +419,6 @@ pub(super) fn parse(
     }))
 }
 
-/// `--from-folder DIR`, checked: never with `--cwd`, an absolute folder that exists on this Mac,
-/// answered canonical. The app refuses home, the disk's root and credential folders itself.
-fn local_folder(dir: &str, with_cwd: bool) -> Result<String, UsageError> {
-    if with_cwd {
-        return Err(UsageError::new("give --from-folder or --cwd, not both"));
-    }
-    if !std::path::Path::new(dir).is_absolute() {
-        return Err(UsageError::new(format!(
-            "--from-folder {dir}: an absolute folder on this Mac"
-        )));
-    }
-    match std::fs::canonicalize(dir) {
-        Ok(path) if path.is_dir() => Ok(path.to_string_lossy().into_owned()),
-        Ok(_) => Err(UsageError::new(format!("--from-folder {dir}: not a folder"))),
-        Err(error) => Err(UsageError::new(format!("--from-folder {dir}: {error}"))),
-    }
-}
-
 /// One run of this binary: its exit code and what it printed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct Ran {
@@ -1833,6 +1815,8 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
 
 mod cap;
 mod fault;
+mod folder;
+use folder::local_folder;
 mod support;
 use support::{at, last_turn, reply, sections, words};
 
