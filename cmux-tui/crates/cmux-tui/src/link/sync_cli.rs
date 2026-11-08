@@ -605,7 +605,10 @@ pub(super) fn copy_folder_with_progress(
         progress();
         // A file reached through a symlink swapped in after listing stays.
         let path = local.join(&relative);
-        if !std::fs::canonicalize(&path).is_ok_and(|real| real == path) {
+        if !local::below(&relative)
+            || !path.starts_with(local)
+            || !std::fs::canonicalize(&path).is_ok_and(|real| real == path)
+        {
             skipped += 1;
             continue;
         }

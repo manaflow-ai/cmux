@@ -287,20 +287,35 @@ fn listed_files(folder: &Path) -> anyhow::Result<LocalSet> {
     let skips = Skips::new(folder);
     let mut set =
         LocalSet { files: BTreeMap::new(), links: BTreeMap::new(), skipped: 0, skips, git: false };
-    if work_tree_top(folder)?.is_none() {
+    let Some(top) = work_tree_top(folder)? else {
         walk_plain(&mut set, Rules::Share, folder, folder)?;
         return Ok(set);
+    };
+    // A repository whose working copy is somewhere else (its `core.worktree`)
+    // lists files that are not this folder's.
+    if !folder.starts_with(&top) {
+        bail!("{} is not in its repository's working copy {}", folder.display(), top.display());
     }
     set.git = true;
     // Run in the folder, git lists only what is under it, by paths from it.
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
-        if untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env")) {
+        // A crafted index can name a file anywhere: only a plain path below
+        // the folder is the folder's.
+        if !below(&path)
+            || untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env"))
+        {
             set.skipped += 1;
             continue;
         }
         add(&mut set, path.clone(), &folder.join(&path))?;
     }
     Ok(set)
+}
+
+/// A relative path that stays below its folder: no root, no empty, `.` or
+/// `..` part.
+pub(super) fn below(path: &str) -> bool {
+    !path.starts_with('/') && path.split('/').all(|part| !matches!(part, "" | "." | ".."))
 }
 
 /// Most alternates levels git follows.
@@ -770,7 +785,19 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
-    use super::{Rules, borrowed_object, borrowed_skipped, collect, unquote};
+    use super::{Rules, below, borrowed_object, borrowed_skipped, collect, unquote};
+
+    /// Only a plain path below the folder is one of its files: a crafted
+    /// git index naming a root, `..` or an empty part names none.
+    #[test]
+    fn only_a_plain_path_is_below_the_folder() {
+        for kept in ["a.txt", "docs/guide.md", "a/.b/c"] {
+            assert!(below(kept), "{kept}");
+        }
+        for refused in ["", "/etc/passwd", "../x", "a/../../x", "a//b", "./a", "a/."] {
+            assert!(!below(refused), "{refused}");
+        }
+    }
 
     #[test]
     fn only_git_object_files_of_a_borrowed_store_go() {
