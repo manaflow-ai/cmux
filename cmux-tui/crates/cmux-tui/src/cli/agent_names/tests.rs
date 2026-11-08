@@ -269,3 +269,29 @@ fn w3h_rewritten_words_never_change_a_global_option_value() {
         Some(strings(&["--session", "alpha", "terminal", ALPHA, "send", "--text", "alpha"]))
     );
 }
+
+/// Review (lead's reviewer, #38436): a live shell tab and a live agent tab with
+/// one name are two candidates. The CLI does not prefer the agent tab: the
+/// daemon's tab-name scope does not, so `tab alpha close` and `terminal alpha
+/// send` could pick different objects. Live tabs still win over exited ones.
+#[test]
+fn w3h_two_live_tabs_with_one_name_are_ambiguous_even_when_one_runs_an_agent() {
+    let mut named = snapshot();
+    if let Some(tabs) = named["tabs"].as_array_mut() {
+        tabs.push(json!({"id": "tab_alpha_shell", "name": "alpha", "content_id": SHELL,
+                         "pane_id": "pane_2"}));
+    }
+    let both = vec!["tab_alpha".to_owned(), "tab_alpha_shell".to_owned()];
+    assert_eq!(resolve(&named, "alpha"), Found::Ambiguous(both));
+
+    let pane = super::super::agent_start::placement::target_pane(&named, Some("alpha"), None)
+        .expect_err("two live tabs are named alpha");
+    assert_eq!(pane.error["code"], "selector.ambiguous", "{}", pane.error);
+
+    let terminal = super::super::terminal_talk::send::find_terminal(&named, "alpha")
+        .expect_err("two live tabs are named alpha");
+    assert_eq!(terminal.failure.error["code"], "selector.ambiguous", "{}", terminal.failure.error);
+
+    // One live tab and one exited tab: the live one, as before.
+    assert!(matches!(resolve(&snapshot(), "alpha"), Found::One(place) if place.terminal == ALPHA));
+}

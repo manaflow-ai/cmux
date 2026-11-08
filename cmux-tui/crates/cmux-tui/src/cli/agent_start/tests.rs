@@ -502,6 +502,66 @@ fn w3h_start_in_a_session_with_no_pane_opens_a_workspace_for_the_agent() {
     assert_eq!(daemon.sent("tab.close")[0]["tab"], "tab_5e115e115e115e115e115e115e115e11");
 }
 
+/// Review (lead's reviewer, #38436): two `agent start` runs at once on a
+/// daemon with no client. The snapshot read after `workspace create` already
+/// holds alpha's workspace too, focused. beta's pane and the shell tab to close
+/// come from the create receipt (its ids, else the pane of its workspace),
+/// never from focus, so beta never closes alpha's tab.
+#[test]
+fn w3h_start_in_an_empty_session_uses_the_workspace_it_created_not_the_focused_one() {
+    const WS_A: &str = "ws_a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0";
+    const WS_B: &str = "ws_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0";
+    const PANE_A: &str = "pane_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
+    const PANE_B: &str = "pane_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1";
+    const TAB_A: &str = "tab_a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2";
+    const SHELL_B: &str = "tab_b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2";
+    const TERM_A: &str = "term_a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3";
+    const TERM_B: &str = "term_b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3";
+    let empty = json!({"workspaces": [], "screens": [], "panes": [], "tabs": [],
+                       "terminals": [], "agents": []});
+    let both = json!({
+        "workspaces": [{"id": WS_A, "focused": true}, {"id": WS_B, "focused": false}],
+        "screens": [{"id": "screen_a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4", "workspace_id": WS_A, "focused": true},
+                    {"id": "screen_b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4", "workspace_id": WS_B, "focused": true}],
+        "panes": [{"id": PANE_A, "screen_id": "screen_a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4", "focused": true},
+                  {"id": PANE_B, "screen_id": "screen_b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4", "focused": true}],
+        "tabs": [{"id": TAB_A, "name": "alpha", "content_id": TERM_A, "pane_id": PANE_A},
+                 {"id": SHELL_B, "name": null, "content_id": TERM_B, "pane_id": PANE_B}],
+        "terminals": [{"id": TERM_A, "lifecycle": "running", "tab_id": TAB_A},
+                      {"id": TERM_B, "lifecycle": "running", "tab_id": SHELL_B}],
+        "agents": [],
+    });
+    let receipts = [
+        json!({"generation": "g", "replayed": false, "revision": "3",
+               "value": {"kind": "workspace", "workspace_id": WS_B,
+                         "screen_id": "screen_b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4",
+                         "pane_id": PANE_B, "tab_id": SHELL_B, "terminal_id": TERM_B}}),
+        json!({"generation": "g", "replayed": false, "revision": "3",
+               "value": {"kind": "workspace", "workspace_id": WS_B}}),
+    ];
+    for receipt in receipts {
+        let daemon = Fake::new(|operation, _params, count| match operation {
+            "session.snapshot" if count == 0 => empty.clone(),
+            "session.snapshot" => both.clone(),
+            "workspace.create" => receipt.clone(),
+            "pane.run" => created(PANE_B, "tab_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0", NEW),
+            "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+            "terminal.screen.read" => json!({"text": COMPOSER}),
+            "agent.list" => json!([]),
+            _ => json!({}),
+        });
+        let env = Env { caller_terminal: None, ..env() };
+        let options = Options { cmd: Some("claude".into()), focus: false, ..Options::default() };
+        let (report, exit) =
+            run_with_clock(|clock| start(&daemon, &env, clock, "beta", &options)).expect("start");
+        assert_eq!(exit, 0, "{report}");
+        assert_eq!(daemon.sent("pane.run")[0]["pane"], PANE_B, "receipt {receipt}");
+        let closed: Vec<Value> =
+            daemon.sent("tab.close").iter().map(|c| c["tab"].clone()).collect();
+        assert_eq!(closed, [json!(SHELL_B)], "only beta's shell tab closes; receipt {receipt}");
+    }
+}
+
 /// Real-build check: the daemon answers `pane.split` and `pane.run` with a
 /// mutation receipt whose created path is under `value`, and `agent start`
 /// failed with "the session did not report the new terminal".
