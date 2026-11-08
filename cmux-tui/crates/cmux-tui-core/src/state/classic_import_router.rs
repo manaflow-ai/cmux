@@ -44,6 +44,7 @@ pub const CAPABILITY: &str = "classic-import-v1";
 
 /// Why there is no plan when the ledger is a newer build's.
 pub(crate) const NEWER_LEDGER: &str = "ledger from a newer cmux";
+pub(crate) const UNREADABLE_LEDGER: &str = "ledger could not be read";
 
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -263,6 +264,7 @@ impl Record {
         let first_contact = matches!(load, Load::None);
         let mut ledger = match load {
             Load::Newer(_) => return Err(NEWER_LEDGER.to_string()),
+            Load::Failed(error) => return Err(format!("{UNREADABLE_LEDGER}: {error}")),
             Load::Ledger(ledger) => ledger,
             // An unreadable ledger was moved aside: the run starts a new one.
             Load::None | Load::Unreadable => Ledger::default(),
@@ -388,6 +390,12 @@ impl Mux {
             // A newer cmux NEXT's ledger is left alone: this build cannot tell what it recorded.
             Mode::Manual if matches!(load, Load::Newer(_)) => {
                 reply["error"] = json!(NEWER_LEDGER);
+                return Ok(reply);
+            }
+            // A ledger that is there but cannot be read is never recorded over.
+            Mode::Manual if matches!(load, Load::Failed(_)) => {
+                let error = if let Load::Failed(error) = &load { error.as_str() } else { "" };
+                reply["error"] = json!(format!("{UNREADABLE_LEDGER}: {error}"));
                 return Ok(reply);
             }
             Mode::Manual => {}

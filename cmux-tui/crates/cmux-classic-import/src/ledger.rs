@@ -116,6 +116,9 @@ pub enum Load {
     Newer(i64),
     /// A ledger that does not decode; it was moved aside.
     Unreadable,
+    /// A ledger that is there but could not be read (permissions, I/O); it
+    /// is left as it is and nothing runs, so its runs are never recorded over.
+    Failed(String),
 }
 
 impl Load {
@@ -133,6 +136,7 @@ impl Load {
             Load::Ledger(_) => "ledger",
             Load::Newer(_) => "newer",
             Load::Unreadable => "unreadable",
+            Load::Failed(_) => "failed",
         }
     }
 }
@@ -161,7 +165,11 @@ impl Folder {
     /// The ledger, if any. One that does not decode is moved aside as
     /// `ledger.unreadable-<ms>.json`; a newer schema's is left alone.
     pub fn load(&self) -> Load {
-        let Ok(data) = std::fs::read(self.ledger_path()) else { return Load::None };
+        let data = match std::fs::read(self.ledger_path()) {
+            Ok(data) => data,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Load::None,
+            Err(error) => return Load::Failed(error.to_string()),
+        };
         let schema = serde_json::from_slice::<serde_json::Value>(&data)
             .ok()
             .and_then(|value| value.get("schema").and_then(serde_json::Value::as_i64));
@@ -316,6 +324,16 @@ mod tests {
             std::fs::read_to_string(folder.ledger_path()).unwrap(),
             r#"{"schema":7,"future":true}"#
         );
+    }
+
+    /// A ledger that is there but cannot be read is not a first run.
+    #[test]
+    fn a_ledger_that_cannot_be_read_is_not_a_first_run() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = Folder::new(root.path().join("m"));
+        std::fs::create_dir_all(folder.ledger_path()).unwrap();
+        assert!(matches!(folder.load(), Load::Failed(_)));
+        assert!(folder.ledger_path().is_dir());
     }
 
     #[test]

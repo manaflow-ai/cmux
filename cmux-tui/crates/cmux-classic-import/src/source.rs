@@ -88,13 +88,14 @@ impl Finder {
 
     /// The channel to read: this build's own when classic saved one, else
     /// the channel whose session changed last. A channel whose session file
-    /// is gone still counts by its `-previous` copy.
+    /// is gone still counts by its `-previous` copy, then its newest archive.
     pub fn channel(&self) -> Option<&'static str> {
         let saved: Vec<(&'static str, SystemTime)> = CHANNELS
             .iter()
             .filter_map(|channel| {
                 let date = modified(&self.primary(channel))
-                    .or_else(|| modified(&self.previous(channel)))?;
+                    .or_else(|| modified(&self.previous(channel)))
+                    .or_else(|| modified(&self.newest_archive(channel)?))?;
                 Some((*channel, date))
             })
             .collect();
@@ -121,6 +122,12 @@ impl Finder {
             return Vec::new();
         };
         let mut files = vec![self.primary(&channel), self.previous(&channel)];
+        files.extend(self.newest_archive(&channel));
+        files.into_iter().filter(|file| file.exists()).map(|file| (file, channel.clone())).collect()
+    }
+
+    /// `channel`'s newest `session-history` archive.
+    fn newest_archive(&self, channel: &str) -> Option<PathBuf> {
         let history = self.folder().join("session-history");
         let prefix = format!("session-{channel}-");
         // `session-<bundle>-<millis>-w..-p...json`; a longer bundle id (nightly vs stable) is another channel.
@@ -139,10 +146,7 @@ impl Finder {
             })
             .collect();
         archived.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-        if let Some((_, newest)) = archived.first() {
-            files.push(history.join(newest));
-        }
-        files.into_iter().filter(|file| file.exists()).map(|file| (file, channel.clone())).collect()
+        archived.into_iter().next().map(|(_, newest)| history.join(newest))
     }
 
     /// What identifies `path`'s current save; none when it cannot be read.
@@ -276,6 +280,21 @@ mod tests {
         write(root.path(), "support/cmux/session-com.cmuxterm.app.nightly-previous.json", Some(5));
         let finder = Finder::new(&root.path().join("support"), None);
         assert_eq!(finder.channel(), Some("com.cmuxterm.app.nightly"));
+    }
+
+    #[test]
+    fn a_channel_with_only_an_archive_is_still_found() {
+        let root = tempfile::tempdir().unwrap();
+        let archive = write(
+            root.path(),
+            "support/cmux/session-history/session-com.cmuxterm.app.nightly-9000-w1-p1.json",
+            None,
+        );
+        let finder = Finder::new(&root.path().join("support"), None);
+        assert_eq!(finder.channel(), Some("com.cmuxterm.app.nightly"));
+        let files: Vec<PathBuf> =
+            finder.candidates(None).into_iter().map(|(file, _)| file).collect();
+        assert_eq!(files, [archive]);
     }
 
     /// The session file, its `-previous` copy, then the newest archive of the same channel only.

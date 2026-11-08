@@ -1,6 +1,6 @@
 //! Each classic workspace's name and key.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{Map, Value};
 
@@ -119,18 +119,29 @@ pub fn names(clues: &[Clues]) -> Vec<String> {
             name.push_str(" · ");
             name.push_str(branch);
         }
+        // Cut before numbering, with room for ` <n>`, so a number always tells two apart.
+        *name = fitting(name, MAX_NAME_BYTES - NUMBER_ROOM);
     }
-    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut used: HashSet<String> = HashSet::new();
+    let mut next: HashMap<String, usize> = HashMap::new();
     names
         .into_iter()
         .map(|name| {
-            let count = seen.entry(name.clone()).or_default();
+            let count = next.entry(name.clone()).or_insert(1);
+            let mut numbered = if *count == 1 { name.clone() } else { format!("{name} {count}") };
+            // A number another workspace already has as its own name is skipped.
+            while !used.insert(numbered.clone()) {
+                *count += 1;
+                numbered = format!("{name} {count}");
+            }
             *count += 1;
-            let numbered = if *count == 1 { name } else { format!("{name} {count}") };
-            fitting(&numbered, MAX_NAME_BYTES)
+            numbered
         })
         .collect()
 }
+
+/// Room kept after a name for ` <n>`; a run has at most 1,000 workspaces.
+const NUMBER_ROOM: usize = 16;
 
 /// `name` cut at a character so it takes at most `bytes` UTF-8 bytes.
 pub fn fitting(name: &str, bytes: usize) -> String {
@@ -199,6 +210,23 @@ mod tests {
         assert!(names.iter().all(|name| name.len() <= MAX_NAME_BYTES));
         assert_eq!(names[0].len(), 896);
         assert_ne!(names[0], names[1]);
+    }
+
+    /// Two long names that differ only past the limit still come out different.
+    #[test]
+    fn names_cut_at_the_limit_stay_unique() {
+        let long = "x".repeat(1_000);
+        let (a, b) = (format!("{}a", "b".repeat(200)), format!("{}b", "b".repeat(200)));
+        let names = names(&[
+            clue(&long, Some(&a)),
+            clue(&long, Some(&b)),
+            clue("vim 2", None),
+            clue("vim", None),
+            clue("vim", None),
+        ]);
+        assert!(names.iter().all(|name| name.len() <= MAX_NAME_BYTES));
+        assert_ne!(names[0], names[1]);
+        assert_eq!(names[2..], ["vim 2", "vim", "vim 3"]);
     }
 
     #[test]

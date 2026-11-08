@@ -61,7 +61,9 @@ pub enum Decision {
 /// that would be read (none when classic has none) and whether classic runs.
 pub fn decision(load: &Load, source: Option<&Source>, classic_running: bool) -> Decision {
     let ledger = match load {
-        Load::Newer(_) | Load::Unreadable => return Decision::Skip(SkipReason::LedgerNotUsable),
+        Load::Newer(_) | Load::Unreadable | Load::Failed(_) => {
+            return Decision::Skip(SkipReason::LedgerNotUsable);
+        }
         Load::None => None,
         Load::Ledger(ledger) => Some(ledger),
     };

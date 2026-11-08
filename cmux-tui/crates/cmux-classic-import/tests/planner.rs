@@ -313,6 +313,7 @@ fn whether_a_launch_runs() {
         (Load::None, true, true, Decision::Skip(SkipReason::ClassicRunning)),
         (Load::Newer(99), true, false, Decision::Skip(SkipReason::LedgerNotUsable)),
         (Load::Unreadable, true, false, Decision::Skip(SkipReason::LedgerNotUsable)),
+        (Load::Failed("denied".into()), true, false, Decision::Skip(SkipReason::LedgerNotUsable)),
     ];
     for (load, has_source, running, expected) in cases {
         let found = source(1.0);
