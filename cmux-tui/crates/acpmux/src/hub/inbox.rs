@@ -1692,9 +1692,17 @@ impl Hub {
             }
         };
         // Its messages wait again. The cap's timer saw them carried, and the inbox steers none
-        // into a turn past its cap: that turn gets the cap's notice (`turn_cap.rs`).
+        // into a turn past its cap: that turn gets the cap's notice (`turn_cap.rs`), unless they
+        // are FYIs alone, which end no turn sooner.
         if answered.is_none() && !ids.is_empty() && !super::queue::closing(session) {
-            self.turn_cap_recheck(session);
+            let fyis_only = {
+                let inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+                let mut carried = inbox.items.iter().filter(|i| ids.contains(&i.prompt_id));
+                carried.all(|i| i.class == PromptClass::Fyi)
+            };
+            if !fyis_only {
+                self.turn_cap_recheck(session);
+            }
         }
         if let Some(answer) = answered {
             let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});

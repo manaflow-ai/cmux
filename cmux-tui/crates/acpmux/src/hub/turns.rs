@@ -442,9 +442,10 @@ impl Hub {
         let text = prompt_text(&blocks);
         let running = session.turn();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
+        let fyi = opts.class == Some(crate::prompt_class::PromptClass::Fyi);
         let capped = running.is_some()
             && !opts.send_now
-            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
+            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref(), fyi);
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
         // (`inbox.rs`). Boxed, out of this future.
         let route = self.inbox_route(
