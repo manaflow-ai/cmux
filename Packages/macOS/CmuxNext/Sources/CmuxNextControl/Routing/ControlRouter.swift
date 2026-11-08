@@ -175,10 +175,13 @@ public final class ControlRouter: Sendable {
     /// `action.catalog.changed` on `events.stream`, so a client that mirrors
     /// the actions (`cmux mcp serve`) re-reads `action.list` instead of
     /// polling it. Context-bit changes (`updateContextMask`) are not changes.
-    public func updateCatalog(_ catalog: ControlCatalog) {
+    ///
+    /// - Parameter actionsChanged: Whether the actions differ from the published ones, when the caller
+    ///   knows (the registry bridge after it patched a reason); nil compares every action.
+    public func updateCatalog(_ catalog: ControlCatalog, actionsChanged: Bool? = nil) {
         var changed = false
         snapshots.publish { snapshot in
-            changed = snapshot.catalog.actions != catalog.actions
+            changed = actionsChanged ?? (snapshot.catalog.actions != catalog.actions)
             snapshot.catalog = catalog
         }
         guard changed else { return }

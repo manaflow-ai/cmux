@@ -85,3 +85,17 @@ test("keeps Claude Code's /loop as a loop goal, with its next run and schedule",
   expect(taskGoal({ objective: "Ship", status: "active" })?.kind).toBeUndefined();
   expect(taskGoal({ kind: "other", objective: "Ship", status: "active" })?.kind).toBeUndefined();
 });
+
+// cmux#38051: Claude Code's autonomous sentinels are never shown as a prompt, whichever one acpmux
+// passes through.
+test("a loop whose prompt is a Claude Code sentinel reads as autonomous", () => {
+  for (const objective of ["<<autonomous-loop-dynamic>>", "<<autonomous-loop>>", " <<loop.md>> "])
+    expect(taskGoal({ kind: "loop", objective, status: "active" })).toEqual({
+      kind: "loop",
+      objective: "",
+      status: "active",
+      autonomous: true,
+    });
+  // Not a loop: a Codex goal's text stays what it says.
+  expect(taskGoal({ objective: "<<autonomous-loop>>", status: "active" })?.objective).toBe("<<autonomous-loop>>");
+});

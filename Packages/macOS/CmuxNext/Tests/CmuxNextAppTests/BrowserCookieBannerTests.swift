@@ -25,10 +25,14 @@ import Testing
         let services: AppServices
         let settings: SettingsController
         let url: URL
+        /// The import record the app's service keeps in the standard defaults before this test (put back after).
+        let savedRecord: Data?
 
         func tearDown() {
             services.onboarding.controller?.window?.close()
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            let key = BrowserImportOfferState.defaultsKey
+            if let savedRecord { UserDefaults.standard.set(savedRecord, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) }
         }
 
         /// `browser.import.cookieBanner` as cmux.json holds it now (nil: absent).
@@ -50,6 +54,9 @@ import Testing
 
     func make() async throws -> Harness {
         _ = NSApplication.shared
+        // Each test starts with no cookies imported, whatever an earlier run left in the standard defaults.
+        let savedRecord = UserDefaults.standard.data(forKey: BrowserImportOfferState.defaultsKey)
+        UserDefaults.standard.removeObject(forKey: BrowserImportOfferState.defaultsKey)
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-cookie-banner-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
@@ -60,7 +67,7 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()
-        return Harness(services: services, settings: settings, url: url)
+        return Harness(services: services, settings: settings, url: url, savedRecord: savedRecord)
     }
 
     static func freshDefaults() -> UserDefaults {
@@ -169,6 +176,19 @@ import Testing
         #expect(!h.services.onboarding.isShowing, "showing the banner opens no import")
     }
 
+    /// Leo, 2026-11-07: "If someone's, like, successfully imported it" it should not ask again. After
+    /// cookies came over, Show Import Cookies Banner changes nothing: the setting stays and no card shows.
+    @Test func theShowActionAsksNothingAfterAnImport() async throws {
+        let h = try await make()
+        defer { h.tearDown() }
+        try await h.settings.set(.bool(false), at: Self.cookieBannerPath)
+        h.services.onboarding.browserImportOffer.importFinished(ImportCounts(cookies: 3))
+        #expect(h.services.registry.perform("browser.showCookieImportBanner", invocation: ActionInvocation(origin: .cli)))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(try h.storedBannerValue() == false, "the action turned the banner back on after cookies came over")
+        #expect(!h.services.onboarding.browserImportOffer.shownThisLaunch)
+    }
+
     /// Only cookies coming over ends the banner: a bookmarks-only import keeps offering it.
     @Test func onlyACookieImportEndsTheBanner() {
         var state = BrowserImportOfferState()
@@ -176,6 +196,26 @@ import Testing
         #expect(state.offers(Self.personalPage), "bookmarks and history alone keep the cookie banner")
         state.recordImport(ImportCounts(cookies: 3))
         #expect(!state.offers(Self.personalPage), "cookies came over: the banner is done")
+    }
+
+    /// Leo, 2026-11-07: "why does it keep asking? ... If someone's, like, successfully imported it".
+    /// Cookies that came over through Import Cookies from Browser (`cmux browser import-cookies`, the
+    /// palette, an agent's run the person allowed) end the banner too, across launches, and close a
+    /// card on screen; a run that wrote nothing keeps it.
+    @Test func cookiesImportedByTheImportCookiesCommandEndTheBannerForGood() throws {
+        let page = Page()
+        defer { page.tearDown() }
+        let defaults = Self.freshDefaults()
+        let offer = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
+        offer.show(on: page.chrome, browsers: [InstalledImportBrowser(browser: .chrome, icon: NSImage())])
+        offer.importFinished(ImportCounts(cookies: 0))
+        #expect(offer.state.offers(Self.personalPage), "a run that wrote no cookie keeps the banner")
+        #expect(page.chrome.currentCookieImportCard != nil)
+        offer.importFinished(ImportCounts(cookies: 42))
+        #expect(!offer.state.offers(Self.personalPage), "cookies came over: the banner is done")
+        #expect(page.chrome.currentCookieImportCard == nil, "and the card on screen goes")
+        let nextLaunch = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
+        #expect(!nextLaunch.state.offers(Self.personalPage), "never again, also after a relaunch")
     }
 
     /// The old offer (bookmarks, history and passwords) was a different card: its answer does not

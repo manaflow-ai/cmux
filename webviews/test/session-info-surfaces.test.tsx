@@ -34,7 +34,10 @@ import {
   setSessionInfoOpen,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
-import { ARTIFACT_COVERS_PANE, useArtifactCoversPane } from "../src/agent-session/acpmux/conversation/ArtifactPanel";
+import {
+  ARTIFACT_COVERS_PANE,
+  useArtifactCoversPane,
+} from "../src/agent-session/acpmux/conversation/artifactPanelModel";
 import { chat } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;
@@ -480,14 +483,14 @@ test("in a 740px pane a saved open state opens it over the chat: a push would na
   expect(card?.style.width).toBe("320px");
 });
 
-test("in a 1100px pane a saved open state opens it, pushing the column left at its own width", async () => {
+test("in a 1200px pane a saved open state opens it, pushing the column left at its own width", async () => {
   const opened: string[] = [];
-  const container = await mountFolderPane(1100, opened, 960);
+  const container = await mountFolderPane(1200, opened, 960);
   const card = panel(container) as HTMLElement | null;
   expect(card?.dataset.placement).toBe("push");
-  expect(card?.style.width).toBe(`${pushedWidth(1100, 320)}px`);
-  const room = pushedRoom(1100, pushedWidth(1100, 320));
-  expect(transcriptColumn(1100 - room).width).toBe(transcriptColumn(1100).width);
+  expect(card?.style.width).toBe(`${pushedWidth(1200, 320)}px`);
+  const room = pushedRoom(1200, pushedWidth(1200, 320));
+  expect(transcriptColumn(1200 - room).width).toBe(transcriptColumn(1200).width);
 });
 
 // The App draws the panel natively (#32159) over the page at the page's width and margin from the
@@ -495,7 +498,7 @@ test("in a 1100px pane a saved open state opens it, pushing the column left at i
 // room the panel takes (pushedRoom) in the shell's row, so the chat's column moves left beside the
 // native panel instead of lying under it. Where a push would narrow the column, the native panel lies
 // over the chat: the page keeps none.
-for (const width of [370, 528, 740, 1100, 1420]) {
+for (const width of [370, 528, 740, 1100, 1200, 1420]) {
   test(`native, in a ${width}px pane the page keeps the room the native panel takes`, async () => {
     const posted: { open: boolean; width: number; side: number }[] = [];
     setNativeHost(async (method, params) => {

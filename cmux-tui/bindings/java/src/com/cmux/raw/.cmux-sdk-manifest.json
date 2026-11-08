@@ -762,8 +762,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "fbce2bddca861d418d43e86fe0f1488f2d7e25b9a6574149e66b45b04852341d",
-      "size": 80918
+      "sha256": "007ac575ccedc0cf8b4daf723e32b635bddf763e8e4f54135bb433c7c595e906",
+      "size": 81184
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1307,8 +1307,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "f8b6f56ca9500b8ea2b52e663cd6cf1f601be2569b1f49e2ccd876a24dd3532d",
-      "size": 19036
+      "sha256": "297f94cf37f9c52f4d878e4d301278038e7f1a95739c74796d68101f180f232b",
+      "size": 19222
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1412,8 +1412,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "9c6b4c18c2083475aef12dbc273762c0a76a0e0abed6dd4e8290407bb0b2c42f",
-      "size": 69863
+      "sha256": "586d71304293c869bb70faf8358e6518d81927927205f25fab178a4dbdbb4035",
+      "size": 70134
     },
     {
       "path": "GetBlobRequest.java",
@@ -2182,8 +2182,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "e15c35f9c3dd22769e00b500e2846aabfab913063f999e9f2d1bf541dc5d5473",
-      "size": 7767
+      "sha256": "3ad5c9c34142ee566a069f01ea7f82785ff45e38794eed1866409cb0c6927c06",
+      "size": 7838
     },
     {
       "path": "ProtocolEvent.java",
@@ -2966,6 +2966,11 @@
       "size": 6525
     },
     {
+      "path": "StashChangedEvent.java",
+      "sha256": "80128687435fe418df9e8e831cb6272493b62f0330ae4a4372af96882ef35c63",
+      "size": 2318
+    },
+    {
       "path": "StatusEvent.java",
       "sha256": "46051b257ca04e117720b8c0c7fa4e59931984475549448d448d4101b11e333c",
       "size": 2206
@@ -3229,6 +3234,21 @@
       "path": "TerminalKeyInput.java",
       "sha256": "2bd1e650c15cd904509408a536a83e923e312a6aff09d24bb2a346744814e74e",
       "size": 8775
+    },
+    {
+      "path": "TerminalLastCommand.java",
+      "sha256": "b3e4ccca807a64d3f3f225de65a3e78399124db47fd45194fa84a4a0131c4b10",
+      "size": 4258
+    },
+    {
+      "path": "TerminalLastCommandRequest.java",
+      "sha256": "31f84886ea124e1c5546d9becb63f5816af05fe60ebfa9ad7e69ed762b6a9aed",
+      "size": 2792
+    },
+    {
+      "path": "TerminalLastCommandResult.java",
+      "sha256": "657eac135cba98434b3481272a0f5c8d4922ca40752c603487e3a2dc71bed621",
+      "size": 2931
     },
     {
       "path": "TerminalLifecycle.java",
@@ -3562,7 +3582,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b",
+  "ir_sha256": "b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

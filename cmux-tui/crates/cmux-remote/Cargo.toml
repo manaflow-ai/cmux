@@ -35,11 +35,14 @@ futures-util.workspace = true
 getrandom.workspace = true
 ghostty-vt.workspace = true
 hmac.workspace = true
+# secrets-v1: RFC 9180 HPKE, DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / ChaCha20Poly1305.
+hpke = { version = "0.13", default-features = false, features = ["alloc", "x25519"] }
 http.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 iroh = { workspace = true, optional = true }
 libc.workspace = true
+rand_core = { version = "0.9", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -61,6 +64,7 @@ cmux-relay = { path = "../cmux-relay" }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 cmux-wg.workspace = true
 rcgen = "0.14"
+ring.workspace = true
 tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }

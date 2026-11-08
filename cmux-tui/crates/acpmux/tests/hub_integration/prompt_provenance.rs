@@ -15,7 +15,7 @@
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
-use acpmux::server::{Origin, serve_connection_with};
+use acpmux::server::{ConnAuth, Origin, serve_connection_authed, serve_connection_with};
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
@@ -52,6 +52,18 @@ fn provenance(to: &str) -> Value {
            "msgId": "msg-1", "threadId": "thread-1", "replyTo": "msg-0"})
 }
 
+/// `p` as the daemon records it (`prompt_provenance.rs`): how it came, `verified` false unless
+/// the daemon set it, and a peer's forward named beside the sender.
+pub(super) fn seen(mut p: Value, transport: &str) -> Value {
+    let fields = p.as_object_mut().unwrap();
+    fields.entry("verified").or_insert(json!(false));
+    fields.insert("transport".into(), json!(transport));
+    if transport == "peer" {
+        fields.insert("forwardedBy".into(), json!({"actor": "peer"}));
+    }
+    p
+}
+
 pub(super) fn prompt(
     session: &str,
     prompt_id: &str,
@@ -76,6 +88,14 @@ impl Client {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+        Self(in_tx, out_rx, 0)
+    }
+
+    /// A connection with the proof its transport checked (`serve_connection_authed`).
+    fn open_authed(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
         Self(in_tx, out_rx, 0)
     }
 
@@ -177,9 +197,64 @@ async fn a_local_prompt_records_its_provenance_on_its_user_message() {
 
     let first = c.user_message(&session, "p-a").await;
     assert_eq!(first["text"], "hello from builder", "{first}");
-    assert_eq!(first.pointer("/_meta/provenance"), Some(&p), "{first}");
+    assert_eq!(first.pointer("/_meta/provenance"), Some(&seen(p.clone(), "unix")), "{first}");
+    // A unix client proves no person: its unnamed prompt is unverified, never the person's.
     let second = c.user_message(&session, "p-b").await;
-    assert!(second.pointer("/_meta/provenance").is_none(), "{second}");
+    assert_eq!(second.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{second}");
+}
+
+/// A Web connection is the person's only by a paired device's proof (`pairing.rs` `origin_of`:
+/// the phone's `client` credential): the listener token a dashboard or browser socket holds
+/// proves no person (`hub/person.rs`), so its unnamed prompt is unverified.
+#[tokio::test]
+async fn an_unnamed_web_prompt_is_the_persons_only_from_a_paired_device() {
+    // A paired device prompts only a session that asks before it acts: an asking mode
+    // (`remote.mode_not_asking`) and policy (`remote.policy_not_asking`, `hub/web_control.rs`).
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "ask",
+        "webAskingModes": {"fake": ["normal"]},
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut local = Client::open(&hub);
+    let session = local.new_session(json!({"harness": "fake"})).await;
+    for (auth, id, kind) in [
+        (ConnAuth::ListenerToken, "p-dashboard", Some(json!("unverified"))),
+        (ConnAuth::Device, "p-phone", None),
+    ] {
+        let mut web = Client::open_authed(&hub, Origin::Web, auth);
+        web.call("session/prompt", prompt(&session, id, "hi", None)).await;
+        let message = local.user_message(&session, id).await;
+        assert_eq!(message.pointer("/_meta/provenance/kind").cloned(), kind, "{auth:?}: {message}");
+    }
+}
+
+#[tokio::test]
+async fn only_a_peer_daemon_names_a_messages_sender() {
+    // A paired `client` device is served as a peer (`pairing::origin_of`), but only the peer
+    // token proves a daemon that stamps `messageSender` itself; the device could name any agent.
+    let hub = hub();
+    let mut local = Client::open(&hub);
+    let session = local.new_session(json!({"harness": "fake"})).await;
+    let victim = local.new_session(json!({"harness": "fake"})).await;
+    for (auth, id, kind) in [
+        (ConnAuth::Device, "p-device", Some(json!("unverified"))),
+        (ConnAuth::PeerToken, "p-peer", Some(json!("agent_message"))),
+    ] {
+        let mut peer = Client::open_authed(&hub, Origin::Peer, auth);
+        let mut params = prompt(&session, id, "hi", None);
+        params["_meta"]["acpmux"]["messageSender"] =
+            json!({"name": "builder", "sessionId": victim, "host": "peer-host"});
+        peer.call("session/prompt", params).await;
+        let message = local.user_message(&session, id).await;
+        assert_eq!(message.pointer("/_meta/provenance/kind").cloned(), kind, "{auth:?}: {message}");
+    }
+    let messages = local.records(&session, "_acpmux/message").await;
+    assert_eq!(messages.len(), 1, "only the peer daemon's prompt is a message: {messages:#?}");
 }
 
 #[tokio::test]
@@ -379,18 +454,18 @@ async fn a_queued_prompt_keeps_its_provenance_until_it_runs() {
     let waiting = c.queue(prompt(&session, "p-q", "queued message", Some(&p))).await;
     let queued = c.records(&session, "queued").await;
     let queued = queued.iter().find(|m| m["promptId"] == "p-q").expect("its queued record");
-    assert_eq!(queued.pointer("/_meta/provenance"), Some(&p), "{queued}");
+    assert_eq!(queued.pointer("/_meta/provenance"), Some(&seen(p.clone(), "unix")), "{queued}");
 
     c.cancel(&session).await;
     let done = c.reply_to(waiting).await;
     assert_eq!(done.pointer("/result/stopReason"), Some(&json!("end_turn")), "{done}");
     let ran = c.user_message(&session, "p-q").await;
     assert_eq!(ran["text"], "queued message", "{ran}");
-    assert_eq!(ran.pointer("/_meta/provenance"), Some(&p), "{ran}");
+    assert_eq!(ran.pointer("/_meta/provenance"), Some(&seen(p.clone(), "unix")), "{ran}");
 }
 
 #[tokio::test]
-async fn an_edit_of_a_queued_prompt_drops_its_provenance() {
+async fn an_edit_of_a_queued_prompt_keeps_its_sender_and_names_its_editor() {
     let hub = hub();
     let mut c = Client::open(&hub);
     let session = c.new_session(json!({"harness": "fake"})).await;
@@ -405,7 +480,14 @@ async fn an_edit_of_a_queued_prompt_drops_its_provenance() {
     c.reply_to(waiting).await;
     let ran = c.user_message(&session, "p-e").await;
     assert_eq!(ran["text"], "the person's rewrite", "{ran}");
-    assert!(ran.pointer("/_meta/provenance").is_none(), "an edited prompt kept it: {ran}");
+    // Still the builder's message, never the editor's own words; the edit is named beside it.
+    assert_eq!(ran.pointer("/_meta/provenance/kind"), Some(&json!("agent_message")), "{ran}");
+    assert_eq!(ran.pointer("/_meta/provenance/from"), p.get("from"), "{ran}");
+    assert_eq!(
+        ran.pointer("/_meta/provenance/editedBy"),
+        Some(&json!({"actor": "owner"})),
+        "{ran}"
+    );
 }
 
 #[tokio::test]
@@ -436,9 +518,9 @@ async fn a_steer_records_its_provenance() {
 
     let steered = c.user_message(&session, "p-steer").await;
     assert_eq!(steered["steer"], true, "{steered}");
-    assert_eq!(steered.pointer("/_meta/provenance"), Some(&p), "{steered}");
+    assert_eq!(steered.pointer("/_meta/provenance"), Some(&seen(p.clone(), "unix")), "{steered}");
     let own = c.user_message(&session, "p-turn").await;
-    assert!(own.pointer("/_meta/provenance").is_none(), "{own}");
+    assert_eq!(own.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{own}");
 }
 
 /// A connection that proved it runs inside session `id` with the caller token acpmux put in that
@@ -473,17 +555,22 @@ async fn a_prompt_sent_from_inside_another_session_records_that_session_as_its_s
     assert_eq!(from_lane["text"], "report from the lane", "{from_lane}");
     // With the sending session's id and harness family, bound from its caller token.
     let stamped = json!({"kind": "session_message", "from": sender, "fromName": name, "to": receiver,
-                         "fromSessionId": sender, "fromHarness": "codex"});
-    assert_eq!(from_lane.pointer("/_meta/provenance"), Some(&stamped), "{from_lane}");
+                         "fromSessionId": sender, "fromHarness": "codex", "verified": true});
+    assert_eq!(from_lane.pointer("/_meta/provenance"), Some(&seen(stamped, "unix")), "{from_lane}");
+    // A note to itself is that session's, as its caller token proves; never the person's.
     let own = person.user_message(&sender, "p-self").await;
-    assert!(own.pointer("/_meta/provenance").is_none(), "{own}");
+    assert_eq!(own.pointer("/_meta/provenance/kind"), Some(&json!("session_message")), "{own}");
+    assert_eq!(own.pointer("/_meta/provenance/verified"), Some(&json!(true)), "{own}");
+    // A unix client proves no person: its unnamed prompt is unverified, never the person's.
     let theirs = person.user_message(&receiver, "p-person").await;
-    assert!(theirs.pointer("/_meta/provenance").is_none(), "{theirs}");
+    assert_eq!(theirs.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{theirs}");
     let kept = person.user_message(&receiver, "p-given").await;
     let mut bound = given.clone();
     bound["fromSessionId"] = json!(sender);
     bound["fromHarness"] = json!("codex");
-    assert_eq!(kept.pointer("/_meta/provenance"), Some(&bound), "{kept}");
+    // Its caller token proved the sending session: the daemon bound who sent it.
+    bound["verified"] = json!(true);
+    assert_eq!(kept.pointer("/_meta/provenance"), Some(&seen(bound, "unix")), "{kept}");
 }
 
 /// A queued agent message shows its sender's session and harness on its queue row, and reads back
@@ -595,6 +682,68 @@ async fn a_senders_session_and_harness_come_from_a_proven_caller_or_a_peer_link_
     );
 }
 
+/// A relay's word on where a message came from (`fromRelay`: the lane-gh broker's `acpmux send
+/// --relay lane-gh --relayed-from VM/LANE`) is taken from a send on this machine's unix socket that
+/// proved no session, and over a peer link; an agent's own send drops it, so no session can pass
+/// as a relayed, verified sender (Leo, 2026-11-07: "Why does it say it's self-declared if we can
+/// just detect the thing?").
+#[tokio::test]
+async fn a_relayed_sender_comes_from_a_relay_outside_any_session_or_a_peer_link_only() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let sender = person.new_session(json!({"harness": "fake"})).await;
+    let receiver = person.new_session(json!({"harness": "fake"})).await;
+    let relayed = |id: &str| {
+        let mut p = prompt(&receiver, id, "report", None);
+        let mux = &mut p["_meta"]["acpmux"];
+        mux["fromAgent"] = json!("gcp-agent-lane-2/lock-proof-routes");
+        mux["fromRelay"] =
+            json!({"by": "lane-gh", "machine": "gcp-agent-lane-2", "session": "lock-proof-routes"});
+        mux["fromHarness"] = json!("claude");
+        p
+    };
+    for (origin, id) in [(Origin::Local, "p-relay"), (Origin::Peer, "p-peer")] {
+        let mut c = Client::open_as(&hub, origin);
+        c.call("session/prompt", relayed(id)).await;
+    }
+    let mut lane = open_in_session(&hub, &sender).await;
+    lane.call("session/prompt", relayed("p-lane")).await;
+    // A relay record that is not one names nobody.
+    let mut odd = relayed("p-odd");
+    odd["_meta"]["acpmux"]["fromRelay"] = json!({"by": "lane gh", "machine": "x"});
+    Client::open(&hub).call("session/prompt", odd).await;
+
+    let p = |m: &Value| m["_meta"]["provenance"].clone();
+    let want =
+        json!({"by": "lane-gh", "machine": "gcp-agent-lane-2", "session": "lock-proof-routes"});
+    for id in ["p-relay", "p-peer"] {
+        let got = p(&person.user_message(&receiver, id).await);
+        assert_eq!(
+            (&got["fromRelay"], &got["fromHarness"]),
+            (&want, &json!("claude")),
+            "{id}: {got}"
+        );
+        assert!(got.get("fromSessionId").is_none(), "a relay proves no session here: {got}");
+        let record = acpmux::prompt_provenance::sender_record(Some(&got), None, None);
+        assert_eq!(
+            (&record["authenticated"], &record["verification"], &record["relay"]),
+            (&json!(true), &json!("verified"), &want),
+            "{id}: {record}"
+        );
+    }
+    // The agent's own send: its proven session is the sender, its relay claim is dropped.
+    let lane_said = p(&person.user_message(&receiver, "p-lane").await);
+    assert!(lane_said.get("fromRelay").is_none(), "{lane_said}");
+    assert_eq!(lane_said["fromSessionId"], json!(sender), "{lane_said}");
+    let odd_said = p(&person.user_message(&receiver, "p-odd").await);
+    assert!(
+        odd_said.get("fromRelay").is_none() && odd_said.get("fromHarness").is_none(),
+        "{odd_said}"
+    );
+    let record = acpmux::prompt_provenance::sender_record(Some(&odd_said), None, None);
+    assert_eq!(record["verification"], "declared", "{record}");
+}
+
 /// claude-sr2, 2026-10-24: lanes on other machines reached its daemon over the peer link, or ran
 /// `acpmux send --from` there over ssh, naming themselves only in `fromAgent`; each report
 /// recorded no provenance and read as the person's own words.
@@ -621,18 +770,29 @@ async fn a_prompt_that_names_its_sender_records_it_as_that_agents_message() {
     }
     person.call("session/prompt", prompt(&receiver, "p-person", "my own words", None)).await;
 
-    for (id, from) in
-        [("p-peer", "codex-lane"), ("p-cli", "codex-lane-2"), ("p-namesake", own.as_str())]
-    {
+    for (id, from, transport) in [
+        ("p-peer", "codex-lane", "peer"),
+        ("p-cli", "codex-lane-2", "unix"),
+        ("p-namesake", own.as_str(), "peer"),
+    ] {
         let message = person.user_message(&receiver, id).await;
         let stamped =
             json!({"kind": "agent_message", "from": "fromAgent", "fromName": from, "to": receiver});
-        assert_eq!(message.pointer("/_meta/provenance"), Some(&stamped), "{message}");
+        assert_eq!(
+            message.pointer("/_meta/provenance"),
+            Some(&seen(stamped, transport)),
+            "{message}"
+        );
     }
-    // A note a session addresses to itself, and the person's own prompt, are no one else's message.
+    // Its own name from a unix client, and an unnamed prompt, name no one else: unverified, never
+    // the person's (a unix client proves no person).
     for id in ["p-self", "p-person"] {
         let message = person.user_message(&receiver, id).await;
-        assert!(message.pointer("/_meta/provenance").is_none(), "{message}");
+        assert_eq!(
+            message.pointer("/_meta/provenance/kind"),
+            Some(&json!("unverified")),
+            "{message}"
+        );
     }
 }
 
@@ -747,7 +907,12 @@ async fn an_author_is_taken_from_the_unix_socket_and_a_forwarding_peer_only() {
         let mut c = Client::open_as(&hub, origin);
         c.call("session/prompt", by(prompt(&session, id, "hi", None), Some(&ana()))).await;
         let message = local.user_message(&session, id).await;
-        assert_eq!(message.pointer("/_meta/provenance"), Some(&anas()), "{origin:?}: {message}");
+        let transport = if origin == Origin::Peer { "peer" } else { "unix" };
+        assert_eq!(
+            message.pointer("/_meta/provenance"),
+            Some(&seen(anas(), transport)),
+            "{origin:?}: {message}"
+        );
     }
     for (origin, via) in
         [(Origin::Web, None), (Origin::LocalApp, None), (Origin::Peer, Some("web"))]
@@ -782,11 +947,11 @@ async fn a_persons_queued_prompt_and_steer_record_who_sent_them() {
     let waiting = c.queue(by(prompt(&session, "p-q", "queued words", None), Some(&ana()))).await;
     let queued = c.records(&session, "queued").await;
     let queued = queued.iter().find(|m| m["promptId"] == "p-q").expect("its queued record");
-    assert_eq!(queued.pointer("/_meta/provenance"), Some(&anas()), "{queued}");
+    assert_eq!(queued.pointer("/_meta/provenance"), Some(&seen(anas(), "unix")), "{queued}");
     c.cancel(&session).await;
     c.reply_to(waiting).await;
     let ran = c.user_message(&session, "p-q").await;
-    assert_eq!(ran.pointer("/_meta/provenance"), Some(&anas()), "{ran}");
+    assert_eq!(ran.pointer("/_meta/provenance"), Some(&seen(anas(), "unix")), "{ran}");
 
     let hub = hub_env(json!({"FAKE_CODEX_STEER": "1"}));
     let mut c = Client::open(&hub);
@@ -809,7 +974,7 @@ async fn a_persons_queued_prompt_and_steer_record_who_sent_them() {
     }
     let steered = c.user_message(&session, "p-steer").await;
     assert_eq!(steered["steer"], true, "{steered}");
-    assert_eq!(steered.pointer("/_meta/provenance"), Some(&anas()), "{steered}");
+    assert_eq!(steered.pointer("/_meta/provenance"), Some(&seen(anas(), "unix")), "{steered}");
 }
 
 /// Only who sent a waiting prompt edits, moves, sends or removes it: another person, or the owner
@@ -868,7 +1033,9 @@ async fn only_the_sender_changes_a_waiting_prompt() {
     }
     let updated = c.records(&session, "queue_updated").await;
     let anas_edit = updated.iter().find(|m| m["promptId"] == "p-ana").expect("p-ana's edit");
-    assert_eq!(anas_edit.pointer("/_meta/provenance"), Some(&anas()), "{anas_edit}");
+    let mut her_edit = seen(anas(), "unix");
+    her_edit["editedBy"] = json!({"actor": "person", "id": "tailnet:ana@example.com"});
+    assert_eq!(anas_edit.pointer("/_meta/provenance"), Some(&her_edit), "{anas_edit}");
     let remove =
         by(json!({"sessionId": session, "promptId": "p-owner", "_meta": {"acpmux": {}}}), None);
     assert_eq!(c.call("_acpmux/queue_remove", remove).await["removed"], true);
@@ -878,11 +1045,13 @@ async fn only_the_sender_changes_a_waiting_prompt() {
     c.reply_to(waits[2]).await;
     let ran = c.user_message(&session, "p-ana").await;
     assert_eq!(ran["text"], "rewrite", "{ran}");
-    assert_eq!(ran.pointer("/_meta/provenance"), Some(&anas()), "her edit lost her name: {ran}");
+    assert_eq!(ran.pointer("/_meta/provenance"), Some(&her_edit), "her edit lost her name: {ran}");
+    // The owner's edit keeps the agent's message the agent's, and names the owner as its editor.
     let theirs = c.user_message(&session, "p-agent").await;
-    assert!(
-        theirs.pointer("/_meta/provenance").is_none(),
-        "the owner's edit kept the agent's: {theirs}"
+    assert_eq!(
+        theirs.pointer("/_meta/provenance/editedBy"),
+        Some(&json!({"actor": "owner"})),
+        "the owner's edit dropped the agent's: {theirs}"
     );
 }
 
@@ -1089,9 +1258,10 @@ async fn a_notice_is_recorded_on_its_user_message_and_its_queued_record() {
         let mut from = Client::open_as(&hub, origin);
         from.call("session/prompt", noticed(&session, id, &sent)).await;
         let message = c.user_message(&session, id).await;
+        let transport = if origin == Origin::Peer { "peer" } else { "unix" };
         assert_eq!(
             message.pointer("/_meta/provenance"),
-            Some(&stamped_notice(&session)),
+            Some(&seen(stamped_notice(&session), transport)),
             "{origin:?}: {message}"
         );
         assert_eq!(message["text"], "[notice from base-red-watch] body", "{message}");
@@ -1101,11 +1271,19 @@ async fn a_notice_is_recorded_on_its_user_message_and_its_queued_record() {
     let waiting = c.queue(noticed(&session, "n-q", &fire_notice())).await;
     let queued = c.records(&session, "queued").await;
     let queued = queued.iter().find(|m| m["promptId"] == "n-q").expect("its queued record");
-    assert_eq!(queued.pointer("/_meta/provenance"), Some(&stamped_notice(&session)), "{queued}");
+    assert_eq!(
+        queued.pointer("/_meta/provenance"),
+        Some(&seen(stamped_notice(&session), "unix")),
+        "{queued}"
+    );
     c.cancel(&session).await;
     c.reply_to(waiting).await;
     let ran = c.user_message(&session, "n-q").await;
-    assert_eq!(ran.pointer("/_meta/provenance"), Some(&stamped_notice(&session)), "{ran}");
+    assert_eq!(
+        ran.pointer("/_meta/provenance"),
+        Some(&seen(stamped_notice(&session), "unix")),
+        "{ran}"
+    );
 }
 
 /// A notice is a tool's, never the person's: one sent from inside a session names that session
@@ -1129,7 +1307,11 @@ async fn a_notice_from_inside_a_session_or_beside_an_author_stays_a_notice() {
     let authored = by(noticed(&receiver, "n-author", &fire_notice()), Some(&ana()));
     person.call("session/prompt", authored).await;
     let message = person.user_message(&receiver, "n-author").await;
-    assert_eq!(message.pointer("/_meta/provenance"), Some(&stamped_notice(&receiver)), "{message}");
+    assert_eq!(
+        message.pointer("/_meta/provenance"),
+        Some(&seen(stamped_notice(&receiver), "unix")),
+        "{message}"
+    );
 }
 
 /// No Web client, app pane or peer forwarding for its Web client may dress text up as a fire.
@@ -1181,4 +1363,33 @@ async fn a_malformed_notice_is_refused_naming_its_field() {
     let value = c.reply("session/prompt", both).await;
     assert_eq!(reason(&value), "notice.value_refused", "{value}");
     assert!(c.records(&session, "user_message").await.is_empty(), "a refused notice ran");
+}
+
+/// Review of #37497 (P1): a paired machine's `client` credential is served as Peer
+/// (`pairing.rs` `origin_of`, `ConnAuth::Device`), but it is a client, not a peer daemon: its own
+/// `personVerified` proves nothing, so its prompt is unverified. Only a peer daemon's own link
+/// (`ConnAuth::PeerToken`) says of its connection that it proved the person.
+#[tokio::test]
+async fn only_a_peer_daemons_link_says_the_person_proved_a_prompt() {
+    let hub = hub();
+    let mut local = Client::open(&hub);
+    let session = local.new_session(json!({"harness": "fake"})).await;
+    for (auth, id) in [(ConnAuth::Device, "p-device"), (ConnAuth::PeerToken, "p-daemon")] {
+        let mut c = Client::open_authed(&hub, Origin::Peer, auth);
+        let mut params = prompt(&session, id, "hi", None);
+        params["_meta"]["acpmux"]["personVerified"] = json!(true);
+        c.call("session/prompt", params).await;
+        let message = local.user_message(&session, id).await;
+        match auth {
+            ConnAuth::Device => assert_eq!(
+                message.pointer("/_meta/provenance/kind"),
+                Some(&json!("unverified")),
+                "a paired client's own claim: {message}"
+            ),
+            _ => assert!(
+                message.pointer("/_meta/provenance").is_none(),
+                "a peer daemon's word is the person's: {message}"
+            ),
+        }
+    }
 }

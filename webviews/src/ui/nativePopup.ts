@@ -105,7 +105,8 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
         if (openingRevision.current !== model.revision || !shown.current) return;
         if ((reply as { shown?: boolean } | undefined)?.shown !== true) {
           shown.current = false;
-          latest.current.onDismiss();
+          // The host never drew it (an older host, a mock client): the owner may fall back.
+          latest.current.onDismiss("refused");
         }
       });
     }

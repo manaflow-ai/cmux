@@ -5,7 +5,7 @@
 // aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
 import { useContext, useRef, useState, type ReactNode } from "react";
-import { PresentationContext } from "./PresentationContext";
+import { PresentationContext } from "./presentationContextModel";
 import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -23,10 +23,7 @@ import { RowReplyButton } from "./SelectionReply";
 import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
 import { retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
-
-/// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
-export const ROW_ICON = 16;
-
+import { ROW_ICON } from "./messageActionsModel";
 /// The message's age, relative and live; the exact date and time above it on hover, as Claude's.
 export function MessageTime({ at, className }: { at: number; className: string }) {
   const now = useLabelClock(at, nextRelativeTime);
@@ -40,6 +37,9 @@ export function MessageTime({ at, className }: { at: number; className: string }
         language,
       )}
       data-tooltip-side="top"
+      /* The widest age of its first hour, in this language: the prompt row reserves its width in
+         the real font (conversation.css .cv-user__time::before), so the minute's words change in place. */
+      data-age-widest={relativeTime(at, at + 59 * 60_000, language)}
     >
       {relativeTime(at, now, language)}
     </time>
@@ -49,7 +49,9 @@ export function MessageTime({ at, className }: { at: number; className: string }
 /// A reply's time at the end of its action row, after the buttons, as ChatGPT's: the exact date and
 /// time ("Oct 18, 5:41 AM"), hidden at rest and shown while the reader points at the reply
 /// (conversation.css `.cv-turn-time`; Leo, 2026-11-02: "notice how on hover it reveals the exact
-/// timestamp. let's follow those."). `detail`, when given, is its tooltip (the turn's time and tokens).
+/// timestamp. let's follow those."). Its tooltip is `detail` (the turn's time and tokens) when given,
+/// else the exact date and time with its year, so every reply's time hovers as a prompt's age does
+/// (Leo, 2026-11-08: "for when things are yours, sometimes it's like I can't hover onto yours").
 export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
   const now = useLabelClock(at, nextReplyTime);
   const language = usePaneLanguage();
@@ -58,7 +60,7 @@ export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
       className="cv-turn-time"
       dateTime={new Date(at).toISOString()}
       /* tooltip-allow: the turn's time and tokens, which the row no longer spells out (Leo, 2026-11-02) */ title={
-        detail
+        detail ?? exactTime(at, language)
       }
       data-tooltip-side="top"
     >
@@ -97,21 +99,6 @@ export function MessageCopy({ text }: { text: string }) {
       copy={copyMarkdownResult}
     />
   );
-}
-
-/// Use the live host action when the page has one: unlike the turn context's legacy callback, it
-/// returns the fork promise so the button can stay pending until the new agent is ready. Gallery
-/// and unit-test callers keep their injected fallback.
-export function forkWithFeedback(throughSeq: number, fallback: () => unknown): unknown {
-  const action = globalThis.window?.cmuxAcpmuxActions?.["chat.fork"];
-  if (!action) return fallback();
-  return action({ throughSeq }).then((sessionId) => {
-    // direct.fork reports refusal by returning no session id after it has written the localized
-    // transcript notice; turn that sentinel into the button's terminal error state too.
-    // l10n-allow: the button's error state only; the transcript notice already says why.
-    if (sessionId === undefined || sessionId === null || sessionId === false) throw new Error("fork failed");
-    return sessionId;
-  });
 }
 
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is. The host

@@ -9,10 +9,9 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { BackgroundTaskNote } from "../src/agent-session/acpmux/conversation/BackgroundTaskNote";
-import { backgroundCounts, backgroundStatusParts } from "../src/agent-session/acpmux/conversation/BackgroundStatusLine";
 import { readFileSync } from "node:fs";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
-import { InStep } from "../src/agent-session/acpmux/conversation/ToolFailureCause";
+import { InStep } from "../src/agent-session/acpmux/conversation/toolFailureCauseModel";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
 import { toolGroupLabel } from "../src/agent-session/acpmux/conversation/toolGroups";
@@ -81,34 +80,22 @@ test("a command that finished in the background reads Background command complet
   expect(live).not.toContain("cv-command__lead");
 });
 
-test("while a background command runs, an opened run says how its background commands stand", () => {
+test("while a background command runs, an opened run lists it as a step, with no count line", () => {
   const items = [
     shell("a", { background: { state: "completed", endedAt: 1 } }),
     shell("b", { background: { state: "failed", endedAt: 1 } }),
     shell("c", { background: { state: "running" } }),
   ];
-  const parts = backgroundStatusParts(translate, backgroundCounts(items)!);
-  expect(parts.map((part) => part.text).join(", ")).toBe("1 background command completed, 1 failed, 1 running");
-  expect(parts.find((part) => part.failed)?.text).toBe("1 failed");
-  expect(
-    backgroundStatusParts(translate, backgroundCounts([items[0]!, items[2]!])!)
-      .map((part) => part.text)
-      .join(", "),
-  ).toBe("1 background command completed, 1 running");
-  // Once none runs, the line goes: the head counts what finished.
-  expect(backgroundCounts([items[0]!, items[1]!])).toBeUndefined();
   const group = renderToStaticMarkup(<ToolGroupRow kind="commands" items={items} disclosureKey="bg-open" />);
-  expect(group).toMatch(/class="cv-tool__failed">1 failed</);
-  expect(group.replace(/<[^>]+>/g, "")).toContain("1 background command completed, 1 failed, 1 running");
-  // Its words are one line box inside the flex row: as flex items, the separators' spaces collapse
-  // ("completed,1 failed,1 running", seen in a DEV build).
-  expect(group).toMatch(/<output class="cv-bgstatus"[^>]*><span class="cv-bgstatus__text"><span>1 background/);
-  // It is no step: the opened run still lists one step per call.
+  // Leo, 2026-11-06: "why doesn't it just show it normally like the other ones?"
+  expect(group).not.toContain("cv-bgstatus");
+  expect(group.replace(/<[^>]+>/g, "")).not.toContain("1 running");
+  // One step per call, the running one among them.
   expect(group.match(/class="cv-step"/g)).toHaveLength(3);
 });
 
 test("a failed call's row is its command, then its failure tag, then its chevron", () => {
-  const failing = shell("Read the fixture list", { status: "failed", output: "Exit code 1\nls: nope" });
+  const failing = shell(undefined, { status: "failed", output: "Exit code 1\nls: nope" });
   // A step of an opened run is tagged "failed" (drawn "Failed"); its Shell block names the exit.
   const step = renderToStaticMarkup(
     <InStep.Provider value>

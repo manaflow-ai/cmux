@@ -37,7 +37,9 @@ class WorkflowTests(unittest.TestCase):
     def test_publish_jobs_mint_the_app_token_and_install_before_the_budget_wait(self) -> None:
         for name, contents in APP_JOBS.items():
             job, steps = self.jobs[name], self.jobs[name]["steps"]
-            self.assertIn(job.get("environment"), ("release-next", "${{ needs.decide.outputs.environment }}"), name)
+            self.assertIn(job.get("environment"), ("release-next", "${{ needs.decide.outputs.environment }}",
+                                                   # Tail jobs: decide is in another run on nightly-next.
+                                                   "${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}"), name)
             mint = [i for i, s in enumerate(steps) if s.get("id") == "gh-app-token"]
             app = [i for i, s in enumerate(steps) if APP_INSTALL.search(str(s.get("run", "")))]
             budget = [i for i, s in enumerate(steps) if BUDGET_INSTALL.search(str(s.get("run", "")))]

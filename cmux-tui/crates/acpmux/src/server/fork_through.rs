@@ -135,7 +135,7 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // A working chat of an agent that forks only at its end forks as it is now.
     if live || (working && !can_cut) {
         let mut out = json!({"sessionId": session.id});
-        let mut mux = serde_json::Map::new();
+        let mut mux = cancel_token(params);
         for key in ["via", "requireFullAccess"] {
             if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
                 mux.insert(key.into(), value.clone());
@@ -181,6 +181,7 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // A working chat moved past its latest finished turn: a fork through it cuts there too.
     let earlier = earlier || working;
     let mut mux = carried_meta(params);
+    mux.extend(cancel_token(params));
     if earlier {
         mux.insert("throughSeq".into(), json!(through));
     }
@@ -188,6 +189,16 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     let mut out = json!({"sessionId": session.id});
     out.set("_meta", json!({"acpmux": mux}));
     Ok(out)
+}
+
+/// The `_meta.acpmux` a Fork Conversation's `session/fork` starts from: its `cancelToken`, which
+/// Cancel names it by (`hub/fork_cancel.rs`).
+fn cancel_token(params: &Value) -> serde_json::Map<String, Value> {
+    let mut mux = serde_json::Map::new();
+    if let Some(token) = params.get("cancelToken").filter(|t| t.is_string()) {
+        mux.insert("cancelToken".into(), token.clone());
+    }
+    mux
 }
 
 #[cfg(test)]
@@ -221,8 +232,7 @@ mod tests {
         hub
     }
 
-    /// Review of #28332: a `live` fork (Fork Conversation of a working chat) names no turn, so
-    /// its refusal for a peer's chat does not say "through a turn"; a fork through a turn does.
+    /// The child's `name` survives the rebuilt `session/fork` (Try another approach labels its sibling).
     #[test]
     fn a_turn_fork_keeps_the_childs_name() {
         let top = carried_meta(
@@ -239,6 +249,8 @@ mod tests {
         assert!(carried_meta(&json!({"sessionId": "s"})).is_empty());
     }
 
+    /// Review of #28332: a `live` fork (Fork Conversation of a working chat) names no turn, so
+    /// its refusal for a peer's chat does not say "through a turn"; a fork through a turn does.
     #[tokio::test]
     async fn a_peer_chats_fork_is_refused_with_what_it_asked_for() {
         let hub = hub_with_a_peer_chat();

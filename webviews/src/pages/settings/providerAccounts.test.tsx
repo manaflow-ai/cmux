@@ -85,7 +85,8 @@ test("a provider row says whose login it uses and its plan; each account shows w
   expect(rows[0]!.querySelector("[data-account-default]")?.textContent).toBe("Default");
   expect(rows[0]!.querySelector('[data-account-action="default"]')).toBeNull();
   expect(rows[0]!.querySelector('[data-account-action="remove"]')).toBeNull();
-  expect(rows[1]!.querySelector('[data-account-action="default"]')).not.toBeNull();
+  // A disabled account offers no Make Default: new chats would run on an account turned off.
+  expect(rows[1]!.querySelector('[data-account-action="default"]')).toBeNull();
   expect(rows[1]!.querySelector('[data-account-action="remove"]')).not.toBeNull();
   // Signed in: Sign Out, not Sign In.
   expect(rows[1]!.querySelector('[data-account-action="signOut"]')).not.toBeNull();
@@ -194,6 +195,9 @@ test("Make Default, Rename, Sign Out and Remove each ask the host for their acco
     await act(async () => row().querySelector<HTMLButtonElement>(`[data-account-action="${action}"]`)!.click());
     await settle();
   };
+  // Turned on for routing, it may be the default.
+  await act(async () => row().querySelector<HTMLElement>('[role="switch"]')!.click());
+  await settle();
   await press("default");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountDefault", account: "codex-2" });
   expect(row().querySelector("[data-account-default]")).not.toBeNull();
@@ -210,6 +214,16 @@ test("Make Default, Rename, Sign Out and Remove each ask the host for their acco
   await press("remove");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountRemove", account: "codex-2" });
   expect(card(page.container).querySelector('[data-account="codex-2"]')).toBeNull();
+  page.unmount();
+});
+
+test("coming back to Settings asks the host to read back an account's sign-in or sign-out", async () => {
+  const page = await withAccounts();
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "focus" });
   page.unmount();
 });
 

@@ -100,7 +100,6 @@ on:
       - scripts/cmux-next/build-agent-pane-web.sh
       - scripts/cmux-next/build-pages-web.sh
       - scripts/cmux-next/build-agent-activity-web.sh
-      - scripts/cmux-next/build-palette-ranker.sh
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
@@ -386,7 +385,6 @@ on:
       - scripts/cmux-next/build-agent-pane-web.sh
       - scripts/cmux-next/build-pages-web.sh
       - scripts/cmux-next/build-agent-activity-web.sh
-      - scripts/cmux-next/build-palette-ranker.sh
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
@@ -1505,8 +1503,9 @@ jobs:
           # the cascade (GATEWAY_CASCADE) like swift-canary already does.
           GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
           # The cascade jobs with a build-fleet client job (<job>-fleet, which runs only the cmux-ci client on
-          # gateway_runner): with every macOS label full or dead they are listed in fleet_jobs instead of
-          # waiting, and the job itself only reports its client's verdict. A job joins only with its client
+          # gateway_runner): with every macOS label full or dead, or when a Blacksmith macOS label took them
+          # (a cold build there ran the fast tier out of its 20 minutes, cmux#38130), they are listed in
+          # fleet_jobs instead, and the job itself only reports its client's verdict. A job joins only with its client
           # (GatewayRunsOnlyTheFleetClient). A listed job's client needs an idle gateway runner of its own
           # beyond GATEWAY_JOBS', or placement lists nothing (side_lane_placement.fleet_gateway()). swift-test
           # and daemon-test are not cascade jobs, so placement never lists them; daemon-test also needs the
@@ -2611,6 +2610,9 @@ jobs:
   # an artifacts run that ended without publishing it dispatched same-tree mode
   # with same_tree_state=failed. A later publication of the key still starts
   # the tree jobs (the marker stays) and posts their statuses.
+  # A ready tree is reported green the same way, so the tip has a verdict
+  # after a red one: a job that only ever ran red stayed a base red while it
+  # was skipped (NOW: "unverified: job skipped since ...").
   # Builds the cmux-next web bundles once per source key (web-bundle-key.py --source: every
   # input file and the pinned bun) on Linux and caches them under that key. The Mac jobs
   # restore them by the same key instead of running bun and Vite+ themselves; a push to
@@ -2739,14 +2741,20 @@ jobs:
     # A superseded push reports nothing: its newer head is tested. Pull
     # requests with a cold own tree are named in path_route's summary and
     # skipped here; no synthetic cmux-tui-pin ref is created for them.
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && inputs.same_tree_origin != 'pull_request' && ((needs.path_route.outputs.tree_state == 'failed' && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'failed')) }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && inputs.same_tree_origin != 'pull_request' && (((needs.path_route.outputs.tree_state == 'failed' || needs.path_route.outputs.tree_state == 'ready') && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && (inputs.same_tree_state == 'failed' || inputs.same_tree_state == 'ready'))) }}
     name: same-tree cmux-tui
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     permissions:
       statuses: write
     timeout-minutes: 3
     steps:
+      - name: Report the ready same-tree cmux-tui
+        if: ${{ (inputs.same_tree_sha != '' && inputs.same_tree_state || needs.path_route.outputs.tree_state) == 'ready' }}
+        env:
+          KEY: ${{ needs.path_route.outputs.tree_key }}
+        run: echo "same-tree cmux-tui ${KEY:+tree $KEY }is ready"
       - name: Report the unavailable same-tree cmux-tui
+        if: ${{ (inputs.same_tree_sha != '' && inputs.same_tree_state || needs.path_route.outputs.tree_state) == 'failed' }}
         env:
           REASON: ${{ inputs.same_tree_reason || needs.path_route.outputs.tree_reason }}
           KEY: ${{ needs.path_route.outputs.tree_key }}
@@ -3013,7 +3021,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # The fast tier as a thin build-fleet client, for when every owned and
-  # Blacksmith macOS label it could take is full or dead: macos-placement then
+  # Blacksmith macOS label it could take is full or dead, or only a Blacksmith
+  # macOS label (a cold build) took it: macos-placement then
   # lists it in fleet_jobs (next_macos_cascade.place(), FLEET_CLIENT_JOBS) and
   # this job hands the swift entries of scripts/cmux-next/fast-tier.json to the
   # fleet (`cmux-ci run` of package-test-lane.sh's suite mode, one step per
@@ -3189,7 +3198,7 @@ jobs:
     # it never bypasses Blacksmith outage/nightly exclusions or skips tests.
     # fast-tier-fleet replaces that deferred case when placement lists the tier for the fleet.
     # When fast-tier-fleet ran (macos-placement found every macOS label it could take full or
-    # dead), this job keeps its check name and exit code but runs on fleet Linux (vars.LINUX_RUNNER
+    # dead, or only a Blacksmith macOS label took the tier), this job keeps its check name and exit code but runs on fleet Linux (vars.LINUX_RUNNER
     # when it names our own runner, as portable-placement does), else a 2 vCPU Blacksmith Linux runner, and
     # only reports that job's verdict: every other step is off (CMUX_FAST_TIER_FLEET, or it reads a
     # step that is). fast_runner is empty then: placement lists only a tier no idle runner took.
@@ -3924,7 +3933,7 @@ jobs:
           bash tests/test_check_app_personalities.sh
 
       # The package's resources include the web bundles (agent pane, pages,
-      # Activity, palette ranker) and the tests read them: build them from the
+      # Activity) and the tests read them: build them from the
       # sources (cx-vn5) with the bun webviews/package.json pins.
       - name: Setup Bun
         if: ${{ steps.reuse.outputs.hit != 'true' }}
@@ -4577,7 +4586,7 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # The package's resources include the web bundles (agent pane, pages,
-      # Activity, palette ranker) and the tests read them: build them from the
+      # Activity) and the tests read them: build them from the
       # sources (cx-vn5) with the bun webviews/package.json pins.
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -4710,11 +4719,19 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
-      # Building the package's reducer FFI can recreate the isolated crate's
-      # workspace lockfile. Remove generated state immediately before
-      # pin-cmux-tui validates the checkout.
+      # Building the package's reducer FFI can rewrite the isolated crate's
+      # workspace lockfile. Put the checkout back immediately before
+      # pin-cmux-tui validates it: the committed lockfile (#37324 tracks it)
+      # is restored, and an untracked one is removed. Deleting a tracked
+      # lockfile leaves the tree dirty, and pin-cmux-tui refuses that.
       - name: Clean generated layout-reducer FFI lockfile
-        run: rm -f cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+        run: |
+          lock=cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+          if git ls-files --error-unmatch "$lock" >/dev/null 2>&1; then
+            git checkout -- "$lock"
+          else
+            rm -f "$lock"
+          fi
 
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
@@ -5082,7 +5099,7 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # The package's resources include the web bundles (agent pane, pages,
-      # Activity, palette ranker) and the tests read them: build them from the
+      # Activity) and the tests read them: build them from the
       # sources (cx-vn5) with the bun webviews/package.json pins.
       - name: Setup Bun
         if: ${{ steps.reuse.outputs.hit != 'true' }}
@@ -6092,7 +6109,7 @@ jobs:
             CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
             CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
             CMUX_NEXT_TUI_MODE=tree
-            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
+            CMUX_NEXT_BROWSER_DATA_IMPORT=full
             CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
         run: |
           set -euo pipefail
@@ -6340,12 +6357,12 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
-          # Apple notarizes cmux-next only with the browser-data import compiled
-          # out (cx-f58x; nightly.yml NIGHTLY_NEXT_BROWSER_DATA_IMPORT), and the
-          # DEV app is the tip app (Leo, 2026-10-24). This step only compiles it
-          # out: the tip job in cmux-next-dev-daily.yml proves it before it
-          # notarizes, so a proof failure never holds the DEV zip (#25050).
-          CMUX_NEXT_BROWSER_DATA_IMPORT: compiled-out
+          # The DEV app is the tip app (Leo, 2026-10-24), so it builds the
+          # browser-data import as published nightly-next builds do (nightly.yml
+          # NIGHTLY_NEXT_BROWSER_DATA_IMPORT; Apple accepted it in run 42176643049,
+          # cx-f58x). `compiled-out` builds it out again; this step runs no proof
+          # that could hold the DEV zip (#25050).
+          CMUX_NEXT_BROWSER_DATA_IMPORT: full
           # The DEV app's warm state is the host's own content-addressed Xcode
           # compilation cache (no kept build products, no remote store:
           # scripts/cmux-next/lib/compilation-cache.sh), built per file with -O
@@ -6554,7 +6571,7 @@ jobs:
             CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
             CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
             CMUX_NEXT_TUI_MODE=tree
-            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
+            CMUX_NEXT_BROWSER_DATA_IMPORT=full
             CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
           BUILD_ROOT: ${{ steps.compile-cmux-next-dev-release.outputs.build_root }}
@@ -6862,7 +6879,7 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
-          CMUX_NEXT_BROWSER_DATA_IMPORT: compiled-out
+          CMUX_NEXT_BROWSER_DATA_IMPORT: full
           CMUX_NEXT_COMPILATION_CACHE: ${{ vars.CMUX_NEXT_DEV_COMPILATION_CACHE || '1' }}
           CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
           CMUX_NEXT_DEV_COMPILE_REPORT: ${{ runner.temp }}/cmux-next-dev-landing/report.txt

@@ -508,14 +508,29 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .debug, isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Debug > Before/After Table Playground (the user, 2026-11-05): seven live ways to show a Before|After ×
+            // Light|Dark table of pictures (slider, toggle, onion skin, synced zoom, filmstrip, the chat card's
+            // large pairs and grid).
+            ActionDescriptor(
+                id: "home.compareTablePlayground", title: t("action.home.compareTablePlayground", "Before/After Table Playground"),
+                keywords: ["home", "chief", "table", "before", "after", "compare", "slider", "pictures", "playground", "variants", "debug"],
+                category: .window, symbol: "rectangle.split.2x1", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "variant", title: t("argument.home.comparePlaygroundVariant", "Variant"), kind: .int(1...7), isRequired: false),
+                    ActionArgument(name: "row", title: t("argument.home.comparePlaygroundRow", "Picture Set"), kind: .int(0...1), isRequired: false),
+                    ActionArgument(name: "dark", title: t("argument.home.playgroundDark", "Dark Look"), kind: .bool, isRequired: false),
+                ],
+                mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             // Debug > Chief Teleport Playground: the Chief's location chip variants in every state
-            // (This Mac, cmux Cloud, a Mac mini, moving, failed, rolled back), light and dark.
+            // (This Mac, cmux Cloud, a Mac mini, moving, failed, rolled back, a CLI move, a fork), light and dark.
             ActionDescriptor(
                 id: "home.chiefTeleportPlayground", title: t("action.home.chiefTeleportPlayground", "Chief Teleport Playground"),
                 keywords: ["home", "chief", "teleport", "move", "location", "cloud", "mac mini", "playground", "variants", "debug"],
                 category: .window, symbol: "location.circle", surfaces: [.palette, .menu],
                 arguments: [
-                    ActionArgument(name: "state", title: t("argument.home.teleportPlaygroundState", "Menu State"), kind: .int(0...7), isRequired: false),
+                    ActionArgument(name: "state", title: t("argument.home.teleportPlaygroundState", "Menu State"), kind: .int(0...9), isRequired: false),
                 ],
                 mainMenu: .debug, isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)

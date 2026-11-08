@@ -26,6 +26,7 @@ import {
 } from "./composer/inlineNode";
 import { followActionsWidth } from "./composerScrollLane";
 import { caretInView } from "./composer/caretInView";
+import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
 import { composerDeeplinkLook } from "./composer/deeplinkLook.experiment";
@@ -114,8 +115,9 @@ export type MarkdownFieldHandle = {
   /// (a copy's own runs of text put back in order, composer/composerCopy.ts).
   insertText(text: string): void;
   /// Places attachments `ids` at the caret, in the text (composer/inlineNode.ts); false where they
-  /// cannot go (a code block, an editor not made yet).
-  insertInline(ids: readonly string[]): boolean;
+  /// cannot go (a code block, an editor not made yet). `replace`: the person's paste or drop, which
+  /// takes the selection's place; otherwise nothing typed is replaced.
+  insertInline(ids: readonly string[], replace?: boolean): boolean;
   /// Takes attachment `id` out of the text; `caret`, the caret goes where it was.
   removeInline(id: string, caret?: boolean): void;
   /// Puts the attachments placed in the text in `ids`' order, each place in the text kept.
@@ -535,6 +537,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const pendingQuotes = useRef<string[]>([]);
   const editor = useRef<Editor | undefined>(undefined);
   const view = useRef<EditorView | undefined>(undefined);
+  /// Set while a value from outside (setDocument) replaces the document: its height changes at once (fieldGrowth.ts).
+  const applyingValue = useRef(false);
   const remark = useRef<RemarkParser | undefined>(undefined);
   const literalNow = useRef(literal);
   // When Paste as Plain Text last started (⌘⇧V or `plainPaste`): the next paste goes in plain.
@@ -1210,6 +1214,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(keepCaret)
         // A rewrap with no edit (the actions' width, a resize) keeps the caret in view too.
         .use($prose(() => caretInView(FADE_BAND_PX)))
+        // The field's height moves to its text's on one motion; a value from outside lands at once.
+        .use($prose(() => fieldGrowth(() => applyingValue.current)))
         .use(blockKeys)
         .use(commonmark)
         .use(gfm)
@@ -1259,6 +1265,14 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   /// that is not a paragraph (a quote put in for the reply), an empty paragraph takes the caret,
   /// so typing goes on below the block, not inside it.
   const setDocument = (markdown: string, undoable = true) => {
+    applyingValue.current = true;
+    try {
+      replaceDocument(markdown, undoable);
+    } finally {
+      applyingValue.current = false;
+    }
+  };
+  const replaceDocument = (markdown: string, undoable: boolean) => {
     // A field with placed attachments reads the value's tokens as their nodes in the same edit
     // (composer/inlineNode.ts placeTokensIn): undo and redo bring back nodes, and token text typed
     // or pasted is never read so. The editor's first document (`undoable` false) is not an edit to
@@ -1436,10 +1450,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           refocus.current = null;
           insertPlain(view.current, text);
         },
-        insertInline: (ids) => {
+        insertInline: (ids, replace) => {
           if (!view.current) return false;
           refocus.current = null;
-          return insertInline(view.current, ids);
+          return insertInline(view.current, ids, replace);
         },
         removeInline: (id, caret) => {
           if (view.current) removeInline(view.current, id, caret);

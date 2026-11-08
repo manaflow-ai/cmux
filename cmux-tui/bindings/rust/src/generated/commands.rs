@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b.
+// cmux-tui mux protocol 12, IR b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3858,6 +3858,15 @@ pub struct TerminalHistoryRequest {
 pub type TerminalHistoryResult = T::TerminalHistoryPagesResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TerminalLastCommandRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalPortsRequest {
     pub surface: T::Id,
@@ -5786,6 +5795,10 @@ impl CmuxClient {
 
     pub fn terminal_history(&mut self, request: TerminalHistoryRequest) -> Result<TerminalHistoryResult> {
         self.execute(&TERMINAL_HISTORY_METADATA, &request)
+    }
+
+    pub fn terminal_last_command(&mut self, request: TerminalLastCommandRequest) -> Result<T::TerminalLastCommandResult> {
+        self.execute(&TERMINAL_LAST_COMMAND_METADATA, &request)
     }
 
     pub fn terminal_ports(&mut self, request: TerminalPortsRequest) -> Result<T::TerminalPortsResult> {

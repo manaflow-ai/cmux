@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 public import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
@@ -64,6 +65,8 @@ public final class HomeNativeTranscriptView: NSView {
     private(set) var stopped = false
     /// The composer rect toasts last moved clear of (posted on change).
     private var lastToastAvoidance = NSRect.zero
+    /// Where the window's toasts rest (window coordinates), nil when none shows (+ToastRoom.swift).
+    var toastsRect: NSRect?
     /// False while the owner is unreachable (H17: offline Send is off; the
     /// text stays a draft). The wiring sets it from `HomeStore.connection`.
     public var isSendEnabled = true {
@@ -482,6 +485,7 @@ public final class HomeNativeTranscriptView: NSView {
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()
+        followToasts()
     }
 
     /// Above the field, inset like it; MessagesLab's field keeps its geometry.
@@ -550,6 +554,8 @@ public final class HomeNativeTranscriptView: NSView {
             if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
         }
         guard let window else { return }
+        // The toasts may have come or gone while the tab was out of the window.
+        CmuxToastAvoidance.reservingViewMoved(self, to: window)
         if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
         observers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification].map { name in

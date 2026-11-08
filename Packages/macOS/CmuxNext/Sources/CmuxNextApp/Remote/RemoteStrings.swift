@@ -100,6 +100,7 @@ enum RemoteStrings {
 
     // MARK: Status details (sidebar header tooltip, remote.machines)
 
+    static var staticInstallStaged: String { String(localized: "remote.status.staticInstallStaged", defaultValue: "A newer cmux build is staged for ~/.cmux/bin/cmux on this machine. It is installed the next time its session server starts; nothing running there was stopped.", table: "Remote", bundle: .module) }
     /// Why the machine is in its state, or nil when nothing needs saying.
     static func detail(_ session: SSHMachineSession) -> String? {
         switch session.linkStatus {
@@ -107,7 +108,7 @@ enum RemoteStrings {
             return String(localized: "remote.status.offline", defaultValue: "Disconnected. Choose Reconnect Machine to connect.", table: "Remote", bundle: .module)
         case .connecting, .connected:
             if let failure = session.daemonFailure { return plainFailure(failure.error, machine: session.host.label) }
-            return session.lastError
+            return session.lastError ?? (session.staticInstallStaged ? staticInstallStaged : nil)
         case .reconnecting:
             return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
         case .authFailed(let message):

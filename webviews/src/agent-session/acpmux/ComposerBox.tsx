@@ -1,13 +1,9 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
-import { type ComposerAttachment, inlineCopyId, inlineTokenIds } from "./attachments";
+import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  type MadeFile,
-  type PendingAttachment,
-} from "./composer/attachmentIntake";
+import { AttachmentStrip } from "./composer/attachmentIntake";
+import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -27,9 +23,12 @@ const CARD_OWN_PRESS =
 export type ComposerBoxHandle = {
   /// Paste as Plain Text is starting (the prompt's menu): its paste goes in as text, never a chip.
   plainPaste(): void;
-  place(chips: readonly PendingAttachment[]): void;
+  place(chips: readonly PendingAttachment[], kind?: DroppedKind): void;
   /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
+  /// The draft's remembered pastes went with it too.
   sent(ids: Iterable<string>): void;
+  /// The pastes that went into the draft as text, newest last (composer/pasteMarks.ts).
+  pastes(): readonly string[];
 };
 
 export type ComposerBoxProps = {
@@ -196,12 +195,16 @@ export function ComposerBox({
         plainPaste.current();
         prompt.current?.plainPaste();
       },
-      place: (chips) => inline.place(chips, "paste"),
-      sent: (ids) => inline.sent(ids),
+      place: (chips, kind) => inline.place(chips, kind),
+      sent: (ids) => {
+        inline.sent(ids);
+        pastedChips.pastes.current = [];
+      },
+      pastes: () => pastedChips.pastes.current,
     }),
-    [inline],
+    [inline, pastedChips.pastes],
   );
-  const placed = new Set(inlineTokenIds(field.value, inline.known));
+  const placed = inline.inText(field.value);
   const { onBeforeInput, onKeyDown } = field;
   // Select All selects the attachments with the text (Leo, 2026-11-01: "i wanna be able to select
   // all in composer which also selects all the attachments as the copy as well"): those placed in
@@ -262,7 +265,7 @@ export function ComposerBox({
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
       <div
         ref={attachBox}
-        className="ui-glass ui-glass-floats acpmux-composer-box"
+        className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
@@ -324,9 +327,10 @@ export function ComposerBox({
                 if ("text" in part) prompt.current?.insertText(part.text);
                 // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
                 else if ("id" in part)
-                  prompt.current?.insertInline([
-                    staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id,
-                  ]);
+                  prompt.current?.insertInline(
+                    [staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id],
+                    true,
+                  );
                 else onPasteFiles?.([part.file]);
               }
               return true;

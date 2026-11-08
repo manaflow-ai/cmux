@@ -1,4 +1,4 @@
-import type { FolderAsk } from "./startFolder";
+import type { FolderAsk } from "./startFolderModel";
 import { StartFolderAsk } from "./startFolder";
 
 /// A folder confirmation that stays visible while the New Tab surface remains mounted.
