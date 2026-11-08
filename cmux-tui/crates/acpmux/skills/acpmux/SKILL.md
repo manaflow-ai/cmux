@@ -21,6 +21,13 @@ test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_S
 When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
+Inside a session, run the daemon's own CLI: `"$ACPMUX_BIN"` is its absolute
+path (`alias acpmux="$ACPMUX_BIN"` in a script). The `acpmux` on your PATH can
+be another, older build (a login profile puts `~/.local/bin` first). A CLI
+older than the daemon does not say who runs it: the daemon records its sends as
+an unverified program, not as you or the person, and refuses it what only the
+person's terminal may do (`caller.old_client`).
+
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own, or `fork: true` for a
 fork of your own chat that keeps its history),
