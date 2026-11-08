@@ -89,17 +89,14 @@ fn a_tab_must_be_this_stores_agent_tab_and_a_close_an_unbound_one() {
     denied(&client.request(json!({"cmd":"close-surface","surface":terminal})));
     // A tab whose chat is bound is not the phone's to close.
     let host = agent_session_attach::agent_session_start::store_host(&mux);
+    // A chat this machine started, as `agent-session-start` records it.
+    mux.control_clients.agent_sessions.known_children.remember(["acp_bound"]);
     let bound = run(
         &mux,
         json!({"cmd":"new-conversation-tab","pane":pane,
-               "agent_session":{"host":host,"harness":"claude"}}),
+               "agent_session":{"host":host,"session":"acp_bound","harness":"claude"}}),
     )["surface"]
         .clone();
-    run(
-        &mux,
-        json!({"cmd":"bind-conversation-tab-session","surface":bound,"session":"acp_bound",
-               "expected_session":null,"harness":"claude"}),
-    );
     denied(&client.request(json!({"cmd":"close-surface","surface":bound})));
 }
 
