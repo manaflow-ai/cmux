@@ -124,7 +124,7 @@ struct TeamSidebar: View {
                 onlineCount: team.listedMacs.filter(\.isOnline).count,
                 isSelected: selected
             )
-            .animation(theme.motion.snap.animation, value: selected)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: selected)
         }
         .buttonStyle(SidebarRowStyle())
         .padding(.horizontal, theme.metrics.selectedRowInset)

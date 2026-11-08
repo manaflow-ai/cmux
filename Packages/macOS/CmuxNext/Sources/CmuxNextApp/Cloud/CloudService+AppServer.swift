@@ -39,14 +39,6 @@ extension CloudService {
         return machine
     }
 
-    /// The backend team a composer reservation and its bind name: the team the machine list and creates
-    /// use (the install token's team claim), so the reserved machine is one the list shows. Naming the
-    /// active Stack team instead put a team account's reserved machine in that team's store, which this
-    /// list never reads ("No Cloud machine has the id vm_…").
-    func reservationTeam() async throws -> String? {
-        MacInstallIdentity.team(ofToken: try await installIdentity.installToken())
-    }
-
     /// The record and stats; the Worker has no stats route, so there the stats are the record's state.
     func machineStatus(_ id: String) async throws -> (record: CloudMachine, stats: CloudMachineStats) {
         let record = try await machineRecord(id)

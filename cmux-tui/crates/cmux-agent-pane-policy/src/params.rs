@@ -49,7 +49,8 @@ pub fn breaks_params_rule(
     }
     // A permission answer's `_meta` holds the pick's ticket and nothing else, as
     // does a plan build's (it answers the plan approval).
-    if method == "_acpmux/permission_respond" || method == "_acpmux/plan/build" {
+    if matches!(method, "_acpmux/permission_respond" | "_acpmux/plan/build" | "chat.fix_from_link")
+    {
         return meta.len() != 1 || !meta.contains_key(&p.gesture_ticket_key);
     }
     // A prompt held for the folder trust answer redeems its ticket beside its
