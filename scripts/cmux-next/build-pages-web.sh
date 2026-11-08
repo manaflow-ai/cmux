@@ -64,6 +64,8 @@ PAGES="$PAGES page-info site-settings site-data certificate"
 PAGES="$PAGES cookie-import"
 # The bookmarks bar (CmuxNextBookmarks BookmarksBarPages: one page per bar on screen).
 PAGES="$PAGES bookmarks-bar"
+# The omnibar star's edit bubble (CmuxNextBookmarks BookmarkEditBubble, through BrowserChromeWebHost).
+PAGES="$PAGES bookmark-edit"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"

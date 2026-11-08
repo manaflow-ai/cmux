@@ -29,6 +29,7 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
         case .siteData: descriptor = .siteData
         case .certificate: descriptor = .certificate
         case .cookieImport: descriptor = .cookieImport
+        case .bookmarkEdit: descriptor = .bookmarkEdit
         }
         let provider = BrowserChromeWebProvider(namespace: descriptor.id + ".")
         guard let page = PageWebView(descriptor: descriptor, routes: [PageRoute(prefix: provider.namespace, provider: provider)],
@@ -39,6 +40,9 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
         self.page = page
         self.provider = provider
     }
+
+    /// The bookmark edit bubble's page (CmuxNextBookmarks `BookmarkEditBubble`).
+    public static func bookmarkEdit() -> BrowserChromeWebHost? { BrowserChromeWebHost(.bookmarkEdit) }
 
     public func push(_ state: [String: Any]) {
         provider.push(JSONValue(foundation: state) ?? .null)

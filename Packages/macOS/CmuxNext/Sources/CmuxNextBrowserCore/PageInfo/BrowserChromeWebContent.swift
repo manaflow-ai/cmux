@@ -28,4 +28,6 @@ public enum BrowserChromeWebPage: String, Sendable {
     case certificate
     /// The Import Cookies card at the bottom of a page (`BrowserCookieImportCard`).
     case cookieImport = "cookie-import"
+    /// The bookmark edit bubble under the omnibar star (CmuxNextBookmarks `BookmarkEditBubble`).
+    case bookmarkEdit = "bookmark-edit"
 }

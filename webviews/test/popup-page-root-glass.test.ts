@@ -27,6 +27,9 @@ const POPUP_PAGES: Record<string, string[]> = {
     // The Import Cookies card (pages/cookie-import) in its native glass card.
     "pages/cookie-import/styles.css",
     "browser-chrome/cookie-import/cookieImport.css",
+    // The omnibar star's edit bubble (pages/bookmark-edit) in its native glass popup.
+    "pages/bookmark-edit/styles.css",
+    "browser-chrome/bookmark-edit/bookmarkEdit.css",
   ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconPicker/IconPickerService.swift": ["pages/icon-picker/styles.css"],
   // The dialog route's sheets load with its module (dialog/index.tsx), into the same document.

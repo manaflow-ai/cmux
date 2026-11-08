@@ -222,6 +222,24 @@ export const PAGES = {
       },
     ],
   },
+  // The omnibar star's edit bubble (cmux-page://cmux.bookmark-edit/): its words from the same catalog.
+  "browser-chrome-bookmark-edit": {
+    out: "webviews/src/browser-chrome/bookmark-edit/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings`,
+        keys: () => [
+          "bubble.added",
+          "bubble.edit",
+          "bubble.done",
+          "bubble.more",
+          "bubble.remove",
+          "field.name",
+          "field.folder",
+        ],
+      },
+    ],
+  },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
     out: "webviews/src/pages/cloud/generated/strings.json",

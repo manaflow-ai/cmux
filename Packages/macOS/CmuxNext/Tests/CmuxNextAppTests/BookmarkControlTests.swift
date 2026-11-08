@@ -1,14 +1,15 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBookmarks
 import CmuxNextBrowserImport
 import CmuxNextSettings
 import Foundation
 import Testing
 
 /// The two facts `cmux setup browser-import` reads from the app: whether
-/// `bookmark.list` answered from the stored tree or from the empty placeholder
-/// shown before the first load, and which source keys `bookmark.importFromBrowser`
-/// would use for a browser and profile (`bookmark.importSources`).
+/// `bookmark.list` answered from the daemon's stored tree or not yet, and which
+/// source keys `bookmark.importFromBrowser` would use for a browser and profile
+/// (`bookmark.importSources`).
 @MainActor @Suite(.serialized)
 struct BookmarkControlTests {
     static func services() -> AppServices {
@@ -43,17 +44,24 @@ struct BookmarkControlTests {
         return sources.compactMap(\.objectValue)
     }
 
-    /// Before the bookmark file is read and the home daemon answers, the tree is an
-    /// empty placeholder: the list says so instead of passing for "no bookmarks".
-    @Test func listSaysTheTreeIsNotLoadedYet() {
+    /// Before the home daemon serves bookmarks the list says so instead of passing for "no
+    /// bookmarks": the app has no copy of the tree to answer from.
+    @Test func listSaysTheTreeIsNotLoadedYet() async throws {
         let services = Self.services()
-        guard let reply = BookmarkControl.list(services, ["profile": .string("default")]).objectValue else {
-            Issue.record("bookmark.list did not answer an object")
-            return
-        }
+        let reply = try #require(try await BookmarkControl.list(services, ["profile": .string("default")]).objectValue)
         #expect(reply["loaded"] == .bool(false))
+        #expect(reply["storage"] == .string("daemon"))
         #expect(reply["bookmarks"] == .array([]))
-        #expect(reply["loaded"] == .bool(services.bookmarks.isLoaded("default")))
+    }
+
+    /// A search row's `index` and `path` are the daemon's: its place in the stored tree (#37375's
+    /// follow-up, where they came from a copy that could lag it).
+    @Test func aRowsIndexAndPathAreTheDaemons() throws {
+        let json = #"{"id":"bm_a","parent":"bm_work","kind":"url","title":"Docs","url":"https://example.com/","index":3,"path":["bar","Work"],"created_ms":0}"#
+        let node = try JSONDecoder().decode(BookmarkNode.self, from: Data(json.utf8))
+        let row = BookmarkControl.json(node)
+        #expect(row["index"] == .number(3))
+        #expect(row["path"] == .string("bar/Work"))
     }
 
     /// Every readable profile of the named browser, keyed as the import keys its folder.

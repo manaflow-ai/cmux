@@ -25,7 +25,8 @@ export const BarOps = {
   /** `{title, anchor: {x, y, width, height}, rows}`: the host pops a native menu under `anchor`
    * and opens what the person picks there. */
   menu: "cmux.bookmarksBar.menu",
-  /** `{bookmark?, point: {x, y}}`: the registry's Bookmark (or Bookmarks Bar) menu at `point`. */
+  /** `{bookmark?, kind?, icon?, point: {x, y}}`: the registry's Bookmark (or Bookmarks Bar) menu at
+   * `point`; `kind` and `icon` say which rows that menu has (a folder's icon rows, a link's Copy). */
   contextMenu: "cmux.bookmarksBar.contextMenu",
   /** `{visible: [{id, title, x, width}], overflow: [title]}` after each layout: the host's
    * diagnostics, the icon picker's anchor, and the first one shows the bar. */
@@ -265,7 +266,9 @@ export class BookmarksBarStore {
   }
 
   contextMenu(bookmark: string | null, point: { x: number; y: number }): void {
-    void this.client?.call(BarOps.contextMenu, { bookmark, point }).catch(() => undefined);
+    const node = bookmark ? this.snapshot.items.find((item) => item.id === bookmark) : undefined;
+    const facts = node ? { kind: node.kind, icon: node.icon ?? null } : {};
+    void this.client?.call(BarOps.contextMenu, { bookmark, ...facts, point }).catch(() => undefined);
   }
 
   /** Reports what the bar shows (diagnostics, the icon picker's anchor; the first shows the bar). */

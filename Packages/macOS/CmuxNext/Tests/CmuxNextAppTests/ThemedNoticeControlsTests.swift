@@ -1,6 +1,5 @@
 import AppKit
 @testable import CmuxNextApp
-@testable import CmuxNextBookmarks
 import CmuxNextDaemon
 @testable import CmuxNextDaemonRecovery
 @testable import CmuxNextDesign
@@ -11,18 +10,10 @@ import Testing
 
 /// Theme sweep 3, batch F: notices and pages that still drew macOS's look in a themed room. The
 /// terminal's copy-mode badge sat on a dark HUD blur, the launch failure's Copy Details and the
-/// restart notice's Report and Show Log were stock accessory buttons, and History and Bookmarks
-/// started in SwiftUI's label grays and system red until their host resolved the page's scope.
-/// Under a purple room each now draws the scope's tokens.
+/// restart notice's Report and Show Log were stock accessory buttons. Under a purple room each now
+/// draws the scope's tokens. (The bookmark pages' first-frame colors went with their Swift views:
+/// the pages are web pages on the shared WebTheme.)
 @MainActor @Suite(.serialized) struct ThemedNoticeControlsTests {
-    /// The app theme's tokens now: what a page's colors show before its host resolves.
-    private static var app: ThemeTokens { ThemeSnapshot.tokens }
-
-    private static func expect(_ color: Color, _ rgb: ThemeRGB, _ name: String) {
-        let resolved = NSColor(color)
-        #expect(ThemedOverlayColorsTests.same(resolved, rgb.nsColor), "\(name): \(resolved) is not the theme's \(rgb.nsColor)")
-    }
-
     private static func buttons(in view: NSView) -> [NSButton] {
         view.subviews.flatMap { ($0 as? NSButton).map { [$0] } ?? buttons(in: $0) }
     }
@@ -59,29 +50,5 @@ import Testing
         let titled = Self.buttons(in: surface).filter { [CrashStrings.report, CrashStrings.showLog].contains($0.title) }
         #expect(titled.count == 2, "Report and Show Log")
         for button in titled { try Self.expectThemeBezel(button, scope) }
-    }
-
-    @Test func bookmarksStartInTheAppTheme() {
-        let colors = BookmarkPageColors()
-        Self.expect(colors.primary, Self.app.textPrimary, "primary")
-        Self.expect(colors.secondary, Self.app.textSecondary, "secondary")
-        Self.expect(colors.tertiary, Self.app.textTertiary, "tertiary")
-        Self.expect(colors.hover, Self.app.hoverFill, "hover")
-        Self.expect(colors.selection, Self.app.selectionFill, "selection")
-        Self.expect(colors.separator, Self.app.separator, "separator")
-        Self.expect(colors.danger, Self.app.danger, "danger")
-    }
-
-    /// With `appearance.borders` none, a page's first-frame separator is clear, as `Palette.separator`
-    /// is once the host resolves its scope: the border switch applies before the scope does too.
-    @Test func aPagesFirstSeparatorFollowsTheBorderSwitch() {
-        let settings = DesignSettings.shared
-        let saved = settings.borders
-        settings.borders = .none
-        defer { settings.borders = saved }
-        for (name, separator) in [("bookmarks", BookmarkPageColors().separator)] {
-            let alpha = NSColor(separator).usingColorSpace(.sRGB)?.alphaComponent ?? 1
-            #expect(alpha == 0, "\(name): borders none draws no separator, not \(NSColor(separator))")
-        }
     }
 }

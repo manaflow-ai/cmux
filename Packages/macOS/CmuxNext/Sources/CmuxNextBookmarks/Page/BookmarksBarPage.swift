@@ -9,8 +9,9 @@ import Foundation
 /// menus and its refusal toast.
 @MainActor
 public protocol BookmarksBarHost: BookmarkPageHost {
-    /// The registry's Bookmark menu for `bookmark` (nil: the Bookmarks Bar menu of the bar's empty area).
-    func bookmarkBarContextMenu(bookmark: String?) -> NSMenu?
+    /// The registry's Bookmark menu for `bookmark` of `profile` (nil: the Bookmarks Bar menu of the
+    /// bar's empty area). `isFolder` and `icon` are the row the bar drew, which the menu's rows follow.
+    func bookmarkBarContextMenu(bookmark: String?, profile: String, isFolder: Bool, icon: String?) -> NSMenu?
     /// The owner refused a drop or a move on the bar: say why.
     func bookmarkBarRefused(_ message: String)
 }
@@ -177,8 +178,8 @@ public final class BookmarksBarHostView: NSView {
 ///   title, icon?, children}`, `{kind: "openAll", folder, title}`, `{kind: "empty", title}` and
 ///   `{kind: "separator"}`; a submenu is filled when it opens. A picked row opens from the tab
 ///   the bar is in (a native menu choice is the person's own act).
-/// - `contextMenu {bookmark?, point: {x, y}}`: the registry's Bookmark menu, or the Bookmarks
-///   Bar menu for the bar's empty area.
+/// - `contextMenu {bookmark?, kind?, icon?, point: {x, y}}`: the registry's Bookmark menu (its rows
+///   follow the drawn row's kind and icon), or the Bookmarks Bar menu for the bar's empty area.
 /// - `layout {visible: [{id, title, x, width}], overflow: [title]}`: what the bar shows.
 /// - `refused {message}`: the owner refused a drop or a move.
 @MainActor
@@ -228,7 +229,9 @@ public final class BookmarksBarProvider: PageProvider {
         case Self.prefix + "contextMenu":
             guard let page, let point = params["point"] else { return .object([:]) }
             let bookmark = params["bookmark"]?.stringValue
-            guard let menu = host.bookmarkBarContextMenu(bookmark: bookmark)?.themeRows(in: page.themeScope.fullStrength) else {
+            let made = host.bookmarkBarContextMenu(bookmark: bookmark, profile: pageHost.profile,
+                                                   isFolder: params["kind"]?.stringValue == "folder", icon: params["icon"]?.stringValue)
+            guard let menu = made?.themeRows(in: page.themeScope.fullStrength) else {
                 return .object([:])
             }
             await page.presentMenu(menu, atPagePoint: CGPoint(x: point["x"]?.doubleValue ?? 0, y: point["y"]?.doubleValue ?? 0))

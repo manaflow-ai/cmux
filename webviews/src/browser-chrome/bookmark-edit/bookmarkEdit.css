@@ -1,0 +1,96 @@
+/* BOOKMARK EDIT BUBBLE (BookmarkEditBubble.tsx). The design scale only (pages/shared/desktop.css),
+   at the native form's measures it replaces: a 20 padding (space5), the title in the body step at
+   emphasis, 16 to a two-column grid (labels in the muted ink, 16 to the fields, 12 between rows),
+   16 to one row of buttons at the compact control height: More… as a quiet link on the start, then
+   Remove and Done (the theme accent, with its Return keycap) at the end. In the app the native
+   popup is the glass and the shadow; the gallery draws its own. */
+.be-card {
+  --be-padding: var(--ds-space-5);
+  --be-gap: var(--ds-space-4);
+  --be-row-gap: var(--ds-space-3);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--be-gap);
+  max-width: 100%;
+  margin: 0;
+  padding: var(--be-padding);
+  border-radius: var(--ui-popup-radius, var(--ds-radius-popup));
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+/* Compact: the popups' own padding and gaps, for a denser card. */
+.be-card[data-look="compact"] {
+  --be-padding: var(--ds-space-3);
+  --be-gap: var(--ds-space-3);
+  --be-row-gap: var(--ds-space-2);
+}
+/* Roomy: labels over their fields, one column, more air. */
+.be-card[data-look="roomy"] {
+  --be-padding: var(--ds-space-5);
+  --be-gap: var(--ds-space-5);
+  --be-row-gap: var(--ds-space-1);
+}
+.be-title {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.be-fields {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--ds-space-4);
+  row-gap: var(--be-row-gap);
+}
+.be-card[data-look="roomy"] .be-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
+.be-card[data-look="roomy"] .be-label:not(:first-child) {
+  margin-top: var(--ds-space-2);
+}
+.be-label {
+  color: var(--ds-color-muted);
+  -webkit-user-select: none;
+  user-select: none;
+}
+.be-name,
+.be-folder,
+.be-folder .ui-select-button {
+  min-width: 0;
+  width: 100%;
+}
+.be-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.be-spacer {
+  flex: 1;
+}
+/* More…: a quiet link with a button's height, its text on the card's column. */
+.be-more.ui-btn {
+  min-width: 0;
+  margin-inline-start: calc(-1 * var(--ds-space-2));
+  color: var(--ds-color-muted);
+}
+.be-more.ui-btn:hover:not([data-disabled]) {
+  color: var(--ds-color-fg);
+}
+.be-remove.ui-btn,
+.be-done.ui-btn {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+/* The keycap reads one step quieter than its button's label, on the accent fill. */
+.be-done .ui-keyhint {
+  color: inherit;
+  opacity: 0.6;
+}

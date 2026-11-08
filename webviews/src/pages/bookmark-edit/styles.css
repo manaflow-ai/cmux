@@ -1,0 +1,10 @@
+/* The bubble's glass is the native popup's; the page draws only the fields over it. */
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+}
+
+#root {
+  display: block;
+}

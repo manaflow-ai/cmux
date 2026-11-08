@@ -14,19 +14,19 @@ extension AppServices {
         let tabs = machines.local.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
         let open = tabs.first { tab in
             tab.kind == .browser && tab.faviconURL != nil && !cache.browserTabs.isIncognitoTab(tab.id)
-                && tab.url.flatMap(URL.init(string:)).flatMap(BookmarkURL.faviconKey(for:)) == origin
+                && tab.url.flatMap(URL.init(string:)).flatMap(PageInfoSite.origin(of:)) == origin
         }
         return open?.faviconURL ?? origin + "/favicon.ico"
     }
 
-    /// The favicon address an open (not incognito) browser tab shows, by the tab's site origin (`BookmarkURL.faviconKey`),
+    /// The favicon address an open (not incognito) browser tab shows, by the tab's site origin (`PageInfoSite.origin(of:)`),
     /// the first tab per origin as `siteFaviconAddress` picks it; the site's own `/favicon.ico` is left out (a link
     /// draws that one without storing it). One scan of the tabs for every link (sidebar links store these).
     func openTabFaviconsByOrigin() -> [String: String] {
         var byOrigin: [String: String] = [:]
         for tab in machines.local.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) {
             guard tab.kind == .browser, let favicon = tab.faviconURL, !cache.browserTabs.isIncognitoTab(tab.id),
-                  let origin = tab.url.flatMap(URL.init(string:)).flatMap(BookmarkURL.faviconKey(for:)), byOrigin[origin] == nil
+                  let origin = tab.url.flatMap(URL.init(string:)).flatMap(PageInfoSite.origin(of:)), byOrigin[origin] == nil
             else { continue }
             byOrigin[origin] = favicon
         }
@@ -35,7 +35,7 @@ extension AppServices {
 
     /// The favicon of the page at `url` for `profile`, nil while it loads or without one.
     func siteFavicon(_ url: URL, profile: BrowserProfileID) -> TabImage? {
-        guard let origin = BookmarkURL.faviconKey(for: url) else { return nil }
+        guard let origin = PageInfoSite.origin(of: url) else { return nil }
         return favicons.image(for: siteFaviconAddress(origin: origin), profile: profile)
     }
 

@@ -19,14 +19,7 @@ public nonisolated enum BookmarkStrings {
     public static var moreBookmarks: String { t("bar.more", "More Bookmarks") }
     public static var hideBar: String { t("bar.hide", "Hide Bookmarks Bar") }
     public static var barEmptyHint: String { t("bar.emptyHint", "Drag a link here or click the star to add bookmarks") }
-    public static var added: String { t("bubble.added", "Bookmark Added") }
-    public static var editTitle: String { t("bubble.edit", "Edit Bookmark") }
-    public static var name: String { t("field.name", "Name") }
     public static var url: String { t("field.url", "URL") }
-    public static var folder: String { t("field.folder", "Folder") }
-    public static var more: String { t("bubble.more", "More…") }
-    public static var remove: String { t("bubble.remove", "Remove") }
-    public static var done: String { t("bubble.done", "Done") }
     public static var save: String { t("editor.save", "Save") }
     public static var cancel: String { t("editor.cancel", "Cancel") }
     public static var newFolder: String { t("folder.new", "New Folder") }
