@@ -294,29 +294,27 @@ fn own_build_status_says_where_it_looked_for_screen_detection() {
     // A build without the plugin beside it, as the round 3 bench binary was.
     let exe = install_build(&root.join("build-s"), "build-s", &root.join("hook.log"));
     let daemon = Daemon::start(&root, &exe, "ob-s", &home, &data, "/usr/bin:/bin");
-    let status = |cli: &Path| -> serde_json::Value {
-        // The socket accepts before the server finishes starting; status
-        // says so (`server.unavailable`) until it has.
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            let output = Command::new(cli)
-                .args(["--json", "server", "status", "--session", "ob-s", "--socket"])
-                .arg(&daemon.socket)
-                .env("HOME", &home)
-                .env("XDG_DATA_HOME", &data)
-                .env("CMUX_TUI_CONFIG", root.join("daemon-ob-s/config.json"))
-                .env("LC_ALL", "C")
-                .env_remove("CMUX_TUI_SOCKET")
-                .env_remove("CMUX_MUX_SOCKET")
-                .output()
-                .unwrap();
-            if output.status.success() {
-                return serde_json::from_slice(&output.stdout).unwrap();
-            }
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(stderr.contains("server.unavailable") && Instant::now() < deadline, "{stderr}");
-            std::thread::sleep(Duration::from_millis(100));
-        }
+    let cli = |cli: &Path, verb: &str| {
+        Command::new(cli)
+            .args(["--json", "server", verb, "--session", "ob-s", "--socket"])
+            .arg(&daemon.socket)
+            .env("HOME", &home)
+            .env("XDG_DATA_HOME", &data)
+            .env("CMUX_TUI_CONFIG", root.join("daemon-ob-s/config.json"))
+            .env("LC_ALL", "C")
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_MUX_SOCKET")
+            .output()
+            .unwrap()
+    };
+    // The socket accepts before the server has finished starting; ensure
+    // returns once it serves lifecycle commands.
+    let ready = cli(&exe, "ensure");
+    assert!(ready.status.success(), "{}", String::from_utf8_lossy(&ready.stderr));
+    let status = |build: &Path| -> serde_json::Value {
+        let output = cli(build, "status");
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        serde_json::from_slice(&output.stdout).unwrap()
     };
     // Another build's CLI reports the daemon's own folder, not its own.
     let missing = status(Path::new(env!("CARGO_BIN_EXE_cmux-tui")));
