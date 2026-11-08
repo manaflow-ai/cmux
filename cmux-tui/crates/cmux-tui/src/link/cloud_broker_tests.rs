@@ -181,6 +181,24 @@ async fn cloud_broker_survives_a_reply_slower_than_the_dial_and_drops_it() {
     assert_eq!(parent.read_u8().await.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
 }
 
+/// A parent that never answers still ends the channel, once [`super::REPLY_LIMIT`] has passed.
+#[tokio::test(start_paused = true)]
+async fn cloud_broker_ends_when_the_parent_never_answers() {
+    let (link, mut parent) = UnixStream::pair().unwrap();
+    let (source, driver) = channel(link);
+    let driven = tokio::spawn(driver.run());
+    let server = tokio::spawn(async move {
+        request(&mut parent).await;
+        parent
+    });
+    assert!(matches!(source.fetch(HOST).await, Err(ConnectInfoError::Unavailable(_))));
+    let _parent = server.await.unwrap();
+    let started = tokio::time::Instant::now();
+    let ended = driven.await.unwrap().unwrap_err();
+    assert_eq!(ended.kind(), io::ErrorKind::TimedOut);
+    assert!(started.elapsed() >= super::REPLY_LIMIT - super::DIAL_TIMEOUT * 2);
+}
+
 #[tokio::test]
 async fn cloud_broker_unsolicited_or_oversized_input_ends_the_driver() {
     let (link, mut parent) = UnixStream::pair().unwrap();
