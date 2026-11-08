@@ -16,7 +16,14 @@ const MINE = "Merge and deploy whenever you want.";
 
 test("a handoff reads as an agent's and names it; the person's words do not", () => {
   expect(agentText(HANDOFF)).toEqual({ from: "Codex", signals: ["header", "trace"] });
-  for (const text of [MINE, "From now on: always rebase first.", "From the logs: it crashed", "Check the trace id"])
+  for (const text of [
+    MINE,
+    "From now on: always rebase first.",
+    "From the logs: it crashed",
+    "Check the trace id",
+    // Review of #38707 (F1): prose that says "generated with" is not a footer.
+    "The docs were generated with Sphinx",
+  ])
     expect(readsAsAgent(text)).toBe(false);
   expect(agentText("Done.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)").from).toBe(
     "Claude Code",
