@@ -25,13 +25,18 @@ from gen_closecurves import VIEW_SETTINGS  # noqa: E402
 LABELS = {"CUR": "current zoom spring", "instant": "instant", "K1": "bezier 0.2,0,0,1 80 ms", "K2": "bezier 0.2,0,0,1 100 ms",
           "K3": "bezier 0.2,0,0,1 120 ms", "K4": "bezier 0.22,1,0.36,1 100 ms", "K5": "bezier 0.65,0,0.35,1 120 ms",
           "K6": "spring 0.15 s damping 1", "K7": "spring 0.18 s damping 0.9", "K8": "spring 0.2 s damping 0.8",
-          "K9": "spring 0.25 s damping 0.7", "K10": "linear 100 ms"}
-VNAMES = {"V0": "current", "Z1": "instant", "Z2": "grow", "Z3": "others slide out"}
+          "K9": "spring 0.25 s damping 0.7", "K10": "linear 100 ms",
+          "K11": "spring 0.12 s damping 1", "K12": "spring 0.2 s damping 1 (= CUR)"}
+VNAMES = {"Z4": "grow and fade", "V0": "current", "Z1": "instant", "Z2": "grow", "Z3": "others slide out"}
+# m68 (no bounce): K8/K9 dropped; K7 overshoots 1.4 pt on 900 pt (damping 0.9), dropped; CUR is K12 (critically damped
+# 0.2 s), so Z4 films K12 once.
+SETS = {"z4": ("C3,R3,G4P,CR", "Z4:K2,Z4:K6,Z4:K11,Z4:K12,V0:CUR")}
 DEFAULT = "V0:CUR,Z1:instant,Z2:K2,Z2:K6,Z2:K8,Z3:K2,Z3:K6,Z3:K8"
 MODE = {"nvim": "ALT", "htop": "ALT", "claude": "MAIN", "zsh": "MAIN", "chromium": "PAGE", "webkit": "PAGE"}
 # PAGE films only V0 and Z1: the Z2/Z3 picture copies are layers of the window; a Chromium or WebKit page draws in its own
 # view or window, which the copies and masks do not hold (ScreenContentView+FilmZoom.swift).
 PAGE_VARIANTS = ("V0", "Z1")
+HOLD = ""  # set by --hold-note: the hold the build has (m66: "1-tick hold" until the shared hold lands)
 RESET = {"do": "rpc", "method": "debug.frames", "params": {"action": "zoom_variant V0 K2"}, "title": "clean-up: the zoom selector back to V0"}
 
 
@@ -40,7 +45,7 @@ def modes(progs):
         return "PAGE"
     out = []
     for p in progs:
-        if MODE[p] not in out:
+        if MODE[p] != "PAGE" and MODE[p] not in out:
             out.append(MODE[p])
     return "-".join(sorted(out))
 
@@ -69,6 +74,24 @@ def layout(key, view=True):
             s = CL.new_ws(first, a, f"{key} {tgt}") + CL.split(first, act, last, b) + CL.split(first, act, mid, tgt)
             out.append((s, [(mid, [tgt, a, b])]))
         return out, 38
+    if key == "G4P":   # 2x2, a Chromium page top-right among the fading panes (m66): zoom the top-left
+        out = []
+        for tgt, b, c in (("nvim", "zsh", "htop"), ("claude", "nvim", "htop")):
+            tl, tr, bl, br = (f"g4p-{tgt}-{x}" for x in ("tl", "tr", "bl", "br"))
+            s = (CL.new_ws(tr, None, f"G4P {tgt}") + CL.split(tr, "splitDown", br, c) + CL.split(br, "splitLeft", bl, b)
+                 + CL.split(tr, "splitLeft", tl, tgt)
+                 + [{"do": "cm_browser", "pane": tr, "engine": "cef", "bg": "#1E1F22" if view else "#FFFF00",
+                     "title": f"set-up: a Chromium page in {tr} ({'dark' if view else 'detector yellow'})"}])
+            out.append((s, [(tl, [tgt, "chromium", b, c])]))
+        return out, 52
+    if key == "CR":    # a column of 3 stacked next to a full-height column: zoom the stack's middle
+        out = []
+        for tgt, a, b, c in (("nvim", "htop", "zsh", "zsh"), ("claude", "nvim", "htop", "zsh")):
+            t, m, bt, f = (f"cr-{tgt}-{x}" for x in ("t", "m", "b", "f"))
+            s = (CL.new_ws(t, a, f"CR {tgt}") + CL.split(t, "splitRight", f, c) + CL.split(t, "splitDown", bt, b)
+                 + CL.split(t, "splitDown", m, tgt))
+            out.append((s, [(m, [tgt, a, b, c])]))
+        return out, 46
     if key == "G4":    # 2x2: zoom the top-left
         out = []
         for tgt, a, b, c in (("nvim", "htop", "zsh", "zsh"), ("claude", "nvim", "htop", "zsh")):
@@ -105,7 +128,7 @@ def journey(jid, key, view, variants):
         steps += ws_steps + [G.settle(1.0)]
         for variant, curve in variants:
             steps.append({"do": "rpc", "method": "debug.frames", "required": True, "title": f"zoom selector: {variant} on {curve}",
-                          "params": {"action": f"zoom_variant {variant} {'K2' if curve in ('CUR', 'instant') else curve}"}})
+                          "params": {"action": f"zoom_variant {variant} {'K2' if curve == 'instant' else curve}"}})
             for pane, progs in targets:
                 for direction in ("in", "out"):
                     p = "v" if view else "m"
@@ -117,7 +140,7 @@ def journey(jid, key, view, variants):
                     index.append({"film": name, "scenario": ("Z-" if variant == "V0" else "") + key, "program": "-".join(progs),
                                   "mode": modes(progs), "variant": variant, "ms": 0, "curve": "named",
                                   "curve_id": f"{curve}-{direction}", "journey": jid, "zoomed": progs[0], "direction": direction,
-                                  "label": f"{variant} {VNAMES[variant]} {LABELS[curve]} | zoom {direction} | {key} zoomed {progs[0]}"})
+                                  "label": f"{variant} {VNAMES[variant]} {LABELS[curve]} | zoom {direction} | {key} zoomed {progs[0]}{HOLD}"})
     est = 50 + setup + n_films * (4.0 if view else 4.6)
     if est > 258:
         raise SystemExit(f"{jid}: {est:.0f} s is more than one lease; give fewer variants")
@@ -138,7 +161,14 @@ def main():
     ap.add_argument("--passes", default="view,meas")
     ap.add_argument("--tag", default="z")
     ap.add_argument("--films-dir", default="/work/wt/close-perf-tools/zoom/cv")
+    ap.add_argument("--set", default="", help="a named film set (z4: m66 layouts and curves)")
+    ap.add_argument("--hold-note", default="")
     o = ap.parse_args()
+    global HOLD
+    HOLD = f" | {o.hold_note}" if o.hold_note else ""
+    if o.set:
+        o.layouts, o.variants = SETS[o.set]
+        o.tag = o.set
     variants = [tuple(x.split(":")) for x in o.variants.split(",") if x]
     for kind in o.passes.split(","):
         idx_all = []
