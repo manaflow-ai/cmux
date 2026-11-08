@@ -15,7 +15,7 @@ import CmuxNextSettings
     /// Called when ``toolsWidth`` changes, or the page loads again (the pane lays out again).
     public var onChange: (() -> Void)?
     /// The row last pushed to the page, nil before the first.
-    private(set) var offered: (height: CGFloat, trailingInset: CGFloat, trailingColumn: CGFloat, soloTab: Bool)?
+    private(set) var offered: (height: CGFloat, trailingInset: CGFloat, soloTab: Bool)?
     /// The pane draws its tabs at the row's leading end; false while a lone tab hides (`PaneTabRowSharing.setTabRowTabs`).
     var tabsShown = true
     /// Native chrome holes, in the chat view's coordinates; Session Info adds its own overlay hole. Turned into the
@@ -59,7 +59,7 @@ import CmuxNextSettings
 
     /// The `tabRow` event for the row last offered (a page that subscribes again gets it first).
     var event: AgentPageEvent {
-        .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0, trailingColumn: offered?.trailingColumn ?? 0,
+        .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0,
                 nativeRowTools: offeredNativeRowTools ?? false, soloTab: offered?.soloTab ?? false)
     }
 
@@ -81,18 +81,13 @@ import CmuxNextSettings
     }
 
     /// Offers `view`'s page the top `height` points of the pane, less `trailingInset` at the trailing
-    /// end (0: no row), converted to CSS pixels; pushed only when it changed. With
-    /// it goes the pane's trailing control column (`Metrics.paneTrailingControlCenter`): where no
-    /// native "…" keeps the row's end (`trailingInset` 0, a chat's pane), the page centers its last
-    /// tool on that column, as the tab bar's and the browser toolbar's ⋮ are, so the tool and its
-    /// pressed fill sit inside the pane's rounded corner instead of flush with its edge (#37412).
+    /// end (0: no row), converted to CSS pixels; pushed only when it changed.
     public static func offer(points height: CGFloat, trailingInset: CGFloat, to view: AgentPaneView) {
         let zoom = max(0.25, view.webView.pageZoom)
         let on = height > 0
         let nativeRowTools = view.model.tabRow.nativeToolsEnabled
         let row = view.model.tabRow
-        let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0,
-                    trailingColumn: on ? Metrics.paneTrailingControlCenter / zoom : 0, soloTab: on && !row.tabsShown)
+        let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0, soloTab: on && !row.tabsShown)
         let shares = on && row.sharedWidth(zoom: zoom) != nil
         view.setTabRowCover(shares ? height : 0) // the pane lays the view under the strip only then
         // The engine, not the shared host (which runs WebKit too, where the page is under the toolbar).
@@ -150,14 +145,10 @@ private func nativeHoles(width: CGFloat, height: CGFloat, trailingInset: CGFloat
 }
 
 extension AgentPageEvent {
-    /// The tab row the chat header's tools may sit in (`tabRow`): `{height, trailingInset, trailingColumn, nativeRowTools, soloTab}`;
-    /// `trailingColumn`: the distance from the pane's trailing edge to the center of its last control, where the page
-    /// centers its last tool while `trailingInset` is 0; `soloTab`: the pane holds this one tab, and the page runs its
-    /// transcript up under the row (header/tabRow.ts).
-    static func tabRow(height: CGFloat, trailingInset: CGFloat, trailingColumn: CGFloat = 0, nativeRowTools: Bool,
-                       soloTab: Bool = false) -> AgentPageEvent {
+    /// The tab row the chat header's tools may sit in (`tabRow`): `{height, trailingInset, nativeRowTools, soloTab}`;
+    /// `soloTab`: the pane holds this one tab, and the page runs its transcript up under the row (header/tabRow.ts).
+    static func tabRow(height: CGFloat, trailingInset: CGFloat, nativeRowTools: Bool, soloTab: Bool = false) -> AgentPageEvent {
         AgentPageEvent(kind: "tabRow", value: ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset)),
-                                               "trailingColumn": .number(Double(trailingColumn)),
                                                "nativeRowTools": .bool(nativeRowTools), "soloTab": .bool(soloTab)])
     }
 }

@@ -14,7 +14,7 @@ import {
 } from "./SessionInfo";
 import { SESSION_INFO_WIDTH } from "./sessionInfoState";
 
-const column = { min: 720, max: 800, share: 0.625, prose: Infinity };
+const column = { min: 720, max: 800 };
 const width = SESSION_INFO_WIDTH.fallback;
 
 /// The panel's left edge and the bar's right edge, in px from the pane's left, as the page lays them out:

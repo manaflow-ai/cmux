@@ -385,4 +385,76 @@ struct ChiefPanelWindowTests {
         #expect(stops == 1, "Esc stopped a Chief that was not answering")
         #expect(!f.controller.frameChiefPanelShown, "Esc did not hide the panel once the answer ended")
     }
+
+    // MARK: - cmux#37372
+
+    /// No link clicked in the Chief docks it (cmux#37372: "opening a subagent must never re-dock Chief"): after the
+    /// person docked the panel, the next link from Home (a subagent chip, an `aN` or `cmux://` link) opens it
+    /// floating over its workspace, never docked at its edge.
+    @Test func aLinkFromHomeOpensTheChiefFloatingEvenAfterItWasDocked() async throws {
+        let (chief, state) = Self.chiefView()
+        let f = try await Self.fixture(chief)
+        defer { f.close() }
+        f.controller.armChiefPanel()
+        f.services.windows.show(workspaceID: "k1", in: f.state) // a link's jump
+        f.frame()
+        f.controller.dockChiefPanel(at: .left) // the person docks it
+        f.frame()
+        try #require(f.state.chiefPanel.dockedEdge == .left)
+
+        f.services.windows.show(workspaceID: "k0", in: f.state, from: .thisWindow) // back to Home
+        f.frame()
+        f.controller.armChiefPanel() // a subagent chip clicked in Home's chat
+        f.services.windows.show(workspaceID: "k2", in: f.state)
+        f.frame()
+        #expect(f.controller.frameChiefPanelShown, "the link did not open the Chief over its workspace")
+        #expect(f.state.chiefPanel.dockedEdge == nil, "a link re-docked the Chief at \(String(describing: f.state.chiefPanel.dockedEdge))")
+        #expect(f.state.docks.isEmpty, "the link docked a workspace")
+        #expect(f.controller.content?.contentView.frame == f.controller.root.contentHost.bounds, "the stage gave space to a docked Chief")
+        state.expectKept(in: chief, "after the link")
+    }
+
+    /// Undock Chief (cmux#37372: "Chief needs a direct, obvious undock action"; palette, the Chief pane's ⋮ menu,
+    /// `cmux home undock-chief`) floats a docked Chief over the stage, which takes the whole area back; with the
+    /// Chief not docked it refuses and says why.
+    @Test func undockChiefFloatsTheDockedChief() async throws {
+        let (chief, _) = Self.chiefView()
+        let f = try await Self.fixture(chief)
+        defer { f.close() }
+        AppActions.bind(f.services)
+        f.services.windows.show(workspaceID: "k1", in: f.state, from: .thisWindow)
+        f.controller.dockChiefPanel(at: .left)
+        f.frame()
+        try #require(f.state.chiefPanel.dockedEdge == .left && f.controller.frameChiefPanelShown)
+
+        #expect(f.services.registry.perform("home.undockChief", invocation: ActionInvocation(origin: .user)))
+        f.frame()
+        #expect(f.state.chiefPanel.dockedEdge == nil, "Undock Chief left it docked")
+        #expect(f.controller.frameChiefPanelShown, "Undock Chief hid the Chief instead of floating it")
+        #expect(f.controller.content?.contentView.frame == f.controller.root.contentHost.bounds, "the stage did not take the area back")
+
+        let again = f.services.registry.capturingRefusal {
+            _ = f.services.registry.perform("home.undockChief", invocation: ActionInvocation(origin: .user))
+        }
+        #expect(again == RefusalStrings.chiefNotDocked, "Undock Chief with the Chief floating: \(again ?? "ran")")
+    }
+
+    /// Undock Chief on a docked Chief the person hid (Cmd-I) floats it and shows it: the action never reports done
+    /// with nothing visible.
+    @Test func undockChiefShowsAHiddenDockedChief() async throws {
+        let (chief, _) = Self.chiefView()
+        let f = try await Self.fixture(chief)
+        defer { f.close() }
+        AppActions.bind(f.services)
+        f.services.windows.show(workspaceID: "k1", in: f.state, from: .thisWindow)
+        f.controller.dockChiefPanel(at: .left)
+        f.controller.hideChiefPanel()
+        f.frame()
+        try #require(f.state.chiefPanel.dockedEdge == .left && !f.controller.frameChiefPanelShown)
+
+        #expect(f.services.registry.perform("home.undockChief", invocation: ActionInvocation(origin: .user)))
+        f.frame()
+        #expect(f.state.chiefPanel.dockedEdge == nil, "Undock Chief left the hidden Chief docked")
+        #expect(f.controller.frameChiefPanelShown, "Undock Chief left the Chief hidden")
+    }
 }

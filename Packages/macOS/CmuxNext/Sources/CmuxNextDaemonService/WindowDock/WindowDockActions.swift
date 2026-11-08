@@ -84,6 +84,12 @@ public struct WindowDockActions {
             guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
             return Self.openChiefDock(in: frame, host, registry)
         }
+        // Undock Chief (cmux#37372): a docked Chief panel floats again over the stage, shown.
+        registry.bindEffect("home.undockChief") { invocation in
+            guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
+            guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
+            return frame.undockChiefPanel() ? .done : .refused(RefusalStrings.chiefNotDocked)
+        }
         registry.bindEffect("window.movePaneToDock") { invocation in
             guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
             guard let source = host.dockPaneWorkspace(invocation) else { return .refused(RefusalStrings.noPaneForDock) }

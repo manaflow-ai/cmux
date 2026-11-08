@@ -59,6 +59,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.page-info",
         "cmux.passwords",
         "cmux.settings",
+        "cmux.stash",
         "cmux.stats",
         "cmux.tasks",
         "cmux.site-settings",

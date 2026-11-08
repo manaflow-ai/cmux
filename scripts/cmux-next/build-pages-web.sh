@@ -53,6 +53,7 @@ onboarding
 overlay
 passwords
 settings
+stash
 stats
 tasks
 "

@@ -10,7 +10,9 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 type Box = { left: number; width: number };
 
 await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
-  const PANE = 843;
+  // 80px wider than the 843 this suite used beside the old 720px column, so each scale keeps the same
+  // 4-grid leftover beside Chat Text Width's 800px one.
+  const PANE = 923;
   const CASES = [
     { interfaceScale: 1, chatZoom: 1 },
     { interfaceScale: 1.25, chatZoom: 1 },
@@ -83,11 +85,12 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
     await vite?.close();
   });
 
-  /// The transcript's column at an effective scale, in device px: its insets are on whole pixels
-  /// (`--cv-inset`), so the column stays within a pixel of its 720.
+  /// The transcript's column at an effective scale, in device px: Chat Text Width's 800 (at least 720,
+  /// capped by the pane; conversation.css --cv-column), its insets on whole pixels (`--cv-inset`).
   const transcriptBox = (effectiveScale: number): Box => {
     const pane = Math.round(PANE / effectiveScale);
-    const inset = Math.round((pane - 720 / effectiveScale) / 2);
+    const span = Math.min(800 / effectiveScale, Math.max(720 / effectiveScale, pane));
+    const inset = Math.round((pane - span) / 2);
     return { left: inset * effectiveScale, width: (pane - 2 * inset) * effectiveScale };
   };
 

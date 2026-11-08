@@ -73,7 +73,8 @@ const goalChat = (status: "running" | "stalled" | "paused" | "done", provider: "
 };
 
 /// A Claude Code /loop between its runs (acpmux reads it from ScheduleWakeup and CronCreate,
-/// `claude_stdio/loops.rs`): the goal strip shows its prompt, that it loops, and when it next runs.
+/// `claude_stdio/loops.rs`): the goal strip says when it checks back, or its schedule; its prompt
+/// only on demand.
 const loopChat = (goal: Omit<TaskGoal, "kind" | "status">) => {
   const snapshot = startedChat();
   return {
@@ -315,16 +316,30 @@ export default agentPaneEntry({
       },
     },
     "loop-wakeup": {
-      note: "A self-paced Claude Code /loop (ScheduleWakeup): its prompt, Looping, and when it next runs. No controls: Claude stops a loop only from its own turn.",
+      note: "A self-paced Claude Code /loop (ScheduleWakeup), cmux#38051: one quiet chip in the composer's column, \"Checking back in 15 min.\". The agent's wake prompt (job ids, links, steps) is only in the tooltip and behind the chip's button. No controls: Claude stops a loop only from its own turn.",
       snapshot: loopChat({
-        objective: "check the deploy and fix anything red",
-        reason: "the rollout takes a few minutes",
-        nextRunAt: GALLERY_NOW + 4 * 60_000,
+        objective:
+          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
+        reason: "watching the fleet build",
+        nextRunAt: GALLERY_NOW + 15 * 60_000,
       }),
       play: (ctx) => look(ctx, "claude"),
     },
+    "loop-wakeup-open": {
+      note: "The same loop with its prompt opened on demand: it wraps inside the column and scrolls past six lines.",
+      snapshot: loopChat({
+        objective:
+          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
+        reason: "watching the fleet build",
+        nextRunAt: GALLERY_NOW + 15 * 60_000,
+      }),
+      play: async (ctx) => {
+        await look(ctx, "claude");
+        await ctx.click({ selector: ".acpmux-goal[data-kind=loop] .acpmux-goal-action" });
+      },
+    },
     "loop-cron": {
-      note: "An interval /loop (CronCreate): its schedule as Claude Code words it, and its first run.",
+      note: 'An interval /loop (CronCreate): its schedule as Claude Code words it, "Repeats every 5 minutes".',
       snapshot: loopChat({ objective: "/babysit-prs", schedule: "every 5 minutes", nextRunAt: GALLERY_NOW + 90_000 }),
       play: (ctx) => look(ctx, "claude"),
     },

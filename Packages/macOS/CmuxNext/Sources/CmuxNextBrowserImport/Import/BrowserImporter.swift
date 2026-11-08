@@ -51,6 +51,11 @@ public actor BrowserImporter {
                     }
                     done += 1
                 }
+                // Its cookie file, once cookies came over from a Chromium profile (the one format the sync reads):
+                // `browser.import.cookieSync` decides whether it is watched (``ImportCookieSync``).
+                if (batch.cookies?.written ?? 0) > 0, item.profile.browser.family == .chromium {
+                    batch.source.syncedCookieFile = BrowserSourceDetector.chromiumCookieFile(item.profile.path)
+                }
                 report(nil, running + batch.counts, done)
                 try Task.checkCancellation()
                 try await destination.commit(batch)
