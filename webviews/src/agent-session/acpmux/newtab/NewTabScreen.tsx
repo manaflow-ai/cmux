@@ -1305,13 +1305,6 @@ export function NewTabScreen(props: Props) {
       return;
     }
     const prompt = typed.trim();
-    // A lone GitHub issue URL has an explicit fix action, but Return remains a normal prompt send.
-    // Keep it ahead of address-row activation so the URL is not opened in a browser instead.
-    if (fixFromLink) {
-      if (harness) askChat(harness, prompt, project, chipModel);
-      else openSetup();
-      return;
-    }
     if (command.intercept(prompt, harness, attachments.length, true)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.

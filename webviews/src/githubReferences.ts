@@ -29,7 +29,7 @@ export function githubIssueLink(text: string): GithubIssueLink | undefined {
   if (parsed.protocol !== "https:" || !["github.com", "www.github.com"].includes(parsed.hostname.toLowerCase()))
     return undefined;
   const parts = parsed.pathname.split("/").filter(Boolean);
-  if (parts.length !== 4 || parts[2]?.toLowerCase() !== "issues" || !/^[1-9][0-9]{0,9}$/.test(parts[3]!)) {
+  if (parts.length !== 4 || parts[2] !== "issues" || !/^[1-9][0-9]{0,9}$/.test(parts[3]!)) {
     return undefined;
   }
   const [owner, repository] = parts;

@@ -828,12 +828,13 @@ test("a lone GitHub issue URL offers an explicit fix worktree action", async () 
     finish = resolve;
   });
   const asks: unknown[][] = [];
+  const opened: string[] = [];
   await act(async () => {
     root!.render(
       <NewTabScreen
         snapshot={noChat([], { summary: { sessionId: "seed", harness: "claude" } })}
         onAsk={(...args) => asks.push(args)}
-        onOpen={() => {}}
+        onOpen={(url) => opened.push(url)}
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
@@ -858,7 +859,8 @@ test("a lone GitHub issue URL offers an explicit fix worktree action", async () 
   await act(async () => finish());
   expect(chip!.disabled).toBe(false);
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
-  expect((asks[0] as unknown[])[1]).toBe("https://github.com/manaflow-ai/cmux/issues/123");
+  expect(asks).toEqual([]);
+  expect(opened).toEqual(["https://github.com/manaflow-ai/cmux/issues/123"]);
 });
 
 for (const mode of ["sandboxed", "cloud"] as const) {

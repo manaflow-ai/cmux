@@ -22,6 +22,7 @@ describe("githubIssueLink", () => {
   });
 
   test.each([
+    "https://github.com/manaflow-ai/cmux/Issues/123",
     "https://github.com/manaflow-ai/cmux/issues/0",
     "https://github.com/manaflow-ai/cmux/issues/12345678901",
     "https://github.com/manaflow-ai/cmux/pull/123",
