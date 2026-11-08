@@ -4,6 +4,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { MessageScopeContext } from "../src/agent-session/acpmux/chips/messageScope";
+import { TranscriptReadOnly } from "../src/agent-session/acpmux/conversation/readOnly";
+import { TourStartContext } from "../src/agent-session/acpmux/repoTour/TourBlock";
 import { TourCard } from "../src/agent-session/acpmux/repoTour/TourCard";
 import {
   chipPath,
@@ -142,4 +145,34 @@ test("Start shows only with a start action; a tour with none reads without butto
     "acpmux-tour-start",
   );
   expect(renderToStaticMarkup(<TourCard tour={tour} />)).not.toContain("acpmux-tour-start");
+});
+
+test("Start is only on this chat's own reply, never on a tour inside another agent's message", () => {
+  const reply = "```cmux-tour\n" + tourJson + "\n```";
+  const start = () => Promise.resolve();
+  const own = renderToStaticMarkup(
+    <TourStartContext.Provider value={start}>
+      <Markdown>{reply}</Markdown>
+    </TourStartContext.Provider>,
+  );
+  expect(own).toContain("acpmux-tour-start");
+  for (const scope of [{}, { host: "gpu-box" }]) {
+    const relayed = renderToStaticMarkup(
+      <TourStartContext.Provider value={start}>
+        <MessageScopeContext.Provider value={scope}>
+          <Markdown>{reply}</Markdown>
+        </MessageScopeContext.Provider>
+      </TourStartContext.Provider>,
+    );
+    expect(relayed).toContain("Add a zoom badge");
+    expect(relayed).not.toContain("acpmux-tour-start");
+  }
+  const shared = renderToStaticMarkup(
+    <TourStartContext.Provider value={start}>
+      <TranscriptReadOnly.Provider value>
+        <Markdown>{reply}</Markdown>
+      </TranscriptReadOnly.Provider>
+    </TourStartContext.Provider>,
+  );
+  expect(shared).not.toContain("acpmux-tour-start");
 });
