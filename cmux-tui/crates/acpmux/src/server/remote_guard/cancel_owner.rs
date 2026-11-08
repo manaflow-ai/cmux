@@ -45,7 +45,7 @@ pub(in crate::server) fn check(
 /// A paired device's own credential (`ConnAuth::Device`) is never the owner here.
 fn owner(origin: crate::server::Origin, auth: crate::server::ConnAuth, params: &Value) -> bool {
     origin == crate::server::Origin::Peer
-        && auth == crate::server::ConnAuth::PeerToken
+        && auth.peer_daemon()
         && crate::hub::vm_boundary::owner(auth, super::control_of(origin, auth, params), params)
 }
 
