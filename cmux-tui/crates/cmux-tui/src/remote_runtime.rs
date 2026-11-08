@@ -765,6 +765,9 @@ fn start_client_runtime_with(
     options.reconnect.validate()?;
     let startup_timeout = options.startup_timeout;
     let recovering = keep_waiting.is_some();
+    // SSH authentication (a password typed at the prompt) does not count
+    // against the startup budget (issue 38157).
+    let auth_clock = options.ssh.connection_share.auth_clock();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -779,10 +782,13 @@ fn start_client_runtime_with(
             result
         })
         .context("could not start remote client thread")?;
-    let deadline = keep_waiting.is_none().then(|| std::time::Instant::now() + startup_timeout);
+    let started = std::time::Instant::now();
+    let deadline = keep_waiting.is_none().then(|| started + startup_timeout);
     let ready = loop {
+        let now = std::time::Instant::now();
+        let excluded = auth_clock.as_ref().map_or(Duration::ZERO, |clock| clock.excluded(now));
         let left = deadline.map_or(STARTUP_SIGNAL_POLL, |deadline| {
-            deadline.saturating_duration_since(std::time::Instant::now())
+            (deadline + excluded).saturating_duration_since(now)
         });
         match ready_rx.recv_timeout(left.min(STARTUP_SIGNAL_POLL)) {
             Ok(Ok(ready)) => break ready,
@@ -1384,7 +1390,16 @@ async fn bootstrap_initial_ssh_route(
     config.auto_install = options.auto_install;
     config.timeout = options.attempt_timeout;
     config.required_capabilities = ssh.required_remote_capabilities();
+    config.connection_share = ssh.connection_share.clone();
     let bootstrap = SshBootstrapper::new(config)?;
+    // Authenticate once, before the attempt budget starts: a person may be
+    // typing a password, and every later step reuses this connection.
+    tokio::select! {
+        result = bootstrap.connect() => result?,
+        () = wait_for_shutdown_request(shutdown.clone()) => {
+            return Err(anyhow!("SSH bootstrap interrupted"));
+        }
+    }
     tokio::select! {
         result = tokio::time::timeout(options.attempt_timeout, async {
             if upgrade {
