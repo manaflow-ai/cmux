@@ -113,7 +113,7 @@ import { noteTranscriptReplace } from "./flickerLog";
 import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
-import { approvePlan, clearPlanScope, editPaths, observePlanEdit } from "./planScopeDriftStore";
+import { approvePlan, clearPlanScope, editPaths, rememberPlanEdit } from "./planScopeDriftStore";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import {
   cliHost,
@@ -6908,7 +6908,7 @@ export class AcpmuxDirectClient {
         update.kind === "edit" ||
         (Array.isArray(update.content) && update.content.some((item: any) => item?.type === "diff")) ||
         /(?:edit|write|patch|replace|notebook)/.test(tool);
-      if (editing) observePlanEdit(sessionId, editPaths(update));
+      if (editing) rememberPlanEdit(sessionId, editPaths(update));
     }
     const resultTurnId =
       event.kind === "turn_result" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;

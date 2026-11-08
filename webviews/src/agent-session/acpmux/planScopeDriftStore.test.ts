@@ -5,6 +5,7 @@ import {
   currentPlanScopeDrift,
   editPaths,
   keepPlanScopeArea,
+  rememberPlanEdit,
   observePlanEdit,
   planScopeFromMarkdown,
 } from "./planScopeDriftStore";
@@ -32,6 +33,13 @@ describe("plan scope drift", () => {
     expect(observePlanEdit(session, ["auth/routes.rs"])).toBeUndefined();
     clearPlanScope(session);
     expect(currentPlanScopeDrift(session)).toBeUndefined();
+  });
+
+  test("replays edits captured before plan approval", () => {
+    rememberPlanEdit(session, ["auth/session.rs"]);
+    approvePlan(session, "Edit ui/settings/*");
+    expect(currentPlanScopeDrift(session)?.path).toBe("auth/session.rs");
+    clearPlanScope(session);
   });
 
   test("reads edit locations before canonical metadata", () => {

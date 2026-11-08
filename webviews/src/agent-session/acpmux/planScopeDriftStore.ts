@@ -6,6 +6,7 @@ import { useSyncExternalStore } from "react";
 export type PlanScopeDrift = { sessionId: string; path: string; area: string };
 type ScopeState = { scope: Set<string>; reported: Set<string>; drift?: PlanScopeDrift };
 const states = new Map<string, ScopeState>();
+const pendingEdits = new Map<string, Set<string>>();
 const listeners = new Set<() => void>();
 const notify = () => {
   for (const listener of listeners) listener();
@@ -56,11 +57,34 @@ export function approvePlan(sessionId: string, markdown: string | undefined): vo
   const scope = planScopeFromMarkdown(markdown);
   if (!scope.length) return;
   states.set(sessionId, { scope: new Set(scope), reported: new Set() });
+  const edits = pendingEdits.get(sessionId);
+  if (edits) {
+    pendingEdits.delete(sessionId);
+    observePlanEdit(sessionId, [...edits]);
+  }
   notify();
 }
 
 export function clearPlanScope(sessionId: string | undefined): void {
-  if (sessionId && states.delete(sessionId)) notify();
+  if (!sessionId) return;
+  pendingEdits.delete(sessionId);
+  if (states.delete(sessionId)) notify();
+}
+
+/** Records edit paths even when the permission decision that approves a plan has not arrived yet. */
+export function rememberPlanEdit(sessionId: string, paths: readonly string[]): void {
+  if (!sessionId || !paths.length) return;
+  if (states.has(sessionId)) {
+    observePlanEdit(sessionId, paths);
+    return;
+  }
+  const edits = pendingEdits.get(sessionId) ?? new Set<string>();
+  for (const path of paths) {
+    if (edits.size >= 128) break;
+    const normalized = pathOf(path);
+    if (normalized) edits.add(normalized);
+  }
+  if (edits.size) pendingEdits.set(sessionId, edits);
 }
 
 /** Notes an edit and returns the first new out-of-scope area. */
