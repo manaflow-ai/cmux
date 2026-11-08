@@ -69,6 +69,10 @@ type Props = {
   previewOpen?: boolean;
   /** A one-line composer box beside the card, its edges lined up, as in the window. */
   besideComposer?: boolean;
+  /** Sidebar rows under the card, as its open preview stands over them in the sidebar: frosted by the
+   *  card's glass (`glass`, what the host's native glass draws), seen through the page's tint alone
+   *  (`tint`, no frost), or hidden under the solid surface the card painted before (`solid`). */
+  overRows?: "glass" | "tint" | "solid";
 };
 
 // Three themes as WebTheme sends them (the page's --page-* and the glass's surface), each over its
@@ -237,6 +241,59 @@ function ComposerStandIn() {
   );
 }
 
+/** The sidebar's workspace rows the open preview stands over, in the stage behind the card. */
+function RowsStandIn() {
+  const rows = [
+    "cmux-next",
+    "web: what's new",
+    "fleet build",
+    "release notes",
+    "sidebar polish",
+    "agent chat",
+    "docs",
+    "nightly",
+  ];
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        inset: "calc(var(--grid-base, 4px) * 3) calc(var(--grid-base, 4px) * 3) calc(var(--grid-base, 4px) * 18)",
+        display: "grid",
+        alignContent: "end",
+        gap: "var(--grid-base, 4px)",
+      }}
+    >
+      {rows.map((name, index) => (
+        <div
+          key={name}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            height: 30,
+            padding: "0 8px",
+            borderRadius: 6,
+            background: index === 5 ? "var(--page-hover)" : undefined,
+            color: "var(--page-text)",
+            fontSize: "var(--text-content)",
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              background: ["#e5534b", "#57ab5a", "#539bf5", "#c69026"][index % 4],
+            }}
+          />
+          {name}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function UpdateSurfacesGallery({
   surface,
   data,
@@ -251,6 +308,7 @@ function UpdateSurfacesGallery({
   placement,
   previewOpen,
   besideComposer = false,
+  overRows,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
@@ -262,12 +320,25 @@ function UpdateSurfacesGallery({
         padding: 10,
         ...(onWallpaper ? { backgroundImage: wallpaper } : {}),
         ...(theme ? themeStyle(theme) : {}),
+        ...(overRows ? { position: "relative" as const, height: 420, display: "flex", alignItems: "flex-end" } : {}),
       }}
     >
+      {overRows && <RowsStandIn />}
       {surface === "card" ? (
         <div
           className="wn-gallery-card-row"
-          style={besideComposer ? { display: "flex", alignItems: "flex-end", gap: 12 } : undefined}
+          style={
+            besideComposer
+              ? { display: "flex", alignItems: "flex-end", gap: 12 }
+              : overRows
+                ? {
+                    position: "relative",
+                    width: "100%",
+                    // The card painted the solid surface over the rows before (a72c0fd5c542, f1d36c5f77e3).
+                    ...(overRows === "solid" ? { "--composer-material-tint": "var(--composer-material-solid)" } : {}),
+                  }
+                : undefined
+          }
         >
           <div style={besideComposer ? { flex: "0 0 236px" } : undefined}>
             <UpdatedCard
@@ -279,6 +350,7 @@ function UpdateSurfacesGallery({
               animate={animate}
               placement={placement}
               previewOpen={previewOpen}
+              glass={overRows ? overRows === "glass" : undefined}
             />
           </div>
           {besideComposer && <ComposerStandIn />}
@@ -392,6 +464,33 @@ export default componentEntry<Props>({
     "card-hover-preview-top-right": {
       note: "The open preview with the top-right What's New variant.",
       props: { surface: "card", data: spanData, span, theme: "dark", placement: "top-right", previewOpen: true },
+    },
+    "card-preview-over-rows": {
+      note: "Shipped (Leo 2026-11-08: \"I feel like we should be able to keep it as glass though, right?\"): the open preview over the sidebar's rows stays the card's glass. The host draws a native glass behind the page that frosts the rows, so the rows read as moving shapes, not words, and the card has the same fill open and at rest (the fill swap was the flicker). The glass follows the preview on the card's curve, cubic-bezier(0.16, 1, 0.3, 1) over 265 ms.",
+      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "glass" },
+    },
+    "card-preview-over-rows-light": {
+      note: "Shipped, in a light theme.",
+      props: { surface: "card", data: spanData, span, theme: "light", previewOpen: true, overRows: "glass" },
+    },
+    "card-preview-scrolled": {
+      note: "Shipped: the open list scrolls in place, and the glass frosts the rows under it while it does.",
+      play: async (ctx) => {
+        const list = () => ctx.document.querySelector<HTMLElement>(".wn-preview-list");
+        await ctx.waitFor(() => (list()?.scrollHeight ?? 0) > (list()?.clientHeight ?? 0));
+        const scroller = list()!;
+        scroller.scrollTop = Math.round((scroller.scrollHeight - scroller.clientHeight) / 2);
+        if (scroller.scrollTop <= 0) throw new Error("The open preview's list must scroll");
+      },
+      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "glass" },
+    },
+    "card-preview-over-rows-tint": {
+      note: 'Rejected: the tint alone, with no frost under it (what the page paints over native rows when the host draws no glass). Every row stays legible through the list (Lawrence 2026-11-07: "this ui transparency looks bad now").',
+      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "tint" },
+    },
+    "card-preview-over-rows-solid": {
+      note: 'Before (a72c0fd5c542, f1d36c5f77e3): the open preview turned solid over the rows, so the card swapped from glass to opaque as it opened (Leo 2026-11-08: "it turns from glass when it\'s unhovered into opaque when it does get hovered").',
+      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "solid" },
     },
     "card-doodle": {
       note: 'Leo 2026-11-05, on the Yab browser\'s after-update note: "They have that little line thing, which is kind of cutesy quirky." The doodle in the card\'s decoration slot (Debug Settings "Doodle on the Updated card", off by default): "you\'re on nightly 3845050!" with a check, a curved arrow from "have a look" to What\'s New with a loop around it, and "got it" (hides the card for this version, as its x does). Drawn, on a light theme.',

@@ -298,6 +298,7 @@
             {"group": "settings.group.subsessions", "note": "Whether agent sessions may start sub-sessions, how many and how deep."},
             {"group": "settings.group.agentGuidance", "note": "cmux's guidance for the agents it runs and the person's own skills."},
             {"group": "settings.group.agentRetry", "note": "Whether a turn a rate limit or a lost connection ended is tried again, how often."},
+            {"group": "settings.group.agentCache", "note": "Whether an idle Claude chat is compacted while its prompt cache is warm."},
             {"group": "settings.group.folderTrust", "note": "Folders that start an agent without the trust question."}
           ],
           "trail": ["computerUse", "harnesses", "agentHarnesses", "agentIntegrations"]

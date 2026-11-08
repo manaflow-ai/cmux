@@ -1417,6 +1417,14 @@
     },
     {
       "agent": "userOnly",
+      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "keys": [
+        "agents.cacheCompact.enabled",
+        "agents.cacheCompact.minContextPercent"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Which folders an agent may open without asking is the person's call: an agent must not widen what it may open without asking.",
       "keys": [
         "agents.trust.autoTrust",

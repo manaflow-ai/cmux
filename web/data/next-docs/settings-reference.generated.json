@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 610,
+  "count": 609,
   "sections": [
     {
       "id": "general",
@@ -225,6 +225,27 @@
             "min": 0,
             "max": 3600,
             "unit": "seconds"
+          }
+        },
+        {
+          "key": "agents.cacheCompact.enabled",
+          "title": "Compact Before the Cache Expires",
+          "help": "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Prompt Cache"
+        },
+        {
+          "key": "agents.cacheCompact.minContextPercent",
+          "title": "Only Above Context Used (%)",
+          "help": "Chats using less of their context window than this are left as they are.",
+          "kind": "number",
+          "default": 50,
+          "group": "Prompt Cache",
+          "range": {
+            "min": 10,
+            "max": 95,
+            "unit": "count"
           }
         },
         {
@@ -1975,45 +1996,6 @@
           "values": [
             "left",
             "right"
-          ]
-        },
-        {
-          "key": "agentPane.display.senderIcon.badge",
-          "title": "Sender Badge",
-          "help": "The small colored glyph on a sender's icon that tells sessions of one model family apart.",
-          "kind": "choice",
-          "default": "diamond",
-          "group": "Agent Chat",
-          "values": [
-            "diamond",
-            "robot",
-            "none"
-          ]
-        },
-        {
-          "key": "agentPane.display.senderIcon.corner",
-          "title": "Sender Badge Corner",
-          "help": "Where the small glyph sits on a sender's icon.",
-          "kind": "choice",
-          "default": "bottom-right",
-          "group": "Agent Chat",
-          "values": [
-            "bottom-right",
-            "bottom-left",
-            "top-right",
-            "top-left"
-          ]
-        },
-        {
-          "key": "agentPane.display.senderIcon.lead",
-          "title": "Sender Icon Emphasis",
-          "help": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge.",
-          "kind": "choice",
-          "default": "family",
-          "group": "Agent Chat",
-          "values": [
-            "family",
-            "session"
           ]
         },
         {
