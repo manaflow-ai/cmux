@@ -51,7 +51,8 @@ export function senderRecord(value: unknown): SenderRecord | undefined {
       ? r.verification
       : r.authenticated === true
         ? "verified"
-        : r.labelDeclared === true
+        : // acpmux said it could not prove the sender, with or without a declared label.
+          r.labelDeclared === true || r.authenticated === false
           ? "declared"
           : undefined;
   const harness = word(r.harness);
