@@ -91,7 +91,7 @@ import Testing
     }
 
     /// The session's link is the serve child's socket: the ready line hands it over, a later connect gives
-    /// the same child a fresh token on stdin, closing stdin stops it, and the next starts after it exited.
+    /// the same child a fresh token on stdin, and closing the link stops it for good.
     @Test func theServeSocketIsTheLinksSocket() async throws {
         let cli = try Self.standIn("d=$(dirname \"$0\")\necho \"$CMUX_CLOUD_ACCESS_TOKEN\" >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile read -r l; do echo \"$l\" >> \"$d/stdin\"; done\n")
         let folder = cli.deletingLastPathComponent()
@@ -109,10 +109,12 @@ import Testing
         #expect(await link.ownerLink != nil)
         _ = try await link.connect(origin: .user)
         await link.close()
-        #expect(try await serve.socketPath() == socket)
-        await serve.stop()
-        #expect(try String(contentsOf: folder.appendingPathComponent("launches"), encoding: .utf8) == "t-1\nt-3\n")
-        #expect(try String(contentsOf: folder.appendingPathComponent("stdin"), encoding: .utf8) == #"{"access_token":"t-2"}"# + "\n")
+        await #expect(throws: CloudLinkError.disconnected(reason: "closed")) { _ = try await serve.socketPath() }
+        let stdin = folder.appendingPathComponent("stdin")
+        let deadline = ContinuousClock.now + .seconds(5)
+        while (try? String(contentsOf: stdin, encoding: .utf8)) == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(try String(contentsOf: folder.appendingPathComponent("launches"), encoding: .utf8) == "t-1\n")
+        #expect(try String(contentsOf: stdin, encoding: .utf8) == #"{"access_token":"t-2"}"# + "\n")
     }
 
     /// After the ready line, a refused connection's line ends the link with its step.
@@ -168,17 +170,18 @@ import Testing
 
     /// Ownership is the current child's latest connected line: its `vmk`, and a line without one is never
     /// owner (nor the record's creator rule); the creator rule applies only before that child answered.
-    /// A new child starts with no answer.
     @Test func theGrantsVmkOwnsTheLinkElseTheRecord() async throws {
         #expect(CloudCallerOwnership(vmk: "owner") == .owner)
         #expect(CloudCallerOwnership(vmk: "team") == .team)
         #expect(CloudCallerOwnership(vmk: nil) == nil)
         #expect(CloudCallerOwnership(vmk: "admin") == nil)
-        // Each token line (a connect's) lets the stand-in answer: first an owner grant, then one with no vmk.
+        // Each token line (a connect's, with a fresh token: an unchanged one is not written again) lets the
+        // stand-in answer: first an owner grant, then one with no vmk.
         let cli = try Self.standIn("printf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nread -r l\nprintf '{\"ok\":true,\"route\":\"carrier\",\"vmk\":\"owner\"}\\n' >&2\nread -r l\nprintf '{\"ok\":true,\"route\":\"carrier\"}\\n' >&2\ncat >/dev/null\n")
         defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
+        let tokens = Counter()
         let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
-            ["CMUX_CLOUD_ACCESS_TOKEN": "t"]
+            ["CMUX_CLOUD_ACCESS_TOKEN": "t-\(await tokens.next())"]
         }
         let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock") { _ in }
         let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: CloudCarrierResolver(serve: serve) { .owner })
@@ -195,16 +198,15 @@ import Testing
         deadline = ContinuousClock.now + .seconds(5)
         while await serve.answer != .unknown, ContinuousClock.now < deadline { await Task.yield() }
         #expect(await serve.answer == .unknown)
+        // The live link follows through the ordered ownership hand-off (one hop after the answer).
+        while await link.ownerLink != nil, ContinuousClock.now < deadline { await Task.yield() }
         #expect(await link.ownerLink == nil)
         _ = try await link.connect(origin: .user)
         #expect(await link.callerOwnership == .unknown, "the record's creator rule overrode a connection's answer")
         #expect(await link.ownerLink == nil)
-        // A new child has answered nothing yet: the record's rule again.
-        await serve.stop()
-        _ = try await link.connect(origin: .user)
-        #expect(await serve.answer == nil)
-        #expect(await link.callerOwnership == .owner)
+        // A stopped serve answers nothing (a new child starts with no answer: CloudCarrierServeMachineTests).
         await link.close()
+        #expect(await serve.answer == nil)
     }
 
     /// A token lookup that fails keeps the healthy serve child (on its last token) rather than restarting it.
@@ -345,10 +347,10 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("launches").path), "a stopped launch spawned serve")
     }
 
-    /// stop() while a launch waits for the previous child's exit never spawns the next one.
+    /// stop() while a relaunch waits for the previous child's exit never spawns the next one.
     @Test func aStopDuringThePreviousExitSpawnsNothing() async throws {
-        // The first child ignores its stdin closing and exits only on `go`.
-        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile [ ! -f \"$d/go\" ]; do sleep 0.05; done\n")
+        // The first child serves another socket (so its launch fails), ignores its stdin closing and exits only on `go`.
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"/tmp/elsewhere.sock\",\"route\":\"carrier\"}\\n' >&2\nwhile [ ! -f \"$d/go\" ]; do sleep 0.05; done\n")
         let folder = cli.deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: folder) }
         let tokens = Counter()
@@ -356,11 +358,12 @@ import Testing
             ["CMUX_CLOUD_ACCESS_TOKEN": "t-\(await tokens.next())"]
         }
         let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock") { _ in }
-        _ = try await serve.socketPath()
-        await serve.stop()
-        // The next connect closes the first child and waits for it to exit.
+        await #expect(throws: CloudLinkError.invalidAnswer("served another socket")) { _ = try await serve.socketPath() }
+        // The next connect waits for the first child to exit.
         let connect = Task { try await serve.socketPath() }
         try await Task.sleep(for: .milliseconds(300))
+        let draining = await serve.state
+        guard case .draining = draining else { Issue.record("not draining: \(draining)"); return }
         await serve.stop()
         try Data().write(to: folder.appendingPathComponent("go"))
         await #expect(throws: CloudLinkError.disconnected(reason: "closed")) { _ = try await connect.value }
@@ -398,6 +401,66 @@ import Testing
         let next = try await withDeadline(.seconds(10), label: "next serve launch") { try await serve.socketPath() }
         #expect(next == socket)
         await serve.stop()
+    }
+
+    /// P1: a link closed while its connect was still on the way to the serve (suspended before `socketPath`)
+    /// leaves no serve child behind: the connect resumes into a stopped serve and fails closed.
+    @Test func p1_closeDuringConnectLeavesNoServe() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\ncat >/dev/null\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { ["CMUX_CLOUD_ACCESS_TOKEN": "t-1"] }
+        let serve = CloudCarrierServe(connector: connector, socket: folder.appendingPathComponent("cmux-link-0123456789ab.sock").path) { _ in }
+        let gate = Gate()
+        let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: GatedResolver(inner: CloudCarrierResolver(serve: serve) { .owner }, gate: gate))
+        let connect = Task { try await link.connect(origin: .user) }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await !gate.isWaiting, ContinuousClock.now < deadline { await Task.yield() }
+        await link.close()
+        await gate.open()
+        await #expect(throws: CloudLinkError.disconnected(reason: "superseded")) { _ = try await connect.value }
+        #expect(await serve.state == .stopped(.closed))
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("launches").path), "a closed link's connect spawned serve")
+    }
+
+    /// P3: a session replaced for the same machine makes a second serve for the same socket; it waits for the
+    /// first one's child to exit before it starts its own, instead of failing as another cmux serving it.
+    @Test func p3_replacedSessionWaitsForOldServe() async throws {
+        // Each child ignores its stdin closing and exits only on `go`.
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile [ ! -f \"$d/go\" ]; do sleep 0.05; done\necho exited >> \"$d/launches\"\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let socket = folder.appendingPathComponent("cmux-link-0123456789ab.sock").path
+        let leases = CloudCarrierLeases()
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { ["CMUX_CLOUD_ACCESS_TOKEN": "t-1"] }
+        let first = CloudCarrierServe(connector: connector, socket: socket, leases: leases) { _ in }
+        #expect(try await first.socketPath() == socket)
+        await first.stop()
+        let second = CloudCarrierServe(connector: connector, socket: socket, leases: leases) { _ in }
+        let connect = Task { try await second.socketPath() }
+        try await Task.sleep(for: .milliseconds(300))
+        let launches = folder.appendingPathComponent("launches")
+        #expect(try String(contentsOf: launches, encoding: .utf8) == "launched\n", "the second serve started while the first held the socket")
+        #expect(await second.state == .claiming(1))
+        try Data().write(to: folder.appendingPathComponent("go"))
+        #expect(try await withDeadline(.seconds(5), label: "second serve") { try await connect.value } == socket)
+        #expect(try String(contentsOf: launches, encoding: .utf8).hasPrefix("launched\nexited\nlaunched\n"))
+        await second.stop()
+    }
+
+    /// A carrier resolver whose open waits at `gate` before it reaches the serve.
+    private struct GatedResolver: CloudLinkResolver {
+        let inner: CloudCarrierResolver
+        let gate: Gate
+        var redials: Bool { inner.redials }
+
+        func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
+            await gate.wait()
+            return try await inner.open(key, intent: intent, origin: origin)
+        }
+
+        func close(_ key: CloudLinkKey) async { await inner.close(key) }
+        func refusal(_ key: CloudLinkKey) async -> CloudLinkError? { await inner.refusal(key) }
     }
 
     private actor Gate {

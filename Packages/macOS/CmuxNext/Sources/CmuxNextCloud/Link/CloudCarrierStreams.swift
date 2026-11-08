@@ -15,6 +15,8 @@ public nonisolated final class CloudCarrierStreams: Sendable {
     }
 
     private let state = Mutex(State())
+    /// Who holds each `carrier serve` socket across the sessions made with these streams: an end never touches it.
+    let leases = CloudCarrierLeases()
 
     public init() {}
 
