@@ -131,7 +131,8 @@ def trace_stats(trace, sent_host_s=None):
                 first = t1 if first is None else min(first, t1)
                 last = t1 if last is None else max(last, t1)
                 step = max((abs(a - b) for a, b in zip(v0, v1)), default=None) if len(v0) == len(v1) else None
-                ends[key] = (t1, step)
+                moves = ends.get(key, (0, 0, None, None, 0))[4] + 1
+                ends[key] = (t1, step, list(v0), list(v1), moves)
         turned = retargets(points)
         if turned:
             turns[key] = len(turned)
@@ -153,11 +154,12 @@ def trace_stats(trace, sent_host_s=None):
     if sent is not None:
         out["layout_first_ms"] = round(first - sent, 1) if first is not None else None
         out["layout_settled_ms"] = round(last - sent, 1) if last is not None else None
-    # What settled last (mover, its last move from the input or the trace's start, that move's largest step in points):
-    # a settle the screen never shows (a hidden view, a content size) reads here.
+    # What settled last (mover, its last move from the input or the trace's start, that move's largest step in points,
+    # its values before and after that move, how many ticks it moved): a settle the screen never shows (a hidden view,
+    # a page window that jumps once, an index that moved to another page) reads here.
     origin = sent if sent is not None else (times[0] if times else 0)
-    out["last_movers"] = [[str(key), round(t - origin, 1), round(step, 2) if _number(step) else None]
-                          for key, (t, step) in sorted(ends.items(), key=lambda kv: -kv[1][0])[:4]]
+    out["last_movers"] = [[str(key), round(t - origin, 1), round(step, 2) if _number(step) else None, before, after, moves]
+                          for key, (t, step, before, after, moves) in sorted(ends.items(), key=lambda kv: -kv[1][0])[:4]]
     out["pane_width_change"] = pane_width_change(samples)
     out["pane_width_peak"] = pane_width_peak(samples)
     return out
