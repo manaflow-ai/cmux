@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42521513124",
+  "recorded_at": "2026-11-08T20:49:36Z",
+  "reason": "cmux-tui 0bd5b279829b changes the image's cmux-tui (pinned b5bdc0b816e4)",
+  "dry_run": false,
+  "cmux_tui": "0bd5b279829bab5d3663bd055802fa0bc46f1819",
+  "fixes": [
+    {
+      "sha": "0bd5b279829bab5d3663bd055802fa0bc46f1819",
+      "mergedAt": "2026-11-08T12:26:34-08:00",
+      "subject": "fix(acpmux): a race's verdict cleanup finishes a concurrent cancel (#38796)"
+    },
+    {
+      "sha": "d9e804bf228c9181fa5b12309cd1b6a3fa64007e",
+      "mergedAt": "2026-11-08T12:21:06-08:00",
+      "subject": "acpmux: a reconnecting peer link sends its watch with initialize and replays its chats at once (#38298)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T20:49:36Z",
+    "snapshot_id": "sh-5cf8ac03cce54beb9520e4ab14215b18",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42521513124): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bae31782ec89228377fbe05fd3583432cbf3e604",
+    "image": "cloud-native-auto-0bd5b279-42521513124-1",
+    "revision": "ci-42521513124-1",
+    "at": "2026-11-08T20:49:36Z"
+  },
+  "rolled_back": false
+}
