@@ -2432,7 +2432,7 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && steps.release-derived-data.outputs.mode == ''
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
-      # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
+      # The cmux-next web bundles (agent pane, pages, Activity,
       # webviews app) are built from this commit's sources, never taken from a
       # committed copy (cx-vn5). build-nightly-inputs builds them on Linux
       # beside this job with the same --force build; they are installed here,

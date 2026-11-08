@@ -4,19 +4,12 @@
 // messages"): the person pasted a Codex handoff that says "Do not merge or deploy" under their own
 // line. The card names the agent the paste reads as (agentText.ts); the person's line stays theirs.
 // Compare the arms (`pasted-agent-look`: rule, label, badge); each keeps the card's height.
-// Only a paste past the chip's size folds into a card (pastedText.ts isLargePaste; ask-792a64a12f),
-// so both pastes carry a long probe log.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
 import { pastedAgentLook } from "./pastedAgentLook.experiment";
 
 const MINE = "No, merge and deploy whenever you want. That handoff below is theirs, not mine.";
-/// A probe log long enough to pass the chip's size: 160 lines of seven words.
-const PROBE_LOG = Array.from(
-  { length: 160 },
-  (_, i) => `probe run ${i + 1}: canary ${i % 7 ? "green" : "red"} at ${400 + i} ms`,
-);
 const HANDOFF = [
   "From Codex:",
   "Handoff for the release lane. The canary probe went red twice in the last hour and the rollback",
@@ -24,16 +17,9 @@ const HANDOFF = [
   "",
   "Do not merge or deploy until the probe is green on two consecutive runs.",
   "",
-  ...PROBE_LOG,
-  "",
   "Trace-ID: ask-5c1e0a",
 ].join("\n");
-const LOG = [
-  "error: retry budget exhausted",
-  "  at upload (uploader.ts:88:7)",
-  "  at main (index.ts:12:3)",
-  ...PROBE_LOG,
-].join("\n");
+const LOG = ["error: retry budget exhausted", "  at upload (uploader.ts:88:7)", "  at main (index.ts:12:3)"].join("\n");
 
 const pasted = (typed: string, paste: string) => {
   const text = `${typed}\n${paste}`;
@@ -51,8 +37,10 @@ const typedHandoff = () =>
     summary(8.5, { seq: 3, status: "completed" }),
   ]);
 
+// A paste draws as the bubble's own text by default (sentPasteLook `text`: `.cv-user__pasted`, its
+// "Pasted from" line over it), or as a card or a label row in the other arms (`.cv-user__paste-card`).
 const drawn = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste-card, .cv-user__status"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-user__pasted, .cv-user__paste-card, .cv-user__status"));
 };
 
 export default agentPaneEntry({
@@ -61,16 +49,16 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 520,
   widths: { narrow: 400, normal: 760, wide: 760 },
-  covers: ["agent-session/acpmux/conversation/PromptText.tsx#PasteChip"],
+  covers: ["agent-session/acpmux/agentText.ts", "agent-session/acpmux/composer/pasteMarks.ts"],
   keywords: ["paste", "pasted", "agent", "handoff", "attribution", "from another agent"],
   variants: {
     "pasted-handoff": {
-      note: "The person's line, then the long Codex handoff they pasted: its card names Codex, set apart from their own words.",
+      note: "The person's line, then the Codex handoff they pasted: its card names Codex, set apart from their own words.",
       snapshot: pasted(MINE, HANDOFF),
       play: drawn,
     },
     "pasted-log": {
-      note: "A long pasted log with no agent signal: still a pasted card, labelled Pasted text, never the person's typed words.",
+      note: "A pasted log with no agent signal: still a pasted card, labelled Pasted text, never the person's typed words.",
       snapshot: pasted("Why does this fail?", LOG),
       play: drawn,
     },

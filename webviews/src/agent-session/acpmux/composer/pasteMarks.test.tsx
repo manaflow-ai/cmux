@@ -128,46 +128,44 @@ afterEach(() => {
   saved.clear();
 });
 
-test("a pasted handoff's card names the agent it reads as, never the person", () => {
-  const host = render(HANDOFF);
-  const card = host.querySelector(".cv-user__paste-card")!;
-  expect(card.getAttribute("data-agent")).toBe("rule");
-  expect(host.querySelector(".cv-user__paste-name")?.textContent).toBe("Pasted from Codex");
-});
+/// Runs `check` with the sent bubble drawing pastes as `look` (sentPasteLook).
+function withPasteLook(look: string, check: () => void) {
+  const before = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...before, "sent-paste-look": look };
+  try {
+    check();
+  } finally {
+    globalThis.cmuxExperiments = before;
+  }
+}
 
-test("a plain paste's card stays Pasted text", () => {
-  const host = render("line one\nline two\nline three");
-  expect(host.querySelector(".cv-user__paste-card")?.hasAttribute("data-agent")).toBe(false);
-  expect(host.querySelector(".cv-user__paste-name")?.textContent).toBe("Pasted text");
-});
+test("a pasted handoff's card names the agent it reads as, never the person", () =>
+  withPasteLook("card", () => {
+    const host = render(HANDOFF);
+    const card = host.querySelector(".cv-user__paste-card")!;
+    expect(card.getAttribute("data-agent")).toBe("rule");
+    expect(host.querySelector(".cv-user__paste-name")?.textContent).toBe("Pasted from Codex");
+  }));
 
-// ask-42dfdea96c: the bubble folds only an oversized paste, once, as one quiet region; an ordinary
-// one (Leo's own 515-character message) reads as plain text with no label and no card.
-const ORDINARY = "Like, it says pasted text, but this is just the normal text that I had. ".repeat(7).trim();
-const OVERSIZED = Array.from({ length: 130 }, (_, n) => `line ${n + 1} of the build log`).join("\n");
+test("a plain paste's card stays Pasted text", () =>
+  withPasteLook("card", () => {
+    const host = render("line one\nline two\nline three");
+    expect(host.querySelector(".cv-user__paste-card")?.hasAttribute("data-agent")).toBe(false);
+    expect(host.querySelector(".cv-user__paste-name")?.textContent).toBe("Pasted text");
+  }));
 
-test("an ordinary pasted range shows as plain text, no label, no card", () => {
-  const text = `see this\n${ORDINARY}`;
-  const host = render(
-    "",
-    <PromptText rowId="row" text={text} show={(part) => part} pasted={[{ start: 9, end: text.length }]} />,
-  );
-  expect(host.querySelector(".cv-user__paste-card")).toBeNull();
-  expect(host.textContent).not.toContain("Pasted text");
-  expect(host.textContent).toContain(ORDINARY);
-});
-
-test("an oversized pasted range folds once, with no card inside a card", () => {
-  const text = `why?\n${OVERSIZED}`;
-  const host = render(
-    "",
-    <PromptText rowId="row" text={text} show={(part) => part} pasted={[{ start: 5, end: text.length }]} />,
-  );
-  const cards = host.querySelectorAll(".cv-user__paste-card");
-  expect(cards).toHaveLength(1);
-  expect(cards[0]!.querySelector(".cv-user__paste-card")).toBeNull();
-  expect(cards[0]!.getAttribute("data-look")).toBe("quiet");
-});
+// Drawn as the bubble's own text (the default), a handoff keeps a "Pasted from" line over it, so it
+// never passes as the person's words; a plain paste has none.
+test("a pasted handoff drawn as text names its agent over it; a plain paste is bare text", () =>
+  withPasteLook("text", () => {
+    const host = render(HANDOFF);
+    expect(host.querySelector(".cv-user__paste-card")).toBeNull();
+    expect(host.querySelector(".cv-user__pasted-from")?.textContent).toBe("Pasted from Codex");
+    expect(host.querySelector(".cv-user__pasted")?.textContent).toContain("Do not merge or deploy.");
+    const plain = render("line one\nline two\nline three");
+    expect(plain.querySelector(".cv-user__pasted-from")).toBeNull();
+    expect(plain.querySelector(".cv-user__pasted")?.textContent).toBe("line one\nline two\nline three");
+  }));
 
 // ask-792a64a12f: Leo's 707-character message, recorded as pasted (a record from before the fix, or
 // a paste event from a dictation app), shows its actual characters: plain text, no label, no card,
@@ -177,7 +175,7 @@ const SEVEN_OH_SEVEN = "And also, like, we do not want to have this card thing g
   .repeat(9)
   .slice(0, 707);
 
-test("a 707-character message recorded as pasted shows plain and whole", () => {
+test("a 707-character message recorded as pasted shows plain and whole, unfolded", () => {
   expect(SEVEN_OH_SEVEN).toHaveLength(707);
   const host = render(
     "",

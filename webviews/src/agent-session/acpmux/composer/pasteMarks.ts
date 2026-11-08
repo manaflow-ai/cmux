@@ -8,11 +8,11 @@
 //
 // Only a paste that reads as another agent's output (agentText.ts: a "From" header, a Trace-ID
 // line, a generated-with footer, a review receipt), or an oversized one put back in the prompt as
-// text (pastedText.ts `isLargePaste`, which the bubble folds as its chip's), is marked: the rest of what the person pastes
+// text (pastedText.ts `isLargePaste`), is marked: the rest of what the person pastes
 // (their notes, a dictation app's text, a quote) stays their prompt's text, as it was before marks
 // (ask-42dfdea96c; Leo, 2026-11-07: "You don't want to show it as pasted text when it wasn't pasted
-// text in the first place. This is a misattribution."). The bubble draws a marked paste of ordinary
-// size as plain text too (PromptText.tsx): the mark is for the agent. A paste the person edited is
+// text in the first place. This is a misattribution."). The bubble draws a marked paste as the prompt's
+// own text too (PromptText.tsx, sentPasteLook): the mark is for the agent. A paste the person edited is
 // theirs; acpmux still notes typed text that reads as another agent's (`agentText`).
 import { type ComposerAttachment, INLINE_ATTACHMENT_MARK, inlineToken } from "../attachments";
 import { isLargePaste, pastedTextAttachment } from "../pastedText";

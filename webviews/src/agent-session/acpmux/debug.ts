@@ -7,7 +7,7 @@ import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import type { StreamOptions } from "./streamDebug";
 import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
-import { shownPresence } from "./multiplayer/LivePresence";
+import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
 import { followTrace } from "./followTrace";

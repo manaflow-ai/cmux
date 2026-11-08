@@ -68,7 +68,7 @@ test("a huge prompt's row is estimated as its collapsed lines, quickly", () => {
   const [huge] = [...layoutConversation([row("h", markdown(20 * 1024 * 1024))] as never, 720).heights];
   const elapsed = performance.now() - started;
   const [long] = [...layoutConversation([row("l", "A line that wraps.\n".repeat(200))] as never, 720).heights];
-  // The same collapsed height as any long prompt: thirty lines and Show more.
+  // The same collapsed height as any long prompt: ten lines and Show more.
   expect(huge).toBe(long);
   expect(huge!).toBeGreaterThanOrEqual(COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT);
   expect(elapsed).toBeLessThan(2_000);
@@ -164,9 +164,29 @@ test("a huge prompt whose drawn head measures short stays collapsed, never flipp
 test("a huge paste beside a short note is its chip, not a huge prompt with a dead Show more", () => {
   const note = "see this log";
   const text = `${note}\n${"log line\n".repeat(HUGE_PROMPT_CHARS / 8)}`;
-  const html = renderToStaticMarkup(
-    <PromptText rowId="paste-huge" text={text} pasted={[{ start: note.length + 1, end: text.length }]} show={same} />,
-  );
-  expect(html).not.toContain("is-clamped");
-  expect(html).not.toContain("cv-user__more");
+  const before = globalThis.cmuxExperiments;
+  try {
+    // The card (sentPasteLook `card`): the chip is the whole paste, closed.
+    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "card" };
+    const card = renderToStaticMarkup(
+      <PromptText rowId="paste-huge" text={text} pasted={[{ start: note.length + 1, end: text.length }]} show={same} />,
+    );
+    expect(card).not.toContain("is-clamped");
+    expect(card).not.toContain("cv-user__more");
+    // Drawn as text (the default), it folds under a live Show more and draws only its head.
+    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "text" };
+    const shown = renderToStaticMarkup(
+      <PromptText
+        rowId="paste-huge-text"
+        text={text}
+        pasted={[{ start: note.length + 1, end: text.length }]}
+        show={same}
+      />,
+    );
+    expect(shown).toContain("is-clamped");
+    expect(shown).toContain("cv-user__more");
+    expect(shown.length).toBeLessThan(HUGE_PROMPT_CHARS / 4);
+  } finally {
+    globalThis.cmuxExperiments = before;
+  }
 });

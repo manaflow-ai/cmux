@@ -46,7 +46,7 @@ afterAll(() => {
 test("the floating chat's header and compact bar follow the App and ask it to change the panel", async () => {
   const { createRoot } = await import("react-dom/client");
   const { QuickSurface } = await import("../src/agent-session/acpmux/QuickSurface");
-  const { floatingStatus } = await import("../src/agent-session/acpmux/FloatingChat");
+  const { floatingStatus } = await import("../src/agent-session/acpmux/floatingChatModel");
   const { useFloatingState } = await import("../src/agent-session/acpmux/floatingState");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
   const asked: string[] = [];
@@ -145,7 +145,7 @@ test("a chat tab's menu offers the floating chat only while the App says it is o
 });
 
 test("Include focused tab attaches what the App read as one chip, or nothing", async () => {
-  const { contextAttachment } = await import("../src/agent-session/acpmux/FloatingChat");
+  const { contextAttachment } = await import("../src/agent-session/acpmux/floatingChatModel");
   const { promptText } = await import("../src/agent-session/acpmux/attachments");
   const chip = contextAttachment(
     { name: "zsh · ~/src/app (selection)", text: "error: no such module 'Upload'" },

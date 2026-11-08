@@ -49,6 +49,9 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+// These cover the paste card (sentPasteLook `card`); the default draws a paste as the bubble's own
+// text (test/sent-bubble-final-size.test.ts, user-prompt-collapse.test.tsx).
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "sent-paste-look": "card" };
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -66,9 +69,6 @@ const { translate } = await import("../src/agent-session/acpmux/i18n");
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 type Row = Parameters<typeof UserBubble>[0]["row"];
-/// Pasted text past the chip's size (pastedText.ts `isLargePaste`): only such a paste is a fold in the
-/// bubble; an ordinary one reads as plain text (ask-42dfdea96c).
-const oversized = (head: string) => `${head}\n${Array.from({ length: 760 }, (_, index) => `w${index}`).join(" ")}`;
 const prompt = (id: string, text: string, inlineParts: unknown[]): Row =>
   ({ id, version: 1, at: Date.now(), kind: "user", text, inlineParts }) as Row;
 const render = async (
@@ -110,7 +110,7 @@ try {
   });
 
   test("an inline pasted block is a card of its first lines that opens to its text", async () => {
-    const pasted = oversized("first pasted line\nsecond pasted line\nthird pasted line");
+    const pasted = "first pasted line\nsecond pasted line\nthird pasted line";
     await render(
       prompt("inline-paste", `before\n${pasted}\nafter`, [
         { kind: "text", text: "before " },
@@ -192,7 +192,7 @@ try {
     await render(
       prompt("long-with-paste", text, [
         { kind: "text", text: "before " },
-        { kind: "text", text: oversized("pasted details"), pasted: true },
+        { kind: "text", text: "pasted details", pasted: true },
         { kind: "text", text },
       ]),
     );
@@ -200,7 +200,7 @@ try {
     expect(body.classList.contains("is-clamped")).toBe(true);
     await act(async () => host.querySelector<HTMLButtonElement>(".cv-user__paste")!.click());
     expect(body.classList.contains("is-clamped")).toBe(false);
-    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe(oversized("pasted details"));
+    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("pasted details");
   });
   // A prompt whose attachments the composer placed records each one `placed` (inlinePrompt.ts,
   // acpmux hub/prompt_images.rs): it draws where it was put, the last part included, never in the
@@ -249,7 +249,7 @@ try {
     clearImageEntries();
     resetTranscriptDisclosure();
     await act(async () => setComposerSettings({ attachmentView: "inline" }));
-    const pasted = oversized("pasted line one\npasted line two");
+    const pasted = "pasted line one\npasted line two";
     await render({
       ...prompt("paste-then-image", pasted, [
         { kind: "pasted", name: "Pasted text", text: pasted, placed: true },
@@ -264,7 +264,7 @@ try {
     clearImageEntries();
     resetTranscriptDisclosure();
     await act(async () => setComposerSettings({ attachmentView: "inline" }));
-    const pasted = oversized("a long paste\nof two lines");
+    const pasted = "a long paste\nof two lines";
     const text = `see this\n${pasted}`;
     // This pane's own row, before the echo (direct.ts): the composer's parts, its image's bytes.
     await render({
@@ -454,13 +454,13 @@ try {
     await render(
       prompt("ordered-paste-find", text, [
         { kind: "text", text: "before " },
-        { kind: "text", text: oversized("unique pasted match"), pasted: true },
+        { kind: "text", text: "unique pasted match", pasted: true },
         { kind: "text", text },
       ]),
       { rowId: "ordered-paste-find", card: false, needle: "unique pasted match", repaint: () => {} },
     );
     expect(host.querySelector(".cv-user__text")!.classList.contains("is-clamped")).toBe(false);
-    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe(oversized("unique pasted match"));
+    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("unique pasted match");
   });
   for (const attachmentView of ["inline", "strip"] as const) {
     test(`${attachmentView}: a placed sent file and image keep their source's badge`, async () => {

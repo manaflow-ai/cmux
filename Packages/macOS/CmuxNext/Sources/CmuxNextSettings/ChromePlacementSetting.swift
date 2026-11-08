@@ -7,9 +7,6 @@ public import CmuxNextDesign
 /// default; a bad value is the default plus a diagnostic.
 public nonisolated struct ChromePlacementSetting {
     public nonisolated init() {}
-    public static let sidebarSidePath = ["sidebar", "side"]
-    public static let spacesPositionPath = ["sidebar", "spacesPosition"]
-    public static let spacesVisibilityPath = ["sidebar", "spacesVisibility"]
 
     /// The title bar the window uses: `window.titlebar`, also while tab bars
     /// sit at the bottom (user 2026-10-28: no title strip there, to save
@@ -20,9 +17,9 @@ public nonisolated struct ChromePlacementSetting {
     }
 
     static func parse(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
-        snapshot.sidebarSide = choice(root, sidebarSidePath, fallback: .left, &snapshot.diagnostics)
-        snapshot.spacesPosition = choice(root, spacesPositionPath, fallback: .bottom, &snapshot.diagnostics)
-        snapshot.spacesVisibility = choice(root, spacesVisibilityPath, fallback: .hover, &snapshot.diagnostics)
+        snapshot.sidebarSide = choice(root, sidebarSidePath, fallback: sidebarSideDefault, &snapshot.diagnostics)
+        snapshot.spacesPosition = choice(root, spacesPositionPath, fallback: spacesPositionDefault, &snapshot.diagnostics)
+        snapshot.spacesVisibility = choice(root, spacesVisibilityPath, fallback: spacesVisibilityDefault, &snapshot.diagnostics)
         snapshot.tabBarPosition = choice(root, tabBarPositionPath, fallback: tabBarPositionDefault, &snapshot.diagnostics)
         snapshot.tabBarOrder = choice(root, tabBarOrderPath, fallback: tabBarOrderDefault, &snapshot.diagnostics)
         snapshot.browserToolbarPosition = choice(root, browserToolbarPositionPath, fallback: browserToolbarPositionDefault, &snapshot.diagnostics)
@@ -40,45 +37,6 @@ public nonisolated struct ChromePlacementSetting {
             return fallback
         }
         return parsed
-    }
-
-    static func sidebarSideDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(sidebarSidePath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.side", "Sidebar Side"),
-                          help: SettingsText.keyed("settings.sidebar.side.help",
-                                                   "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar."),
-                          kind: .choice([
-                              SettingChoice(SidebarSide.left.rawValue, SettingsText.keyed("settings.choice.left", "Left")),
-                              SettingChoice(SidebarSide.right.rawValue, SettingsText.keyed("settings.choice.right", "Right")),
-                          ]),
-                          default: .string(SidebarSide.left.rawValue),
-                          keywords: ["sidebar", "side", "left", "right", "position", "edge", "layout"])
-    }
-
-    static func spacesPositionDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(spacesPositionPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.spacesPosition", "Spaces Position"),
-                          help: SettingsText.keyed("settings.sidebar.spacesPosition.help",
-                                                   "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row."),
-                          kind: .choice([
-                              SettingChoice(SpacesPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
-                              SettingChoice(SpacesPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
-                          ]),
-                          default: .string(SpacesPosition.bottom.rawValue),
-                          keywords: ["sidebar", "spaces", "rooms", "profiles", "dots", "top", "bottom", "position", "layout"])
-    }
-
-    static func spacesVisibilityDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(spacesVisibilityPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.spacesVisibility", "Show Spaces"),
-                          help: SettingsText.keyed("settings.sidebar.spacesVisibility.help",
-                                                   "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."),
-                          kind: .choice([
-                              SettingChoice(SpacesVisibilityMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
-                              SettingChoice(SpacesVisibilityMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
-                          ]),
-                          default: .string(SpacesVisibilityMode.hover.rawValue),
-                          keywords: ["sidebar", "spaces", "rooms", "profiles", "dots", "hover", "hide", "show", "always", "visibility"])
     }
 }
 

@@ -99,11 +99,9 @@ const SEARCH: SearchResult = {
   truncated: false,
 };
 
-// A few lines past the thirty a sent prompt shows before it folds (promptCollapse.ts), each short
-// enough not to wrap, so it folds and, open, still fits the stage.
 const PROMPT = Array.from(
-  { length: 33 },
-  (_, index) => `Line ${index + 1}: one surface, and a bottom row that toggles.`,
+  { length: 16 },
+  (_, index) => `Line ${index + 1}: keep the transcript's cards one surface, and let the whole bottom row toggle.`,
 ).join("\n");
 
 function Stage({ block }: Props) {
@@ -189,23 +187,25 @@ const hovered =
     await ctx.hover({ selector: ROW[block] });
   };
 
-// The prompt folds at thirty lines (promptCollapse.ts), taller than the other blocks' stage: its
-// states get one that holds it open, so a click on its row lands on screen.
-const PROMPT_STAGE = 900;
-const stage = (block: Block) => (block === "prompt" ? { height: PROMPT_STAGE } : {});
+// A sent prompt folds at twenty lines (promptCollapse.ts COLLAPSED_PROMPT_LINES), so its Show more
+// row sits about 500px down: its stage is tall enough to show the row and take a click on it.
+const PROMPT_STAGE_HEIGHT = 640;
 
 const variants = Object.fromEntries(
-  BLOCKS.flatMap((block) => [
-    [block, { note: `${block}: collapsed.`, props: { block }, play: ready(block), ...stage(block) }],
-    [
-      `${block}-expanded`,
-      { note: `${block}: expanded with Show less.`, props: { block }, play: expanded(block), ...stage(block) },
-    ],
-    [
-      `${block}-hover`,
-      { note: `${block}: the pointer on its bottom row.`, props: { block }, play: hovered(block), ...stage(block) },
-    ],
-  ]),
+  BLOCKS.flatMap((block) => {
+    const height = block === "prompt" ? { height: PROMPT_STAGE_HEIGHT } : {};
+    return [
+      [block, { note: `${block}: collapsed.`, props: { block }, play: ready(block), ...height }],
+      [
+        `${block}-expanded`,
+        { note: `${block}: expanded with Show less.`, props: { block }, play: expanded(block), ...height },
+      ],
+      [
+        `${block}-hover`,
+        { note: `${block}: the pointer on its bottom row.`, props: { block }, play: hovered(block), ...height },
+      ],
+    ];
+  }),
 );
 
 export default componentEntry<Props>({

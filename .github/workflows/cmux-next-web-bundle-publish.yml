@@ -1,7 +1,7 @@
 name: cmux-next web bundle publish
 
 # Publishes the built cmux-next web bundles (agent pane, React pages, Agent
-# Activity, palette ranker, webviews app) per source key on files.cmux.com, like
+# Activity, webviews app) per source key on files.cmux.com, like
 # the cmux-tui tree (cx-ycne). GPUI hosts these React pages in CEF and fetches
 # them with scripts/cmux-next/fetch-web-bundles.sh instead of building webviews/
 # with bun + node on every host. Layout (bucket cmux-binaries, public under

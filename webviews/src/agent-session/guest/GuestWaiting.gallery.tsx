@@ -20,6 +20,7 @@ const prompt = (clientId: string, text: string, state: GuestPrompt["state"], rea
 const page = (prompts: GuestPrompt[]): GuestPageProps => ({
   shareId: SHARE,
   guestId: "g1",
+  role: "talk",
   name: "Ana",
   storage: memoryStorage(SHARE, prompts),
   redeem: () => new Promise(() => undefined),
