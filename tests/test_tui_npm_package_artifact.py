@@ -316,6 +316,10 @@ def test_identical_binaries_ride_the_archive_once(tmp_path: Path) -> None:
         runtime = packages / name / "bin/cmux-tui"
         assert runtime.read_bytes() == runtime_bytes, runtime
         assert runtime.stat().st_mode & stat.S_IXUSR, runtime
+    # Each link is a second name of the first copy, never a second copy on disk: the
+    # expanded-size guard counts a link as no bytes.
+    inodes = {(packages / name / "bin/cmux-tui").stat().st_ino for name in (*TARGETS, *RELAY_TARGETS)}
+    assert len(inodes) == 1, inodes
 
 
 def test_extract_rejects_a_link_to_no_earlier_file(tmp_path: Path) -> None:
@@ -334,6 +338,31 @@ def test_extract_rejects_a_link_to_no_earlier_file(tmp_path: Path) -> None:
     extracted = run_helper("extract", "--archive", archive, "--out", tmp_path)
     assert extracted.returncode != 0
     assert "link must name an earlier file" in extracted.stderr, extracted.stderr
+
+
+def test_extract_rejects_a_link_named_other_than_its_file(tmp_path: Path) -> None:
+    """A link whose target only cleans to an earlier file's name ("file/") is refused: tarfile
+    finds no file at the raw name and would write a full copy the size guard never counted."""
+    archive = tmp_path / "npm-packages.tar.gz"
+    import io
+    import tarfile
+
+    with tarfile.open(archive, "w:gz") as tar:
+        root = tarfile.TarInfo("npm-packages")
+        root.type = tarfile.DIRTYPE
+        tar.addfile(root)
+        big = tarfile.TarInfo("npm-packages/big")
+        big.size = 4
+        tar.addfile(big, io.BytesIO(b"data"))
+        link = tarfile.TarInfo("npm-packages/copy")
+        link.type = tarfile.LNKTYPE
+        link.linkname = "npm-packages/big/"
+        tar.addfile(link)
+
+    extracted = run_helper("extract", "--archive", archive, "--out", tmp_path)
+    assert extracted.returncode != 0
+    assert "link must name an earlier file" in extracted.stderr, extracted.stderr
+    assert not (tmp_path / "npm-packages/copy").exists()
 
 
 def test_publish_workflows_restore_the_mode_preserving_archive() -> None:
@@ -379,6 +408,8 @@ def main() -> None:
         test_identical_binaries_ride_the_archive_once(Path(directory))
     with tempfile.TemporaryDirectory() as directory:
         test_extract_rejects_a_link_to_no_earlier_file(Path(directory))
+    with tempfile.TemporaryDirectory() as directory:
+        test_extract_rejects_a_link_named_other_than_its_file(Path(directory))
     test_publish_workflows_restore_the_mode_preserving_archive()
     test_publish_workflows_smoke_install_machine_relay()
 
