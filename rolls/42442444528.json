@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42442444528",
+  "recorded_at": "2026-11-08T03:31:46Z",
+  "reason": "cmux-tui 1835e20d8e19 changes the image's cmux-tui (pinned 3fa2bb9f3437)",
+  "dry_run": false,
+  "cmux_tui": "1835e20d8e19627c1e9916010962d5e52964f11e",
+  "fixes": [
+    {
+      "sha": "1835e20d8e19627c1e9916010962d5e52964f11e",
+      "mergedAt": "2026-11-08T03:07:55Z",
+      "subject": "fix(cloud): preserve refs/stash through seeded handoff both ways (#32236)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T03:31:46Z",
+    "snapshot_id": "sh-1acda548da924611b7cbc63c7dedf715",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42442444528): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9c0995bddd85059a5ddab631ddb328358272a7c2",
+    "image": "cloud-native-auto-1835e20d-42442444528-1",
+    "revision": "ci-42442444528-1",
+    "at": "2026-11-08T03:31:46Z"
+  },
+  "rolled_back": false
+}
