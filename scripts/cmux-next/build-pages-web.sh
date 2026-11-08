@@ -48,6 +48,7 @@ import-history
 keybindings
 machines
 mobile-pairing
+onboarding
 overlay
 passwords
 settings
