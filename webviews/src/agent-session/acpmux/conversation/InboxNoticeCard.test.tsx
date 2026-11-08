@@ -79,7 +79,7 @@ const notice = (promptIds: string[], preview: string): InboxNotice => ({
 const panel = (container: HTMLElement) => container.querySelector(".cv-received__text")?.textContent ?? "";
 
 async function open(container: HTMLElement): Promise<void> {
-  await act(async () => container.querySelector<HTMLButtonElement>(".cv-disclosure__toggle")!.click());
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-agentmsg__toggle")!.click());
 }
 
 test("a thread's line reads its messages again once a later notice brings new ones", async () => {
@@ -231,4 +231,147 @@ test("each message of an opened thread draws the sender chip its claim names", a
   const chip = container.querySelector(".cv-inbox__message .cv-user__sent-from");
   expect(chip?.textContent).toContain("Claude desktop");
   expect(container.querySelector(".cv-user__sent-from-note")).not.toBeNull();
+});
+
+test("a click on the digest's own line opens a preview-only inbox thread and reads its messages", async () => {
+  // A notice that held only its threads' previews (over 4 KB, or an older acpmux): each thread is a
+  // line that reads its messages from acpmux once it opens (MessageRow.tsx `inboxThread`).
+  const thread = (threadId: string, label: string, from: string, preview: string, promptId: string) => ({
+    threadId,
+    label,
+    from: [from],
+    count: 1,
+    preview,
+    blocker: false,
+    promptIds: [promptId],
+  });
+  const notice: AcpmuxRow = {
+    id: "notice-preview",
+    version: 1,
+    at: 1,
+    kind: "queuedMessage",
+    text: "[inbox] New messages from other agents in 2 threads.",
+    incoming: {
+      kind: "inbox",
+      notice: {
+        threads: [
+          thread("from:lane-a/pr:9", "#9", "lane-a", "landing #9", "a1"),
+          thread("from:lane-b/pr:10", "#10", "lane-b", "review of #10", "b1"),
+        ],
+      },
+    },
+    queuedMessage: { promptId: "notice-preview" },
+  };
+  const group = pendingMessagesRow([], [notice])!;
+  const reads: string[] = [];
+  const readThread = async (threadId: string): Promise<InboxMessage[]> => {
+    reads.push(threadId);
+    return [{ promptId: threadId.includes("lane-a") ? "a1" : "b1", from: "lane", text: `${threadId}, whole` }];
+  };
+  expect(group.pendingMessages?.displayRows?.every((row) => row.inboxThread)).toBe(true);
+  const container = await render(
+    <PendingMessagesCard
+      row={group}
+      onOpen={() => undefined}
+      renderMessage={(row) =>
+        row.inboxThread ? (
+          <InboxNoticeCard
+            rowId={row.id}
+            notice={{
+              threads: [
+                {
+                  threadId: row.inboxThread.threadId,
+                  label: row.inboxThread.label ?? "",
+                  from: [row.inboxThread.sender],
+                  count: row.inboxThread.count,
+                  preview: row.inboxThread.preview,
+                  blocker: false,
+                  promptIds: [...row.inboxThread.promptIds],
+                },
+              ],
+            }}
+            onOpen={() => undefined}
+            readThread={readThread}
+          />
+        ) : null
+      }
+    />,
+  );
+  expect(container.querySelectorAll(".cv-received__text")).toHaveLength(0);
+  const head = container.querySelector<HTMLButtonElement>(".cv-pending__toggle")!;
+  await act(async () => head.click());
+  expect(reads.sort()).toEqual(["from:lane-a/pr:9", "from:lane-b/pr:10"]);
+  const words = [...container.querySelectorAll(".cv-received__text")].map((node) => node.textContent).sort();
+  expect(words).toEqual(["from:lane-a/pr:9, whole", "from:lane-b/pr:10, whole"]);
+  // Closed from the same line, every thread closes with it.
+  await act(async () => head.click());
+  expect(container.querySelectorAll(".cv-received__text")).toHaveLength(0);
+});
+
+test("the row estimator gives a preview-only thread its opened height once the digest's head opens it", async () => {
+  const { layoutConversation } = await import("../model");
+  // A preview long enough to wrap, so the opened panel is several lines taller than the line.
+  const long = Array.from({ length: 12 }, (_, index) => `Step ${index + 1} of the landing report is done.`).join(" ");
+  const thread = (threadId: string, from: string, promptId: string) => ({
+    threadId,
+    label: "",
+    from: [from],
+    count: 1,
+    preview: long,
+    blocker: false,
+    promptIds: [promptId],
+  });
+  const notice: AcpmuxRow = {
+    id: "notice-estimate",
+    version: 1,
+    at: 1,
+    kind: "queuedMessage",
+    text: "[inbox] New messages from other agents in 2 threads.",
+    incoming: {
+      kind: "inbox",
+      notice: { threads: [thread("from:lane-a/pr:9", "lane-a", "a1"), thread("from:lane-b/pr:10", "lane-b", "b1")] },
+    },
+    queuedMessage: { promptId: "notice-estimate" },
+  };
+  const group = pendingMessagesRow([], [notice])!;
+  const height = () => layoutConversation([group], 720, new Map()).heights[0]!;
+  // The group open with its threads' lines shut: the height an opened thread must exceed.
+  setMessageOpened(undefined, group.id, true);
+  const shutLines = height();
+  setMessageOpened(undefined, group.id, false);
+  const container = await render(
+    <PendingMessagesCard
+      row={group}
+      onOpen={() => undefined}
+      renderMessage={(row) =>
+        row.inboxThread ? (
+          <InboxNoticeCard
+            rowId={row.id}
+            notice={{
+              threads: [
+                {
+                  threadId: row.inboxThread.threadId,
+                  label: row.inboxThread.label ?? "",
+                  from: [row.inboxThread.sender],
+                  count: row.inboxThread.count,
+                  preview: row.inboxThread.preview,
+                  blocker: false,
+                  promptIds: [...row.inboxThread.promptIds],
+                },
+              ],
+            }}
+            onOpen={() => undefined}
+          />
+        ) : null
+      }
+    />,
+  );
+  const head = container.querySelector<HTMLButtonElement>(".cv-pending__toggle")!;
+  await act(async () => head.click());
+  try {
+    // Both threads opened by the head: each adds its panel's lines to the estimate.
+    expect(height()).toBeGreaterThan(shutLines + 2 * 40);
+  } finally {
+    await act(async () => head.click());
+  }
 });

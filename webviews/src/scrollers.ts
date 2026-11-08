@@ -752,6 +752,11 @@ export const CARD_SCROLLER_CSS = `
     chat's composer). See `MINIMAL_SCROLLER_CSS`. */
 export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 
+/** On a minimal scroller whose box is moving to a height its content fits (the composer's field
+    growing by a line, composer/fieldGrowth.ts): mid-move the content is taller than the box, yet
+    nothing will be left to scroll, so no thumb is drawn. See `MINIMAL_SCROLLER_CSS`. */
+export const SETTLING_SCROLLER_ATTRIBUTE = "data-cmux-scroller-settling";
+
 /**
  * The minimal scroller (Leo 2026-10-21: "IF THERE ARE THINGS TO SCROLL, JUST KEEP THE SCROLLBAR
  * IN THE COMPOSER, LIKE CLAUDE DOES."): a thin thumb in `--cmux-scroller-thumb` on no track, drawn
@@ -765,6 +770,12 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
  * `--cmux-minimal-scroller-inset-end`, when set, replaces it at the bottom end (the composer's
  * track stops above Send, composerLocation.css). The `:root`
  * prefix outranks the legacy rule's hidden thumb above and the scroller's own `overflow-y`.
+ *
+ * While its box moves to a height the content fits (`SETTLING_SCROLLER_ATTRIBUTE`), the content
+ * overflows only until the move lands, so the thumb stays clear (Leo 2026-11-08: "when we have the
+ * composer grow a bit if it's not long enough to actually be scrollable stop showing a flash of the
+ * thumb scrollbar"). Only the thumb's ink goes: the lane, the overflow and the text's width stay,
+ * so nothing rewraps or moves when the move lands.
  */
 export const MINIMAL_SCROLLER_CSS = `
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}] {
@@ -795,6 +806,11 @@ export const MINIMAL_SCROLLER_CSS = `
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {
   border-width: var(--cmux-scroller-near-border);
   background-color: var(--cmux-scroller-thumb-near);
+}
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {
+  background: transparent;
 }
 `;
 

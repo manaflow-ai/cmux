@@ -232,6 +232,7 @@ public nonisolated enum SidebarTunables {
             SidebarChatsDesign.tunable.descriptor,
             SidebarFaviconStyle.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,
+            SpaceSwitcherStyle.tunable.descriptor,
             SidebarGroupLineLayout.tunable.descriptor,
             SidebarNoColorGroupLook.tunable.descriptor,
             SidebarGroupGlass.tunable.descriptor,

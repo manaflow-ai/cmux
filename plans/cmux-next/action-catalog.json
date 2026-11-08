@@ -32964,21 +32964,6 @@
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
           "isTargetName" : false,
-          "kind" : {
-            "int" : {
-              "max" : 6,
-              "min" : 0
-            }
-          },
-          "name" : "open",
-          "suggestions" : null,
-          "title" : "Pill Click"
-        },
-        {
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
           "kind" : "string",
           "name" : "peer",
           "suggestions" : null,
@@ -60894,79 +60879,6 @@
 
       ],
       "title" : "Disable Minimal Mode",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "notifications",
-      "cliName" : "feed show",
-      "computed" : {
-        "canonical_action_id" : "feed.show",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : {
-        "key" : "i",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
-      "description" : null,
-      "focuses" : false,
-      "group" : "NotificationActionCatalog",
-      "hint" : null,
-      "id" : "feed.show",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "inbox",
-        "requests",
-        "notifications",
-        "approvals"
-      ],
-      "mainMenu" : "window",
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette",
-        "keyboard",
-        "menu"
-      ],
-      "symbol" : "tray.full",
-      "targets" : [
-
-      ],
-      "title" : "Show Feed",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -95431,6 +95343,17 @@
               }
             ],
             "when" : "surfaceKind != page && !codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
+                "key" : "-",
+                "modifiers" : [
+                  "ctrl"
+                ]
+              }
+            ],
+            "when" : "surfaceKind != terminal"
           }
         ],
         "is_palette_visible" : true,
@@ -95440,9 +95363,10 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "-",
+        "key" : ",",
         "modifiers" : [
-          "ctrl"
+          "opt",
+          "cmd"
         ]
       },
       "description" : null,
@@ -95515,6 +95439,18 @@
               }
             ],
             "when" : "surfaceKind != page && !codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
+                "key" : "-",
+                "modifiers" : [
+                  "ctrl",
+                  "shift"
+                ]
+              }
+            ],
+            "when" : "surfaceKind != terminal"
           }
         ],
         "is_palette_visible" : true,
@@ -95524,10 +95460,10 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "-",
+        "key" : ".",
         "modifiers" : [
-          "ctrl",
-          "shift"
+          "opt",
+          "cmd"
         ]
       },
       "description" : null,
@@ -110792,6 +110728,57 @@
           ]
         },
         "when_text" : "surfaceKind != page && !codeEditorFocused"
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "focusHistoryBack",
+        "keys" : [
+          {
+            "key" : "-",
+            "modifiers" : [
+              "ctrl"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "notEquals" : [
+            "surfaceKind",
+            {
+              "string" : "terminal"
+            }
+          ]
+        },
+        "when_text" : "surfaceKind != terminal"
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "focusHistoryForward",
+        "keys" : [
+          {
+            "key" : "-",
+            "modifiers" : [
+              "ctrl",
+              "shift"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "notEquals" : [
+            "surfaceKind",
+            {
+              "string" : "terminal"
+            }
+          ]
+        },
+        "when_text" : "surfaceKind != terminal"
       }
     ],
     "home_chat_scoped" : [
@@ -112919,8 +112906,6 @@
     ],
     "yields_to_terminal" : [
       "decreaseWorkspaceTerminalFontSize",
-      "focusHistoryBack",
-      "focusHistoryForward",
       "groupSelectedWorkspaces",
       "increaseWorkspaceTerminalFontSize",
       "resetWorkspaceTerminalFontSize",
@@ -112952,7 +112937,6 @@
     ]
   },
   "legacy_aliases" : {
-    "agentInbox" : "feed.show",
     "app.quit" : "quit",
     "browserNewProfile" : "browserProfile.new",
     "browserProfile.clearRoomDefault" : "browserProfile.clearSpaceDefault",

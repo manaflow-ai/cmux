@@ -108,6 +108,9 @@ public final class HomeNativeFixture {
         view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
         host.addSubview(view)
+        // Start now on a queued agent: the mock Chief starts it at once (its session shows, so it says Working).
+        let store = store
+        view.onStartAgent = { peer in store.agentsStarted([peer]); return true }
         self.view = view
         shown = (id, chief)
         await view.binding.opened()
@@ -245,17 +248,24 @@ public final class HomeNativeFixture {
     /// With `open`, nothing is posted: the agents row of the last such run (its stopped agents are in it
     /// too) opens or closes, as a click on it does.
     /// With `group`, the run goes to the mock's group with the Chief and two teammates (shown first).
-    /// With `pill`, nothing is posted: agent `pill`'s chat opens in the agent pane, as a click on its pill does;
-    /// with `say` too, the person sends that agent `say` from the pane's composer.
+    /// With `pill`, nothing is posted: agent `pill`'s pill is clicked (its workspace opens through the host;
+    /// Home never splits).
     /// With `step` N, the run brings only its first N messages: step 1 posts the question, the reply and
     /// one message; each next step adds one, as a live run does (0: all at once).
+    /// With `queued`, the run is one working agent and three told while the Chief's cap was full (queued, with no
+    /// session or workspace yet; user 2026-11-07, msg 23835).
     public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0, pill: String? = nil,
-                                   say: String? = nil) -> Bool {
+                                   queued: Bool = false) -> Bool {
         guard let shown else { return false }
         if let pill {
             guard let view else { return false }
-            view.debugOpenAgent(pill)
-            if let say { return view.debugSendToAgent(say) }
+            // As a click on it: over its drawn pill when it shows. The pill's frame is MessagesLab's DEBUG-only
+            // hit test; a CMUX_BENCH_HOOKS release build opens the agent without a point.
+            #if DEBUG
+            view.openAgent(pill, at: view.transcript.debugAgentPillFrame(pill).map { view.convert($0, from: nil) })
+            #else
+            view.openAgent(pill, at: nil)
+            #endif
             return true
         }
         if open {
@@ -264,6 +274,7 @@ public final class HomeNativeFixture {
             store.toggleAgentMessages(group, in: shown.conversation)
             return true
         }
+        if queued { return postAgentRun(Self.agentQueue, notes: false, team: group ? true : nil, step: 0, queued: true) }
         return postAgentRun(notes ? Self.agentNotes : Self.agentMessages, notes: notes, team: group ? true : nil, step: step)
     }
 
@@ -271,7 +282,7 @@ public final class HomeNativeFixture {
     /// team chat (`team` true), the Chief's own chat (false) or the one shown (nil); then with `expanded`
     /// opens or closes every fold of the run. False before the conversation shows.
     private func postAgentRun(_ all: [(peer: String, outgoing: Bool, text: String)], notes: Bool, team: Bool?, step: Int,
-                              expanded: Bool? = nil) -> Bool {
+                              expanded: Bool? = nil, queued: Bool = false) -> Bool {
         guard let shown else { return false }
         let source = self.source
         // Step 2 and on grow the last run; anything else starts a new one.
@@ -292,7 +303,9 @@ public final class HomeNativeFixture {
             }
             let messages = all.prefix(count).enumerated().map { index, m in
                 HomeAgentRun.Message(id: "step-\(index)", sequence: UInt64(index + 1), revision: 1, peer: m.peer,
-                                     outgoing: m.outgoing, text: m.text, date: start.addingTimeInterval(Double(index)))
+                                     outgoing: m.outgoing, text: m.text, date: start.addingTimeInterval(Double(index)),
+                                     // The queued run: every agent but the first waits for a slot.
+                                     queued: queued && m.outgoing && index > 0)
             }
             // Each step is a newer revision of the run (one more message each).
             var revision: UInt64 = 0
@@ -335,8 +348,38 @@ public final class HomeNativeFixture {
     }
 
     /// The playground's run: three agents told, one of them reporting back, and two that stopped with no report.
-    private static var agentPlayground: [(peer: String, outgoing: Bool, text: String)] { HomeAgentPlaygroundAgent.run }
+    private static let agentPlayground: [(peer: String, outgoing: Bool, text: String)] = [
+        ("a959", true, """
+        Sidebar alignment fix
+
+        Fix the sidebar alignment: the header and the New Workspace row share one left edge. Measure both in \
+        the real app at 100% and 200%, light and dark. Root cause first, then a failing test, then the fix. \
+        cmux-ci urgent, rebase, plain push to feat-cmux-next. Report OLD..NEW with before and after shots.
+        """),
+        ("a931", true, """
+        Nightly appcast rebuild
+
+        Rebuild the nightly appcast on an owned Mac mini (never Blacksmith), check the feed and the installed \
+        NIGHTLY are on the same build, then plain push.
+        """),
+        ("a940", true, """
+        First-click button audit
+
+        Audit every button for first-click response, active and inactive window. Fix the causes and add a CI guard.
+        """),
+        ("a959", false, "Done: both rows now start at 12 pt. Landed 41f05ff..631d310 on feat-cmux-next."),
+        ("a933", false, "(stopped without a report: its session is Disconnected)"),
+        ("a936", false, "(stopped without a report: its session is Disconnected)"),
+    ]
     #endif
+
+    /// The queued fixture run: one agent at work, then three the Chief queued behind its cap (in its real wording).
+    private static let agentQueue: [(peer: String, outgoing: Bool, text: String)] = [
+        ("a1031", true, "Title: Zoom indicator top-right\n\nMove the zoom badge to the pane's top-right corner; a click unzooms."),
+        ("a1032", true, "Title: Workspace favicon follows focus\n\nEach workspace's icon follows the last tab focused there."),
+        ("a1033", true, "Title: Swift new tab page\n\nBuild a native new tab page for browser tabs."),
+        ("a1034", true, "Title: Custom sidebar JS backend\n\nA JS backend drives a native sidebar through declarative rows; example preset from the last 24h of PRs."),
+    ]
 
     /// The notes fixture run: five status notes in the Chief producer's words, a real report.
     private static let agentNotes: [(peer: String, outgoing: Bool, text: String)] =

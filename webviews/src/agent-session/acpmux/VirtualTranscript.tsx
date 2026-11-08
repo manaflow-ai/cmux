@@ -80,7 +80,7 @@ import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll } from "./summary/heldWhileScrolling";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
-import { leaveOnScreenRef } from "../../ui/tabReach";
+import { keepTabOnScreen, leaveOnScreenRef } from "../../ui/tabReach";
 import {
   transcriptRepositoriesFrom,
   type RepositoryCache,
@@ -1439,6 +1439,9 @@ function TranscriptView({
   /// composer does, so the column matches the composer's and nothing reflows as a chat starts to scroll.
   const [lane, setLane] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  // Tab into the rows lands on one in view, never on a row mounted past the view's edge, which
+  // focusing would scroll to (ui/tabReach.ts keepTabOnScreen, #38090).
+  useLayoutEffect(() => (ref.current ? keepTabOnScreen(ref.current) : undefined), []);
   const stopJump = useCallback(() => {
     // Find, reveal and an asynchronous send own their new placement, even without a jump in flight.
     wheelGlide.current?.stop();
@@ -1571,7 +1574,13 @@ function TranscriptView({
         : 0;
     // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
     // One that changes no height (or a tray that goes) holds nothing: the flag goes after two frames
-    // unless the tray's height changed meanwhile.
+    // unless the tray's height changed meanwhile, or its fold is still to move it (useFold's motion
+    // can sit pending at its start height for those frames: the hat's fold starts at 0px).
+    const folding = () =>
+      dock
+        .querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST}) > .acpmux-running-tray__fold`)
+        ?.getAnimations()
+        .some((animation) => animation.playState !== "finished") ?? false;
     const toggled = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       const toggle = target?.closest("[aria-expanded]");
@@ -1580,7 +1589,7 @@ function TranscriptView({
       const at = tray(1);
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
-          if (Math.abs(tray(1) - at) < 0.5 && Math.abs(dockTrayRef.current - foldBase.current) < 0.5)
+          if (Math.abs(tray(1) - at) < 0.5 && Math.abs(dockTrayRef.current - foldBase.current) < 0.5 && !folding())
             trayToggled.current = false;
         }),
       );

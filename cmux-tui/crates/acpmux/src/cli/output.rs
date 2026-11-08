@@ -85,6 +85,17 @@ fn daemon_restarting_error(error: &anyhow::Error) -> bool {
     })
 }
 
+/// The daemon's shutdown refusal of a create it refused before making anything
+/// (`hub::shutting_down_before_create`): sent again to the next daemon, it can never
+/// make a second session, named or not.
+pub(crate) fn refused_before_create(error: &anyhow::Error) -> bool {
+    daemon_restarting_error(error)
+        && error.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| {
+            d.0.data.as_ref().and_then(|v| v.get(crate::hub::REFUSED_CREATED))
+                == Some(&serde_json::Value::Bool(false))
+        })
+}
+
 /// The turn's failure as `agent_error`. ACP internal (-32603) or parse (-32700) errors with
 /// nothing produced are the only retryable failures.
 fn agent_error(e: &anyhow::Error, id: &str, produced: bool) -> crate::cli::errors::AppError {
@@ -123,6 +134,11 @@ pub(crate) fn arg_or_stdin(words: &[String]) -> Result<String> {
     Ok(s)
 }
 
+/// `_meta.acpmux` key: the Claude Code subagent that sends from inside the caller's session.
+pub(crate) const SUBAGENT_META: &str = "callerSubagent";
+/// `_meta.acpmux` key: refuse a message the receiver's inbox would hold without waking it.
+pub(crate) const WAKE_OR_FAIL_META: &str = "wakeOrFail";
+
 /// A client prompt id (`_meta.acpmux.promptId`). The daemon runs each id
 /// once, so the same prompt sent again after its connection closed answers
 /// with the first run's outcome instead of starting a second turn.
@@ -159,6 +175,14 @@ pub(crate) struct PromptId {
     /// The harness or app this send came from, as it reports itself (`_meta.acpmux.senderHarness`,
     /// `sender_harness.rs`): provenance shown beside the prompt, never who sent it.
     pub sender_harness: Option<Value>,
+    /// The Claude Code subagent in the caller's session that sends it
+    /// (`_meta.acpmux.callerSubagent`, `cli/sender.rs` `SUBAGENT_ENV`): a label the daemon puts
+    /// on the provenance it binds to the caller's proven session.
+    pub subagent: Option<Value>,
+    /// The sender waits for the reply (`_meta.acpmux.wakeOrFail`): a message the receiver's
+    /// inbox would hold without waking it is refused at once (`send.not_woken`) instead of
+    /// leaving the send waiting for a turn that does not come (`hub/inbox.rs`).
+    pub wake_or_fail: bool,
 }
 
 impl PromptId {
@@ -178,6 +202,8 @@ impl PromptId {
                 notice: None,
                 relay: None,
                 sender_harness: None,
+                subagent: None,
+                wake_or_fail: false,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -193,6 +219,8 @@ impl PromptId {
                 notice: None,
                 relay: None,
                 sender_harness: None,
+                subagent: None,
+                wake_or_fail: false,
             },
         }
     }
@@ -236,6 +264,12 @@ impl PromptId {
         }
         if let Some(claim) = &self.sender_harness {
             mux.set(crate::sender_harness::META_KEY, claim.clone());
+        }
+        if let Some(subagent) = &self.subagent {
+            mux.set(SUBAGENT_META, subagent.clone());
+        }
+        if self.wake_or_fail {
+            mux.set(WAKE_OR_FAIL_META, json!(true));
         }
         if let Some(Value::Object(relay)) = &self.relay {
             for (key, value) in relay {
@@ -338,7 +372,14 @@ async fn queue_prompt_once(
 /// With `--supersede`, a second line says how many of the sender's queued prompts it replaced.
 pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
     let steered = accepted.get("steer") == Some(&json!(true));
-    let mut lines = vec![if steered { "steered" } else { "queued" }.to_owned()];
+    let first = if accepted.get(HELD_IN_INBOX) == Some(&json!(true)) {
+        HELD_LINE
+    } else if steered {
+        "steered"
+    } else {
+        "queued"
+    };
+    let mut lines = vec![first.to_owned()];
     if supersede {
         // An older daemon (or a peer running one) ignores the key and says nothing.
         lines.push(match accepted.get("replaced").and_then(Value::as_u64) {
@@ -348,6 +389,25 @@ pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
         });
     }
     lines
+}
+
+/// On an acceptance: the receiver's inbox holds the message, and the idle receiver does not wake
+/// for it (`hub/inbox.rs` `wakes`).
+pub(crate) const HELD_IN_INBOX: &str = "heldInInbox";
+/// What a send held so prints.
+pub(crate) const HELD_LINE: &str = "held in its inbox: the receiver is idle and this message does \
+    not wake it, so it goes with its next turn (--class question wakes it)";
+
+/// A session record as `new --json` and `ensure --json` print it: without the catalogs a client
+/// reads once (`availableCommands`, `tools`, `configOptions`, about 23 of its 27 KB on a Claude
+/// session), unless `full`. `acpmux --json session info NAME` has them all.
+pub(crate) fn session_record(mut v: Value, full: bool) -> Value {
+    if !full && let Some(map) = v.as_object_mut() {
+        for key in ["availableCommands", "tools", "configOptions"] {
+            map.remove(key);
+        }
+    }
+    v
 }
 
 pub(crate) fn print_json(v: &Value) {
@@ -1555,6 +1615,22 @@ fn a_restarting_daemons_answer_is_a_restart_not_an_agent_error() {
     // `daemon_closed_error`: the shutdown's answer is a daemon going away there too.
     assert!(daemon_closed_error(&restarting));
     assert!(!daemon_closed_error(&agent));
+}
+
+/// A create the shutting-down daemon refused before making anything is sent again to the next
+/// daemon (an unnamed `new` too); one it may have made is not.
+#[test]
+fn a_create_refused_before_anything_was_made_is_sent_again() {
+    let mut before = crate::hub::shutting_down_before_create();
+    crate::recovery::annotate(&mut before, None);
+    let before: anyhow::Error = crate::client::DaemonError(before).into();
+    assert!(refused_before_create(&before));
+    let mut after = crate::rpc::RpcError::internal(crate::hub::SHUTTING_DOWN);
+    crate::recovery::annotate(&mut after, None);
+    let after: anyhow::Error = crate::client::DaemonError(after).into();
+    assert!(daemon_restarting_error(&after));
+    assert!(!refused_before_create(&after), "a refusal after the insert may have made the session");
+    assert!(!refused_before_create(&crate::client::closed_error("test EOF", None)));
 }
 
 /// Cloud chaos fault `token-rejected` (run 42346668793): the turn failed typed `auth.signed_out`

@@ -1,10 +1,10 @@
 name: Cloud journey (PR CLI on staging)
 
 # The headless Cloud journey (scripts/cmux-next/cloud-journey.ts: create a machine, start an agent, chat,
-# connect, sync, pause, resume, delete) for a feat-cmux-next pull request that changes the code the CLI's
+# connect over the carrier, pause, resume, delete) for a feat-cmux-next pull request that changes the code the CLI's
 # Cloud path runs: the CLI's cloud commands, the generated platform client, the wire ops, the guest host and
 # acpmux's join. The journey runs on staging (feat-cmux-next's backend) with the cmux-tui built from the pull
-# request as `--cmux PATH`: its execs (`machine access exec`) and the headless link dial and sync go through
+# request as `--cmux PATH`: its execs (`machine access exec`) and the carrier dials go through
 # that build, so a CLI that names a field or route the backend does not take is this pull request's red before
 # it merges. Machine lifecycle steps call the API directly, and the chat runs the guest's installed cmux-tui.
 # backend.yml's journey-preview covers backend changes (the pull request's own preview Worker); journey-staging

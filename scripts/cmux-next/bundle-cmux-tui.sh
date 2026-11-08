@@ -53,10 +53,11 @@
 # browser_host_*; tree state cmux-browser-host.sha256): the daemon runs the
 # sibling of its own executable. The agent screen-detection plugin goes beside
 # bin/cmux as bin/cmux-agent-screen-detection by the same rules
-# (CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN; tree state
-# cmux-agent-screen-detection.sha256), in tree mode only for now: the daemon
-# runs that sibling by default (cmux-tui spec/plugins.md, "Bundled default"); a
-# build without it bundles none and the daemon runs no default. The slim
+# (CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN; pin fields agent_screen_detection_*;
+# tree state cmux-agent-screen-detection.sha256): the daemon runs that sibling
+# by default (cmux-tui spec/plugins.md, "Bundled default"); a build or a pin
+# without it bundles none and the daemon runs no default. Its notices are
+# mapped in notices/bundle-map.json. The slim
 # terminal host goes beside bin/cmux as bin/cmux-tui-host by the same rules
 # (CMUX_NEXT_TERMINAL_HOST_BIN; tree state cmux-tui-host.sha256; the pin has no
 # fields for it, so pin mode bundles none): a macOS daemon runs every terminal
@@ -251,14 +252,8 @@ companion_source cmux-tui-host "${CMUX_NEXT_TERMINAL_HOST_BIN:-}" terminal_host_
 terminal_host_src="$companion_src"
 companion_source cmux-holder "${CMUX_NEXT_HOLDER_BIN:-}" holder_sha256
 holder_src="$companion_src"
-# Pin mode (Release) bundles no screen detector until its third-party notices
-# are mapped (notices/bundle-map.json; check_bundle_notices.py fails a release
-# on an unmapped Mach-O) and the pin carries agent_screen_detection_* fields.
-agent_screen_detection_src=""
-if [[ "$mode" == tree ]]; then
-  companion_source cmux-agent-screen-detection "${CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN:-}" agent_screen_detection_sha256
-  agent_screen_detection_src="$companion_src"
-fi
+companion_source cmux-agent-screen-detection "${CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN:-}" agent_screen_detection_sha256
+agent_screen_detection_src="$companion_src"
 
 version_file="$dest_dir/cmux-tui.version"
 version_text="mode=$mode

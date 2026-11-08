@@ -238,14 +238,16 @@ fn a_full_seed_then_deltas_carry_the_working_state() {
     expected.retain(|path, _| path != ".env" && !path.starts_with("node_modules/"));
     assert_eq!(files(&remote), expected);
     // No bundle is left beside the folder; only the folder's repository sync barrier stays
-    // (`cmux_git::sync_barrier`: never unlinked, so a later seed and agent writes share its lock).
+    // (`cmux_git::sync_barrier`: never unlinked, so a later seed and agent writes share its lock),
+    // with its head and owner locks (#38084), never unlinked either.
     let mut left: Vec<_> = std::fs::read_dir(w.home.join("work"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     left.sort();
     let barrier = format!(".cmux-sync-{:x}", sha2::Sha256::digest(b"widget"));
-    assert_eq!(left, [barrier.as_str(), "widget"], "{left:?}");
+    let (head, owner) = (format!("{barrier}.head"), format!("{barrier}.owner"));
+    assert_eq!(left, [barrier.as_str(), head.as_str(), owner.as_str(), "widget"], "{left:?}");
 
     // A change since: only it goes.
     write(&w.work.join("notes/todo.md"), "untracked, edited\n");
