@@ -473,6 +473,7 @@ impl Hub {
                     opts.thread.as_deref(),
                     opts.provenance.as_ref(),
                     opts.human_authenticated,
+                    opts.wake_or_fail,
                     &mut accept,
                 ))
                 .await;
@@ -1626,22 +1627,21 @@ impl Hub {
                         stop.as_str() == Some("cancelled") || (was_stopping && !carries_on);
                     let status = if stopped { "cancelled" } else { "completed" };
                     let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
+                    // What the turn spent, where its harness says, for a goal's token budget:
+                    // its input as reported (the cache's reads in it, for an ACP harness that
+                    // counts them there) and its output (`turn_usage::as_reported`).
+                    let (usage, spent) = super::turn_usage::turn_usage(session, v);
                     if let Some(o) = msg.as_object_mut() {
                         o.extend(self.turn_error_fields(session, None));
                         // acpmux ended a turn whose agent did not answer the cancel (`cancel`).
                         if v.pointer("/_meta/acpmux/cancelForced") == Some(&Value::Bool(true)) {
                             o.insert("cancelForced".into(), Value::Bool(true));
                         }
-                        o.extend(super::turn_usage::turn_usage(session, v));
+                        o.extend(usage);
                         if let Some(to) = carried_to() {
                             o.insert("carriedTo".into(), to);
                         }
                     }
-                    // What the turn spent, where its harness says, for a goal's token budget.
-                    let spent = ["inputTokens", "outputTokens"]
-                        .iter()
-                        .filter_map(|k| msg.get(*k).and_then(Value::as_u64))
-                        .reduce(u64::saturating_add);
                     self.write_turn_result(session, msg, git);
                     if status == "completed"
                         && let Some(answer) = wrap_up_answer
@@ -2285,6 +2285,18 @@ impl Hub {
         {
             return Ok(());
         }
+        // A chat that goes: its forks take its history before anything of it is stopped or marked
+        // purged, and no fork references it after. A fork still being made fails the delete here,
+        // with the chat as it was (review of #37020: it failed after `purged`, and the chat's
+        // later records were never written).
+        let _fence = if purge && !session.replaced.load(Ordering::SeqCst) {
+            Some(
+                crate::store::fence_history(self.store.as_ref(), &session.id)
+                    .map_err(|e| RpcError::internal(e.to_string()))?,
+            )
+        } else {
+            None
+        };
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
