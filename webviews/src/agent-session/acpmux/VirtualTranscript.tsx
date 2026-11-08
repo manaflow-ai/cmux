@@ -1724,9 +1724,12 @@ function TranscriptView({
   const rowWidthRef = useRef(scaledRowWidth);
   rowWidthRef.current = scaledRowWidth;
   const rowsRef = useRef(rows);
-  /// The rows the render before this one drew, for a turn's end (turnEndFold.ts).
+  /// The rows the render before this one drew, and its chat, for a turn's end (turnEndFold.ts).
   const rowsBefore = rowsRef.current;
   rowsRef.current = rows;
+  const sessionBefore = useRef(sessionId);
+  const sameChat = sessionBefore.current === sessionId;
+  sessionBefore.current = sessionId;
   // Keyboard focus is a roving tab stop. A range is kept as stable row ids rather than DOM nodes
   // because the transcript virtualizes rows and can unmount either end while the reader moves.
   const [activeRowId, setActiveRowId] = useState(rows[0]?.id);
@@ -2199,10 +2202,14 @@ function TranscriptView({
   const thread = useRef<HTMLDivElement>(null);
   /// A turn's end folds its work in one motion (turnEndFold.ts): the rows drawn when it ended are
   /// read here, in the render that ends it, before its rows replace them; the fold plays once they
-  /// are placed (the layout effect after the placement pass).
+  /// are placed (the layout effect after the placement pass). It reads in render because the
+  /// commit replaces those rows: by any effect they are gone. Only within one chat: another chat
+  /// shown in their place is a switch, which draws whole on its first frame, never a fold.
   const turnEndCapture = useRef<TurnEndCapture | undefined>(undefined);
   const turnEnd = useRef<TurnEndFold | undefined>(undefined);
-  if (endsTurn(rowsBefore, rows)) turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId);
+  if (sameChat && endsTurn(rowsBefore, rows))
+    turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId);
+  else if (!sameChat) turnEndCapture.current = undefined;
   // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
   // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
   // padding. Read when it comes and as the view resizes, never per streamed token.
@@ -3400,12 +3407,13 @@ function TranscriptView({
     settleTurnEnd(host, turnEnd.current);
     turnEnd.current = playTurnEnd(host, capture, sessionId, ref.current);
   }, [rows, sessionId]);
-  useEffect(
+  // Another chat shown, or the transcript unmounting: a fold still playing ends at once.
+  useLayoutEffect(
     () => () => {
       settleTurnEnd(thread.current, turnEnd.current);
       turnEnd.current = undefined;
     },
-    [],
+    [sessionId],
   );
   // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
   useLayoutEffect(() => {
@@ -3462,6 +3470,9 @@ function TranscriptView({
       const shown = rowsRef.current;
       const host = thread.current;
       settleTurnFold(host, turnFold.current, foldGhosts.current);
+      // A turn's end still folding lands first: the reader's own fold starts from the rows drawn.
+      settleTurnEnd(host, turnEnd.current);
+      turnEnd.current = undefined;
       // At the very bottom (`beginBottomStackFold`, from this click) whole rows come or go: the
       // thread slides to their layout, and a body in the row settles at once.
       const stack = bottomStackFold.current;

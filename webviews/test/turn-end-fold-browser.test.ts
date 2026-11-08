@@ -211,15 +211,15 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  type Sample = { prompt: number; answer: number; gap: number; work: number; worked: boolean };
+  type Sample = { prompt: number; answer: number; gap: number; work: number; worked: boolean; folding: boolean };
   /// Runs the turn on a fresh page for `family`: what the running turn drew, then (the reader back
   /// at the bottom, the edits group opened first when `openGroup`) every painted frame of its end.
-  async function playTurn(family: string, openGroup: boolean) {
+  async function playTurn(family: string, openGroup: boolean, reducedMotion: "reduce" | "no-preference" = "no-preference") {
     summary.harness = family;
     summary.family = family;
     // Each chat opens on the same history; the turn before it is gone.
     events.length = opened;
-    const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
+    const page = await browser!.newPage({ viewport: { width: 900, height: 520 }, reducedMotion });
     await installPaintedFrames(page);
     runningOn = page;
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -306,6 +306,7 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
               .map((row) => Number(getComputedStyle(row).opacity)),
           ),
           worked: Boolean(scroller.querySelector("button.cv-worked")),
+          folding: Boolean(scroller.querySelector("[data-turn-end-folding]")),
         });
         return performance.now() - started < 1_200;
       });
@@ -358,6 +359,17 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       if (Math.abs(answerMove) > 8) expect(Math.max(...answerSteps)).toBeLessThan(Math.abs(answerMove) * 0.75);
       // Closed: the folded turn's line.
       expect(await page.locator("button.cv-worked").first().getAttribute("aria-expanded")).toBe("false");
+      await page.close();
+    });
+
+    test(`${family}: with Reduce Motion the turn's end folds at once, with nothing left over`, async () => {
+      const { page, samples } = await playTurn(family, false, "reduce");
+      const from = samples.findIndex((sample) => sample.worked);
+      expect(from).toBeGreaterThan(0);
+      expect(samples.some((sample) => sample.folding)).toBe(false);
+      // The first frame of the ended turn is its last: the work is gone and the prompt in its place.
+      expect(samples[from]!.work).toBe(0);
+      expect(samples[from]!.prompt).toBe(samples.at(-1)!.prompt);
       await page.close();
     });
 
