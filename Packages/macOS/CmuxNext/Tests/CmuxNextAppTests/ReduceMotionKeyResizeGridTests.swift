@@ -105,6 +105,46 @@ struct ReduceMotionKeyResizeGridTests {
         try await pressTakenBackLeavesNoSizeDrawnAhead(reduceMotion: false)
     }
 
+    /// Review of cab3639d25a (P1): the take-back while another pane of the screen still moves. p1 | (p2 | p3), pane
+    /// animations on: Ctrl-Shift-L on p2 moves p2 and p3; Ctrl-Shift-L on p1 draws p1's size ahead; Ctrl-Shift-H on p1
+    /// takes that back, all in one turn. p1 is at rest, so the last press draws nothing ahead for it and no hold begins
+    /// or ends for it; p2 and p3 still move, so the screen has motion. Before, nothing let p1's size go: Ghostty and the
+    /// PTY kept the taken-back size and grid until p1 moved again.
+    @Test func aPressTakenBackWhileAnotherPaneMovesLeavesNoSizeDrawnAhead() async throws {
+        let screen = try await Screen(reduceMotion: false)
+        defer { screen.close() }
+        let host = try #require(screen.root.context.hosts["p1"], "no host for p1")
+        let frame = host.frame
+        let view = screen.sessions[0].surfaceView
+
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
+        try #require(PaneResize.press("p1", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p1 moved nothing")
+        try #require(view.frameOwnership.pendingAhead != nil || view.frameOwnership.ahead != nil,
+                     "SETUP: Ctrl-Shift-L on p1 drew no size ahead for p1's terminal")
+        try #require(PaneResize.press("p1", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p1 moved nothing")
+        await TerminalKeyResizeFrameTests.commit() // the keys' turn, its presenter pass and its commit
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
+        for _ in 0..<60 {
+            _ = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+            await TerminalKeyResizeFrameTests.commit()
+        }
+        _ = await ReduceMotionPaneCloseFrameTests.commits(screen, seconds: 1) { screen in
+            !screen.sessions.contains { presenter.isWaiting($0.surfaceView) }
+        }
+        try #require(host.frame == frame, "SETUP: Ctrl-Shift-H on p1 did not take the first press back (\(frame) -> \(host.frame))")
+
+        let surface = try #require(view.surface)
+        let size = ghostty_surface_size(surface), pixels = view.convertToBacking(view.bounds.size)
+        #expect(view.frameOwnership.ahead == nil && view.frameOwnership.pendingAhead == nil,
+                "p1 still has the taken-back press's size drawn ahead (ahead \(String(describing: view.frameOwnership.ahead)))")
+        #expect(Int(size.width_px) == Int(pixels.width.rounded()) && Int(size.height_px) == Int(pixels.height.rounded()),
+                "p1: Ghostty kept \(size.width_px)x\(size.height_px) px for a \(pixels) px view")
+        let last = screen.ios[0].resizes.last.map { TerminalGridSize(columns: $0.columns, rows: $0.rows) }
+        #expect(last == view.fittedGrid,
+                "p1: the PTY kept the grid \(String(describing: last)), the view fits \(String(describing: view.fittedGrid))")
+    }
+
     /// Ctrl-Shift-L then Ctrl-Shift-H on p2 in one turn; then frame ticks to rest: no terminal keeps the first press's
     /// size or grid.
     private func pressTakenBackLeavesNoSizeDrawnAhead(reduceMotion: Bool) async throws {
