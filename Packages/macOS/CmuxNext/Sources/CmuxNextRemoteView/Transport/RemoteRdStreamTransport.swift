@@ -56,6 +56,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var splitter = RemoteRdStreamSplitter()
         /// Created from the welcome's caps; ends with the session.
         var upstream: RemoteUpstreamConsent?
+        /// Why the path closed (the carrier's reason, or rejected bytes); nil until it did.
+        var endReason: String?
 
         init(core: RemoteRdSession, input: RemoteRdInput, service: String) {
             self.core = core
@@ -225,8 +227,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         case let .data(data):
             guard !engine.handshake.isEnded else { return }
             ingest(data)
-        case .closed:
-            closed()
+        case let .closed(reason):
+            closed(reason: reason)
         }
     }
 
@@ -236,8 +238,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                 try engine.core.push(streamBytes: segment.bytes, nowMicros: nowMicros())
             } catch {
                 // The stream broke, the host flooded the queues or sent a non-frame refusal line: log it, end the session.
-                Self.logger.error("rd stream bytes rejected: \(String(describing: error), privacy: .public)")
-                closed()
+                let reason = "rd stream bytes rejected: \(String(describing: error))"
+                Self.logger.error("\(reason, privacy: .public)")
+                closed(reason: reason)
                 return
             }
             // A surface's frames follow its show in the same read: open its
@@ -365,7 +368,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         carrier.send(bytes)
     }
 
-    private func closed() {
+    /// Only the close that ends a live session records its reason: a later one, or one after the
+    /// host ended the session, says nothing new.
+    private func closed(reason: String) {
+        if !engine.handshake.isEnded { engine.endReason = reason }
         engine.handshake.connectionClosed()
         publishStatus()
         finish()
@@ -376,7 +382,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         if let consent = engine.upstream, case .streaming = engine.handshake.phase {
             upstream = RemoteUpstreamStatus(offered: consent.isOffered, requested: consent.requested, active: consent.active)
         }
-        let status = RemoteViewStatus(path: .direct, state: engine.handshake.sessionState, upstream: upstream)
+        let endReason = engine.handshake.isEnded ? engine.endReason : nil
+        let status = RemoteViewStatus(path: .direct, state: engine.handshake.sessionState, upstream: upstream, endReason: endReason)
         state.withLock { state in
             guard state.status != status else { return }
             state.status = status
