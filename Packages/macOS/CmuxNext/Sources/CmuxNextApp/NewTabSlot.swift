@@ -129,7 +129,7 @@ enum NewTabSlot {
             }
             let bound = DemandTimer(owner: "NewTabSlot.listed")
             bound.schedule(after: listLimit) { @MainActor in listed.cancel() }
-            let found = await listed.value
+            let found = await listed.value; if found, locate() == nil { place(in: pane, turn: nil, services: services, find: find, gone: { _ in false }, joins: joins, index: index) } // closed first: the next turn goes on, and a close undone (rejected, or held for a confirmation) still places it
             bound.cancel()
             _ = await earlier?.value // its own list wait, then its move's reply
             // A duplicate joins its original's group right after it, in one write that also puts it there.
