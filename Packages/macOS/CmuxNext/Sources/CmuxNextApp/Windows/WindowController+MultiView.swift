@@ -340,12 +340,9 @@ extension WindowController {
         let view = ChiefPanelView(title: HomeStrings.chiefName, actions: .init(
             toggleDock: { [weak self] in self.map { $0.toggleChiefPanelDock(edge: $0.services.chiefDockEdge) } },
             hide: { [weak self] in self?.hideChiefPanel() },
-            moved: { [weak self] frame in
-                guard let self else { return }
-                let size = root.contentHost.bounds.size
-                state.chiefPanel.floatingFrame = ChiefPanelFrame.fitting(CGRect(x: frame.minX, y: size.height - frame.maxY, width: frame.width, height: frame.height), in: size)
-                frameChiefPanelDidChange()
-            }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }))
+            moved: { [weak self] in self?.state.chiefPanel.floatingFrame = $0; self?.frameChiefPanelDidChange() }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }))
+        let settings = services.settings
+        view.follow { ChiefPanelStyle(rawValue: settings?.snapshot.chiefPanelStyle ?? "") ?? .default }
         chiefPanelView = view
         return view
     }

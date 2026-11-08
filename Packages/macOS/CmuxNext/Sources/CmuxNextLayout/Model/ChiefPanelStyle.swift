@@ -20,6 +20,9 @@ public enum ChiefPanelStyle: String, CaseIterable, Sendable {
     /// A round button with the Chief's mark; a click grows it into the chat.
     case bubble
 
+    /// Whether the style rests small and grows into the chat with the keys.
+    public var collapses: Bool { self == .composeBar || self == .pill || self == .bubble }
+
     /// The style a window uses when the setting is unset or unknown.
     public static let `default` = ChiefPanelStyle.composeBar
 }

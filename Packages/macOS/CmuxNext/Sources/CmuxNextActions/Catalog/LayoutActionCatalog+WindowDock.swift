@@ -13,6 +13,22 @@ nonisolated extension LayoutActionCatalog {
                 .window, "sidebar.left", cli: "home open-chief-dock",
                 keywords: ["chief", "dock", "window", "home", "chat", "float", "panel", "show", "hide", "toggle", "focus", "open"], targets: window,
                 defaultShortcut: Shortcut("i", modifiers: [.command]), surfaces: [.palette, .keyboard]),
+            {
+                // Show/Hide Chief's system-wide key (user 2026-11-07), its own action so it has its own recorder in
+                // Settings > Keyboard Shortcuts. Option-Shift-Space: free in cmux's defaults and macOS's reserved keys.
+                var anyApp = ActionDescriptor(
+                    id: "home.showHideChiefFromAnyApp",
+                    title: String(localized: "action.home.showHideChiefFromAnyApp", defaultValue: "Show/Hide Chief from Any App", table: "LayoutActions", bundle: .module),
+                    keywords: ["chief", "float", "panel", "show", "hide", "toggle", "global", "hotkey", "hot key", "any app", "summon"],
+                    defaultShortcut: Shortcut(Shortcut.spaceKey, modifiers: [.option, .shift]),
+                    category: .window, symbol: "bubble.left", surfaces: [.keyboard],
+                    // Show/Hide Chief is the palette row and the CLI verb.
+                    surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember), contextMenuExemption: .noObject))
+                anyApp.isGlobalHotKey = true
+                // It pulls cmux in front of the person's app: only a person presses it.
+                anyApp.isPersonOnly = true
+                return anyApp
+            }(),
             row("window.movePaneToDock", String(localized: "action.window.movePaneToDock", defaultValue: "Move Pane to Dock", table: "LayoutActions", bundle: .module),
                 .pane, "rectangle.lefthalf.inset.filled.arrow.left", cli: "pane move-to-dock",
                 keywords: ["pane", "dock", "window", "move", "pin", "side", "frame"], targets: [.pane]),

@@ -3,6 +3,8 @@
 ///
 /// - `home.chiefDock.edge`: the edge the Chief docks to (its panel's Dock button): `left` (the default), `right`,
 ///   `top` or `bottom`.
+/// - `home.chiefPanel.style`: how the floating Chief looks: `composeBar` (the default: only the message box, which
+///   grows into the chat with the keys), `pill`, `card`, `panel` or `bubble`.
 /// - `home.chiefDock.openBeside`: a workspace, tab or subagent link clicked in the Chief opens its workspace with the
 ///   Chief floating over it; on when unset.
 public nonisolated struct ChiefDockSetting {
@@ -11,6 +13,10 @@ public nonisolated struct ChiefDockSetting {
     public static let edgePath = ["home", "chiefDock", "edge"]
     /// `home.chiefPanel.style`.
     public static let stylePath = ["home", "chiefPanel", "style"]
+    /// The floating Chief's styles, in the Settings choice's order (the Layout package's `ChiefPanelStyle`).
+    public static let styles = ["composeBar", "pill", "card", "panel", "bubble"]
+    /// The compose bar: the least on screen that still takes a message (user 2026-11-07).
+    public static let defaultStyle = "composeBar"
     /// `home.chiefDock.openBeside`.
     public static let openBesidePath = ["home", "chiefDock", "openBeside"]
     /// The edges, in the Settings choice's order.
@@ -28,5 +34,15 @@ public nonisolated struct ChiefDockSetting {
                                                     message: "expected one of " + edges.joined(separator: ", ")))
         }
         return (edge, nil)
+    }
+
+    /// The style; one that is not a style is the default plus a diagnostic.
+    static func parseStyle(_ root: JSONValue) -> (String, SettingsDiagnostic?) {
+        guard let value = root.value(at: stylePath) else { return (defaultStyle, nil) }
+        guard let style = value.stringValue, styles.contains(style) else {
+            return (defaultStyle, SettingsDiagnostic(kind: .invalidValue, path: stylePath.joined(separator: "."),
+                                                     message: "expected one of " + styles.joined(separator: ", ")))
+        }
+        return (style, nil)
     }
 }

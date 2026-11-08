@@ -105,6 +105,20 @@ nonisolated enum HomeSettingsSchema {
                 default: .string(ChiefDockSetting.defaultEdge), keywords: ["chief", "dock", "window", "edge", "left", "right", "top", "bottom", "side", "home"]
             ),
             SettingDescriptor(
+                ChiefDockSetting.stylePath, section: .home, group: SettingsText.keyed("settings.group.chiefDock", "Chief Dock"),
+                title: SettingsText.keyed("settings.home.chiefPanelStyle", "Floating Chief Style"),
+                help: SettingsText.keyed("settings.home.chiefPanelStyle.help",
+                                         "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip."),
+                kind: .choice([
+                    SettingChoice("composeBar", SettingsText.keyed("settings.choice.chiefPanelStyle.composeBar", "Compose Bar")),
+                    SettingChoice("pill", SettingsText.keyed("settings.choice.chiefPanelStyle.pill", "Pill")),
+                    SettingChoice("card", SettingsText.keyed("settings.choice.chiefPanelStyle.card", "Card")),
+                    SettingChoice("panel", SettingsText.keyed("settings.choice.chiefPanelStyle.panel", "Panel")),
+                    SettingChoice("bubble", SettingsText.keyed("settings.choice.chiefPanelStyle.bubble", "Bubble")),
+                ]),
+                default: .string(ChiefDockSetting.defaultStyle), keywords: ["chief", "floating", "style", "compose", "pill", "card", "panel", "bubble", "minimal", "home"]
+            ),
+            SettingDescriptor(
                 ChiefDockSetting.openBesidePath, section: .home, group: SettingsText.keyed("settings.group.chiefDock", "Chief Dock"),
                 title: SettingsText.keyed("settings.home.chiefDockOpenBeside", "Show Chief When Opening Workspaces"),
                 help: SettingsText.keyed("settings.home.chiefDockOpenBeside.help",
