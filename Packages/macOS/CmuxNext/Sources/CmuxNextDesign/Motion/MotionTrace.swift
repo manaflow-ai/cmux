@@ -38,6 +38,9 @@ public struct MotionTrace {
     static let capacity = 1024
     static let sampleCapacity = 8192
     public static func start() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        MotionDragMarginProbe.install() // ZOOM VARIANTS 4 probe (fork only, never merged)
+        #endif
         isEnabled = true
         open.removeAll()
         spans.removeAll()
