@@ -452,7 +452,7 @@ fn open_file(path: &str) -> Result<(File, String, u64)> {
 }
 
 fn transfer(request: Request) -> Result<()> {
-    if request.image.is_some() == !request.files.is_empty() {
+    if request.image.is_some() != request.files.is_empty() {
         return Err("terminal-paste-invalid-request");
     }
     let mut session = Session::open(&request)?;
@@ -475,7 +475,7 @@ fn transfer(request: Request) -> Result<()> {
 }
 
 pub(crate) fn run() -> i32 {
-    let result = serde_json::from_reader(std::io::stdin().lock())
+    let result = serde_json::from_reader(io::stdin().lock())
         .map_err(|_| "terminal-paste-invalid-request")
         .and_then(transfer);
     match result {

@@ -65,7 +65,11 @@ sys.stdin.readline()
     (terminal, result)
 }
 
-fn read_back(server: &HeadlessServer, terminal: &str, result: &PathBuf) -> serde_json::Value {
+fn read_back(
+    server: &HeadlessServer,
+    terminal: &str,
+    result: &std::path::Path,
+) -> serde_json::Value {
     assert_success(&json_cli(server, &["terminal", terminal, "write", "--text", "\r"]));
     assert!(wait_for_screen(server, terminal, "PASTE_READ_BACK").contains("PASTE_READ_BACK"));
     serde_json::from_slice(&fs::read(result).unwrap()).unwrap()
