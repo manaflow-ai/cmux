@@ -1,0 +1,37 @@
+// A turn's end is the update that takes the running turn's line away (turnEndFold.ts): only then
+// does the end-of-turn fold play.
+import { expect, test } from "bun:test";
+import type { AcpmuxRow } from "../model";
+import { endsTurn, hasLiveLine, turnEndLook } from "./turnEndFold";
+import { LIVE_THINKING } from "./turns";
+
+const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({ id, version: 1, at: 1, kind });
+
+test("the running turn's line near the end marks a turn that runs", () => {
+  expect(hasLiveLine([row("u", "user"), row(LIVE_THINKING, "thinking")])).toBe(true);
+  expect(hasLiveLine([row(LIVE_THINKING, "thinking"), row("date", "system")])).toBe(true);
+  expect(hasLiveLine([row("u", "user"), row("a")])).toBe(false);
+  // Far from the end it is not the running turn's line.
+  expect(hasLiveLine([row(LIVE_THINKING, "thinking"), ...Array.from({ length: 8 }, (_, i) => row(`a${i}`))])).toBe(
+    false,
+  );
+});
+
+test("an update ends the turn only when it takes the line away", () => {
+  const running = [row("u", "user"), row("work", "activity"), row(LIVE_THINKING, "thinking")];
+  const ended = [row("u", "user"), row("worked-u", "worked"), row("answer")];
+  expect(endsTurn(running, ended)).toBe(true);
+  expect(endsTurn(running, running)).toBe(false);
+  expect(endsTurn(running, [...running.slice(0, 2), row("more", "activity"), row(LIVE_THINKING, "thinking")])).toBe(
+    false,
+  );
+  expect(endsTurn(ended, [...ended, row("b")])).toBe(false);
+  expect(endsTurn(undefined, ended)).toBe(false);
+});
+
+test("the look comes from the nearest attribute, else the shipped fade", () => {
+  const node = { closest: () => ({ getAttribute: () => "tuck" }) } as unknown as Element;
+  expect(turnEndLook(node)).toBe("tuck");
+  expect(turnEndLook({ closest: () => null } as unknown as Element)).toBe("fade");
+  expect(turnEndLook({ closest: () => ({ getAttribute: () => "spin" }) } as unknown as Element)).toBe("fade");
+});

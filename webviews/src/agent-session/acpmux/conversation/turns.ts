@@ -75,7 +75,8 @@ export const DATE = "date";
 export const THINKING = "thinking";
 /// The last turn's Thinking line has one id from send to the first output: the sent prompt's row
 /// changes id when acpmux echoes it, the line keeps its place (cx-ncc.58).
-const LIVE_THINKING = `${THINKING}-live`;
+/// The running turn's line, its last row from the send to the turn's end (turnEndFold.ts reads it).
+export const LIVE_THINKING = `${THINKING}-live`;
 export const WORKING = "working";
 /// The running turn's activity line under its todo list (Debug Settings `agent.sessionStatus`,
 /// cx-ncc.102): what the agent is doing now and how long the turn has run.
@@ -2046,8 +2047,12 @@ function shapeLiveTurn(
   // The Codex-style live line names the call in flight; a command still running in an earlier run
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = last ? lineCall(drawn, last) : undefined;
-  // A reply before a steer never joins a run, as in the ended turn (steerDialogueIn).
-  const rows = codexRuns(mergeShortNotes(drawn, steerDialogueIn(drawn)), named?.tool.id);
+  // While the turn streams nothing folds or regroups: each run keeps its calls in sight and a short
+  // note between two runs stays its own row, so no row leaves while the turn is live. The turn's end
+  // folds it all once, under its "Worked for" (turnEndFold.ts plays that), as Leo asked (2026-11-08:
+  // "while you're working on stuff, you expose it. You show it ... and you only do the overarching
+  // fold at the very end").
+  const rows = codexRuns(drawn, named?.tool.id);
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   const start = turnStartedAtMs ?? user.at;
@@ -2352,9 +2357,10 @@ const RUN_STATES = 5;
 /// closed. (Not a sixth `RUN_STATES`: the minimap's edit-card versions are pinned to five.)
 const OPEN_RUN_STATES = 2;
 
-/// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
-/// summary line between the paragraphs ("Read 6 files, ran 4 commands", or one group's "Ran 3
-/// commands"), the latest one too as its calls finish, and opens on a click. The call in flight and
+/// A running turn's runs: each keeps its calls in sight, in their groups (`foldRun: false`, open),
+/// the latest one too as its calls finish; nothing folds into a summary line until the turn ends,
+/// when its "Worked for" takes the work in one fold (Leo, 2026-11-08: "you only do the overarching
+/// fold at the very end ... you know what the target line height will be"). The call in flight and
 /// a thought still coming are not in the run: the turn's live line names them (WorkingFor.tsx
 /// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
 /// (a background shell) stays in its run, except the command the live line names (`named`,
@@ -2384,7 +2390,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
         // differs from every other state of the run (`RUN_STATES`).
         const lined = shown.length !== items.length;
         return [
-          { ...kept, items: shown, settled: true, foldRun: true, version: row.version * RUN_STATES + (lined ? 4 : 2) },
+          { ...kept, items: shown, settled: true, foldRun: false, version: row.version * RUN_STATES + (lined ? 4 : 2) },
         ];
       });
     // The latest run: what is happening now leaves it for the live line, so the run holds only
@@ -2395,7 +2401,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
       (item, at) => !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool"),
     );
     if (!items.length) return [];
-    return [{ ...row, items, settled: true, foldRun: true, version: row.version * RUN_STATES + 1 }];
+    return [{ ...row, items, settled: true, foldRun: false, version: row.version * RUN_STATES + 1 }];
   });
 }
 

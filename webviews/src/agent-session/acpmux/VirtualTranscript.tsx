@@ -115,6 +115,14 @@ import {
   type FoldAnchor,
 } from "./conversation/foldAnchor";
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
+import {
+  captureTurnEnd,
+  endsTurn,
+  playTurnEnd,
+  settleTurnEnd,
+  type TurnEndCapture,
+  type TurnEndFold,
+} from "./conversation/turnEndFold";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import { isEditRow } from "./turnChanges/sessionRows";
@@ -1716,6 +1724,8 @@ function TranscriptView({
   const rowWidthRef = useRef(scaledRowWidth);
   rowWidthRef.current = scaledRowWidth;
   const rowsRef = useRef(rows);
+  /// The rows the render before this one drew, for a turn's end (turnEndFold.ts).
+  const rowsBefore = rowsRef.current;
   rowsRef.current = rows;
   // Keyboard focus is a roving tab stop. A range is kept as stable row ids rather than DOM nodes
   // because the transcript virtualizes rows and can unmount either end while the reader moves.
@@ -2187,6 +2197,12 @@ function TranscriptView({
     flushSync(roomTaken);
   }, []);
   const thread = useRef<HTMLDivElement>(null);
+  /// A turn's end folds its work in one motion (turnEndFold.ts): the rows drawn when it ended are
+  /// read here, in the render that ends it, before its rows replace them; the fold plays once they
+  /// are placed (the layout effect after the placement pass).
+  const turnEndCapture = useRef<TurnEndCapture | undefined>(undefined);
+  const turnEnd = useRef<TurnEndFold | undefined>(undefined);
+  if (endsTurn(rowsBefore, rows)) turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId);
   // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
   // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
   // padding. Read when it comes and as the view resizes, never per streamed token.
@@ -3374,6 +3390,23 @@ function TranscriptView({
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, followResume]);
+  // The turn that just ended folds from the rows drawn then to the rows placed now (turnEndFold.ts).
+  useLayoutEffect(() => {
+    const capture = turnEndCapture.current;
+    if (!capture) return;
+    turnEndCapture.current = undefined;
+    const host = thread.current;
+    if (!host) return;
+    settleTurnEnd(host, turnEnd.current);
+    turnEnd.current = playTurnEnd(host, capture, sessionId, ref.current);
+  }, [rows, sessionId]);
+  useEffect(
+    () => () => {
+      settleTurnEnd(thread.current, turnEnd.current);
+      turnEnd.current = undefined;
+    },
+    [],
+  );
   // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
   useLayoutEffect(() => {
     foldBase.current = trayBase;
