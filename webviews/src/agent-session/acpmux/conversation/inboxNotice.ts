@@ -199,6 +199,7 @@ export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice
       blocker: held.blocker || next.blocker,
       promptIds: [...held.promptIds, ...next.promptIds],
     };
+    if (held.sentFrom || next.sentFrom) joined.sentFrom = { ...held.sentFrom, ...next.sentFrom };
     // Whole only when both notices held their messages whole.
     delete joined.messages;
     if (held.messages && next.messages) joined.messages = [...held.messages, ...next.messages];
