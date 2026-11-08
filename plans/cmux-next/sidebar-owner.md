@@ -1658,6 +1658,23 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - A zone moves with its anchor row (its title's block, or the row it opens above): a drop's gap that moves that row
   moves the zone's reach by as much.
 
+## A selected row passing over others covers them itself (2026-11-08)
+
+- Leo 2026-11-08: "there's the sidebar where when things maybe open or shift a bit, there's like still a bit of a
+  flicker on that, like individual top group".
+- Cause: when the selected row moved past other rows (a re-sort put it above the top group), every row it crossed hid
+  at once and faded back near the spring's settle (`cmux.passOver`, cx-ai79), so the group's header and members sat
+  at opacity 0 for two frames and blinked back.
+- Now crossed rows no longer hide: they stay at full opacity the whole move. The moving selected row draws above them
+  and covers them itself: until its move ends it paints its selection fill over the sidebar's opaque ground
+  (`SidebarRowView.passOverGround`: the theme's sidebar background under the sidebar's own surface fill), so no
+  crossed title shows through a translucent fill, and it lands on its own fill. Over the plain sidebar the row looks
+  the same either way.
+- In a see-through window (translucent, frosted, glass, a picture) no opaque color matches what is behind the rows,
+  so there the crossed rows still hide and fade back as before.
+- Test: `SidebarGroupFlickerTests` event i (no top group piece below opacity 1 in any frame; the moving row above the
+  group and opaque), red commit first.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:

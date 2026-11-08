@@ -107,6 +107,7 @@ class SidebarRowView: NSView {
         self.key = key
         isHovered = false
         isSelected = false
+        passOverGround = nil
         // A recycled row shows its new content's fill at once.
         fadesNextFill = false
         fadesNextHover = false
@@ -168,9 +169,36 @@ class SidebarRowView: NSView {
     /// it. Call from `updateLayer()` inside the theme scope.
     func paintFill(_ color: NSColor?) {
         paintsFill = color != nil
+        fillColor = color
         guard let layer else { return }
-        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hoverOut)
+        ChromeHover.paint(layer, covered(color), animated: fadesNextFill && passOverGround == nil, clearing: .hoverOut)
         fadesNextFill = false
+    }
+
+    /// The fill the row last asked `paintFill` for, without the pass-over ground.
+    private var fillColor: NSColor?
+
+    /// The opaque ground a selected row paints under its fill while it moves over the rows it trades places with
+    /// (`RowMotion.passOver`): what the sidebar shows behind its rows, so the row looks as it does at rest while no
+    /// title of a crossed row shows through a translucent selection fill, and the crossed rows stay drawn (Leo
+    /// 2026-11-08: "there's like still a bit of a flicker on that, like individual top group"). Nil at rest; the
+    /// move's end clears it.
+    var passOverGround: ThemeRGB? {
+        didSet {
+            guard passOverGround != oldValue, let layer else { return }
+            performWithTheme { ChromeHover.paint(layer, covered(fillColor), animated: false) }
+        }
+    }
+
+    /// The row move (`SidebarListView.rowMoves`) that set `passOverGround`: only that move's end clears it.
+    var passOverMove = 0
+
+    /// `color` as the row paints it: over `passOverGround`, opaque, while the row passes over others.
+    private func covered(_ color: NSColor?) -> NSColor? {
+        guard let ground = passOverGround else { return color }
+        guard let fill = color?.usingColorSpace(.sRGB) else { return ground.nsColor }
+        let rgb = ThemeRGB(red: fill.redComponent, green: fill.greenComponent, blue: fill.blueComponent, alpha: fill.alphaComponent)
+        return rgb.composited(over: ground).nsColor
     }
 
     /// The row paints a fill now (`paintFill`); debug.sidebar_rows `fill`.
