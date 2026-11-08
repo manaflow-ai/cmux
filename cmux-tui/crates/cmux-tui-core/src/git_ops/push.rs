@@ -136,7 +136,7 @@ fn push(
         .or_else(|| config(format!("branch.{branch}.pushRemote")))
         .or_else(|| config("remote.pushDefault".to_string()))
         .or_else(|| upstream_remote.clone())
-        .or_else(|| (remotes.len() == 1).then(|| remotes[0].clone()))
+        .or_else(|| (remotes.len() == 1).then(|| remotes.first().cloned()).flatten())
         .unwrap_or_else(|| "origin".to_string());
     if !remotes.contains(&remote) {
         let message = if remotes.is_empty() {
