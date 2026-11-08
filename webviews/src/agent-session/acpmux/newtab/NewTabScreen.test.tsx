@@ -1291,6 +1291,44 @@ test("two ⌃S on an empty New Tab prompt at once bring back one draft, and the 
   }
 });
 
+test("two ⌃S at once on a New Tab draft stash it once", async () => {
+  const { daemon, fake } = stashDaemon();
+  resetStashForTests(fake);
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} />));
+    const field = await typePrompt("only once");
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+    await act(async () => {
+      for (let press = 0; press < 2; press++)
+        editor.dispatchEvent(
+          new dom!.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
+        );
+      for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect([...daemon.values()].flat().map((entry) => entry.text)).toEqual(["only once"]);
+    expect(promptValue()).toBe("");
+  } finally {
+    resetStashForTests();
+  }
+});
+
+test("New Tab text typed to read as the opening location is a draft; the untouched location is not", async () => {
+  const { daemon, fake } = stashDaemon();
+  resetStashForTests(fake);
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} location="notes" />));
+    const field = await promptField();
+    await controlS(field);
+    expect([...daemon.values()].flat()).toEqual([]);
+    await typePrompt("note");
+    await typePrompt("notes");
+    await controlS(field);
+    expect([...daemon.values()].flat().map((entry) => entry.text)).toEqual(["notes"]);
+  } finally {
+    resetStashForTests();
+  }
+});
+
 test("a page that goes with an unsent draft hands it over; an untouched page hands nothing", async () => {
   const left: unknown[][] = [];
   const page = () => (
