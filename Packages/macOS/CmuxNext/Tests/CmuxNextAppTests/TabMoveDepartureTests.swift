@@ -178,4 +178,21 @@ import Testing
         #expect(topology.pane(try shown.key(1))?.tab(first.id) != nil, "the first move's tab left the focus topology")
         #expect(topology.pane(try shown.key(3))?.tab(second.id) != nil, "the second move's tab left the focus topology")
     }
+
+    /// Router review F1 at 55883d6c: a topology queued in the move's turn (a strip or tab change,
+    /// `setNeedsTopology`) is built when the close reads the focus state. Built after the pane hid, it
+    /// held neither the pane nor the moved tab (its new strip has not synced), so the tab left the
+    /// topology. The moved tab stays, in its new pane, with its kind.
+    @Test func aQueuedTopologyKeepsTheMovedTab() throws {
+        let shown = try PaneCloseControllerTests.Shown(tree: PaneCloseControllerTests.splitTree(Self.sideBySide))
+        defer { shown.end() }
+        let source = try shown.controller(2), target = try shown.controller(1)
+        let tab = try #require(source.pane.tabs.first)
+        shown.content.setNeedsTopology()
+        moveNow(tab, from: source, to: target, shown)
+        #expect(shown.content.layoutModel.isClosing(source.layoutPaneID), "the emptied pane waited for the daemon's tree")
+        let moved = shown.content.focus.state.topology.pane(try shown.key(1))?.tab(tab.id)
+        #expect(moved != nil, "the moved tab left the focus topology")
+        #expect(moved?.kind == .terminal, "the moved tab lost its kind")
+    }
 }
