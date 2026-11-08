@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import GhosttyNextKit
 import Testing
 
 /// The terminal's Option-drag selection through cmux-motion's rule over the app FFI: the event's keys
@@ -26,6 +27,16 @@ import Testing
             hint.pressed(flags, captured: true)
             #expect(!hint.selecting)
         }
+    }
+
+    /// A right Option replaced by Shift reaches Ghostty as plain Shift, not Shift with Alt-Right.
+    @Test func rightOptionLosesItsSideBit() {
+        let hint = TerminalSelectionHint(view: nil)
+        let rightOption = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK))
+        hint.pressed(rightOption, captured: true)
+        let sent = hint.following(rightOption)
+        #expect(sent.rawValue & UInt(NX_DEVICERALTKEYMASK) == 0)
+        #expect(GhosttyInput.mods(sent).rawValue == GhosttyInput.mods(.shift).rawValue)
     }
 
     @Test(arguments: [NSEvent.ModifierFlags([]), .command, .shift, .option, .control, .function,

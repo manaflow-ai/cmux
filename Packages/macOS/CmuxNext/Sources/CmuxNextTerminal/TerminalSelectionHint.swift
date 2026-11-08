@@ -92,10 +92,22 @@ final class TerminalSelectionHint {
         keyBits.enumerated().reduce(0) { bits, key in flags.contains(key.element) ? bits | (1 << UInt32(key.offset)) : bits }
     }
 
-    /// `keys` as flags, with `flags`' other bits (Caps Lock, the numeric pad) kept.
+    /// The left and right device-dependent bits of each key that has them (IOKit's NX_DEVICE*KEYMASK),
+    /// which `GhosttyInput.mods` reads as the right-side keys.
+    private static let sideBits: [(NSEvent.ModifierFlags, UInt)] = [
+        (.shift, UInt(NX_DEVICELSHIFTKEYMASK | NX_DEVICERSHIFTKEYMASK)),
+        (.control, UInt(NX_DEVICELCTLKEYMASK | NX_DEVICERCTLKEYMASK)),
+        (.option, UInt(NX_DEVICELALTKEYMASK | NX_DEVICERALTKEYMASK)),
+        (.command, UInt(NX_DEVICELCMDKEYMASK | NX_DEVICERCMDKEYMASK)),
+    ]
+
+    /// `keys` as flags, with `flags`' other bits (Caps Lock, the numeric pad) kept. A key that goes
+    /// loses its side bits too, so a right Option let go does not reach Ghostty as Alt-Right.
     static func flags(_ keys: UInt32, keeping flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
-        keyBits.enumerated().reduce(flags.subtracting(NSEvent.ModifierFlags(keyBits))) { result, key in
+        let result = keyBits.enumerated().reduce(flags.subtracting(NSEvent.ModifierFlags(keyBits))) { result, key in
             keys & (1 << UInt32(key.offset)) != 0 ? result.union(key.element) : result
         }
+        let gone = sideBits.reduce(UInt(0)) { mask, side in result.contains(side.0) ? mask : mask | side.1 }
+        return NSEvent.ModifierFlags(rawValue: result.rawValue & ~gone)
     }
 }
