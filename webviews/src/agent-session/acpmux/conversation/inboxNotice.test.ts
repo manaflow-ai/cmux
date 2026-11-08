@@ -167,6 +167,22 @@ test("a joined thread keeps the earlier notice's sender metadata for the same se
     unverified: true,
     count: 2,
   });
+  // Two chats named lane-a (cmux#38642 review): the later notice's own record names s-b, so the
+  // joined thread opens s-b, and nothing of s-a's record fills a field of it.
+  const twin = joinNotices(
+    { threads: [earlier] },
+    { threads: [thread("pr:9", "lane-a", 1, { sender: { session: "s-b" } })] },
+  ).threads[0]!;
+  expect(twin.sender).toEqual({ session: "s-b" });
+  expect(twin.fromSession).toBeUndefined();
+  expect(twin.fromHarness).toBeUndefined();
+  expect(twin.unverified).toBeUndefined();
+  // The same chat by its session id: what the later notice leaves out still holds.
+  const agreed = joinNotices(
+    { threads: [earlier] },
+    { threads: [thread("pr:9", "lane-a", 1, { sender: { session: "s-a" } })] },
+  ).threads[0]!;
+  expect(agreed).toMatchObject({ sender: { session: "s-a" }, fromSession: "s-a", fromHarness: "codex" });
   const other = joinNotices({ threads: [earlier] }, { threads: [thread("pr:9", "lane-b")] }).threads[0]!;
   expect(other.sender).toBeUndefined();
   expect(other.fromSession).toBeUndefined();
