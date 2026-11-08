@@ -97,7 +97,6 @@ const CAPABILITIES: &[&str] = &[
     terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
     terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
     terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
-    terminal_snapshot::TERMINAL_SNAPSHOT_IMAGES_CAPABILITY,
     WORKSPACE_REGISTRY_CAPABILITY,
     // The rest of what the app requires (`DaemonCapability.required`): the commands behind them
     // (`split`, `set-viewport-pane-width`, `undo-layout`) are in COMMANDS. A link that left them out

@@ -767,6 +767,9 @@ export type AcpmuxRow = {
     fromHarness?: string;
     /// acpmux could not verify its sender (conversation/senderIdentity.ts).
     unverified?: true;
+    /// Its sender as acpmux recorded it (inboxNotice.ts `SenderRef`): the chip asks for that chat
+    /// by it, never by the bare name the line shows.
+    senderRecord?: { session?: string; label?: string };
   };
   laneNoticeBatch?: {
     kind: "report" | "inbox";

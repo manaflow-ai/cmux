@@ -197280,127 +197280,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Inter (default)"
+            "value": "cmux Inter"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (افتراضي)"
+            "value": "cmux Inter"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Zadano)"
+            "value": "cmux Inter"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Predeterminado)"
+            "value": "cmux Inter"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Par défaut)"
+            "value": "cmux Inter"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Predefinito)"
+            "value": "cmux Inter"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (デフォルト)"
+            "value": "cmux Inter"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (លំនាំដើម)"
+            "value": "cmux Inter"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (기본값)"
+            "value": "cmux Inter"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Domyślny)"
+            "value": "cmux Inter"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Padrão)"
+            "value": "cmux Inter"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (По умолчанию)"
+            "value": "cmux Inter"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (ค่าเริ่มต้น)"
+            "value": "cmux Inter"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Varsayılan)"
+            "value": "cmux Inter"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (За замовчуванням)"
+            "value": "cmux Inter"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Mặc định)"
+            "value": "cmux Inter"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (默认)"
+            "value": "cmux Inter"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (預設)"
+            "value": "cmux Inter"
           }
         }
       }
@@ -198600,127 +198600,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "System (default)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "النظام"
+            "value": "النظام (افتراضي)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistemski"
+            "value": "Sistemski (Zadano)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Predeterminado)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Système"
+            "value": "Système (Par défaut)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Predefinito)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "システム"
+            "value": "システム (デフォルト)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប្រព័ន្ធ"
+            "value": "ប្រព័ន្ធ (លំនាំដើម)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "시스템"
+            "value": "시스템 (기본값)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Systemowa"
+            "value": "Systemowa (domyślna)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Padrão)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Системный"
+            "value": "Системный (По умолчанию)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ระบบ"
+            "value": "ระบบ (ค่าเริ่มต้น)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistem"
+            "value": "Sistem (Varsayılan)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Системний"
+            "value": "Системний (За замовчуванням)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hệ thống"
+            "value": "Hệ thống (Mặc định)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "系统"
+            "value": "系统 (默认)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "系統"
+            "value": "系統 (預設)"
           }
         }
       }
