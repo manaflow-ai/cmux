@@ -553,7 +553,10 @@ fn a_codex_start_runs_the_broker_before_the_first_prompt() {
         (Inputs { requested: Some(Choice::None), ..codex.clone() }, Reason::ChoseNone),
         (Inputs { requested: Some(Choice::Machine), ..codex.clone() }, Reason::MachineLoginKept),
         // A run that may show no prompt keeps `none` and `machine` as chosen, from the flag or kept.
-        (Inputs { headless: true, requested: Some(Choice::None), ..codex.clone() }, Reason::ChoseNone),
+        (
+            Inputs { headless: true, requested: Some(Choice::None), ..codex.clone() },
+            Reason::ChoseNone,
+        ),
         (Inputs { headless: true, stored: Some(Choice::None), ..codex.clone() }, Reason::ChoseNone),
         (
             Inputs { headless: true, requested: Some(Choice::Machine), ..codex.clone() },
@@ -574,8 +577,16 @@ fn a_codex_start_runs_the_broker_before_the_first_prompt() {
     ];
     for d in refused {
         let decision = decide(&d);
-        assert_eq!((decision.step, decision.reason), (Step::Refuse, Reason::NeedsLoginChoice), "{d:?}");
-        assert!(decision.summary.starts_with("refuse (needs-login-choice):"), "{}", decision.summary);
+        assert_eq!(
+            (decision.step, decision.reason),
+            (Step::Refuse, Reason::NeedsLoginChoice),
+            "{d:?}"
+        );
+        assert!(
+            decision.summary.starts_with("refuse (needs-login-choice):"),
+            "{}",
+            decision.summary
+        );
     }
     // The pass the person chose before, kept per user, still runs the broker headless.
     let kept = Inputs { headless: true, stored: Some(Choice::Pass), ..codex.clone() };
