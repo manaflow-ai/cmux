@@ -1464,5 +1464,5 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
 mod role_tests;
 
 #[cfg(all(test, target_os = "linux"))]
-#[path = "carrier_register_harness.rs"]
+#[path = "carrier_register_harness_tests.rs"]
 mod carrier_register_harness;
