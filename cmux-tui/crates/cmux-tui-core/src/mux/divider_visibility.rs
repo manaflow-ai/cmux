@@ -61,7 +61,7 @@ impl Mux {
     ) -> Result<(), DividerVisibilityError> {
         let hidden = !visible;
         let target = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             let Some((workspace_index, screen_index, owner)) =
                 state.split_screens.get(&split).copied()
             else {
