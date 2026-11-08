@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTerminal
 
 /// The pane's own background (plans/cmux-next/pane-backgrounds-DESIGN.md): its own copy of the
 /// art (`appearance.paneBackgrounds` perPane, or the pane's own pick), a plain cover over the
@@ -60,11 +61,9 @@ extension PaneContentView {
         }
         // A pane with its own pick decides its content's fill from its own scope (its terminals
         // already do): over its art the content stays clear.
-        if backdropState.pin != .inherit {
-            let paints = WindowBackdrop(paneScope.tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
-                                        selection: paneScope.backdropSelection).panesPaintBackground
-            contentHost.layer?.backgroundColor = paints ? surface.cgColor : nil
-        }
+        guard backdropState.pin != .inherit else { return }
+        let paints = WindowBackdrop(paneScope.tokens, reduceTransparency: ReduceTransparency.shared.isEnabled, selection: paneScope.backdropSelection).panesPaintBackground
+        contentHost.layer?.backgroundColor = paneContentFill(paints: paints, surface: surface, terminal: showsTerminalTab)
     }
 
     private func makeArtView() -> WindowMaterialView {
@@ -100,10 +99,7 @@ extension PaneContentView {
     func themeDidChange() {
         needsLayout = true
         // In scope: its workspace's picture decides, not the app's (#28867: a black pane behind the chat).
-        performWithTheme {
-            let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
-            contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
-        }
+        performWithTheme { contentHost.layer?.backgroundColor = paneContentFill(paints: WindowBackdrop.current(themeTokens).panesPaintBackground, surface: Palette.surfaceBackground, terminal: showsTerminalTab) }
         paintStrip()
         paintPaneBackdrop()
     }

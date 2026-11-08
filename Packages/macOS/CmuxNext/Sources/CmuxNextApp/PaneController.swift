@@ -454,7 +454,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         DebugTabSwitch.mark(self, "content")
         if let content { DebugTabSwitch.kind(self, content.switchKind) }
-        currentTabKey = key
+        (currentTabKey, view.showsTerminalTab) = (key, key.flatMap { key in pane.tabs.first { $0.id == key } }?.kind == .pty) // a stand-in waiting for its surface too
         services.themes.applyPaneBackground(self) // a tab's own tint (no work while nothing is set)
         if let key, content != nil { BenchSpans.measure("switch.present") { services.cache.present(key, by: self, presence: presence) } }
         DebugTabSwitch.mark(self, "reveal")

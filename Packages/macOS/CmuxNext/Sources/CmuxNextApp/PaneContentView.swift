@@ -28,6 +28,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     let backdropState = PaneBackdropState()
     private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = PaneContentAreaView()
+    var showsTerminalTab = false { didSet { if showsTerminalTab != oldValue { themeDidChange() } } } // its fill: `paneContentFill`
     private(set) weak var content: NSView?
     /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
     let nativeToolOwner = PaneNativeToolOwner()
