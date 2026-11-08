@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42487444736",
+  "recorded_at": "2026-11-08T14:08:00Z",
+  "reason": "cmux-tui dacb842785d4 changes the image's cmux-tui (pinned 375ff57816fc)",
+  "dry_run": false,
+  "cmux_tui": "dacb842785d4f573c5a0ff35def9148481a32277",
+  "fixes": [
+    {
+      "sha": "dacb842785d4f573c5a0ff35def9148481a32277",
+      "mergedAt": "2026-11-08T05:42:26-08:00",
+      "subject": "Agent pane: a sub-session's ask reaches the chat above it (#38487)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T14:08:00Z",
+    "snapshot_id": "sh-72a3315c31f7443f889bdcc79904a189",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42487444736): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "46455f47725113ba5bc5a8523eb52308744702c1",
+    "image": "cloud-native-auto-dacb8427-42487444736-1",
+    "revision": "ci-42487444736-1",
+    "at": "2026-11-08T14:08:00Z"
+  },
+  "rolled_back": false
+}
