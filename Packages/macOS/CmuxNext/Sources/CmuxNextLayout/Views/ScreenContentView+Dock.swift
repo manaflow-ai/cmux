@@ -23,16 +23,16 @@ extension ScreenContentView {
     var coverRects: [CGRect] { PaneArrival.covers(geometry, docks: growingDocks) }
 
     /// For each shown pane host, the frames of shown panes stacked above it
-    /// that overlap it (local coordinates), from one walk of the subviews
-    /// front to back. Overlaps happen only mid-motion (an unzoom's pane
+    /// that overlap it (local coordinates), from one walk of the views
+    /// front to back as they draw (``drawOrder``). Overlaps happen only mid-motion (an unzoom's pane
     /// springing back over the panes it uncovers, a zoom's growing over the
-    /// others) and under docked columns; their headers are see-through, so
+    /// others, a close's neighbours over its closing host) and under docked columns; their headers are see-through, so
     /// what is under them is masked out. Computed once per presentation
     /// pass, not once per host (which walked every subview per host).
     func panesAbove() -> [ObjectIdentifier: [CGRect]] {
         var covers: [ObjectIdentifier: [CGRect]] = [:]
         var front: [CGRect] = []
-        for case let host as PaneHostView in subviews.reversed() {
+        for case let host as PaneHostView in drawOrder.reversed() {
             let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
             guard !host.isHidden && host.alphaValue > 0.99 else { continue }
@@ -145,7 +145,8 @@ extension ScreenContentView {
             if host.pane == zoomMotion.pane { return 10 }
             // A zoom's covered panes stay under every pane.
             if covered.contains(host.pane) { return -1 }
-            // A closing pane keeps the rank it had when it closed (FRAME OWNER S3c; under that rank's live hosts, `ensureStacking`).
+            // A closing pane keeps the rank it had when it closed (FRAME OWNER S3c; it draws under that rank's live views,
+            // `ensureStacking`), so a close moves no view in the subviews.
             if let closing = closingPanes.entries[host.pane] { return closing.rank }
             return liveRank(of: host.pane, in: geometry)
         case let divider as DividerHandleView:
@@ -174,21 +175,49 @@ extension ScreenContentView {
         geometry.dock.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) }
     }
 
-    /// Reorders subviews only when the order is wrong. `sortSubviews`
-    /// keeps every view in the window (no detach), so terminal surfaces and
-    /// page windows are not torn down.
-    /// A closing pane's host (FRAME OWNER S3c) goes under every live view of its rank: a live pane that moves over its
-    /// place draws above its ground.
+    /// Orders the subviews by rank, only when the order is wrong (`sortSubviews` keeps every view in the window, so
+    /// terminal surfaces and page windows are not torn down), and sets each view's depth (``setDepth(of:rank:)``).
+    /// A closing pane's host (FRAME OWNER S3c) keeps its place in the subviews: its depth alone draws it under every live
+    /// view of its rank, so a live pane that moves over its place draws above its ground, and the close's key turn
+    /// reorders no view. A reorder makes AppKit mark the window's layer tree, and the next display pass rebuilds it
+    /// (`-[NSView _buildLayerTree]` walks the whole window: 2.9 ms of the close key cycle, CLOSE VARIANTS 6). Clicks
+    /// follow the subviews; a closing host takes none (`PaneHostView.hitTest`).
     func ensureStacking() {
-        let ranks = subviews.enumerated().map { index, view in
-            let closing = (view as? PaneHostView).map { closingPanes.entries[$0.pane] != nil } ?? false
-            return (rank(view) * 2 + (closing ? 0 : 1)) * 100_000 + index
+        let ranked = subviews.map { ($0, rank($0)) }
+        let keys = ranked.enumerated().map { index, entry in entry.1 * 100_000 + index }
+        if keys != keys.sorted() {
+            let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(ranked.map { ObjectIdentifier($0.0) }, keys)))
+            withExtendedLifetime(table) {
+                sortSubviews(compareStacking, context: Unmanaged.passUnretained(table).toOpaque())
+            }
         }
-        guard ranks != ranks.sorted() else { return }
-        let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(subviews.map(ObjectIdentifier.init), ranks)))
-        withExtendedLifetime(table) {
-            sortSubviews(compareStacking, context: Unmanaged.passUnretained(table).toOpaque())
-        }
+        for (view, rank) in ranked { setDepth(of: view, rank: rank) }
+    }
+
+    /// A view added outside `reconcileDock` (the scrollbar, a parked spare host) draws at its rank's depth from its
+    /// first frame.
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        setDepth(of: subview, rank: rank(subview))
+    }
+
+    /// `view`'s layer `zPosition`: twice its rank, one more for a live view, so a closing host draws under its rank's
+    /// live views and above every view of a lower rank. Only a change is written (a layer property: AppKit rebuilds no
+    /// layer tree for it). A canvas orders its hosts in the subviews (`reconcileCanvasStacking`): every depth is 0 there.
+    private func setDepth(of view: NSView, rank: Int) {
+        guard let layer = view.layer else { return }
+        let closing = (view as? PaneHostView).map { closingPanes.entries[$0.pane] != nil } ?? false
+        let depth: CGFloat = isCanvas ? 0 : CGFloat(rank * 2 + (closing ? 0 : 1))
+        if layer.zPosition != depth { layer.zPosition = depth }
+    }
+
+    /// The subviews back to front as they draw: by layer `zPosition` (``ensureStacking()``), then in their order. The
+    /// subviews themselves when their depths do not fall (nothing is closing, or a canvas).
+    var drawOrder: [NSView] {
+        let views = subviews
+        let depths = views.map { $0.layer?.zPosition ?? 0 }
+        guard zip(depths, depths.dropFirst()).contains(where: { $0 > $1 }) else { return views }
+        return zip(views, depths).enumerated().sorted { ($0.element.1, $0.offset) < ($1.element.1, $1.offset) }.map(\.element.0)
     }
 
     /// Clicks inside what a docked column covers go to the docked column

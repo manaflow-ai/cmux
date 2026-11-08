@@ -9,9 +9,10 @@ import CmuxNextDesign
 /// column's scroll, so the owners of the motion are the neighbours' springs and that scroll's. Each side a neighbour closes
 /// over sits on the slowest neighbour's facing edge on that side (the leading edge on the smallest trailing edge beside it,
 /// the trailing edge on the largest leading edge): nothing between the closing pane and any of its neighbours shows the
-/// shell, and where a faster neighbour has passed over it, that live pane draws above it (closing hosts stack under every
-/// live host, `ScreenContentView.ensureStacking`). A side keeps the gap it had to its neighbours where the resize handle in
-/// that gap stays in the new layout, and covers the gap where that handle goes (the one between the pane and the panes that
+/// shell, and where a faster neighbour has passed over it, that live pane draws above it (closing hosts draw under every
+/// live host of their rank by their layer's depth, in place in the subviews, `ScreenContentView.ensureStacking`). A side
+/// keeps the gap it had to its neighbours where the resize handle in that gap stays in the new layout, and covers the gap
+/// where that handle goes (the one between the pane and the panes that
 /// take its place; FRAME OWNER S3d): the gap a person sees during the close is the kept handle's, with the handle in its
 /// middle in every frame, and the pane rests at zero size where its neighbours meet. A side whose neighbour closed too
 /// (after it) rides that closing pane's facing edge, and rests where that pane rests. A side with no neighbour (the screen's
