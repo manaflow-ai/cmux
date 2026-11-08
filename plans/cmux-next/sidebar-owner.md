@@ -1698,6 +1698,8 @@ An empty group now keeps only its header at rest. The header's existing + appear
   between the two slots move on the rows' one `.move` spring (critically damped, no overshoot) from rest. Motion off
   or Reduce Motion: the final state in one frame. Regression: `SidebarPinFlightTests`.
 - An unpin's row is not a new workspace: it never takes the create's splice or the `newWorkspace` animation switch.
+- The app's pin reaches the list in two updates (the rows, then the blocks a frame or two later): the leaving row
+  stays where it is drawn until the block's item takes over its frame (at most 250 ms, then it goes at once).
 - Gap: the first pin, which creates the Pinned block, still opens that block with its own fade.
 
 ## Reviewed behavior-only commits

@@ -62,7 +62,7 @@ struct SidebarPinFlightSources {
 
 extension SidebarListViewComponents {
     /// The workspaces the blocks of `blocks` draw (`SidebarItemInfo.workspace`). O(pinned items).
-    private func blockWorkspaces(_ blocks: SidebarListBlocks?) -> Set<WorkspaceID> {
+    func blockWorkspaces(_ blocks: SidebarListBlocks?) -> Set<WorkspaceID> {
         guard let blocks else { return [] }
         return Set(blocks.sections.values.lazy.flatMap(\.items).compactMap { blocks.infos[$0.id]?.workspace })
     }
@@ -82,6 +82,10 @@ extension SidebarListViewComponents {
             guard case let .workspace(id) = key, layout.row(for: key) == nil, pinned.contains(id), !view.isHidden else { continue }
             sources.pins[id] = source(of: view)
         }
+        // A row a pin held in place (`holdsForPin`) until this update's block draws its workspace.
+        for (id, view) in pinHolds where pinned.contains(id) && !view.isHidden && sources.pins[id] == nil {
+            sources.pins[id] = source(of: view)
+        }
         for region in blockRegions {
             for view in region.itemViews.values where view.superview != nil && !view.isHidden {
                 guard let id = view.info.workspace, !pinned.contains(id), old.row(for: .workspace(id)) == nil,
@@ -99,6 +103,41 @@ extension SidebarListViewComponents {
             CGPoint(x: frame.minX + pen.pointValue.x, y: frame.minY + pen.pointValue.y)
         }
         return SidebarPinFlightSource(frame: frame, pen: pen)
+    }
+
+    /// Whether the leaving row `key` is a pin's whose block does not draw the workspace yet: then it stays where it is
+    /// drawn (above the rows that close its slot) until the block's item takes over its frame, or for at most
+    /// `pinHoldLimit` when no block comes (it then goes at once).
+    func holdsForPin(_ key: SidebarRowKey, _ view: SidebarRowView) -> Bool {
+        guard case let .workspace(id) = key, drag == nil, settling == nil, landing == nil, !view.isHidden,
+              model.workspacePin?.isPinned(id) == true, !blockWorkspaces(blocks).contains(id) else { return false }
+        if let held = pinHolds[id], held !== view { releasePinHold(held) }
+        pinHolds[id] = view
+        view.layer?.zPosition = 1
+        // concurrency-allow: asyncAfter only schedules the fallback on the main queue; no thread waits for it
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pinHoldLimit) { [weak self, weak view] in
+            guard let self, let view, self.pinHolds[id] === view else { return }
+            self.pinHolds[id] = nil
+            self.releasePinHold(view)
+        }
+        return true
+    }
+
+    /// How long a pin's row waits for its block (the block's update follows the rows' within a frame or two).
+    static var pinHoldLimit: TimeInterval { 0.25 }
+
+    /// After an apply: a held row whose pin no longer waits (its block drew it, or the pin was undone) goes.
+    func settlePinHolds() {
+        let drawn = blockWorkspaces(blocks)
+        for (id, view) in pinHolds where drawn.contains(id) || model.workspacePin?.isPinned(id) != true {
+            pinHolds[id] = nil
+            releasePinHold(view)
+        }
+    }
+
+    private func releasePinHold(_ view: SidebarRowView) {
+        view.layer?.zPosition = 0
+        recycle(view)
     }
 
     /// `view`'s frame in the list's coordinates where the screen shows it now: its model frame moved by what the

@@ -374,6 +374,8 @@ extension SidebarListViewComponents {
                 view.layoutSubtreeIfNeeded()
             }
             rowViews[key] = nil
+            // A pin whose block has not drawn the workspace yet: the row stays where it is until the item takes over.
+            if animate, holdsForPin(key, view) { continue }
             // A pinned row's block item took over its frame in this transaction: the row goes at once (one copy on screen).
             if flightSources.pins(key) {
                 recycle(view)
@@ -414,6 +416,7 @@ extension SidebarListViewComponents {
             return adoptRows(targets: targets, leaving: leaving, lines: lines)
         }
         if !flightSources.pins.isEmpty { flights += pinFlights(flightSources) }
+        if !pinHolds.isEmpty { settlePinHolds() }
         // A flight and the rows it passes start from where they are drawn, at rest: a retarget carries no velocity (m68).
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history, insert: insertMotion,
                   travel: insertTravel ?? (flights.isEmpty ? nil : .greatestFiniteMagnitude), folding: folding, flights: flights)
