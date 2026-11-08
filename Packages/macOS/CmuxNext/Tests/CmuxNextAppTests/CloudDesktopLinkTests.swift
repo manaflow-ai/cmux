@@ -251,6 +251,7 @@ import Testing
         let live = try await row("tab_state_live")
         #expect(live["viewer"]?.stringValue == "rd")
         #expect(live["connected"]?.boolValue == false, "no frame path yet: connecting")
+        #expect(live["session"]?.objectValue?["end_reason"] == CmuxNextSettings.JSONValue.null, "a live session has no end reason")
         #expect(live["control"]?.stringValue == "agent")
         #expect(session.selectMode(.control))
         #expect(try await row("tab_state_live")["control"]?.stringValue == "person")
