@@ -15258,6 +15258,46 @@
     },
     {
       "args" : [
+        {
+          "kind" : "string",
+          "name" : "agent",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "conversation",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "home start-agent",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.startQueuedAgent",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Start Queued Agent Now",
+      "title_key" : "action.home.startQueuedAgent",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
 
       ],
       "cli" : "devOnly",
