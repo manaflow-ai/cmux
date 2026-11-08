@@ -7284,7 +7284,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   display: none;
 }
 
-/* Jump to new (SinceDivider.tsx SinceJump): a small glass pill centered over the transcript's top,
+/* Jump to new (SinceDivider.tsx SinceJump): a small glass button centered over the transcript's top,
    the same glass and fade as Jump to latest. Mounted with the mark and only faded, so it never pops
    in; Reduce Motion shows and hides it at once. Its arrow points to where the line is. */
 .acpmux-over-top {
@@ -7304,7 +7304,8 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   height: var(--ds-control-compact);
   padding: 0 var(--ds-space-3);
   border: 0;
-  border-radius: 999px;
+  /* A small-radius rect, as every agent pane control (test/agent-pane-no-capsules.test.ts). */
+  border-radius: var(--ds-radius-control);
   --glass-edge: color-mix(in srgb, var(--agent-text) 18%, transparent);
   --glass-elevation: var(--elevation-2);
   color: var(--cmux-status-unread, #3982f5);
