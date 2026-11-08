@@ -7,6 +7,7 @@ import { TurnActionsContext } from "./turnActions";
 import { TestTampering, askWhyPrompt } from "./TestTampering";
 import { hunkLines, tamperingForRows } from "./testTamperingModel";
 import { resetTestTamperingState } from "./testTamperingStore";
+import { translatorFor } from "../i18n";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -154,6 +155,9 @@ test("includes exact evidence and a restore request in Ask why", () => {
   expect(prompt).toContain("expect(x).toEqual(1)");
   expect(prompt).toContain("expect(x).toBeTruthy()");
   expect(prompt.toLowerCase()).toContain("restore");
+  const japanesePrompt = askWhyPrompt([finding!], translatorFor("ja"));
+  expect(japanesePrompt).toStartWith("これらのテスト変更は確認が必要です。");
+  expect(japanesePrompt.slice(japanesePrompt.indexOf("\n\n"))).toBe(prompt.slice(prompt.indexOf("\n\n")));
 });
 
 test("persists disclosure and reports restore and Ask why action states", async () => {

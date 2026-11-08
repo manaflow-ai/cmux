@@ -4,7 +4,7 @@ import { tamperingForRows, type TamperingEvidence } from "./testTamperingModel";
 import { markTamperingRestored, setTestTamperingState, useTestTamperingState } from "./testTamperingStore";
 import type { AcpmuxRow } from "../model";
 import { useTranscriptReadOnly } from "./readOnly";
-import { useT, type StringKey } from "../i18n";
+import { translate, useT, type StringKey, type Translate } from "../i18n";
 
 export type TestTamperingRestore = (
   finding: TamperingEvidence,
@@ -62,7 +62,7 @@ export function TestTampering({ rows, sessionId, turnId, onRestore }: TestTamper
     if (!answer || readOnly || state.askWhy === "pending" || state.askWhy === "sent") return;
     setTestTamperingState(key, { askWhy: "pending" });
     try {
-      await answer(askWhyPrompt(evidence));
+      await answer(askWhyPrompt(evidence, t));
       setTestTamperingState(key, { askWhy: "sent" });
     } catch {
       setTestTamperingState(key, { askWhy: "failure" });
@@ -137,16 +137,15 @@ export function TestTampering({ rows, sessionId, turnId, onRestore }: TestTamper
   );
 }
 
-/// Keep the agent's answer grounded in the exact evidence shown in the card. This is a prompt to
-/// the agent, rather than UI copy; preserve the old/new blocks verbatim for its explanation.
-export function askWhyPrompt(evidence: readonly TamperingEvidence[]): string {
+/// Localize the question shown in the transcript, preserving the evidence blocks verbatim.
+export function askWhyPrompt(evidence: readonly TamperingEvidence[], t: Translate = translate): string {
   const details = evidence
     .map(
       (finding) =>
         `- ${finding.line === null ? finding.path : `${finding.path}:${finding.line}`} (${finding.kind})\nOLD:\n${finding.old || "(none)"}\nNEW:\n${finding.new || "(none)"}`,
     )
     .join("\n\n");
-  return `These test changes need review. Explain why you changed or weakened these tests, or restore them.\n\n${details}`;
+  return `${t("testTampering.question")}\n\n${details}`;
 }
 
 function tamperingEvidenceKey(finding: TamperingEvidence): string {
