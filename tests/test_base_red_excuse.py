@@ -539,6 +539,62 @@ print("2026-10-30T12:00:00.000Z \\x1b[31mred\\x1b[0m log")
 """
 
 
+class ListReadsNameTheirFields(unittest.TestCase):
+    """cmux#38416: a run's jobs, a combined status and a commit history are read with a --jq naming the fields this
+    script uses, so an agent host's gh shim can answer them over GraphQL while REST is under its floor."""
+
+    JOBS = f"repos/{REPO}/actions/runs/42476982159/jobs?filter=all&per_page=100"
+    REST_JOB = {"id": 128722545294, "run_id": 42476982159, "run_attempt": 1, "name": "GhosttyKit release check",
+                "head_sha": "7d54364414a39fbe9270455427ae66de087c9449", "head_branch": "lane/x", "status": "completed",
+                "conclusion": "failure", "started_at": "2026-11-08T10:50:00Z", "completed_at": "2026-11-08T10:51:00Z",
+                "html_url": "https://github.com/x/job/1", "url": "https://api.github.com/x", "check_run_url": "c",
+                "workflow_name": "ci", "runner_name": "mini-3", "labels": ["macos"], "node_id": "N",
+                "steps": [{"name": "Verify published GhosttyKit release and checksum", "status": "completed",
+                           "conclusion": "failure", "number": 4, "started_at": "s", "completed_at": "e"}]}
+
+    def reader(self, answers):
+        github, asked = excuse.GitHub(), []
+
+        def run(args):
+            asked.append(args)
+            return answers.pop(0)
+        github.run = run
+        return github, asked
+
+    def test_a_runs_jobs_pages_are_read_with_the_projection(self):
+        page = json.dumps({"total_count": 1, "jobs": [{"id": 1, "name": "a", "run_id": None, "run_attempt": 1}]})
+        github, asked = self.reader([page])
+        jobs = excuse.last_real_jobs(REPO, 42476982159, github)
+        self.assertEqual(len(asked), 1)
+        self.assertEqual(asked[0][:2], ["api", f"repos/{REPO}/actions/runs/42476982159/jobs?filter=all&per_page=30&page=1"])
+        self.assertEqual(asked[0][2:], ["--jq", excuse.projection(self.JOBS)])
+        self.assertEqual(jobs[0]["run_id"], 42476982159)  # a projected null run_id is the run read, as a missing one
+
+    def test_status_and_history_are_projected_and_other_reads_stay_whole(self):
+        for route in (f"repos/{REPO}/commits/abc/status", f"repos/{REPO}/commits/abc/status?per_page=100",
+                      f"repos/{REPO}/commits?sha=feat-cmux-next&per_page=10",
+                      f"repos/{REPO}/actions/runs/5/attempts/2/jobs?per_page=30&page=1"):
+            self.assertIsNotNone(excuse.projection(route), route)
+        for route in (f"repos/{REPO}/actions/jobs/5", f"repos/{REPO}/actions/runs/5",
+                      f"repos/{REPO}/compare/a...b?per_page=1", f"repos/{REPO}/commits/abc/check-runs?per_page=100",
+                      f"repos/{REPO}/actions/runs/5/artifacts?per_page=100"):
+            self.assertIsNone(excuse.projection(route), route)
+        github, asked = self.reader(['{"workflow_id": 7}'])
+        self.assertEqual(github.json(f"repos/{REPO}/actions/runs/5"), {"workflow_id": 7})
+        self.assertEqual(asked, [["api", f"repos/{REPO}/actions/runs/5"]])
+
+    def test_the_jobs_projection_keeps_every_field_this_script_reads(self):
+        import shutil
+        if shutil.which("jq") is None:
+            self.skipTest("jq is not on PATH")
+        doc = {"total_count": 1, "jobs": [self.REST_JOB]}
+        out = subprocess.run(["jq", "-c", excuse.projection(self.JOBS)], input=json.dumps(doc), text=True,
+                             capture_output=True, check=True).stdout
+        job = json.loads(out)["jobs"][0]
+        dropped = {"runner_name", "labels", "node_id"}
+        self.assertEqual(job, {k: v for k, v in self.REST_JOB.items() if k not in dropped})
+
+
 class PortableGhLog(unittest.TestCase):
 
     def setUp(self):
