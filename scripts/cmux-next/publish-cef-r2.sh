@@ -95,10 +95,21 @@ if [[ -z "$dir" ]]; then
   # that does not match its line, publishes nothing.
   gh release download "$tag" --repo "$repo" --pattern SHA256SUMS --dir "$work" >/dev/null 2>&1 ||
     { echo "error: $repo $tag has no SHA256SUMS; refusing to publish unchecked assets" >&2; exit 1; }
+  # A line is `<sha256> <mode><name>`: mode ' ' (text) or '*' (binary), then the
+  # whole rest of the line is the name, spaces included (bash 3.2 safe).
+  sum_of() {
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" =~ ^([0-9a-fA-F]{64})\ [\ *](.+)$ && "${BASH_REMATCH[2]}" == "$1" ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}" | tr 'A-F' 'a-f'
+        return
+      fi
+    done < "$work/SHA256SUMS"
+  }
   for path in "$dir"/*.tar.xz; do
     [[ -e "$path" ]] || continue
     name="$(basename "$path")"
-    want="$(awk -v n="$name" '{f=$2; sub(/^\*/, "", f)} f == n {print $1; exit}' "$work/SHA256SUMS")"
+    want="$(sum_of "$name")"
     [[ -n "$want" ]] || { echo "error: $name is not listed in the release SHA256SUMS" >&2; exit 1; }
     got="$(shasum -a 256 "$path" | awk '{print $1}')"
     [[ "$got" == "$want" ]] || { echo "error: $name does not match the release SHA256SUMS" >&2; exit 1; }
