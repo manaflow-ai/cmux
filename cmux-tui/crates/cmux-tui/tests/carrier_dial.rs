@@ -75,10 +75,20 @@ fn a_carrier_dial_carries_the_daemon_stream_both_ways() {
         !teams.is_empty() && teams.iter().all(Option::is_none),
         "no team, no header: {teams:?}"
     );
-    // The route line also went to the dial's own connect log, exactly.
+    // The route line also went to the dial's own connect log, exactly,
+    // followed by the attempt's phases line (which stderr never gets).
     let log = world.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
     let text = std::fs::read_to_string(&log).unwrap();
-    assert_eq!(text, route, "connect.log holds the route line and nothing else");
+    let (logged, phases) = text.split_at(route.len().min(text.len()));
+    assert_eq!(logged, route, "connect.log starts with the route line: {text}");
+    let phases = phases.strip_suffix('\n').unwrap_or(phases);
+    assert!(
+        phases.starts_with(&format!(
+            "carrier.phases machine={MACHINE} phase=connect carrier=relay:0 outcome=ok ticket_ms="
+        )) && !phases.contains('\n'),
+        "then one phases line and nothing else: {text}"
+    );
+    assert!(phases.contains(" lanes=") && !phases.contains("cloud.connect"), "{text}");
     let ms = route.trim_end().rsplit_once(" ms=").unwrap().1;
     assert!(!ms.is_empty() && ms.bytes().all(|b| b.is_ascii_digit()), "nothing after ms=: {route}");
 }
