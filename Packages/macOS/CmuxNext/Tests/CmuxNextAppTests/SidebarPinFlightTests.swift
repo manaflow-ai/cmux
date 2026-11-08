@@ -303,6 +303,34 @@ struct SidebarPinFlightTests {
         #expect(list.pinHolds.isEmpty, "the row still waits after its block came")
     }
 
+    /// The app delivers an unpin's blocks a frame or two before its rows: the item stays where it is drawn until the
+    /// row comes, and the row then moves from it (no vanish, no grow-in at the row's slot).
+    @Test func anUnpinWhoseRowComesLaterStartsOnTheItem() throws {
+        let (list, window) = Self.list(pins: [Self.moved])
+        defer { window.close() }
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        list.model.workspacePin = (isPinned: { _ in false }, toggle: { _ in })
+        let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
+        let startFrame = list.convert(start.bounds, from: start)
+        let (sections, blocks) = Self.state([])
+        list.blocks = blocks
+        list.reload(animated: true)
+        CATransaction.flush()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        #expect(!Self.copies(of: Self.moved, in: list).filter { !$0.isHiddenOrHasHiddenAncestor }.isEmpty,
+                "the item vanished before its row came")
+        list.model.sections = sections
+        list.reload(animated: true)
+        let now = CACurrentMediaTime()
+        let probes = Self.probes(Self.moved, list, now: now)
+        let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
+        var failures: [String] = []
+        Self.checkPath("unpinned d (blocks first)", probes: probes, now: now, start: startFrame,
+                       end: list.convert(arrived.bounds, from: arrived), failures: &failures)
+        #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
+    }
+
     /// Pin, then unpin 60 ms later: the unpin starts where the pin has the workspace drawn (no jump), with one copy on
     /// every tick, and moves to its row from rest (no velocity carried: it never passes the row).
     @Test func aRetargetStartsWhereTheMoveIs() throws {
