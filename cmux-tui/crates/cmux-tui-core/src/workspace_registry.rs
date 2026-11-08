@@ -2722,7 +2722,7 @@ impl WorkspaceRegistry {
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
-        Ok(Self {
+        let mut registry = Self {
             connection,
             database_path,
             registry_id,
@@ -2739,7 +2739,12 @@ impl WorkspaceRegistry {
             journal_after_commit_admission: None,
             _session_guard: session_guard,
             _lease: lease,
-        })
+        };
+        // The startup repair changed rows that event-feed clients still hold
+        // in their old form. Publish them from the committed rows, after the
+        // repair transaction, with the one public screen builder.
+        registry.restate_startup_repaired_panes()?;
+        Ok(registry)
     }
 
     pub(crate) fn session_journal_database_path(&self) -> Option<PathBuf> {
