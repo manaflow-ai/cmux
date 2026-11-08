@@ -402,6 +402,27 @@ fn the_alternate_screen_withholds_prediction() {
 }
 
 #[test]
+fn a_seed_after_missed_output_replaces_a_mode_seen_before_it() {
+    // The surface was replaced (a replay while detached): the full-screen
+    // program the engine saw open may have exited in the output it never saw,
+    // and the host's read of the new screen is the only truth left.
+    let mut session = armed_session();
+    session.remote("\x1b[?1049h");
+    assert_eq!(session.status(), Status::AlternateScreen);
+    session.engine.seed_alternate_screen(false);
+    assert_eq!(session.status(), Status::AlternateScreen, "a seed older than seen output is ignored");
+
+    session.engine.missed_output(session.clock);
+    session.engine.seed_alternate_screen(false);
+    assert_ne!(session.status(), Status::AlternateScreen);
+
+    session.remote("\x1b[?1049h");
+    session.engine.missed_output(session.clock);
+    session.engine.seed_alternate_screen(true);
+    assert_eq!(session.status(), Status::AlternateScreen);
+}
+
+#[test]
 fn a_seeded_alternate_screen_withholds_prediction_until_it_exits() {
     // Prediction started with vim already open: no mode switch is ever
     // seen, and vim echoes typed characters in insert mode, which would

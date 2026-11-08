@@ -592,8 +592,11 @@ impl TerminalPredictionEngine {
     }
 
     /// Output was lost before reaching the engine: nothing drawn can be placed
-    /// any more, and a sequence may have been cut in half.
+    /// any more, and a sequence may have been cut in half. A mode switch in the
+    /// lost output went unseen too, so the next seed (the host's read of the
+    /// screen it replaced) counts again.
     pub fn missed_output(&mut self, now: Duration) -> bool {
+        self.has_observed_alternate_screen_switch = false;
         if !self.is_active() {
             return false;
         }
