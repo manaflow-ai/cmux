@@ -253,8 +253,8 @@ package final class DesktopNotifier: NSObject {
             center.removeAllDeliveredNotifications()
             center.removeAllPendingNotificationRequests()
         }
-        center.setNotificationCategories([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(), IPhonePairNotices.notificationCategory()]
-                                         + AgentApprovalBanners.notificationCategories())
+        center.setNotificationCategories(Set([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(),
+                                              IPhonePairNotices.notificationCategory()] + AgentApprovalBanners.notificationCategories()))
         self.center = center
         return center
     }
