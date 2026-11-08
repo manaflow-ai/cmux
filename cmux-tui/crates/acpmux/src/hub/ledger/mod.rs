@@ -291,7 +291,7 @@ pub(crate) enum Line {
 
 /// What the writer thread is handed.
 pub(crate) enum Work {
-    Line(u64, Line),
+    Line(u64, Box<Line>),
     /// Read the folder's origin remote for a session with no repository yet.
     Repo {
         sid: String,
@@ -352,8 +352,10 @@ impl Ledger {
     fn emit(&self, state: &mut State, line: Line) {
         state.seq += 1;
         if let Some(tx) = &self.writer {
-            let _ =
-                tx.lock().unwrap_or_else(PoisonError::into_inner).send(Work::Line(state.seq, line));
+            let _ = tx
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .send(Work::Line(state.seq, Box::new(line)));
         }
     }
 
