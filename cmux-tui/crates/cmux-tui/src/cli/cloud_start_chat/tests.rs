@@ -1403,7 +1403,7 @@ fn every_step_fits_in_one_timeout_from_the_start() {
     answers.extend((0..8).map(|_| exec_out(running)));
     let mut fake = Fake::new(answers);
     fake.costs.push(("new-machine", Duration::from_secs(30)));
-    let asked = request(&["--prompt", "x", "--environment", "env_1", "--wait", "--timeout", "80"]);
+    let asked = request(&["--prompt", "x", "--environment", "env_1", "--wait", "--timeout", "75"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3));
     assert_eq!(relay_calls(&fake.ran), 1);
@@ -1884,7 +1884,6 @@ fn a_relay_login_refusal_is_the_answer_and_nothing_else_runs_or_sends() {
         ("cloud.relay.login_missing", 1),
         ("cloud.relay.login_declined", 1),
         ("cloud.relay.login_failed", 1),
-        ("cloud.relay.login_pending", 75),
         ("cloud.relay.login_account_changed", 1),
         ("cloud.relay.login_skipped", 1),
         ("cloud.relay.login_unverified", 1),
@@ -1907,6 +1906,57 @@ fn a_relay_login_refusal_is_the_answer_and_nothing_else_runs_or_sends() {
         assert_eq!(fake.ran.len(), 3, "{code}: ran after the refusal: {:?}", fake.ran);
         assert_eq!(fake.ran[2][1], "relay-chat");
     }
+}
+
+/// The app's answer while a fresh machine's link and login outlast its own wait for them: nothing sent.
+fn login_pending() -> Ran {
+    relayed(
+        json!({"error_code": "cloud.relay.login_pending", "error_message": "still getting your login",
+                   "delivered": false, "command": "cmux cloud start-chat --target machine:vm-1 --prompt hi --wait"}),
+    )
+}
+
+#[test]
+fn a_pending_relay_login_is_asked_again_in_the_same_run() {
+    // cmuxterm-hq goal cloud-instant-start: the login finishes on its own after the app's 15 s, so the same prompt (same
+    // prompt id) goes again at once, not as the caller's rerun after a pause and a second list.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        login_pending(),
+        relayed(json!({"session_id": "relay-1", "reply": "ok"})),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["session_id"], "relay-1");
+    assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
+    assert_eq!(fake.ran[2], fake.ran[3], "the same relay-chat, prompt id included");
+    assert_eq!(fake.paused, Duration::ZERO);
+}
+
+#[test]
+fn a_relay_login_still_pending_after_its_asks_or_its_time_is_the_rerun_answer() {
+    // At most RELAY_LOGIN_ASKS asks.
+    let mut answers = vec![signed_in(), made()];
+    answers.extend((0..RELAY_LOGIN_ASKS).map(|_| login_pending()));
+    let mut fake = Fake::new(answers);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "hi", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.relay.login_pending"), 75));
+    assert_eq!(fake.ran.len(), 2 + RELAY_LOGIN_ASKS as usize, "{:?}", fake.ran);
+    // Less than a whole answer window left after the first ask: no second one.
+    let mut fake = Fake::new(vec![signed_in(), made(), login_pending()]);
+    fake.costs.push(("relay-chat", Duration::from_secs(30)));
+    let Outcome::Failed { error, exit } =
+        run(&mut fake, &request(&["--prompt", "hi", "--wait", "--timeout", "75"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.relay.login_pending"), 75));
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
 }
 
 #[test]

@@ -39,6 +39,8 @@ use super::{GlobalArgs, OutputMode, UsageError};
 
 /// The longest the app's `cloud relay-chat` may take to answer: `action.run`'s result deadline.
 const RELAY_ANSWER_WINDOW: Duration = Duration::from_secs(40);
+/// How many times one start asks `cloud relay-chat` while the app answers that the machine's login is still on its way.
+const RELAY_LOGIN_ASKS: u32 = 4;
 /// The longest `--wait` takes by default, and at most.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(900);
 const MAX_TIMEOUT: Duration = Duration::from_secs(4 * 60 * 60);
@@ -1443,28 +1445,43 @@ fn relay_chat(
     // From here the prompt may reach the machine, until the relay says it did not.
     progress.machine = Some(Machine::Target(machine_id.clone()));
     progress.sending = true;
-    let relayed = match step_result(&runner.cmux(&args)) {
-        Ok(relayed) => relayed,
-        Err(error) if signed_out(&error) => return Relayed::Answered(app_failure(error)),
-        // An app without the action ran nothing.
-        Err(error) if lacks_action(&error) => {
-            progress.sending = false;
-            return Relayed::Fallback(Some(machine_id));
-        }
-        // Anything else (a broken connection, a late answer) may have reached the machine: sending it again could
-        // run it twice, so say so instead.
-        Err(error) => {
-            let message = at(&error, "message").as_str().unwrap_or("the relay chat failed");
-            return Relayed::Answered(failed(
-                "chat.relay_failed",
-                format!(
-                    "the relay chat failed, and the prompt may have reached the machine, so it was not sent again: \
-                     {message}. See its sessions with: cmux cloud exec --target machine:{machine_id} --command \
-                     '{GUEST_CMUX} acp ls'"
-                ),
-                json!({"machine_id": machine_id, "app": error}),
-                1,
-            ));
+    // A fresh machine's link and login can outlast the app's own wait for them (`loginWithin`, 15 s): it answers
+    // `cloud.relay.login_pending` with nothing sent and the login still running, so this asks again while the deadline
+    // leaves a whole answer window, at most RELAY_LOGIN_ASKS times, rather than handing the caller a rerun.
+    let mut asks = 0;
+    let relayed = loop {
+        asks += 1;
+        let relayed = match step_result(&runner.cmux(&args)) {
+            Ok(relayed) => relayed,
+            Err(error) if signed_out(&error) => return Relayed::Answered(app_failure(error)),
+            // An app without the action ran nothing.
+            Err(error) if lacks_action(&error) => {
+                progress.sending = false;
+                return Relayed::Fallback(Some(machine_id));
+            }
+            // Anything else (a broken connection, a late answer) may have reached the machine: sending it again could
+            // run it twice, so say so instead.
+            Err(error) => {
+                let message = at(&error, "message").as_str().unwrap_or("the relay chat failed");
+                return Relayed::Answered(failed(
+                    "chat.relay_failed",
+                    format!(
+                        "the relay chat failed, and the prompt may have reached the machine, so it was not sent again: \
+                         {message}. See its sessions with: cmux cloud exec --target machine:{machine_id} --command \
+                         '{GUEST_CMUX} acp ls'"
+                    ),
+                    json!({"machine_id": machine_id, "app": error}),
+                    1,
+                ));
+            }
+        };
+        let pending = at(&relayed, "delivered").as_bool() == Some(false)
+            && at(&relayed, "error_code").as_str() == Some("cloud.relay.login_pending");
+        if !pending
+            || asks >= RELAY_LOGIN_ASKS
+            || deadline.bound(runner, RELAY_ANSWER_WINDOW) < RELAY_ANSWER_WINDOW
+        {
+            break relayed;
         }
     };
     // The app gave the machine no usable login before the send (`cloud.relay.login_*`): the link path would only
