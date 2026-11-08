@@ -10,6 +10,7 @@ Local kit only (never pushed).
 
   gen_closevcurves.py --set V3:K2,V3:K6 [--tag f]
   gen_closevcurves.py --accept V1:K2,V3:K6 [--tag f]
+  gen_closevcurves.py --v6stack K2 --tag s
 """
 import argparse
 import json
@@ -86,6 +87,39 @@ def v6_films(curve, tag, view, layouts):
     return steps, index
 
 
+def v6_stack_films(curve, tag, view):
+    """m67 V6 stacked closes: a stack of nvim, three zsh panes and Claude Code. RS3: the three zsh panes closed in turn, one
+    film each (a, b, c), so nvim and Claude Code grow three times. RQ3: a new stack, three Cmd-W 70 ms apart in one film
+    (the focus starts on the middle zsh pane); each fading picture keeps its own progress."""
+    steps, index = [], []
+    pv, kind = ("v" if view else "m"), ("view" if view else "meas")
+    def stack(base, label):
+        t, c, x1, x2, x3 = (base + s for s in ("-t", "-c", "-x1", "-x2", "-x3"))
+        s = (CL.new_ws(t, "nvim", label) + CL.split(t, "splitDown", c, "claude") + CL.split(t, "splitDown", x1, "zsh")
+             + CL.split(x1, "splitDown", x2, "zsh") + CL.split(x2, "splitDown", x3, "zsh"))
+        return s, t, c, (x1, x2, x3)
+    base = f"{pv}-v6{curve.lower()}-rs3"
+    s, t, c, xs = stack(base, f"V6 {curve} RS3")
+    steps += s
+    for n, x in zip("abc", xs):
+        name = f"cf-v6-{curve.lower()}-rs3{n}-nvim-claude-{kind}"
+        steps += CL.film(name, x, (t, c)) + [read(name)]
+        index.append({"film": name, "scenario": f"RS3{n}", "program": "nvim-claude", "mode": "ALT+MAIN", "variant": "V6", "ms": 0,
+                      "curve": "named", "curve_id": curve, "journey": tag,
+                      "label": f"V6 {curve} {LABELS[curve]} | RS3 close {'123'['abc'.index(n)]} of 3 nvim-claude"})
+    base = f"{pv}-v6{curve.lower()}-rq3"
+    s, t, c, xs = stack(base, f"V6 {curve} RQ3")
+    name = f"cf-v6-{curve.lower()}-rq3-nvim-claude-{kind}"
+    film = CL.film(name, xs[1], (t, c))
+    for st in film:
+        if st.get("do") == "cp_close":
+            st.update({"repeat_after": [0.07, 0.07], "rest": 1.4, "title": f"3 x Cmd-W, 70 ms apart ({name})"})
+    steps += s + film + [read(name)]
+    index.append({"film": name, "scenario": "RQ3", "program": "nvim-claude", "mode": "ALT+MAIN", "variant": "V6", "ms": 0,
+                  "curve": "named", "curve_id": curve, "journey": tag, "label": f"V6 {curve} {LABELS[curve]} | RQ3 3 fast closes nvim-claude"})
+    return steps, index
+
+
 def journey(jid, variant, curve, title, v_parts, m_parts, view_only=False):
     select = {"do": "rpc", "method": "debug.frames", "params": {"action": f"close_variant {variant} {curve}"},
               "title": f"film selector: {variant} on {curve}", "required": True}
@@ -114,6 +148,7 @@ def main():
     ap.add_argument("--tag", default="f")
     ap.add_argument("--v6", default="", help="curves for V6 (m67): CUR,K2,K6,K8")
     ap.add_argument("--layouts", default="S1,R2,R3,G4")
+    ap.add_argument("--v6stack", default="", help="curves for V6 RS3 + RQ3 (m67): K2")
     o = ap.parse_args()
     view_idx, meas_idx = [], []
     pairs = [x.split(":") for x in (o.accept or o.set).split(",") if x]
@@ -124,6 +159,17 @@ def main():
             jid = f"cv-{o.tag}-v6-{curve.lower()}-{kind}"
             part = v6_films(curve, jid, kind == "view", lays)
             spec, _ = journey(jid, "V6", curve, f"CLOSE VARIANTS 2 m67: V6 grow + fade on {curve}, {'/'.join(lays)}, {kind.upper()}",
+                              None, part, view_only=kind == "view")
+            with open(os.path.join(o.out, f"{jid}.json"), "w") as fh:
+                json.dump(spec, fh, indent=1)
+                fh.write("\n")
+            (view_idx if kind == "view" else meas_idx).extend(part[1])
+            print(jid, spec["recordings"])
+    for curve in [c for c in o.v6stack.split(",") if c]:
+        for kind in ("view", "meas"):
+            jid = f"cv-{o.tag}-v6s-{curve.lower()}-{kind}"
+            part = v6_stack_films(curve, jid, kind == "view")
+            spec, _ = journey(jid, "V6", curve, f"CLOSE VARIANTS 3 m67: V6 RS3 (3 closes in turn) + RQ3 (3 fast closes) on {curve}, {kind.upper()}",
                               None, part, view_only=kind == "view")
             with open(os.path.join(o.out, f"{jid}.json"), "w") as fh:
                 json.dump(spec, fh, indent=1)

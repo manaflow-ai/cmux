@@ -4,12 +4,13 @@ how can we optimize this"). The cases are video-cases/gen_closeperf.py. Local ki
 driver.py loads this file (load_extensions) on the mini, under /usr/bin/python3 (3.9, standard library only).
 
 Steps (`do`):
-  cp_close {film, i, key?: "w", modifiers?: ["cmd"], rest?: 1.2}
+  cp_close {film, i, key?: "w", modifiers?: ["cmd"], rest?: 1.2, repeat_after?: [seconds, ...]}
       One timed close inside a running recording (video_start): debug.frames start (it clears), debug.motion start
       (spans, work per frame: ca.commit, presentation.frame, split.layout ...), debug.terminal_final_grid start, the real
       key (ext_video hid_key: the CuaDriver HID path; the time base is the app's own key-down, not the send), REST
       seconds, then debug.frames stop raw, debug.motion stop, debug.terminal_final_grid stop and debug.action_budget's
       newest runs. All of it goes to <video>/<film>.close<NN>.json (fetched with the movies); the input journal is kept.
+      REPEAT_AFTER presses the same key again after each gap, inside the same record (fast closes, RQ3).
   cp_click_close {film, i, pane, rest?: 1.4}
       The same record for a mouse close of named pane PANE (not focused): debug.mouse hover over its tab's x (the x of
       a tab shows on hover only), a check that the strip shows the x (debug.surfaces close_shown), then one REAL click
@@ -77,8 +78,13 @@ def step_cp_close(j, step):
     seq0 = _start(j)
     t_host0 = time.monotonic()
     pressed = V.step_hid_key(j, {"key": key, "modifiers": mods, "mark": f"close.{i}"})
-    time.sleep(float(step.get("rest", 1.2)))
-    return _stop(j, film, i, seq0, t_host0, pressed, {"key": key, "modifiers": mods})
+    rest, more = float(step.get("rest", 1.2)), []
+    for k, gap in enumerate(step.get("repeat_after") or []):  # RQ3: more presses of the key inside this one record
+        time.sleep(float(gap))
+        rest -= float(gap)
+        more.append(V.step_hid_key(j, {"key": key, "modifiers": mods, "mark": f"close.{i}.{k + 1}"}))
+    time.sleep(max(0.0, rest))
+    return _stop(j, film, i, seq0, t_host0, pressed, {"key": key, "modifiers": mods, "repeats": more})
 
 
 def _close_point(j, pane):
