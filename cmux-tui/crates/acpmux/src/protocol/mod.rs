@@ -223,6 +223,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SUBSESSION_SEND, Request),
         untyped(method::MUX_SUBSESSION_START, Request),
         untyped(method::MUX_SUBSESSION_STOP, Request),
+        // Model races (`server/races.rs`).
+        untyped(method::MUX_RACE_CANCEL, Request),
+        untyped(method::MUX_RACE_GET, Request),
+        untyped(method::MUX_RACE_LIST, Request),
+        untyped(method::MUX_RACE_START, Request),
+        untyped(method::MUX_RACE_STATS, Request),
         // Forum announcements (`server/forum.rs`).
         untyped(method::MUX_FORUM_ACK, Request),
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
