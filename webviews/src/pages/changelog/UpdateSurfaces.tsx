@@ -151,6 +151,14 @@ function PopoverTitle({ id, version, strings }: { id: string; version: string; s
   );
 }
 
+/** `text` cut at each mark, the marks kept as parts of their own, in the order the text has them. */
+function splitAtMarks(text: string, marks: string[]): string[] {
+  return marks.reduce<string[]>(
+    (parts, mark) => parts.flatMap((part) => part.split(mark).flatMap((piece, i) => (i ? [mark, piece] : [piece]))),
+    [text],
+  );
+}
+
 /** The popover's one heading line, version to version (Leo 2026-11-05: "this is too big"):
  * "nightly 4210546 → nightly 4212118", the version it updates to in the text color, a click on it
  * copying the full build. With no other version known it says "What's new in nightly 4212118". */
@@ -167,7 +175,7 @@ function PopoverHead({
 }) {
   const [copied, setCopied] = useState(false);
   if (!from) return <PopoverTitle id={id} version={version} strings={strings} />;
-  const parts = strings.format("updates.popover.span", "\u0000", "\u0001").split(/(\u0000|\u0001)/u);
+  const parts = splitAtMarks(strings.format("updates.popover.span", "\u0000", "\u0001"), ["\u0000", "\u0001"]);
   return (
     <div className="wn-pop-title wn-pop-span" id={id}>
       {parts.map((part, index) =>
@@ -697,6 +705,7 @@ export function UpdateReadyHighlights({
         className="wn-pop-scroll"
         ref={scrollerRef}
         // Arrow keys, Page Up/Down, Home and End scroll the list once it has the focus.
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the scroll list to read it with the keys.
         tabIndex={0}
         aria-labelledby={titleId}
         {...{ [CARD_SCROLL_ATTRIBUTE]: "" }}
