@@ -597,3 +597,84 @@ fn stop_during_a_restore_past_its_wait_says_why() {
     assert_eq!(ensured["status"], "started", "{ensured}");
     assert_eq!(ensured["pid"].as_u64(), Some(u64::from(pid)), "{ensured}");
 }
+
+/// Ends every terminal of the fixture's session when dropped, however the
+/// test ends: a terminal host outlives a plain `server stop`.
+struct EndTerminals<'a>(&'a EnsureFixture);
+
+impl Drop for EndTerminals<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.command("stop").arg("--end-terminals").output();
+    }
+}
+
+impl EnsureFixture {
+    /// `cmux --json <args>` against this fixture's owner; the JSON result.
+    fn cli(&self, args: &[&str]) -> serde_json::Value {
+        let output = Command::new(bin())
+            .args(["--json", "--session", &self.session, "--socket"])
+            .arg(&self.socket)
+            .args(args)
+            .env("CMUX_TUI_STATE_DIR", self.dir.join("state"))
+            .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .env_remove("CMUX_TUI_SESSION_ID")
+            .output()
+            .unwrap();
+        parse_success(&args.join(" "), &output)
+    }
+}
+
+/// W5-O (bench round 4, friction 1): an owner that a client starts (`server
+/// ensure` with no `--terminal-reap-grace-seconds`, as `cmux` and `cmux-tui`
+/// start one when none runs) ran no reaper, so a terminal whose tab closed
+/// kept its shell until the session ended (five seen after more than 8 min).
+/// It reaps with the default grace (30 s), as the app's owner does.
+#[test]
+fn w5o_an_owner_a_client_starts_reaps_a_terminal_whose_tab_closed() {
+    let fixture = EnsureFixture::new("w5o-reap");
+    let started = fixture.run("ensure");
+    assert_eq!(started["status"], "started", "{started}");
+    let _end = EndTerminals(&fixture);
+
+    let identify =
+        fixture.cli(&["raw", "command", "--request-json", r#"{"id":"who","cmd":"identify"}"#]);
+    assert!(
+        identify["capabilities"]
+            .as_array()
+            .is_some_and(|all| all.iter().any(|value| value == "terminal-reaper-active-v1")),
+        "an owner a client starts runs no reaper: {identify}"
+    );
+
+    let created = fixture.cli(&["tab", "create", "terminal"]);
+    let field = |name: &str| {
+        created
+            .pointer(&format!("/value/{name}"))
+            .or_else(|| created.get(name))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("no {name} in {created}"))
+            .to_owned()
+    };
+    let (tab, terminal) = (field("tab_id"), field("terminal_id"));
+    fixture.cli(&["tab", &tab, "close"]);
+
+    // The default grace is 30 s; the reaper ends the terminal soon after.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let listed = fixture.cli(&["terminal", "list"]);
+        let running = listed
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|record| record["id"] == terminal.as_str() && record["lifecycle"] != "exited");
+        if !running {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "terminal {terminal} still runs with no tab 60 s after its tab closed: {listed}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+}
