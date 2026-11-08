@@ -357,10 +357,18 @@ INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh -
 ONE_MINI_TIMEOUT = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && \d+ \|\| (\d+) \}\}")
 
 
+# One-mini mode first, then the job's own limit: `${{ vars.CI_NIGHTLY_MINI != '' && <cond> && N || <mode off> }}`
+# (republish-nightly-deltas: the capacity wait on nightly-next only, then its by-track limit).
+ONE_MINI_THEN = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && [^|]+ && \d+ \|\| (.+) \}\}")
+
+
 def mode_off_timeout(value: object) -> str:
     """A timeout-minutes value with one-mini mode off."""
     one_mini = ONE_MINI_TIMEOUT.fullmatch(str(value))
-    return one_mini.group(1) if one_mini else str(value)
+    if one_mini:
+        return one_mini.group(1)
+    then = ONE_MINI_THEN.fullmatch(str(value))
+    return f"${{{{ {then.group(1)} }}}}" if then else str(value)
 
 
 # A job timeout that differs on nightly-next: `${{ ... track == 'nightly-next' && NEXT || OTHER }}`.

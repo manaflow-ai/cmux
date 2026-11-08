@@ -258603,7 +258603,251 @@
     "testTampering.restoring": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ الاستعادة…"}},"bs":{"stringUnit":{"state":"translated","value":"Vraćanje…"}},"da":{"stringUnit":{"state":"translated","value":"Gendanner…"}},"de":{"stringUnit":{"state":"translated","value":"Wird wiederhergestellt…"}},"en":{"stringUnit":{"state":"translated","value":"Restoring…"}},"es":{"stringUnit":{"state":"translated","value":"Restaurando…"}},"fr":{"stringUnit":{"state":"translated","value":"Restauration…"}},"it":{"stringUnit":{"state":"translated","value":"Ripristino…"}},"ja":{"stringUnit":{"state":"translated","value":"復元中…"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងស្ដារឡើងវិញ…"}},"ko":{"stringUnit":{"state":"translated","value":"복원 중…"}},"nb":{"stringUnit":{"state":"translated","value":"Gjenoppretter…"}},"pl":{"stringUnit":{"state":"translated","value":"Przywracanie…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Restaurando…"}},"ru":{"stringUnit":{"state":"translated","value":"Восстановление…"}},"th":{"stringUnit":{"state":"translated","value":"กำลังคืนค่า…"}},"tr":{"stringUnit":{"state":"translated","value":"Geri yükleniyor…"}},"uk":{"stringUnit":{"state":"translated","value":"Відновлення…"}},"vi":{"stringUnit":{"state":"translated","value":"Đang khôi phục…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在恢复…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在還原…"}}},"comment":"Agent pane: test-tampering alarm disclosure and actions."},
     "testTampering.retryRestore": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"إعادة محاولة الاستعادة"}},"bs":{"stringUnit":{"state":"translated","value":"Pokušaj ponovo vratiti"}},"da":{"stringUnit":{"state":"translated","value":"Prøv at gendanne igen"}},"de":{"stringUnit":{"state":"translated","value":"Wiederherstellung erneut versuchen"}},"en":{"stringUnit":{"state":"translated","value":"Retry restore"}},"es":{"stringUnit":{"state":"translated","value":"Reintentar restauración"}},"fr":{"stringUnit":{"state":"translated","value":"Réessayer la restauration"}},"it":{"stringUnit":{"state":"translated","value":"Riprova il ripristino"}},"ja":{"stringUnit":{"state":"translated","value":"復元を再試行"}},"km":{"stringUnit":{"state":"translated","value":"ព្យាយាមស្ដារឡើងវិញម្ដងទៀត"}},"ko":{"stringUnit":{"state":"translated","value":"복원 재시도"}},"nb":{"stringUnit":{"state":"translated","value":"Prøv gjenoppretting igjen"}},"pl":{"stringUnit":{"state":"translated","value":"Ponów przywracanie"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Tentar restaurar novamente"}},"ru":{"stringUnit":{"state":"translated","value":"Повторить восстановление"}},"th":{"stringUnit":{"state":"translated","value":"ลองคืนค่าอีกครั้ง"}},"tr":{"stringUnit":{"state":"translated","value":"Geri yüklemeyi yeniden dene"}},"uk":{"stringUnit":{"state":"translated","value":"Повторити відновлення"}},"vi":{"stringUnit":{"state":"translated","value":"Thử khôi phục lại"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"重试恢复"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"重試還原"}}},"comment":"Agent pane: test-tampering alarm disclosure and actions."},
     "testTampering.sending": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ الإرسال…"}},"bs":{"stringUnit":{"state":"translated","value":"Slanje…"}},"da":{"stringUnit":{"state":"translated","value":"Sender…"}},"de":{"stringUnit":{"state":"translated","value":"Wird gesendet…"}},"en":{"stringUnit":{"state":"translated","value":"Sending…"}},"es":{"stringUnit":{"state":"translated","value":"Enviando…"}},"fr":{"stringUnit":{"state":"translated","value":"Envoi…"}},"it":{"stringUnit":{"state":"translated","value":"Invio…"}},"ja":{"stringUnit":{"state":"translated","value":"送信中…"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងផ្ញើ…"}},"ko":{"stringUnit":{"state":"translated","value":"보내는 중…"}},"nb":{"stringUnit":{"state":"translated","value":"Sender…"}},"pl":{"stringUnit":{"state":"translated","value":"Wysyłanie…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Enviando…"}},"ru":{"stringUnit":{"state":"translated","value":"Отправка…"}},"th":{"stringUnit":{"state":"translated","value":"กำลังส่ง…"}},"tr":{"stringUnit":{"state":"translated","value":"Gönderiliyor…"}},"uk":{"stringUnit":{"state":"translated","value":"Надсилання…"}},"vi":{"stringUnit":{"state":"translated","value":"Đang gửi…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在发送…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在傳送…"}}},"comment":"Agent pane: test-tampering alarm disclosure and actions."},
-    "testTampering.title": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تحتاج تغييرات الاختبار إلى مراجعة"}},"bs":{"stringUnit":{"state":"translated","value":"Promjene testova treba pregledati"}},"da":{"stringUnit":{"state":"translated","value":"Testændringer skal gennemgås"}},"de":{"stringUnit":{"state":"translated","value":"Teständerungen müssen überprüft werden"}},"en":{"stringUnit":{"state":"translated","value":"Test changes need review"}},"es":{"stringUnit":{"state":"translated","value":"Los cambios de prueba requieren revisión"}},"fr":{"stringUnit":{"state":"translated","value":"Les changements de test doivent être vérifiés"}},"it":{"stringUnit":{"state":"translated","value":"Le modifiche ai test richiedono una revisione"}},"ja":{"stringUnit":{"state":"translated","value":"テストの変更を確認してください"}},"km":{"stringUnit":{"state":"translated","value":"ការផ្លាស់ប្តូរការធ្វើតេស្តត្រូវការការពិនិត្យ"}},"ko":{"stringUnit":{"state":"translated","value":"테스트 변경을 검토해야 합니다"}},"nb":{"stringUnit":{"state":"translated","value":"Testendringer må gjennomgås"}},"pl":{"stringUnit":{"state":"translated","value":"Zmiany testów wymagają sprawdzenia"}},"pt-BR":{"stringUnit":{"state":"translated","value":"As alterações de teste precisam ser revisadas"}},"ru":{"stringUnit":{"state":"translated","value":"Изменения тестов требуют проверки"}},"th":{"stringUnit":{"state":"translated","value":"การเปลี่ยนแปลงการทดสอบต้องได้รับการตรวจสอบ"}},"tr":{"stringUnit":{"state":"translated","value":"Test değişiklikleri incelenmeli"}},"uk":{"stringUnit":{"state":"translated","value":"Зміни тестів потребують перевірки"}},"vi":{"stringUnit":{"state":"translated","value":"Các thay đổi kiểm thử cần được xem xét"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"测试更改需要审核"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"測試變更需要審查"}}},"comment":"Agent pane: test-tampering alarm disclosure and actions."}
+    "testTampering.title": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تحتاج تغييرات الاختبار إلى مراجعة"}},"bs":{"stringUnit":{"state":"translated","value":"Promjene testova treba pregledati"}},"da":{"stringUnit":{"state":"translated","value":"Testændringer skal gennemgås"}},"de":{"stringUnit":{"state":"translated","value":"Teständerungen müssen überprüft werden"}},"en":{"stringUnit":{"state":"translated","value":"Test changes need review"}},"es":{"stringUnit":{"state":"translated","value":"Los cambios de prueba requieren revisión"}},"fr":{"stringUnit":{"state":"translated","value":"Les changements de test doivent être vérifiés"}},"it":{"stringUnit":{"state":"translated","value":"Le modifiche ai test richiedono una revisione"}},"ja":{"stringUnit":{"state":"translated","value":"テストの変更を確認してください"}},"km":{"stringUnit":{"state":"translated","value":"ការផ្លាស់ប្តូរការធ្វើតេស្តត្រូវការការពិនិត្យ"}},"ko":{"stringUnit":{"state":"translated","value":"테스트 변경을 검토해야 합니다"}},"nb":{"stringUnit":{"state":"translated","value":"Testendringer må gjennomgås"}},"pl":{"stringUnit":{"state":"translated","value":"Zmiany testów wymagają sprawdzenia"}},"pt-BR":{"stringUnit":{"state":"translated","value":"As alterações de teste precisam ser revisadas"}},"ru":{"stringUnit":{"state":"translated","value":"Изменения тестов требуют проверки"}},"th":{"stringUnit":{"state":"translated","value":"การเปลี่ยนแปลงการทดสอบต้องได้รับการตรวจสอบ"}},"tr":{"stringUnit":{"state":"translated","value":"Test değişiklikleri incelenmeli"}},"uk":{"stringUnit":{"state":"translated","value":"Зміни тестів потребують перевірки"}},"vi":{"stringUnit":{"state":"translated","value":"Các thay đổi kiểm thử cần được xem xét"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"测试更改需要审核"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"測試變更需要審查"}}},"comment":"Agent pane: test-tampering alarm disclosure and actions."},
+    "stuck.title": {"comment":"Agent pane: calm warning title when an agent appears stuck or silent","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Agent may be stuck"}},"ar":{"stringUnit":{"state":"translated","value":"قد يكون الوكيل عالقًا"}},"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent je možda zapeo"
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten er muligvis gået i stå"
+          }
+        },"de":{"stringUnit":{"state":"translated","value":"Der Agent steckt möglicherweise fest"}},"es":{"stringUnit":{"state":"translated","value":"Es posible que el agente esté atascado"}},"fr":{"stringUnit":{"state":"translated","value":"L’agent semble bloqué"}},"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agente potrebbe essere bloccato"
+          }
+        },"ja":{"stringUnit":{"state":"translated","value":"エージェントが行き詰まっている可能性があります"}},"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារអាចកំពុងជាប់គាំង"
+          }
+        },"ko":{"stringUnit":{"state":"translated","value":"에이전트가 멈춘 것 같습니다"}},"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten kan ha stoppet opp"
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent mógł utknąć"
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "O agente pode estar travado"
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент, возможно, застрял"
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์อาจติดขัด"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı takılmış olabilir"
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент, можливо, застряг"
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân có thể bị kẹt"
+          }
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"智能体可能遇到阻碍"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"代理可能遇到阻礙"}}}},
+    "stuck.nudge": {"comment":"Agent pane: button to prefill an editable hint, without sending it","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Nudge with hint"}},"ar":{"stringUnit":{"state":"translated","value":"تنبيه مع تلميح"}},"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potakni uz savjet"
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giv et hint"
+          }
+        },"de":{"stringUnit":{"state":"translated","value":"Mit Hinweis anstoßen"}},"es":{"stringUnit":{"state":"translated","value":"Dar una pista"}},"fr":{"stringUnit":{"state":"translated","value":"Donner un indice"}},"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggerisci un indizio"
+          }
+        },"ja":{"stringUnit":{"state":"translated","value":"ヒントを送る"}},"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ដល់តម្រុយ"
+          }
+        },"ko":{"stringUnit":{"state":"translated","value":"힌트로 도와주기"}},"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gi et hint"
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podsuń wskazówkę"
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dar uma dica"
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подсказать"
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งคำใบ้"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "İpucuyla yönlendir"
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дати підказку"
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gợi ý"
+          }
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"提供提示"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"提供提示"}}}},
+    "stuck.silentDiagnosis": {"comment":"Agent pane: attention diagnosis for a silent agent turn","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No response from the agent for a while"}},"ar":{"stringUnit":{"state":"translated","value":"لم يستجب الوكيل منذ فترة"}},"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent se već neko vrijeme ne javlja"
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten har ikke svaret i et stykke tid"
+          }
+        },"de":{"stringUnit":{"state":"translated","value":"Der Agent hat seit einiger Zeit nicht geantwortet"}},"es":{"stringUnit":{"state":"translated","value":"El agente lleva un rato sin responder"}},"fr":{"stringUnit":{"state":"translated","value":"L’agent ne répond plus depuis un moment"}},"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agente non risponde da un po’"
+          }
+        },"ja":{"stringUnit":{"state":"translated","value":"しばらくエージェントから応答がありません"}},"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារមិនបានឆ្លើយតបមួយរយៈហើយ"
+          }
+        },"ko":{"stringUnit":{"state":"translated","value":"에이전트가 한동안 응답하지 않았습니다"}},"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten har ikke svart på en stund"
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent od pewnego czasu nie odpowiada"
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "O agente não responde há algum tempo"
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент давно не отвечает"
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ไม่ตอบสนองมาสักพัก"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı bir süredir yanıt vermiyor"
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент уже деякий час не відповідає"
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân đã không phản hồi một lúc"
+          }
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"智能体已有一段时间没有响应"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"代理已有一段時間沒有回應"}}}},
+    "stuck.nudgePrompt": {"comment":"Agent pane: editable prompt prefilled with the stuck diagnosis; {diagnosis} is the observed problem","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The agent may be stuck: {diagnosis}. Please try a different approach."}},"ar":{"stringUnit":{"state":"translated","value":"قد تكون عالقًا: {diagnosis}. جرّب نهجًا مختلفًا."}},"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Možda si zapeo: {diagnosis}. Pokušaj drukčiji pristup."
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du er muligvis gået i stå: {diagnosis}. Prøv en anden tilgang."
+          }
+        },"de":{"stringUnit":{"state":"translated","value":"Du steckst möglicherweise fest: {diagnosis}. Versuche einen anderen Ansatz."}},"es":{"stringUnit":{"state":"translated","value":"Es posible que estés atascado: {diagnosis}. Prueba otro enfoque."}},"fr":{"stringUnit":{"state":"translated","value":"Tu sembles bloqué : {diagnosis}. Essaie une autre approche."}},"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potresti essere bloccato: {diagnosis}. Prova un altro approccio."
+          }
+        },"ja":{"stringUnit":{"state":"translated","value":"行き詰まっている可能性があります: {diagnosis}。別の方法を試してください。"}},"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកអាចកំពុងជាប់គាំង៖ {diagnosis}។ សូមសាកល្បងវិធីផ្សេង។"
+          }
+        },"ko":{"stringUnit":{"state":"translated","value":"막혔을 수 있습니다: {diagnosis}. 다른 방법을 시도해 주세요."}},"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du kan ha stoppet opp: {diagnosis}. Prøv en annen fremgangsmåte."
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Możesz mieć problem: {diagnosis}. Spróbuj innego podejścia."
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você pode estar travado: {diagnosis}. Tente outra abordagem."
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Похоже, вы застряли: {diagnosis}. Попробуйте другой подход."
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "คุณอาจติดขัด: {diagnosis} ลองวิธีอื่น"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Takılmış olabilirsin: {diagnosis}. Farklı bir yaklaşım dene."
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Схоже, ти застряг: {diagnosis}. Спробуй інший підхід."
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bạn có thể bị kẹt: {diagnosis}. Hãy thử cách khác."
+          }
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"你可能遇到阻碍：{diagnosis}。请尝试其他方法。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你可能遇到阻礙：{diagnosis}。請嘗試其他方法。"}}}}
   },
   "version": "1.0"
 }

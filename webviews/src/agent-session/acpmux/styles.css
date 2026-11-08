@@ -789,6 +789,21 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-card-copy strong{font-size:var(--text-heading);line-height:var(--text-heading--line-height);font-weight:650;letter-spacing:var(--text-heading--letter-spacing)}
 .acpmux-chief-card-copy small{color:color-mix(in srgb,var(--agent-text) 68%,var(--agent-muted));font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-chief-card-queue{flex:none;min-width:17px;height:17px;padding:0 4px;border-radius:6px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:17px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-stuck-banner{display:flex;align-items:center;gap:var(--ds-space-2);box-sizing:border-box;min-height:var(--ds-space-40);margin:0 var(--ds-space-3) var(--ds-space-2);padding:var(--ds-space-2) var(--ds-space-3);border:1px solid color-mix(in srgb,var(--agent-warning) 42%,transparent);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-warning) 8%,var(--agent-page-bg));color:var(--agent-text)}
+/* The attention appears over the transcript, outside the measured bottom stack. The composer and
+   its draft stay at the same position when an episode starts or clears. */
+.acpmux-main > .acpmux-dock > .acpmux-stuck-banner{position:absolute;z-index:var(--layer-raised,1);right:var(--cv-inset-end,var(--cv-inset));bottom:calc(100% + 8px);left:var(--cv-inset);margin:0}
+.acpmux-main:not([data-dock=float]) > .acpmux-dock > .acpmux-stuck-banner{top:calc(var(--ds-space-48) + var(--ds-space-1));bottom:auto}
+.acpmux-main[data-stuck]::after,.acpmux-shell[data-surface=quick][data-stuck]::after{content:"";position:absolute;inset:var(--cmux-hairline);z-index:var(--layer-raised,1);pointer-events:none;border:2px solid color-mix(in srgb,var(--agent-warning) 76%,transparent);border-radius:var(--ds-radius-control)}
+.acpmux-dock > .acpmux-stuck-banner{animation:none}
+.acpmux-quick > .acpmux-stuck-banner{position:absolute;z-index:var(--layer-raised,1);top:var(--ds-space-48);right:8px;left:8px;margin:0}
+.acpmux-stuck-ring{width:var(--ds-icon-12);height:var(--ds-icon-12);flex:none;border:2px solid var(--agent-warning);border-radius:50%;box-shadow:0 0 0 3px color-mix(in srgb,var(--agent-warning) 16%,transparent)}
+.acpmux-stuck-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:0;overflow:hidden}
+.acpmux-stuck-copy strong{font-size:var(--text-control);line-height:var(--text-control--line-height)}
+.acpmux-stuck-copy span{overflow:hidden;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);text-overflow:ellipsis;white-space:nowrap}
+.acpmux-stuck-nudge{flex:none;padding:var(--ds-space-1) var(--ds-space-2);border:1px solid color-mix(in srgb,var(--agent-warning) 54%,transparent);border-radius:var(--ds-radius-control);background:transparent;color:var(--agent-text);font:inherit;font-size:var(--text-caption);cursor:default}
+.acpmux-stuck-nudge:hover{background:color-mix(in srgb,var(--agent-warning) 16%,transparent)}
+@media (prefers-reduced-motion:reduce){.acpmux-stuck-ring{box-shadow:none}}
 .acpmux-chief-dock-status{flex:none;display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;color:var(--agent-muted)}
 .acpmux-chief-dock-status[data-status=streaming]{color:var(--agent-accent)}
 .acpmux-chief-dock-status[data-status=attention]{color:var(--acpmux-needs-you-mark)}
