@@ -3051,6 +3051,9 @@ mod rows_tests;
 #[path = "server/column_left_tests.rs"]
 mod column_left_tests;
 #[cfg(test)]
+#[path = "server/split_before_tests.rs"]
+mod split_before_tests;
+#[cfg(test)]
 #[path = "server/column_move_tests.rs"]
 mod column_move_tests;
 
