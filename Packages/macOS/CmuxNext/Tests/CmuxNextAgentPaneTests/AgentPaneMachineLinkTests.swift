@@ -12,10 +12,7 @@ struct AgentPaneMachineLinkTests {
     @Test func thePaneEventCarriesTheWord() {
         let state = AgentPaneMachineLink.State(machine: "m-1", link: "connecting", words: "Reconnecting…")
         #expect(AgentPaneMachineLink.event(state).kind == "machineLink")
-        #expect(AgentPaneMachineLink.event(state).value == ["machine": "m-1", "name": "m-1", "link": "connecting", "words": "Reconnecting…"])
-        // The row writes the header's name, never the registry id (an SSH machine's is `ssh-<hash>`).
-        let named = AgentPaneMachineLink.State(machine: "ssh-3f2a", name: "walk-remote", link: "offline", words: "Offline")
-        #expect(AgentPaneMachineLink.event(named).value == ["machine": "ssh-3f2a", "name": "walk-remote", "link": "offline", "words": "Offline"])
+        #expect(AgentPaneMachineLink.event(state).value == ["machine": "m-1", "link": "connecting", "words": "Reconnecting…"])
         #expect(AgentPaneMachineLink.event(nil).value == .null, "a chat on this Mac has no machine dot")
     }
 

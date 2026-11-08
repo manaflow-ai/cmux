@@ -16,23 +16,22 @@
 // only when there is something to read) and the right sidebar's machine rows (design/machines-section.md:
 // a connected machine needs no word; a spinner while connecting; the word once the link is down).
 import { componentEntry } from "../../gallery/format";
-import type { PaneLink } from "./machineLink";
+import type { PeerLink } from "./peerLink";
 import { MachineLinkStatus, type MachineLinkLook } from "./MachineLinkStatus";
 
 type Props = {
-  link: PaneLink | null;
+  link: PeerLink | null;
   look?: MachineLinkLook;
   /// The row as it was: the model chip's "Unavailable" and no link.
   before?: boolean;
 };
 
 const MACHINE = "walk-remote";
-const connected: PaneLink = { machine: MACHINE, link: "connected", source: "peer" };
-const connecting: PaneLink = { machine: MACHINE, link: "connecting", source: "peer" };
-const reconnecting: PaneLink = { machine: MACHINE, link: "connecting", reconnecting: true, source: "peer" };
-const offline: PaneLink = { machine: MACHINE, link: "offline", source: "peer" };
-const paused: PaneLink = { machine: "dev-vm-2", link: "paused", words: "Paused", source: "app" };
-const longName: PaneLink = { machine: "gcp-codex-lane-12-us-central1-a", link: "offline", source: "peer" };
+const connected: PeerLink = { machine: MACHINE, link: "connected" };
+const connecting: PeerLink = { machine: MACHINE, link: "connecting" };
+const reconnecting: PeerLink = { machine: MACHINE, link: "connecting", reconnecting: true };
+const offline: PeerLink = { machine: MACHINE, link: "offline" };
+const longName: PeerLink = { machine: "gcp-codex-lane-12-us-central1-a", link: "offline" };
 
 function Row({ link, look, before = false }: Props) {
   return (
@@ -74,10 +73,6 @@ for (const look of looks)
       note: `${look === "named" ? "Shipped" : "Alternate"} look \`${look}\`, ${state}.`,
       props: { link, look },
     };
-variants["named-paused"] = {
-  note: "A Cloud machine the app keeps, paused: the app's own word.",
-  props: { link: paused },
-};
 variants["named-long-name"] = {
   note: "A long machine name cuts at its end; the state and Reconnect stay whole.",
   props: { link: longName },

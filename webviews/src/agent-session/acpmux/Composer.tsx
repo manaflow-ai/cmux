@@ -146,7 +146,7 @@ import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { MachineLinkStatus } from "./MachineLinkStatus";
-import { paneLink, useMachineLink, type PaneLink } from "./machineLink";
+import { peerLink, type PeerLink } from "./peerLink";
 import { noteSendOrigins } from "./conversation/sendMorph";
 import {
   emojiMatches,
@@ -471,9 +471,9 @@ type Props = {
   authChecking?: boolean;
   /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
-  /// Reconnects the machine a chat on another machine runs on, from the quiet row's link
-  /// (MachineLinkStatus.tsx): the app's machine or acpmux's peer, as `link.source` says.
-  onReconnectMachine?(link: PaneLink): Promise<unknown> | void;
+  /// Reconnects the acpmux peer a chat on another machine runs on, from the quiet row's link
+  /// (MachineLinkStatus.tsx).
+  onReconnectMachine?(link: PeerLink): Promise<unknown> | void;
 };
 
 /// The composer, drawn again only when a prop it is handed changes: its event handlers hold their
@@ -567,9 +567,9 @@ function ComposerFrame({
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
-  // The chat's machine link for the quiet row: the app's push for a machine it keeps, else the
-  // acpmux peer's state; null for a chat on this Mac (machineLink.ts paneLink).
-  const machineLink = paneLink(useMachineLink(), snapshot);
+  // The chat's peer link for the quiet row, as acpmux reports it; null for a chat on this Mac
+  // (peerLink.ts).
+  const machineLink = peerLink(snapshot);
   const chrome = useComposerChrome();
   // Off (a queued row's ⋯ menu, queueing.ts), what is sent mid-turn steers on every key.
   const queueing = useQueueing();

@@ -53,12 +53,6 @@
 .acpmux-machine-link[data-link="offline"] .acpmux-machine-link-dot {
   background: var(--agent-danger, currentColor);
 }
-.acpmux-machine-link[data-link="attention"] .acpmux-machine-link-dot {
-  background: var(--agent-warning, currentColor);
-}
-.acpmux-machine-link[data-link="paused"] .acpmux-machine-link-dot {
-  background: var(--agent-muted);
-}
 .acpmux-machine-link-spinner {
   position: absolute;
   top: 50%;

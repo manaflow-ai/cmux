@@ -10054,13 +10054,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // attached) draws no new chat's folder and environment strip.
             chatKnown={paneKnowsNewChat({ handshaken, newSession }, composerSnapshot)}
             chips={ComposerChips}
-            // The quiet row's Reconnect: the app's machine header's own Reconnect for a machine it
-            // keeps (it resolves this tab's machine; the page never names one), else acpmux's peer.
-            onReconnectMachine={(link) =>
-              link.source === "app"
-                ? callNative("action.run", { id: "machine.reconnect" })
-                : reconnectPeer(link.machine)
-            }
+            // The quiet row's Reconnect asks acpmux to reconnect the chat's peer.
+            onReconnectMachine={(link) => reconnectPeer(link.machine)}
             // The context card's Details opens Session Info on Context, unfolded and lit (main's).
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
             draft={draft}

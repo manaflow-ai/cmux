@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Spinner } from "./conversation/icons";
 import { useT, type Translate } from "./i18n";
-import type { PaneLink } from "./machineLink";
+import type { PeerLink } from "./peerLink";
 import "./machineLinkStatus.css";
 
 /// How the row draws a link that is not connected (gallery `agent-pane.machine-link`): the state's
@@ -10,19 +10,14 @@ import "./machineLinkStatus.css";
 /// tooltip (`dot`).
 export type MachineLinkLook = "dot" | "words" | "named";
 
-/// The state in the sidebar header's words ("Reconnecting…", "Offline"): the app's own for a
-/// machine it keeps, else the same words for acpmux's peer state.
-export function linkWords(link: PaneLink, t: Translate): string {
-  if (link.words) return link.words;
+/// acpmux's peer link state in the sidebar machine header's words ("Reconnecting…", "Offline").
+export function linkWords(link: PeerLink, t: Translate): string {
   switch (link.link) {
     case "connected":
       return t("machineLink.connected");
     case "connecting":
       return t(link.reconnecting ? "machineLink.reconnecting" : "machineLink.connecting");
-    case "paused":
-      return t("machineLink.paused");
     case "offline":
-    case "attention":
       return t("machineLink.offline");
   }
 }
@@ -41,9 +36,9 @@ export function MachineLinkStatus({
   look = "named",
   onReconnect,
 }: {
-  link: PaneLink | null;
+  link: PeerLink | null;
   look?: MachineLinkLook;
-  onReconnect?(link: PaneLink): Promise<unknown> | void;
+  onReconnect?(link: PeerLink): Promise<unknown> | void;
 }) {
   const t = useT();
   // The link a Reconnect was pressed on: it reads as in flight until it answers or the link moves on
@@ -53,11 +48,11 @@ export function MachineLinkStatus({
   // what was said rather than "Connected" (state derived during render, not in an effect).
   const words = link ? linkWords(link, t) : "";
   const said = link !== null && link.link !== "connected" && look !== "dot";
-  const name = link ? (link.name ?? link.machine) : "";
+  const name = link ? link.machine : "";
   const [shown, setShown] = useState({ words, name });
   if (said && (shown.words !== words || shown.name !== name)) setShown({ words, name });
   if (!link) return null;
-  const down = link.link === "offline" || link.link === "attention";
+  const down = link.link === "offline";
   const at = `${link.machine}\n${link.link}`;
   const busy = pressed === at;
   const label = `${name} · ${words}`;

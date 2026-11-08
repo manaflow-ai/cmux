@@ -14,24 +14,17 @@ public final class AgentPaneMachineLink {
     /// One pane's machine link: `link` is `connected`, `connecting`, `offline`, `paused` or
     /// `attention` (the sidebar's `MachineLinkState`); `words` says it ("Reconnecting…").
     public nonisolated struct State: Equatable, Sendable {
-        /// The machine's registry id (`ssh-<hash>`, a Cloud id): what Reconnect names, never shown.
         public var machine: String
-        /// What the sidebar header calls it, which the composer row writes beside the word.
-        public var name: String
         public var link: String
         public var words: String
 
-        /// - Parameter name: the header's name; nil names it by `machine`.
-        public init(machine: String, name: String? = nil, link: String, words: String) {
+        public init(machine: String, link: String, words: String) {
             self.machine = machine
-            self.name = name ?? machine
             self.link = link
             self.words = words
         }
 
-        var json: CmuxNextSettings.JSONValue {
-            ["machine": .string(machine), "name": .string(name), "link": .string(link), "words": .string(words)]
-        }
+        var json: CmuxNextSettings.JSONValue { ["machine": .string(machine), "link": .string(link), "words": .string(words)] }
     }
 
     /// What a chat that needs a machine finds its link doing.

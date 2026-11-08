@@ -29,7 +29,7 @@ extension SidebarBridge {
     /// Machine `machineID`'s link for an agent pane's composer strip: the header's same word.
     static func paneLink(_ machineID: String, in machines: MachineRegistry) -> AgentPaneMachineLink.State? {
         machineHeader(machineID, in: machines).map {
-            AgentPaneMachineLink.State(machine: machineID, name: $0.name, link: $0.status.linkState.rawValue, words: $0.status.words)
+            AgentPaneMachineLink.State(machine: machineID, link: $0.status.linkState.rawValue, words: $0.status.words)
         }
     }
 

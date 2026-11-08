@@ -3,13 +3,13 @@
 // A chat on another machine says what its link is doing in the composer's quiet row (goal
 // remote-reconnect-fast, Leo 2026-11-07: "with a connection UI that says plainly what is
 // happening"). A remote-reconnect probe found nothing on screen 40 s into a dropped link but the
-// model chip's "Unavailable": the app pushed the link (`machineLink`) and no component drew it, and
-// a peer chat opened with `cmux agent open-tab NAME --host PEER` has no machine of the app's at all.
+// model chip's "Unavailable": nothing drew the link of a peer chat opened with
+// `cmux agent open-tab NAME --host PEER`.
 //
-//   - a chat on an acpmux peer reads the peer's link from acpmux (`peerStates`), the app's push for a
-//     machine it keeps comes first, and a chat on this Mac draws nothing;
+//   - a chat on an acpmux peer reads only that peer's link as acpmux reports it (`peerStates`), and a
+//     chat on this Mac draws nothing;
 //   - connected is the dot alone; connecting, reconnecting and offline name the machine and the
-//     sidebar header's word for the state; offline offers Reconnect, which asks the link's owner;
+//     sidebar header's word for the state; offline offers Reconnect, which asks acpmux for the peer;
 //   - the row's element stays one element through every state, so the row's other controls stay put.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -17,7 +17,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { chat, summary, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import type { PaneLink } from "../src/agent-session/acpmux/machineLink";
+import type { PeerLink } from "../src/agent-session/acpmux/peerLink";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -69,12 +69,10 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterEach(async () => {
+afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
-  const { setMachineLink } = await import("../src/agent-session/acpmux/machineLink");
-  setMachineLink(null);
 });
 
 afterAll(() => {
@@ -89,7 +87,7 @@ function Chips() {
   return null;
 }
 
-async function render(snapshot: AcpmuxSnapshot, onReconnectMachine?: (link: PaneLink) => Promise<unknown> | void) {
+async function render(snapshot: AcpmuxSnapshot, onReconnectMachine?: (link: PeerLink) => Promise<unknown> | void) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
@@ -161,7 +159,7 @@ test("a peer chat's row says each link state in the sidebar's words, in one elem
 });
 
 test("an offline peer offers Reconnect, which asks for that peer", async () => {
-  const asked: PaneLink[] = [];
+  const asked: PeerLink[] = [];
   let answer!: () => void;
   await render(started("walk-remote", "offline"), (pressed) => {
     asked.push(pressed);
@@ -170,34 +168,11 @@ test("an offline peer offers Reconnect, which asks for that peer", async () => {
   const button = reconnect()!;
   expect(button.textContent).toBe("Reconnect");
   await act(async () => button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
-  expect(asked).toEqual([{ machine: "walk-remote", link: "offline", source: "peer" }]);
+  expect(asked).toEqual([{ machine: "walk-remote", link: "offline" }]);
   expect(reconnect()?.disabled).toBe(true);
   expect(reconnect()?.textContent).toBe("Reconnecting…");
   await act(async () => answer());
   expect(reconnect()?.disabled).toBe(false);
-});
-
-test("the app's push for a machine it keeps comes first, with the app's own words", async () => {
-  const { setMachineLink } = await import("../src/agent-session/acpmux/machineLink");
-  await render(started());
-  expect(link()).toBeNull();
-  await act(async () => setMachineLink({ machine: "box", link: "connecting", words: "Reconnecting…" }));
-  expect(link()?.dataset.link).toBe("connecting");
-  expect(said()).toBe("boxReconnecting…");
-  const asked: PaneLink[] = [];
-  await act(async () => setMachineLink({ machine: "box", link: "offline", words: "Unreachable" }));
-  await render(started(), (pressed) => void asked.push(pressed));
-  expect(said()).toBe("boxUnreachable");
-  await act(async () => reconnect()!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
-  expect(asked[0]?.source).toBe("app");
-  // The row writes the sidebar header's name, never the registry id it reconnects by.
-  await act(async () =>
-    setMachineLink({ machine: "ssh-3f2a", name: "walk-remote", link: "offline", words: "Offline" }),
-  );
-  expect(said()).toBe("walk-remoteOffline");
-  expect(link()?.getAttribute("aria-label")).toBe("walk-remote · Offline");
-  await act(async () => setMachineLink(null));
-  expect(link()).toBeNull();
 });
 
 test("a Cloud peer that does not answer leaves it to the peer copy banner", async () => {
