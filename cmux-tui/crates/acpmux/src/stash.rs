@@ -492,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn a_move_takes_the_whole_stack_newest_first_and_removes_the_source() {
+    fn a_move_puts_the_whole_stack_on_top_and_removes_the_source() {
         let home = tempfile::tempdir().unwrap();
         let dir = home.path().join(DIR);
         push(&dir, "session", "the session's own", Vec::new(), None, 2).unwrap();
@@ -502,7 +502,7 @@ mod tests {
         let kept = load(&chat_path(&dir, "session")).unwrap();
         let texts: Vec<&str> = kept.iter().map(|d| d.text.as_str()).collect();
         assert_eq!(texts, ["newer", "older", "the session's own"]);
-        assert_eq!(kept[2].attachments[0]["data"], "AAA");
+        assert_eq!(kept[1].attachments[0]["data"], "AAA");
         assert!(!chat_path(&dir, "new").exists());
         // Nothing left to move: tried again, it changes nothing.
         assert_eq!(move_stack(&dir, "new", "session").unwrap(), 0);
