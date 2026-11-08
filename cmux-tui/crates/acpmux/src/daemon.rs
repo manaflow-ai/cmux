@@ -537,7 +537,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         None
     } else {
         let websocket = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
-        // One WireGuard key lock per process: the transport's, when it runs.
+        // The carrier runs only on the lock the WireGuard transport holds; it never takes its own.
         let held = wireguard.as_ref().and_then(|transport| transport.key_holder());
         crate::hub_carrier::start_configured(&hub, &home(), websocket, held).await
     };
