@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4245364216501",
+  "notes": "notes/4245364216501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 38261,
+      "title": "composer hat: drop the motion-allow note now that the settle is a scale token",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38253,
+      "title": "action-catalog.json: the Chief zoom keys' computed aliases run on Bring your history too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38252,
+      "title": "inference gateway: proxy only the model paths the Worker allows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38243,
+      "title": "fix(cmux-host): a bind refused after a lost answer keeps bind.json while the token lives",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38260,
+      "title": "acpmux: the owner's own CLI send is the owner's prompt again, not an unverified sender",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38226,
+      "title": "Agent chat: a background command's notice always shows its exit, and notices that arrive together read as their notice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38026,
+      "title": "agent pane: session info exports only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38234,
+      "title": "cmux NEXT composer: dictation follow-ups (solid dark pill, no stale meter level, gallery looks)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37709,
+      "title": "Fork To: every placement opens without tearing, with the first-frame hand-over and a bench for all ten",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38115,
+      "title": "GitHub page: lead with merge readiness; filter the conversation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38251,
+      "title": "publish-cef-r2: fail closed on the release's SHA256SUMS",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38239,
+      "title": "acpmux sim: settle on two idle reads that cover starting and retries; only known-gap legs count gaps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38240,
+      "title": "fix(cmux-host): a quoted \" github.com \" hosts.yml key is not the person's github.com login",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38245,
+      "title": "settings: the browser key and editor.importFrom follow their defaults again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37845,
+      "title": "Session Info: plain section heads, a stronger edge, and folds that settle into place (one shared fold curve)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
