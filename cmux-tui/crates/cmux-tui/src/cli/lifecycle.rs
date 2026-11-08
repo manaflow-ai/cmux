@@ -457,6 +457,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "generation":generation,
                     "force":force,
                     "end_terminals":end_terminals,
+                    // An attached TUI reconnects after a restart and exits
+                    // after a stop (the daemon repeats it on its notice).
+                    "restart":restart,
                 }),
                 deadline,
             ) {
@@ -967,13 +970,13 @@ impl Adopted {
     /// being adopted or launched.
     fn settled(listed: &Value) -> (Self, bool) {
         let mut adopted = Self { listed: true, ..Self::default() };
-        for row in listed["terminals"].as_array().into_iter().flatten() {
-            match row["lifecycle"].as_str() {
+        for row in listed.get("terminals").and_then(Value::as_array).into_iter().flatten() {
+            match row.get("lifecycle").and_then(Value::as_str) {
                 Some("running") => adopted.running += 1,
                 Some("exited") => adopted.exited += 1,
-                Some("adopting" | "launching") => adopted
-                    .not_running
-                    .push(row["terminal_id"].as_str().unwrap_or_default().to_owned()),
+                Some("adopting" | "launching") => adopted.not_running.push(
+                    row.get("terminal_id").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                ),
                 _ => {}
             }
         }

@@ -1031,6 +1031,16 @@ fn start(
     if let Err(e) = crate::skills::install_builtin(&crate::skills::shared_dir(&paths.home)) {
         eprintln!("optchat-chief: installing the shipped Chief skills: {e}");
     }
+    // The person's Claude Code skills cmux.json names (`chief.claudeSkills`,
+    // default every `emil-*` skill) join the shared Chief skills
+    // (slash_skills.rs).
+    let linked = crate::slash_skills::link_default_claude_skills(&paths.home);
+    if !linked.is_empty() {
+        eprintln!(
+            "optchat-chief: linked Claude skills into the Chief skills: {}",
+            linked.join(", ")
+        );
+    }
     // The tool packs cmux ships (toolpacks.rs); their skills reach each
     // Chief through session_dir::write (toolpacks::sync_skills).
     if let Err(e) = crate::toolpacks::install_builtin(&crate::toolpacks::shared_dir(&paths.home)) {

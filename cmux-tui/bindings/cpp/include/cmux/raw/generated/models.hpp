@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c";
+inline constexpr std::string_view kProtocolIrSha256 = "7cf0bbe1fdc7bd30769aabb11f653fbba0df0bb42dd01b16153d07d320ec1d16";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2744,6 +2744,7 @@ struct CreateWorkspaceRequest {
 };
 
 struct DaemonShutdownEvent {
+    std::optional<bool> restart{};
     friend bool operator==(const DaemonShutdownEvent&, const DaemonShutdownEvent&) = default;
 };
 
@@ -5432,6 +5433,7 @@ struct ShutdownDaemonRequest {
     std::string generation{};
     std::optional<bool> keep_layout{};
     std::uint32_t pid{};
+    Field<bool> restart{};
     friend bool operator==(const ShutdownDaemonRequest&, const ShutdownDaemonRequest&) = default;
 };
 
