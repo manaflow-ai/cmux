@@ -65,15 +65,23 @@ extension SettingsController {
             }
         }
         if !report.dropped.isEmpty {
-            let record: JSONValue = .object([
-                "note": .string("cmux dropped these stored copies of defaults once, so each key follows its default again. "
-                    + "To keep one, set it again in Settings or copy it back from `before`."),
-                "dropped": .object(report.dropped),
-                "kept": .object(report.kept),
-                "before": .string(try await file.source()),
-            ])
-            try await file.writeBeside(suffix: "defaults-forgotten.json", text: record.prettyText() + "\n")
-            try await removeAll(SettingsSchema.all.filter { report.dropped[$0.id] != nil }.map(\.path))
+            // Rechecked at the write: a key someone set since the read above stays, and counts as kept.
+            let candidates = SettingsSchema.all.compactMap { descriptor in report.dropped[descriptor.id].map { (descriptor, $0) } }
+            let (removed, before) = try await removeUnchanged(candidates.map { (path: $0.0.path, value: $0.1) })
+            for (descriptor, read) in candidates where !removed.contains(descriptor.path) {
+                report.dropped[descriptor.id] = nil
+                report.kept[descriptor.id] = try await file.value(at: descriptor.path) ?? read
+            }
+            if !report.dropped.isEmpty {
+                let record: JSONValue = .object([
+                    "note": .string("cmux dropped these stored copies of defaults once, so each key follows its default again. "
+                        + "To keep one, set it again in Settings or copy it back from `before`."),
+                    "dropped": .object(report.dropped),
+                    "kept": .object(report.kept),
+                    "before": .string(before),
+                ])
+                try await file.writeBeside(suffix: "defaults-forgotten.json", text: record.prettyText() + "\n")
+            }
         }
         let dropped = report.dropped.keys.sorted().joined(separator: ", "), kept = report.kept.keys.sorted().joined(separator: ", ")
         Logger(subsystem: "com.cmuxterm.app.next", category: "settings").info(
@@ -93,19 +101,16 @@ extension SettingsController {
         guard !marker.bool(forKey: Self.strayNullsDroppedKey) else { return [] }
         let root = try await file.document()
         let stray = SettingsSchema.all.filter { root.value(at: $0.path) == .null && !$0.accepts(.null) && managedKeys[$0.id] == nil }
-        if !stray.isEmpty { try await removeAll(stray.map(\.path)) }
+        // Rechecked at the write: a key someone set since the read above stays.
+        let removed = stray.isEmpty ? [] : try await removeUnchanged(stray.map { (path: $0.path, value: JSONValue.null) }).removed
         marker.set(true, forKey: Self.strayNullsDroppedKey)
-        return stray.map(\.id)
+        return stray.filter { removed.contains($0.path) }.map(\.id)
     }
 
-    /// Removes `paths` in one atomic write, then each object the removals emptied, and reloads.
-    private func removeAll(_ paths: [[String]]) async throws {
-        try await file.apply(paths.map { (path: $0, value: JSONValue?.none) })
-        // Deepest first, so an object a removal empties goes before its parent is checked.
-        for parent in Set(paths.flatMap { path in (1..<path.count).map { Array(path.prefix($0)) } })
-            .sorted(by: { $0.count > $1.count }) {
-            try await pruneEmpty(parent)
-        }
-        await reloadAfterWrite()
+    /// `CmuxConfigFile.removeUnchanged`, then a reload when it removed anything.
+    private func removeUnchanged(_ expected: [(path: [String], value: JSONValue)]) async throws -> (removed: [[String]], before: String) {
+        let result = try await file.removeUnchanged(expected)
+        if !result.removed.isEmpty { await reloadAfterWrite() }
+        return result
     }
 }

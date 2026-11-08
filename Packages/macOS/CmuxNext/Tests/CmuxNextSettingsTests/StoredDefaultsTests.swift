@@ -104,6 +104,25 @@ import Testing
         #expect(try await settings.dropStrayNulls(marker: marker).isEmpty)
     }
 
+    /// The passes read the file, then write it a few awaits later; a value someone set in between
+    /// stays (the removal rechecks each path against the file as it is at the write).
+    @Test func aValueSetSinceTheReadStays() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try Data(#"{ "appearance": { "chromeStyle": "card", "theme": "Nord" }, "diff": { "layout": null } }"#.utf8).write(to: url)
+        let file = CmuxConfigFile(url: url)
+
+        let (removed, before) = try await file.removeUnchanged([
+            (path: ["appearance", "chromeStyle"], value: .string(ChromeStyleSetting.fallback.rawValue)),
+            (path: ["diff", "layout"], value: .null),
+        ])
+        #expect(removed == [["diff", "layout"]])
+        #expect(before.contains("card"))
+        #expect(try await file.value(at: ChromeStyleSetting.configPath) == .string("card"))
+        #expect(try await file.value(at: ["diff"]) == nil, "the emptied object goes too")
+        #expect(try await file.value(at: ["appearance", "theme"]) == .string("Nord"))
+    }
+
     /// Every former default names a schema key and differs from its current default.
     @Test func formerDefaultsNameSchemaKeys() {
         for (key, values) in SettingsSchema.formerDefaults {
