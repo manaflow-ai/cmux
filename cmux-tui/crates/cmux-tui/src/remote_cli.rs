@@ -34,6 +34,7 @@ use cmux_remote::provider::{
     WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
+use cmux_remote::ssh_control::SshConnectionShare;
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RouteId, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,
@@ -749,6 +750,9 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         extra_args: flags.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
         agent_hooks: flags.agent_hooks.clone(),
+        // One authentication per connect: the probe, install steps and
+        // carrier share one SSH connection (issue 38157).
+        connection_share: SshConnectionShare::new(),
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
     let providers = Arc::new(client_provider_registry(
@@ -1389,6 +1393,7 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
         extra_args: options.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
         agent_hooks: Vec::new(),
+        connection_share: SshConnectionShare::disabled(),
     })?;
     Ok(())
 }
