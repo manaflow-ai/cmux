@@ -525,8 +525,13 @@ impl DaemonServices {
                     .await
             }
             Service::MuxControl => {
-                Self::serve_mux_control_with_budget(mux_socket, incoming.stream, mux_upload_budget)
-                    .await
+                Self::serve_mux_control_with_budget(
+                    mux_socket,
+                    grant.as_deref(),
+                    incoming.stream,
+                    mux_upload_budget,
+                )
+                .await
             }
             Service::ComputerUse => {
                 incoming
@@ -987,16 +992,36 @@ impl DaemonServices {
         Ok(())
     }
 
+    /// One `mux-control` stream, spliced to the session daemon's unix socket. A
+    /// grant-admitted session's stream first carries the grant's signed role
+    /// (`mux_carrier_role.rs`), before any of the person's bytes.
     #[cfg(unix)]
     async fn serve_mux_control_with_budget(
         mux_socket: Option<PathBuf>,
+        grant: Option<&CarrierGrant>,
         stream: ServiceStream,
         upload_budget: MuxUploadBudget,
     ) -> Result<(), ServicesError> {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
-        let socket = connect_owned_unix_socket(path).await?;
+        let mut socket = connect_owned_unix_socket(path).await?;
+        if let Some(grant) = grant
+            && let Err(refused) = crate::mux_carrier_role::stamp(&mut socket, grant.vm_kind).await
+        {
+            let (code, message) = match refused {
+                crate::mux_carrier_role::StampRefused::NotTaken => (
+                    "permission-denied",
+                    "mux_control.role_not_taken: the session daemon did not take this grant's role",
+                ),
+                crate::mux_carrier_role::StampRefused::Unavailable => (
+                    "unavailable",
+                    "mux_control.role_unavailable: the session daemon did not answer the role stamp",
+                ),
+            };
+            stream.reject(code.into(), message.into()).await?;
+            return Ok(());
+        }
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
         let (reader, writer) = socket.into_split();
@@ -1006,6 +1031,7 @@ impl DaemonServices {
     #[cfg(not(unix))]
     async fn serve_mux_control_with_budget(
         _mux_socket: Option<PathBuf>,
+        _grant: Option<&CarrierGrant>,
         stream: ServiceStream,
         _upload_budget: MuxUploadBudget,
     ) -> Result<(), ServicesError> {
@@ -1802,6 +1828,10 @@ impl From<crate::mux_input::MuxInputError> for ServicesError {
 #[cfg(all(test, unix))]
 #[path = "acpmux_service_tests.rs"]
 mod acpmux_service_tests;
+
+#[cfg(all(test, unix))]
+#[path = "mux_control_role_tests.rs"]
+mod mux_control_role_tests;
 
 #[cfg(test)]
 mod tests {
