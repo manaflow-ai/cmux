@@ -41,6 +41,7 @@ import type {
   IntegrationsState,
   SharesState,
   SkillsState,
+  TailnetState,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -64,6 +65,8 @@ export type SettingsPageVariant = VariantBase & {
   sharedLinks?: SharesState;
   /** Settings > Skills fixture state; default the mock's skills. */
   skills?: SkillsState;
+  /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
+  tailnet?: TailnetState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
