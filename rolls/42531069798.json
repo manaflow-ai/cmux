@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42531069798",
+  "recorded_at": "2026-11-08T22:46:15Z",
+  "reason": "cmux-tui 589a5664ee96 changes the image's cmux-tui (pinned 4db772abd264)",
+  "dry_run": false,
+  "cmux_tui": "589a5664ee961b71644c587e2c5c0e69d08e41d0",
+  "fixes": [
+    {
+      "sha": "589a5664ee961b71644c587e2c5c0e69d08e41d0",
+      "mergedAt": "2026-11-08T14:21:15-08:00",
+      "subject": "cmux-wg: floor the tunnel TCP's retransmission timeout at 200 ms (vendored smoltcp, upstream #1211) (#37889)"
+    },
+    {
+      "sha": "1e6ac7171f22c67e7d77eaa51be35d0f675a2a47",
+      "mergedAt": "2026-11-08T14:16:26-08:00",
+      "subject": "cmux-tui: Claude hooks load however Claude is launched (sr2 claude, full path, launchers) (#38825)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T22:46:15Z",
+    "snapshot_id": "sh-9bc129d58a8c4694a4b92ee09b406473",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42531069798): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5e96042696aad50983d26f6d70b866dcf91015d3",
+    "image": "cloud-native-auto-589a5664-42531069798-1",
+    "revision": "ci-42531069798-1",
+    "at": "2026-11-08T22:46:15Z"
+  },
+  "rolled_back": false
+}
