@@ -142,7 +142,7 @@ struct AgentTabRemoteStartTests {
             AgentPaneSource.devURLVariable: "http://127.0.0.1:9",
             "CMUX_NEXT_AGENT_PANE_MOCK": "1",
         ], showcase: true)
-        tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
+        tabs.lookupScoped = { key in store.tab(id: key.key)?.agentSession.map { ($0, store) } }
         tabs.lookupScoped = { scoped in store.tab(id: scoped.key)?.agentSession.map { ($0, store) } }
         tabs.remoteSeeds[AgentTabKey(machine: "Cloud fixture", key: key)] = AgentPaneSeedSource(AgentPaneSeed(cwd: seedCwd, harness: "claude", model: "claude-seed-model"))
         return (tabs, key)

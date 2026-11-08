@@ -124,7 +124,7 @@ struct IncognitoSurfacesTests {
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
         tabs.localHost = Self.thisMac
         let tree = DaemonStore()
-        tabs.lookup = { key in records[key].map { ($0, tree) } }
+        tabs.lookupScoped = { key in records[key.key].map { ($0, tree) } }
         tabs.wakeStates["tab_normal"] = AgentPaneWakeState(shell: true, shellText: "make test")
         tabs.wakeStates["tab_secret"] = AgentPaneWakeState(shell: true, shellText: "cat ~/.ssh/id_ed25519")
         let saved = await AgentQuitFiles.composers(tabs, isIncognito: { $0 == "tab_secret" })

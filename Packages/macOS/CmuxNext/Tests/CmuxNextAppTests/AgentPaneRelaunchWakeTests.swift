@@ -34,7 +34,7 @@ struct AgentPaneRelaunchWakeTests {
         tabs.localHost = thisMac
         tabs.relaunchWake = AgentPaneRelaunchWake(file: file)
         let tree = DaemonStore()
-        tabs.lookup = { key in records[key].map { ($0, tree) } }
+        tabs.lookupScoped = { key in records[key.key].map { ($0, tree) } }
         tabs.lookupScoped = { scoped in records[scoped.key].map { ($0, tree) } }
         tabs.listTabsScoped = { records.map { (key: $0.key, record: $0.value, machine: thisMac) } }
         return tabs
@@ -145,7 +145,7 @@ struct AgentPaneRelaunchWakeTests {
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(),
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"], showcase: true)
         tabs.localHost = Self.thisMac
-        tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
+        tabs.lookupScoped = { key in store.tab(id: key.key)?.agentSession.map { ($0, store) } }
         let handler = NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in })
         tabs.firstPageNewTab = { _, _ in (AgentPaneNewTab(kind: .agent), handler) }
         tabs.blankChatHandler = { _ in handler }

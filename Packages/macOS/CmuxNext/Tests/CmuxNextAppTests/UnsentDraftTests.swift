@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import Foundation
 import Testing
@@ -234,6 +235,19 @@ struct UnsentDraftTests {
         drafts.typed("x", for: "tab-1")
         #expect(drafts.draft(for: "tab-1") == saved + "\n\nx")
         #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == saved + "\n\nx")
+    }
+
+    /// Another machine's tab whose id a tab of this Mac also has keeps its own draft: closing it
+    /// clears that one only, never this Mac's (#36767 review at a3fa88d2: the close cleared by bare id).
+    @Test func closingAnotherMachinesTabWithTheSameIDKeepsThisMacsDraft() {
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
+        tabs.unsentDrafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        tabs.unsentDrafts.typed("local draft", for: "tab-1")
+        tabs.unsentDrafts.set("remote draft", for: "tab-1", machine: "other-mac")
+        #expect(tabs.unsentDrafts.hasDraft("tab-1", machine: "this-mac"), "this Mac's tab keeps the bare id")
+        tabs.release("tab-1", machine: "other-mac")
+        #expect(tabs.unsentDrafts.draft(for: "tab-1") == "local draft")
+        #expect(!tabs.unsentDrafts.hasDraft("tab-1", machine: "other-mac"))
     }
 
     /// The merge keeps both texts once, and leaves a text that already holds the other as it is.

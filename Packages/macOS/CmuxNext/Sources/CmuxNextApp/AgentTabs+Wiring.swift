@@ -164,9 +164,9 @@ extension AgentTabStore {
         }
         tabs.mini = services.chiefPetMini
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles)
-        tabs.unsentDrafts.windowOfTab = { [weak services, weak tabs] key in
-            let scoped = tabs?.tabKey(key)
+        tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles) { [weak services] in services?.daemon.machineID }
+        tabs.unsentDrafts.windowOfTab = { [weak services, weak tabs] key, machine in
+            let scoped = tabs?.tabKey(key, machine: machine)
             guard let services, let tabs, let scoped, let workspace = tabs.record(for: scoped)?.store.workspace(holdingTab: scoped.key) else { return nil }
             return services.windows.windowID(ofWorkspace: workspace.id)
         }

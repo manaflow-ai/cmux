@@ -665,7 +665,7 @@ final class AgentTabStore {
             guard let self, let operation = self.tryAnotherApproach else { throw AgentPaneHostError.daemonStopped }
             return try await operation(self.resolve(provisional, machine: scoped.machine), session, throughSeq)
         }
-        unsentDrafts.wire(model) { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional }
+        unsentDrafts.wire(model, machine: { scoped.machine }) { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional }
         model.onOpenTab = { [weak self] request in
             BenchSpans.mark("bridge.tab.open")
             guard let self else { return }

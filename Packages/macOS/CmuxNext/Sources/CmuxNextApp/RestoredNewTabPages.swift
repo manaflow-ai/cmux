@@ -23,7 +23,7 @@ enum RestoredNewTabPages {
         let scoped = tabs.tabKey(key, machine: machine)
         guard let record = tab.agentSession, tabs.views[scoped] == nil, tabs.tabStores[scoped] == nil,
               (tabs.sessions[scoped] ?? record.session) == nil, tabs.seeds[scoped] == nil, !tabs.linkedSessions.contains(scoped),
-              !tabs.unsentDrafts.hasDraft(key),
+              !tabs.unsentDrafts.hasDraft(key, machine: machine),
               tabs.hostKind(record, listedHere: tabs.daemonListing(tab)?.isLocal != false) != .remote else { return false }
         // The daemon whose tree lists this record, found by identity (no tab-list read).
         let daemon = tabs.daemonListing(tab)

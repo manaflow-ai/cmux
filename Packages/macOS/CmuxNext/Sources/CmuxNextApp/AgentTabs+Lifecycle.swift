@@ -88,8 +88,8 @@ extension AgentTabStore {
         let sendsSplitID = daemon.supports(DaemonCapability.splitClientSplitID.rawValue)
         let store = daemon.store
         let scoped = AgentTabKey(machine: daemon.machineID, key: key)
-        store.onTabCreated = { [weak self] provisional, tab in
-            self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface), machine: daemon.machineID)
+        store.onTabCreated = { [weak self, machine = daemon.machineID] provisional, tab in
+            self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface), machine: machine)
         }
         let transaction = ClientTransactionID.generate()
         store.intend(splitPane.map { Intent.splitPane(pane: pane, direction: $0.0, ratio: 0.5, provisional: $0.1) } ?? .createTab(pane: pane, provisional: snapshot),
@@ -218,7 +218,7 @@ extension AgentTabStore {
             views[realKey] = view
         }
         if let value = sessions.removeValue(forKey: scoped) { sessions[realKey] = value }
-        unsentDrafts.move(key, to: real)
+        unsentDrafts.move(key, to: real, machine: scoped.machine)
         if let value = newTabPages.removeValue(forKey: scoped) { newTabPages[realKey] = value }
         if let value = seeds.removeValue(forKey: scoped) { seeds[realKey] = value }
         if let value = remoteSeeds.removeValue(forKey: scoped) { remoteSeeds[realKey] = value }

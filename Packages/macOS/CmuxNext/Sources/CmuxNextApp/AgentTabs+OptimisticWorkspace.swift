@@ -45,8 +45,8 @@ extension AgentTabStore {
         let tabKey = reserved?.tabKey ?? provisional.id
         let transaction = ClientTransactionID.generate()
         let scoped = AgentTabKey(machine: daemon.machineID, key: tabKey)
-        store.onTabCreated = { [weak self] provisional, tab in
-            self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface), machine: daemon.machineID)
+        store.onTabCreated = { [weak self, machine = daemon.machineID] provisional, tab in
+            self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface), machine: machine)
         }
         BenchSpans.measure("cmdN.intend") {
             store.intend(.createWorkspace(provisional: reserved?.provisional.named(name) ?? ProvisionalWorkspace(key: key, name: name, tab: snapshot),
