@@ -66,45 +66,41 @@ public nonisolated struct GhosttyGlyphWidthProbe: Sendable {
 
     private static func measure(_ sample: Sample, primary: CTFont, fallbackFonts: [CTFont], cellWidth: Double) -> Measurement {
         let string = sample.text as NSString
-        let (font, glyphs, missing) = fontAndGlyphs(for: string, primary: primary, fallbackFonts: fallbackFonts)
-        return Measurement(sample: sample, cellWidth: cellWidth, advance: advance(for: glyphs, in: font), missingGlyph: missing)
+        let (font, missing) = fontAndFontCoverage(for: string, primary: primary, fallbackFonts: fallbackFonts)
+        return Measurement(sample: sample, cellWidth: cellWidth, advance: shapedAdvance(for: string, in: font), missingGlyph: missing)
     }
 
-    private static func fontAndGlyphs(for string: NSString, primary: CTFont, fallbackFonts: [CTFont]) -> (CTFont, [CGGlyph], Bool) {
+    private static func fontAndFontCoverage(for string: NSString, primary: CTFont, fallbackFonts: [CTFont]) -> (CTFont, Bool) {
         for font in fallbackFonts {
-            let glyphs = glyphs(for: string, in: font)
-            if !glyphs.contains(0) { return (font, glyphs, false) }
+            if !hasMissingGlyph(for: string, in: font) { return (font, false) }
         }
         let fallback = CTFontCreateForString(primary, string as CFString, CFRange(location: 0, length: string.length))
-        let glyphs = glyphs(for: string, in: fallback)
-        return (fallback, glyphs, glyphs.contains(0))
+        return (fallback, hasMissingGlyph(for: string, in: fallback))
     }
 
-    private static func glyphs(for string: NSString, in font: CTFont) -> [CGGlyph] {
-        guard string.length > 0 else { return [] }
-        var characters = [UniChar](repeating: 0, count: string.length)
-        string.getCharacters(&characters, range: NSRange(location: 0, length: string.length))
-        var glyphs = [CGGlyph](repeating: 0, count: string.length)
-        let mapped = characters.withUnsafeMutableBufferPointer { characters in
-            glyphs.withUnsafeMutableBufferPointer { glyphs in
-                CTFontGetGlyphsForCharacters(font, characters.baseAddress!, glyphs.baseAddress!, string.length)
+    /// Map one Unicode scalar at a time so an emoji surrogate pair is one glyph, not a glyph plus
+    /// a false missing continuation slot.
+    private static func hasMissingGlyph(for string: NSString, in font: CTFont) -> Bool {
+        for scalar in String(string).unicodeScalars {
+            let unitString = String(scalar) as NSString
+            var characters = [UniChar](repeating: 0, count: unitString.length)
+            unitString.getCharacters(&characters, range: NSRange(location: 0, length: unitString.length))
+            var glyphs = [CGGlyph](repeating: 0, count: unitString.length)
+            let mapped = characters.withUnsafeBufferPointer { characters in
+                glyphs.withUnsafeMutableBufferPointer { glyphs in
+                    CTFontGetGlyphsForCharacters(font, characters.baseAddress!, glyphs.baseAddress!, unitString.length)
+                }
             }
+            if !mapped || glyphs[0] == 0 { return true }
         }
-        return mapped ? glyphs : glyphs.map { _ in 0 }
+        return false
     }
 
-    private static func advance(for text: String, in font: CTFont) -> Double {
-        advance(for: glyphs(for: text as NSString, in: font), in: font)
-    }
-
-    private static func advance(for glyphs: [CGGlyph], in font: CTFont) -> Double {
-        guard !glyphs.isEmpty else { return 0 }
-        var advances = [CGSize](repeating: .zero, count: glyphs.count)
-        let total = glyphs.withUnsafeBufferPointer { glyphs in
-            advances.withUnsafeMutableBufferPointer { advances in
-                CTFontGetAdvancesForGlyphs(font, .horizontal, glyphs.baseAddress!, advances.baseAddress!, glyphs.count)
-            }
-        }
-        return total
+    /// Shape the complete string: this handles surrogate pairs and any kerning/cluster advance
+    /// CoreText applies, so the probe compares the actual rendered run to the terminal cell grid.
+    private static func shapedAdvance(for string: String, in font: CTFont) -> Double {
+        let attributed = NSAttributedString(string: string, attributes: [.font: font])
+        let line = CTLineCreateWithAttributedString(attributed)
+        return CTLineGetTypographicBounds(line, nil, nil, nil)
     }
 }

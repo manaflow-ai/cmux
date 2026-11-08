@@ -28,5 +28,7 @@ struct GhosttyRuntimeFontTests {
         #expect(probe.measurements.map(\.sample.name) == ["ASCII", "CJK", "Nerd Font", "Emoji"])
         #expect(probe.measurements.allSatisfy { $0.cellWidth > 0 && $0.advance.isFinite })
         #expect(probe.measurements.allSatisfy { $0.sample.expectedCells > 0 })
+        #expect(probe.measurements.allSatisfy(\.matchesCellGrid))
+        #expect(probe.measurements.allSatisfy { !$0.missingGlyph })
     }
 }
