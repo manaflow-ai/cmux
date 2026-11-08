@@ -13,6 +13,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next-defaults-guard-review.yml"
 HEAD = "a" * 40
+BASE = "c" * 40
 REPO = "example/cmux"
 
 
@@ -141,7 +142,8 @@ class Rerun(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [])
 
-    def invoke_authoritative(self, *, event_association="MEMBER", fetched_association="MEMBER", fetched_head=HEAD):
+    def invoke_authoritative(self, *, event_association="MEMBER", fetched_association="MEMBER", fetched_head=HEAD,
+                             login="reviewer", user_type="User", owners=None, git_fails=False):
         event = {"comment": {"body": f"Review (router): SHIP at {HEAD}\nEvidence: focused checks passed", "author_association": event_association}}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -155,6 +157,8 @@ class Rerun(unittest.TestCase):
                 with open(os.environ["CALL_LOG"], "a") as log:
                     log.write("called\\n")
                 endpoint = next(arg for arg in args if arg.startswith("repos/"))
+                if "/contents/" in endpoint or "/collaborators/" in endpoint:
+                    sys.exit("the owners file is read with git, never the API: " + endpoint)
                 if "/pulls/" in endpoint:
                     print(os.environ["PR_RESPONSE"])
                 elif "/issues/comments/" in endpoint:
@@ -163,18 +167,38 @@ class Rerun(unittest.TestCase):
                     sys.exit("unexpected API endpoint")
                 '''))
             gh.chmod(0o755)
+            # A fake git: the owners file at BASE, served from OWNERS_JSON; no network.
+            git_log = root / "git.jsonl"
+            git = root / "git"
+            git.write_text(f"#!{sys.executable}\n" + textwrap.dedent('''\
+                import json, os, sys
+                args = sys.argv[1:]
+                with open(os.environ["GIT_LOG"], "a") as log:
+                    log.write(json.dumps(args) + "\\n")
+                if os.environ["GIT_FAILS"] == "1" and "fetch" in args:
+                    sys.exit("fatal: unable to access")
+                if "show" in args:
+                    if args[-1] != os.environ["BASE"] + ":.github/defaults-call-owners.json":
+                        sys.exit("unexpected show: " + args[-1])
+                    print(os.environ["OWNERS_JSON"])
+                '''))
+            git.chmod(0o755)
             output = root / "output"
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
                    "EVENT_PATH": str(event_path), "REPO": REPO, "PR_NUMBER": "7",
                    "COMMENT_ID": "8", "GITHUB_OUTPUT": str(output), "CALL_LOG": str(log),
-                   "PR_RESPONSE": json.dumps({"base": {"ref": "feat-cmux-next"},
+                   "GIT_LOG": str(git_log), "GIT_FAILS": "1" if git_fails else "0", "BASE": BASE,
+                   "OWNERS_JSON": json.dumps({"cmux-next": owners if owners is not None else ["Lawrencecchen"]}),
+                   "PR_RESPONSE": json.dumps({"base": {"ref": "feat-cmux-next", "sha": BASE},
                                               "head": {"repo": {"full_name": REPO}, "sha": fetched_head}}),
                    "COMMENT_RESPONSE": json.dumps({"author_association": fetched_association,
+                                                   "user": {"login": login, "type": user_type},
                                                    "body": event["comment"]["body"]})}
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", receipt_script()],
                                     env=env, text=True, capture_output=True, timeout=5)
             calls = log.read_text().splitlines()
             output_text = output.read_text() if output.exists() else ""
+            self.git_calls = [json.loads(line) for line in git_log.read_text().splitlines()] if git_log.exists() else []
         return result, calls, output_text
 
     def test_valid_receipt_reaches_authoritative_api_checks(self):
@@ -189,6 +213,29 @@ class Rerun(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, ["called", "called"])
         self.assertNotIn("eligible=true", output)
+
+    def test_a_call_owner_who_reads_as_contributor_wakes_the_guard(self):
+        # #32979, #33111: a private org member reads as CONTRIBUTOR; their SHIP left the guard red until a manual
+        # re-run. The owners file at the base commit trusts them, read with git (no API quota), case-insensitive.
+        result, calls, output = self.invoke_authoritative(fetched_association="CONTRIBUTOR", login="lawrencecchen")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, ["called", "called"])
+        self.assertIn("eligible=true", output)
+        self.assertIn(["show", f"{BASE}:.github/defaults-call-owners.json"], [c[-2:] for c in self.git_calls])
+
+    def test_a_contributor_who_is_no_call_owner_is_still_rejected(self):
+        for kwargs in ({"login": "outsider"}, {"login": "lawrencecchen", "user_type": "Bot"},
+                       {"login": "lawrencecchen", "owners": []}, {"login": "lawrencecchen", "git_fails": True},
+                       {"login": ""}):
+            with self.subTest(**kwargs):
+                result, calls, output = self.invoke_authoritative(fetched_association="CONTRIBUTOR", **kwargs)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("eligible=true", output)
+
+    def test_a_member_receipt_needs_no_owners_read(self):
+        result, calls, output = self.invoke_authoritative()
+        self.assertIn("eligible=true", output)
+        self.assertEqual(self.git_calls, [])
 
     def test_fetched_stale_head_is_still_rejected(self):
         result, calls, output = self.invoke_authoritative(fetched_head="b" * 40)
