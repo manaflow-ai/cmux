@@ -19,11 +19,16 @@ function page() {
     `<!doctype html>
     <div id="transcript" ${SHOWN_SCROLLER_ATTRIBUTE}><p id="row" tabindex="0">row</p></div>
     <div id="list"><button id="item">item</button></div>
+    <div id="host" ${SHOWN_SCROLLER_ATTRIBUTE}></div>
+    <p id="outside" tabindex="0">outside</p>
     <form><textarea id="composer" ${MINIMAL_SCROLLER_ATTRIBUTE}></textarea><button id="send">Send</button></form>`,
   );
   const document = dom.window.document;
+  // A scroller whose content is in a shadow root: input inside it is aimed at the shadow's nodes.
+  document.getElementById("host")!.attachShadow({ mode: "open" }).innerHTML = '<button id="inner">inner</button>';
   installScrollingMarks(document as unknown as Document, timers);
-  const $ = (id: string) => document.getElementById(id)!;
+  const $ = (id: string) =>
+    document.getElementById(id) ?? document.getElementById("host")!.shadowRoot!.getElementById(id)!;
   const scroll = (id: string) => {
     $(id).dispatchEvent(new dom.window.Event("scroll"));
     return $(id).hasAttribute(SCROLLING_ATTRIBUTE);
@@ -79,4 +84,26 @@ test("a scrolling key with nothing focused still shows the thumb of whatever it 
 test("an ordinary scroller with no input at all keeps showing its thumb as it scrolls", () => {
   const { scroll } = page();
   expect(scroll("list")).toBe(true);
+});
+
+test("Space on a focused Send button sends, and the send's scroll does not show the thumb", () => {
+  for (const space of [" ", "Spacebar"]) {
+    const { scroll, key } = page();
+    key("send", space);
+    expect(scroll("transcript"), JSON.stringify(space)).toBe(false);
+  }
+});
+
+test("every scrolling key outside a text field shows the thumb of what it scrolls", () => {
+  for (const name of ["ArrowLeft", "ArrowRight", "Spacebar", " ", "PageUp", "Home"]) {
+    const { scroll, key } = page();
+    key("outside", name);
+    expect(scroll("transcript"), name).toBe(true);
+  }
+});
+
+test("a button inside a scroller's shadow root shows that scroller's thumb", () => {
+  const { scroll, press } = page();
+  press("inner");
+  expect(scroll("host")).toBe(true);
 });
