@@ -4,7 +4,7 @@
 //! (cli/event_match.rs), until the first matching event (exit 0). Kept out
 //! of app.rs for its line budget.
 
-use std::io::{BufRead, BufReader, ErrorKind, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
@@ -27,7 +27,7 @@ pub(in crate::cli) struct EventsWait {
 
 /// `events.stream`: one JSON event per line until the app closes the
 /// stream, the timeout passes or the event waited for arrives. Blocking
-/// reads with the time left as their deadline, no polling.
+/// reads, each with the time left as its deadline, no polling.
 pub(super) fn stream_events(
     stream: &mut UnixStream,
     params: Value,
@@ -41,29 +41,18 @@ pub(super) fn stream_events(
     {
         return failure("app.transport", &error, output, 3);
     }
-    let mut reader = match stream.try_clone() {
-        Ok(reader) => BufReader::new(reader),
+    let mut lines = match stream.try_clone() {
+        Ok(reader) => Lines { reader, pending: Vec::new(), deadline },
         Err(error) => return failure("app.transport", &error.to_string(), output, 3),
     };
     let mut stdout = std::io::stdout().lock();
-    let mut line = String::new();
     loop {
-        if let Some(deadline) = deadline {
-            let left = deadline.saturating_duration_since(Instant::now());
-            // A zero read timeout means "block forever" to the socket.
-            if left.is_zero() || reader.get_ref().set_read_timeout(Some(left)).is_err() {
-                return timed_out(wait, started, output);
-            }
-        }
-        line.clear();
-        match reader.read_line(&mut line) {
-            Ok(0) => break,
-            Ok(_) => {}
-            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
-                return timed_out(wait, started, output);
-            }
-            Err(_) => return 3,
-        }
+        let line = match lines.next_line() {
+            Ok(Some(line)) => line,
+            Ok(None) => break,
+            Err(ReadEnd::TimedOut) => return timed_out(wait, started, output),
+            Err(ReadEnd::Failed) => return 3,
+        };
         let text = line.trim_end_matches(['\n', '\r']);
         let Ok(value) = serde_json::from_str::<Value>(text) else { continue };
         if value.get("ok").and_then(Value::as_bool) == Some(false) {
@@ -101,6 +90,58 @@ pub(super) fn stream_events(
             1,
         ),
         None => 0,
+    }
+}
+
+/// Why [`Lines::next_line`] gave no line.
+enum ReadEnd {
+    TimedOut,
+    Failed,
+}
+
+/// The stream's lines, read with the deadline checked before every socket
+/// read, so a frame that arrives a few bytes at a time cannot outlast it
+/// (`read_line` gives each of its reads the whole time left).
+struct Lines {
+    reader: UnixStream,
+    pending: Vec<u8>,
+    deadline: Option<Instant>,
+}
+
+impl Lines {
+    /// The next line with its newline, the last bytes when the stream ends
+    /// without one, or `None` at the end.
+    fn next_line(&mut self) -> Result<Option<String>, ReadEnd> {
+        let mut chunk = [0_u8; 8192];
+        loop {
+            if let Some(end) = self.pending.iter().position(|&byte| byte == b'\n') {
+                let rest = self.pending.split_off(end.saturating_add(1));
+                let line = std::mem::replace(&mut self.pending, rest);
+                return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
+            }
+            if let Some(deadline) = self.deadline {
+                let left = deadline.saturating_duration_since(Instant::now());
+                // A zero read timeout means "block forever" to the socket.
+                if left.is_zero() || self.reader.set_read_timeout(Some(left)).is_err() {
+                    return Err(ReadEnd::TimedOut);
+                }
+            }
+            match self.reader.read(&mut chunk) {
+                Ok(0) if self.pending.is_empty() => return Ok(None),
+                Ok(0) => {
+                    let line = std::mem::take(&mut self.pending);
+                    return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
+                }
+                Ok(read) => self.pending.extend_from_slice(chunk.get(..read).unwrap_or_default()),
+                Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                Err(error)
+                    if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
+                {
+                    return Err(ReadEnd::TimedOut);
+                }
+                Err(_) => return Err(ReadEnd::Failed),
+            }
+        }
     }
 }
 

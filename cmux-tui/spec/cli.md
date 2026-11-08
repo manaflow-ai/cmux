@@ -1180,13 +1180,15 @@ daemon's journal and the app's dialogs and chat states) take the same three
 flags, so an agent waiting for one event needs no timeout wrapper or grep:
 
 ```bash
-cmux events --until workspace.created --match payload.origin=cli --timeout 30s
-cmux events --until 'notification.*' --timeout 5m --jsonl
+cmux events --until action.catalog.changed --timeout 30s --jsonl
+cmux events --until 'mobile.*' --timeout 5m --jsonl
+cmux agents events --until workspace.changed --match name=build --timeout 30s --json
 cmux agents events --until agent.state --match state=idle --match terminal_id=term_1 --timeout 10m --json
 ```
 
 - `--until NAME` names the event: exactly, or by a prefix ending in `*`
-  (`workspace.*`). For `cmux events` it is the frame's `name`; for `agents
+  (`mobile.*`). For `cmux events` it is the frame's `name` (what the app
+  publishes: `action.catalog.changed`, `mobile.rpc.ready`); for `agents
   events` it is `KIND.CHANGE` (`workspace.changed`, `tab.closed`,
   `notification.created`, `dialog.opened`, `agent.state`).
 - `--match PATH=VALUE`, repeatable, compares the field at a dotted path into

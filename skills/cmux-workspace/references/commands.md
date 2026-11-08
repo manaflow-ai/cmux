@@ -145,7 +145,8 @@ To wait for one event and stop, name it with `--until` (an event name, or a pref
 
 ```bash
 cmux agents events --until agent.state --match state=idle --match terminal_id=term_… --timeout 10m --json
-cmux events --until workspace.created --timeout 30s --jsonl     # the app's stream; a timeout prints {"type":"timeout","timed_out":true}
+cmux agents events --until workspace.changed --match name=build --timeout 30s --json
+cmux events --until action.catalog.changed --timeout 30s --jsonl   # the app's stream; a timeout prints {"type":"timeout","timed_out":true}
 ```
 
 For `agents events` the name is `KIND.CHANGE` (`dialog.opened`, `notification.created`, `workspace.changed`, `tab.closed`, `agent.state`). Start the wait before the action, or pass `--after` so events already past count.

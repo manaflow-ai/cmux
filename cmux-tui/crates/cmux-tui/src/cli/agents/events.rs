@@ -430,9 +430,14 @@ impl<'a> Poll<'a> {
         self.answered(item.is_none(), deadline)
     }
 
-    /// No more events fit: the limit, or a wait's match, is reached.
+    /// No more events fit: a wait's match, or a plain poll's limit. A wait
+    /// holds at most its resets and its match, so a reset (an expired
+    /// cursor, `--limit 1`) never fills it before the match.
     fn full(&self) -> bool {
-        self.matched || self.events.len() >= self.request.limit
+        match self.request.until {
+            Some(_) => self.matched,
+            None => self.events.len() >= self.request.limit,
+        }
     }
 
     fn answered(&self, quiet: bool, deadline: Instant) -> bool {
@@ -858,3 +863,7 @@ pub(in crate::cli) fn human_lines(answer: &Value) -> String {
     }
     out
 }
+
+#[cfg(test)]
+#[path = "events_tests.rs"]
+mod tests;

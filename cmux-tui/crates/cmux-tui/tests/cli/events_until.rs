@@ -118,8 +118,15 @@ fn agents_events_until_answers_the_first_match_and_times_out_with_124() {
 
 /// A stand-in app socket: `ping` answers PONG, an `events.stream` request
 /// gets an ack, a heartbeat and `frames`, and the stream then stays open
-/// until the test is done (as the app's does).
-fn stand_in_app(socket: &std::path::Path, frames: Vec<Value>, done: Arc<AtomicBool>) {
+/// until the test is done (as the app's does). With `trickle`, each of
+/// `frames` (not the ack or heartbeat) is sent a byte at a time with that
+/// pause between bytes.
+fn stand_in_app(
+    socket: &std::path::Path,
+    frames: Vec<Value>,
+    trickle: Option<Duration>,
+    done: Arc<AtomicBool>,
+) {
     let listener = UnixListener::bind(socket).unwrap();
     listener.set_nonblocking(true).unwrap();
     std::thread::spawn(move || {
@@ -158,8 +165,18 @@ fn stand_in_app(socket: &std::path::Path, frames: Vec<Value>, done: Arc<AtomicBo
                     }
                     let ack = json!({"type": "ack", "protocol": "cmux-events", "version": 1});
                     let heartbeat = json!({"type": "heartbeat"});
-                    for frame in [ack, heartbeat].iter().chain(frames.iter()) {
-                        if writeln!(writer, "{frame}").is_err() {
+                    let opening = [ack, heartbeat];
+                    let all = opening.iter().map(|frame| (frame, None));
+                    for (frame, pause) in all.chain(frames.iter().map(|frame| (frame, trickle))) {
+                        let text = format!("{frame}\n");
+                        let sent = match pause {
+                            None => writer.write_all(text.as_bytes()),
+                            Some(pause) => text.bytes().try_for_each(|byte| {
+                                std::thread::sleep(pause);
+                                writer.write_all(&[byte])
+                            }),
+                        };
+                        if sent.is_err() {
                             return;
                         }
                         std::thread::sleep(Duration::from_millis(50));
@@ -191,7 +208,7 @@ fn cmux_events_until_prints_the_match_and_a_timeout_exits_124() {
         event(4, "workspace.closed", "ws_2"),
     ];
     let done = Arc::new(AtomicBool::new(false));
-    stand_in_app(&app, frames, done.clone());
+    stand_in_app(&app, frames, None, done.clone());
     let run = |args: &[&str]| -> Output {
         Command::new(bin())
             .arg("--app-socket")
@@ -276,5 +293,36 @@ fn cmux_events_until_prints_the_match_and_a_timeout_exits_124() {
         );
     }
     done.store(true, Ordering::Relaxed);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// The deadline holds between socket reads: a matching frame the app sends
+/// a byte at a time, slower than `--timeout`, still ends at the timeout
+/// with 124 (a line read gave each of its reads the whole time left).
+#[test]
+fn cmux_events_timeout_holds_while_a_frame_trickles_in() {
+    let dir = std::env::temp_dir().join(format!("cmux-events-trickle-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let app = dir.join("app.sock");
+    let frame = json!({"type": "event", "seq": 1, "name": "workspace.created",
+        "workspace_id": "ws_1", "payload": {"origin": "cli"}});
+    let done = Arc::new(AtomicBool::new(false));
+    // About 110 bytes at 30 ms each: over 3 s for the frame.
+    stand_in_app(&app, vec![frame], Some(Duration::from_millis(30)), done.clone());
+    let started = Instant::now();
+    let output = Command::new(bin())
+        .arg("--app-socket")
+        .arg(&app)
+        .args(["events", "--jsonl", "--until", "workspace.created", "--timeout", "1s"])
+        .env("CMUX_TUI_SOCKET", dir.join("no-daemon.sock"))
+        .env_remove("CMUX_MUX_SOCKET")
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .output()
+        .unwrap();
+    let elapsed = started.elapsed();
+    done.store(true, Ordering::Relaxed);
+    assert_eq!(output.status.code(), Some(124), "{}", String::from_utf8_lossy(&output.stdout));
+    assert!(elapsed < Duration::from_millis(2500), "{elapsed:?}");
     let _ = fs::remove_dir_all(&dir);
 }

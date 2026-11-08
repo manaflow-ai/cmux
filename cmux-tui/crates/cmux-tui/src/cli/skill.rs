@@ -128,7 +128,7 @@ pub(super) const RECIPES: &[Recipe] = &[
         ask: "Tell me when that agent is idle. / Wait until the workspace exists, then go on.",
         commands: &[
             "cmux --json agents events --until agent.state --match state=idle --match terminal_id=<term> --timeout 10m",
-            "cmux --jsonl events --until workspace.created --timeout 30s",
+            "cmux --json agents events --until workspace.changed --match name=<name> --timeout 30s",
         ],
         read: "--until names the event (agents events: KIND.CHANGE such as agent.state, \
                dialog.opened; events: the app's name; a trailing * is a prefix) and \
