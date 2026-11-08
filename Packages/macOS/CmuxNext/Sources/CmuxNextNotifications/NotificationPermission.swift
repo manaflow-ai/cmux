@@ -1,5 +1,5 @@
 package import CmuxNextSettings
-import Foundation
+package import Foundation
 import UserNotifications
 
 /// Reads and asks for this app's notification permission (the seam tests replace).
