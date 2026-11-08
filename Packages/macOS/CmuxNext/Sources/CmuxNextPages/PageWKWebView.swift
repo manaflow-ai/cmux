@@ -132,9 +132,9 @@ final class PageWKWebView: WKWebView {
     /// the page while the browser page or the omnibar keeps the focus, as a native button's would.
     var refusesKeyFocus = false
 
-    override var acceptsFirstResponder: Bool { refusesKeyFocus ? false : super.acceptsFirstResponder }
-
     override func becomeFirstResponder() -> Bool {
+        // AppKit asks before a click moves the focus here; a refusal keeps the focus where it was.
+        if refusesKeyFocus { return false }
         let became = super.becomeFirstResponder()
         if became { onBecameFirstResponder?() }
         return became
