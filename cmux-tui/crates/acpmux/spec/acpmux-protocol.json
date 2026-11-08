@@ -1990,6 +1990,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/unsent",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/lagged",
       "params": true
     },

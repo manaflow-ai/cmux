@@ -183,6 +183,12 @@ enum Op {
         link: Link,
         record: Value,
     },
+    /// A seq of the session its link is not sent live (`take_unsent`).
+    Unsent {
+        key: Key,
+        link: Link,
+        seq: u64,
+    },
     /// An op of the peer did not fit the queue: what it would have changed goes instead.
     LostPeer(String),
     /// `_acpmux/peer_snapshot` (`read.rs`).
@@ -451,6 +457,15 @@ impl PeerSnapshots {
             key: (peer.to_owned(), mux.to_owned()),
             link,
             record,
+        });
+    }
+
+    pub(crate) fn unsent(&self, (peer, mux): (&str, &str), link: Link, seq: u64) {
+        let cost = OP_BYTES + mux.len() as u64;
+        self.admit(peer, cost, false, || Op::Unsent {
+            key: (peer.to_owned(), mux.to_owned()),
+            link,
+            seq,
         });
     }
 
@@ -774,6 +789,7 @@ impl Store {
             }
             Op::Page { key, page } => self.take_page(&key, page),
             Op::Record { key, link, record } => self.take_record(&key, link, record),
+            Op::Unsent { key, link, seq } => self.take_unsent(&key, link, seq),
             Op::LostPeer(peer) => {
                 let mut dropped = self.dropped.lock().unwrap_or_else(|e| e.into_inner());
                 let forget = dropped.peers.remove(&peer) == Some(true);
@@ -832,6 +848,7 @@ impl Store {
             Op::Listed { peer, .. } | Op::Lagged { peer, .. } => (peer, false),
             Op::Page { key, .. }
             | Op::Record { key, .. }
+            | Op::Unsent { key, .. }
             | Op::Gone { key, .. }
             | Op::Restored { key, .. } => (key.0, false),
         };
@@ -1099,6 +1116,23 @@ impl Store {
         if !self.fresh_link(&key.0, link) || !of_session(&record, key) {
             return;
         }
+        self.join_live(key, link, seq, vec![record]);
+    }
+
+    /// A seq the link is not sent live (an agent request or answer, `server/mod.rs` `deliver`):
+    /// the copy covers it as a page that leaves its kind out would, under the same rule as a
+    /// record (next to what it covers, on the link a page joined), so a record the link lost is
+    /// never passed over.
+    fn take_unsent(&mut self, key: &Key, link: Link, seq: u64) {
+        // As `seq_of`: a seq a client's number holds exactly.
+        if seq >= 1 << 53 || !self.fresh_link(&key.0, link) {
+            return;
+        }
+        self.join_live(key, link, seq, vec![]);
+    }
+
+    /// What came live at `seq` (its record, or none) continues `key`'s copy when it joins.
+    fn join_live(&mut self, key: &Key, link: Link, seq: u64, records: Vec<Value>) {
         let Some(generation) = self.current(key) else { return };
         let joins = |c: &Kept| {
             c.head.generation == Some(generation)
@@ -1117,7 +1151,7 @@ impl Store {
             c.head.host_last_seq = c.head.host_last_seq.max(seq);
         }
         self.came_on(key, link);
-        self.add(key, vec![record]);
+        self.add(key, records);
     }
 
     /// Records that the records `key`'s copy takes next came on `link`: its next write tells
@@ -1636,6 +1670,22 @@ impl Hub {
         let value = json!({"sessionId": mux, "seq": r.seq, "at": r.at, "dir": r.dir, "kind": r.kind, "msg": r.msg});
         self.capture_on(peer, (generation, link), || {
             self.peer_snapshots.record((peer, mux), (generation, link), value);
+        });
+    }
+
+    /// Peer `peer`'s session `mux` has a record at `seq` its link is not sent live
+    /// (`method::MUX_UNSENT`): the copy continues past it, as a record there would continue it.
+    pub(super) fn capture_peer_unsent(
+        &self,
+        (peer, generation, link): (&str, u64, u64),
+        mux: &str,
+        seq: u64,
+    ) {
+        if seq == 0 {
+            return;
+        }
+        self.capture_on(peer, (generation, link), || {
+            self.peer_snapshots.unsent((peer, mux), (generation, link), seq);
         });
     }
 

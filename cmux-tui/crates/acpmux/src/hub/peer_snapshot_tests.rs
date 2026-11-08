@@ -1858,3 +1858,44 @@ fn a_proof_whose_save_failed_never_gives_back_a_removed_prompt() {
     assert!(a_proof_whose_save_failed(crate::hub::journal_restore::AT_A088), "a088585e kept it");
     assert!(!a_proof_whose_save_failed(0), "the removed prompt went back");
 }
+
+/// A record the link is not sent live (`method::MUX_UNSENT`: the turn's own `session/prompt`)
+/// lets the copy go on past its seq, so the running turn's records join while it runs; past a
+/// record the link lost (a seq it never heard of), nothing joins until a page.
+#[test]
+fn an_unsent_seq_continues_a_copy_only_next_to_it() {
+    use crate::peer::PeerNotice;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let home = snapshot_home(&hub);
+    let peer = add_idle_peer(&hub, PEER);
+    let row = json!({"sessionId": "m1", "name": "lane", "status": "running", "createdAt": 42,
+                     "updatedAt": 5});
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![row]));
+    let link = peer.link_epoch();
+    let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false,
+                      "lastSeq": 2});
+    hub.capture_peer_page(
+        (PEER, peer.generation, link, Some(42)),
+        ("m1", false),
+        &json!({}),
+        &page,
+    );
+    let record = |seq: u64| {
+        let params = json!({"sessionId": "m1", "seq": seq, "at": seq, "dir": "mux", "kind": "prompt", "msg": {}});
+        PeerNotice::Notification { method: method::MUX_EVENT.into(), params, link }
+    };
+    let unsent = |seq: u64| PeerNotice::Notification {
+        method: method::MUX_UNSENT.into(),
+        params: json!({"sessionId": "m1", "seq": seq}),
+        link,
+    };
+    for notice in [record(3), unsent(4), record(5), unsent(7), record(8)] {
+        hub.apply_peer_notice(PEER, peer.generation, notice);
+    }
+    hub.peer_snapshots.flush_now();
+    let path = disk::path(&disk::root(&home), &key("m1")).unwrap();
+    let (head, seqs) = on_disk(&path, "m1").expect("m1's copy was written");
+    assert_eq!(seqs, vec![1, 2, 3, 5], "6 never came: 7 and 8 do not join");
+    assert_eq!(head.last_seq, 5);
+}

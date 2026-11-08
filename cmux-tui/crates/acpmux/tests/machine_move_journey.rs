@@ -379,6 +379,11 @@ async fn move_to_a_fresh_machine(fault: Fault) {
         e.iter().any(|e| says(e, "running")) && e.iter().any(|e| names_prompt(e, "queued", "p2"))
     })
     .await;
+    // The copy had them while the turn ran: the machine goes mid-turn, with p2 still waiting.
+    assert!(
+        !journal(&b, &id).iter().any(|e| says(e, "echo: second")),
+        "A's copy caught up only once the running turn ended"
+    );
     if fault == Fault::CacheBound {
         // A page again, under a bound of two records: the copy cuts everything else.
         acpmux::hub::peer_snapshot_bound(2);
