@@ -434,7 +434,13 @@ final class ScreenContentView: NSView {
         for kind in dividerViews.keys where targets[kind] == nil {
             // The handle under a drag goes away: its mouse-up never comes.
             if activeDrag?.kind == kind { endDrag() }
-            dividerViews.removeValue(forKey: kind)?.removeFromSuperview()
+            // EXPERIMENT (CLOSE VARIANTS 5, E3): park the handle (zero frame, out of the accessibility tree) instead of
+            // removing it, so the key turn changes no view tree: does AppKit's layer-tree rebuild go away?
+            if let view = dividerViews.removeValue(forKey: kind) {
+                view.frame = .zero
+                view.setAccessibilityElement(false)
+                view.onDrag = nil
+            }
             dividerFrames[kind] = nil
         }
 
