@@ -76,6 +76,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/cmux-next/prepush-gate.py",
             "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/github_release_download.py",
         ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)

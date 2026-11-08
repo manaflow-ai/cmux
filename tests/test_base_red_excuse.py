@@ -4799,8 +4799,9 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         urls = []
 
         def answer(code):
-            def urlopen(url, timeout):
-                urls.append((url, timeout))
+            def urlopen(request, timeout):
+                url = request.full_url
+                urls.append((url, timeout, request.get_header("Authorization")))
                 if code == 200:
                     return io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
                 raise urllib.error.HTTPError(url, code, "x", {}, None)
@@ -4809,9 +4810,12 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         tag = f"cmux-app-ffi-{self.STEP_B_PIN}"
         with unittest.mock.patch("urllib.request.urlopen", answer(200)):
             self.assertEqual(module.ffi_release_file(REPO, tag, "SOURCE_SHA"), f"{self.STEP_B_PIN}\n")
-        self.assertEqual(urls, [(f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA", 30)])
+        self.assertEqual(urls, [(f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA", 30, None)])
+        # A 404 is GitHub's answer, not an outage: no release-assets API read follows it.
+        urls.clear()
         with unittest.mock.patch("urllib.request.urlopen", answer(404)):
             self.assertIsNone(module.ffi_release_file(REPO, tag, "SHA256SUMS"))
+        self.assertEqual(len(urls), 1)
         with unittest.mock.patch("urllib.request.urlopen", answer(502)), \
                 self.assertRaisesRegex(module.Refused, "HTTP 502; the pinned release could not be read"):
             module.ffi_release_file(REPO, tag, "SOURCE_SHA")
