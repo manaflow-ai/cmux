@@ -721,6 +721,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
+                "CmuxNextPages",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
             resources: [
@@ -2181,7 +2183,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             resources: [
                 .process("Localizable.xcstrings"),
-                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),
