@@ -108,7 +108,8 @@ async function client() {
       const self = this as unknown as { answer: (method: string, params: Record<string, any>) => Promise<unknown> };
       const answer = self.answer.bind(this);
       self.answer = (method, params) => {
-        if (method === "session/prompt") prompts.push({ sessionId: params.sessionId, prompt: params.prompt, meta: params._meta });
+        if (method === "session/prompt")
+          prompts.push({ sessionId: params.sessionId, prompt: params.prompt, meta: params._meta });
         return answer(method, params);
       };
     }
