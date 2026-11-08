@@ -15,4 +15,15 @@ public protocol ChiefPanelContent: AnyObject {
     /// Whether the Chief this view shows is answering now. While it is, Esc in the panel stops the answer instead of
     /// hiding the panel, as Esc does in Home.
     var chiefIsAnswering: Bool { get }
+    /// Whether the view leaves its own background clear so the workspace shows through (the see-through styles,
+    /// ``ChiefPanelStyle/isSeeThrough``); bubbles, text and the composer still draw. False by default.
+    var chiefShowsThrough: Bool { get set }
+}
+
+extension ChiefPanelContent {
+    /// A view with no clear form keeps its background: setting this does nothing.
+    public var chiefShowsThrough: Bool {
+        get { false }
+        set {}
+    }
 }

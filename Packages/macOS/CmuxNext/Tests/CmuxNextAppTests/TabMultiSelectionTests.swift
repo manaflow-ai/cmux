@@ -139,18 +139,18 @@ import Testing
         #expect(!strip.pinsAll(ids("p0", "p1")))
     }
 
-    @Test func cmdWClosesTheSelectedTabsButKeepsPinnedOnes() {
+    /// Cmd-W closes every selected tab, pinned ones too, as Chrome's does (cmux-ad i8).
+    @Test func cmdWClosesTheSelectedTabsPinnedOnesToo() {
         let strip = model()
         click(strip, "p1", .toggle)
         click(strip, "t3", .toggle)
-        #expect(strip.keyboardCloseSelection("t3", closesPinned: false) == ids("t2", "t3"))
-        #expect(strip.keyboardCloseSelection("t3", closesPinned: true) == ids("p1", "t2", "t3"))
-        // Without a selection (or a selection of pinned tabs only) the one-tab rule applies.
+        #expect(strip.keyboardCloseSelection("t3") == ids("p1", "t2", "t3"))
+        // Without a selection the one-tab rule applies.
         let single = model()
-        #expect(single.keyboardCloseSelection("t2", closesPinned: false) == nil)
+        #expect(single.keyboardCloseSelection("t2") == nil)
         let pinned = model(active: "p0")
         click(pinned, "p1", .toggle)
-        #expect(pinned.keyboardCloseSelection("p1", closesPinned: false) == nil)
+        #expect(pinned.keyboardCloseSelection("p1") == ids("p0", "p1"))
     }
 
     // MARK: Moving the selection

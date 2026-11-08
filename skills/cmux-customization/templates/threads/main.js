@@ -126,16 +126,16 @@ function card(chat) {
     () =>
       meta() || chat().pull_requests.length
         ? HStack({ spacing: 6 }, [
-            () => (meta() ? Text(meta).font("caption").color("tertiary").lineLimit(1).truncation("middle") : null),
+            () => (meta() ? Text(meta).font("caption").color("tertiary").lineLimit(1).truncation("tail") : null),
             Spacer(),
             () =>
               chat().pull_requests.length
                 ? HStack({ spacing: 3 }, [
                     Icon("arrow.triangle.pull").size(10).color("tertiary"),
-                    Text(String(chat().pull_requests.length)).font("caption").color("tertiary")
+                    Text(String(chat().pull_requests.length)).font("caption").color("tertiary").fixedSize("horizontal")
                   ])
                 : null,
-            Text(() => chat().harness || "").font("caption").color("tertiary")
+            Text(() => chat().harness || "").font("caption").color("tertiary").fixedSize("horizontal")
           ])
         : null
   ])

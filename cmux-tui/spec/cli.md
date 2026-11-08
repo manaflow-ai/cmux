@@ -74,7 +74,12 @@ opens only for the machine owner's grant; its refusal is `error_code` `service_r
 Each attempt then writes `cloud.connect route=carrier machine=<vm_id>
 phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>` on stderr and appends it to
 `<workspace state dir>/carrier/connect.log`, a file only the dial writes, never
-emptied or replaced (it stops growing at 4 MiB). One
+emptied or replaced (it stops growing at 4 MiB). A failed attempt's line ends in
+` detail=<code>` after `ms`, when the failure names one: one `[a-z0-9_]{1,24}` token, either
+the relay's WebSocket close code (`1013`), an HTTP status (`http_503`), the relay's error code
+(`slot_busy`), a fixed word (`connect_refused`, `tls`, `timeout`, `deadline`, `closed`,
+`rejected`, `io`, `daemon_key`), or else `other`. The failure's text stays in the reply
+line's `error_detail`; no ticket, grant or token reaches the route line. One
 deadline (`--deadline-ms`, default 180000) covers every step, with full-jitter
 retries inside it. Exit codes: 0, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
 6 service_refused, 64 usage. On a Mac the Noise key is a login Keychain item (accessible after first
@@ -126,10 +131,14 @@ their policy allows it; paired installs do not serve it), `owner_session`
 (a paired server's owner session, its owner only), `desktop` (the Cloud
 machine's agent display as `cmux.rd/1`, its creator only, on a machine that
 serves it; refused with `desktop_unavailable` when it does not) or `acpmux`
-(a paired install's acpmux WebSocket listener on its loopback, as named by
-`websocket.listen` in its acpmux `config.json`; acpmux checks its own token on
-the upgrade, so pairing grants nothing more, and the stream closes when no
-listener is there). `--socket`
+(a paired install's acpmux WebSocket listener on its loopback: only the one
+its running acpmux daemon recorded in `listener.json` in its acpmux home, after
+the far link checked that the file is the same user's and that the listener
+answers a fresh challenge with an HMAC under the record's key, which only the
+daemon that wrote it holds; `config.json`'s `websocket.listen` is never used. acpmux
+checks its own token on the upgrade, so pairing grants nothing more. Without a
+proven listener the stream closes before any of its bytes are sent on).
+`--socket`
 dials exactly that link socket instead of looking up the running link (for a
 caller with a private `HOME`, or a tagged link); it must be an absolute path
 to a socket (otherwise exit 64), and a path that does not exist means the
@@ -586,6 +595,9 @@ cmux workspace create --cwd ~/src/app --shell 'npm install && npm run dev'
 terminal` take the same exact argv after `--` or `--shell <script>`: the new
 terminal runs it instead of a shell. Apps need `workspace:execute` for these
 too. Text after `--` on a command that starts no terminal is a usage error.
+`screen create` does not move the focus: the workspace's focused screen
+stays, unless `--focus` is given (or the workspace had no screen). It takes
+`--workspace <selector>` to choose the workspace.
 
 ```bash
 cmux tab create terminal --pane current -- htop
@@ -640,7 +652,7 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list [--needs-me] [--state <state>] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
 agent <agent_id|term_id> focus
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
@@ -665,7 +677,7 @@ workspace <selector> layout apply
 workspace [<selector>] open-url --url <url>
 workspace <selector> screen ...
 
-screen list|create
+screen list|create [--workspace <selector>] [--focus]
 screen <selector> show|rename|focus|close
 screen <selector> layout export|undo
 screen <selector> column <split_id> update
@@ -673,6 +685,7 @@ screen <selector> pane ...
 
 pane list|create
 pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
+pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--focus]
 pane <selector> focus direction <left|right|up|down>
 pane <selector> split ratio set
 pane <selector> viewport width set
@@ -718,7 +731,7 @@ attention clear --tab <tab_…>
 attention next [--after <tab_…>] [--focus]
 attention list
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
-git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
+git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch | --scope commits --base <commit> --head <commit>] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]
   [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
 git branches [TARGET] [--limit <n>]
@@ -739,6 +752,9 @@ git worktree create [TARGET] [--name <name>] [--base <revision>]
 git worktree apply [TARGET]
 git worktree remove [TARGET] [--discard]
 git worktree setup [TARGET] [--since <offset>]
+git comments list [--root <path>]
+git comments save [--root <path>] --comment <json-object>
+git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -837,9 +853,37 @@ never matches) and when the command finishes first (`matched: false`, exit 1).
 reported none; a timeout still exits 124. `terminal <t> run [OPTIONS] --
 <command...>` (or `--text <command>`) is `send --wait prompt
 --exit-with-status`: it types the command into the terminal's shell, waits
-for it to finish, prints its output and exits with its status. `terminal <t>
-status` adds a `LAST COMMAND` line for a person; `--json` keeps the record
-list.
+for it to finish, prints its output and exits with its status. One word
+after `--` is a shell line as it is (`run -- 'make && ./a.out'`); two or more
+words are an argv: each word is POSIX shell-quoted, so sh, bash and zsh get
+the same words (`run -- sh -c 'exit 7'` exits 7); for cmd.exe or PowerShell
+pass the line as one word. `terminal <t> status` adds a `LAST
+COMMAND` line for a person; `--json` keeps the record list.
+
+Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
+--regex`) is multi-line: `^` and `$` match at the start and end of each line, so
+`'^READY$'` matches a line that is only `READY`. Start the pattern with
+`(?-m)` to anchor at the start and end of the whole text.
+
+`pane <p> move` moves a whole pane: every tab in it, in order, with one
+`tab.move` each (the daemon has no pane move), and the emptied pane closes.
+`--to-pane <q>` appends the tabs to pane q; with `--split right|down|left|up`
+they go into a new pane split off q. `--to-tab <t>` puts them after tab t in
+its pane. `--to-workspace <w>` and `--new-screen` (alias `--new-tab`, the
+pane's own workspace) put them into a new screen there, named `--name`. A new
+pane's shell tab closes once the tabs are in, and the new pane takes the
+moved pane's name. `tab.move` focuses what it moved, so afterwards the command
+focuses the pane that had the focus before (`--focus`: the destination pane);
+when the moved pane had the focus, the focus stays with its tabs. A
+destination in the pane itself is a usage error. The result is `{pane,
+moved_tabs, destination: {workspace, screen, pane, index}, created,
+focused_pane}`, `created` being `{screen, pane}`, `{pane}` or null. The
+command resolves every selector (ids, unique id prefixes, `name:` and exact
+names, `focused`, `current`, `caller`) against one `session.snapshot` and
+sends ids only. Each step is its own request. A failed step names itself and
+what already moved in `details.step` and `details.made`; running the command
+again does not resume it (`details.retry`), so move the remaining tabs with
+`tab move`.
 
 `workspace create --worktree <name>` runs `git worktree create --name <name>`
 in the repository `--repo` names (default: the current directory), with
@@ -1120,6 +1164,15 @@ byte `--since` (at most its last 64 KiB) with `output_start` and `output_end`
 (decimal strings); the next read passes `output_end` as `--since`. Setup stops
 after 30 minutes.
 
+`git comments list|save|delete` (`diff.comments.list|save|delete`, capability
+`diff-comments-v1`) read and change the diff page's review comments, which the
+session host keeps per worktree root: `--root`, made absolute against the
+current directory, which is the default. `save` sends `--comment` (a JSON
+object, kept as given; its `id` names a saved comment to replace) and the
+session host sets `createdAt` and `updatedAt`. `delete` names the ids to
+remove (at most 500); `--versions-json` maps an id to the `updatedAt` read, and
+a comment edited since is kept. Unknown ids are ignored.
+
 ## Local sidebar plugins
 
 `sidebar plugin` commands read and write local plugin installation state. They
@@ -1130,12 +1183,22 @@ plugin names are slugs matching `[a-z0-9-_]+`.
 
 `agent list` is one `agent.list` read; the CLI ranks, limits and counts its
 rows, so the wire value is unchanged. `--state` and `--terminal` are the
-read's own filters. `--needs-me` lists the blocked agents (`state: blocked`)
-and is refused with any other `--state`.
+read's own filters. Every row has `status`, one of the words `terminal list
+--agents` and `agent wait` use: `blocked`, `done` (idle with an unread
+notification on its terminal), `working`, `idle` or `unknown`, and `null` for
+an agent whose session ended. The daemon's `state` field (`working`,
+`blocked`, `idle`, `done` = ended, `unknown`) stays as it was. `--state` takes
+the status words and `ended` and asks the daemon for its state: `done` and
+`idle` ask for `idle` (the CLI then keeps the rows with that status), `ended`
+asks for the daemon's `done`, the others for themselves. `--state done` used to
+select the ended sessions; that is `--state ended` now. `--needs-me` lists the
+blocked agents and is refused with any other `--state`. An acpmux chat row's
+`status` is the shared word too (it was acpmux's own status); acpmux's own
+status moved to `acp_status`.
 
-`--sort needs-me`, the default, puts blocked agents first, then working, then
-idle and done together, then unknown; `recent` ignores state; `none` keeps the
-daemon's order. Within a group the most recently updated agent comes first,
+`--sort needs-me`, the default, puts blocked agents first, then done, then
+working, then idle, then unknown, then ended; `recent` ignores status; `none`
+keeps the daemon's order. Within a group the most recently updated agent comes first,
 and equal times fall back to the agent id. `--limit <n>` (at least 1) keeps
 the first `n` ranked rows.
 
@@ -1151,10 +1214,10 @@ can show its terminal's title and folder. A refused or failed terminal read
 leaves those out. AGE is the time since the agent's `updated_at_ms`, its
 last report.
 
-Human output starts with the counts by state over every listed agent, before
-`--limit` (`2 blocked · 1 working · 3 idle · 0 done`, plus `unknown` when
-there is one, and `(showing n of m)` when the limit hid rows), then one row per
-agent: STATE, AGE, AGENT (`extra.agent`), TITLE, FOLDER (with `~` for the
+Human output starts with the counts by status over every listed agent, before
+`--limit` (`2 blocked · 0 done · 1 working · 3 idle`, plus `unknown` and
+`ended` when there is one, and `(showing n of m)` when the limit hid rows),
+then one row per agent: STATE (the status word), AGE, AGENT (`extra.agent`), TITLE, FOLDER (with `~` for the
 home folder) and TERMINAL, with SESSION first under `--all-sessions`. With no
 agents it prints `No agents.`
 
@@ -1162,7 +1225,7 @@ agents it prints `No agents.`
 default order changed (it was the daemon's order). Each agent is the
 `AgentSnapshot` plus `age_ms` and, when its terminal was listed, its `title`
 and `cwd`. `--json --counts` prints `{"agents": [...], "counts": {...}}`
-instead: `counts` has `blocked`, `working`, `idle`, `done`, `unknown` and
+instead: `counts` has `blocked`, `done`, `working`, `idle`, `unknown`, `ended` and
 `total`, counted before `--limit`. `--jsonl` prints one agent per line with
 or without `--counts`.
 

@@ -100,8 +100,9 @@ export type FollowChase = {
   hold(following?: () => boolean): void;
   /// Followed again: a held chase goes on home from where it is drawn.
   resume(): void;
-  /// The turn ended: the chase lands now, at once within a line of home, else within BURST_S at no
-  /// more than a line a frame (a snap of the whole trail moved the rows up to two lines in a frame).
+  /// The turn ended: the chase lands at once when that frame, with what it already moved, stays within
+  /// CHASE_LAND_LINES; else within BURST_S at no more than a line a frame (a snap of the whole trail
+  /// moved the rows up to two lines in a frame, and a snap on top of a frame that had moved, 26-40 px).
   land(): void;
 };
 
@@ -293,12 +294,17 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     resume,
     land() {
       const line = currentChatMetrics().lineHeight;
-      if (!thread || Math.abs(x) <= CHASE_MAX_FRAME_LINES * line) {
+      // At once only when that frame, with what it already moved (`spent`, `stepped`), stays within
+      // a landing frame's CHASE_LAND_LINES: a turn that settles quietly stops where it is drawn, and
+      // nothing moves after it settles (agent-pane-stream-jitter). Otherwise not at once: the frame
+      // the turn ends in has often moved already (the reply's last line landing, the chase's step),
+      // and a snap of what is left on top of that moved the rows 26-40 px in one frame
+      // (send-stream-motion). Nothing under the stack holds it back (`fit`), and it moves at least
+      // the rest of the trail over BURST_S, no frame more than a line with what the frame moved.
+      if (!thread || Math.abs(x) + spent + stepped <= CHASE_LAND_LINES * line) {
         stop();
         return;
       }
-      // Nothing under the stack holds it back (`fit`), and it moves at least the rest of the trail
-      // over BURST_S, no frame more than a line.
       landing = true;
       rising = true;
       burst = Math.min((CHASE_MAX_FRAME_LINES * line) / (1 / 120), Math.abs(x) / BURST_S);
