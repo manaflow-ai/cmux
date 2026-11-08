@@ -205,6 +205,29 @@ struct AgentPaneCaptureCallTests {
         #expect(!(await recorder.takeShot(bytes, for: model)))
     }
 
+    /// Copy puts a copy of the very movie the page was given on the pasteboard, in a fresh folder of
+    /// its own, never the movie's path: a file swapped in at that path is refused, and a later swap
+    /// of the movie's path does not change what a paste reads.
+    @Test func copyPastesAPrivateCopyOfTheGivenMovie() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-paste-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let movie = root.appendingPathComponent("Recording.mp4")
+        try Data("movie".utf8).write(to: movie)
+        let given = try #require(AgentPaneRecorder.identity(movie.path))
+        let copy = try #require(AgentPaneCapture.pasteCopy(of: movie, expected: given, in: root.appendingPathComponent("A")))
+        #expect(copy.deletingLastPathComponent().lastPathComponent == "A")
+        // The movie's path swapped afterwards: the copy keeps the movie's bytes.
+        try FileManager.default.removeItem(at: movie)
+        try Data("other".utf8).write(to: movie)
+        #expect(try Data(contentsOf: copy) == Data("movie".utf8))
+        // Another file at the path now: refused, and no folder is left.
+        #expect(AgentPaneCapture.pasteCopy(of: movie, expected: given, in: root.appendingPathComponent("B")) == nil)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("B").path))
+        // A folder that already exists is not used.
+        #expect(AgentPaneCapture.pasteCopy(of: copy, expected: try #require(AgentPaneRecorder.identity(copy.path)), in: root.appendingPathComponent("A")) == nil)
+    }
+
     /// A moved window is filmed where it is now: its part of the display, from the display's corner.
     @Test func theStreamFollowsTheWindowOnItsDisplay() {
         let display = CGRect(x: 1440, y: 0, width: 1920, height: 1080)

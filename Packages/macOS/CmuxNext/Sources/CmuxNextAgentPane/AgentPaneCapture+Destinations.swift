@@ -60,11 +60,16 @@ extension AgentPaneCapture {
             let tiff = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { NSBitmapImageRep(data: data)?.tiffRepresentation }.value
             if let tiff { item.setData(tiff, forType: .tiff) }
         case .file(let path):
-            // The file still the one the page was given (no other put at its path since).
-            guard let owned = AgentPaneRecorder.shared.owned(path),
-                  await Task.detached(priority: WorkPriority.userBlocking.taskPriority, operation: { AgentPaneRecorder.identity(owned.url.path) }).value == owned.identity
-            else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
-            item = AgentPaneImageCopies.pasteboardItem(owned.url, data: nil)
+            // A paste reads the file later, by its path: the pasteboard gets a copy taken now from
+            // the very movie the page was given (on its descriptor, ``copyRegular(_:expected:to:)``)
+            // into a fresh folder of its own, never the movie's path, which another process could
+            // swap after this check.
+            guard let owned = AgentPaneRecorder.shared.owned(path) else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
+            let folder = AgentPaneRecorder.folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            guard let copy = await Task.detached(priority: WorkPriority.userBlocking.taskPriority, operation: {
+                pasteCopy(of: owned.url, expected: owned.identity, in: folder)
+            }).value else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
+            item = AgentPaneImageCopies.pasteboardItem(copy, data: nil)
         case nil:
             return AgentPaneModel.transportFailure(.pathInvalid)
         }
@@ -129,6 +134,21 @@ extension AgentPaneCapture {
         guard target >= 0 else { return false }
         defer { Darwin.close(target) }
         return fcopyfile(source, target, nil, copyfile_flags_t(COPYFILE_DATA)) == 0
+    }
+
+    /// Off the main actor: a read-only copy of `file` (only the file `expected` names) in `folder`,
+    /// made here with mode 0700 and refused when it already exists; nil, with `folder` gone, when it
+    /// could not. The capture folder's day-old sweep removes it.
+    nonisolated static func pasteCopy(of file: URL, expected: AgentPaneRecorder.FileIdentity, in folder: URL) -> URL? {
+        let files = FileManager.checked
+        guard (try? files.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)) != nil,
+              mkdir(folder.path, 0o700) == 0 else { return nil }
+        let copy = folder.appendingPathComponent(file.lastPathComponent)
+        guard copyRegular(file, expected: expected, to: copy), chmod(copy.path, 0o444) == 0 else {
+            try? files.removeItem(at: folder)
+            return nil
+        }
+        return copy
     }
 
     /// Off the main actor: `bytes`, or a copy of `file`, written beside `destination` and then
