@@ -22,6 +22,7 @@ import Testing
         return false
     }
 
+    /// An empty filter list matches every host.
     @Test func anEmptyFilterListMatchesEveryHost() {
         let filter = BrowserImportDomainFilter(filters: [])
 
@@ -29,6 +30,7 @@ import Testing
         #expect(filter.matches(host: ""))
     }
 
+    /// Matches the domain and its subdomains only.
     @Test func matchesTheDomainAndItsSubdomainsOnly() {
         let filter = BrowserImportDomainFilter(filters: ["example.com"])
 
@@ -42,6 +44,7 @@ import Testing
         #expect(!filter.matches(host: "..."))
     }
 
+    /// Agrees with the previous rule on every combination.
     @Test func agreesWithThePreviousRuleOnEveryCombination() {
         let filterSets: [[String]] = [
             [],

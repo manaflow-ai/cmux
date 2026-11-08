@@ -60,6 +60,7 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
         }
     }
 
+    /// Reads the container store first.
     @Test func readsTheContainerStoreFirst() {
         let reader = reader([
             containerStore: .success(Data("container".utf8)),
@@ -69,12 +70,14 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
         #expect(reader.load(for: defaultProfile) == .loaded(url: containerStore, data: Data("container".utf8)))
     }
 
+    /// Falls back to the legacy store only when the container store is missing.
     @Test func fallsBackToTheLegacyStoreOnlyWhenTheContainerStoreIsMissing() {
         let reader = reader([legacyStore: .success(Data("legacy".utf8))])
 
         #expect(reader.load(for: defaultProfile) == .loaded(url: legacyStore, data: Data("legacy".utf8)))
     }
 
+    /// Reports an access denial instead of falling back to the legacy store.
     @Test func reportsAnAccessDenialInsteadOfFallingBackToTheLegacyStore() {
         let reader = reader([
             containerStore: .failure(Self.denied),
@@ -84,6 +87,7 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
         #expect(reader.load(for: defaultProfile) == .accessDenied(url: containerStore, cause: .privacyProtected))
     }
 
+    /// Reports a file-permissions denial with its cause.
     @Test func reportsAFilePermissionDenialWithItsCause() {
         let fileModeDenial = NSError(
             domain: NSCocoaErrorDomain,
@@ -98,6 +102,7 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
         #expect(reader.load(for: defaultProfile) == .accessDenied(url: containerStore, cause: .filePermissions))
     }
 
+    /// Reports a denial with no POSIX cause as unspecified.
     @Test func reportsADenialWithNoPOSIXCauseAsUnspecified() {
         let bareDenial = NSError(domain: NSCocoaErrorDomain, code: CocoaError.fileReadNoPermission.rawValue)
         let reader = reader([containerStore: .failure(bareDenial)])
@@ -105,6 +110,7 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
         #expect(reader.load(for: defaultProfile) == .accessDenied(url: containerStore, cause: .unspecified))
     }
 
+    /// Reports any other read failure instead of falling back.
     @Test func reportsAnyOtherReadFailureInsteadOfFallingBack() {
         let reader = reader([
             containerStore: .failure(Self.damaged),
@@ -114,10 +120,12 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
         #expect(reader.load(for: defaultProfile) == .unreadable(url: containerStore))
     }
 
+    /// Reports the store as missing when no candidate store exists.
     @Test func reportsMissingWhenNoCandidateStoreExists() {
         #expect(reader([:]).load(for: defaultProfile) == .missing)
     }
 
+    /// A named profile reads the store in its own directory.
     @Test func aNamedProfileReadsTheStoreInItsOwnDirectory() {
         let profileRoot = URL(fileURLWithPath: "/Users/tester/Library/Safari/Profiles/Work", isDirectory: true)
         let profile = InstalledBrowserProfile(displayName: "Work", rootURL: profileRoot, isDefault: false)
@@ -131,6 +139,7 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
         #expect(reader.load(for: profile) == .loaded(url: store, data: Data("work".utf8)))
     }
 
+    /// Reads real files through the default data reader.
     @Test func readsRealFilesThroughTheDefaultDataReader() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-safari-reader-\(UUID().uuidString)", isDirectory: true)
@@ -144,6 +153,7 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
         #expect(result == .loaded(url: legacy, data: Data("cook".utf8)))
     }
 
+    /// Displays paths inside home with a tilde.
     @Test func displaysPathsInsideHomeWithATilde() {
         let reader = reader([:])
 
@@ -153,6 +163,7 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
             == "/Volumes/Backup/Cookies.binarycookies")
     }
 
+    /// Each read error maps to the store state the reader reports for it.
     @Test(arguments: [
         ReadFailureCase(domain: NSCocoaErrorDomain, code: CocoaError.fileReadNoPermission.rawValue,
                         underlyingDomain: nil, underlyingCode: nil, expected: .permissionDenied(.unspecified)),

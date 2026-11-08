@@ -28,10 +28,12 @@ private struct BinaryCookiesFixture {
     static let httpOnlyFlag: UInt32 = 0x4
     static let fixedHeaderSize = 56
 
+    /// A store holding `pages`, each encoded with ``page(_:)``.
     static func file(pages: [[Cookie]], trailer: [UInt8] = []) -> Data {
         file(encodedPages: pages.map(page), trailer: trailer)
     }
 
+    /// A store whose page table points at `encodedPages`, followed by `trailer`.
     static func file(encodedPages: [[UInt8]], trailer: [UInt8] = []) -> Data {
         var bytes: [UInt8] = Array("cook".utf8)
         bytes += bigEndian(UInt32(encodedPages.count))
@@ -45,6 +47,7 @@ private struct BinaryCookiesFixture {
         return Data(bytes)
     }
 
+    /// A page holding `cookies` in order.
     static func page(_ cookies: [Cookie]) -> [UInt8] {
         page(records: cookies.map(record))
     }
@@ -63,6 +66,7 @@ private struct BinaryCookiesFixture {
         return bytes
     }
 
+    /// A page holding already-encoded `records` in order.
     static func page(records: [[UInt8]]) -> [UInt8] {
         var bytes: [UInt8] = [0x00, 0x00, 0x01, 0x00]
         bytes += littleEndian(UInt32(records.count))
@@ -78,6 +82,7 @@ private struct BinaryCookiesFixture {
         return bytes
     }
 
+    /// The encoded record for `cookie`: fixed header, then its strings.
     static func record(_ cookie: Cookie) -> [UInt8] {
         var strings = [cookie.domain, cookie.name, cookie.path, cookie.value].map { Array($0.utf8) + [0] }
         if cookie.omitValueTerminator {
@@ -111,14 +116,17 @@ private struct BinaryCookiesFixture {
         return bytes
     }
 
+    /// `value` as four big-endian bytes.
     static func bigEndian(_ value: UInt32) -> [UInt8] {
         withUnsafeBytes(of: value.bigEndian, Array.init)
     }
 
+    /// `value` as little-endian bytes.
     static func littleEndian(_ value: UInt32) -> [UInt8] {
         withUnsafeBytes(of: value.littleEndian, Array.init)
     }
 
+    /// `value` as little-endian bytes.
     static func littleEndian(_ value: UInt64) -> [UInt8] {
         withUnsafeBytes(of: value.littleEndian, Array.init)
     }
@@ -147,6 +155,7 @@ private struct BinaryCookiesFixture {
         flags: 0
     )
 
+    /// Decodes every field of a two-cookie store.
     @Test func decodesEveryFieldOfATwoCookieStore() throws {
         let data = BinaryCookiesFixture.file(pages: [[sessionCookie, themeCookie]])
 
@@ -172,6 +181,7 @@ private struct BinaryCookiesFixture {
         #expect(!second.isHTTPOnly)
     }
 
+    /// Collects cookies across pages.
     @Test func collectsCookiesAcrossPages() throws {
         let data = BinaryCookiesFixture.file(pages: [[sessionCookie], [themeCookie]])
 
@@ -180,6 +190,7 @@ private struct BinaryCookiesFixture {
         #expect(cookies.map(\.name) == ["session", "theme"])
     }
 
+    /// A zero or non-finite expiry decodes as a session cookie.
     @Test(arguments: [Double.nan, -Double.infinity, Double.infinity, 0])
     func treatsZeroOrNonFiniteExpiryAsASessionCookie(_ expiry: Double) throws {
         var cookie = sessionCookie
@@ -192,6 +203,7 @@ private struct BinaryCookiesFixture {
         #expect(cookies.first?.expiresDate == nil)
     }
 
+    /// Preserves a negative expiry as an already-expired date.
     @Test func preservesANegativeExpiryAsAnAlreadyExpiredDate() throws {
         var cookie = sessionCookie
         cookie.expiry = -1
@@ -202,6 +214,7 @@ private struct BinaryCookiesFixture {
         #expect(cookies.first?.expiresDate == Date(timeIntervalSinceReferenceDate: -1))
     }
 
+    /// The Secure and HttpOnly flag bits decode independently of each other.
     @Test(arguments: [
         (flags: UInt32(0x1), secure: true, httpOnly: false),
         (flags: UInt32(0x4), secure: false, httpOnly: true),
@@ -219,11 +232,13 @@ private struct BinaryCookiesFixture {
         #expect(decoded.isHTTPOnly == expectation.httpOnly)
     }
 
+    /// An empty store decodes to no cookies.
     @Test func emptyStoreDecodesToNoCookies() throws {
         #expect(try parser.parse(BinaryCookiesFixture.file(pages: [])).isEmpty)
         #expect(try parser.parse(BinaryCookiesFixture.file(pages: [[]])).isEmpty)
     }
 
+    /// Ignores trailer and unknown record bytes.
     @Test func ignoresTrailerAndUnknownRecordBytes() throws {
         var padded = sessionCookie
         padded.extraHeaderBytes = [0xAA, 0xBB, 0xCC, 0xDD]
@@ -237,12 +252,14 @@ private struct BinaryCookiesFixture {
         #expect(cookies.first?.value == "abc123")
     }
 
+    /// Rejects a file that is too short for a header.
     @Test func rejectsAFileThatIsTooShortForAHeader() {
         #expect(throws: SafariBinaryCookiesParser.ParseError.tooShort) {
             try parser.parse(Data("coo".utf8))
         }
     }
 
+    /// Rejects a bad magic number.
     @Test func rejectsABadMagicNumber() {
         var bytes = [UInt8](BinaryCookiesFixture.file(pages: [[sessionCookie]]))
         bytes.replaceSubrange(0..<4, with: Array("kooc".utf8))
@@ -252,6 +269,7 @@ private struct BinaryCookiesFixture {
         }
     }
 
+    /// Rejects a page count that overflows the file.
     @Test func rejectsAPageCountThatOverflowsTheFile() {
         let bytes: [UInt8] = Array("cook".utf8) + [0xFF, 0xFF, 0xFF, 0xFF]
 
@@ -260,6 +278,7 @@ private struct BinaryCookiesFixture {
         }
     }
 
+    /// Rejects a truncated page.
     @Test func rejectsATruncatedPage() {
         let complete = [UInt8](BinaryCookiesFixture.file(pages: [[sessionCookie, themeCookie]]))
         let truncated = Array(complete.dropLast(20))
@@ -269,6 +288,7 @@ private struct BinaryCookiesFixture {
         }
     }
 
+    /// Rejects a cookie offset outside its page.
     @Test func rejectsACookieOffsetOutsideItsPage() {
         var bytes = [UInt8](BinaryCookiesFixture.file(pages: [[sessionCookie]]))
         // The single cookie offset lives at page start + 8; the page starts after
@@ -281,6 +301,7 @@ private struct BinaryCookiesFixture {
         }
     }
 
+    /// Rejects a cookie whose string offset leaves the record.
     @Test func rejectsACookieWhoseStringOffsetLeavesTheRecord() {
         var bytes = [UInt8](BinaryCookiesFixture.file(pages: [[sessionCookie]]))
         // First record begins at page start + 8 + 4 (one offset) + 4 (footer);
@@ -294,6 +315,7 @@ private struct BinaryCookiesFixture {
         }
     }
 
+    /// Rejects a value without a terminator.
     @Test func rejectsAValueWithoutATerminator() {
         var cookie = sessionCookie
         cookie.omitValueTerminator = true
@@ -304,6 +326,7 @@ private struct BinaryCookiesFixture {
         }
     }
 
+    /// Bounds the bytes decoded from repeated record offsets.
     @Test func boundsTheBytesDecodedFromRepeatedRecordOffsets() throws {
         let page = BinaryCookiesFixture.pageRepeatingOneRecord(sessionCookie, times: 64)
         let data = BinaryCookiesFixture.file(encodedPages: [page])
@@ -316,6 +339,7 @@ private struct BinaryCookiesFixture {
         }
     }
 
+    /// Applies the decode limit across the whole store, not per page.
     @Test func appliesTheDecodeLimitAcrossPagesNotPerPage() throws {
         let data = BinaryCookiesFixture.file(pages: [[sessionCookie], [sessionCookie]])
         let recordSize = BinaryCookiesFixture.record(sessionCookie).count
@@ -329,6 +353,7 @@ private struct BinaryCookiesFixture {
         }
     }
 
+    /// Rejects a string offset inside the fixed header.
     @Test func rejectsAStringOffsetInsideTheFixedHeader() {
         var bytes = [UInt8](BinaryCookiesFixture.file(pages: [[sessionCookie]]))
         let recordStart = 12 + 16
@@ -340,6 +365,7 @@ private struct BinaryCookiesFixture {
         }
     }
 
+    /// An expired-only store decodes to cookies that are all expired.
     @Test func anExpiredOnlyStoreDecodesToCookiesThatAreAllExpired() throws {
         var expired = sessionCookie
         expired.expiry = 100
@@ -354,6 +380,7 @@ private struct BinaryCookiesFixture {
         #expect(cookies.allSatisfy { $0.isExpired(at: now) })
     }
 
+    /// A session or future cookie is not expired.
     @Test func aSessionOrFutureCookieIsNotExpired() throws {
         let data = BinaryCookiesFixture.file(pages: [[sessionCookie, themeCookie]])
         let now = Date(timeIntervalSinceReferenceDate: 1_000)

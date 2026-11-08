@@ -7,6 +7,7 @@ import Testing
 @Suite struct SafariCookieImportPreparationTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
+    /// A decoded record with defaults for every field the test does not set.
     private func record(
         domain: String = ".example.com",
         name: String = "session",
@@ -27,6 +28,7 @@ import Testing
         )
     }
 
+    /// Converts every attribute of a live cookie.
     @Test func convertsEveryAttributeOfALiveCookie() throws {
         let expiry = now.addingTimeInterval(3_600)
         let preparation = SafariCookieImportPreparation(domainFilters: [], date: now)
@@ -47,6 +49,7 @@ import Testing
         #expect(cookie.expiresDate == expiry)
     }
 
+    /// Keeps Secure and HttpOnly off when Safari did not set them.
     @Test func keepsSecureAndHTTPOnlyOffWhenSafariDidNotSetThem() throws {
         let preparation = SafariCookieImportPreparation(domainFilters: [], date: now)
 
@@ -57,6 +60,7 @@ import Testing
         #expect(cookie.isSessionOnly)
     }
 
+    /// Gives an empty path the root path.
     @Test func givesAnEmptyPathTheRootPath() throws {
         let preparation = SafariCookieImportPreparation(domainFilters: [], date: now)
 
@@ -65,6 +69,7 @@ import Testing
         #expect(cookie.path == "/")
     }
 
+    /// Counts expired cookies and leaves them out.
     @Test func countsExpiredCookiesAndLeavesThemOut() {
         let preparation = SafariCookieImportPreparation(domainFilters: [], date: now)
 
@@ -78,6 +83,7 @@ import Testing
         #expect(prepared.expiredCount == 2)
     }
 
+    /// Skips cookies outside the domain filters without counting them.
     @Test func skipsCookiesOutsideTheDomainFiltersWithoutCountingThem() {
         let preparation = SafariCookieImportPreparation(domainFilters: ["example.com"], date: now)
 
@@ -91,6 +97,7 @@ import Testing
         #expect(prepared.expiredCount == 0)
     }
 
+    /// Skips cookies without a name.
     @Test func skipsCookiesWithoutAName() {
         let preparation = SafariCookieImportPreparation(domainFilters: [], date: now)
 

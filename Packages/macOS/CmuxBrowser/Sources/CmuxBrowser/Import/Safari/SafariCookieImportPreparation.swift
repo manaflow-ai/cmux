@@ -43,6 +43,7 @@ public struct SafariCookieImportPreparation {
         return SafariPreparedCookies(cookies: cookies, expiredCount: expiredCount)
     }
 
+    /// The `HTTPCookie` for `record`, with an empty path stored as `/`, or `nil` when Foundation rejects the properties.
     private static func httpCookie(from record: SafariBinaryCookie) -> HTTPCookie? {
         var properties: [HTTPCookiePropertyKey: Any] = [
             .domain: record.domain,

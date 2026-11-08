@@ -94,6 +94,7 @@ public struct SafariBinaryCookiesParser: Sendable {
         return cookies
     }
 
+    /// Decodes one page's cookies, adding the record bytes it reads to `decodedBytes` so the limit spans the whole store.
     private func parsePage(_ page: ByteReader, pageIndex: Int, decodedBytes: inout Int) throws -> [SafariBinaryCookie] {
         // Header, cookie count and footer are the minimum a page carries.
         guard page.count >= 12, page.bytes(at: 0, count: 4) == Self.pageHeader else {
@@ -166,12 +167,14 @@ public struct SafariBinaryCookiesParser: Sendable {
         private let start: Int
         let count: Int
 
+        /// A window over all of `bytes`.
         init(bytes: [UInt8]) {
             storage = bytes
             start = 0
             count = bytes.count
         }
 
+        /// A window of `count` bytes starting at `start` in `storage`.
         private init(storage: [UInt8], start: Int, count: Int) {
             self.storage = storage
             self.start = start
@@ -183,19 +186,23 @@ public struct SafariBinaryCookiesParser: Sendable {
             ByteReader(storage: storage, start: start + offset, count: count)
         }
 
+        /// The `count` bytes at `offset`, or `nil` when they leave the window.
         func bytes(at offset: Int, count: Int) -> [UInt8]? {
             guard offset >= 0, count >= 0, offset <= self.count - count else { return nil }
             return Array(storage[(start + offset)..<(start + offset + count)])
         }
 
+        /// The big-endian `UInt32` at `offset`, or `nil` when it leaves the window.
         func bigEndianUInt32(at offset: Int) -> UInt32? {
             bytes(at: offset, count: 4).map { $0.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) } }
         }
 
+        /// The little-endian `UInt32` at `offset`, or `nil` when it leaves the window.
         func littleEndianUInt32(at offset: Int) -> UInt32? {
             bytes(at: offset, count: 4).map { $0.reversed().reduce(UInt32(0)) { ($0 << 8) | UInt32($1) } }
         }
 
+        /// The little-endian `Double` at `offset`, or `nil` when it leaves the window.
         func littleEndianDouble(at offset: Int) -> Double? {
             bytes(at: offset, count: 8).map { raw in
                 Double(bitPattern: raw.reversed().reduce(UInt64(0)) { ($0 << 8) | UInt64($1) })

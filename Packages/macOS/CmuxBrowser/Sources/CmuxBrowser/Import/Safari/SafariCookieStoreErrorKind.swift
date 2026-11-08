@@ -36,6 +36,7 @@ enum SafariCookieStoreErrorKind: Equatable, Sendable {
         }
     }
 
+    /// Whether `error` is one of the Cocoa or POSIX codes for a file that does not exist.
     private static func isMissingFile(_ error: NSError) -> Bool {
         switch error.domain {
         case NSCocoaErrorDomain:
