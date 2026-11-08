@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A full-screen program that reads the mouse, for the terminal selection tours
-(tours/terminal-selection-*.json). It turns on button-drag mouse reporting with
+(tours/terminal-selection-*.json, packed in by make_tours.py). It turns on button-drag mouse reporting with
 SGR encoding (DECSET 1002, 1006) and bracketed paste, fills the screen with one
 marker line, sets the clipboard to CLEARED, and counts the mouse reports it gets.
 Keys typed into it (the tour's `write --text`): `c` prints the clipboard and
