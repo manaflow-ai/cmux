@@ -229,6 +229,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_cloud_routes.py
 
+      # Every host NEXT's code names is listed in docs/privacy.md, and the list
+      # stays exact (a row whose host left the code fails too).
+      - name: Validate NEXT's outbound hosts are listed
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_outbound_hosts.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
