@@ -628,7 +628,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
 # of six pixel films held about 400 MB of raw scan and its plain `tar c` timed out at 240 s (cmux22, 2026-11-03).
 # take_videos reads the compressed or the plain form (tarfile's transparent mode).
 VIDEO_FETCH = "ls -d */video >/dev/null 2>&1 && tar cz */video || true"
-VIDEO_FILE = re.compile(r"(?:\./)?([a-z0-9][a-z0-9-]*/video/(?:[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|mov\.scan|trace\.json|events\.json|meta\.json|close\d{2}\.json|text-[a-z0-9]+\.json)|crash-[A-Za-z0-9_.-]+\.ips\.txt|reply-cost\.json|record-start-sample-[a-z]*\d\.txt))")
+VIDEO_FILE = re.compile(r"(?:\./)?([a-z0-9][a-z0-9-]*/video/(?:[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|mov\.scan|trace\.json|events\.json|meta\.json|close\d{2}\.json|text-[a-z0-9]+\.json)|cvsp-[a-z0-9]+\.(?:time-profile\.xml\.gz|os-signpost\.xml\.gz|journal\.json)|crash-[A-Za-z0-9_.-]+\.ips\.txt|reply-cost\.json|record-start-sample-[a-z]*\d\.txt))")
 VIDEO_MAX_BYTES = 4 << 30
 
 
