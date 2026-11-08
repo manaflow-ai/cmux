@@ -152,15 +152,17 @@ public final class AcpmuxChatWindows {
             total = nil
         }
 
-        /// This message and `next` as one, when `next` is the diff right after it for the same spec: `next`'s keys,
-        /// counts and revision, and the rows of both (`next`'s where both have a chat). Nil otherwise.
-        func merged(with next: Update) -> Update? {
-            guard !next.full, next.window == window, next.generation == generation, next.revision == revision &+ 1 else { return nil }
-            var merged = next
-            merged.full = full
-            merged.follows = follows
-            merged.rows = rows.merging(next.rows) { $1 }
-            return merged
+        /// Takes in `next` when it is the diff right after this message for the same spec: `next`'s keys, counts and
+        /// revision, and the rows of both (`next`'s where both have a chat), merged in place (O(next's rows)).
+        /// False, and nothing changes, otherwise.
+        mutating func absorb(_ next: Update) -> Bool {
+            guard !next.full, next.window == window, next.generation == generation, next.revision == revision &+ 1 else { return false }
+            keys = next.keys
+            revision = next.revision
+            total = next.total
+            hasMore = next.hasMore
+            rows.merge(next.rows) { $1 }
+            return true
         }
 
         public init?(params: [String: Any]) {
@@ -305,10 +307,7 @@ public final class AcpmuxChatWindows {
     public func apply(contentsOf updates: [Update]) { // perf-hot: 1ms chats-window-diff (every chat index change a window shows)
         var pending: Update?
         for update in updates {
-            if let merged = pending?.merged(with: update) {
-                pending = merged
-                continue
-            }
+            if pending?.absorb(update) == true { continue }
             if let pending { apply(pending) }
             pending = update
         }

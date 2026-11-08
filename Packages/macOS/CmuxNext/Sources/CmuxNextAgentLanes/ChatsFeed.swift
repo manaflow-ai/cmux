@@ -148,7 +148,8 @@ public final class ChatsFeed {
         let started = ContinuousClock.now
         defer { drained(drain.values.count, ContinuousClock.now - started) }
         var changed = false
-        // A drain's window messages in a row go to the windows together, before the next other message.
+        // A drain's window messages go to the windows together. Only a message that acts on the windows (a request's
+        // answer, a lag) applies the ones before it first; an index signal only sets a flag, so it does not split them.
         var updates: [AcpmuxChatWindows.Update] = []
         func applyUpdates() {
             guard !updates.isEmpty else { return }
@@ -156,11 +157,15 @@ public final class ChatsFeed {
             updates.removeAll(keepingCapacity: true)
         }
         for message in drain.values {
-            if case .window(let update) = message {
+            switch message {
+            case .window(let update):
                 updates.append(update)
                 continue
+            case .watching, .indexChanged:
+                break
+            case .answered, .lagged:
+                applyUpdates()
             }
-            applyUpdates()
             switch message {
             case .watching:
                 backoff.reset()
