@@ -44,11 +44,7 @@ function textHeight(text: string, width: number, size: number, line: number, mon
 function textWidth(text: string, size: number, weight = 400): number {
   try {
     return (
-      layoutWithLines(
-        prepareWithSegments(text, `${weight} ${size}px ${font}`),
-        Infinity,
-        size,
-      ).lines[0]?.width ?? 0
+      layoutWithLines(prepareWithSegments(text, `${weight} ${size}px ${font}`), Infinity, size).lines[0]?.width ?? 0
     );
   } catch {
     return text.length * size * 0.55;
