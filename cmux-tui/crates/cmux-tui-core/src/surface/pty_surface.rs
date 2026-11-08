@@ -285,23 +285,6 @@ impl PtySurface {
         self.mark_output_dirty();
     }
 
-    /// Defer an output-driven scroll position only while it is still the
-    /// terminal's newest transition. Output parsing records its generation
-    /// under the terminal lock, then publishes from the reader after that
-    /// lock is released. A person can scroll in that gap; accepting the old
-    /// position afterward would make the frame producer snap the viewport
-    /// back to the output position.
-    pub(super) fn defer_output_scroll(
-        &self,
-        generation: u64,
-        offset: u64,
-        at_bottom: bool,
-    ) {
-        if self.render_generation.load(Ordering::Acquire) == generation {
-            self.frame_requests.defer_scroll(offset, at_bottom);
-        }
-    }
-
     /// Apply one replacement to the terminal stream and publish its revision.
     /// The revision must be published before another screen reader can acquire
     /// the terminal lock.

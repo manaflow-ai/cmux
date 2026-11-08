@@ -167,6 +167,10 @@ fn geometry_commit_scroll_replaces_a_deferred_output_scroll() {
     let pty = surface.as_pty().unwrap();
 
     pty.frame_requests.defer_scroll(OUTPUT_OFFSET, false);
+    {
+        let _term = pty.term.lock().unwrap();
+        broadcast_render_scroll_locked(pty, (RESIZE_OFFSET, false));
+    }
     pty.publish_geometry_commit(pty_surface::GeometryCommit {
         changed: true,
         scroll: Some((RESIZE_OFFSET, false)),
@@ -188,35 +192,53 @@ fn geometry_commit_scroll_replaces_a_deferred_output_scroll() {
     );
 }
 
-/// An output transition records its scroll position while holding the
-/// terminal lock, but the reader publishes that position after releasing it.
-/// If a person scrolls during that handoff, the older output position must not
-/// be deferred afterward and snap the viewport back to the live bottom.
+/// Parsing precedes a person's scroll, but the reader's publication runs
+/// afterward. The event bus must never restore the parser's older position.
 #[test]
-fn a_deferred_output_scroll_does_not_restore_an_older_viewport() {
-    const OUTPUT_OFFSET: u64 = 91_101;
-    const PERSON_OFFSET: u64 = 91_102;
+fn delayed_output_publication_keeps_the_persons_scroll_position() {
     let mux = Mux::new_for_test("render-scroll-stale-output", SurfaceOptions::default());
     let events = mux.subscribe();
-    let surface =
-        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let surface = Surface::spawn_for_test(
+        1,
+        SurfaceOptions { cols: 80, rows: 4, ..SurfaceOptions::default() },
+        Arc::downgrade(&mux),
+    )
+    .unwrap();
     let pty = surface.as_pty().unwrap();
+    let mut parser = local_output::LocalOutput::new(
+        Arc::default(),
+        Arc::default(),
+        Default::default(),
+        #[cfg(unix)]
+        None,
+        #[cfg(unix)]
+        None,
+        #[cfg(unix)]
+        None,
+    );
+    let output = (1..=100).map(|row| format!("row-{row:03}\r\n")).collect::<String>();
+    parser
+        .read(pty, |buffer| {
+            buffer[..output.len()].copy_from_slice(output.as_bytes());
+            Ok(output.len())
+        })
+        .unwrap();
+    let pending = parser.take_pending();
+    surface.scroll_delta(-12).unwrap();
+    let held = surface.with_terminal(|term| terminal_scroll_position(term)).unwrap();
+    assert!(!held.1, "the person must be reading scrollback");
+    let viewport = surface.with_terminal(|term| term.viewport_text().unwrap()).unwrap();
 
-    // The output parser observed generation 1. The person's scroll is a
-    // newer terminal transition before the output publisher gets to defer.
-    pty.render_generation.store(1, Ordering::Release);
-    pty.render_generation.store(2, Ordering::Release);
-    pty.defer_output_scroll(1, OUTPUT_OFFSET, false);
-    pty.frame_requests.publish_scroll_now(&mux, surface.id, PERSON_OFFSET, false);
+    parser.publisher().publish(&surface, pending);
     pty.frame_requests.flush_scroll(&mux, surface.id);
-
-    let positions: Vec<u64> = std::iter::from_fn(|| events.try_recv().ok())
+    let positions: Vec<_> = std::iter::from_fn(|| events.try_recv().ok())
         .filter_map(|event| match event {
-            MuxEvent::ScrollChanged { offset, .. } => Some(offset),
+            MuxEvent::ScrollChanged { offset, at_bottom, .. } => Some((offset, at_bottom)),
             _ => None,
         })
         .collect();
-    assert_eq!(positions, vec![PERSON_OFFSET]);
+    assert_eq!(positions, vec![held], "delayed output must not publish a stale bottom position");
+    assert_eq!(surface.with_terminal(|term| term.viewport_text().unwrap()).unwrap(), viewport);
 }
 
 #[test]

@@ -275,7 +275,7 @@ impl OutputPublisher {
             pty.stream_progress.notify();
             // Published by the frame producer, once per frame (FrameRequests).
             if let Some((offset, at_bottom)) = scroll_changed {
-                pty.defer_output_scroll(generation, offset, at_bottom);
+                pty.frame_requests.defer_scroll(offset, at_bottom);
             }
             pty.request_frame_from_reader(generation);
             // Mux events take `Mux::state`; publish them only after
