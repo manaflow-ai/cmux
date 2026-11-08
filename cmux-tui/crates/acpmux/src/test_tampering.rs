@@ -469,7 +469,7 @@ fn test_names(language: Language, code: &str) -> Vec<String> {
     let mut names = match language {
         Language::Rust => pattern(
             &RUST_NAME,
-            r"#\[\s*(?:(?:[A-Za-z_][\w]*::)*test)[^\]]*\]\s*fn\s+([A-Za-z_]\w*)",
+            r"#\[\s*(?:(?:[A-Za-z_][\w]*::)*test)[^\]]*\]\s*(?:async\s+)?fn\s+([A-Za-z_]\w*)",
         ),
         Language::Python => pattern(&PYTHON_NAME, r"(?m)^\s*(?:async\s+)?def\s+(test_\w*)\s*\("),
         Language::Go => pattern(&GO_NAME, r"\bfunc\s+(Test\w+)\s*\("),
@@ -1034,6 +1034,13 @@ mod tests {
 
         let old = "#[tokio::test]\nfn validates_auth() { assert_eq!(token, 1); }";
         let new = "#[tokio::test]\nfn smoke() { assert_eq!(ready, 1); }";
+        assert_eq!(
+            detect_text("tests/auth.rs", old, new, 1).first().map(|finding| finding.kind),
+            Some("removed-test")
+        );
+
+        let old = "#[tokio::test]\nasync fn validates_async_auth() { assert_eq!(token, 1); }";
+        let new = "#[tokio::test]\nasync fn smoke_async() { assert_eq!(ready, 1); }";
         assert_eq!(
             detect_text("tests/auth.rs", old, new, 1).first().map(|finding| finding.kind),
             Some("removed-test")
