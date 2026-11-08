@@ -101,6 +101,19 @@ mod tests {
         assert_eq!(scrub(sid, None), r#"sid="<redacted-secret>""#);
     }
 
+    /// Payment and identity numbers are redacted too: a panic can carry pasted text (cmux#38555
+    /// review F1).
+    #[test]
+    fn card_iban_and_ssn_are_redacted() {
+        let card = ["4111", "1111", "1111", "1111"].join(" ");
+        assert_eq!(scrub(&format!("parse {card} failed"), None), "parse <redacted-secret> failed");
+        let iban = ["DE89", "3704", "0044", "0532", "0130", "00"].concat();
+        assert_eq!(scrub(&format!("iban {iban} x"), None), "iban <redacted-secret> x");
+        let ssn = ["123", "45", "6789"].join("-");
+        assert_eq!(scrub(&format!("ssn {ssn}"), None), "ssn <redacted-secret>");
+        assert_eq!(scrub("built 2026-11-08", None), "built 2026-11-08");
+    }
+
     #[test]
     fn home_becomes_tilde_and_other_users_are_redacted() {
         assert_eq!(scrub("open /home/maya/x failed", Some("/home/maya")), "open ~/x failed");
