@@ -109,6 +109,16 @@ describe("runbook steps", () => {
     expect(runnableCommand("console", "$ grep \\\n> if README.md\n> rm important.txt # if cleanup is needed")).toBe(
       "grep \\\nif README.md",
     );
+    // A case pattern is never a reserved word: `if)` opens nothing, and `esac` closes the case.
+    expect(
+      runnableCommand("console", "$ case if in\n> if) printf '> rm important.txt\\n';;\n> esac\n> rm important.txt"),
+    ).toBe("case if in\nif) printf '> rm important.txt\\n';;\nesac");
+    expect(runnableCommand("console", "$ case $x in\n> (do|for) echo a ;;\n> *) echo b\n> esac\n> touch marker")).toBe(
+      "case $x in\n(do|for) echo a ;;\n*) echo b\nesac",
+    );
+    expect(runnableCommand("console", "$ case $x\n> in a) if true; then echo a; fi;;\n> esac\nb")).toBe(
+      "case $x\nin a) if true; then echo a; fi;;\nesac",
+    );
     // A reserved word as an argument opens nothing.
     expect(runnableCommand("console", "$ echo if do {\n> touch marker")).toBe("echo if do {");
   });

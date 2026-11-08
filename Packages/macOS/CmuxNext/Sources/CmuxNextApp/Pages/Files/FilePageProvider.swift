@@ -45,14 +45,14 @@ protocol FilePageHosting: AnyObject {
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance
     /// A normal save of `url` wrote `hash`.
     func saved(_ url: URL, hash: String)
-    /// A runbook's Run (a new terminal beside the page) or Run all (a new agent chat), started in `cwd`.
-    func run(_ run: RunbookRun, cwd: String)
+    /// A runbook's Run (a new terminal beside the page) or Run all (a new agent chat), started in `cwd`; false when none opened.
+    func run(_ run: RunbookRun, cwd: String) -> Bool
 }
 
 extension FilePageHosting {
     var showsOmnibar: Bool { false }
     func historyChanged(canBack: Bool, canForward: Bool) {}
-    func run(_ run: RunbookRun, cwd: String) {}
+    func run(_ run: RunbookRun, cwd: String) -> Bool { false }
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
@@ -228,10 +228,10 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("runBlock") where kind == .markdown, kind.op("runAll") where kind == .markdown:
             let shown = file, requested = try path(params["path"])
             let run = try RunbookRun(target: op == kind.op("runAll") ? .chat : .terminal, params: params,
-                                     userGesture: context.userGesture, isPageFile: shown != nil && canonical(requested) == shown)
+                                     userGesture: context.userGesture, isPageFile: shown != nil && canonical(requested) == shown, local: files.isLocal)
             let cwd = await run.folder(for: shown ?? requested)
             guard !isClosed, file == shown else { throw PageError.closed }
-            host.run(run, cwd: cwd)
+            guard host.run(run, cwd: cwd) else { throw PageError(code: "cmux.page.unavailable", message: "no terminal or chat opened") }
             return .object([:])
         case kind.op("contextTable") where kind == .markdown:
             contextTable = params["table"]?.intValue.flatMap { $0 >= 0 ? $0 : nil }

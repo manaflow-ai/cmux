@@ -23,12 +23,15 @@ public nonisolated struct RunbookRun: Sendable, Equatable {
     public let text: String
 
     /// Checks one request. Only the person's click runs anything (a document never runs a command by
-    /// itself), only for the page's own file (`isPageFile`), and only non-empty text within its limit.
-    public init(target: Target, params: JSONValue, userGesture: Bool, isPageFile: Bool) throws {
+    /// itself), only for the page's own file (`isPageFile`), only for a file of this Mac (`local`: the
+    /// terminal, the chat and the git root are this Mac's; a Cloud machine's runbook does not run here),
+    /// and only non-empty text within its limit.
+    public init(target: Target, params: JSONValue, userGesture: Bool, isPageFile: Bool, local: Bool = true) throws {
         guard userGesture else {
             throw PageError(code: "cmux.page.gesture", message: "running a runbook step needs a user gesture")
         }
         guard isPageFile else { throw PageError.invalidParams("path is not this page's file") }
+        guard local else { throw PageError(code: "cmux.page.unsupported", message: "a runbook runs only for a file of this Mac") }
         let field = target == .chat ? "prompt" : "command"
         let limit = target == .chat ? Self.promptLimit : Self.commandLimit
         guard let text = params[field]?.stringValue, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,

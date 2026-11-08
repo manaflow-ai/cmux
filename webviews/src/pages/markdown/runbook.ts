@@ -72,13 +72,28 @@ interface ShellOpen {
   depth: number;
   /** After a `\\`: whether the next line's first word is in command position. */
   position: boolean;
+  /** Open `case` commands, and where in one the scan is: its subject next (1), its `in` next (2), or
+   * a pattern (`a|b)`, where words are never reserved words but `esac`). */
+  cases: number;
+  caseWord: 0 | 1 | 2;
+  pattern: boolean;
 }
 
-const CLOSED: ShellOpen = { scopes: [], heredocs: [], escaped: false, pipe: false, depth: 0, position: true };
+const CLOSED: ShellOpen = {
+  scopes: [],
+  heredocs: [],
+  escaped: false,
+  pipe: false,
+  depth: 0,
+  position: true,
+  cases: 0,
+  caseWord: 0,
+  pattern: false,
+};
 /** Reserved words in command position that open and close a compound command (a loop opens at its
  * keyword, so `do` may stand on the next line), and those after which the next word is again in
  * command position. */
-const OPENS = new Set(["if", "case", "for", "while", "until", "select", "{"]);
+const OPENS = new Set(["if", "for", "while", "until", "select", "{"]);
 const CLOSES = new Set(["fi", "esac", "done", "}"]);
 const LEADS = new Set(["then", "else", "elif", "do", "while", "until", "if", "!", "{", "time"]);
 
@@ -96,12 +111,32 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
   // A `\\` continuation goes on where the line before stopped; any other line starts a command.
   let commandPosition = before.escaped ? before.position : scopes.length === 0;
   let last = "";
+  let { cases, caseWord, pattern } = before;
+  const closeCase = () => {
+    depth = Math.max(0, depth - 1);
+    cases = Math.max(0, cases - 1);
+    pattern = false;
+  };
   const endWord = () => {
-    if (word && plain && commandPosition) {
-      if (OPENS.has(word)) depth++;
+    if (!word) return;
+    if (caseWord === 1) caseWord = 2;
+    else if (caseWord === 2) {
+      // `case WORD in`: the patterns come next.
+      pattern = word === "in" && plain;
+      caseWord = 0;
+    } else if (pattern) {
+      // A pattern word, or the `esac` that ends the case.
+      if (word === "esac" && plain) closeCase();
+    } else if (plain && commandPosition) {
+      if (word === "case") {
+        depth++;
+        cases++;
+        caseWord = 1;
+      } else if (word === "esac") closeCase();
+      else if (OPENS.has(word)) depth++;
       else if (CLOSES.has(word)) depth = Math.max(0, depth - 1);
     }
-    if (word) commandPosition = commandPosition && plain && LEADS.has(word);
+    commandPosition = commandPosition && plain && LEADS.has(word) && !pattern;
     word = "";
     plain = true;
   };
@@ -177,7 +212,28 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
       }
       last = "";
     } else if (/\s/.test(char)) endWord();
-    else if (";&|()".includes(char)) {
+    else if (pattern && "|()".includes(char)) {
+      // In a pattern `|` separates alternatives and `)` ends it: a command follows.
+      endWord();
+      if (char === ")" && pattern) {
+        pattern = false;
+        commandPosition = true;
+      }
+      last = "";
+    } else if (cases > 0 && char === ";" && line[at + 1] === ";") {
+      // `;;` (also `;&`, `;;&`) ends a case item: the next pattern comes.
+      endWord();
+      at += line[at + 2] === "&" ? 2 : 1;
+      pattern = true;
+      commandPosition = false;
+      last = "";
+    } else if (cases > 0 && char === ";" && line[at + 1] === "&") {
+      endWord();
+      at++;
+      pattern = true;
+      commandPosition = false;
+      last = "";
+    } else if (";&|()".includes(char)) {
       endWord();
       commandPosition = char !== ")";
       last = char === "&" && line[at + 1] === "&" ? "&&" : char === "|" ? "|" : char;
@@ -196,6 +252,9 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
     pipe: top && !escaped && (last === "|" || last === "&&"),
     depth,
     position: commandPosition,
+    cases,
+    caseWord,
+    pattern,
   };
 }
 

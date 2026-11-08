@@ -29,8 +29,9 @@ import Testing
         func confirmOpen(_: URL, userGesture _: Bool) async -> Bool { false }
         func edited(_: URL, text _: String, baseHash _: String?, writable _: Bool) -> RecoveryDraftAcceptance { .kept }
         func saved(_: URL, hash _: String) {}
-        func run(_ run: RunbookRun, cwd: String) {
+        func run(_ run: RunbookRun, cwd: String) -> Bool {
             if run.target == .chat { chats.append((run.text, cwd)) } else { terminals.append((run.text, cwd)) }
+            return true
         }
     }
 
@@ -108,5 +109,15 @@ import Testing
             try RunbookRun(target: .terminal, params: ["command": long], userGesture: true, isPageFile: true)
         }
         #expect((try? RunbookRun(target: .chat, params: ["prompt": long], userGesture: true, isPageFile: true))?.target == .chat)
+    }
+
+    /// A Cloud machine's runbook does not run on this Mac: the terminal, chat and git root here are not its.
+    @Test func aRunbookOfAnotherMachineIsRefused() {
+        #expect(throws: PageError.self) {
+            try RunbookRun(target: .terminal, params: ["command": "make"], userGesture: true, isPageFile: true, local: false)
+        }
+        #expect(throws: PageError.self) {
+            try RunbookRun(target: .chat, params: ["prompt": "Run it"], userGesture: true, isPageFile: true, local: false)
+        }
     }
 }
