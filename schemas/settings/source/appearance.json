@@ -1036,8 +1036,8 @@
             {
               "value": "cozy",
               "title": {
-                "key": "settings.choice.cozy",
-                "text": "Cozy"
+                "key": "settings.choice.default",
+                "text": "Default"
               }
             },
             {

@@ -16,7 +16,7 @@ extension AppearanceSettingsSchema {
                 kind: .choice([
                     SettingChoice(DensityPreset.ultraCompact.rawValue, SettingsText.keyed("settings.choice.ultraCompact", "Ultra-compact")),
                     SettingChoice(DensityPreset.compact.rawValue, SettingsText.keyed("settings.choice.compact", "Compact")),
-                    SettingChoice(DensityPreset.cozy.rawValue, SettingsText.keyed("settings.choice.cozy", "Cozy")),
+                    SettingChoice(DensityPreset.cozy.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
                     SettingChoice(DensityPreset.comfortable.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
                     SettingChoice(DensityPreset.spacious.rawValue, SettingsText.keyed("settings.choice.spacious", "Spacious")),
                 ]),
