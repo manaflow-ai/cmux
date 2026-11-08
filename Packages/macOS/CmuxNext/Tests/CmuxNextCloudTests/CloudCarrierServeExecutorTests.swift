@@ -83,6 +83,49 @@ import Testing
         #expect(text.components(separatedBy: "launched").count - 1 == 3)
     }
 
+    /// A launch whose socket claim another serve took over (past its lease wait) while it still waited for its
+    /// token spawns nothing: the newer holder keeps the socket alone, and the older launch fails as taken.
+    @Test func aLaunchWhoseClaimWasTakenSpawnsNothing() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho \"$CMUX_CLOUD_ACCESS_TOKEN\" >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\ncat >/dev/null\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let socket = folder.appendingPathComponent("cmux-link-0123456789ab.sock").path
+        let leases = CloudCarrierLeases()
+        let dial = try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))
+        let gate = Gate()
+        let slow = CloudCarrierServe(connector: CloudCarrierDial.Connector(cli: cli, dial: dial) {
+            await gate.wait()
+            return ["CMUX_CLOUD_ACCESS_TOKEN": "older"]
+        }, socket: socket, leases: leases) { _ in }
+        let newer = CloudCarrierServe(connector: CloudCarrierDial.Connector(cli: cli, dial: dial) { ["CMUX_CLOUD_ACCESS_TOKEN": "newer"] },
+                                      socket: socket, leases: leases, leaseWait: .milliseconds(100)) { _ in }
+        let older = Task { try await slow.socketPath() }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await slow.state != .awaitingToken(1, read: 1), ContinuousClock.now < deadline { await Task.yield() }
+        // The newer serve waits out its lease wait, then takes the socket and gets ready.
+        #expect(try await withDeadline(.seconds(5), label: "newer serve") { try await newer.socketPath() } == socket)
+        await gate.open()
+        await #expect(throws: CloudCarrierDial.socketTaken) { _ = try await older.value }
+        let launches = folder.appendingPathComponent("launches")
+        #expect(try String(contentsOf: launches, encoding: .utf8) == "newer\n", "two serve children on one socket")
+        await newer.stop()
+        await slow.stop()
+    }
+
+    private actor Gate {
+        private var waiter: CheckedContinuation<Void, Never>?
+        private var opened = false
+        func wait() async {
+            if opened { return }
+            await withCheckedContinuation { waiter = $0 }
+        }
+        func open() {
+            opened = true
+            waiter?.resume()
+            waiter = nil
+        }
+    }
+
     private static func standIn(_ body: String) throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ccx-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

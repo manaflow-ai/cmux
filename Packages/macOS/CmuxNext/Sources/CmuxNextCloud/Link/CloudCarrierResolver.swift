@@ -73,6 +73,8 @@ public actor CloudCarrierServe {
     private let nextRefresh: @Sendable (String) -> Duration
     private let leases: CloudCarrierLeases
     private let leaseOwner: UInt64
+    /// How long a launch waits for another instance to give the socket up (``leaseWait``; a test's own).
+    private let leaseBound: Duration
     private var machine: ServeMachine
     /// Events queued while an earlier one's effects run: each event's effects all run before the next reduces.
     private var queue: [ServeMachine.Event] = []
@@ -102,10 +104,11 @@ public actor CloudCarrierServe {
     }
 
     init(connector: CloudCarrierDial.Connector, socket: String, refreshDelay: @escaping @Sendable (String) -> Duration = { CloudCarrierServe.refreshDelay($0) },
-         leases: CloudCarrierLeases? = nil, check: @escaping @Sendable (String) throws -> Void) {
+         leases: CloudCarrierLeases? = nil, leaseWait: Duration = CloudCarrierServe.leaseWait, check: @escaping @Sendable (String) throws -> Void) {
         let leases = leases ?? connector.streams?.leases ?? CloudCarrierLeases()
         (self.connector, self.socket, self.check, nextRefresh, self.leases) = (connector, socket, check, refreshDelay, leases)
         leaseOwner = leases.newOwner()
+        leaseBound = leaseWait
         machine = ServeMachine(socket: socket)
     }
 
@@ -225,7 +228,7 @@ public actor CloudCarrierServe {
             return
         }
         let (leases, socket, owner) = (leases, socket, leaseOwner)
-        let deadline = ContinuousClock.now + Self.leaseWait
+        let deadline = ContinuousClock.now + leaseBound
         // task-owner: ends once this epoch holds the socket, at leaseWait, or when the serve left this claim
         Task { [weak self] in
             while let serve = self, await serve.isClaiming(epoch) {
