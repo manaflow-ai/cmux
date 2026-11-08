@@ -1448,6 +1448,11 @@ fn query_session_journal_without_output_after(
         if let Some((archived, archived_reached)) =
             archived_non_output_after(connection, sequence, archive_through, archive_end, limit)?
         {
+            // Every archived record through `archived_reached` is here; the
+            // page may hold more than `limit` (see archived_non_output_after).
+            if archived.len() >= limit || archived_reached >= through {
+                return Ok((archived, archived_reached));
+            }
             records = archived;
             reached = archived_reached;
         } else {
@@ -1599,26 +1604,32 @@ fn archived_non_output_after(
             reached = reached.max(end);
             continue;
         }
+        // A decoded segment is consumed whole, even past `limit`: stopping
+        // mid-segment made the next page decode it again, once per `limit`
+        // records it holds. A page exceeds `limit` by less than one segment
+        // (JOURNAL_SEGMENT_RECORD_LIMIT records).
         let segment = load_journal_segment(connection, segment_id)?;
-        let decoded = decode_journal_segment(connection, segment)?;
-        for record in decoded.records.into_iter().filter(|r| {
-            r.sequence > sequence && r.sequence <= through && r.kind != "terminal.output"
-        }) {
-            reached = record.sequence;
-            records.push(record);
-            if records.len() == limit {
-                return Ok(Some((records, reached)));
-            }
-        }
+        let decoded = decode_journal_segment_without_output(connection, segment)?;
+        records.extend(
+            decoded.records.into_iter().filter(|r| r.sequence > sequence && r.sequence <= through),
+        );
         reached = reached.max(end);
+        if records.len() >= limit {
+            break;
+        }
     }
-    Ok(Some((records, reached.max(through.min(reached)))))
+    Ok(Some((records, reached)))
 }
 
 /// Populate the seal-time kind index for segments written before the index was
 /// introduced. The marker makes this an open-time migration: subsequent reads
 /// use only the indexed metadata and retain the validating fallback for a
 /// segment that is concurrently discovered without an index row.
+///
+/// It resumes where a stopped run left off. Each segment's kind rows commit
+/// together, and the run records the last segment it finished
+/// (`journal_segment_kinds_backfill_through`), so a daemon killed partway
+/// does not decode every segment again at its next start.
 fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Result<()> {
     let complete: Option<String> = connection
         .query_row(
@@ -1633,51 +1644,110 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     if complete.as_deref() == Some("1") || connection.is_readonly(rusqlite::MAIN_DB)? {
         return Ok(());
     }
-    // A marker already at `0` is a backfill that was stopped partway: kind
-    // rows are inserted one at a time, so a segment can be left with some of
-    // its kinds (say, without `terminal.output`). That run's segments are all
-    // decoded again; the inserts ignore rows already there.
-    let resumed = complete.as_deref() == Some("0");
-    connection.execute(
-        "INSERT OR IGNORE INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '0')",
-        [],
-    )?;
-    let ids = legacy_backfill_segment_ids(connection, resumed)?;
-    for segment_id in ids {
-        let segment = load_journal_segment(connection, &segment_id)?;
-        let kinds = decode_journal_segment(connection, segment)?
-            .records
-            .into_iter()
-            .map(|record| record.kind)
-            .collect::<BTreeSet<_>>();
-        for kind in kinds {
-            connection.execute(
-                "INSERT OR IGNORE INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
-                params![segment_id, kind],
-            )?;
-        }
+    // A marker at `0` is a backfill an older build stopped partway: it
+    // inserted kind rows one at a time, so a segment can be left with some
+    // of its kinds (say, without `terminal.output`). Segments after the last
+    // one this build finished are decoded again; the inserts ignore rows
+    // already there. A marker at `2` is this build's run, which never leaves
+    // a segment partly mapped, so only unmapped segments remain.
+    let rescan_after = match complete.as_deref() {
+        Some("0") => Some(
+            connection
+                .query_row(
+                    "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill_through'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .and_then(|through| through.parse::<u64>().ok())
+                .unwrap_or(0),
+        ),
+        _ => None,
+    };
+    if complete.is_none() {
+        connection.execute(
+            "INSERT OR IGNORE INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '2')",
+            [],
+        )?;
     }
-    connection
-        .execute("UPDATE meta SET value = '1' WHERE key = 'journal_segment_kinds_backfill'", [])?;
-    Ok(())
+    for (segment_id, start_sequence) in legacy_backfill_segments(connection, rescan_after)? {
+        let segment = load_journal_segment(connection, &segment_id)?;
+        let decoded = decode_journal_segment_without_output(connection, segment)?;
+        let mut kinds =
+            decoded.records.into_iter().map(|record| record.kind).collect::<BTreeSet<_>>();
+        if decoded.dropped_output > 0 {
+            kinds.insert("terminal.output".to_owned());
+        }
+        all_or_nothing(connection, || {
+            for kind in &kinds {
+                connection.execute(
+                    "INSERT OR IGNORE INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                    params![segment_id, kind],
+                )?;
+            }
+            if rescan_after.is_some() {
+                connection.execute(
+                    "INSERT INTO meta(key, value)
+                     VALUES('journal_segment_kinds_backfill_through', ?1)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    [start_sequence.to_string()],
+                )?;
+            }
+            Ok(())
+        })?;
+    }
+    all_or_nothing(connection, || {
+        connection.execute(
+            "UPDATE meta SET value = '1' WHERE key = 'journal_segment_kinds_backfill'",
+            [],
+        )?;
+        connection
+            .execute("DELETE FROM meta WHERE key = 'journal_segment_kinds_backfill_through'", [])?;
+        Ok(())
+    })
 }
 
-/// The segments a legacy kind backfill decodes: those with no kind rows, or
-/// every segment when an earlier backfill was stopped partway (`resumed`).
-pub(super) fn legacy_backfill_segment_ids(
+/// Run `writes` under a savepoint: they commit together or not at all, inside
+/// a caller's transaction or on their own.
+fn all_or_nothing(
     connection: &Connection,
-    resumed: bool,
-) -> anyhow::Result<Vec<String>> {
+    writes: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    connection.execute_batch("SAVEPOINT journal_kind_backfill")?;
+    match writes() {
+        Ok(()) => {
+            connection.execute_batch("RELEASE journal_kind_backfill")?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = connection
+                .execute_batch("ROLLBACK TO journal_kind_backfill; RELEASE journal_kind_backfill");
+            Err(error)
+        }
+    }
+}
+
+/// The segments a legacy kind backfill decodes, with their start sequence:
+/// those with no kind rows, and with `rescan_after`, every segment that
+/// starts after it (an older build's backfill stopped partway and may have
+/// left them partly mapped).
+pub(super) fn legacy_backfill_segments(
+    connection: &Connection,
+    rescan_after: Option<u64>,
+) -> anyhow::Result<Vec<(String, u64)>> {
     let mut statement = connection.prepare(
-        "SELECT segment_id FROM journal_segments
-         WHERE ?1 OR NOT EXISTS (
+        "SELECT segment_id, start_sequence FROM journal_segments
+         WHERE (?1 IS NOT NULL AND start_sequence > ?1) OR NOT EXISTS (
            SELECT 1 FROM journal_segment_kinds
            WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
          )
          ORDER BY start_sequence ASC",
     )?;
+    let rescan_after = rescan_after.map(i64::try_from).transpose()?;
     Ok(statement
-        .query_map([resumed], |row| row.get::<_, String>(0))?
+        .query_map([rescan_after], |row| {
+            Ok((row.get::<_, String>(0)?, u64::try_from(row.get::<_, i64>(1)?).unwrap_or(0)))
+        })?
         .collect::<Result<Vec<_>, _>>()?)
 }
 
@@ -1861,6 +1931,26 @@ pub(super) struct DecodedJournalSegment {
     start_sequence: u64,
     end_sequence: u64,
     pub(super) records: Vec<SessionJournalRecord>,
+    /// `terminal.output` records the decode dropped
+    /// ([`decode_journal_segment_without_output`]); 0 for a full decode.
+    dropped_output: usize,
+}
+
+/// What a segment decode does with its `terminal.output` records.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SegmentOutput {
+    /// Decode each record's bytes and check them against its own digest.
+    Validate,
+    /// Drop them unread. The whole-segment digest still covers their bytes.
+    Drop,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Segment decodes and output records validated on this thread, so a
+    /// test can count what a read cost.
+    pub(super) static SEGMENT_DECODE_COUNTS: std::cell::Cell<(u64, u64)> =
+        const { std::cell::Cell::new((0, 0)) };
 }
 
 /// A segment that output cleanup re-encoded keeps its sequence range but
@@ -1870,6 +1960,33 @@ pub(super) fn decode_journal_segment(
     connection: &Connection,
     row: JournalSegmentRow,
 ) -> anyhow::Result<DecodedJournalSegment> {
+    decode_segment(connection, row, SegmentOutput::Validate)
+}
+
+/// [`decode_journal_segment`] for a reader that never reads terminal output
+/// (the agent roster fold, the kind backfill). Output is nearly every byte of
+/// a sealed segment, and validating it costs a base64 decode and a SHA-256
+/// per record, only for the reader to drop it: on a 59 GB nightly registry a
+/// roster replay spent most of a 30-minute start there. The segment's gzip
+/// trailer, length, record count, sequence range and whole-content digest
+/// are still checked, so a damaged segment fails the same way.
+pub(super) fn decode_journal_segment_without_output(
+    connection: &Connection,
+    row: JournalSegmentRow,
+) -> anyhow::Result<DecodedJournalSegment> {
+    decode_segment(connection, row, SegmentOutput::Drop)
+}
+
+fn decode_segment(
+    connection: &Connection,
+    row: JournalSegmentRow,
+    output: SegmentOutput,
+) -> anyhow::Result<DecodedJournalSegment> {
+    #[cfg(test)]
+    SEGMENT_DECODE_COUNTS.with(|counts| {
+        let (decodes, outputs) = counts.get();
+        counts.set((decodes + 1, outputs));
+    });
     let (
         segment_id,
         start_sequence,
@@ -1934,6 +2051,16 @@ pub(super) fn decode_journal_segment(
         "journal segment {segment_id} digest is invalid"
     );
     for record in &mut records {
+        if output == SegmentOutput::Drop && record.kind == "terminal.output" {
+            continue;
+        }
+        #[cfg(test)]
+        if record.kind == "terminal.output" {
+            SEGMENT_DECODE_COUNTS.with(|counts| {
+                let (decodes, outputs) = counts.get();
+                counts.set((decodes, outputs + 1));
+            });
+        }
         normalize_terminal_output(record, None)
             .with_context(|| format!("validate journal segment {segment_id}"))?;
     }
@@ -1960,7 +2087,15 @@ pub(super) fn decode_journal_segment(
         );
         previous = sequence;
     }
-    Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
+    let mut dropped_output = 0;
+    if output == SegmentOutput::Drop {
+        records.retain(|record| {
+            let keep = record.kind != "terminal.output";
+            dropped_output += usize::from(!keep);
+            keep
+        });
+    }
+    Ok(DecodedJournalSegment { start_sequence, end_sequence, records, dropped_output })
 }
 
 /// Sealed segments never overlap (sealing appends them in sequence order and

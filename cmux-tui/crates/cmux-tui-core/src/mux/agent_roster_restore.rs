@@ -17,6 +17,24 @@ use crate::workspace_registry::session_journal::salvage::{
 /// Ranges listed by name in the diagnostic; the rest are counted.
 const LISTED_SKIPPED_RANGES: usize = 4;
 
+/// How the restore fold reads and checkpoints the journal tail.
+#[derive(Clone, Copy)]
+pub(super) struct RosterFoldLimits {
+    /// Records per journal page.
+    pub(super) page: usize,
+    /// Pages between saves of the roster and its cursor. A replay from zero
+    /// on a large registry takes minutes; saving along the way lets a daemon
+    /// stopped partway resume where it was at its next start instead of
+    /// replaying the whole journal again.
+    pub(super) save_every_pages: usize,
+    /// Test only: stop after this many pages, as a daemon killed mid-fold.
+    pub(super) stop_after_pages: Option<usize>,
+}
+
+impl RosterFoldLimits {
+    const STARTUP: Self = Self { page: 512, save_every_pages: 64, stop_after_pages: None };
+}
+
 /// Roster states that claim the agent is active right now.
 const LIVE_STATES: [&str; 2] = ["working", "blocked"];
 /// The spec's neutral agent state; every agents view hides it.
@@ -37,6 +55,13 @@ pub(super) struct RestoredAgentRoster {
 /// restores itself independently.
 pub(super) fn restore_agent_roster(
     registry: &WorkspaceRegistry,
+) -> anyhow::Result<RestoredAgentRoster> {
+    restore_agent_roster_with(registry, RosterFoldLimits::STARTUP)
+}
+
+pub(super) fn restore_agent_roster_with(
+    registry: &WorkspaceRegistry,
+    limits: RosterFoldLimits,
 ) -> anyhow::Result<RestoredAgentRoster> {
     use crate::journal_reducers::{
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
@@ -70,20 +95,43 @@ pub(super) fn restore_agent_roster(
             needs_repair = true;
         }
     }
-    let started_at = host.cursor;
+    let mut saved_at = host.cursor;
     let mut skipped = Vec::new();
     let head = registry.session_journal_head()?;
+    let mut pages = 0_usize;
     loop {
         if host.cursor >= head {
             break;
         }
+        // Checkpoint a long replay. Not after a skipped range: the roster
+        // marks live claims in it unknown only once the fold ends, and a
+        // cursor saved before that would skip the marking at the next start.
+        if pages > 0
+            && pages.is_multiple_of(limits.save_every_pages)
+            && skipped.is_empty()
+            && host.cursor != saved_at
+        {
+            let saved = registry.put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                host.cursor,
+                &host.roster.snapshot().to_string(),
+            );
+            if saved.is_ok() {
+                saved_at = host.cursor;
+            }
+        }
+        if limits.stop_after_pages == Some(pages) {
+            return Ok(RestoredAgentRoster { host, diagnostic: None });
+        }
+        pages += 1;
         // The roster ignores terminal output, which can be nearly the whole
         // tail since its last agent event (14.9M rows of a 15M-row journal):
         // the indexed read visits only the other records. A read error, or
         // one that makes no progress, falls back to the salvaging read below,
         // which skips the range that does not decode.
         if let Ok((records, reached)) =
-            registry.session_journal_without_output_after(host.cursor, head, 512)
+            registry.session_journal_without_output_after(host.cursor, head, limits.page)
             && reached > host.cursor
         {
             for record in &records {
@@ -92,7 +140,7 @@ pub(super) fn restore_agent_roster(
             host.cursor = reached;
             continue;
         }
-        match registry.session_journal_after_salvaging(host.cursor, 512)? {
+        match registry.session_journal_after_salvaging(host.cursor, limits.page)? {
             SalvagedJournalPage::Page(page) => {
                 if page.records.is_empty() {
                     break;
@@ -117,7 +165,7 @@ pub(super) fn restore_agent_roster(
         neutralize_live_claims(registry, &mut host, &skipped);
         problems.push(skipped_ranges_problem(&skipped));
     }
-    if needs_repair || host.cursor != started_at {
+    if needs_repair || host.cursor != saved_at {
         // The in-memory roster is already correct. A failed write only means
         // the next start folds this tail again.
         if registry

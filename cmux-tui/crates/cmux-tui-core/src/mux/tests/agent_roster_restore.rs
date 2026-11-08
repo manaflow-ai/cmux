@@ -197,3 +197,42 @@ fn an_agent_with_events_in_a_skipped_range_is_not_reported_working() {
     drop(reopened);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A replay from zero takes minutes on a large registry, and a daemon can be
+/// stopped partway (a 30-minute restore.snapshot was killed and restarted).
+/// The restore saves the roster and its cursor every few pages, so the next
+/// start resumes there and ends with the same roster as one whole replay.
+#[test]
+fn a_stopped_roster_replay_resumes_from_its_last_save() {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    use crate::mux::agent_roster_restore::{
+        RosterFoldLimits, restore_agent_roster, restore_agent_roster_with,
+    };
+    let store = sealed_roster_store("roster-replay-resume");
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    let head = registry.session_journal_head().unwrap();
+    let drop_snapshot = || {
+        registry.put_journal_reducer_state(AGENT_ROSTER_REDUCER_ID, 0, 0, "").unwrap();
+    };
+
+    drop_snapshot();
+    let whole = restore_agent_roster(&registry).unwrap();
+    assert!(whole.diagnostic.is_none(), "{:?}", whole.diagnostic);
+    assert_eq!(whole.host.cursor, head);
+    let whole_snapshot = whole.host.roster.snapshot().to_string();
+
+    drop_snapshot();
+    let limits = RosterFoldLimits { page: 1, save_every_pages: 2, stop_after_pages: Some(3) };
+    let stopped = restore_agent_roster_with(&registry, limits).unwrap();
+    let (version, saved, _) =
+        registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
+    assert_eq!(version, AGENT_ROSTER_REDUCER_VERSION, "the stopped replay saved its progress");
+    assert!(saved > 0 && saved < head, "saved cursor {saved} of head {head}");
+    assert!(saved <= stopped.host.cursor);
+
+    let resumed = restore_agent_roster(&registry).unwrap();
+    assert_eq!(resumed.host.cursor, head);
+    assert_eq!(resumed.host.roster.snapshot().to_string(), whole_snapshot);
+    drop(registry);
+    let _ = std::fs::remove_dir_all(&store.root);
+}

@@ -611,6 +611,7 @@ fn roster_replay_over_output_heavy_segments_decodes_each_segment_once() {
         head,
         segments * super::super::journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT as u64
     );
+    SEGMENT_DECODE_COUNTS.with(|counts| counts.set((0, 0)));
     let started = std::time::Instant::now();
     let (mut cursor, mut seen, mut pages) = (0, Vec::new(), 0);
     while cursor < head {
@@ -629,4 +630,59 @@ fn roster_replay_over_output_heavy_segments_decodes_each_segment_once() {
         elapsed.as_millis()
     );
     assert_eq!(seen, expected);
+    let (decodes, outputs) = SEGMENT_DECODE_COUNTS.with(std::cell::Cell::get);
+    assert_eq!(decodes, segments, "each segment is decoded once");
+    assert_eq!(outputs, 0, "no output record is validated only to be dropped");
+}
+
+/// A kind backfill an older build stopped partway (marker `0`) resumes after
+/// the last segment it finished: segments at or before that progress are not
+/// decoded again, a partly mapped one gets its missing kinds, and the run
+/// ends with the marker at `1` and no progress row.
+#[test]
+fn a_stopped_kind_backfill_resumes_after_its_last_finished_segment() {
+    let (registry, _) = output_heavy_sealed_registry(4, 64);
+    let db = registry.connection.get();
+    db.execute_batch(
+        "DELETE FROM journal_segment_kinds
+         WHERE segment_id IN ('segment_2049_3072', 'segment_3073_4096');
+         INSERT INTO journal_segment_kinds VALUES('segment_2049_3072', 'workspace.focus');
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '0')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_through', '1025')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+    )
+    .unwrap();
+    SEGMENT_DECODE_COUNTS.with(|counts| counts.set((0, 0)));
+    backfill_legacy_journal_segment_kinds(&db).unwrap();
+    let (decodes, outputs) = SEGMENT_DECODE_COUNTS.with(std::cell::Cell::get);
+    assert_eq!(decodes, 2, "only the segments after the recorded progress");
+    assert_eq!(outputs, 0, "the backfill never validates output it only names");
+    for segment_id in ["segment_1_1024", "segment_2049_3072", "segment_3073_4096"] {
+        let kinds = db
+            .prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1 ORDER BY kind")
+            .unwrap()
+            .query_map([segment_id], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(kinds, ["terminal.output", "workspace.focus"], "{segment_id}");
+    }
+    let marker: String = db
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(marker, "1");
+    let progress: Option<String> = db
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill_through'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+    assert_eq!(progress, None);
 }
