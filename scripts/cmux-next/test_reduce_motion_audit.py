@@ -27,6 +27,7 @@ class Audit(unittest.TestCase):
             "webviews/src/c.ts": "// motion: allow a dwell ramp the pointer drives\nbox.animate({ opacity: [0, 1] }, t);\n",
             "webviews/src/d.test.ts": "box.animate([{ height: 0 }], t);\n",
             "webviews/src/e.css": "a { transition: transform 1s; }\n",
+            "webviews/src/f.ts": "if (!foldMoves(doc)) return;\nbox.animate([{ height: 0 }], t);\n",
         })
         got = audit.ungated(root, audit.WEB_DIRS, audit.WEB_SUFFIXES, audit.WEB_SITE, audit.WEB_GATE)
         self.assertEqual((got["sites"], got["files"]), (2, 1))
@@ -38,6 +39,8 @@ class Audit(unittest.TestCase):
             "Packages/iOS/Kit/Sources/Row.swift": "guard !UIAccessibility.isReduceMotionEnabled else { return }\n"
                                                   "UIView.animate(withDuration: 0.2) {}\n",
             "Packages/iOS/Kit/Tests/RowTests.swift": "UIView.animate(withDuration: 0.2) {}\n",
+            "Packages/iOS/Kit/Sources/Shape.swift": "let a = layer.animation(forKey: \"path\")\n",
+            "ios/App/Sources/List.swift": "HomeMotion.animate { v.alpha = 0 }\n",
         })
         got = audit.ungated(root, audit.IOS_DIRS, (".swift",), audit.IOS_SITE, audit.IOS_GATE)
         self.assertEqual([w["file"] for w in got["where"]], ["ios/App/Sources/Home.swift"])

@@ -31,11 +31,15 @@ WEB_DIRS = ("webviews/src",)
 WEB_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs")
 WEB_SITE = re.compile(r"""\.animate\(\s*[\[{]|behavior:\s*["']smooth["']""")
 WEB_GATE = re.compile(r"prefers-reduced-motion|isAgentMotionOff|cmuxMotion|agentMotion|data-cmux-motion|"
-                      r"data-agent-motion|reducedMotion|motionOff", re.I)
+                      r"data-agent-motion|reducedMotion|motionOff|"
+                      # The shared helpers that read it: ui/motion/motionMode.ts, conversation/fold.ts,
+                      # session-info/foldMotion.ts, composer/SendSlotGlyph.tsx.
+                      r"\bmotionMode\(|\bfoldMs\(|\bfoldMoves\(|\bmotionAllowed\(", re.I)
 IOS_DIRS = ("ios", "Packages/iOS")
 IOS_SITE = re.compile(r"UIView\.animate|UIView\.transition|UIViewPropertyAnimator|withAnimation|CABasicAnimation|"
-                      r"CASpringAnimation|CAKeyframeAnimation|\.animation\(")
-IOS_GATE = re.compile(r"isReduceMotionEnabled|accessibilityReduceMotion|reduceMotion|MotionPolicy", re.I)
+                      r"CASpringAnimation|CAKeyframeAnimation|\.animation\((?!forKey)")
+# HomeMotion (ios CmuxiOSDesign) is the iOS home's gate.
+IOS_GATE = re.compile(r"isReduceMotionEnabled|accessibilityReduceMotion|reduceMotion|MotionPolicy|HomeMotion\.", re.I)
 SKIP = re.compile(r"(^|/)(tests?|Tests|UITests|__tests__|fixtures?)(/|$)|\.test\.|\.gallery\.|\.spec\.|Tests?\.swift$")
 ALLOW = re.compile(r"motion:? ?-?allow\b")
 FINDING = re.compile(r"^\s+(\S+?):(\d+): (.+)$")
