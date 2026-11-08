@@ -53,6 +53,7 @@ import { reportToastAvoidance, resendToastAvoidance } from "./toastAvoidance";
 import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
+import { useChatCloudEnvironment } from "./CloudEnvironmentChip";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -404,6 +405,7 @@ import {
   forksAnyTurn,
   latestForkSeq,
   messageMenuTarget,
+  messageMenuSessionMatches,
   openReportedImage,
   setMessageMenuSource,
 } from "./conversation/messageMenu";
@@ -438,6 +440,7 @@ import { NeedsYouButton } from "./needsYou/NeedsYou";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
 import { copyText } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
+import { transcriptSelectionAttachment } from "./transcriptSelection";
 import type { ChatImage } from "./conversation/chatImages";
 import { viewerImages } from "./summary/chatGallery";
 import { ImageViewer } from "./conversation/ImageViewer";
@@ -4203,8 +4206,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const runHereSend = useRef(false);
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
+  /// This new chat's Cloud environment (the Environment chip, CLOUD_ENVIRONMENTS_ENABLED): Auto until
+  /// picked, and Auto again once its Cloud send goes, a chat starts here or another new chat shows.
+  const cloudEnvironment = useChatCloudEnvironment(`${snapshot.sessionId ?? ""}:${newTabGeneration}`);
   const sandboxModeRows = {
     mode: sandbox.mode,
+    environment: cloudEnvironment.pick,
     onMode: (mode: RunMode) => {
       // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
       // picker target must not survive that choice and wake the old machine on the next edit.
@@ -4229,6 +4236,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   const composerModeRows = {
     mode: sandboxModeRows.mode,
+    environment: sandboxModeRows.environment,
     onMode: (mode: RunMode) => {
       if (mode === "cloud") {
         const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
@@ -4314,8 +4322,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     if (cloudStartPending.current) return false;
-    const reservationKey = cloudReservation.handoff(start.environment);
-    const request: CloudStart = { task: text, attachments, ...start, ...(reservationKey ? { reservationKey } : {}) };
+    // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
+    const environment = cloudEnvironment.forSend(start.environment);
+    const reservationKey = cloudReservation.handoff(environment);
+    const request: CloudStart = {
+      task: text,
+      attachments,
+      ...start,
+      ...(environment ? { environment } : {}),
+      ...(reservationKey ? { reservationKey } : {}),
+    };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
     void beginCloudSend(request, false, fromPage ? undefined : composerHandle.current?.draft(), fromPage);
     return false;
@@ -7700,6 +7716,31 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // composer mounted (a Sandboxed receipt shows), it waits for the composer to come back.
           "chat.quoteReply": async ({ markdown }) => {
             quoteIntoComposer(composerHandle, heldQuotes, String(markdown ?? ""));
+          },
+          // Selected transcript text can be attached as a context chip without changing the
+          // draft text. The rail/menu owns only the gesture; the composer owns chip rendering.
+          "chat.attachSelection": async ({ text }) => {
+            const attachment = transcriptSelectionAttachment(String(text ?? ""));
+            if (!attachment) return;
+            composerHandle.current?.attach(attachment);
+            composerHandle.current?.focus();
+          },
+          // Pin as chapter is the native menu's named rail action. Marking true is idempotent:
+          // the bookmark transport publishes the resulting tick to every rail on this session.
+          "chat.pinChapter": async ({ rowId, sessionId }) => {
+            const match = /^(?:user|summary)-(\d+)$/.exec(String(rowId ?? ""));
+            const seq = match ? Number(match[1]) : NaN;
+            const requestedSessionId = typeof sessionId === "string" ? sessionId : "";
+            // The native menu can outlive the transcript that opened it. Require both the client
+            // selection and the drawn snapshot to still name the target session before touching
+            // the rail; a stale menu after switching chats must be a no-op.
+            if (
+              !messageMenuSessionMatches(requestedSessionId, client.selectedSession, snapshotRef.current?.sessionId) ||
+              !Number.isSafeInteger(seq) ||
+              seq <= 0
+            )
+              return;
+            await client.setBookmark(requestedSessionId, seq, true);
           },
           "chat.history": () => client.loadOlder(),
           // Find in Chat (the app's Find commands on an agent pane).
