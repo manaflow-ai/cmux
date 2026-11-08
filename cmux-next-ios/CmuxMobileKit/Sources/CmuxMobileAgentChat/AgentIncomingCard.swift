@@ -64,7 +64,7 @@ struct AgentIncomingCard: View {
         if incoming.messages.count > 1 {
             let allOpen = open.count == incoming.messages.count
             Button {
-                withAnimation(.cmuxMobileSmooth) {
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
                     open = allOpen ? [] : Set(incoming.messages.indices)
                 }
             } label: {
@@ -125,7 +125,7 @@ struct AgentIncomingCard: View {
         let isOpen = open.contains(index)
         return VStack(alignment: .leading, spacing: 6) {
             Button {
-                withAnimation(.cmuxMobileSmooth) {
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
                     if isOpen { open.remove(index) } else { open.insert(index) }
                 }
             } label: {

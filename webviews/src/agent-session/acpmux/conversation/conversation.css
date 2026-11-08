@@ -5228,9 +5228,14 @@ a.cv-sha:focus-visible {
   color: var(--agent-accent, var(--cv-text));
   background: color-mix(in srgb, var(--agent-accent, currentColor) 14%, transparent);
 }
+/* Every reply's age in a prompt's age's type, its own row's too (MessageActions.tsx ReplyActions,
+   which has no footer rail), so the two ages read as one label (Leo, 2026-11-08: "they need to be
+   congruent"). */
 .cv-turn-time {
   flex: none;
   white-space: nowrap;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* Its Details fold: the chat's chevron after the label, no browser triangle. */
 .cv-turn-note__summary {

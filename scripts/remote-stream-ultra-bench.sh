@@ -24,7 +24,7 @@ cd "$(dirname "$0")/../cmux-tui"
 rtts="${RTTS-30 100 300}"
 losses="${LOSSES:-0 1 3 5 10}"
 # A mode is a CMUX_WG_ULTRA value; "+nocc" also sets CMUX_WG_ULTRA_CC=none.
-modes="${MODES:-off dup fec:8:2 fec:8:2+nocc}"
+modes="${MODES:-off dup fec:8:2 fec:8:2+nocc rs:8:4 rs:4:4}"
 secs="${SECONDS_PER_RUN:-8}"
 bulk="${BULK_BYTES:-4000000}"
 

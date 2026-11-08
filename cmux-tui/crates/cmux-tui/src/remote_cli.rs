@@ -317,24 +317,16 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 flags.lanes_explicit = true;
             }
             "--reconnect-attempts" => {
+                // Accepted for old apps (they pass 5) and validated, but no longer a cap: the
+                // link redials in budgeted bursts and never exits while its owner holds it.
                 let attempts = value("--reconnect-attempts")?;
-                flags.reconnect.maximum_attempts = if attempts == "unlimited" {
-                    None
-                } else {
-                    let attempts = attempts.parse::<u32>().map_err(|_| {
-                        anyhow!(
-                            catalog()
-                                .remote_client
-                                .invalid_option_value("--reconnect-attempts", "N|unlimited")
-                        )
-                    })?;
-                    if attempts == 0 {
-                        return Err(anyhow!(
-                            catalog().remote_client.option_must_be_positive("--reconnect-attempts")
-                        ));
-                    }
-                    Some(attempts)
-                };
+                if attempts != "unlimited" && !attempts.parse::<u32>().is_ok_and(|n| n > 0) {
+                    return Err(anyhow!(
+                        catalog()
+                            .remote_client
+                            .invalid_option_value("--reconnect-attempts", "N|unlimited")
+                    ));
+                }
             }
             "--reconnect-initial-ms" => {
                 flags.reconnect.initial_delay = Duration::from_millis(
@@ -3852,7 +3844,8 @@ mod tests {
         ]
         .map(str::to_string);
         let parsed = parse_connect_flags(&args).unwrap();
-        assert_eq!(parsed.reconnect.maximum_attempts, Some(7));
+        // Accepted for old apps, but no cap: the link keeps redialing while it is held.
+        assert_eq!(parsed.reconnect.maximum_attempts, None);
         assert_eq!(parsed.reconnect.initial_delay, Duration::from_millis(25));
         assert_eq!(parsed.reconnect.maximum_delay, Duration::from_millis(400));
         assert_eq!(parsed.reconnect.attempt_timeout, Duration::from_secs(2));
