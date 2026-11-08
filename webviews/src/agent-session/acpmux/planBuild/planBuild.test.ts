@@ -119,11 +119,15 @@ test("a build's turn that ended before its started record still finishes it", ()
 
 test("a compare that started only one build says which harness did not start", () => {
   const rows = new Map<string, AcpmuxRow>();
-  new PlanBuildRows().reduce(rows, { seq: 1, at: 1 }, {
-    ...started,
-    builds: [started.builds[0]],
-    failed: [{ harness: "codex", error: "width limit reached" }, { error: "no harness" }],
-  });
+  new PlanBuildRows().reduce(
+    rows,
+    { seq: 1, at: 1 },
+    {
+      ...started,
+      builds: [started.builds[0]],
+      failed: [{ harness: "codex", error: "width limit reached" }, { error: "no harness" }],
+    },
+  );
   expect(rows.get(planBuildRowId("b1"))?.planBuild?.failed).toEqual([
     { harness: "codex", error: "width limit reached" },
   ]);

@@ -142,7 +142,13 @@ export function PlanBuildCard({
 /// the chat (a turn that ended before this chat recorded the build, or a page that left it out).
 function liveState(child: PlanBuildChild, diff: PlanBuildDiff | undefined): PlanBuildChild["state"] {
   if (child.state !== "running" || !diff?.status) return child.state;
-  return diff.status === "done" ? "done" : diff.status === "failed" ? "failed" : diff.status === "closed" ? "cancelled" : "running";
+  return diff.status === "done"
+    ? "done"
+    : diff.status === "failed"
+      ? "failed"
+      : diff.status === "closed"
+        ? "cancelled"
+        : "running";
 }
 
 function statusText(t: Translate, child: PlanBuildChild, diff: PlanBuildDiff | undefined): string {
