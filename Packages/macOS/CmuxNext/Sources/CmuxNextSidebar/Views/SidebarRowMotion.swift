@@ -292,7 +292,12 @@ struct RowMotion {
         if let top = list.subviews.last(where: { $0 is SidebarRowView }), let view = list.rowViews[key], view !== top {
             list.addSubview(view, positioned: .above, relativeTo: top)
         }
-        for view in passed {
+        // A crossed group header hides with its line (rail or block), on the same animation: one left at full opacity
+        // showed under the moving row while its header was gone (Leo 2026-11-08: "a bit of a flicker ... individual top group").
+        let lines = passed.compactMap { view -> NSView? in
+            if case let .group(id) = view.key { list.groupLineViews.view(for: id) } else { nil }
+        }
+        for view in passed.map({ $0 as NSView }) + lines {
             guard let hide = Motion.sidebar.passOverAnimation(.move) else { return }
             view.layer?.add(hide, forKey: "cmux.passOver")
         }

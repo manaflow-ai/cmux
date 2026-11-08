@@ -108,8 +108,8 @@ struct SidebarInsertBurstTests {
     }
 
     /// A row still opening that moves by itself (shown at the daemon's slot first, then placed below another row) opens
-    /// again at its new slot in a new view, so it never crosses the list half open (cx-ai79); a row an insert above
-    /// only pushes keeps its view (the burst case above).
+    /// again at its new slot from zero height, so it never crosses the list half open (cx-ai79). It keeps its view, so
+    /// its fade goes on from what shows instead of the row going at once and a new one opening from 0.
     @Test(.enabled("needs an awake display and animations on") { await GUIAnimationTestSupport.animatesHere() })
     func aRowStillOpeningThatMovesByItselfOpensAgainThere() throws {
         let (model, list, restore) = try Self.sidebar(Array(1...10), motion: .spring)
@@ -122,8 +122,8 @@ struct SidebarInsertBurstTests {
         model.sections = Self.sections([1, 100] + Array(2...10))
         list.reload(animated: true)
         let again = try #require(list.rowViews[moved])
-        #expect(again !== view, "a row that moved by itself flew across the list half open")
-        #expect(again.opens == 1, "it did not open again at its new slot")
+        #expect(again === view, "a row that moved by itself was torn down and opened in a new view")
+        #expect(again.opens == 2, "it did not open again at its new slot")
         #expect((list.openingRows[moved]?.until ?? 0) >= opened.until, "its open did not start again")
     }
 

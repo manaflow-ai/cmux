@@ -118,8 +118,10 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
             if opens { appearing.append((view, target)) } else { targets.append((view, target)) }
         }
-        let (lines, start) = foldLines(old: old, new: layout, group: id)
-        let lineMotion = groupLineViews.update(lines, from: animate ? start : [], in: self, above: decorations, animated: animate)
+        // The lines a full layout draws (`groupLines`: a parent's whole rail or block, the header's background), so the
+        // next reload moves none of them; a new one starts over its rows where they are now.
+        let lineMotion = groupLineViews.update(groupLines(layout), from: animate ? groupLines(layout, current: true) : [], in: self,
+                                               above: decorations, animated: animate)
         // A collapse's rows fade out on the short fade, ahead of the slot closing over them (`RowMotion.folding`).
         RowMotion(targets: targets, appearing: appearing, leaving: leavingRows, lines: lineMotion, folding: collapses ? leavingRows.map(\.0) : [])
             .run(in: self, from: old, to: layout, animated: animate)
@@ -146,34 +148,5 @@ extension SidebarListViewComponents {
         let height = abs(new.totalHeight - old.totalHeight)
         guard height > 0 else { return nil }
         return NSRect(x: bounds.minX, y: frame(for: header).maxY, width: bounds.width, height: height)
-    }
-
-    /// The group lines after group `id`'s fold: its own line from its rows (and where its rows are now, the
-    /// animation's start), every line below it moved by the height change, the lines above it as they are.
-    private func foldLines(old: SidebarLayout, new: SidebarLayout, group id: GroupID) -> (lines: [SidebarGroupLine], start: [SidebarGroupLine]) {
-        guard let headerIndex = new.position(of: .group(id)) else { return (groupLines(new), groupLines(new, current: true)) }
-        let header = new.rows[headerIndex]
-        var end = headerIndex + 1
-        while end < new.rows.count, new.rows[end].group == id, !new.rows[end].key.isGroupHeader { end += 1 }
-        let block = Array(new.rows[headerIndex..<end])
-        let own = SidebarGroupLine.lines(block, colors: lineColors) { frame(for: $0) }
-        let start = SidebarGroupLine.lines(block, colors: lineColors) { self.rowViews[$0.key]?.drawnFrame ?? self.frame(for: $0) }
-        let dy = new.totalHeight - old.totalHeight
-        var lines = groupLineViews.lines.filter { $0.group != id }
-        if dy != 0 {
-            for index in lines.indices where lines[index].frame.minY > header.y { lines[index].frame.origin.y += dy }
-            // An uncolored parent's block holds the folded group: its bottom moves with the fold.
-            for index in lines.indices where lines[index].isBlock && lines[index].frame.minY <= header.y
-                && lines[index].frame.maxY > header.y { lines[index].frame.size.height += dy }
-        }
-        // In list order, top to bottom, as a full rebuild lists them.
-        lines.insert(contentsOf: own, at: lines.firstIndex { $0.frame.minY > header.y } ?? lines.count)
-        // A group the fold brings near the visible rows had no line yet (the lines are made near them, `groupLines`).
-        let listed = Set(lines.map(\.group))
-        let near = groupLines(new).filter { !listed.contains($0.group) }
-        guard !near.isEmpty else { return (lines, start) }
-        let groups = Set(near.map(\.group))
-        for line in near { lines.insert(line, at: lines.firstIndex { $0.frame.minY > line.frame.minY } ?? lines.count) }
-        return (lines, start + groupLines(new, current: true).filter { groups.contains($0.group) })
     }
 }

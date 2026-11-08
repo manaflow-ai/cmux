@@ -26,6 +26,9 @@ final class SidebarGroupLineViews {
         views.compactMapValues { $0.superview == nil ? nil : ($0.frame, $0.alphaValue) }
     }
 
+    /// Group `id`'s shown line (its rail or block), not one fading out: a row move's pass over hides it with its header.
+    func view(for id: GroupID) -> NSView? { views[id] }
+
     /// The changes that move the lines to `new`, to run inside the rows'
     /// animation block, and the views to remove when it ends. A kept line
     /// moves to its new frame, a new one starts at `start` (the line over
