@@ -50,15 +50,29 @@ pub(crate) fn heard_within_window(attachment: &SlotAttachment, now_ms: u64) -> b
     attachment.last_seen_ms.saturating_add(DAEMON_LIVENESS_WINDOW_MS) > now_ms
 }
 
-/// The first candidate a Connect on `slot` may be allocated to at `now_ms`.
-/// Each candidate is a handle, its socket's ready state and its attachment.
+/// The candidate a Connect on `slot` may be allocated to at `now_ms`: the
+/// slot's current registration (`current_registration`), if it accepts
+/// Connects. Each candidate is a handle, its socket's ready state and its
+/// attachment; the candidates are all the slot's control sockets.
 pub(crate) fn live_daemon<T>(
     candidates: impl IntoIterator<Item = (T, u16, SlotAttachment)>,
     slot: &str,
     now_ms: u64,
 ) -> Option<T> {
-    candidates.into_iter().find_map(|(handle, ready_state, attachment)| {
-        accepts_connects(&attachment, ready_state, slot, now_ms).then_some(handle)
+    let candidates: Vec<_> = candidates.into_iter().collect();
+    let sockets: Vec<_> = candidates
+        .iter()
+        .map(|(_, ready_state, attachment)| (*ready_state, attachment.clone()))
+        .collect();
+    candidates.into_iter().enumerate().find_map(|(index, (handle, ready_state, attachment))| {
+        let others = sockets
+            .iter()
+            .enumerate()
+            .filter(|(other, _)| *other != index)
+            .map(|(_, (ready_state, other))| (*ready_state, other.clone()));
+        (accepts_connects(&attachment, ready_state, slot, now_ms)
+            && current_registration(&attachment, ready_state, others))
+        .then_some(handle)
     })
 }
 
@@ -87,7 +101,8 @@ pub(crate) fn next_registration_number(
 /// Whether `own`, a daemon registration whose socket is in `ready_state`,
 /// is still its slot's current one: open, registered, and not replaced by a
 /// newer Register on the slot (`others`: the slot's other control sockets,
-/// each with its ready state).
+/// each with its ready state). A socket that is closing or closed is gone:
+/// it never makes another registration non-current.
 ///
 /// A registration number of 0 is one written before numbers existed. Two of
 /// those carry no order, so a legacy registration is current only while it
@@ -101,8 +116,9 @@ pub(crate) fn current_registration(
 ) -> bool {
     websocket_is_open(ready_state)
         && own.phase == SlotPhase::Registered
-        && !others.into_iter().any(|(_ready_state, other)| {
-            replaced_by_register(&other, &own.relay.slot)
+        && !others.into_iter().any(|(ready_state, other)| {
+            websocket_is_open(ready_state)
+                && replaced_by_register(&other, &own.relay.slot)
                 && (other.generation > own.generation || own.generation == 0)
         })
 }
