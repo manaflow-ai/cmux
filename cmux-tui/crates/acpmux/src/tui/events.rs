@@ -10,7 +10,7 @@ impl App {
         match m {
             method::SESSION_UPDATE => {
                 if let Some(id) = sid {
-                    self.transcripts.entry(id).or_default().apply_update(&p);
+                    self.transcripts.entry(id).or_insert_with(Transcript::paging).apply_update(&p);
                 }
             }
             method::MUX_EVENT => {
@@ -40,7 +40,10 @@ impl App {
                             },
                         );
                     }
-                    self.transcripts.entry(id.clone()).or_default().apply_event(&p);
+                    self.transcripts
+                        .entry(id.clone())
+                        .or_insert_with(Transcript::paging)
+                        .apply_event(&p);
                     self.follow_removed_rows(&id);
                 }
             }
@@ -224,7 +227,7 @@ impl App {
                     self.details.insert(id, detail);
                     return;
                 }
-                let mut t = Transcript::default();
+                let mut t = Transcript::paging();
                 for e in &events {
                     t.apply_event(e);
                 }

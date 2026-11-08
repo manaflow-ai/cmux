@@ -452,7 +452,7 @@ fn user_texts(t: &Transcript) -> Vec<&str> {
 /// set from the session detail after attach.
 #[test]
 fn prepend_keeps_order_dedupes_and_keeps_session_state() {
-    let mut t = Transcript::default();
+    let mut t = Transcript::paging();
     for e in [user(20, "three"), user(21, "four")] {
         t.apply_event(&e);
     }
@@ -466,8 +466,10 @@ fn prepend_keeps_order_dedupes_and_keeps_session_state() {
     t.model = Some("m1".into());
     t.usage = Some((5, 10));
     t.available_commands = vec!["review".into()];
-    t.optimistic.push("sent".into());
-    t.items.push(Item::User { text: "sent".into(), steer: false, queued: false });
+    t.push_optimistic(
+        "sent".into(),
+        Item::User { text: "sent".into(), steer: false, queued: false },
+    );
     t.layout_dirty_from = usize::MAX;
     let before = t.items.len();
 
@@ -500,4 +502,54 @@ fn prepend_keeps_order_dedupes_and_keeps_session_state() {
     t.apply_event(&user(22, "dup"));
     t.apply_event(&user(23, "five"));
     assert_eq!(user_texts(&t), ["one", "two", "three", "four", "sent", "five"]);
+}
+
+/// A message still waiting for its echo keeps the row it was shown as through a rebuild (queued,
+/// steer, image names), and its echo after the rebuild consumes that row instead of adding one.
+#[test]
+fn prepend_keeps_pending_rows_as_shown_and_their_echo_lands_once() {
+    let mut t = Transcript::paging();
+    t.apply_event(&user(20, "three"));
+    t.push_optimistic(
+        "next".into(),
+        Item::User { text: "next".into(), steer: false, queued: true },
+    );
+    t.push_optimistic(
+        "look".into(),
+        Item::User { text: "look\n[image: a.png]".into(), steer: true, queued: false },
+    );
+
+    assert_eq!(t.prepend_events(&[user(10, "one")]), 1);
+    assert!(
+        matches!(t.items.get(2), Some(Item::User { text, queued: true, steer: false }) if text == "next")
+    );
+    assert!(
+        matches!(t.items.get(3), Some(Item::User { text, steer: true, queued: false }) if text == "look\n[image: a.png]")
+    );
+
+    // The queued message's turn starts: its row moves to the end, once, and its echo is used up.
+    t.apply_event(&user(21, "next"));
+    assert_eq!(user_texts(&t), ["one", "three", "look\n[image: a.png]", "next"]);
+    assert_eq!(t.optimistic, ["look"]);
+    // A second rebuild does not bring the consumed row back.
+    assert_eq!(t.prepend_events(&[user(5, "zero")]), 1);
+    assert_eq!(user_texts(&t), ["zero", "one", "three", "next", "look\n[image: a.png]"]);
+}
+
+/// Only a transcript that pages keeps its records: a CLI stream's grows by its items alone.
+#[test]
+fn a_plain_transcript_keeps_no_records() {
+    let mut t = Transcript::default();
+    for seq in 1..=50 {
+        t.apply_event(&user(seq, "x"));
+    }
+    t.apply_update(&json!({"sessionId": SID, "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {"type": "text", "text": "reply"},
+    }, "_meta": {"acpmux": {"seq": 51}}}));
+    assert!(t.raw_events.is_empty());
+    assert_eq!(t.prepend_events(&[user(0, "older")]), 0, "nothing to rebuild from");
+    let mut paged = Transcript::paging();
+    paged.apply_event(&user(1, "x"));
+    assert_eq!(paged.raw_events.len(), 1);
 }

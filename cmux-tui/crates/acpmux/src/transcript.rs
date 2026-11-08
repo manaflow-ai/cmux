@@ -52,9 +52,11 @@ pub enum Item {
 #[derive(Debug, Default, Clone)]
 pub struct Transcript {
     pub items: Vec<Item>,
-    /// Event records currently represented by `items`. Keeping these records lets the TUI
-    /// rebuild the display when an older page is prepended without reordering live updates.
+    /// Event records currently represented by `items`, kept only when `keeps_records` is set
+    /// (the TUI's transcripts, which page older history in): they let it rebuild the display
+    /// with an older page in front without reordering live updates. A CLI stream keeps none.
     pub(crate) raw_events: Vec<Value>,
+    pub(crate) keeps_records: bool,
     /// Earliest item whose layout may have changed since the TUI consumed it.
     /// Streaming invalidates the mutable tail, not the entire conversation.
     pub(crate) layout_dirty_from: usize,
@@ -75,6 +77,9 @@ pub struct Transcript {
     pending_user_chunk: bool,
     /// Texts shown before the daemon echoed them; matched on arrival.
     pub optimistic: Vec<String>,
+    /// The rows shown for `optimistic`, by the same index when the sender recorded them (the
+    /// TUI does): a rebuild puts them back as shown, steer, queued and image names included.
+    pub(crate) optimistic_rows: Vec<Item>,
     /// Unix ms the daemon recorded each user item at (by item index).
     pub user_at: std::collections::HashMap<usize, u64>,
     /// (user item index, turn start ms, turn end ms) per turn seen.
@@ -257,8 +262,10 @@ impl Transcript {
             self.last_seq = seq;
         }
         // Kept so a prepended older page can rebuild the transcript with this update in place.
-        let seq = params.pointer("/_meta/acpmux/seq").cloned().unwrap_or(Value::Null);
-        self.raw_events.push(json!({"seq": seq, "dir": "update", "params": params}));
+        if self.keeps_records {
+            let seq = params.pointer("/_meta/acpmux/seq").cloned().unwrap_or(Value::Null);
+            self.raw_events.push(json!({"seq": seq, "dir": "update", "params": params}));
+        }
         self.apply_update_inner(params);
     }
 
@@ -519,7 +526,9 @@ impl Transcript {
             }
             self.last_seq = seq;
         }
-        self.raw_events.push(ev.clone());
+        if self.keeps_records {
+            self.raw_events.push(ev.clone());
+        }
         self.apply_event_inner(ev);
     }
 
@@ -600,12 +609,12 @@ impl Transcript {
                         if let Item::User { text, steer, .. } = item {
                             self.items.push(Item::User { text, steer, queued: false });
                         }
+                        // The queued row was this message's local echo: it is consumed.
+                        self.take_optimistic(&text);
                     }
                     None => {
-                        if let Some(pos) = self.optimistic.iter().position(|t| *t == text) {
-                            // Already on screen from the local echo.
-                            self.optimistic.remove(pos);
-                        } else {
+                        // Already on screen from the local echo, or shown now.
+                        if !self.take_optimistic(&text) {
                             self.items.push(Item::User {
                                 text: text.clone(),
                                 steer,
@@ -832,6 +841,9 @@ impl Transcript {
     /// Returns the number of display items added before the old ones: the items already shown
     /// are the rebuilt transcript's tail, so per-item state moves down by that count.
     pub fn prepend_events(&mut self, older: &[Value]) -> usize {
+        if !self.keeps_records {
+            return 0; // nothing to rebuild what is shown from
+        }
         let seq_of = |e: &Value| e.get("seq").and_then(Value::as_u64);
         let oldest = self.oldest_seq();
         let mut page: Vec<Value> = older
@@ -845,17 +857,22 @@ impl Transcript {
         page.sort_by_key(|e| seq_of(e).unwrap_or(0));
         page.dedup_by(|a, b| seq_of(a) == seq_of(b));
         let previous_items = self.items.len();
-        let mut rebuilt = Transcript::default();
+        let mut rebuilt = Transcript::paging();
         for event in page.iter().chain(self.raw_events.iter()) {
             rebuilt.apply_record(event);
         }
         // Messages sent but not yet echoed stay last, as they were shown.
-        rebuilt.items.extend(self.optimistic.iter().map(|text| Item::User {
-            text: text.clone(),
-            steer: false,
-            queued: false,
-        }));
+        if self.optimistic_rows.len() == self.optimistic.len() {
+            rebuilt.items.extend(self.optimistic_rows.iter().cloned());
+        } else {
+            rebuilt.items.extend(self.optimistic.iter().map(|text| Item::User {
+                text: text.clone(),
+                steer: false,
+                queued: false,
+            }));
+        }
         rebuilt.optimistic = std::mem::take(&mut self.optimistic);
+        rebuilt.optimistic_rows = std::mem::take(&mut self.optimistic_rows);
         // State the TUI sets from the session detail after attach, and the newest values the
         // live records already gave, are the old transcript's.
         rebuilt.last_seq = rebuilt.last_seq.max(self.last_seq);
@@ -888,6 +905,30 @@ impl Transcript {
         } else {
             self.apply_event_inner(ev);
         }
+    }
+
+    /// A transcript that keeps its records, so `prepend_events` can page older history in.
+    pub(crate) fn paging() -> Self {
+        Transcript { keeps_records: true, ..Transcript::default() }
+    }
+
+    /// Record a message shown before the daemon echoes it, with the row it is shown as.
+    pub(crate) fn push_optimistic(&mut self, text: String, row: Item) {
+        self.items.push(row.clone());
+        self.optimistic.push(text);
+        if self.optimistic_rows.len() + 1 == self.optimistic.len() {
+            self.optimistic_rows.push(row);
+        }
+    }
+
+    /// Consume the local echo of TEXT, if one is pending.
+    fn take_optimistic(&mut self, text: &str) -> bool {
+        let Some(pos) = self.optimistic.iter().position(|t| t == text) else { return false };
+        self.optimistic.remove(pos);
+        if pos < self.optimistic_rows.len() {
+            self.optimistic_rows.remove(pos);
+        }
+        true
     }
 
     pub fn oldest_seq(&self) -> Option<u64> {

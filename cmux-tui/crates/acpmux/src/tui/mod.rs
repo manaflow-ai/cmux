@@ -697,8 +697,10 @@ impl App {
                     images.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(", ")
                 )
             };
-            t.items.push(crate::transcript::Item::User { text: shown, steer, queued });
-            t.optimistic.push(text.clone());
+            t.push_optimistic(
+                text.clone(),
+                crate::transcript::Item::User { text: shown, steer, queued },
+            );
             if !steer && !queued {
                 t.status = "running".into();
             }
