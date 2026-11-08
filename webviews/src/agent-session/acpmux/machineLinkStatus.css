@@ -67,9 +67,9 @@
   /* Folded, it takes no pointer and no keyboard; it turns hidden once its fade-out ends. */
   visibility: hidden;
   transition:
-    grid-template-columns var(--agent-motion-out, 160ms) var(--agent-ease-out, ease-out),
-    opacity var(--agent-motion-out, 160ms) var(--agent-ease-out, ease-out),
-    visibility 0s linear var(--agent-motion-out, 160ms);
+    grid-template-columns var(--agent-motion-out, 120ms) var(--agent-ease-out, ease-out),
+    opacity var(--agent-motion-out, 120ms) var(--agent-ease-out, ease-out),
+    visibility 0s linear var(--agent-motion-out, 120ms);
 }
 .acpmux-machine-link[data-said] .acpmux-machine-link-fold {
   grid-template-columns: 1fr;
