@@ -365,6 +365,7 @@ mod tests {
         assert_eq!(stale_daemon_labels(&print).len(), STALE_SWEEP_MAX);
     }
 
+    #[cfg(unix)]
     const JOB_PRINT: &str = "gui/501/com.cmux.acpmux.daemon.x = {
 \tactive count = 0
 \tpath = /Users/a/.acpmux/dev/daemon-login-session.plist
@@ -381,6 +382,8 @@ mod tests {
 }
 ";
 
+    // Unix paths: on Windows they are not absolute (no drive), and launchd is macOS-only.
+    #[cfg(unix)]
     #[test]
     fn only_an_ended_job_whose_program_is_gone_is_stale() {
         let app = Path::new("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux");
@@ -397,6 +400,8 @@ mod tests {
         assert_eq!(stale_job_program("state = not running\n", |_| false), None);
     }
 
+    // Unix paths: on Windows they are not absolute (no drive), and launchd is macOS-only.
+    #[cfg(unix)]
     #[test]
     fn a_jobs_home_is_the_folder_of_the_plist_a_start_wrote() {
         assert_eq!(job_home(JOB_PRINT).as_deref(), Some(Path::new("/Users/a/.acpmux/dev")));
