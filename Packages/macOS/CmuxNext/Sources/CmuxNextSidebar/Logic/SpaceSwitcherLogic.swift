@@ -21,7 +21,8 @@ public nonisolated enum SpaceClick: Hashable, Sendable {
 }
 
 /// The pure rules of the switcher's window marks: which spaces other windows show, and what a click offers.
-public nonisolated enum SpaceSwitcherLogic {
+public nonisolated struct SpaceSwitcherLogic {
+    public nonisolated init() {}
     /// The spaces open windows other than `here` show, each with the frontmost such window. `windows` runs
     /// front to back. A space this window shows itself is still listed when another window shows it too.
     public static func shownElsewhere(_ windows: [SpaceWindowShowing], here: String) -> [ProfileKey: SpaceElsewhere] {
