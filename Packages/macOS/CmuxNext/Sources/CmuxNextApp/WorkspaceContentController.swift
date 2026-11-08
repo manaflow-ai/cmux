@@ -262,7 +262,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     /// Applies the store's layout when it changed since the last apply (a pane's strip observation calls it first).
-    func applyLayoutIfChanged() { apply(LayoutMapping.shared.map(workspace)) }
+    func applyLayoutIfChanged() { apply(MotionTrace.interval("zk.map") { LayoutMapping.shared.map(workspace) }) }
 
     private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
         // Commands translate through the current handles even when the tree is unchanged (the
@@ -295,21 +295,21 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         defer { isApplying = wasApplying }
         if layoutModel.acceptsEdgeDockDrops != appliedTree.edgeDocks { layoutModel.acceptsEdgeDockDrops = appliedTree.edgeDocks }
         if layoutModel.acceptsRowOps != appliedTree.rows { layoutModel.acceptsRowOps = appliedTree.rows } // no row op without rows-v1 (rows.md step 4)
-        layoutModel.apply(screens: result.screens)
+        MotionTrace.interval("zk.model") { layoutModel.apply(screens: result.screens) }
         #if DEBUG
         DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)
         #endif
         // The view mounts the panes in this turn: a workspace shown now
         // draws its first frame with them, not one blank frame.
-        layoutView.syncWithModel()
+        MotionTrace.interval("zk.sync1") { layoutView.syncWithModel() }
         updateEmptyState()
         repairIfEmpty()
         syncStaleStrips() // a moved tab is in its new pane only before the topology: focus follows it in this turn
         // The one topology of this apply (mounts and pane snapshots inside it sent none).
         isApplying = wasApplying
-        sendTopology()
+        MotionTrace.interval("zk.topology") { sendTopology() }
         isApplying = true
-        layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
+        MotionTrace.interval("zk.sync2") { layoutView.syncWithModel() } // focus the topology landed (a split's pane) rings in this frame
     }
 
     /// Takes the mapping's handles. A pane record a resync rebuilt under the same key keeps its

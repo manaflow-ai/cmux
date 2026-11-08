@@ -398,8 +398,10 @@ public final class LayoutRootView: NSView {
                 // A hidden screen lands at once: frames step only the screens shown (`advanceFrame`), so a
                 // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
-                if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
-                               animated: (animated || reflows) && !view.isHidden, snapWaitsForFrame: isLive && driver.isAttached) {
+                if MotionTrace.interval("zk.update", {
+                    view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
+                                animated: (animated || reflows) && !view.isHidden, snapWaitsForFrame: isLive && driver.isAttached)
+                }) {
                     needsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
@@ -470,9 +472,9 @@ public final class LayoutRootView: NSView {
         for view in screenViews.values where view.resizeGesture == .releasing {
             view.resizeGestureModelSynced(gestureActive: snapshot.gestureActive)
         }
-        updateVisibility()
+        MotionTrace.interval("zk.visibility") { updateVisibility() }
         overlayIsStale = true
-        flushOverlaySync()
+        MotionTrace.interval("zk.overlay") { flushOverlaySync() }
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
@@ -604,6 +606,11 @@ public final class LayoutRootView: NSView {
     public static var paneChromeUpdates: UInt64 = 0
 
     override public func layout() {
+        MotionTrace.interval("zk.rootlayout") { layoutBody() }
+    }
+
+    /// ``layout()``'s body (timed as `zk.rootlayout` while debug.motion records).
+    private func layoutBody() {
         super.layout()
         Self.layoutPasses &+= 1
         for (id, view) in screenViews {

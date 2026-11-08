@@ -25,5 +25,9 @@ struct ScreenFrameInput {
     /// The panes a film zoom covers: kept as they are (retired until the unzoom, no teardown, no resize) from the
     /// presentation that shows the zoom, as the current zoom keeps them (`PaneZoomMotion.covered`).
     var filmZoomRetire: [PaneID] = []
+    /// Z4 zoom in (ZOOM VARIANTS 2): the covered panes fading out live (their own layers, no copies), shown and visible
+    /// until the fade ends, then retired as ``filmZoomRetire`` is. The generation tells a fade's end from a newer zoom's.
+    var filmZoomFading: [PaneID] = []
+    var filmZoomGeneration = 0
     #endif
 }

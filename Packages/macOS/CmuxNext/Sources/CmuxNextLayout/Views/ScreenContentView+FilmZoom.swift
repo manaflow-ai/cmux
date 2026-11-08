@@ -24,6 +24,10 @@ extension ScreenContentView {
         for pane in frameInput.filmZoomRetire { context.retire(pane, from: screenID, until: .zoom) }
         frameInput.filmZoomRetire = []
         frameInput.filmZoomPending = nil
+        // A Z4 zoom in still fading its covered panes: a newer zoom takes them as they are now (an unzoom brings them
+        // back from here: `returning` below), and that fade's end does nothing (`filmZoomGeneration`).
+        frameInput.filmZoomGeneration &+= 1
+        stopFilmFade(retiring: zooming)
         layer?.sublayers?.filter { $0.name?.hasPrefix("film-zoom-pictures-") == true }.forEach { $0.removeFromSuperlayer() }
         guard let root = layer else { return }
         let zoomed = zooming ? after.panes.keys.first : before.panes.keys.first { after.panes[$0] != nil }
@@ -45,12 +49,14 @@ extension ScreenContentView {
         let bounds = root.bounds
         // The pictures to copy now, before the hosts take their new frames: the other panes going in, the zoomed one out.
         var pictures: [(layer: CALayer, frame: CGRect)] = []
-        if animates, zooming {
+        // Z4 in (ZOOM VARIANTS 2): no copies; the covered panes fade out live at the presentation (`filmFadeLive`).
+        let fadesLive = animates && zooming && film.kind == .z4
+        if animates, zooming, !fadesLive {
             for pane in covered {
                 guard let source = context.hosts[pane]?.layer, source.frame.width >= 1, source.frame.height >= 1 else { continue }
                 pictures.append((Self.filmZoomCopy(source), source.frame))
             }
-        } else if animates, oldZoomed.width >= 1 {
+        } else if animates, !zooming, oldZoomed.width >= 1 {
             pictures.append((Self.filmZoomCopy(zoomedLayer), oldZoomed))
         }
         // The copies go on the root now, hidden, and show with the presentation of the final layout. The pending closure
@@ -77,6 +83,11 @@ extension ScreenContentView {
         }
         frameInput.filmZoomPending = { [weak self] in
             guard let self else { return }
+            if fadesLive, let zoomedLayer = self.context.hosts[zoomed]?.layer {
+                return MotionTrace.interval("zk.pending") {
+                    self.filmFadeLive(film, zoomedLayer, from: oldZoomed, to: zoomedLayer.frame)
+                }
+            }
             for pane in self.frameInput.filmZoomRetire { self.context.retire(pane, from: self.screenID, until: .zoom) }
             self.frameInput.filmZoomRetire = []
             let container = self.layer?.sublayers?.first { $0.name == tag }
@@ -188,6 +199,77 @@ extension ScreenContentView {
         })
     }
 
+    /// Z4 in, live (ZOOM VARIANTS 2): the zoomed pane grows as in ``filmGrow`` while the panes it covers fade out on the
+    /// same p, their own layers and chrome (a terminal, a page and its toolbar fade together; no copy, so no blank page),
+    /// still shown and visible. Their retire (hide; a page's orderOut) waits for the fade's end, off the key's turn.
+    private func filmFadeLive(_ film: FilmZoomVariant, _ zoomed: CALayer, from: CGRect, to: CGRect) {
+        let covered = frameInput.filmZoomRetire
+        frameInput.filmZoomRetire = []
+        frameInput.filmZoomFading = covered
+        let generation = frameInput.filmZoomGeneration
+        let mask = CAShapeLayer()
+        mask.frame = zoomed.bounds
+        mask.fillColor = NSColor.black.cgColor
+        mask.path = CGPath(rect: zoomed.bounds, transform: nil)
+        let maskName = "film-zoom-grow-\(UInt64.random(in: 0 ... UInt64.max))"
+        mask.name = maskName
+        let zBefore = zoomed.zPosition
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        zoomed.zPosition = 9_500
+        zoomed.mask = mask
+        CATransaction.commit()
+        let size = zoomed.bounds.size
+        let nothing: @MainActor () -> Void = {}
+        film.drive(zoomed, "transform", { p in
+            let r = Self.filmLerp(from, to, p)
+            return NSValue(caTransform3D: CATransform3DMakeTranslation(r.minX - to.minX, r.minY - to.minY, 0))
+        }, completion: nothing)
+        let fading = covered.compactMap { context.hosts[$0] }.flatMap { [$0.layer, $0.chrome.layer] }.compactMap { $0 }
+        for layer in fading {
+            film.drive(layer, "opacity", { p in NSNumber(value: Float(min(1, max(0, 1 - p)))) }, completion: nothing)
+        }
+        // The end: one completion on the zoomed pane's own frame (every property ends on the same p).
+        film.drive(mask, "path", { p in
+            let r = Self.filmLerp(from, to, p)
+            return CGPath(rect: CGRect(x: 0, y: 0, width: max(0, min(size.width, r.width)), height: max(0, min(size.height, r.height))),
+                          transform: nil)
+        }, completion: { [weak self] in
+            guard let self else { return }
+            if let layer = self.layer?.sublayers?.first(where: { $0.mask?.name == maskName }) {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.mask = nil
+                layer.zPosition = zBefore
+                layer.transform = CATransform3DIdentity
+                CATransaction.commit()
+            }
+            guard self.frameInput.filmZoomGeneration == generation else { return }
+            self.stopFilmFade(retiring: true)
+            self.context.requestFrames() // the next tick reports the retired panes hidden (`updateVisibility`)
+        })
+    }
+
+    /// Ends a live Z4 fade: each covered pane back at full opacity (no animation), then, `retiring`, retired until the
+    /// unzoom as ``filmZoomRetire`` is; not retiring (an unzoom took them back), left shown.
+    func stopFilmFade(retiring: Bool) {
+        guard !frameInput.filmZoomFading.isEmpty else { return }
+        let panes = frameInput.filmZoomFading
+        frameInput.filmZoomFading = []
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for pane in panes {
+            guard let host = context.hosts[pane] else { continue }
+            for layer in [host.layer, host.chrome.layer].compactMap({ $0 }) {
+                layer.removeAnimation(forKey: "opacity")
+                layer.opacity = 1
+            }
+        }
+        CATransaction.commit()
+        guard retiring else { return }
+        for pane in panes where paneFrames[pane] == nil { context.retire(pane, from: screenID, until: .zoom) }
+    }
+
     /// Z4 out: the zoomed pane's old full picture (`container`, over the final layout) shows through a frame that shrinks
     /// from `from` to its place `to`, the picture on that frame's top-left, while the panes the unzoom shows again fade
     /// in at their places; one progress value p drives all of it.
@@ -295,5 +377,7 @@ extension ScreenContentView {
 extension LayoutModel {
     /// A film zoom (Z1-Z4) plays: the zoom shows in the key's turn (`DaemonService.filmZoomNow`).
     @MainActor public static var filmZoomPlays: Bool { DesignSettings.shared.filmZoom.active != nil }
+    /// A `zk.*` key-turn span (``MotionTrace/interval(_:_:)``) for targets that do not import the design module.
+    @MainActor public static func filmTrace<T>(_ name: String, _ body: () -> T) -> T { MotionTrace.interval(name, body) }
 }
 #endif

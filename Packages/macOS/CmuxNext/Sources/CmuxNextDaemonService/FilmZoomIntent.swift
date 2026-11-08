@@ -12,10 +12,13 @@ extension DaemonService {
         guard LayoutModel.filmZoomPlays, connection != nil, let screen = store.screen(containing: pane.handle) else { return false }
         let handle = pane.handle
         let on = screen.zoomedPane != handle
-        let send = intendNow("zoom-pane", .zoomPane(screen: screen.handle, pane: on ? handle : nil), transaction: .generate()) {
-            try await $0.zoomPane(handle, mode: on ? .on : .off)
+        // ZOOM VARIANTS 2 key-turn attribution (`zk.*` spans, only while debug.motion records).
+        let send = LayoutModel.filmTrace("zk.intent") {
+            intendNow("zoom-pane", .zoomPane(screen: screen.handle, pane: on ? handle : nil), transaction: .generate()) {
+                try await $0.zoomPane(handle, mode: on ? .on : .off)
+            }
         }
-        shown()
+        LayoutModel.filmTrace("zk.shown") { shown() }
         Task { _ = await send() }
         return true
         #else

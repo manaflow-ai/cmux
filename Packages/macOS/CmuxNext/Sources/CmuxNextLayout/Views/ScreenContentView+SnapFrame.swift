@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// CLOSE MOTION 3 (film cm-b-split-reduce, 120 Hz): a structural change whose frames snap (Reduce Motion, pane
 /// animations off) showed its terminals torn for one refresh: each pane took its new frame in the change's turn, each
@@ -43,7 +44,7 @@ extension ScreenContentView {
     func presentHeldSnap() {
         guard frameInput.snapWaitsForContent else { return }
         frameInput.snapWaitsForContent = false
-        applyPresentation()
+        MotionTrace.interval("zk.present") { applyPresentation() }
     }
 
     /// In the presentation that shows the held snap: the panes it took out go, unless a later change took them back.

@@ -67,6 +67,18 @@ public struct MotionTrace {
         return result
     }
 
+    /// Runs `body` and, while on, records it as one span `name` with its start (`debug.motion` spans: name, ms, at_ms),
+    /// so a bench can place each part of one key's turn on the time line (ZOOM VARIANTS 2 key-turn attribution, `zk.*`).
+    public static func interval<T>(_ name: String, _ body: () -> T) -> T {
+        guard isEnabled else { return body() }
+        let start = CACurrentMediaTime()
+        let result = body()
+        if spans.count < capacity {
+            spans.append(Span(name: name, start: start, milliseconds: (CACurrentMediaTime() - start) * 1000))
+        }
+        return result
+    }
+
     /// One frame's main-thread work of `name` timed elsewhere (only while recording).
     static func record(_ name: String, milliseconds: Double) {
         guard isEnabled, work[name, default: []].count < capacity * 16 else { return }
