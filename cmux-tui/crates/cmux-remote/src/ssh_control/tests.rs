@@ -275,6 +275,13 @@ async fn caller_connection_sharing_is_left_alone() {
         vec!["-oControlPath=/tmp/theirs".to_owned()],
         vec!["-o".to_owned(), "ControlMaster=auto".to_owned()],
         vec!["-M".to_owned()],
+        // These fork the run away or make no connection at all.
+        vec!["-f".to_owned()],
+        vec!["-Nf".to_owned()],
+        vec!["-G".to_owned()],
+        vec!["-V".to_owned()],
+        vec!["-O".to_owned(), "check".to_owned()],
+        vec!["-oForkAfterAuthentication=yes".to_owned()],
     ] {
         let target = SshTarget { extra_args: extra.clone(), ..fake.target() };
         assert!(share.client_arguments(&target).await.unwrap().is_empty(), "{extra:?}");

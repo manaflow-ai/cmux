@@ -263,9 +263,12 @@ impl ControlMaster {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
+        end_with_parent(&mut command);
         // Until ssh is ready, dropping this future (a timeout, a shutdown)
         // must end it: a leftover ssh would keep prompting on the terminal.
-        let mut pending = PendingMaster(Some(command.spawn().map_err(SshConnectionError::Io)?));
+        let child = command.spawn().map_err(SshConnectionError::Io)?;
+        live_masters::register(&child);
+        let mut pending = PendingMaster(Some(child));
         let child = pending.child();
         let Some(stdout) = child.stdout.take() else {
             return Err(SshConnectionError::Io(std::io::Error::other(
@@ -295,7 +298,13 @@ impl ControlMaster {
     }
 
     fn is_alive(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None)) && socket_exists(&self.socket)
+        // A reaped master's pid could be reused: drop it from the exit hook's
+        // list first. The caller drops a dead master right after this.
+        if !matches!(self.child.try_wait(), Ok(None)) {
+            live_masters::unregister(&self.child);
+            return false;
+        }
+        socket_exists(&self.socket)
     }
 
     fn client_arguments(&self) -> Vec<String> {
@@ -310,6 +319,7 @@ impl ControlMaster {
 
 impl Drop for ControlMaster {
     fn drop(&mut self) {
+        live_masters::unregister(&self.child);
         #[cfg(unix)]
         if let Some(pid) = self.child.id().and_then(|pid| libc::pid_t::try_from(pid).ok())
             && matches!(self.child.try_wait(), Ok(None))
@@ -339,10 +349,79 @@ impl PendingMaster {
 
 impl Drop for PendingMaster {
     fn drop(&mut self) {
-        if let Some(child) = self.0.as_mut()
-            && matches!(child.try_wait(), Ok(None))
-        {
-            let _ = child.start_kill();
+        if let Some(child) = self.0.as_mut() {
+            live_masters::unregister(child);
+            if matches!(child.try_wait(), Ok(None)) {
+                let _ = child.start_kill();
+            }
+        }
+    }
+}
+
+/// On Linux the kernel ends the master when cmux dies, even by SIGKILL or a
+/// crash, so an authenticated connection never outlives it. macOS has no
+/// such signal: there the exit hook below covers every exit that runs it.
+fn end_with_parent(command: &mut Command) {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    // SAFETY: the closure runs between fork and exec and only calls prctl,
+    // which is async-signal-safe.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    let _ = command;
+}
+
+/// Masters this process started and has not reaped. A process exit that
+/// skips destructors (`std::process::exit`, a return from `main` with the
+/// runtime thread still running) ends them through an `atexit` hook, so the
+/// authenticated connection does not linger after cmux.
+mod live_masters {
+    use std::sync::Mutex;
+    #[cfg(unix)]
+    use std::sync::Once;
+
+    use tokio::process::Child;
+
+    static PIDS: Mutex<Vec<i32>> = Mutex::new(Vec::new());
+    #[cfg(unix)]
+    static HOOK: Once = Once::new();
+
+    pub(super) fn register(child: &Child) {
+        let Some(pid) = child.id().and_then(|pid| i32::try_from(pid).ok()) else { return };
+        #[cfg(unix)]
+        HOOK.call_once(|| {
+            // SAFETY: registers a plain `extern "C"` function with no
+            // captured state.
+            unsafe {
+                libc::atexit(end_all);
+            }
+        });
+        PIDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(pid);
+    }
+
+    /// Called before the child is reaped or dropped, so a listed pid always
+    /// names our own child (a zombie keeps its pid until it is reaped).
+    pub(super) fn unregister(child: &Child) {
+        let Some(pid) = child.id().and_then(|pid| i32::try_from(pid).ok()) else { return };
+        PIDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|live| *live != pid);
+    }
+
+    #[cfg(unix)]
+    extern "C" fn end_all() {
+        // try_lock: exit may run while another thread holds the lock.
+        if let Ok(pids) = PIDS.try_lock() {
+            for pid in pids.iter() {
+                // SAFETY: every listed pid is an unreaped child of this process.
+                unsafe {
+                    libc::kill(*pid, libc::SIGTERM);
+                }
+            }
         }
     }
 }
@@ -426,7 +505,11 @@ impl PrivateDirectory {
             let path = base.join(name);
             // The socket is `<dir>/s`; ssh_config splits values on spaces.
             let fits = path.as_os_str().len() + 2 <= MAX_CONTROL_PATH_BYTES;
-            if !fits || path.to_string_lossy().chars().any(|c| c.is_whitespace() || c == '"') {
+            // ssh_config splits values on spaces and quotes, and newer
+            // OpenSSH expands `${VAR}` and unescapes `\\` in ControlPath.
+            let unsafe_character =
+                |c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '\\' | '$');
+            if !fits || path.to_string_lossy().chars().any(unsafe_character) {
                 continue;
             }
             let mut builder = std::fs::DirBuilder::new();

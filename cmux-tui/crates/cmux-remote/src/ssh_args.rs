@@ -120,8 +120,10 @@ fn forwarding_overrides(extra_args: &[String]) -> &'static [&'static str] {
 }
 
 /// Whether the caller's options set up connection sharing themselves
-/// (`-M`, `-S`, `ControlMaster` or `ControlPath`). cmux's own shared
-/// connection then stays out of the way.
+/// (`-M`, `-S`, `ControlMaster` or `ControlPath`) or change what an `ssh`
+/// run is (`-f` and `ForkAfterAuthentication` fork it away, `-O`, `-G` and
+/// `-V` make no connection). cmux's own shared connection then stays out of
+/// the way and each run behaves as before.
 pub(crate) fn caller_manages_connection_sharing(extra_args: &[String]) -> bool {
     CallerOptions::parse(extra_args).manages_sharing
 }
@@ -143,6 +145,7 @@ impl CallerOptions {
         let mut control_path_disabled = false;
         let mut control_path_set = false;
         let mut forwards_ports = false;
+        let mut changes_the_run = false;
         let mut arguments = extra_args.iter();
         while let Some(argument) = arguments.next() {
             if argument == "--" {
@@ -152,6 +155,7 @@ impl CallerOptions {
             for (index, flag) in flags.char_indices() {
                 if !u8::try_from(flag).is_ok_and(|flag| FLAGS_WITH_VALUE.contains(&flag)) {
                     master_flag |= flag == 'M';
+                    changes_the_run |= matches!(flag, 'f' | 'G' | 'V');
                     continue;
                 }
                 let attached = &flags[index + flag.len_utf8()..];
@@ -162,6 +166,7 @@ impl CallerOptions {
                 };
                 match flag {
                     'L' | 'R' | 'D' => forwards_ports = true,
+                    'O' => changes_the_run = true,
                     'S' => {
                         control_path_set = true;
                         control_path_disabled |=
@@ -174,6 +179,8 @@ impl CallerOptions {
                             } else if keyword.eq_ignore_ascii_case("ControlPath") {
                                 control_path_set = true;
                                 control_path_disabled |= value.eq_ignore_ascii_case("none");
+                            } else if keyword.eq_ignore_ascii_case("ForkAfterAuthentication") {
+                                changes_the_run = true;
                             } else if ["LocalForward", "RemoteForward", "DynamicForward"]
                                 .iter()
                                 .any(|forward| keyword.eq_ignore_ascii_case(forward))
@@ -193,7 +200,10 @@ impl CallerOptions {
         Self {
             can_become_master: master_flag || (!pinned_off && !control_path_disabled),
             forwards_ports,
-            manages_sharing: master_flag || control_master.is_some() || control_path_set,
+            manages_sharing: master_flag
+                || control_master.is_some()
+                || control_path_set
+                || changes_the_run,
         }
     }
 }

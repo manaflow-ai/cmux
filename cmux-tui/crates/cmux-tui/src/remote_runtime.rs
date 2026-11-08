@@ -50,6 +50,7 @@ use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
 use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstrapper};
+use cmux_remote::ssh_control::SSH_MASTER_AUTH_TIMEOUT;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1229,6 +1230,21 @@ async fn bootstrap_initial_ssh_route(
     }
 }
 
+/// Opens (or reuses) the route's shared SSH connection: the same target the
+/// bootstrap and the carrier links use, so they all ride on it.
+async fn open_shared_ssh_connection(endpoint: &Url, ssh: &SshProviderConfig) -> anyhow::Result<()> {
+    let (destination, port) = ssh_bootstrap_destination(endpoint)?;
+    ssh.connection_share
+        .client_arguments(&cmux_remote::ssh_control::SshTarget {
+            ssh_binary: ssh.ssh_binary.clone(),
+            destination,
+            port,
+            extra_args: ssh.extra_args.clone(),
+        })
+        .await?;
+    Ok(())
+}
+
 fn ssh_bootstrap_failure_is_retryable(error: &anyhow::Error) -> bool {
     error.downcast_ref::<BootstrapError>().is_some_and(BootstrapError::is_retryable_carrier_failure)
 }
@@ -1435,9 +1451,27 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
         )
         .unwrap_or(u32::MAX);
         let ssh_bootstraps = u32::try_from(self.unprepared_ssh_probe_count()).unwrap_or(u32::MAX);
-        reconnect_attempt_timeout.saturating_mul(provider_attempts).saturating_add(
-            self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
-        )
+        // Each SSH route may open its shared connection, which may prompt.
+        let ssh_authentications = if self.options.ssh.connection_share.auth_clock().is_some() {
+            u32::try_from(
+                self.options
+                    .routes
+                    .iter()
+                    .filter(|candidate| {
+                        candidate.endpoint.scheme() == "ssh" && candidate.supports_client_auth(auth)
+                    })
+                    .count(),
+            )
+            .unwrap_or(u32::MAX)
+        } else {
+            0
+        };
+        reconnect_attempt_timeout
+            .saturating_mul(provider_attempts)
+            .saturating_add(
+                self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
+            )
+            .saturating_add(SSH_MASTER_AUTH_TIMEOUT.saturating_mul(ssh_authentications))
     }
 
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
@@ -1496,6 +1530,16 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
                 ))
             })?;
             self.prepared_ssh[index].store(true, Ordering::Release);
+        }
+        if endpoint.scheme() == "ssh" {
+            // A master lost with the network authenticates again here, out of
+            // the attempt budget: a person may be typing a password, and a
+            // 15 s cut would kill ssh and prompt again each attempt.
+            open_shared_ssh_connection(&endpoint, &self.options.ssh).await.map_err(|error| {
+                ProviderError::Transport(format!(
+                    "SSH connection failed for reconnect route {display_endpoint}: {error:#}"
+                ))
+            })?;
         }
         tokio::time::timeout(
             self.options.reconnect.attempt_timeout,
