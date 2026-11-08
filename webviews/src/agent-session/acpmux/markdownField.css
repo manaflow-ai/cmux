@@ -225,6 +225,15 @@
   min-width: 0;
 }
 .acpmux-md {
+  /* Room for a line-tall picture's badges, which hang off its corners (the × above its top-right,
+     an original's Retry past its bottom-left): this box scrolls, so it clips at its padding box. The
+     padding gives them room and the matching negative margin keeps the text where it was, so the
+     field (the real scroller) and the caret move by nothing (#38135). */
+  --acpmux-md-badge-room-block: 3px;
+  --acpmux-md-badge-room-inline: 5px;
+  padding: var(--acpmux-md-badge-room-block) 0 var(--acpmux-md-badge-room-block) var(--acpmux-md-badge-room-inline);
+  margin: calc(-1 * var(--acpmux-md-badge-room-block)) 0 calc(-1 * var(--acpmux-md-badge-room-block))
+    calc(-1 * var(--acpmux-md-badge-room-inline));
   flex: 1 1 auto;
   min-width: 0;
   overflow-y: auto;

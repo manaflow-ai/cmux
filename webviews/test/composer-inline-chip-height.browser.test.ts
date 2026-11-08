@@ -118,7 +118,7 @@ await requireBrowserLane("composer-inline-chip-height.browser.test.ts", async ()
             // The draft is lines of text with its chips: one line tall, or (a draft that wraps) a whole
             // number of the text's lines, never a line raised by a chip.
             const lines = Math.max(1, Math.round(seen.paragraph / seen.lineHeight));
-            if ((oneLine && lines !== 1) || Math.abs(seen.paragraph - lines * seen.lineHeight) > TOLERANCE * lines)
+            if ((oneLine && lines !== 1) || Math.abs(seen.paragraph - lines * seen.lineHeight) > TOLERANCE)
               failures.push(
                 `${where}: the draft is ${seen.paragraph.toFixed(2)}px tall, not ${oneLine ? "one" : "a whole number of"} ${seen.lineHeight.toFixed(2)}px line${oneLine ? "" : "s"}`,
               );
