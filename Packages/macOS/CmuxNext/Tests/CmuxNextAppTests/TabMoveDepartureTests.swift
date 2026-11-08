@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
@@ -196,32 +197,37 @@ import Testing
         #expect(moved?.kind == .terminal, "the moved tab lost its kind")
     }
 
-    /// Router review on #37735 at 3763c54d: a move to the workspace the tab is already in moves
-    /// nothing. Its tab is not departing, so its later real close still plays.
-    @Test func aMoveToItsOwnWorkspaceMarksNoDeparture() throws {
-        let shown = try PaneCloseControllerTests.Shown(tree: PaneCloseControllerTests.splitTree(Self.sideBySide))
-        defer { shown.end() }
-        let source = try shown.controller(2)
-        let tab = try #require(source.pane.tabs.first), workspace = try #require(shown.services.daemon.store.workspaces.first)
-        TabMoves.toWorkspace(tab, workspace: workspace, services: shown.services)
-        #expect(!source.stripModel.departures.contains(StripTabID(tab.id)), "a move that stays in its workspace marked a departure")
-    }
-
-    /// The same for a group: a group moved within its own pane stays there; its tabs are not departing.
-    @Test func aGroupMovedWithinItsPaneMarksNoDeparture() throws {
-        var grouped = TabSnapshot(surface: SurfaceID(rawValue: 200), title: "~")
-        grouped.tabGroup = "G"
-        let panes = [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 100), title: "~")]),
-                     PaneSnapshot(id: 2, tabs: [grouped, TabSnapshot(surface: SurfaceID(rawValue: 201), title: "~")],
-                                  tabGroups: [TabGroupSnapshot(id: "G", surfaces: [SurfaceID(rawValue: 200)], pane: 2)])]
-        let tree = DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [ScreenSnapshot(id: 1, layout: Self.sideBySide, panes: panes)])])
-        let shown = try PaneCloseControllerTests.Shown(tree: tree)
-        defer { shown.end() }
-        let source = try shown.controller(2)
-        let tab = try #require(source.pane.tabs.first)
-        try #require(tab.tabGroup == "G")
-        TabGroupMoves.move("G", to: source.pane, index: 1, services: shown.services, transaction: .generate()) { _ in }
-        #expect(!source.stripModel.departures.contains(StripTabID(tab.id)), "a group that stays in its pane marked a departure")
+    /// Router review on #37735 at 3763c54d: a group dragged within its own pane, or a tab moved to the workspace it is
+    /// already in, moves nothing out. Its tab is not departing, so the tab's later real close still plays. Run on a
+    /// same-tree cmux-tui, where the strip showing the pane is found (`AppServices.paneController(for:)`).
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .timeLimit(.minutes(3)),
+          .enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() }, arguments: [true, false])
+    func aMoveThatStaysKeepsTheTabsLaterCloseTween(_ group: Bool) async throws {
+        try await AppHarnessWindows.withApp { services, connection in
+            let pane = try MoveToNewWindowTests.firstPane(services)
+            let browser = try await MoveToNewWindowTests.browserTab(in: pane, services, connection), id = StripTabID(browser.id)
+            let strip = try #require(services.paneController(for: pane), "no controller shows the pane").stripModel
+            var moved: Bool?
+            if group {
+                #expect(services.registry.perform("tabGroup.create", invocation: MoveToNewWindowTests.on(.tab, browser.id)))
+                try await PinnedPageTests.until({ services.daemon.store.tab(surface: browser.surface)?.tabGroup != nil })
+                TabGroupMoves.move(try #require(browser.tabGroup), to: pane, index: 0, services: services, transaction: .generate()) { moved = $0 }
+            } else {
+                let workspace = try #require(services.daemon.store.workspace(containing: pane.handle))
+                TabMoves.toWorkspace(browser, workspace: workspace, services: services) { moved = $0 }
+            }
+            #expect(!strip.departures.contains(id), "a \(group ? "group drag within its pane" : "move to its own workspace") marked its tab departing")
+            try await PinnedPageTests.until({ moved != nil })
+            #expect(!strip.departures.contains(id), "the stay's mark outlived its move")
+            // A real close of the tab, on a strip showing what the move left: it plays its tween.
+            let model = TabStripModel(tabs: strip.tabs, selectedID: strip.tabs.first { $0.id != id }?.id ?? id)
+            model.departures = strip.departures
+            try onScreen(model) { view in
+                model.tabs.removeAll { $0.id == id }
+                view.sync(fromModel: true)
+                #expect(view.dying.contains(id), "the tab's real close after a move that stayed played no close")
+            }
+        }
     }
 
     // MARK: Review follow-ups on #37735 (F2 to F4)
