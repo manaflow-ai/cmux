@@ -2,10 +2,11 @@
 //! Two review sessions in a row could not grep or compile, because every shell call waited for a
 //! person who was not there (GAPS.md, "acpmux bugs seen live"). Under review a read, a search and
 //! a read-only shell command are allowed at once, and anything else is denied at once: nothing
-//! waits on a prompt.
+//! waits on a prompt. The read-only shell commands are judged in the agent's whole environment,
+//! so they are tested with a stand-in agent in a hermetic process
+//! (`tests/hub_integration/permission_groups.rs`, `review_policy_*`).
 #![cfg(unix)]
 use super::*;
-use cmux_json::JsonSet as _;
 
 fn fixture() -> (tempfile::TempDir, Arc<Hub>, Arc<Session>) {
     let dir = tempfile::tempdir().unwrap();
@@ -60,17 +61,10 @@ fn review_policy_parses_and_prints_as_review() {
 }
 
 #[tokio::test]
-async fn review_policy_allows_reads_and_read_only_shell_and_denies_the_rest_at_once() {
+async fn review_policy_allows_reads_and_denies_the_rest_at_once() {
     let (_dir, hub, session) = fixture();
     let allowed = Some("allow_once".to_owned());
-    for (kind, title, command) in [
-        ("read", "Read notes.txt", None),
-        ("search", "Grep one", None),
-        ("execute", "ls", Some("ls -la")),
-        ("execute", "cat", Some("cat notes.txt")),
-        ("execute", "grep", Some("grep -n one notes.txt")),
-        ("execute", "sed", Some("sed -n '1,2p' notes.txt")),
-    ] {
+    for (kind, title, command) in [("read", "Read notes.txt", None), ("search", "Grep one", None)] {
         let got = answer(&hub, &session, request(kind, title, command)).await;
         assert_eq!(got, allowed, "{kind} {title}: never allow_always, never a prompt");
     }
