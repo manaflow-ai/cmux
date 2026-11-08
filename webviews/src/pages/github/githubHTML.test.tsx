@@ -109,3 +109,11 @@ test("with no HTML, or nowhere to parse it, the Markdown draws as before", () =>
     scope.DOMParser = new JSDOM("").window.DOMParser;
   }
 });
+
+test("thousands of nested tags draw their text, not a stack overflow", () => {
+  const depth = 5000;
+  const out = draw(`${"<div>".repeat(depth)}deep${"</div>".repeat(depth)}<p>after</p>`);
+  expect(out).toContain("deep");
+  expect(out).toContain("<p>after</p>");
+  expect(out.split("<div>").length - 1).toBeLessThanOrEqual(50);
+});

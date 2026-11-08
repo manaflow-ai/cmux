@@ -10,7 +10,16 @@
 // the files changed (wide enough for an inline diff), then the conversation in time order. The
 // rail is what a person checks: checks with reds and running first and greens folded, reviewers,
 // linked issues. A narrow pane is one column in that order.
-import { lazy, Suspense, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { relativeTime } from "../../agent-session/acpmux/conversation/relativeTime";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import type { Strings } from "../shared/i18n";
@@ -118,6 +127,8 @@ export function GitHubPage({
   const { t } = strings;
   const { target, pullRequest: pr, details } = snapshot;
   const hasContent = pr !== undefined;
+  // One callback for the page's life: GitHubMarkdown parses a body again only when its text changes.
+  const open = useCallback((url: string) => store.openOnGitHub(url), [store]);
   // Once the frame that draws this pull request (or its loading state) is on screen, the host hears of it.
   useEffect(() => {
     if (!target) return;
@@ -136,7 +147,6 @@ export function GitHubPage({
     );
   }
   const waitingFirst = !pr && (!snapshot.answered || snapshot.reading);
-  const open = (url: string) => store.openOnGitHub(url);
   const description = pr && <Description details={details} strings={strings} open={open} />;
   const files = pr && <Files pr={pr} snapshot={snapshot} store={store} strings={strings} />;
   const conversation = pr && (
