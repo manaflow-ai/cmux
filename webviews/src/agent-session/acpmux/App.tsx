@@ -8987,7 +8987,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   });
   // Triage (needsYou/triage.ts): what Ctrl-Cmd-Y does to this chat's ask, said on the strip above it.
   const triage = triageMove(
-    snapshot.permission?.pending ? snapshot.permission : undefined,
+    askOnSingleCard(snapshot.permission, snapshot.permissionGroups) ? snapshot.permission : undefined,
     needsYou.waiting,
     snapshot.sessionId,
     snapshot.permissionGroups,

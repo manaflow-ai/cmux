@@ -19,7 +19,8 @@ export type TriageMove =
   /// Nothing a key can send: the chat stays waiting.
   | { kind: "skip" };
 
-/// What `triageAnswer` does for this chat: its ask `permission` (the one its card shows), else a
+/// What `triageAnswer` does for this chat: its ask `permission` (the one its single card shows, never
+/// one a group holds), else a
 /// pending permission group (whose panel takes the same Allow once event); undefined when nothing
 /// waits here. A question's first choice comes from its Needs you row, else from the question
 /// itself, so it works with the Needs you list turned off.
@@ -41,7 +42,13 @@ export function triageMove(
         : false;
     return pending ? { kind: "allow", plan: false } : undefined;
   }
-  // The card's own Allow once (permissionAnswers): an ask that offers none is only skipped.
+  // The card's own Allow once (permissionAnswers): an ask that offers none is only skipped. While a
+  // permission group waits, its panel takes the Allow once event and the card's keys are off
+  // (permissionKeys.ts `cardTakesShortcuts`): the key would answer the group, not this ask, so it
+  // only moves on.
+  const panelKeys =
+    groups?.supported && groups.groups.some((group) => group.state === "pending" || group.state === "collecting");
+  if (!permission.question && panelKeys) return { kind: "skip" };
   if (!permission.question)
     return permissionAnswers(permission.options ?? []).allowOnce
       ? { kind: "allow", plan: Boolean(permission.plan) }

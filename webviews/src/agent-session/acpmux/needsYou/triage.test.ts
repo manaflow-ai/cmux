@@ -125,6 +125,23 @@ describe("triageMove follow-ups (#38526 review)", () => {
     ).toBeUndefined();
     expect(triageMove(undefined, [], "s", { supported: false, groups: [] })).toBeUndefined();
   });
+  test("a plan or tool ask beside a waiting group is only skipped: the group's panel takes the key", () => {
+    const group = (state: string) => ({ state, decisions: ["allow_once"] }) as never;
+    for (const state of ["pending", "collecting"]) {
+      const groups = { supported: true, groups: [group(state)] };
+      expect(triageMove({ permissionId: "p", plan: "1. Do it", options: once }, [], "s", groups)).toEqual({
+        kind: "skip",
+      });
+      expect(triageMove({ permissionId: "p", options: once }, [], "s", groups)).toEqual({ kind: "skip" });
+    }
+    // With no group waiting, the card takes the key again.
+    expect(
+      triageMove({ permissionId: "p", plan: "1. Do it", options: once }, [], "s", {
+        supported: true,
+        groups: [group("answered")],
+      }),
+    ).toEqual({ kind: "allow", plan: true });
+  });
 });
 
 describe("othersWaiting", () => {
