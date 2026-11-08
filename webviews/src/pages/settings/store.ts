@@ -304,10 +304,14 @@ export class SettingsStore {
     // Already covered by a read in flight (the write's own change event can start it before the
     // write's reply settles): wait for that read, so a caller reading after the write sees what the
     // owner changed with it, such as a linked key (#29881).
-    if (revision !== undefined && revision <= this.covered) return this.reading ?? undefined;
+    if (revision !== undefined && revision <= this.covered) {
+      // Until no read is in flight: a newer one replaces a cancelled one.
+      while (this.reading) await this.reading;
+      return;
+    }
     // Any read that starts now shows at least `revision`: the owner applied it before saying so.
     if (revision !== undefined) this.covered = revision;
-    const reading = this.readScope();
+    const reading: Promise<void> = this.readScope(() => this.reading === reading);
     this.reading = reading;
     try {
       await reading;
@@ -319,13 +323,14 @@ export class SettingsStore {
   /** The scope read in flight, which every revision up to `covered` waits for. */
   private reading: Promise<void> | null = null;
 
-  private async readScope(): Promise<void> {
+  private async readScope(current: () => boolean): Promise<void> {
     const { queryKey } = this.scopeQuery();
     await this.queryClient.cancelQueries({ queryKey, exact: true });
     const read = await this.queryClient.fetchQuery({ ...this.scopeQuery(), staleTime: 0 }).catch(() => undefined);
     if (read) this.covered = Math.max(this.covered, read.revision);
     // A failed or cancelled read covers nothing it did not show: the next announcement reads again.
-    else this.covered = this.queryClient.getQueryData<ScopeData>(queryKey)?.revision ?? 0;
+    // Not over a newer read still in flight, which covers its own revision.
+    else if (current()) this.covered = this.queryClient.getQueryData<ScopeData>(queryKey)?.revision ?? 0;
   }
 
   /** Re-reads the host lists (after an action, or when the host has no change stream). */
@@ -1071,7 +1076,9 @@ export class SettingsStore {
       ),
       ...kept.filter(shows),
     ];
-    if (landed.length > 0) this.appearance.record({ label, changes: landed });
+    // Only a step that changed something: kept targets alone (the step's own write refused) are not one.
+    if (landed.some((change) => !sameState(change.before, change.after)))
+      this.appearance.record({ label, changes: landed });
     return ok;
   }
 

@@ -343,6 +343,32 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(rows().get("appearance.backgroundOpacity")?.value).toBe(1);
   });
 
+  test("a Restore whose picture write the host refuses records no step", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: {
+        values: {
+          "appearance.background": "friedrich-forest-moonlight",
+          "appearance.backgroundOpacity": 1,
+          "appearance.backgroundBlur": "none",
+        },
+      },
+    });
+    await run(() => page!.store.set("appearance.background", "daily"));
+    await run(() => page!.store.set("appearance.backgroundOpacity", 1));
+    const top = page.store.appearance.nextUndo;
+    const provider = page.provider as unknown as { set: (key: string, value: unknown) => unknown };
+    const set = provider.set.bind(provider);
+    provider.set = (key, value) => {
+      if (key === "appearance.background") throw new Error("refused");
+      return set(key, value);
+    };
+    await run(() => page!.store.restoreAppearanceOpened());
+    expect(page.store.getSnapshot().rows.get("appearance.background")?.value).toBe("daily");
+    // Only the kept Opacity (1 before and after) would have been recorded: no step.
+    expect(page.store.appearance.nextUndo).toBe(top);
+  });
+
   test("other parts of Appearance record their own steps through trackAppearance", async () => {
     page = await renderPage({ path: "/settings/appearance" });
     await run(() =>
