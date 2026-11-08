@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42464509002",
+  "recorded_at": "2026-11-08T08:55:26Z",
+  "reason": "cmux-tui 21e53973f1dd changes the image's cmux-tui (pinned b5869cc6aaec)",
+  "dry_run": false,
+  "cmux_tui": "21e53973f1dde5f6944d9b62c23371279503452e",
+  "fixes": [
+    {
+      "sha": "3221f1665e0eb42dbdc81a9c74cb4c4527b586c6",
+      "mergedAt": "2026-11-08T00:34:12-08:00",
+      "subject": "acpmux: oom_rank's lower and parse build only where they are used (Linux, and the unit tests) (#38321)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T08:55:26Z",
+    "snapshot_id": "sh-9b180f7d6d1945eabff5e988e9da154f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42464509002): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "666e4f60f9bf2018c4037494b4256b051d50d384",
+    "image": "cloud-native-auto-21e53973-42464509002-1",
+    "revision": "ci-42464509002-1",
+    "at": "2026-11-08T08:55:26Z"
+  },
+  "rolled_back": false
+}
