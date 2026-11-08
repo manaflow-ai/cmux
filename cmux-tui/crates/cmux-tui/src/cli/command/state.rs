@@ -931,6 +931,7 @@ mod checklist;
 mod status_flags;
 
 pub(super) use checklist::parse_workspace_checklist;
+pub(in crate::cli) use status_flags::parse_duration_ms;
 
 #[cfg(test)]
 mod tests;
