@@ -68,8 +68,9 @@ async fn open_daemon_with(subscription: Option<Revocations>) -> OpenDaemon {
             [2; 32],
             address(),
             &pairings(),
-            &session,
+            Some(session.as_path()),
             None,
+            &super::acpmux::AcpmuxTarget::Off,
             Some(subscription.unwrap_or(Revocations { view: receiver, open: Arc::default() })),
         )
         .await
@@ -207,8 +208,9 @@ async fn a_stale_pairing_snapshot_cannot_reopen_a_revoked_daemon_or_owner() {
             [2; 32],
             address(),
             &pairings(),
-            &session,
+            Some(session.as_path()),
             Some(&owner),
+            &super::acpmux::AcpmuxTarget::Off,
             Some(Revocations { view, open: Arc::default() }),
         ))
         .await;
@@ -256,8 +258,9 @@ async fn revocation_during_owner_identification_closes_the_probe_before_session_
             [2; 32],
             address(),
             &pairings(),
-            &session,
+            Some(session.as_path()),
             Some(&owner),
+            &super::acpmux::AcpmuxTarget::Off,
             Some(Revocations { view, open: Arc::default() }),
         )
         .await
@@ -330,8 +333,9 @@ async fn failed_overlay_sync_never_restores_the_revoked_admission_view() {
         [2; 32],
         address(),
         &stale,
-        &directory.path().join("s.sock"),
+        Some(directory.path().join("s.sock").as_path()),
         None,
+        &super::acpmux::AcpmuxTarget::Off,
         Some(peers.revocations()),
     ))
     .await;
@@ -438,6 +442,7 @@ async fn an_accepted_stream_is_registered_before_its_handler_first_polls() {
         peers.clone(),
         Some(directory.path().join("s.sock")),
         None,
+        super::acpmux::AcpmuxTarget::Off,
     );
     tokio::pin!(serving);
     // Poll acceptance in this task; the spawned handler has not run yet.
