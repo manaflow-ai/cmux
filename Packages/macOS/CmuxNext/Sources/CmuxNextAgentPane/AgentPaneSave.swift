@@ -6,7 +6,7 @@ import Foundation
 /// At most ``AgentPaneRequest/maximumLogBytes`` UTF-8 bytes.
 public nonisolated struct AgentPaneSave: Equatable, Sendable {
     public enum Kind: String, Sendable {
-        case log, html, svg, markdown
+        case log, html, svg, markdown, json
 
         /// The extension the saved file gets.
         public var fileExtension: String {
@@ -15,6 +15,7 @@ public nonisolated struct AgentPaneSave: Equatable, Sendable {
             case .html: "html"
             case .svg: "svg"
             case .markdown: "md"
+            case .json: "json"
             }
         }
     }

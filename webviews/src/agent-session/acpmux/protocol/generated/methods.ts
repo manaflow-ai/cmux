@@ -192,6 +192,8 @@ export interface AcpmuxRequests {
   "_acpmux/chat_settings": { params: unknown; result: unknown };
   "_acpmux/chat_settled": { params: unknown; result: unknown };
   "_acpmux/chat_transcript": { params: unknown; result: unknown };
+  "_acpmux/chat_export": { params: unknown; result: unknown };
+  "_acpmux/chat_import": { params: unknown; result: unknown };
   "_acpmux/chats_search": { params: unknown; result: unknown };
   "_acpmux/chat_fork": { params: unknown; result: unknown };
   "_acpmux/chat_projects": { params: unknown; result: unknown };
@@ -515,6 +517,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/chat_settings", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_settled", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_transcript", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chat_export", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chat_import", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats_search", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_fork", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_projects", kind: "request", acp: false, typed: false },

@@ -462,6 +462,11 @@ extension AgentPaneRequest {
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .watchChat(key) }
             else { self = .unsupported(method) }
         case "chats.page": self = .chatsPage(AgentPaneChatsQuery(params: params))
+        case "chats.export":
+            let keys = (params?["keys"] as? [String]) ?? []
+            let all = (params?["all"] as? Bool) == true
+            let format = (params?["format"] as? String) ?? "json"
+            self = ["json", "markdown"].contains(format) ? .exportChats(keys: keys, all: all, format: format) : .unsupported(method)
         case "app.action":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }
             else { self = .unsupported(method) }

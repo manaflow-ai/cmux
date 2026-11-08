@@ -73,6 +73,26 @@ pub enum ChatsCmd {
         #[arg(long = "cwd-map", value_name = "FROM=TO")]
         cwd_map: Vec<String>,
     },
+    /// Export one or more chats, or every indexed chat, as JSON or Markdown.
+    Export {
+        /// `<harness>:<session id>` keys from `chats list`; repeat for a selection.
+        #[arg(value_name = "KEY")]
+        keys: Vec<String>,
+        /// Export every chat on this device, including live acpmux sessions.
+        #[arg(long)]
+        all: bool,
+        /// Output format.
+        #[arg(long, default_value = "json", value_parser = ["json", "markdown"])]
+        format: String,
+        /// Write the result to this file instead of stdout.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Import the acpmux chats from a portable JSON bundle.
+    Import {
+        /// A file produced by `chats export --format json`.
+        path: PathBuf,
+    },
     /// The folders the index reads, and the folders it refuses with the reason.
     Roots,
 }
@@ -275,6 +295,42 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
                     Ok(())
                 }
             }
+        }
+        ChatsCmd::Export { keys, all, format, output } => {
+            if !all && keys.is_empty() {
+                return Err(AppError::usage("provide at least one KEY or --all").into());
+            }
+            let params = json!({"keys": keys, "all": all, "format": format});
+            let result = client.request("_acpmux/chat_export", params).await?;
+            let content = result.get("content").cloned().unwrap_or(Value::Null);
+            let text = content.as_str().map(str::to_owned).unwrap_or_else(|| {
+                serde_json::to_string_pretty(&content).unwrap_or_else(|_| "{}".into())
+            });
+            if let Some(path) = output {
+                std::fs::write(&path, text)?;
+                if json_out {
+                    print_json(
+                        &json!({"path": path, "format": format, "chatCount": result.get("chatCount")}),
+                    );
+                } else {
+                    println!("{}", path.display());
+                }
+            } else if json_out {
+                print_json(&result);
+            } else {
+                print!("{text}");
+            }
+            Ok(())
+        }
+        ChatsCmd::Import { path } => {
+            let result = client.request("_acpmux/chat_import", json!({"path": path})).await?;
+            if json_out {
+                print_json(&result);
+            } else {
+                let count = result.get("imported").and_then(Value::as_array).map_or(0, Vec::len);
+                println!("imported {count} chat{}", if count == 1 { "" } else { "s" });
+            }
+            Ok(())
         }
     }
 }

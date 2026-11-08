@@ -169,6 +169,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case watchChat(String)
     /// `chats.page {query?, cursor?, limit?}`: one page of the New Tab page's All chats list.
     case chatsPage(AgentPaneChatsQuery)
+    /// `chats.export {keys?, all?, format}`: save a portable chat bundle or Markdown file.
+    case exportChats(keys: [String], all: Bool, format: String)
     /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
     case environment(AgentPaneEnvironmentRequest)
     /// `sandbox.run {task, agent?, key}`: a new chat's Sandboxed send (hq#3367): one task on a

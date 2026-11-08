@@ -79,6 +79,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .openChatInTerminal: "openChatInTerminal"
         case .watchChat: "watchChat"
         case .chatsPage: "chatsPage"
+        case .exportChats: "exportChats"
         case .environment: "environment"
         case .cloudMachine: "cloudMachine"
         case .cloudRepository: "cloudRepository"

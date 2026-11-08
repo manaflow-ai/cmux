@@ -156,6 +156,7 @@ export function newTabScreenActions(deps: {
     onOpenChat: (key) => callNative("chats.open", { key }).then(() => undefined),
     onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
     onViewChat: (key) => ignore(callNative("chats.watch", { key })),
+    onExportChats: (keys, format, all) => callNative("chats.export", { keys, format, all }),
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
     onShowAll: deps.showAllChats,
     onTouched: () => ignore(callNative("newTab.touched")),

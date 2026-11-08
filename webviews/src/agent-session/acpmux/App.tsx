@@ -702,6 +702,7 @@ declare global {
       /// Copy Conversation as Markdown: read recorded history on this page's connection; the native
       /// palette action writes the role-headed, tool-folded text to the pasteboard.
       conversationMarkdown?(): Promise<string | null>;
+      conversationJson?(): Promise<string | null>;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
@@ -6457,6 +6458,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           return null;
         }
       },
+      conversationJson: async () => {
+        const client = directClient.current;
+        const sessionId = client?.selectedSession;
+        if (!client || !sessionId) return null;
+        const current = () =>
+          directClient.current === client &&
+          client.selectedSession === sessionId &&
+          snapshotRef.current?.sessionId === sessionId;
+        try {
+          return await client.portableChatExport("json", current);
+        } catch {
+          return null;
+        }
+      },
       command(name, sessionId) {
         if (name === "toggleSessionInfo") {
           toggleSessionInfo.current?.();
@@ -8949,6 +8964,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const outcome = await saveDocumentNatively(markdown, snapshot.summary?.title ?? "", "markdown");
           if (outcome === "unavailable") ignoreFailure(copyText(markdown));
         }),
+      () => {
+        if (!snapshot.sessionId) return;
+        void callNative("chats.export", { keys: [`acpmux:${snapshot.sessionId}`], format: "json", all: false });
+      },
     );
     const share: ChatMenuItem | undefined =
       snapshot.sessionId && hasNativeHost()
@@ -11263,6 +11282,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               onOpen={(key) => callNative("chats.open", { key })}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
               onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
+              onExport={(keys, format, all) => callNative("chats.export", { keys, format, all })}
             />
           ) : showNewTab ? (
             <NewTabPage

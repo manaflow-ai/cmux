@@ -2,7 +2,7 @@
 // side panel beside the chat (ArtifactPanel.tsx), drawn as they render with their source a tab away.
 import { createContext } from "react";
 
-export type ArtifactKind = "html" | "svg" | "markdown";
+export type ArtifactKind = "html" | "svg" | "markdown" | "json";
 export type Artifact = {
   kind: ArtifactKind;
   lang: string;

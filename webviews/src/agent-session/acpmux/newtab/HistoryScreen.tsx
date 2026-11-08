@@ -13,12 +13,14 @@ export function HistoryScreen({
   onOpen,
   onOpenInTerminal,
   onViewOnly,
+  onExport,
   now,
 }: {
   load: LoadChatsPage;
   onOpen(key: string): unknown;
   onOpenInTerminal?(key: string): void;
   onViewOnly?(key: string): void;
+  onExport?(keys: string[], format: "json" | "markdown", all: boolean): unknown;
   now?: number;
 }) {
   const nt = useNt();
@@ -34,6 +36,7 @@ export function HistoryScreen({
         onBring={(keys) => Promise.all(keys.map((key) => Promise.resolve(onOpen(key)))).then(() => undefined)}
         {...(onOpenInTerminal ? { onOpenInTerminal } : {})}
         {...(onViewOnly ? { onViewOnly } : {})}
+        {...(onExport ? { onExport } : {})}
         {...(now !== undefined ? { now } : {})}
       />
     </div>
