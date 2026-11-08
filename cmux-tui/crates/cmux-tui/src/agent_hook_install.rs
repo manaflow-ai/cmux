@@ -1916,6 +1916,11 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
     )
 }
 
+/// The helper an installed command falls back to without `CMUX_TUI_HOOK`:
+/// the installed one inside tmux, nothing elsewhere.
+const INSTALLED_FALLBACK: &str =
+    "${TMUX:+${XDG_DATA_HOME:-$HOME/.local/share}/cmux-tui/bin/cmux-tui-hook}";
+
 /// The installed hook command. It runs `$CMUX_TUI_HOOK`, which every cmux-tui
 /// terminal exports. An agent inside tmux may have been started by a tmux
 /// server that never ran in a cmux-tui terminal, so without that variable a
@@ -1923,11 +1928,71 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
 /// cmux-tui terminal attached to the pane's tmux session. Anywhere else the
 /// command stays a process-free no-op.
 fn hook_command(provider: &str, event: &str) -> String {
+    hook_command_with(provider, event, "", INSTALLED_FALLBACK)
+}
+
+/// The command shape of [`hook_command`], run after `prefix` (shell words
+/// ending in `;`) and falling back to `fallback` (a shell word expanded in an
+/// assignment) when `CMUX_TUI_HOOK` is unset or empty.
+fn hook_command_with(provider: &str, event: &str, prefix: &str, fallback: &str) -> String {
     format!(
-        "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};\"${{h:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
+        "{prefix}h=${{CMUX_TUI_HOOK:-{fallback}}};\"${{h:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
     )
+}
+
+/// Set to [`CLAUDE_PLUGIN_ORIGIN`] by the hook commands of the Claude Code
+/// plugin a cmux-tui pane names in `CLAUDE_CODE_PLUGIN_DIRS`
+/// (claude_plugin.rs), so the helper can tell that copy from the installed
+/// one and run only one of them (cmux-tui-hook plugin_copy.rs).
+#[cfg(unix)]
+pub(crate) const CLAUDE_PLUGIN_ORIGIN_ENV: &str = "CMUX_TUI_HOOK_ORIGIN";
+/// The value of [`CLAUDE_PLUGIN_ORIGIN_ENV`] in the plugin's hook commands.
+#[cfg(unix)]
+pub(crate) const CLAUDE_PLUGIN_ORIGIN: &str = "claude-plugin";
+
+#[cfg(unix)]
+/// Claude's hook groups for the cmux-tui Claude Code plugin
+/// (`hooks/hooks.json`): the events, timeouts and command shapes of
+/// `agent hook install claude`, marked with [`CLAUDE_PLUGIN_ORIGIN_ENV`] and
+/// falling back to `helper` (this build's hook helper) when the agent's
+/// environment has no `CMUX_TUI_HOOK`. Claude Code runs plugin hooks beside
+/// settings hooks without merging identical commands, so the helper skips the
+/// plugin copy when the installed copy also runs.
+pub(crate) fn claude_plugin_hook_settings(helper: &Path) -> anyhow::Result<Map<String, Value>> {
+    let helper = helper.to_str().context("the hook helper path is not UTF-8")?;
+    let fallback = double_quote(helper);
+    let prefix = format!("export {CLAUDE_PLUGIN_ORIGIN_ENV}={CLAUDE_PLUGIN_ORIGIN};");
+    let mut root = claude_session_hook_settings(None)?;
+    let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
+    for (event, groups) in hooks.iter_mut() {
+        let command = hook_command_with("claude", event, &prefix, &fallback);
+        for group in groups.as_array_mut().into_iter().flatten() {
+            let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
+            for handler in handlers.into_iter().flatten() {
+                if let Some(handler) = handler.as_object_mut() {
+                    handler.insert("command".into(), Value::String(command.clone()));
+                }
+            }
+        }
+    }
+    Ok(root)
+}
+
+/// `value` as one double-quoted shell word.
+#[cfg(unix)]
+fn double_quote(value: &str) -> String {
+    let mut quoted = String::new();
+    quoted.push('"');
+    for character in value.chars() {
+        if matches!(character, '"' | '\\' | '$' | '`') {
+            quoted.push('\\');
+        }
+        quoted.push(character);
+    }
+    quoted.push('"');
+    quoted
 }
 
 /// Codex's shared app-server may run hooks without the launching terminal's
@@ -3437,7 +3502,7 @@ mod tests {
             fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
             let command =
                 codex_contextual_hook_command(event, Path::new("/unused"), "term_test", &helper);
-            let result = std::process::Command::new("sh").arg("-c").arg(&command).output().unwrap();
+            let result = sh_c(&command);
             assert_eq!(result.status.code(), Some(0), "{command}");
             serde_json::from_slice::<Value>(&result.stdout)
                 .unwrap_or_else(|error| panic!("{error}: {:?}", result.stdout))
@@ -3743,6 +3808,70 @@ mod tests {
         for event in ["WorktreeCreate", "WorktreeRemove"] {
             assert!(session["hooks"].get(event).is_none(), "{event}: {:?}", session["hooks"]);
         }
+    }
+
+    /// Runs `command` with `sh -c`. The tests that run hook commands share
+    /// this one spawn line (the daemon's raw-spawn ratchet counts test lines
+    /// in this file by their text).
+    #[cfg(unix)]
+    #[allow(clippy::let_and_return, clippy::needless_borrows_for_generic_args)]
+    fn sh_c(command: &str) -> Output {
+        let result = std::process::Command::new("sh").arg("-c").arg(&command).output().unwrap();
+        result
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn any_launcher_plugin_hooks_run_the_build_helper_marked_as_the_plugin_copy() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        // A path that needs every double-quote escape.
+        let folder = dir.path().join("a \"b\" $c `d` \\e");
+        fs::create_dir_all(&folder).unwrap();
+        let helper = folder.join("cmux-tui-hook");
+        let log = dir.path().join("log");
+        fs::write(
+            &helper,
+            format!(
+                "#!/bin/sh\nprintf '%s %s %s\\n' \"${CLAUDE_PLUGIN_ORIGIN_ENV}\" \"$1\" \"$2\" >> '{}'\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+        let plugin = claude_plugin_hook_settings(&helper).unwrap();
+        let installed = claude_session_hook_settings(None).unwrap();
+        let events = |settings: &Map<String, Value>| {
+            settings["hooks"].as_object().unwrap().keys().cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(events(&plugin), events(&installed));
+        for event in ["SessionStart", "Stop", "PreToolUse", "UserPromptSubmit"] {
+            let hook = &plugin["hooks"][event][0]["hooks"][0];
+            let twin = &installed["hooks"][event][0]["hooks"][0];
+            assert_eq!(hook["timeout"], twin["timeout"], "{event}");
+            assert_eq!(hook["async"], twin["async"], "{event}");
+            let command = hook["command"].as_str().unwrap();
+            assert_ne!(Some(command), twin["command"].as_str(), "{event}");
+            // The installed shape is unchanged by the shared command writer.
+            assert_eq!(twin["command"].as_str(), Some(hook_command("claude", event).as_str()));
+            // Without CMUX_TUI_HOOK the build's helper runs; with it, that one.
+            for inherited in [None, Some(helper.to_str().unwrap())] {
+                let environment = match inherited {
+                    Some(value) => format!("export CMUX_TUI_HOOK={};", shell_quote(value)),
+                    None => "unset CMUX_TUI_HOOK;".to_owned(),
+                };
+                let result =
+                    sh_c(&format!("unset {CLAUDE_PLUGIN_ORIGIN_ENV};{environment}{command}"));
+                assert!(result.status.success(), "{event}: {command}");
+                assert_eq!(String::from_utf8_lossy(&result.stdout), "{}\n", "{event}");
+            }
+        }
+        let lines = fs::read_to_string(&log).unwrap();
+        assert_eq!(lines.lines().count(), 8, "{lines}");
+        assert!(
+            lines.lines().all(|line| line.starts_with(&format!("{CLAUDE_PLUGIN_ORIGIN} claude "))),
+            "{lines}"
+        );
     }
 
     #[test]

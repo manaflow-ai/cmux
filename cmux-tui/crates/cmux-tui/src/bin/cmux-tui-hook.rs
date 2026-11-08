@@ -80,6 +80,10 @@ pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
 }
 
 fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
+    if plugin_copy::stands_down(&args.source, &args.native_event, |name| env::var_os(name)) {
+        drain_native_payload()?;
+        return Ok(());
+    }
     let context =
         session_context::applies(&args.source, &args.native_event, |name| env::var_os(name));
     let route = deliver(&args, exe_prefix)?;
@@ -392,6 +396,10 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
 /// Where the agent runs, for the model at session start.
 #[path = "cmux-tui-hook/session_context.rs"]
 pub(crate) mod session_context;
+
+/// The Claude Code plugin's copy of the hooks, beside an installed copy.
+#[path = "cmux-tui-hook/plugin_copy.rs"]
+pub(crate) mod plugin_copy;
 
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
     // Codex SessionStart also reads the session context after the handoff
