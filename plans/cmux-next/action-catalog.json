@@ -85231,11 +85231,9 @@
       "keywords" : [
         "appearance",
         "font",
-        "text",
-        "size",
-        "interface",
         "chrome",
-        "bigger"
+        "bigger",
+        "zoom"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -85263,7 +85261,7 @@
       "targets" : [
 
       ],
-      "title" : "Increase Text Size",
+      "title" : "Increase Interface Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -85298,11 +85296,9 @@
       "keywords" : [
         "appearance",
         "font",
-        "text",
-        "size",
-        "interface",
         "chrome",
-        "smaller"
+        "smaller",
+        "zoom"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -85330,7 +85326,7 @@
       "targets" : [
 
       ],
-      "title" : "Decrease Text Size",
+      "title" : "Decrease Interface Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -85365,9 +85361,6 @@
       "keywords" : [
         "appearance",
         "font",
-        "text",
-        "size",
-        "interface",
         "chrome",
         "default"
       ],
@@ -85397,7 +85390,7 @@
       "targets" : [
 
       ],
-      "title" : "Reset Text Size",
+      "title" : "Reset Interface Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -85439,8 +85432,7 @@
       "keywords" : [
         "appearance",
         "scale",
-        "interface",
-        "pages",
+        "chrome",
         "bigger",
         "zoom"
       ],
@@ -85472,7 +85464,7 @@
       "targets" : [
 
       ],
-      "title" : "Increase App Zoom",
+      "title" : "Increase Interface Scale",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -85514,8 +85506,7 @@
       "keywords" : [
         "appearance",
         "scale",
-        "interface",
-        "pages",
+        "chrome",
         "smaller",
         "zoom"
       ],
@@ -85547,7 +85538,7 @@
       "targets" : [
 
       ],
-      "title" : "Decrease App Zoom",
+      "title" : "Decrease Interface Scale",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -85589,8 +85580,7 @@
       "keywords" : [
         "appearance",
         "scale",
-        "interface",
-        "pages",
+        "chrome",
         "default",
         "zoom"
       ],
@@ -85622,7 +85612,7 @@
       "targets" : [
 
       ],
-      "title" : "Reset App Zoom",
+      "title" : "Reset Interface Scale",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86134,7 +86124,8 @@
         "appearance",
         "font",
         "compact",
-        "dense"
+        "dense",
+        "default"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -86199,9 +86190,6 @@
         "rows",
         "appearance",
         "font",
-        "default",
-        "normal",
-        "standard",
         "cozy",
         "medium",
         "middle"
@@ -86230,7 +86218,7 @@
       "targets" : [
 
       ],
-      "title" : "Density: Default",
+      "title" : "Density: Cozy",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86392,7 +86380,7 @@
                 "value" : "compact"
               },
               {
-                "title" : "Default",
+                "title" : "Cozy",
                 "value" : "cozy"
               },
               {
@@ -86504,7 +86492,7 @@
                 "value" : "compact"
               },
               {
-                "title" : "Default",
+                "title" : "Cozy",
                 "value" : "cozy"
               },
               {
