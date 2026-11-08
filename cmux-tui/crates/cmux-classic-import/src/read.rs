@@ -53,3 +53,47 @@ pub fn read(finder: &Finder, file: Option<&Path>, home: &Path) -> Result<Option<
         _ => Ok(None),
     }
 }
+
+/// The save a cut-off run started from, so a resume finishes what it
+/// began: `source`'s file while it still holds that save, else the newest
+/// copy the run backed up under `backups`. None when neither reads; the
+/// caller then reads the newest save. Nothing is backed up again.
+pub fn resume(finder: &Finder, source: &Source, backups: &Path, home: &Path) -> Option<Save> {
+    let original = PathBuf::from(&source.path);
+    let name = original.file_name()?;
+    let mut copies: Vec<PathBuf> = std::fs::read_dir(backups)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path().join(name))
+        .filter(|copy| copy.is_file())
+        .collect();
+    // Stamps sort by time: the newest backup first.
+    copies.sort_unstable_by(|a, b| b.cmp(a));
+    let home_text = home.to_string_lossy();
+    for (index, path) in std::iter::once(original.clone()).chain(copies).enumerate() {
+        let Ok(Some(snapshot)) = decode::read_file(&path, &home_text) else { continue };
+        let Some(found) = finder.source(&path, &source.bundle_id, snapshot.created_at) else {
+            continue;
+        };
+        // The file itself must still hold that save; a copy is that save
+        // unless its own creation date says otherwise.
+        let same = if index == 0 {
+            found.is_same_save(source)
+        } else {
+            source.created_at.is_none() || found.created_at == source.created_at
+        };
+        if !same {
+            continue;
+        }
+        let opened =
+            snapshot.opening_missing_folders(&home_text, &|folder| Path::new(folder).is_dir());
+        return Some(Save {
+            snapshot: opened,
+            source: source.clone(),
+            backups: Vec::new(),
+            skipped: Vec::new(),
+        });
+    }
+    None
+}

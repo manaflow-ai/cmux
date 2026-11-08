@@ -273,3 +273,35 @@ fn classic_import_record_checks_its_fields() {
         );
     }
 }
+
+/// A run cut off midway finishes from the save it started with: classic
+/// closing a workspace (and saving again) before the relaunch does not
+/// drop it from the resumed run.
+#[test]
+fn a_resumed_run_plans_from_the_save_it_started_with() {
+    let mux = Mux::new_for_test("classic-import-resume", SurfaceOptions::default());
+    let home = home(true);
+    let first = plan(&mux, &home, Mode::Automatic);
+    let started = keys(&first);
+    record(&mux, &home, begin(&first), "cut-begin");
+    let done = json!({"event": "workspace", "key": started[0], "stage": "done", "next_workspace": "next-0"});
+    record(&mux, &home, done, "cut-d0");
+
+    // Classic saves again without the last workspace.
+    let mut later: Value = serde_json::from_slice(&std::fs::read(home.session()).unwrap()).unwrap();
+    later["createdAt"] = json!(1_791_800_000.0);
+    later["windows"][1]["tabManager"]["workspaces"].as_array_mut().unwrap().pop();
+    std::fs::write(home.session(), serde_json::to_vec(&later).unwrap()).unwrap();
+
+    let resumed = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(resumed["decision"], json!({"decision": "resume"}), "{resumed}");
+    assert_eq!(resumed["source"], first["source"]);
+    assert_eq!(resumed["backups"], json!([]));
+    assert!(keys(&resumed).contains(started.last().unwrap()), "{resumed}");
+    assert!(!keys(&resumed).contains(&started[0]));
+
+    // With the file and its copies gone, the newest save is read instead.
+    std::fs::remove_dir_all(home.ledger().parent().unwrap().join("backups")).unwrap();
+    let fallback = plan(&mux, &home, Mode::Automatic);
+    assert!(!keys(&fallback).contains(started.last().unwrap()), "{fallback}");
+}

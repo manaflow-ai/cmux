@@ -14495,10 +14495,11 @@
               "none",
               "ledger",
               "newer",
-              "unreadable"
+              "unreadable",
+              "failed"
             ]
           },
-          "description": "What the ledger file held before this read."
+          "description": "What the ledger file held before this read; failed is a ledger that is there but could not be read, which is left as it is."
         },
         "decision": {
           "required": true,

@@ -370,9 +370,22 @@ impl Mux {
         };
         let folder = places.folder(bundle_id)?;
         let load = folder.load();
-        let (save, error) = match read::read(&places.finder(bundle_id), None, &places.home) {
-            Ok(save) => (save, None),
-            Err(error) => (None, Some(error.to_string())),
+        let finder = places.finder(bundle_id);
+        // A cut-off run finishes from the save it started with, not a later one.
+        let resumed = match (&mode, load.ledger()) {
+            (Mode::Automatic, Some(ledger)) if ledger.state == State::InProgress => {
+                ledger.source.as_ref().and_then(|source| {
+                    read::resume(&finder, source, &folder.backups_path(), &places.home)
+                })
+            }
+            _ => None,
+        };
+        let (save, error) = match resumed {
+            Some(save) => (Some(save), None),
+            None => match read::read(&finder, None, &places.home) {
+                Ok(save) => (save, None),
+                Err(error) => (None, Some(error.to_string())),
+            },
         };
         let backups: Vec<String> = save.as_ref().map_or_else(Vec::new, |save| {
             save.backups.iter().map(|path| path.to_string_lossy().into_owned()).collect()
