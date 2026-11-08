@@ -129,7 +129,7 @@ extension CloudHandlers {
                 throw ActionFailure(message: CloudStrings.publicKeyRequired)
             }
             answer("prepare Cloud file transfer", invocation, context) {
-                let endpoint = try await cloud.api.prepareSCP(session.machineID, publicKey: publicKey)
+                let endpoint = try await cloud.machineAPI.prepareSCP(session.machineID, publicKey: publicKey)
                 let body = ["host: \(endpoint.host)", "port: \(endpoint.port)", "user: \(endpoint.username)",
                             "host key: \(endpoint.hostPublicKey)", "expires: \(Date(timeIntervalSince1970: TimeInterval(endpoint.expiresAtUnix)))"].joined(separator: "\n")
                 return CloudAnswer(title: CloudStrings.scpTitle, text: body, fields: [
@@ -327,10 +327,15 @@ extension CloudHandlers {
                 return machineFields(restored, ["snapshot_id": .string(snapshot)])
             }
         }
-        // Refused, never sent to classic /api/vm (no NEXT machine there), until restore takes a snapshot still being taken.
+        // A snapshot, then a new machine from it: cmux-platform restores a snapshot still being taken once it is ready.
         bind("palette.cloud.fork", registry, reason: reason) { invocation in
-            _ = try machine(invocation, context)
-            throw operationUnavailable
+            let session = try machine(invocation, context); guard session.machine.allows(.fork) else { throw operationUnavailable }
+            result("fork machine", context, pendingAfter: machineAnswerWait, pending: ["source_machine_id": .string(session.machineID)]) {
+                let snapshot = try await cloud.machineChange("cloud.snapshot.create", ["machine": .string(session.machineID)], answers: "snapshot", allow: allows("palette.cloud.fork", invocation, registry, context)) ?? ""
+                let forked = try await cloud.machineChange("cloud.snapshot.restore", ["snapshot": .string(snapshot)], answers: "machine", allow: { true }) ?? ""
+                await cloud.refresh()
+                return machineFields(forked, ["source_machine_id": .string(session.machineID), "snapshot_id": .string(snapshot)])
+            }
         }
     }
 
