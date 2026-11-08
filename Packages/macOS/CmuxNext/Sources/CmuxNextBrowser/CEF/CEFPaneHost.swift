@@ -132,6 +132,17 @@ final class CEFPaneHost {
         if hostView.isHidden != hidden { hostView.isHidden = hidden }
     }
 
+    /// The content lifecycle shows `tab`, the tab this host shows, again (a zoom out shows the page the zoom covered).
+    /// Its host view was hidden and its input window out of the window: the page shows from its hosted layer in this
+    /// turn, and the window comes in after this turn's frame, as for a page a switch shows (``present(_:in:)``).
+    /// Unhidden at once, the fork ordered the window in before the commit: 4.4 ms of the zoom-out turn (cmux21, macOS 27).
+    func revealHost(of tab: CEFTab) {
+        guard visibleTab === tab, hostView.isHidden else { return }
+        tab.pageDidAppear()
+        hostView.isHidden = false
+        hostView.layerHosting.pageAppeared(windowInWindow: tab.pageWindow != nil) { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
+    }
+
     /// Called when a tab's content view enters a window: show that tab.
     func present(_ tab: CEFTab, in container: NSView) {
         lifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
