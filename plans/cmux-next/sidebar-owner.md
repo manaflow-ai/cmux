@@ -1738,5 +1738,8 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   dropped the springs added before that, so the item showed at its slot at once.
   Then an unpin's pin glyph fades out on the move: a copy rides the arriving row from the item's place on the move's
   spring and begin (`SidebarPinFlight.leavingGlyph`, `SidebarDragSpring.disappear`); it vanished on the first frame.
+  Then a pin or an unpin whose target is out of view slides out of view: the apply draws the pin's and the unpin's
+  targets too (`flightTargets`: the unpin's list row, the block that takes the pin's item); with no view the
+  workspace vanished at once.
   Then a flying list row keeps its opaque ground through its own display pass (`SidebarRowView.flightGround`: the fill is
   painted over the ground, opaque); the p1j films showed the passed titles through a flying selected row.

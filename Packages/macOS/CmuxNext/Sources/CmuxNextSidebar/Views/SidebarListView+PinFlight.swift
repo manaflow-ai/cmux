@@ -162,6 +162,19 @@ extension SidebarListViewComponents {
         return sources
     }
 
+    /// The rows a pin or an unpin flies to: an unpin's list row and the block that takes a pin's item. The apply draws
+    /// them even when their slot is out of view, so the flight slides out of view and the workspace never vanishes
+    /// (the contract: "Target off-screen: the scroll follows, or the row slides out of view"). O(pins + pinned items).
+    func flightTargets(_ sources: SidebarPinFlightSources) -> Set<SidebarRowKey> {
+        var keys = Set(sources.unpins.keys.map { SidebarRowKey.workspace($0) })
+        guard !sources.pins.isEmpty, let blocks else { return keys }
+        for (section, block) in blocks.sections
+        where block.items.contains(where: { blocks.infos[$0.id]?.workspace.map { sources.pins[$0] != nil } == true }) {
+            keys.insert(.block(section))
+        }
+        return keys
+    }
+
     /// `view`'s drawn frame in the list over time, with its title's pen origin.
     private func source(of view: NSView) -> SidebarPinFlightSource {
         var source = drawnPath(of: view)

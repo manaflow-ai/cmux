@@ -301,15 +301,17 @@ extension SidebarListViewComponents {
         // here as before, with no frame computed: frame(for:) over every listed row was O(rows) on each change (m23).
         var framesComputed = 0
         defer { SidebarPerfCounters.add(.rowFrames, framesComputed) }
-        for index in drawnRowIndices(of: layout, in: realize, reopened: reopened) {
+        let flying = flightTargets(flightSources)
+        for index in drawnRowIndices(of: layout, in: realize, reopened: reopened, flying: flying) {
             let row = layout.rows[index]
             let target = frame(for: row)
             framesComputed += 1
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
             let unpinSource = existing == nil ? flightSources.unpin(for: row.key) : nil
-            // An unpinned row whose slot is out of view still flies there from the item, and slides out of view.
-            guard existing != nil || target.intersects(realize) || unpinSource != nil else { continue }
+            // An unpinned row whose slot is out of view still flies there from the item, and slides out of view; so does
+            // the block that takes a pin's item (`flightTargets`).
+            guard existing != nil || target.intersects(realize) || flying.contains(row.key) else { continue }
             keep.insert(row.key)
             // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's
             // does: a space's rows then make no new views once the pool holds some (space-switch-fast).
@@ -423,12 +425,13 @@ extension SidebarListViewComponents {
             .run(in: self, from: old, to: layout, animated: animate)
     }
     /// The indices into `layout.rows`, in order, of the rows an apply can draw: the rows `realize` holds (by y), the
-    /// realized rows and the `reopened` ones. Rows outside these never pass the apply's draw test (no view, a frame
-    /// outside `realize`). O(realized + log rows).
-    func drawnRowIndices(of layout: SidebarLayout, in realize: NSRect, reopened: Set<SidebarRowKey>) -> [Int] {
+    /// realized rows, the `reopened` ones and the `flying` ones (a pin's or an unpin's target, `flightTargets`). Rows
+    /// outside these never pass the apply's draw test (no view, a frame outside `realize`). O(realized + log rows).
+    func drawnRowIndices(of layout: SidebarLayout, in realize: NSRect, reopened: Set<SidebarRowKey>,
+                         flying: Set<SidebarRowKey> = []) -> [Int] {
         var indices = Set(realize.isNull ? 0..<0 : layout.rowIndices(from: realize.minY, to: realize.maxY))
         for key in rowViews.keys { if let index = layout.position(of: key) { indices.insert(index) } }
-        for key in reopened { if let index = layout.position(of: key) { indices.insert(index) } }
+        for key in reopened.union(flying) { if let index = layout.position(of: key) { indices.insert(index) } }
         return indices.sorted()
     }
 
