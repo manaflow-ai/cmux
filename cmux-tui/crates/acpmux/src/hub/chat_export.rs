@@ -180,12 +180,12 @@ fn turns_from_events(events: &[EventRecord]) -> (Vec<PortableTurn>, Vec<Value>) 
     }
     let mut with_data = Vec::new();
     for attachment in attachments {
-        let Some(id) = attachment.get("id").and_then(Value::as_str) else {
+        let Some(id) = attachment.get("id").and_then(Value::as_str).map(str::to_owned) else {
             with_data.push(attachment);
             continue;
         };
         let mut value = attachment;
-        if let Ok(bytes) = std::fs::read(crate::config::home().join("attachments").join(id)) {
+        if let Ok(bytes) = std::fs::read(crate::config::home().join("attachments").join(&id)) {
             use base64::Engine;
             value["data"] = Value::String(base64::engine::general_purpose::STANDARD.encode(bytes));
         }
