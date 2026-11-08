@@ -10,7 +10,7 @@ import { Fragment } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { FolderIcon } from "../NewTabPage";
 import { ProjectChooser, type Project } from "../ProjectChooser";
-import { projectName } from "../EmptyState";
+import { projectName } from "../emptyStateModel";
 import { newTabHeadline } from "./headline.experiment";
 import { useNt } from "./strings";
 
