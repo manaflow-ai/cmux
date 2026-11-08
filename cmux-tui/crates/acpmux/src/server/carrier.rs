@@ -41,7 +41,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::{Conn, ConnAuth, Origin};
