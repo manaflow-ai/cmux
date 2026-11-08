@@ -10,8 +10,9 @@
 //   scroll.work_ms   main-thread time of each frame while the list scrolls 60 px a frame top to bottom: from
 //                    the frame's first scroll handler or frame callback to the task after it painted (p50/p95);
 //   scroll.react_ms  React commit time (Profiler actualDuration) in each of those frames (p50/p95);
-//   open_press       a row's press until the next paint (the press's Event Timing duration, which Chromium
-//                    rounds to 8 ms), the worst of the press's events, five rows a round.
+//   open_press       a row's press (the mousedown's timeStamp) until the first painted frame after the press asked
+//                    the host to open its chat (the busy row painted), the median of five rows a round. Event
+//                    Timing is not used: it reports nothing under 16 ms.
 //   bun bench/all-chats-list.bench.ts [rounds=3] [n=500]
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -172,13 +173,6 @@ async function round(arm: Arm): Promise<Round> {
   const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
   const page = await context.newPage();
   await installPaintedFrames(page);
-  await page.addInitScript(() => {
-    const w = window as unknown as { benchEvents: { name: string; duration: number }[] };
-    w.benchEvents = [];
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) w.benchEvents.push({ name: entry.name, duration: entry.duration });
-    }).observe({ type: "event", durationThreshold: 0, buffered: true } as PerformanceObserverInit);
-  });
   await page.goto(`http://127.0.0.1:${statics.port}/#arm=${arm}&n=${N}`);
   await page.waitForFunction(() => window.benchReady === true);
   const mount = await page.evaluate(
@@ -214,21 +208,33 @@ async function round(arm: Arm): Promise<Round> {
       const rect = visible[(nth * 3) % visible.length]!.getBoundingClientRect();
       return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
     }, index);
-    await page.evaluate(() => ((window as unknown as { benchEvents: unknown[] }).benchEvents.length = 0));
     await page.mouse.move(box.x, box.y);
     await page.waitForTimeout(50);
-    await page.evaluate(() => ((window as unknown as { benchEvents: unknown[] }).benchEvents.length = 0));
+    // The page's window capture hears the press before the row's handler; the first painted frame after the
+    // host was asked ends it.
+    await page.evaluate(() => {
+      window.benchPress = new Promise<number>((resolve, reject) => {
+        const opens = window.benchOpens;
+        const deadline = setTimeout(() => reject(new Error("the press opened nothing within 5 s")), 5000);
+        addEventListener(
+          "mousedown",
+          (event) => {
+            const pressedAt = event.timeStamp;
+            window.cmuxAfterPaint(() => {
+              if (window.benchOpens === opens) return true;
+              clearTimeout(deadline);
+              resolve(performance.now() - pressedAt);
+              return false;
+            });
+          },
+          { capture: true, once: true },
+        );
+      });
+    });
     await page.mouse.down();
     await page.mouse.up();
-    // Event Timing entries arrive after their frame.
-    await page.waitForTimeout(150);
-    presses.push(
-      await page.evaluate(() => {
-        const events = (window as unknown as { benchEvents: { name: string; duration: number }[] }).benchEvents;
-        const press = new Set(["pointerdown", "mousedown", "pointerup", "mouseup", "click"]);
-        return Math.max(0, ...events.filter((e) => press.has(e.name)).map((e) => e.duration));
-      }),
-    );
+    presses.push(await page.evaluate(() => window.benchPress));
+    await page.waitForTimeout(100);
   }
   const opens = await page.evaluate(() => window.benchOpens);
   await context.close();
@@ -254,7 +260,7 @@ try {
       `all-chats-list ${arm} n=${N} rounds=${ROUNDS} mountMs=${of((r) => r.mount).toFixed(1)} ` +
         `scrollWork=${of((r) => r.workP50).toFixed(1)}/${of((r) => r.workP95).toFixed(1)} ` +
         `scrollReact=${of((r) => r.reactP50).toFixed(2)}/${of((r) => r.reactP95).toFixed(2)} ` +
-        `pressMs=${of((r) => r.press).toFixed(0)} frames=${of((r) => r.frames)} domRows=${of((r) => r.domRows)} ` +
+        `pressMs=${of((r) => r.press).toFixed(1)} frames=${of((r) => r.frames)} domRows=${of((r) => r.domRows)} ` +
         `opens=${of((r) => r.opens)}`,
     );
     const name = `all_chats.${arm}_${N}`;
@@ -279,13 +285,13 @@ try {
       target: TARGET_MS.frameWork,
       floor: 0.5,
     });
-    // Event Timing rounds to 8 ms: a change under one step is noise.
+    // A frame (16.7 ms headless) is the step a press can move by.
     perfRow({
       name: `${name}.open_press`,
       p50: of((r) => r.press),
       p95: of((r) => r.press),
       target: TARGET_MS.response,
-      floor: 8,
+      floor: 4,
     });
   }
 } finally {

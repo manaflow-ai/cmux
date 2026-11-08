@@ -27,6 +27,8 @@ declare global {
     benchRenderAt: number;
     benchOpens: number;
     benchPages: number;
+    /// Set by the bench before each press: ms from the press to the frame that painted its open.
+    benchPress: Promise<number>;
     /// [commitTime, actualDuration] of each commit under the Profiler.
     benchCommits: [number, number][];
   }
