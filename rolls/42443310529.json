@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42443310529",
+  "recorded_at": "2026-11-08T03:48:49Z",
+  "reason": "image inputs changed in 6f5ae64b73583a7c28646f693920af0bdeeca801..4922887376748b5a7d02923ea0fd6b54d864ac21",
+  "dry_run": false,
+  "cmux_tui": "3662a91aea56d57bf9fa709f7c8f93ce9d2353ae",
+  "fixes": [
+    {
+      "sha": "4922887376748b5a7d02923ea0fd6b54d864ac21",
+      "mergedAt": "2026-11-07T19:34:42-08:00",
+      "subject": "agent pane: turn rows, thinking, working-for and transcript disclosure export only components (#38024)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T03:48:49Z",
+    "snapshot_id": "sh-0c124d725cfe43b080d245259e34a946",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42443310529): 34 checks passed"
+  },
+  "promotion": {
+    "result": "nothing",
+    "job": "success",
+    "commit": "",
+    "image": "cloud-native-auto-3662a91a-42443310529-1",
+    "revision": "ci-42443310529-1",
+    "at": null
+  },
+  "rolled_back": false
+}
