@@ -421,6 +421,51 @@ fn w3h_start_splits_the_callers_pane_runs_a_named_tab_and_reports_the_trust_dial
     assert!(daemon.sent("terminal.input.keys").is_empty());
 }
 
+/// Real-build check: a daemon that no client opened has no pane, and
+/// `agent start` failed with "the session has no pane". It now makes a
+/// workspace named after the agent and replaces its shell tab.
+#[test]
+fn w3h_start_in_a_session_with_no_pane_opens_a_workspace_for_the_agent() {
+    let empty = json!({"workspaces": [], "screens": [], "panes": [], "tabs": [],
+                       "terminals": [], "agents": []});
+    let opened = json!({
+        "workspaces": [{"id": "ws_f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1", "focused": true}],
+        "screens": [{"id": "screen_d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+                     "workspace_id": "ws_f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1", "focused": true}],
+        "panes": [{"id": "pane_44444444444444444444444444444444",
+                   "screen_id": "screen_d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1", "focused": true}],
+        "tabs": [{"id": "tab_5e115e115e115e115e115e115e115e11", "name": null,
+                  "content_id": CALLER, "pane_id": "pane_44444444444444444444444444444444"}],
+        "terminals": [{"id": CALLER, "lifecycle": "running",
+                       "tab_id": "tab_5e115e115e115e115e115e115e115e11"}],
+        "agents": [],
+    });
+    let daemon = Fake::new(|operation, _params, count| match operation {
+        "session.snapshot" if count == 0 => empty.clone(),
+        "session.snapshot" => opened.clone(),
+        "pane.run" => created(
+            "pane_44444444444444444444444444444444",
+            "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+            NEW,
+        ),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        "agent.list" => json!([]),
+        _ => json!({}),
+    });
+    let env = Env { caller_terminal: None, ..env() };
+    let options = Options { cmd: Some("sr2 claude".into()), focus: false, ..Options::default() };
+    let (report, exit) =
+        run_with_clock(|clock| start(&daemon, &env, clock, "alpha", &options)).expect("start");
+    assert_eq!(exit, 0, "{report}");
+    assert_eq!(report["state"], "ready");
+    let workspace = &daemon.sent("workspace.create")[0];
+    assert_eq!(workspace["name"], "alpha");
+    assert!(daemon.sent("pane.split").is_empty());
+    assert_eq!(daemon.sent("pane.run")[0]["pane"], "pane_44444444444444444444444444444444");
+    assert_eq!(daemon.sent("tab.close")[0]["tab"], "tab_5e115e115e115e115e115e115e115e11");
+}
+
 #[test]
 fn w3h_a_name_that_a_running_tab_has_is_refused() {
     let mut snapshot = snapshot();

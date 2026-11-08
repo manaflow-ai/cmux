@@ -478,11 +478,26 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     let harness = options.harness.clone().or_else(|| launch::harness_of(&launcher));
     let launch = Launch { shell: env.shell.clone(), launcher, args: options.args.clone() };
     let cwd = options.cwd.clone().or_else(|| env.cwd.clone());
-    let pane =
-        placement::target_pane(&snapshot, options.pane.as_deref(), env.caller_terminal.as_deref())?;
-    let placement = options.placement();
+    let fresh = match options.pane {
+        None => placement::empty_session_pane(daemon, &snapshot, name, cwd.as_deref())?,
+        Some(_) => None,
+    };
+    let (pane, placement) = match &fresh {
+        Some((pane, _)) => (pane.clone(), Placement::Tab),
+        None => (
+            placement::target_pane(
+                &snapshot,
+                options.pane.as_deref(),
+                env.caller_terminal.as_deref(),
+            )?,
+            options.placement(),
+        ),
+    };
     let created =
         placement::open(daemon, &pane, &placement, Some(name), cwd.as_deref(), &launch.argv())?;
+    if let Some((_, Some(shell))) = &fresh {
+        placement::close_tab(daemon, shell);
+    }
     let mut report =
         report(Some(name), &launch, harness.as_deref(), cwd.as_deref(), &placement, &created);
     let exit = finish(daemon, clock, options, &created, name, &mut report)?;

@@ -5,6 +5,8 @@
 //!   either reopens the agent in the pane of its exited tab instead.
 //! - `--pane SEL`: a new tab in that pane.
 //! - `--pane SEL --split DIR`, or `--split DIR` alone: split that pane.
+//! - A session with no pane yet (a daemon no client opened): a new workspace
+//!   named after the agent, whose first shell tab the agent's tab replaces.
 //!
 //! The agent runs in a tab of its own (`pane run --on-exit keep --name
 //! NAME`), so its name, argv and harness session stay on record after it
@@ -14,7 +16,7 @@
 use serde_json::{Value, json};
 
 use super::super::agent_names::{self, Found};
-use super::super::terminal_talk::send::Daemon;
+use super::super::terminal_talk::send::{self, Daemon};
 use super::{Failure, plan};
 
 /// A new tab in a pane, or a new pane next to it.
@@ -107,6 +109,41 @@ pub(in crate::cli) fn focused_pane(snapshot: &Value) -> Option<String> {
         .or_else(|| panes.iter().find(|pane| pane["focused"] == true))
         .or_else(|| panes.first())
         .and_then(id)
+}
+
+/// For a session with no pane: creates a workspace named `name` and returns
+/// its pane and the shell tab it opened with (close it once the agent's tab
+/// runs). `None` when the session has a pane.
+pub(in crate::cli) fn empty_session_pane<D: Daemon + ?Sized>(
+    daemon: &D,
+    snapshot: &Value,
+    name: &str,
+    cwd: Option<&str>,
+) -> Result<Option<(String, Option<String>)>, Failure> {
+    if !list(snapshot, "panes").is_empty() {
+        return Ok(None);
+    }
+    let mut words = vec!["workspace", "create", "--name", name];
+    if let Some(cwd) = cwd {
+        words.extend(["--cwd", cwd]);
+    }
+    daemon.request(None, plan(&words)?)?;
+    let snapshot = send::snapshot(daemon, None)?;
+    let pane = focused_pane(&snapshot)
+        .ok_or_else(|| not_found("focused", "the new workspace has no pane".into()))?;
+    let shell = list(&snapshot, "tabs")
+        .iter()
+        .find(|tab| tab["pane_id"] == pane.as_str())
+        .and_then(|tab| tab["id"].as_str())
+        .map(str::to_owned);
+    Ok(Some((pane, shell)))
+}
+
+/// Closes `tab`; a tab that stays is harmless, so a failure is ignored.
+pub(in crate::cli) fn close_tab<D: Daemon + ?Sized>(daemon: &D, tab: &str) {
+    if let Ok(close) = plan(&["tab", tab, "close"]) {
+        let _ = daemon.request(None, close);
+    }
 }
 
 fn not_found(selector: &str, message: String) -> Failure {

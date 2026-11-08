@@ -1285,7 +1285,9 @@ extra argument stays one argv word, with `pane run --on-exit keep`: the exited
 terminal keeps its argv and name for `resume`. Without `--pane` or `--split`
 the caller's pane (else the focused pane) is split to the right; `--pane SEL`
 alone opens a tab in that pane; `--split DIR` splits SEL (default: the
-caller's pane). The split's shell tab is closed once the agent runs. The tab
+caller's pane). The split's shell tab is closed once the agent runs. In a session
+with no pane yet (a daemon that no client opened), it creates a workspace named
+NAME and replaces its shell tab. The tab
 is focused unless `--no-focus`.
 
 The wait looks four times a second at the terminal, its agent records and its
