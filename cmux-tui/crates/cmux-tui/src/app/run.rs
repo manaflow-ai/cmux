@@ -435,6 +435,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         pending_size_releases: HashSet::new(),
         geometry_authority_surface: None,
         prefix_armed: false,
+        copy_mode: None,
         session_label,
         surface_only,
         sidebar_visible: surface_only.is_none(),

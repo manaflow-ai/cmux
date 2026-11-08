@@ -81,6 +81,11 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
+    /// Start now on a queued agent's tab: the host asks this chat's Chief to start it past the cap; true when
+    /// it did (nil: no Start now).
+    public var onStartAgent: ((String) async -> Bool)? {
+        didSet { agentPaneView?.onStartAgent = onStartAgent }
+    }
     /// Forward… on a bubble: the host routes its text to another chat (nil: no Forward…).
     public var onForward: ((String) -> Void)? {
         get { transcript.onForward }

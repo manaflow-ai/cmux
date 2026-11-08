@@ -26,7 +26,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneAppearance.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneBundleImage.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneDecorations.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneHostingView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneMenus.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneNodeView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneRowView.swift
