@@ -334,7 +334,7 @@ pub enum Command {
         preset: Option<String>,
         #[arg(long, short)]
         effort: Option<String>,
-        /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
+        /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all, review.
         #[arg(long)]
         policy: Option<String>,
     },

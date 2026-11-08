@@ -37,6 +37,29 @@ fn reads_pass() {
     }
 }
 
+/// A reviewer reads part of a file with `sed -n` (the review policy's own list): only printing
+/// by line number passes; a write, a run, an edit in place or a later option asks.
+#[test]
+fn review_policy_sed_n_prints_only() {
+    for script in
+        ["sed -n '1,40p' src/main.rs", "sed -n -e '$p' a", "sed -n '5p;10,12p' a b", "sed -En 3p x"]
+    {
+        assert!(is_read_only(script), "{script}");
+    }
+    for script in [
+        "sed '1,40p' a",
+        "sed -n '1w out' a",
+        "sed -n '1e ls' a",
+        "sed -n 's/a/b/w out' a",
+        "sed -i -n 1p a",
+        "sed -n 1p a -i",
+        "sed -n '/x/p' a",
+        "sed -n",
+    ] {
+        assert!(!is_read_only(script), "{script}");
+    }
+}
+
 #[test]
 fn anything_else_refuses() {
     for script in [

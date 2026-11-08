@@ -633,9 +633,60 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
                 || a.starts_with("-fprint")
                 || matches!(a, "-delete" | "-fls")
         }),
+        "sed" => sed_prints_only(args),
         _ => false,
     };
     ok.then_some(Reads::Plain)
+}
+
+/// `sed -n` that only prints lines by number (`sed -n '1,40p' f`, `-e '$p'`): a reviewer's way
+/// to read part of a file. Any other sed command can write (`w`, `s///w`) or run one (`e`), and
+/// `-i` edits in place, so anything else asks; GNU sed reads an option after the files too.
+fn sed_prints_only(args: &[String]) -> bool {
+    let mut quiet = false;
+    let mut scripts: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while let Some(a) = args.get(i) {
+        match a.as_str() {
+            "-n" | "--quiet" | "--silent" => quiet = true,
+            "-E" | "-r" | "--regexp-extended" => {}
+            // A cluster of those (`-En`).
+            a if a.len() > 2
+                && !a.starts_with("--")
+                && a.strip_prefix('-').is_some_and(|f| f.chars().all(|c| "nEr".contains(c))) =>
+            {
+                quiet |= a.contains('n');
+            }
+            "-e" => {
+                i += 1;
+                let Some(script) = args.get(i) else { return false };
+                scripts.push(script);
+            }
+            a if a.starts_with('-') => return false,
+            _ => break,
+        }
+        i += 1;
+    }
+    let mut rest = args.get(i..).unwrap_or_default().iter();
+    if scripts.is_empty() {
+        let Some(script) = rest.next() else { return false };
+        scripts.push(script);
+    }
+    if rest.any(|a| a.starts_with('-')) {
+        return false;
+    }
+    let address = |a: &str| a == "$" || (!a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()));
+    let prints = |command: &str| {
+        let Some(range) = command.trim().strip_suffix('p') else { return false };
+        let range = range.trim();
+        range.is_empty()
+            || match range.split_once(',') {
+                Some((from, to)) => address(from.trim()) && address(to.trim()),
+                None => address(range),
+            }
+    };
+    quiet
+        && scripts.iter().all(|s| s.split([';', '\n']).filter(|c| !c.trim().is_empty()).all(prints))
 }
 
 /// A git read: its `-C` directory (at most one) when the rest passes.

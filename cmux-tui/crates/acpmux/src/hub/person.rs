@@ -913,13 +913,13 @@ pub(crate) fn asks(policy: PermissionPolicy) -> bool {
     matches!(policy, PermissionPolicy::Ask | PermissionPolicy::DenyAll)
 }
 
-/// How much a policy runs without asking: deny-all 0, ask 1, approve-reads 2,
+/// How much a policy runs without asking: deny-all 0, ask 1, approve-reads and review 2,
 /// approve-edits 3, approve-all 4. A higher number is wider.
 pub(crate) fn breadth(policy: PermissionPolicy) -> u8 {
     match policy {
         PermissionPolicy::DenyAll => 0,
         PermissionPolicy::Ask => 1,
-        PermissionPolicy::ApproveReads => 2,
+        PermissionPolicy::ApproveReads | PermissionPolicy::Review => 2,
         PermissionPolicy::ApproveEdits => 3,
         PermissionPolicy::ApproveAll => 4,
     }
