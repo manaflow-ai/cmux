@@ -97875,6 +97875,82 @@
       "arguments" : [
 
       ],
+      "category" : "agents",
+      "cliName" : "action capture-open",
+      "computed" : {
+        "canonical_action_id" : "capture.open",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "5",
+        "modifiers" : [
+          "ctrl",
+          "shift",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "CaptureActionCatalog",
+      "id" : "capture.open",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "screenshot",
+        "screen recording",
+        "record",
+        "video",
+        "capture",
+        "share screen",
+        "attach"
+      ],
+      "mainMenu" : "view",
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "menu"
+      ],
+      "symbol" : "camera.viewfinder",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Capture…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
       "category" : "window",
       "cliName" : "media play-pause",
       "computed" : {

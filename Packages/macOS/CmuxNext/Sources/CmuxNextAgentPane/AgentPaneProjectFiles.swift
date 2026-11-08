@@ -21,7 +21,7 @@ enum AgentPaneProjectFiles {
         switch request {
         case .projectInstructions(let instructions): return await AgentPaneProjectInstructions.reply(to: instructions, in: model)
         case .projectAddFiles(let files): return await reply(to: files, in: model)
-        case .composerCapture(let mode): return await AgentPaneCapture.reply(to: mode, in: model)
+        case .capture(let call): return await AgentPaneCapture.respond(to: call, in: model)
         default: return AgentPaneModel.unsupported(String(describing: request))
         }
     }

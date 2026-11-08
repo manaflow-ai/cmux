@@ -6,7 +6,7 @@ import WebKit
 
 /// Copy Last Code Block (Opt-Cmd-;) and Archive Chat (Ctrl-Cmd-A), as in the Codex app (cx-ncc.72), and Show in Mini:
 /// the focused agent chat's page copies its latest answer's last code block, or archives the chat
-/// the way its menu's Archive does.
+/// the way its menu's Archive does. Capture… (Ctrl-Shift-Cmd-5) toggles the focused chat's capture bar.
 enum AgentChatKeyHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         AgentChatCopyHandlers.bind(into: registry, context: context)
@@ -43,6 +43,19 @@ enum AgentChatKeyHandlers {
             .bindArchive(into: registry) { invocation in
                 chatView(context, invocation, refusal: MiscHandlerStrings.archiveChatNeedsAgentChat)?.archiveChat()
             }
+        // Capture… (capture-bar-DESIGN.md): the focused chat's bar, else the window's; Pane is the pane at the press.
+        registry.bindEffect("capture.open", effect: { invocation in
+            let pane = context.scope(invocation).pane
+            guard let view = pane?.currentTabKey.flatMap({ context.services.agentTabs.existingView($0) })
+                ?? AgentPaneCaptureBar.visibleChat(in: pane?.view.window ?? context.activeWindow?.window) else {
+                return .refused(MiscHandlerStrings.captureNeedsAgentChat)
+            }
+            AgentPaneCaptureBar(pane: { [weak paneView = pane?.view, weak services = context.services] in
+                guard let paneView, let window = paneView.window, let services else { return nil }
+                return try? await ScreenshotHandlers.shown(window, crop: paneView, for: invocation, services: services).image
+            }).toggle(on: view)
+            return .done
+        })
     }
 
     private static func chatView(_ context: AppActionContext, _ invocation: ActionInvocation, refusal: String?) -> AgentPaneView? {

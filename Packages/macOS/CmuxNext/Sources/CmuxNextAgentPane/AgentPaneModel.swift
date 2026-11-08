@@ -812,7 +812,7 @@ public final class AgentPaneModel {
             return await AgentPaneTransportReply.reply(to: request, in: self)
         case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)
         case .invalidTurnUndo: return await AgentPaneTurnUndo.reply(to: nil, in: self)
-        case .projectInstructions, .projectAddFiles, .composerCapture: return await AgentPaneProjectFiles.respond(to: request, in: self)
+        case .projectInstructions, .projectAddFiles, .capture: return await AgentPaneProjectFiles.respond(to: request, in: self)
         case .reply(let reply):
             replyLinks.remoteImageLoader = transport.remoteImageLoader
             return await respond(to: reply)

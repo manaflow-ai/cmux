@@ -185,6 +185,8 @@ export function applyHostEvent(event: HostEvent): void {
       return deliverHandoffFailure(event.value);
     case "designSelection":
       return bridge?.designSelection?.(value);
+    case "captureBar":
+      return bridge?.captureBar?.(value);
     case "cloudStartProgress":
       // How a Cloud start goes (cloudStartProgress.ts): the page checks every field.
       return bridge?.cloudStartProgress?.(event.value);

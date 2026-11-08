@@ -1,0 +1,259 @@
+/* The capture bar (CaptureBar.tsx): a band in the bottom stack over the hat and the composer, on the
+   composer card's two edges, in the composer hat's glass (hatQuestions.css). Its height is the
+   measured content's (--acpmux-capture-height), eased on --agent-motion-move, so it opens, turns into
+   the recording line and closes as one transition with the stack under it; the gap to the hat is
+   inside that height, so a closed bar keeps no gap. The only colour is the record dot: the theme's
+   danger red. */
+.acpmux-capture {
+  --acpmux-capture-outset: var(--acpmux-stack-outset, 0px);
+  --acpmux-capture-dot: 8px;
+  flex: none;
+  box-sizing: border-box;
+  height: var(--acpmux-capture-height, 0px);
+  margin: 0 calc(var(--cv-inset-end, var(--cv-inset, 16px)) - var(--acpmux-capture-outset)) 0
+    calc(var(--cv-inset, 16px) - var(--acpmux-capture-outset));
+  overflow: hidden;
+  opacity: 1;
+  transition:
+    height var(--agent-motion-move, 180ms) var(--agent-ease-out),
+    opacity var(--agent-motion-move, 180ms) var(--agent-ease-out);
+}
+/* The bar is what the person just asked for: in a short pane the stack's other parts give up their
+   height first (bottomStack.css orders them), never the bar, which would hide Stop. The composer
+   card under it keeps its own height too: while the bar is up, the transcript gives the stack its
+   room, down to 32 px over the header, as it does for the quiet row (bottomStack.css). The dock is
+   the `:has()` subject, never the pane (agent-pane-stream-composer-still.test.ts). */
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-capture:is([data-open], [data-leaving]) {
+  flex-shrink: 0;
+}
+.acpmux-main[data-dock="float"] > .acpmux-dock:has(> .acpmux-capture:is([data-open], [data-leaving])) {
+  max-height: calc(100% - 44px - 32px);
+}
+.acpmux-capture:not([data-open]):not([data-leaving]) {
+  height: 0;
+}
+.acpmux-capture:not([data-settled]) {
+  transition: none;
+}
+.acpmux-capture[data-leaving] {
+  opacity: 0;
+}
+:root[data-cmux-motion="off"] .acpmux-capture {
+  transition: none;
+}
+.acpmux-capture__room {
+  padding-bottom: var(--ds-space-2, 8px);
+}
+.acpmux-capture__body {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
+  border-radius: 12px;
+  background:
+    linear-gradient(color-mix(in srgb, var(--agent-text) 6%, transparent), color-mix(in srgb, var(--agent-text) 6%, transparent)),
+    color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, var(--acpmux-question-edge));
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+  line-height: var(--text-body--line-height);
+}
+:root[data-reduce-transparency] .acpmux-capture__body {
+  /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */
+  background: var(--acpmux-composer-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* A change of row (open, recording) crossfades on the band's clock. */
+.acpmux-capture__row,
+.acpmux-capture__column {
+  animation: acpmux-capture-in var(--agent-motion-move, 180ms) var(--agent-ease-out) both;
+}
+.acpmux-capture:not([data-settled]) :is(.acpmux-capture__row, .acpmux-capture__column),
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.acpmux-capture__row, .acpmux-capture__column) {
+  animation: none;
+}
+@keyframes acpmux-capture-in {
+  from {
+    opacity: 0;
+  }
+}
+.acpmux-capture__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1, 4px);
+}
+.acpmux-capture__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  min-width: 0;
+  min-height: var(--ds-control-row, 28px);
+}
+.acpmux-capture__row[data-wrap] {
+  flex-wrap: wrap;
+}
+.acpmux-capture__group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+.acpmux-capture__divider {
+  flex: none;
+  width: var(--cmux-hairline, 0.5px);
+  height: var(--ds-control-icon, 20px);
+  margin: 0 var(--ds-space-1, 4px);
+  background: var(--acpmux-composer-edge, var(--agent-border));
+}
+.acpmux-capture__spacer {
+  flex: 1 1 0;
+}
+:is(
+    .acpmux-capture__target,
+    .acpmux-capture__record,
+    .acpmux-capture__destination,
+    .acpmux-capture__mode,
+    .acpmux-capture__go,
+    .acpmux-capture__stop,
+    .acpmux-capture__close
+  ) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  min-height: var(--ds-control-compact, 24px);
+  box-sizing: border-box;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: var(--ds-radius-md, 6px);
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+}
+:is(.acpmux-capture__target, .acpmux-capture__record, .acpmux-capture__mode, .acpmux-capture__go, .acpmux-capture__stop):not(
+    :disabled
+  ):hover,
+.acpmux-capture__close:hover,
+.acpmux-capture__destination:not(:disabled):hover {
+  background: var(--acpmux-question-hover);
+}
+:is(.acpmux-capture__target, .acpmux-capture__record)[data-busy],
+.acpmux-capture__target[data-picked],
+:is(.acpmux-capture__destination, .acpmux-capture__mode)[aria-pressed="true"] {
+  background: var(--acpmux-question-highlight);
+}
+:is(.acpmux-capture__target, .acpmux-capture__record, .acpmux-capture__destination):disabled:not([data-busy]) {
+  opacity: 0.6;
+}
+.acpmux-capture__go,
+.acpmux-capture__stop {
+  background: var(--acpmux-question-hover);
+}
+.acpmux-capture__close {
+  justify-content: center;
+  width: var(--ds-control-compact, 24px);
+  padding: 0;
+  color: var(--agent-muted);
+}
+.acpmux-capture__destinations,
+.acpmux-capture__modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+:is(.acpmux-capture__destinations, .acpmux-capture__modes) > button {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+:is(.acpmux-capture__destinations, .acpmux-capture__modes) > button[aria-pressed="true"] {
+  color: var(--agent-text);
+}
+.acpmux-capture__options {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-1, 4px);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+.acpmux-capture__option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  white-space: nowrap;
+}
+.acpmux-capture__option > input {
+  margin: 0;
+}
+.acpmux-capture__dot {
+  flex: none;
+  width: var(--acpmux-capture-dot);
+  height: var(--acpmux-capture-dot);
+  border-radius: 50%;
+  background: var(--agent-danger);
+}
+.acpmux-capture__elapsed {
+  min-width: 4ch;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-capture__what {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The icon arm: one glyph per target, drawn in CSS from the same frame shapes. */
+.acpmux-capture[data-look="chip"] .acpmux-capture__body {
+  width: fit-content;
+  margin: 0 auto;
+}
+.acpmux-capture[data-look="chip"] .acpmux-capture__target,
+.acpmux-capture[data-look="chip"] .acpmux-capture__record {
+  justify-content: center;
+  width: var(--ds-control-compact, 24px);
+  padding: 0;
+}
+.acpmux-capture__glyph {
+  box-sizing: border-box;
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-12);
+  border: 1.5px solid currentColor;
+  border-radius: var(--ds-radius-sm);
+}
+.acpmux-capture__glyph[data-target="screen"] {
+  border-style: dashed;
+}
+.acpmux-capture__glyph[data-target="window"] {
+  border-top-width: 3px;
+}
+.acpmux-capture__glyph[data-target="pane"] {
+  width: calc(var(--ds-icon-14) / 2);
+}
+.acpmux-capture__glyph[data-target="app"] {
+  background: color-mix(in srgb, currentColor 25%, transparent);
+}
+:is(
+    .acpmux-capture__target,
+    .acpmux-capture__record,
+    .acpmux-capture__destination,
+    .acpmux-capture__mode,
+    .acpmux-capture__go,
+    .acpmux-capture__stop,
+    .acpmux-capture__close
+  ):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: 1px;
+}

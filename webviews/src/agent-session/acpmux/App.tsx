@@ -658,6 +658,8 @@ import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./r
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { PermissionAsk } from "./rows/PermissionAsk";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
+import { CaptureBar } from "./capture/CaptureBar";
+import { useCaptureBar } from "./capture/useCaptureBar";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
@@ -743,6 +745,9 @@ declare global {
       /// A design mode highlight from a browser pane (CmuxNextAgentPane AgentPaneDesignSelection):
       /// its chips join the composer and go with the next message (designSelection.ts).
       designSelection?(selection: unknown): void;
+      /// The host's Capture action (⌃⇧⌘5, View > Capture…; CmuxNextAgentPane AgentPaneCaptureBar):
+      /// opens or closes the capture bar, or stops its recording (capture/useCaptureBar.ts).
+      captureBar?(value: unknown): void;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -4024,6 +4029,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   newTabNow.current = newTab;
   const currentNewTab = useCallback(() => newTabNow.current, []);
   const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
+  const newTabGenerationRef = useRef(newTabGeneration);
+  newTabGenerationRef.current = newTabGeneration;
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
@@ -5797,6 +5804,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat's agent runs on this Mac (`localCwd`, set below each render): it can open a long
   /// recording's file.
   const chatIsLocal = useRef(false);
+  // The capture bar over the composer (capture/CaptureBar.tsx): screenshots and recordings into
+  // this chat, the clipboard or a file.
+  const captureBar = useCaptureBar({
+    callNative,
+    attach: (attachment) => composerHandle.current?.attach(attachment),
+    notice: (text) => notices.transient(text),
+    chatIsLocal: () => chatIsLocal.current,
+    // A chat with no session yet is told apart by its New Tab adoption, as the folder default does.
+    chat: () => `${sessionIdRef.current ?? ""}:${newTabGenerationRef.current}`,
+  });
+  // The bridge (installed once below) reaches the newest toggle.
+  const captureBarToggle = useRef(captureBar.toggle);
+  captureBarToggle.current = captureBar.toggle;
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
     attach: (audio) => {
@@ -6622,6 +6642,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
       dictation(update) {
         deliverDictation(update);
+      },
+      captureBar(value) {
+        captureBarToggle.current(value);
       },
       designSelection(selection) {
         const removals = designSelectionRemovals(selection);
@@ -10197,6 +10220,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         {/* The agent's questions waiting on the person, over the hat (question/HatQuestions.tsx). */}
         {/* The card under it keeps answering the question it shows; the hat shows only with more to
             step to than that one (hatShows), and stays mounted so it arrives and leaves as a move. */}
+        <CaptureBar key={`capture:${shownSessionId ?? ""}`} state={captureBar.state} actions={captureBar.actions} />
         <HatQuestions
           key={shownSessionId}
           questions={hatShows(hatQuestionList) ? hatQuestionList : NO_HAT_QUESTIONS}

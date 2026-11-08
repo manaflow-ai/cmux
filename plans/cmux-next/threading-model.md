@@ -194,6 +194,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cmux.next.agent-pane.acpmux-socket-wait` (one person-socket exchange's readiness wait, userInitiated, serial, one
   queue per wait: a dispatch source wakes it, nothing blocks it; it ends at readiness, the daemon's close or the
   caller's cancel),
+  `agent-pane.capture.record` (the capture bar's one recording, AgentPaneRecording, userInitiated, serial:
+  ScreenCaptureKit delivers frames here and the H.264 writer appends them; it blocks on nothing, a frame the
+  writer is not ready for is dropped, one recording at a time, and it ends at Stop, 300 s, the window's close or quit),
   `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
   `cua-helper-v2-reap`, `cua-helper-v2-stdout`, `cmux-remote-device` (one per open channel to cmux Remote's Screen
   Sharing worker: a blocking read(2) that ends at the channel's EOF; answers and hub pushes go to their waiters, pushes

@@ -138,7 +138,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .gitPullRequest: "gitPullRequest"
         case .projectInstructions: "projectInstructions"
         case .projectAddFiles: "projectAddFiles"
-        case .composerCapture: "composerCapture"
+        case .capture: "capture"
         case .transportOpen: "transportOpen"
         case .transportSend: "transportSend"
         case .transportClose: "transportClose"
