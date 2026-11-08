@@ -16,6 +16,26 @@ import Testing
         )
     }
 
+    /// A home with a trailing slash still matches its paths (cmux#38555 review 8 F1).
+    @Test func aHomeWithATrailingSlashStillMatches() {
+        #expect(!SentryScrubber(homeDirectory: "/srv/alice/").scrub("at /srv/alice/project/x").contains("alice"))
+    }
+
+    /// Any character that cannot continue a name ends the home (cmux#38555 review 9 F1).
+    @Test func punctuationAfterTheHomeStillEndsIt() {
+        let scrubber = SentryScrubber(homeDirectory: "/srv/alice")
+        #expect(scrubber.scrub("cannot read /srv/alice: denied") == "cannot read /<redacted>: denied")
+        #expect(!scrubber.scrub("open(/srv/alice) and [/srv/alice]").contains("alice"))
+        #expect(scrubber.scrub("at /srv/alice.old/x") == "at /srv/alice.old/x")
+    }
+
+    /// A home that is the users' directory itself must not hide the user name from the generic rule.
+    @Test(arguments: ["/Users", "/home", "/Users/"])
+    func aHomeThatIsTheUsersDirectoryKeepsNoName(home: String) {
+        let scrubbed = SentryScrubber(homeDirectory: home).scrub("at /Users/alice/project and /home/alice/project")
+        #expect(!scrubbed.contains("alice"))
+    }
+
     @Test func redactsAnyUsersPathEvenWhenNotTheRuntimeHome() {
         // Stack frames carry the build machine's home, which is not the runtime
         // home dir; the generic /Users/<name>/ rule must still catch it.
@@ -104,6 +124,19 @@ import Testing
     ])
     func redactsMoreProviderTokens(token: String) {
         #expect(scrubber.scrub("push with \(token) now") == "push with <redacted-secret> now")
+    }
+
+    /// A quoted value ends only at its own closing quote, past escaped quotes (cmux#38555 review F1).
+    @Test func redactsAQuotedValueToItsOwnClosingQuote() {
+        #expect(scrubber.scrub(#"password="before'AFTERsecret" next"#) == #"password="<redacted-secret>" next"#)
+        #expect(scrubber.scrub(#"token='before"AFTERsecret' next"#) == #"token='<redacted-secret>' next"#)
+        #expect(
+            scrubber.scrub(#"{"password":"a\"AFTERsecret","n":1}"#) == #"{"password":"<redacted-secret>","n":1}"#
+        )
+        #expect(scrubber.scrub(#"sid="x'AFTERsecret""#) == #"sid="<redacted-secret>""#)
+        // A backslash before a real newline (a shell line continuation) is an escape too.
+        #expect(scrubber.scrub("password=\"a\\\nAFTERsecret\" next") == "password=\"<redacted-secret>\" next")
+        #expect(scrubber.scrub("sid='a\\\nAFTERsecret' next") == "sid='<redacted-secret>' next")
     }
 
     @Test func leavesWordsThatShareATokenPrefix() {
