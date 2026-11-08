@@ -5,24 +5,27 @@ import Testing
 /// The Review queue's verdicts (`review.accept`, `review.send`, ``AgentPaneReview``): only from the
 /// Review page, on the person's own key or click, to a chat on this Mac's acpmux, writing only the
 /// `review.done` tag; a send tags only once acpmux took the prompt.
+private let reviewSocket = "/tmp/acpmux-main.sock"
+
 @MainActor
 struct AgentPaneReviewTests {
-    private static let socket = "/tmp/acpmux-main.sock"
-    private static let environment = AcpmuxEnvironment(executable: URL(fileURLWithPath: "/usr/bin/true"),
-                                                       home: URL(fileURLWithPath: "/tmp/acpmux-home"), socketPath: socket,
-                                                       daemonArguments: [], childEnvironment: [:])
+    private static let socket = reviewSocket
 
     private actor Host: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
         func answerEnvironment(socket: String) async -> AcpmuxEnvironment? {
-            socket == AgentPaneReviewTests.socket ? AgentPaneReviewTests.environment : nil
+            guard socket == reviewSocket else { return nil }
+            return AcpmuxEnvironment(executable: URL(fileURLWithPath: "/usr/bin/true"), home: URL(fileURLWithPath: "/tmp/acpmux-home"),
+                                     socketPath: reviewSocket, daemonArguments: [], childEnvironment: [:])
         }
     }
 
     /// What reached acpmux: prompts and tags, in order.
-    private final class Acpmux: @unchecked Sendable {
+    private actor Acpmux {
         var calls: [String] = []
         var delivers = true
+        func record(_ call: String) { calls.append(call) }
+        func setDelivers(_ value: Bool) { delivers = value }
     }
 
     private static func page(review: Bool = true) -> AgentPaneModel {
@@ -35,10 +38,10 @@ struct AgentPaneReviewTests {
 
     private static func run(_ review: AgentPaneReview, _ model: AgentPaneModel, _ acpmux: Acpmux) async -> [String: Any] {
         await review.respond(in: model, deliver: { _, session, text, promptID in
-            acpmux.calls.append("send \(session) \(promptID) \(text)")
-            return acpmux.delivers
+            await acpmux.record("send \(session) \(promptID) \(text)")
+            return await acpmux.delivers
         }, tag: { socket, session, set in
-            acpmux.calls.append("tag \(socket) \(session) \(set.map { "\($0.key)=\($0.value)" }.joined())")
+            await acpmux.record("tag \(socket) \(session) \(set.map { "\($0.key)=\($0.value)" }.joined())")
         })
     }
 
@@ -73,25 +76,25 @@ struct AgentPaneReviewTests {
     @Test func acceptTagsTheChatOnThePersonsKeyPress() async {
         let model = Self.page(), acpmux = Acpmux()
         #expect(Self.code(await Self.run(Self.accept, model, acpmux)) == "refused")
-        #expect(acpmux.calls.isEmpty)
+        #expect(await acpmux.calls.isEmpty)
         model.transport.gestures.record()
         #expect(Self.code(await Self.run(Self.accept, model, acpmux)) == nil)
-        #expect(acpmux.calls == ["tag \(Self.socket) local/a1 review.done=accepted:0badf00d"])
+        #expect(await acpmux.calls == ["tag \(Self.socket) local/a1 review.done=accepted:0badf00d"])
         // One key press, one verdict.
         #expect(Self.code(await Self.run(Self.accept, model, acpmux)) == "refused")
-        #expect(acpmux.calls.count == 1)
+        #expect(await acpmux.calls.count == 1)
     }
 
     @Test func aSendTagsOnlyOnceAcpmuxTookThePrompt() async {
         let model = Self.page(), acpmux = Acpmux()
-        acpmux.delivers = false
+        await acpmux.setDelivers(false)
         model.transport.gestures.record()
         #expect(Self.code(await Self.run(Self.send, model, acpmux)) == "refused")
-        #expect(acpmux.calls == ["send local/a1 p1 Use the shared helper."])
-        acpmux.delivers = true
+        #expect(await acpmux.calls == ["send local/a1 p1 Use the shared helper."])
+        await acpmux.setDelivers(true)
         model.transport.gestures.record()
         #expect(Self.code(await Self.run(Self.send, model, acpmux)) == nil)
-        #expect(acpmux.calls.suffix(2) == ["send local/a1 p1 Use the shared helper.", "tag \(Self.socket) local/a1 review.done=changes:0badf00d"])
+        #expect(await acpmux.calls.suffix(2) == ["send local/a1 p1 Use the shared helper.", "tag \(Self.socket) local/a1 review.done=changes:0badf00d"])
     }
 
     @Test func onlyTheReviewPageOnThisMacsAcpmuxForALocalChat() async {
@@ -107,6 +110,6 @@ struct AgentPaneReviewTests {
         elsewhere.transport.acpmuxSocket = nil
         elsewhere.transport.gestures.record()
         #expect(Self.code(await Self.run(Self.accept, elsewhere, acpmux)) == "unsupported")
-        #expect(acpmux.calls.isEmpty)
+        #expect(await acpmux.calls.isEmpty)
     }
 }
