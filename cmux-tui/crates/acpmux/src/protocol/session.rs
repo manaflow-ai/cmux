@@ -540,6 +540,13 @@ pub struct QueuedPromptSummary {
     #[serde(default)]
     #[schemars(default)]
     pub subagent_retry: Option<QueuedSubagentRetry>,
+    /// Its `_meta.provenance` when it names a sender that is no agent's to act on: another agent's
+    /// message the person edited (`editedBy`, still that agent's words to read) or a prompt no
+    /// proof attributes (`unverified`). An app draws its card from it while `fromAgent` is null.
+    /// Null otherwise. Display only, never authority.
+    #[serde(default)]
+    #[schemars(default)]
+    pub provenance: Option<serde_json::Value>,
     /// acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,
     /// `hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the
     /// messages it carries and never as the person's queued prompt, also when it has not read
