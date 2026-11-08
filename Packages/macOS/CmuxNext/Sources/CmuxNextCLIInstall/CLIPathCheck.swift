@@ -69,8 +69,9 @@ public nonisolated struct CLIPathCheck: Equatable, Sendable {
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: resolved.path, isDirectory: &isDirectory) else {
                 // A link into a cmux app that is gone: ours to repoint. Any
-                // other broken link is left alone, as a shell skips it too.
-                if dangling == nil, let target = try? fileManager.destinationOfSymbolicLink(atPath: entry.path),
+                // other broken link is left alone, as a shell skips it too,
+                // and so is one inside an app bundle (never modified).
+                if dangling == nil, Self.appBundle(containing: entry.path) == nil, let target = try? fileManager.destinationOfSymbolicLink(atPath: entry.path),
                    Self.appBundle(containing: URL(fileURLWithPath: target, relativeTo: entry.deletingLastPathComponent())
                        .standardizedFileURL.path) != nil {
                     dangling = (entry, target)

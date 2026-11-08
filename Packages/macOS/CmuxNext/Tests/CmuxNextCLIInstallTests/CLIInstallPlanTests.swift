@@ -83,4 +83,14 @@ struct CLIInstallPlanTests {
         try classic.link(classic.early, to: classic.classicCLI.path)
         #expect(classic.check().uninstallDestinations == [CLIPathInstaller.Name.cmux.destination])
     }
+
+    @Test func aDanglingLinkInsideAnAppBundleIsNeverRepointed() throws {
+        let scratch = try Scratch()
+        let bin = scratch.root.appendingPathComponent("Applications/Broken.app/Contents/Resources/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try scratch.link(bin, to: scratch.root.appendingPathComponent("Applications/Gone.app/Contents/Resources/bin/cmux").path)
+        let check = CLIPathCheck(path: bin.path, source: scratch.source)
+        #expect(check.status == .missing)
+        #expect(CLIInstallPlan(name: .cmux, replacing: false, check: check).destination == CLIPathInstaller.Name.cmux.destination)
+    }
 }
