@@ -684,7 +684,9 @@ impl Hub {
         // cmux's own scheduled prompt (`prompt_schedule.rs`), for the strip over the composer.
         v.set(
             "schedule",
-            m.prompt_schedule.as_ref().map_or(Value::Null, crate::prompt_schedule::PromptSchedule::to_value),
+            m.prompt_schedule
+                .as_ref()
+                .map_or(Value::Null, crate::prompt_schedule::PromptSchedule::to_value),
         );
         // What the context holds by category, as Claude Code's /context says after each turn.
         v.set("contextBreakdown", m.context_breakdown.clone().unwrap_or(Value::Null));

@@ -122,7 +122,8 @@ impl Hub {
             )
         };
         self.save_meta(session);
-        let update = json!({"sessionUpdate": "session_info_update", "_meta": {"schedule": schedule}});
+        let update =
+            json!({"sessionUpdate": "session_info_update", "_meta": {"schedule": schedule}});
         let msg = json!({"jsonrpc": "2.0", "method": "session/update",
                          "params": {"sessionId": sid, "update": update}});
         self.append(session, "in", "session_info_update", msg);
@@ -150,7 +151,8 @@ impl Hub {
             return;
         }
         let now = self.schedule_now();
-        let changed = locked(&session.meta).prompt_schedule.as_mut().is_some_and(|s| s.turn_ended(now));
+        let changed =
+            locked(&session.meta).prompt_schedule.as_mut().is_some_and(|s| s.turn_ended(now));
         if changed {
             self.publish_schedule(session);
         }
@@ -259,8 +261,7 @@ impl Hub {
         matches!(
             session.status(),
             SessionStatus::Ready | SessionStatus::Idle | SessionStatus::Disconnected
-        )
-            && session.turn().is_none()
+        ) && session.turn().is_none()
             && !session.harness_turn.load(Ordering::SeqCst)
             && session.queued() == 0
             && session.pending_permissions().is_empty()

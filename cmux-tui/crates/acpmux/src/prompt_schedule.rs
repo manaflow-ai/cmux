@@ -222,8 +222,12 @@ mod tests {
     const MIN: u64 = 60_000;
 
     fn every(minutes: u64, max_runs: Option<u32>, until: Option<u64>) -> PromptSchedule {
-        let req =
-            Request { prompt: "check CI".into(), trigger: Trigger::Every { minutes }, max_runs, until };
+        let req = Request {
+            prompt: "check CI".into(),
+            trigger: Trigger::Every { minutes },
+            max_runs,
+            until,
+        };
         PromptSchedule::new("s1".into(), req, T0).unwrap()
     }
 
@@ -277,8 +281,12 @@ mod tests {
 
     #[test]
     fn idle_sends_after_each_turn_and_always_has_a_stop() {
-        let req =
-            Request { prompt: "keep going".into(), trigger: Trigger::Idle, max_runs: None, until: None };
+        let req = Request {
+            prompt: "keep going".into(),
+            trigger: Trigger::Idle,
+            max_runs: None,
+            until: None,
+        };
         let mut s = PromptSchedule::new("i".into(), req, T0).unwrap();
         assert_eq!(s.max_runs, Some(IDLE_DEFAULT_MAX_RUNS));
         assert_eq!(s.next_run_at, Some(T0 + IDLE_GRACE_MS));
@@ -337,7 +345,10 @@ mod tests {
         let r = request_of(&json!({"prompt": "p", "everyMinutes": 10, "maxRuns": 3})).unwrap();
         assert_eq!(r.trigger, Trigger::Every { minutes: 10 });
         assert_eq!(r.max_runs, Some(3));
-        assert_eq!(request_of(&json!({"prompt": "p", "idle": true})).unwrap().trigger, Trigger::Idle);
+        assert_eq!(
+            request_of(&json!({"prompt": "p", "idle": true})).unwrap().trigger,
+            Trigger::Idle
+        );
         assert_eq!(
             request_of(&json!({"prompt": "p", "at": T0})).unwrap().trigger,
             Trigger::At { at: T0 }

@@ -22,6 +22,7 @@ test("status is available before harness commands and stays cmux-owned", () => {
     "cd",
     "resume",
     "login",
+    "loop",
     "compact",
     // Not advertised by this harness: cmux's passthrough fallback, after the harness's own.
     "clear",
@@ -136,4 +137,33 @@ test("a Claude skill named like a cmux command stays in the list, and mid-prompt
   expect(
     slashMatches(commands, { query: "pla", length: 4, leading: false }).map((match) => match.command.source),
   ).toEqual(["skill"]);
+});
+
+test("/loop is cmux's on a harness without one, and a harness's own /loop takes it as typed", () => {
+  const state = {
+    summary: true,
+    forkable: true,
+    sideAvailable: true,
+    canContinue: true,
+    sideSessions: true,
+    session: true,
+    isSideSession: false,
+    targets: [],
+  };
+  const loop = composerCommand("/loop 5m check CI", "codex");
+  expect(loop?.kind === "cmux" && loop.command.action).toBe("loop");
+  if (loop?.kind !== "cmux") throw new Error("not cmux's");
+  expect(cmuxCommandRefusal(loop.command, loop.args, state)).toBeUndefined();
+  expect(cmuxCommandRefusal(loop.command, "check CI", state)).toBe("composer.cmuxLoopUsage");
+  expect(cmuxCommandRefusal(loop.command, "5m check CI", { ...state, session: false })).toBe(
+    "composer.cmuxUnavailable",
+  );
+  // Claude Code's self-paced `/loop check CI` is its own: never refused here.
+  expect(cmuxCommandRefusal(loop.command, "check CI", { ...state, harnessLoop: true })).toBeUndefined();
+  // Its menu entry stays the harness's when the pane leaves cmux's out.
+  const own = mergedCommands(
+    [{ name: "loop", description: "Claude's loop", source: "agent" }],
+    new Set(["model"]),
+  ).find((command) => command.name === "loop");
+  expect(own?.source).toBe("agent");
 });

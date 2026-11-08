@@ -169,9 +169,6 @@ mod lane_report_reads;
 mod lane_report_text;
 mod lane_reports;
 mod loop_goal;
-mod prompt_schedule;
-#[cfg(test)]
-mod prompt_schedule_tests;
 #[cfg(test)]
 mod loop_goal_tests;
 mod mcp_connect;
@@ -179,6 +176,9 @@ pub(crate) mod mcp_probe;
 mod meta_save;
 mod offer_results;
 mod offers;
+mod prompt_schedule;
+#[cfg(test)]
+mod prompt_schedule_tests;
 mod resume;
 mod secrets;
 mod seen;

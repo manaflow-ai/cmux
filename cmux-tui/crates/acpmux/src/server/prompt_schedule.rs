@@ -45,7 +45,8 @@ fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<Value,
     }
     match m {
         method::MUX_SCHEDULE_SET => {
-            let req = crate::prompt_schedule::request_of(params).map_err(RpcError::invalid_params)?;
+            let req =
+                crate::prompt_schedule::request_of(params).map_err(RpcError::invalid_params)?;
             hub.schedule_set(&session, req)
         }
         method::MUX_SCHEDULE_PAUSE => {

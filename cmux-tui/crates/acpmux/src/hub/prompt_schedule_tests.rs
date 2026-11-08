@@ -2,6 +2,7 @@
 //! clock: it sends into the chat through the person's path, ends on its stop, waits for a busy
 //! chat, and comes back after a daemon restart.
 
+use super::prompt_schedule::SETTLE_MS;
 use super::*;
 use crate::clock::ManualClock;
 use crate::config::{Config, StoreMode};
@@ -58,14 +59,21 @@ async fn chat() -> (Arc<Hub>, Arc<Session>, Clocks) {
 }
 
 fn every(minutes: u64, max_runs: Option<u32>) -> Request {
-    Request { prompt: "check CI".into(), trigger: Trigger::Every { minutes }, max_runs, until: None }
+    Request {
+        prompt: "check CI".into(),
+        trigger: Trigger::Every { minutes },
+        max_runs,
+        until: None,
+    }
 }
 
 /// Whether the chat's log holds a prompt the schedule `id` sent, named as the schedule's.
 fn sent_by_schedule(hub: &Hub, session: &Session, id: &str) -> bool {
     hub.events(&session.id, 0, 10_000).unwrap().into_iter().any(|e| {
         let m = e.msg.to_string();
-        e.kind != "session_info_update" && m.contains(&format!("{id}-run-1")) && m.contains("\"kind\":\"schedule\"")
+        e.kind != "session_info_update"
+            && m.contains(&format!("{id}-run-1"))
+            && m.contains("\"kind\":\"schedule\"")
     })
 }
 
@@ -146,7 +154,12 @@ async fn a_busy_chat_holds_the_run_until_its_turn_ends() {
 #[tokio::test]
 async fn an_idle_schedule_sends_after_each_turn() {
     let (hub, session, clocks) = chat().await;
-    let req = Request { prompt: "keep going".into(), trigger: Trigger::Idle, max_runs: Some(2), until: None };
+    let req = Request {
+        prompt: "keep going".into(),
+        trigger: Trigger::Idle,
+        max_runs: Some(2),
+        until: None,
+    };
     hub.schedule_set(&session, req).unwrap();
     clocks.advance(IDLE_GRACE_MS);
     hub.run_due_schedules(clocks.now());
