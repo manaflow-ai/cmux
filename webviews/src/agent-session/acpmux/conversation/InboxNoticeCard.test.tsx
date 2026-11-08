@@ -212,3 +212,23 @@ test("a click on the digest's own line shows every message's words, not only the
   expect(container.querySelectorAll(".cv-received__text")).toHaveLength(3);
   await act(async () => head.click());
 });
+
+test("each message of an opened thread draws the sender chip its claim names", async () => {
+  const sentFrom = {
+    promptId: "c1",
+    harness: "claude-code",
+    label: "Claude desktop",
+    confirmed: false,
+  };
+  const readThread = async () => [{ promptId: "c1", from: "Claude Code desktop on mac", text: "hi" }];
+  const withClaim: InboxNotice = {
+    threads: [{ ...notice(["c1"], "hi").threads[0]!, sentFrom: { c1: sentFrom } }],
+  };
+  const container = await render(
+    <InboxNoticeCard rowId="row-claim" notice={withClaim} onOpen={() => undefined} readThread={readThread} />,
+  );
+  await open(container);
+  const chip = container.querySelector(".cv-inbox__message .cv-user__sent-from");
+  expect(chip?.textContent).toContain("Claude desktop");
+  expect(container.querySelector(".cv-user__sent-from-note")).not.toBeNull();
+});
