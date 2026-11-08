@@ -543,7 +543,19 @@ public final class HomeNativeTranscriptView: NSView {
         super.viewWillMove(toWindow: newWindow)
         cursorHold?.remove(self)
         cursorHold = nil
+        // Leaving: a return into the same window before this turn ends is a move on screen (``movedOnScreen``).
+        if newWindow == nil, let window {
+            windowLeftThisTurn = window
+            leftWindowTurns += 1
+            let turn = leftWindowTurns
+            // task-owner: one main-actor turn; ends at once
+            Task { [weak self] in if self?.leftWindowTurns == turn { self?.windowLeftThisTurn = nil } }
+        }
     }
+
+    /// The window this view left in the current main-actor turn, nil once that turn is over.
+    private weak var windowLeftThisTurn: NSWindow?
+    private var leftWindowTurns = 0
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -566,26 +578,18 @@ public final class HomeNativeTranscriptView: NSView {
         applyTheme()
         // Opened, or returned to (its tab shown again, the docked Home shown again): the chat
         // rests at its newest message, wherever it was left (https://github.com/manaflow-ai/cmux/issues/34562).
-        // Not when the view only moves while it stays on screen (``keepingPlace(_:)``).
-        if Self.placeKeepingMoves == 0 { transcript.showNewest() }
+        // A move that keeps it on screen keeps the reader's place: the window's Chief panel takes Home's chat
+        // beside a link it opened, and gives it back, in one turn (`WindowController.syncChiefPanel`).
+        let movedOnScreen = windowLeftThisTurn === window
+        windowLeftThisTurn = nil
+        if !movedOnScreen { transcript.showNewest() }
     }
 
     /// Shown again in the same window (a hidden tab or container unhidden): at the newest message too.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        if Self.placeKeepingMoves == 0 { transcript.showNewest() }
+        transcript.showNewest()
     }
-
-    /// Moves of a chat that stays on screen while `body` runs keep the reader's place: the window's Chief
-    /// panel takes Home's chat beside a link it opened, and gives it back (`WindowController.syncChiefPanel`).
-    /// Every other arrival in a window, or showing again, rests at the newest message.
-    public static func keepingPlace<T>(_ body: () -> T) -> T {
-        placeKeepingMoves += 1
-        defer { placeKeepingMoves -= 1 }
-        return body()
-    }
-
-    private static var placeKeepingMoves = 0
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

@@ -101,16 +101,15 @@ import Testing
         pass(window, view)
         try expectAtNewest(view, "shown again")
 
-        // The window's Chief panel borrows the chat beside a link it opened (and gives it back): it stays on
-        // screen, so the reader keeps their place.
+        // The window's Chief panel borrows the chat beside a link it opened (and gives it back), out of its
+        // pane and into the panel in one turn (ChiefPanelView.hold): it stays on screen, so the reader keeps
+        // their place.
         try await scrollUp(window, view, "scrolled up before the Chief panel takes it")
         let before = try place(view, "before the Chief panel takes it").back
         let panel = NSView(frame: container.bounds)
         container.addSubview(panel)
-        HomeNativeTranscriptView.keepingPlace {
-            view.removeFromSuperview()
-            panel.addSubview(view)
-        }
+        view.removeFromSuperview()
+        panel.addSubview(view)
         await settle()
         pass(window, view)
         let held = try place(view, "in the Chief panel")
