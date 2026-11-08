@@ -10,34 +10,78 @@ import QuartzCore
 // a pin closed the list row in place and grew a new item out of an empty frame at the block's corner, and an unpin
 // dropped the item and faded a new row in at its slot: nothing travelled. Chromium's tab strip moves the same tab view
 // (`TabStripLayoutHelper` + `BoundsAnimator`); the sidebar cannot, since the two places are different containers
-// with different row classes. So the hand-off is made invisible instead: in the key's turn the arriving view
-// starts exactly on the frame the leaving view is drawn on now (its presentation, so a pin mid-flight hands off with
-// no jump), the leaving view hides in the same transaction (exactly one copy on screen every frame), and the arriving
-// view, its title and the rows between the two slots all move on the rows' one `.move` spring from one begin time,
-// from rest (no velocity carried over a retarget). The size and inset change on the same spring and progress as the
-// move; the pin glyph is the arriving view's from the first frame.
+// with different row classes. So the hand-off is made invisible instead: the arriving view starts exactly on the
+// frame the leaving view is drawn on at the move's begin (its path evaluated at that instant, so a pin mid-flight
+// hands off with no jump), the leaving view hides in the same transaction (exactly one copy on screen every frame),
+// and the arriving view, its title and the rows between the two slots all move on the rows' one `.move` spring from
+// that one begin time, from rest (no velocity carried over a retarget). The begin is the first frame that can show
+// the move (`SidebarPinFlight.begin`), as Chromium starts an animation at the frame it first draws in: the first frame
+// shows the workspace where it was, not already moved. The size and inset change on the same spring and progress as
+// the move; the pin glyph is the arriving view's from the first frame.
 
 /// One flight of a pin or an unpin: the view that arrives, where it starts and its title's start offset.
 @MainActor
 struct SidebarPinFlight {
     /// The pinned item (a pin) or the list row (an unpin).
     let view: NSView
-    /// Where it starts, in its superview's coordinates; nil: the rows' move already starts it there (an unpin's row).
-    let start: NSRect?
+    /// Where it starts at a media time (the move's begin), in its superview's coordinates.
+    let start: @MainActor (CFTimeInterval) -> NSRect
     /// Its title and how far from its own place the title starts (in the title's superview): where the leaving view drew it.
     let title: (view: NSView, offset: CGPoint)?
+    /// A glyph the arriving view draws and the leaving one did not (a pinned item's pin): it fades in on the move.
+    var glyph: NSView?
+    /// The view's own ground before the flight gave it an opaque one (`raiseForFlight`), put back when it lands.
+    var ground: SidebarFlightGround?
 
+    /// Starts the flight at `now`, the move's one begin time: the view starts where the leaving view is drawn then.
     func start(_ token: MotionSpring, now: CFTimeInterval) {
-        if let start { SidebarDragSpring.fly(view, from: start, token, now: now) }
+        SidebarDragSpring.fly(view, from: start(now), token, now: now)
         if let title { SidebarDragSpring.offset(title.view, by: title.offset, token, now: now) }
+        if let layer = glyph?.layer { SidebarDragSpring.appear(layer, token, now: now) }
+    }
+
+    /// The begin of a move with flights: the first frame that can show it, one refresh of `view`'s screen from now
+    /// (a frame already due shows no change made after its commit). Before it the springs hold their start
+    /// (`fillMode` backwards), so the first frame that shows the change shows the workspace where it was, at rest.
+    static func begin(in view: NSView, now: CFTimeInterval = CACurrentMediaTime()) -> CFTimeInterval {
+        let refresh = view.window?.screen?.minimumRefreshInterval ?? 1.0 / 60
+        return now + (refresh > 0 ? refresh : 1.0 / 60)
     }
 }
 
-/// What a pin's leaving view showed in the key's turn (list coordinates, as drawn).
+/// A flying view's layer background and corner radius before its flight.
+struct SidebarFlightGround {
+    var color: CGColor?
+    var cornerRadius: CGFloat
+}
+
+/// Where a pin's leaving view is drawn (list coordinates) over time: its model frame moved by the springs running on
+/// it and its containers, read once (`MotionPath`) and evaluated at any instant, so the hand-off is evaluated at the
+/// move's begin, not when the apply read it.
 struct SidebarPinFlightSource {
-    var frame: NSRect
-    /// The title's pen origin, nil when the view draws none.
+    /// The model frame in the list when read.
+    var base: NSRect
+    /// Each container's (and the view's) position path; nil: a layer the path cannot read, moved by `fallback`.
+    var positions: [(path: MotionPath?, fallback: CGPoint)]
+    /// The view's size path, when exact.
+    var size: MotionPath?
+    /// The title's pen origin in the view, nil when the view draws none.
     var pen: CGPoint?
+
+    /// The frame drawn at media time `time`.
+    func frame(at time: CFTimeInterval) -> NSRect {
+        var frame = base
+        for (path, fallback) in positions {
+            let offset = path.map { CGPoint(x: $0.value(at: time).x - $0.model.x, y: $0.value(at: time).y - $0.model.y) } ?? fallback
+            frame.origin.x += offset.x
+            frame.origin.y += offset.y
+        }
+        if let size {
+            let shown = size.value(at: time)
+            frame.size = CGSize(width: shown.x, height: shown.y)
+        }
+        return frame
+    }
 }
 
 /// The sources the apply running now hands off: the list rows a pin moves into a block and the block items an unpin
@@ -84,13 +128,9 @@ extension SidebarListViewComponents {
             guard case let .workspace(id) = key, layout.row(for: key) == nil, pinned.contains(id), !view.isHidden else { continue }
             sources.pins[id] = source(of: view)
         }
-        // A row a pin held in place (`holdsForPin`) until this update's block draws its workspace.
-        for (id, view) in pinHolds where pinned.contains(id) && !view.isHidden && sources.pins[id] == nil {
-            sources.pins[id] = source(of: view)
-        }
-        // A pin's row the rows' update already closes (the app sends the rows a frame or two before the blocks, and the
-        // document's pin state comes with the blocks, so `holdsForPin` cannot know it then): the block's item flies
-        // from where the closing row is drawn, and the row goes in the same transaction. No wait at the key.
+        // A pin's row an earlier update already closes (the rows reached the list before the blocks: an app that sends
+        // them in two updates): the block's item flies from where the closing row is drawn, and the row goes in the
+        // same transaction. Nothing waits for the second update.
         for view in subviews.lazy.compactMap({ $0 as? SidebarRowView }) where view.closingEnd != nil && !view.isHidden {
             guard case let .workspace(id) = view.key, rowViews[view.key] == nil, pinned.contains(id), sources.pins[id] == nil
             else { continue }
@@ -109,86 +149,35 @@ extension SidebarListViewComponents {
         return sources
     }
 
-    /// `view`'s frame in the list as drawn now (its and its containers' presentation), with its title's pen origin.
+    /// `view`'s drawn frame in the list over time, with its title's pen origin.
     private func source(of view: NSView) -> SidebarPinFlightSource {
-        let frame = drawnFrame(of: view)
-        let pen = (view as? any SidebarRenameTitle)?.titlePenOrigin.map { pen in
-            CGPoint(x: frame.minX + pen.pointValue.x, y: frame.minY + pen.pointValue.y)
-        }
-        return SidebarPinFlightSource(frame: frame, pen: pen)
+        var source = drawnPath(of: view)
+        source.pen = (view as? any SidebarRenameTitle)?.titlePenOrigin?.pointValue
+        return source
     }
 
-    /// Whether the leaving row `key` is a pin's whose block does not draw the workspace yet: then it stays where it is
-    /// drawn (above the rows that close its slot) until the block's item takes over its frame, or for at most
-    /// `pinHoldLimit` when no block comes (it then goes at once).
-    func holdsForPin(_ key: SidebarRowKey, _ view: SidebarRowView) -> Bool {
-        guard case let .workspace(id) = key, drag == nil, settling == nil, landing == nil, !view.isHidden,
-              model.workspacePin?.isPinned(id) == true, !blockWorkspaces(blocks).contains(id) else { return false }
-        if let held = pinHolds[id], held !== view { releasePinHold(held) }
-        pinHolds[id] = view
-        view.layer?.zPosition = 1
-        // concurrency-allow: asyncAfter only schedules the fallback on the main queue; no thread waits for it
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pinHoldLimit) { [weak self, weak view] in
-            guard let self, let view, self.pinHolds[id] === view else { return }
-            self.pinHolds[id] = nil
-            self.releasePinHold(view)
-        }
-        return true
-    }
-
-    /// Before an apply's rows change: the block items an unpin takes out while the list does not draw the workspace's
-    /// row yet stay where they are drawn (their region holds them) until the row's update; the row then starts on the
-    /// item's frame. At most `pinHoldLimit`, then they go at once.
-    func holdUnpinnedItems(to layout: SidebarLayout) {
-        guard drag == nil, settling == nil, landing == nil, let pin = model.workspacePin else { return }
-        let pinned = blockWorkspaces(blocks)
-        for region in blockRegions {
-            for view in region.itemViews.values where view.superview != nil && !view.isHidden {
-                guard let id = view.info.workspace, !pinned.contains(id), !region.heldWorkspaces.contains(id),
-                      layout.row(for: .workspace(id)) == nil, !pin.isPinned(id) else { continue }
-                region.heldWorkspaces.insert(id)
-                view.layer?.zPosition = 1
-                // concurrency-allow: asyncAfter only schedules the fallback on the main queue; no thread waits for it
-                DispatchQueue.main.asyncAfter(deadline: .now() + Self.pinHoldLimit) { [weak region] in
-                    guard let region, region.heldWorkspaces.contains(id) else { return }
-                    region.releaseHeld(id)
-                }
+    /// Before an apply's rows change: an item an earlier apply hid because its row flew from it (`hideFlownItems`) shows
+    /// again when this apply's list draws no row for its workspace (the unpin was undone): it is the one copy again.
+    func showFlownItems(to layout: SidebarLayout) {
+        for region in blockRegions where !region.flownOut.isEmpty {
+            for id in region.flownOut where layout.row(for: .workspace(id)) == nil {
+                region.flownOut.remove(id)
+                region.itemView(workspace: id)?.alphaValue = 1
             }
         }
     }
 
-    /// After an apply: the held items whose row now shows (it flew from them) go. An item its block still lists (the
-    /// blocks' update comes later) hides until that update takes it out; if none comes in `pinHoldLimit`, it shows again.
-    func releaseUnpinnedItems(_ ids: some Sequence<WorkspaceID>) {
+    /// After an apply: an unpinned workspace's item its block still lists (the blocks reach the list in a later update)
+    /// hides, as its row flew from it: one copy on screen. The blocks' update takes it out; `showFlownItems` shows it
+    /// again if the list stops drawing the row first. No timer: each update decides.
+    func hideFlownItems(_ ids: some Sequence<WorkspaceID>) {
         for id in ids {
             for region in blockRegions {
-                if region.heldWorkspaces.contains(id) { region.releaseHeld(id) }
                 guard let item = region.itemView(workspace: id) else { continue }
+                region.flownOut.insert(id)
                 item.alphaValue = 0
-                // concurrency-allow: asyncAfter only schedules the fallback on the main queue; no thread waits for it
-                DispatchQueue.main.asyncAfter(deadline: .now() + Self.pinHoldLimit) { [weak item] in
-                    guard let item, item.superview != nil else { return }
-                    item.alphaValue = 1
-                }
             }
         }
-    }
-
-    /// How long a pin's row waits for its block (the block's update follows the rows' within a frame or two).
-    static var pinHoldLimit: TimeInterval { 0.25 }
-
-    /// After an apply: a held row whose pin no longer waits (its block drew it, or the pin was undone) goes.
-    func settlePinHolds() {
-        let drawn = blockWorkspaces(blocks)
-        for (id, view) in pinHolds where drawn.contains(id) || model.workspacePin?.isPinned(id) != true {
-            pinHolds[id] = nil
-            releasePinHold(view)
-        }
-    }
-
-    private func releasePinHold(_ view: SidebarRowView) {
-        view.layer?.zPosition = 0
-        recycle(view)
     }
 
     /// `view`'s frame in the list's coordinates where the screen shows it now: its model frame moved by what the
@@ -196,27 +185,30 @@ extension SidebarListViewComponents {
     /// (`MotionPath`, exact at `now` with no commit needed); a layer with an animation the path cannot read falls back
     /// to its presentation.
     func drawnFrame(of view: NSView, now: CFTimeInterval = CACurrentMediaTime()) -> NSRect {
-        var frame = convert(view.bounds, from: view)
+        drawnPath(of: view, now: now).frame(at: now)
+    }
+
+    /// `view`'s drawn frame in the list as a path over time: its model frame and each layer's running animations up to
+    /// the list, read once (`drawnFrame` evaluates it now; a flight evaluates it at its begin).
+    func drawnPath(of view: NSView, now: CFTimeInterval = CACurrentMediaTime()) -> SidebarPinFlightSource {
+        var source = SidebarPinFlightSource(base: convert(view.bounds, from: view), positions: [], size: nil, pen: nil)
         var current: NSView? = view
         while let node = current, node !== self {
             if let layer = node.layer {
                 let position = MotionPath(layer, "position", now: now)
                 if position.isExact {
-                    let shown = position.value(at: now)
-                    frame.origin.x += shown.x - layer.position.x
-                    frame.origin.y += shown.y - layer.position.y
+                    source.positions.append((position, .zero))
                 } else if let shown = layer.presentation() {
-                    frame.origin.x += shown.frame.minX - layer.frame.minX
-                    frame.origin.y += shown.frame.minY - layer.frame.minY
+                    source.positions.append((nil, CGPoint(x: shown.frame.minX - layer.frame.minX, y: shown.frame.minY - layer.frame.minY)))
                 }
                 if node === view {
                     let size = MotionPath(layer, "bounds.size", now: now)
-                    if size.isExact { frame.size = CGSize(width: size.value(at: now).x, height: size.value(at: now).y) }
+                    if size.isExact { source.size = size }
                 }
             }
             current = node.superview
         }
-        return frame
+        return source
     }
 
     /// The pins' arriving items: each block item that now draws a pinned workspace with a source starts on that source.
@@ -227,29 +219,38 @@ extension SidebarListViewComponents {
             guard let block = rowViews.values.first(where: { ($0 as? SidebarBlockRowView)?.region.itemView(workspace: id) != nil })
                     as? SidebarBlockRowView,
                   let item = block.region.itemView(workspace: id), let container = item.superview else { continue }
-            // The block moves on the same spring from where it is drawn now: the item's start is the source less that.
-            let blockShown = drawnFrame(of: block)
-            let inBlock = source.frame.offsetBy(dx: -blockShown.minX, dy: -blockShown.minY)
-            let start = container.convert(inBlock, from: block)
+            // The block moves on the same spring from where it is drawn at the begin (its move is added first): the
+            // item's start is the source less that, both at the begin.
+            let start: @MainActor (CFTimeInterval) -> NSRect = { [weak self] time in
+                guard let self else { return source.frame(at: time) }
+                let blockShown = drawnFrame(of: block, now: time)
+                let inBlock = source.frame(at: time).offsetBy(dx: -blockShown.minX, dy: -blockShown.minY)
+                return container.convert(inBlock, from: block)
+            }
             block.clipsToBounds = false
             raiseForFlight(block)
-            flights.append(SidebarPinFlight(view: item, start: start, title: titleOffset(of: item, from: source)))
+            let ground = raiseForFlight(item)
+            flights.append(SidebarPinFlight(view: item, start: start, title: titleOffset(of: item, from: source), glyph: item.pinGlyph,
+                                            ground: ground))
         }
         for region in blockRegions { region.flyingWorkspaces = [] }
         return flights
     }
 
-    /// An unpin's arriving list row: it starts on the item's drawn frame, opaque and unclipped; the rows' move carries it
-    /// to its slot. Returns its flight (the title's offset).
-    func unpinFlight(_ view: SidebarRowView, from source: SidebarPinFlightSource) -> SidebarPinFlight {
+    /// An unpin's arriving list row: it is laid out on its slot, opaque and unclipped, and flies there from the item's
+    /// frame drawn at the move's begin. Returns its flight.
+    func unpinFlight(_ view: SidebarRowView, to target: NSRect, from source: SidebarPinFlightSource) -> SidebarPinFlight {
         Motion.withoutAnimation {
-            view.frame = source.frame
+            view.frame = target
             view.alphaValue = 1
             view.clipsToBounds = false
             view.layoutSubtreeIfNeeded()
         }
-        raiseForFlight(view)
-        return SidebarPinFlight(view: view, start: nil, title: titleOffset(of: view, from: source))
+        let ground = raiseForFlight(view)
+        let start: @MainActor (CFTimeInterval) -> NSRect = { [weak self] time in
+            self?.convert(source.frame(at: time), to: view.superview) ?? source.frame(at: time)
+        }
+        return SidebarPinFlight(view: view, start: start, title: titleOffset(of: view, from: source), ground: ground)
     }
 
     /// How far `view`'s title must start from its own place so it draws on the leaving view's title: `view` starts on
@@ -258,8 +259,8 @@ extension SidebarListViewComponents {
     private func titleOffset(of view: NSView, from source: SidebarPinFlightSource) -> (view: NSView, offset: CGPoint)? {
         guard let sourcePen = source.pen, let titled = view as? any SidebarRenameTitle, let pen = titled.titlePenOrigin?.pointValue,
               let title = Self.flightTitle(of: view) else { return nil }
-        let startPen = CGPoint(x: source.frame.minX + pen.x, y: source.frame.minY + pen.y)
-        let offset = CGPoint(x: sourcePen.x - startPen.x, y: sourcePen.y - startPen.y)
+        // Both pens sit on the same start frame, so the offset is the difference of their places in their views.
+        let offset = CGPoint(x: sourcePen.x - pen.x, y: sourcePen.y - pen.y)
         guard abs(offset.x) > 0.25 || abs(offset.y) > 0.25 else { return nil }
         return (title, offset)
     }
@@ -272,16 +273,34 @@ extension SidebarListViewComponents {
     }
 
     /// Draws `view` above the rows it crosses while it flies (z position, not a re-add: re-adding a view delays its
-    /// first frames, cx-ai79). The move's end puts it back (`landFlights`).
-    private func raiseForFlight(_ view: NSView) {
+    /// first frames, cx-ai79). A flying row or item is opaque, on the sidebar's own ground: a title it passes never
+    /// shows through it (p1 films 31fec6d8: the titles printed over each other). The move's end puts it back
+    /// (`landFlights`).
+    @discardableResult
+    private func raiseForFlight(_ view: NSView) -> SidebarFlightGround? {
         view.layer?.zPosition = 1
+        guard view is SidebarItemRowView || view is WorkspaceRowView, let layer = view.layer else { return nil }
+        let before = SidebarFlightGround(color: layer.backgroundColor, cornerRadius: layer.cornerRadius)
+        var ground: CGColor?
+        view.effectiveAppearance.performAsCurrentDrawingAppearance { ground = Palette.sidebarBackground.withAlphaComponent(1).cgColor }
+        Motion.withoutAnimation {
+            layer.backgroundColor = ground
+            layer.cornerRadius = SidebarStyle.rowCornerRadius
+        }
+        return before
     }
 
-    /// The flights' views draw at their places in the stack again once the move ended.
+    /// The flights' views draw at their places in the stack again once the move ended, on no ground of their own.
     static func landFlights(_ flights: [SidebarPinFlight]) {
         for flight in flights {
             flight.view.layer?.zPosition = 0
             if let block = flight.view.enclosingRow { block.layer?.zPosition = 0 }
+            if let ground = flight.ground {
+                Motion.withoutAnimation {
+                    flight.view.layer?.backgroundColor = ground.color
+                    flight.view.layer?.cornerRadius = ground.cornerRadius
+                }
+            }
         }
     }
 }

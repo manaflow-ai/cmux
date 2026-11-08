@@ -84,6 +84,8 @@ class SidebarItemRowView: NSView {
         }
     }
     private let pin = DecorativeImageView() // a pinned row's leading pin; Pinned's header names it
+    /// The leading pin glyph (a pin's flight fades it in on the move, `SidebarPinFlight`); nil when the item draws none.
+    var pinGlyph: NSView? { pin.isHidden || pin.image == nil ? nil : pin }
     /// The leading icon column's box of the row's first glyph (the pin on a pinned row, else its own icon), in row
     /// coordinates; `.zero` for a text-only row or a look without a leading column (tests).
     private(set) var leadingColumnFrame: CGRect = .zero

@@ -58,10 +58,6 @@ final class SidebarListView: NSView {
     /// slot, the source closed) until the model or the blocks change, so the drop settles with no fly-back
     /// and no pop when the move lands; a refusal lets it go and the rows spring back.
     var settling: SidebarSettlingDrop?
-    /// List rows a pin took out of the list before the Pinned block draws the workspace (the rows and the blocks reach
-    /// the list in separate updates): each stays where it is drawn until the block's item takes over its frame
-    /// (`SidebarListView+PinFlight`).
-    var pinHolds: [WorkspaceID: SidebarRowView] = [:]
     /// The drag whose look the list shows: the running one, else the settling one.
     var shownDrag: Drag? { drag ?? settling?.drag }
     /// The drag whose card is flying to its slot (the motion probe's card after the settle ended).

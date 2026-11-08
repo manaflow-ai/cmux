@@ -174,10 +174,11 @@ extension SidebarViewComponents {
         // A selected top item (a workspace's tile, a band item) repaints only itself and the one before it;
         // before any reload below, so a block it configures draws the new selection.
         if lastState?.selected != state.selected || lastState?.selection != state.selection { showActiveTopItem() }
-        // A document change (a drop) moves the list's rows and its blocks together: the blocks update now, not at
-        // the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed the
-        // stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off).
-        if listChanged, profilesChanged, !profileChanged, model.docDrag != nil, list.settling != nil || list.landing != nil { updateBands(reloadsList: false) }
+        // A document change (a drop, a pin, an unpin) moves the list's rows and its blocks together: the blocks update
+        // now, not at the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed
+        // the stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off; a
+        // pin's row closed one apply before its Pinned item came, a pass later: the p1 films' 20 ms split, cx-odqn).
+        if listChanged, profilesChanged, !profileChanged, model.docDrag != nil { updateBands(reloadsList: false) }
         if listChanged {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
