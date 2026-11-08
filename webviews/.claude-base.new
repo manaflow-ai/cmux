@@ -1,0 +1,4 @@
+src/agent-session/acpmux/conversation/TurnEndFold.gallery.tsx
+src/agent-session/acpmux/conversation/turnEndFold.test.ts
+src/agent-session/acpmux/conversation/turnEndFold.ts
+test/turn-end-fold-browser.test.ts

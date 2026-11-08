@@ -1994,7 +1994,7 @@ function withoutDrafts(row: AcpmuxRow): AcpmuxRow[] {
 /// is doing now ("Thinking" before any output, the call in flight) and the turn's time, which ticks
 /// until the turn ends, so the bottom of a running chat always moves. It keeps one id from the
 /// Thinking line the prompt opened (LIVE_THINKING), so its row never leaves and comes back. Each
-/// finished run of calls folds into its summary line as it will once the turn ends (``codexLiveTurn``).
+/// finished run of calls stays in sight until the turn ends (``codexRuns``).
 /// The client's empty "typing" placeholder gives way to it.
 /// With `sessionStatus` and a todo list, the list sits under the work and the activity line under
 /// it takes the status's place (cx-ncc.102, Claude Code desktop's in-session status).
@@ -2049,7 +2049,7 @@ function shapeLiveTurn(
   const named = last ? lineCall(drawn, last) : undefined;
   // While the turn streams nothing folds or regroups: each run keeps its calls in sight and a short
   // note between two runs stays its own row, so no row leaves while the turn is live. The turn's end
-  // folds it all once, under its "Worked for" (turnEndFold.ts plays that), as Leo asked (2026-11-08:
+  // shapes it once, as its family's finished turn (turnEndFold.ts plays that), as Leo asked (2026-11-08:
   // "while you're working on stuff, you expose it. You show it ... and you only do the overarching
   // fold at the very end").
   const rows = codexRuns(drawn, named?.tool.id);
@@ -2359,7 +2359,7 @@ const OPEN_RUN_STATES = 2;
 
 /// A running turn's runs: each keeps its calls in sight, in their groups (`foldRun: false`, open),
 /// the latest one too as its calls finish; nothing folds into a summary line until the turn ends,
-/// when its "Worked for" takes the work in one fold (Leo, 2026-11-08: "you only do the overarching
+/// when its family's finished turn takes the work in one fold (Leo, 2026-11-08: "you only do the overarching
 /// fold at the very end ... you know what the target line height will be"). The call in flight and
 /// a thought still coming are not in the run: the turn's live line names them (WorkingFor.tsx
 /// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
@@ -2371,11 +2371,10 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
   return rows.flatMap((row, index) => {
     if (row.kind !== "activity") return [row];
-    // A run that edited folds too, its edits named on the line ("Edited 2 files, read 3 files, ran a
-    // command"), as the Codex app collapses a run (Leo 2026-10-22: "this is pretty good ui: … the
-    // collapsing i mean"); the turn's edited-files card lists them when it ends. One with a file
-    // change still waiting for its permission stays as it is, so the change it asks about stays in
-    // sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx `staysInSight`).
+    // A run that edited is shaped as the others; the turn's edited-files card lists its edits when
+    // it ends. One with a file change still waiting for its permission stays as it is, so the change
+    // it asks about stays in sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx
+    // `staysInSight`).
     if (
       (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
     )
