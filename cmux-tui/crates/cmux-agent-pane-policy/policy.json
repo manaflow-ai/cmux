@@ -69,7 +69,7 @@
   "known_params": {
     "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities"], "acpmux": []},
     "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model"]},
-    "chat.fix_from_link": {"params": ["url", "cwd"], "acpmux": []},
+    "chat.fix_from_link": {"params": ["url", "cwd", "harness", "model"], "acpmux": []},
     "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]},
     "session/set_model": {"params": ["sessionId", "modelId"], "acpmux": []},
     "session/cancel": {"params": ["sessionId"], "acpmux": []},

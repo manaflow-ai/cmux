@@ -7726,8 +7726,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             await persistSession(started);
             return started;
           },
-          "chat.fix_from_link": async ({ url, cwd }) => {
-            const sessionId = await client.fixFromLink(String(url ?? ""), typeof cwd === "string" ? cwd : undefined);
+          "chat.fix_from_link": async ({ url, cwd, harness, model }) => {
+            const sessionId = await client.fixFromLink(
+              String(url ?? ""),
+              typeof cwd === "string" ? cwd : undefined,
+              typeof harness === "string" ? harness : undefined,
+              typeof model === "string" ? model : undefined,
+            );
             await persistSession(sessionId);
             return { sessionId };
           },

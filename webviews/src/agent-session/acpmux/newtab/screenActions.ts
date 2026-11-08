@@ -125,21 +125,24 @@ export function newTabScreenActions(deps: {
         } else start(deps.chatCwd);
       });
     },
-    onFixFromLink: (url, selectedCwd) => {
+    onFixFromLink: (url, selectedCwd, harness, model) => {
       deps.clearError?.();
-      ignore(
-        callNative("chat.fix_from_link", { url, ...((selectedCwd ?? cwd) ? { cwd: selectedCwd ?? cwd } : {}) })
-          .then((result) => {
-            const sessionId =
-              result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"
-                ? (result as { sessionId: string }).sessionId
-                : undefined;
-            // l10n-allow: internal transport shape failure; the user sees the host error surface.
-            if (!sessionId) throw new Error("fix-from-link did not return a session");
-            deps.selectSession(sessionId);
-          })
-          .catch((error) => deps.showError?.(error)),
-      );
+      return callNative("chat.fix_from_link", {
+        url,
+        ...((selectedCwd ?? cwd) ? { cwd: selectedCwd ?? cwd } : {}),
+        ...(harness ? { harness } : {}),
+        ...(model ? { model } : {}),
+      })
+        .then((result) => {
+          const sessionId =
+            result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"
+              ? (result as { sessionId: string }).sessionId
+              : undefined;
+          // l10n-allow: internal transport shape failure; the user sees the host error surface.
+          if (!sessionId) throw new Error("fix-from-link did not return a session");
+          deps.selectSession(sessionId);
+        })
+        .catch((error) => deps.showError?.(error));
     },
     savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {

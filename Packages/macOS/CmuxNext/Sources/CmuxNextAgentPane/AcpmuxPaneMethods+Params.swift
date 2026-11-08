@@ -14,7 +14,7 @@ nonisolated extension AcpmuxPaneMethods {
         // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
         // each as it checks `cwd`.
         "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
-        "chat.fix_from_link": (["url", "cwd"], []),
+        "chat.fix_from_link": (["url", "cwd", "harness", "model"], []),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
         // agent and keeps it out of the transcript text. `surface`: the place a prompt was typed
         // (labs.previewFeatures; acpmux hub/composers.rs, cmuxterm-hq#2580). No `provenance`: a reply

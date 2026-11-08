@@ -45,3 +45,27 @@ test("fix-from-link sends the project picked on the page", async () => {
 
   expect(params).toEqual({ url: "https://github.com/acme/widget/issues/13", cwd: "/tmp/picked-checkout" });
 });
+
+test("fix-from-link carries the selected harness and model", async () => {
+  let params: Record<string, unknown> | undefined;
+  const actions = newTabScreenActions({
+    callNative: async (_method, next) => {
+      params = next;
+      return { sessionId: "session-fix-picked-agent" };
+    },
+    cwd: "/tmp/widget",
+    leave: () => {},
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+  });
+
+  await actions.onFixFromLink?.("https://github.com/acme/widget/issues/14", "/tmp/widget", "codex", "gpt-6-astra");
+
+  expect(params).toEqual({
+    url: "https://github.com/acme/widget/issues/14",
+    cwd: "/tmp/widget",
+    harness: "codex",
+    model: "gpt-6-astra",
+  });
+});

@@ -191,10 +191,10 @@ fn valid_segment(value: &str) -> bool {
 
 async fn fetch_issue(issue: &GithubIssueLink, cwd: Option<&str>) -> Result<IssueContext, RpcError> {
     let endpoint = format!("repos/{}/{}/issues/{}", issue.owner, issue.repo, issue.number);
-    let issue_json = gh_api(&endpoint, cwd).await?;
-    let comments_json = gh_api(&format!("{endpoint}/comments?per_page=20"), cwd)
-        .await
-        .unwrap_or_else(|_| json!([]));
+    let comments_endpoint = format!("{endpoint}/comments?per_page=20");
+    let (issue_result, comments_result) = tokio::join!(gh_api(&endpoint, cwd), gh_api(&comments_endpoint, cwd));
+    let issue_json = issue_result?;
+    let comments_json = comments_result.unwrap_or_else(|_| json!([]));
     let title =
         issue_json.get("title").and_then(Value::as_str).unwrap_or("GitHub issue").trim().to_owned();
     let body = issue_json.get("body").and_then(Value::as_str).unwrap_or("").trim().to_owned();
@@ -217,6 +217,7 @@ async fn fetch_issue(issue: &GithubIssueLink, cwd: Option<&str>) -> Result<Issue
 
 async fn gh_api(endpoint: &str, cwd: Option<&str>) -> Result<Value, RpcError> {
     let mut command = Command::new("gh");
+    command.kill_on_drop(true);
     command.args(["api", endpoint]);
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
@@ -358,7 +359,7 @@ fn issue_prompt(issue: &GithubIssueLink, context: &IssueContext) -> String {
         prompt.push_str("\n\n");
     }
     if !context.comments.is_empty() {
-        prompt.push_str("Top comments:\n");
+        prompt.push_str("Issue comments:\n");
         for comment in &context.comments {
             prompt.push_str("- ");
             prompt.push_str(comment);
