@@ -142,6 +142,8 @@ extension WebCardPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         setAccessibilityIdentifier("cmux.joinConsentAsk")
         ordersFrontRegardless = true
+        // Only Deny, Allow or the model closes the ask: Escape never hides it, even before the page listens.
+        cancelHides = false
         place = { size, _, _ in Self.joinConsentPlacement(size: size, in: (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame) }
     }
 

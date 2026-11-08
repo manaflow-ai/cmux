@@ -201,9 +201,14 @@ import Testing
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 875)
         #expect(WebCardPanel.joinConsentPlacement(size: CGSize(width: 380, height: 180), in: visible)
             == NSRect(x: 1440 - 380 - 16, y: 875 - 180 - 16, width: 380, height: 180))
+        #expect(!panel.cancelHides)
+        let shown = panel.isVisible
+        #expect(shown, "the ask shows once the page reports its size")
+        // No page listens in the test (its scratch page has no script): the panel's own policy holds.
         panel.cancelOperation(nil)
         await ask.settle()
         #expect(ask.model.ask != nil && ask.fake.writes.isEmpty, "Escape denies nothing")
+        #expect(panel.isVisible == shown, "Escape never hides the ask, even with no page listening")
     }
 
     /// SECURITY (cmux#37286): the card page lays out the ask around the native Allow, so it runs only

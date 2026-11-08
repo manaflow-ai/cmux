@@ -27,6 +27,22 @@ struct PageDevServerTests {
         #expect(PageDevServer.pageIDs.isDisjoint(with: PageDevServer.bundledOnlyPageIDs))
     }
 
+    /// SECURITY (cmux#37286): a bundled-only page takes no DEBUG root override
+    /// (`CMUX_NEXT_PAGE_ROOT_<id>`), so it is served only from the app's bundle; another first-party page still does.
+    @Test func aBundledOnlyPageTakesNoDebugRootOverride() {
+        for id in PageDevServer.bundledOnlyPageIDs {
+            let page = PageDescriptor(id: id, resource: String(id.dropFirst("cmux.".count)), namespaces: [])
+            let environment = ["CMUX_NEXT_PAGE_ROOT_" + id.replacingOccurrences(of: ".", with: "_"): "/tmp/forged-page"]
+            #expect(PageWebView.debugRoot(for: page, environment: environment) == nil, "\(id)")
+            #expect(!PageWebView.mayServe(page, from: URL(fileURLWithPath: "/tmp/forged-page", isDirectory: true)), "\(id)")
+        }
+        #if DEBUG
+        let history = PageDescriptor(id: "cmux.history", resource: "history", namespaces: [])
+        #expect(PageWebView.debugRoot(for: history, environment: ["CMUX_NEXT_PAGE_ROOT_cmux_history": "/tmp/dev-history"])?.path
+            == "/tmp/dev-history", "the dev loop's override still works for other pages")
+        #endif
+    }
+
     /// SECURITY (cmux#37286): a bundled-only page gets no server URL, whatever the request.
     @Test func neverServesABundledOnlyPage() throws {
         let server = PageDevServer(root: try #require(URL(string: "http://127.0.0.1:4190/")))

@@ -68,8 +68,9 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     ]
 
     /// Pages of `webviews/src/pages` the server never serves: they always load the app's bundled
-    /// files. SECURITY: the server cards' Allow and Confirm trust their page's DOM (cmux#37286), so no
-    /// `web-dev.json` or launch variable may swap in other script.
+    /// files. SECURITY: the server cards' page lays out the native Allow and Confirm and says what they
+    /// grant (cmux#37286), so no `web-dev.json`, launch variable or DEBUG root override
+    /// (``PageWebView/debugRoot(for:environment:)``) may swap in other script.
     static let bundledOnlyPageIDs: Set<String> = ["cmux.server-cards"]
 
     /// The agent chat's page host (`cmux.agent`), which the server serves at `/agent-pane/` (the

@@ -65,6 +65,9 @@ public final class WebCardPanel: NSPanel {
     /// Orders in over every app without activating cmux or taking the keys (an ask that shows while
     /// another app is in front), in place of ``WindowActivation``'s plan.
     public var ordersFrontRegardless = false
+    /// Whether Escape with no page listening hides the card. Off for a card only its owner closes
+    /// (the join consent ask): Escape then does nothing until the page hears it.
+    public var cancelHides = true
     /// The last size each card's page reported, in points.
     private var sizes: [String: NSSize] = [:]
     /// An opening waiting for its card's first size: where and how it shows.
@@ -266,7 +269,7 @@ public final class WebCardPanel: NSPanel {
 
     /// Escape outside the page: the card runs its own Cancel; with no page listening, the panel hides.
     override public func cancelOperation(_ sender: Any?) {
-        if !host.send(["command": "cancel"]) { orderOut(nil) }
+        if !host.send(["command": "cancel"]), cancelHides { orderOut(nil) }
     }
 
     /// Closing the card any other way closes its provider's session too.
