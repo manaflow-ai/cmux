@@ -50,17 +50,20 @@ struct Rules {
     homes: Regex,
 }
 
-fn compile(pattern: &str) -> Regex {
-    // Every rule is a constant above or an escaped home path; the tests compile them all.
-    Regex::new(pattern).expect("crash_scrub rule compiles")
+fn compile(pattern: &str) -> Option<Regex> {
+    Regex::new(pattern).ok()
 }
 
-static RULES: LazyLock<Rules> = LazyLock::new(|| Rules {
-    url_userinfo: compile(r"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s]+@"),
-    secrets: SECRET_RULES.iter().copied().map(compile).collect(),
-    email: compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"),
-    users: compile(r#"(?i)/Users/[^/\s"']+"#),
-    homes: compile(r#"(?i)/home/[^/\s"']+"#),
+/// Every rule, or `None` when one does not compile; `scrub` then keeps nothing of the text (it
+/// fails closed). Every rule is a constant above, and `every_rule_compiles` checks them.
+static RULES: LazyLock<Option<Rules>> = LazyLock::new(|| {
+    Some(Rules {
+        url_userinfo: compile(r"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s]+@")?,
+        secrets: SECRET_RULES.iter().copied().map(compile).collect::<Option<_>>()?,
+        email: compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")?,
+        users: compile(r#"(?i)/Users/[^/\s"']+"#)?,
+        homes: compile(r#"(?i)/home/[^/\s"']+"#)?,
+    })
 });
 
 /// Keeps group 1 (a field prefix such as `token=`) and replaces the rest of the match with `with`.
@@ -71,7 +74,9 @@ fn keep_prefix<'t>(with: &'t str) -> impl FnMut(&Captures<'_>) -> String + 't {
 /// `text` with secrets, emails and user names removed; `home` becomes `~`, unless it is `/`,
 /// `/Users` or `/home`.
 pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
-    let rules = &*RULES;
+    let Some(rules) = RULES.as_ref() else {
+        return USER.to_string();
+    };
     let mut out = rules.url_userinfo.replace_all(text, keep_prefix(URL_SECRET)).into_owned();
     for rule in &rules.secrets {
         out = rule.replace_all(&out, keep_prefix(SECRET)).into_owned();
@@ -84,7 +89,9 @@ pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
     };
     if let Some(home) = home.filter(|home| !users_dir(home)) {
         // Only a whole path component: with `/Users/al`, `/Users/alice` must not become `~ice`.
-        let bounded = compile(&format!(r#"(?i){}([/\s"']|$)"#, regex::escape(home)));
+        let Some(bounded) = compile(&format!(r#"(?i){}([/\s"']|$)"#, regex::escape(home))) else {
+            return USER.to_string();
+        };
         out = bounded.replace_all(&out, "~$1").into_owned();
     }
     out = rules.users.replace_all(&out, format!("/Users/{USER}")).into_owned();
@@ -93,7 +100,13 @@ pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::scrub;
+    use super::{RULES, SECRET_RULES, scrub};
+
+    #[test]
+    fn every_rule_compiles() {
+        let rules = RULES.as_ref().map(|rules| rules.secrets.len());
+        assert_eq!(rules, Some(SECRET_RULES.len()));
+    }
 
     #[test]
     fn keeps_field_prefixes_and_ordinary_text() {
