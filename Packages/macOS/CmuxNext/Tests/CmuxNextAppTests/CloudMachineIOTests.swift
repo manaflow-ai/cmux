@@ -57,6 +57,19 @@ struct CloudMachineIOTests {
         #expect(fake.seen.isEmpty)
     }
 
+    @Test func aWriteTooLargeForTheDaemonStillGoesOnStdinFirst() async throws {
+        let (binary, folder) = try fakeCLI(printing: #"{"route":"direct","status":200,"code":null,"body":{"ok":true}}"#)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let api = client(binary, folder)
+        let big = Data(repeating: 9, count: 4 << 20)
+        #expect(big.base64EncodedString().utf8.count > CloudAPIClient.daemonWriteLimit)
+        // The fake CLI answers 200; the direct route (standin.invalid) would throw, so success is stdin's.
+        try await api.writeFile("vm_abcdefghij0123456789", path: "/big", data: big)
+        let request = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent("stdin"))) as? [String: Any])
+        #expect(request["data_base64"] as? String == big.base64EncodedString())
+        #expect(fake.seen.isEmpty)
+    }
+
     @Test func aRefusalThrowsWhatTheRouteWouldHave() async throws {
         let line = #"{"route":"proxy","status":404,"code":"vm_file_not_found","body":{"ok":false,"error":{"code":"vm_file_not_found","message":"no such file: /a"}}}"#
         let (binary, folder) = try fakeCLI(printing: line)

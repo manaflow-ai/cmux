@@ -94,7 +94,11 @@ extension CloudAPIClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await fileRoute.data(for: request)
+            // An absolute bound: the request's own timeout restarts while bytes still flow.
+            let session = fileRoute, prepared = request
+            (data, response) = try await withDeadline(.seconds(120), label: "POST \(route)") { try await session.data(for: prepared) }
+        } catch is DeadlineExceeded {
+            throw CloudAPIError.timedOut(route)
         } catch let error as URLError where error.code == .timedOut {
             throw CloudAPIError.timedOut(route)
         } catch let error as URLError where backendIsLocalOnly && error.code == .cannotConnectToHost {
@@ -127,7 +131,8 @@ extension CloudAPIClient {
     /// One exec or file operation: through ``machineIO`` on a Worker machines client that has one,
     /// decoded exactly as the route's own answer (a refusal throws what the route's would), else
     /// (a classic client, no cmux-tui, or one that gave no answer) the daemon's `machine.io`.
-    /// `route`: the call too large for the daemon, sent in its place.
+    /// `route`: a call too large for the daemon, sent in its place when cmux-tui can't take it
+    /// (a classic client, no cmux-tui, or one that gave no answer); cmux-tui is always tried first.
     private func machine<T: Decodable>(_ op: String, _ id: String, _ fields: [String: JSONValue], timeout: Duration,
                                        as type: T.Type, route: (@Sendable () async throws -> T)? = nil) async throws -> T {
         var args = fields
@@ -135,7 +140,7 @@ extension CloudAPIClient {
         args["machine"] = .string(id)
         // A Worker machine's call through the daemon takes the cmux API's own route, as it did when
         // the app sent it itself: the daemon keeps no client session between calls.
-        let viaDaemon = { [self] () async throws -> T in
+        let fallback = { [self] () async throws -> T in
             if let route { return try await route() }
             var sent = args
             if !sendsStackSession { sent["route"] = .string("proxy") }
@@ -145,7 +150,7 @@ extension CloudAPIClient {
             }
             return try await call("machine.io", sent, timeout: timeout, as: T.self)
         }
-        guard let machineIO, !sendsStackSession else { return try await viaDaemon() }
+        guard let machineIO, !sendsStackSession else { return try await fallback() }
         let credentials = try await credentials()
         var request: [String: any Sendable] = args.compactMapValues(\.machineIOValue)
         request["api"] = baseURL.absoluteString
@@ -160,7 +165,7 @@ extension CloudAPIClient {
             // Only what cannot have changed the machine goes again, through the cmux API's route:
             // a call cmux never took, or a read. An exec or a change that may have run is reported,
             // never made twice.
-            guard noAnswer.dispatched, !["dir", "read", "stat"].contains(op) else { return try await viaDaemon() }
+            guard noAnswer.dispatched, !["dir", "read", "stat"].contains(op) else { return try await fallback() }
             throw CloudAPIError.transport("cmux did not answer; the \(op) may have run")
         }
         let path = "/v1/cloud/machines/\(id)/\(op == "exec" ? "exec" : "fs/\(op)")"
