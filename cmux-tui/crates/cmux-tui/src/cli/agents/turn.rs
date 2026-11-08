@@ -90,26 +90,28 @@ pub(in crate::cli) fn last_turn(items: &[Value], baseline: u64) -> Option<Ended>
         item.get("role").and_then(Value::as_str).unwrap_or_default()
     }
     let end = items.iter().rposition(|item| role(item) == "turn_end")?;
-    let seq = items[end].get("id").and_then(Value::as_u64).unwrap_or(0);
+    let (before, rest) = items.split_at(end);
+    let turn_end = rest.first()?;
+    let seq = turn_end.get("id").and_then(Value::as_u64).unwrap_or(0);
     if seq <= baseline {
         return None;
     }
     // The turn's own items: after the prompt that started it (a steer is inside the turn).
-    let prompt = items[..end]
+    let prompt = before
         .iter()
         .rposition(|item| role(item) == "user" && item.get("steer") != Some(&json!(true)));
     // A send's turn has a message of the turn after the send: the prompt that started it, or the
     // send steered into a running turn.
-    let newest_message = items[..end].iter().rev().find(|item| role(item) == "user");
+    let newest_message = before.iter().rev().find(|item| role(item) == "user");
     let message_seq = newest_message.and_then(|item| item.get("id")).and_then(Value::as_u64);
     if baseline > 0 && message_seq.is_none_or(|message| message <= baseline) {
         return None;
     }
-    let start = prompt.map_or(0, |index| index + 1);
-    let answer = items[start..end].iter().rev().find(|item| role(item) == "assistant");
+    let turn = before.get(prompt.map_or(0, |index| index.saturating_add(1))..).unwrap_or_default();
+    let answer = turn.iter().rev().find(|item| role(item) == "assistant");
     Some(Ended {
         seq,
-        status: items[end].get("status").and_then(Value::as_str).unwrap_or("completed").to_owned(),
+        status: turn_end.get("status").and_then(Value::as_str).unwrap_or("completed").to_owned(),
         reply: answer.and_then(|item| item.get("text")).and_then(Value::as_str).map(str::to_owned),
     })
 }
