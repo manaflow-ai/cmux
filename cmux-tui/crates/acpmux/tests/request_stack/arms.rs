@@ -201,8 +201,17 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_BOOKMARK_GET, Run(json!({"sessionId": "$S"}))),
         (method::MUX_BOOKMARK_SET, Run(json!({"sessionId": "$S", "seq": 1, "bookmarked": false}))),
         (method::MUX_PROMPTS_LIST, Run(json!({}))),
-        (method::MUX_PROMPTS_SAVE, Run(json!({"name": "stack", "text": "on a small stack"}))),
-        (method::MUX_PROMPTS_DELETE, Run(json!({"name": "stack"}))),
+        (
+            method::MUX_PROMPTS_SAVE,
+            Any(
+                json!({"name": "stack", "text": "on a small stack"}),
+                "the person check refuses this connection",
+            ),
+        ),
+        (
+            method::MUX_PROMPTS_DELETE,
+            Any(json!({"name": "stack"}), "the person check refuses this connection"),
+        ),
         (method::MUX_ASK, Run(json!({"sessionId": "$S", "text": "what did you say?"}))),
         (
             method::MUX_BTW,
