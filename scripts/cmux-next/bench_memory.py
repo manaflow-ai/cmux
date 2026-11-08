@@ -313,10 +313,13 @@ class FakeChats:
         for attempt in range(5):
             added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
                             args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
-            # Just after launch the action can outrun its 2 s deadline while the app is still starting.
+            # The action answers "timeout" after 2 s while its work goes on (the harness is still added),
+            # most often just after launch: wait, then try again (it replaces the same id).
             if "timeout" not in str(added.get("code") or added.get("error") or ""):
                 break
-            time.sleep(3)  # test script: the app is still starting; try again (5 tries)
+            time.sleep(5)  # test script: the app is still starting; try again (5 tries)
+        else:
+            added = {}  # five timeouts: the work went on in the app; a missing harness fails `acp new` below
         if added.get("error") or added.get("code"):
             raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
         self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
