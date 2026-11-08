@@ -1132,3 +1132,31 @@ fn a_frame_after_a_glyph_aged_out_asks_for_a_redraw() {
     assert!(session.engine.presented_frame(session.clock));
     assert_eq!(session.drawn(), "");
 }
+
+#[test]
+fn output_after_a_contradicted_prediction_does_not_re_arm_by_matching_new_keys() {
+    // A wrong guess means the remote printed something nobody predicted, such
+    // as a prompt redraw, and more of it may follow. Until it settles, output
+    // that happens to match a key typed since proves nothing about echo, so it
+    // must not re-arm prediction for the key after it.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("q", ms(100));
+    session.remote_after("Z", ms(20));
+    for key in ["y", "z"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(80));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("w", ms(50));
+    assert!(
+        !session.drawn().contains('w'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}

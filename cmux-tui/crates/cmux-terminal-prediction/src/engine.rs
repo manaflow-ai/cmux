@@ -783,6 +783,10 @@ impl TerminalPredictionEngine {
             Keystroke::Glyph(expected) => expected,
         };
         if expected != byte {
+            // The remote printed something nobody predicted, such as a prompt
+            // redraw, and more of it may follow: until it settles, output that
+            // matches a key tracked since proves nothing about echo.
+            self.mark_opaque_echo(now);
             return self.withdraw_all(true, now, false);
         }
         self.record_echo_latency(now.saturating_sub(entry.typed_at));
@@ -835,7 +839,11 @@ impl TerminalPredictionEngine {
         match entry.keystroke {
             Keystroke::Barrier => self.resolve_barrier(now),
             Keystroke::Erase(_) => self.advance_erase(index, signal, now),
-            Keystroke::Glyph(_) => self.withdraw_all(true, now, false),
+            // A redraw nobody predicted, which may go on printing.
+            Keystroke::Glyph(_) => {
+                self.mark_opaque_echo(now);
+                self.withdraw_all(true, now, false)
+            }
         }
     }
 
