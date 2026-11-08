@@ -13,19 +13,19 @@ import Testing
 
     static func ref(_ id: String) -> SidebarDocWorkspaceRef { SidebarDocWorkspaceRef(sessionID: session, workspaceID: id) }
 
-    static func projection() -> SidebarDocProjection {
-        let records = SidebarDocRecords(sections: [
+    static func projection(withApp: Bool = true) -> SidebarDocProjection {
+        var sections: [String: SidebarDocSection] = [
             machine: SidebarDocSection(id: machine, kind: .machine(session: session)),
             // The daemon places an app section with its title shown (`Section::new`), so it lists a header row.
             app: SidebarDocSection(id: app, kind: .app(contribution: "local/customize#cmux.section/1"), showsTitle: true),
             emptyCustom: SidebarDocSection(id: emptyCustom, kind: .custom, title: "Later"),
-        ], items: [
+        ]
+        if !withApp { sections[app] = nil }
+        let records = SidebarDocRecords(sections: sections, items: [
             "itm_1": SidebarDocItem(id: "itm_1", section: machine, body: .workspace(ref("ws-1"))),
         ])
-        let rows = [
-            SidebarDocRow(key: "itm_1", kind: "item", section: machine, item: "itm_1", ref: ref("ws-1")),
-            SidebarDocRow(key: app, kind: "section", section: app),
-        ]
+        let rows = [SidebarDocRow(key: "itm_1", kind: "item", section: machine, item: "itm_1", ref: ref("ws-1"))]
+            + (withApp ? [SidebarDocRow(key: app, kind: "section", section: app)] : [])
         return SidebarDocProjection(rows: rows, records: records, revision: 1)
     }
 
@@ -47,5 +47,23 @@ import Testing
         let ids = arranged.map(\.id)
         #expect(ids.last == .custom(Self.app), "the app section draws after the machine list: \(ids)")
         #expect(!ids.contains(.custom(Self.emptyCustom)), "an empty item section after the list still draws nothing: \(ids)")
+    }
+
+    /// The document gains the app section (the daemon placed it) while the live rows stay the same: the rows'
+    /// pass (`SidebarRows.show(unlessShown:)`) skips a set while the arrangement is current, so a section with no
+    /// rows of its own never reached the list until a workspace changed.
+    @Test func aDocumentSectionAddedWithNoRowsMakesTheArrangementStale() {
+        let store = SidebarDocStore(remote: nil)
+        store.shown = Self.projection(withApp: false)
+        let model = SidebarModel()
+        model.docDrag = SidebarDocDrag(document: store, item: { _ in nil }, section: { id in id == .machine(.local) ? Self.machine : nil },
+                                       begin: { _ in [:] }, drop: { _, _ in })
+        model.setSections(Self.raw())
+        #expect(model.arrangementIsCurrent)
+        store.shown = Self.projection()
+        #expect(!model.arrangementIsCurrent, "the list still arranges the document without the app section")
+        model.setSections(Self.raw())
+        #expect(model.arrangementIsCurrent)
+        #expect(model.sections.map(\.id).last == .custom(Self.app))
     }
 }
