@@ -64,6 +64,14 @@ extension ScreenContentView {
         closingPanes = ClosingPanes()
     }
 
+    /// The screen's motion landed in this frame (or a frame found it at rest): as ``releaseClosing(until:)``, but no view
+    /// leaves the window in this turn. The hosts its closes retired hide, and they and the handles its changes ended
+    /// leave after the frame's commit (`LayoutViewContext.releaseLanded`).
+    func releaseLanded() {
+        context.releaseLanded(of: screenID, dividers: takeParkedDividers())
+        closingPanes = ClosingPanes()
+    }
+
     /// Places each closing host at its frame this frame (the strip's, its row column's and its scroll area's offsets as
     /// a live pane's), on the pixel grid; one whose host went (the motion landed) or came back is dropped. Returns the hosts
     /// placed, to clip as the live ones, and whether a frame changed. `strip`, `restStrip`: the strip's view shift now and

@@ -16,8 +16,8 @@ extension ScreenContentView {
         defer { if resizeGesture == .landing { finishResizeGestureIfLanded() } }
         guard hasMotion || reportScrollOnSettle else {
             scrollRidesFrames = false
-            // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
-            releaseClosing()
+            // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes after this frame.
+            releaseLanded()
             return false
         }
         let frameSpring = policy.spring(motionState.frameSpring)
@@ -48,8 +48,8 @@ extension ScreenContentView {
         // The key resize's spring landed (the hosts laid their content out at rest in this pass): the next motion
         // resizes content live again unless another key press holds it.
         if !moving { holdsContentForKeyResize = false }
-        // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
-        if !moving { releaseClosing() }
+        // The motion landed: the hosts a close retired hide in this frame and are torn down after its commit.
+        if !moving { releaseLanded() }
         return moving
     }
     /// The key's turn (T-KEYS 3, `LayoutRootView.keyboardResizeDidChange`): the press's first refresh is drawn ahead as

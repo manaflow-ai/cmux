@@ -18,8 +18,8 @@ struct PaneCloseKeyTurnKeepsViewsTests {
     typealias Rig = PaneGroundCoversPaneTests.Rig
 
     /// Closes `pane` (focused) in the key's turn, runs its first frame, then lands the motion. In the key turn and the
-    /// first frame no view leaves the screen, and every handle the close ended is hidden; when the motion lands, those
-    /// handles and the closing host are gone.
+    /// first frame no view leaves the screen, and every handle the close ended is hidden; once the landing frame
+    /// committed, those handles and the closing host are gone.
     static func check(_ layout: ScreenLayout, closing pane: PaneID, under: PaneID) throws {
         let rig = Rig(layout, focused: pane)
         defer { rig.close() }
@@ -36,6 +36,7 @@ struct PaneCloseKeyTurnKeepsViewsTests {
         var frames = 0
         while rig.frame(), frames < 1_200 { frames += 1 }
         try #require(frames < 1_200, "SETUP: the close's motion did not land")
+        rig.commit() // the landing frame committed: its views leave (PaneCloseLandingTurnKeepsViewsTests)
         #expect(host.superview == nil, "the landing kept the closing host of \(pane)")
         for (kind, handle) in ended {
             #expect(handle.superview == nil, "the landing kept the ended handle \(kind)")

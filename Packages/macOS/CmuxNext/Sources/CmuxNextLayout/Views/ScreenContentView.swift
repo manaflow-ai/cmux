@@ -511,21 +511,27 @@ final class ScreenContentView: NSView {
     }
 
     /// A handle whose split or edge left the layout hides in place (``DividerHandleView/park()``) and leaves the screen
-    /// when its motion lands (``releaseParkedDividers()``, from `releaseClosing`, with the hosts a close retired), not in
-    /// the change's turn: a view removal makes AppKit mark the window's layer tree, and the next display pass rebuilds it
-    /// (`-[NSView _buildLayerTree]` walks the whole window: 2.7 to 2.8 ms of a pane close's key cycle, CLOSE VARIANTS 7).
-    /// The landing frame tears the closing hosts down anyway, so the handles go in the same rebuild. With nothing moving
-    /// they go in the same turn, as before.
+    /// after its motion lands, with the hosts a close retired (``takeParkedDividers()``, from `releaseLanded`, after the
+    /// landing frame's commit), not in the change's turn: a view removal makes AppKit mark the window's layer tree, and
+    /// the next display pass rebuilds it (`-[NSView _buildLayerTree]` walks the whole window: 2.7 to 2.8 ms of a pane
+    /// close's key cycle, CLOSE VARIANTS 7). The closing hosts leave then too, so the handles go in the same rebuild. With
+    /// nothing moving they go in the same turn, as before (``releaseParkedDividers()``).
     func parkDivider(_ view: DividerHandleView) {
         view.park()
         parkedDividers[view.kind] = view
     }
 
-    /// The handles ``parkDivider(_:)`` hid leave the screen (its motion landed, or it settles at once).
+    /// The handles ``parkDivider(_:)`` hid leave the screen (it settles at once, or it goes).
     func releaseParkedDividers() {
-        guard !parkedDividers.isEmpty else { return }
-        for view in parkedDividers.values { view.removeFromSuperview() }
-        parkedDividers.removeAll()
+        for view in takeParkedDividers() { view.removeFromSuperview() }
+    }
+
+    /// The handles ``parkDivider(_:)`` hid, handed over to leave the screen (its motion landed: after that frame's
+    /// commit, `LayoutViewContext.releaseLanded`). A change after this makes a new handle for their split or edge.
+    func takeParkedDividers() -> [DividerHandleView] {
+        guard !parkedDividers.isEmpty else { return [] }
+        defer { parkedDividers.removeAll() }
+        return Array(parkedDividers.values)
     }
 
     fileprivate var firstDividerView: NSView? {

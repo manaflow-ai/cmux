@@ -38,7 +38,8 @@ import Testing
         await prepared.finish(false, false)
         #expect(app.cache.existingTerminal(tab) != nil, "the reply's release ran in the motion")
         app.settle()
-        app.committed.run()
+        app.committed.run() // the landing frame committed: the closed host leaves the window
+        app.committed.run() // the next commit: its content goes, and the releases held for it run
         await Self.drainMain()
         #expect(app.cache.existingTerminal(tab) == nil, "the closed terminal stayed after the landing")
     }
