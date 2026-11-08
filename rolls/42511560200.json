@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42511560200",
+  "recorded_at": "2026-11-08T18:53:06Z",
+  "reason": "cmux-tui cddccf234b75 changes the image's cmux-tui (pinned bc39a31d26b1)",
+  "dry_run": false,
+  "cmux_tui": "cddccf234b75614f1f3fe8ba43f7f0d04164d19d",
+  "fixes": [
+    {
+      "sha": "cddccf234b75614f1f3fe8ba43f7f0d04164d19d",
+      "mergedAt": "2026-11-08T10:30:29-08:00",
+      "subject": "acpmux: cost ledger across harnesses (_acpmux/ledger, acpmux ledger) (#38529)"
+    },
+    {
+      "sha": "4acd11c6396141ce247ea475a9d52778b6f707c0",
+      "mergedAt": "2026-11-08T10:28:37-08:00",
+      "subject": "cmux-tui roster: an agent's row ends when the screen shows its turn end or its exit, not only on a hook (#38417)"
+    },
+    {
+      "sha": "9d2c9bd4aaa96e54224de39532fed60f564c9574",
+      "mergedAt": "2026-11-08T10:23:59-08:00",
+      "subject": "Agent chat: relayed sender follow-ups (long names, whole queued text, newest-first hover, unverified marks, narrow chips) (#38642)"
+    },
+    {
+      "sha": "b2fa4cdaf18533ea36813b165cf0024506a677da",
+      "mergedAt": "2026-11-08T10:19:13-08:00",
+      "subject": "agent pane policy: admit _acpmux/memory_resolve (fixes the base red) (#38765)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T18:53:06Z",
+    "snapshot_id": "sh-b2269dfb8cc84d428863b2f2967751f0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42511560200): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6509107f3db0158e469ef6ec9a3575be3fcac935",
+    "image": "cloud-native-auto-cddccf23-42511560200-1",
+    "revision": "ci-42511560200-1",
+    "at": "2026-11-08T18:53:06Z"
+  },
+  "rolled_back": false
+}
