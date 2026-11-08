@@ -812,9 +812,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let (mesh_prompt, mesh_steer) = (prompt_id.clone(), steer);
             let sent = async move {
                 let client = before_deadline(deadline, &session, connect(true)).await?;
-                if announce {
+                if harness_agent {
                     let named = prompt_id.from_agent.as_deref();
-                    if let Some(shown) = crate::cli::sender::sending_as_on(&client, named).await {
+                    let sender = crate::cli::sender::sending_as_on(&client, named).await;
+                    // A Codex subagent is told by its thread, which only the daemon can compare
+                    // with the session's own (`cli/sender.rs` `codex_thread_in`).
+                    if let Some(sub) = &sender.subagent {
+                        prompt_id.subagent = Some(sub.to_value());
+                    }
+                    if announce && let Some(shown) = sender.shown {
                         eprintln!("sending as {shown}");
                     }
                 }

@@ -169,6 +169,12 @@ the person's prompt. What the receiver gets depends on who you are to it:
 - Every agent send prints `sending as NAME` on stderr. A Claude Code subagent
   sends as its lead's session, named `LEAD's TYPE subagent ID`: only the reply
   to its own `send --wait` reaches it, and `acpmux send LEAD` reaches the lead.
+  A Codex subagent is named `LEAD's codex subagent THREAD` (its own
+  `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line
+  says `LEAD (subagent identity not available for codex)`.
+- An agent keeps its proven identity across a daemon restart or update: the
+  daemon keeps digests of its caller tokens, so `no proven session` after a
+  restart is a bug, not a step to fix by hand.
 - An inbox notice ends with how to reply. Answer in your turn, with
   `inbox_reply`, or with `acpmux send NAME`; never with your harness's own
   SendMessage, which reaches no acpmux session.
