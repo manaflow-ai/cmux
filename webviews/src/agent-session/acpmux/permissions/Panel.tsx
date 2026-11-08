@@ -3,7 +3,7 @@ import { pathName } from "../chips/paths";
 import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
-import { toolIcon } from "../conversation/ToolRow";
+import { toolIcon } from "../conversation/toolRowModel";
 import { permissionDiffs, shellCommand } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
@@ -135,7 +135,7 @@ function AskRow({
           aria-controls={open ? detailsId : undefined}
           onClick={() => setOpen((value) => !value)}
         >
-          <ChevronRight size={12} strokeWidth={1.4} className={`acpmux-ask-chevron${open ? " is-open" : ""}`} />
+          <ChevronRight size={12} className={`acpmux-ask-chevron${open ? " is-open" : ""}`} />
           <span className="acpmux-ask-icon" aria-hidden="true">
             {toolIcon(ask.kind)}
           </span>

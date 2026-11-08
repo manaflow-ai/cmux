@@ -161,7 +161,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
 
       test("the Updated card's buttons still work on a click", async () => {
         const page = await open("updated");
-        await page.locator(".wn-card-primary").click();
+        await page.locator(".wn-card-link").click();
         await page.locator(".wn-card").hover();
         await page.locator(".wn-card-close").click();
         expect(await calls(page)).toEqual({ openChangelog: 1, dismiss: 1 });
@@ -170,8 +170,9 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         await page.close();
       });
 
-      // The top change wraps instead of being cut with an ellipsis (u4466, design #2 "Readable"), so
-      // it reads and selects whole; a short one keeps one line in a sidebar-wide card. The fixture's
+      // The top change keeps the card's one line (since Leo 2026-11-07 the card is the composer's
+      // one-line height; the hover preview has every change in full). A long one is cut at the
+      // card's edge, and a drag across it still selects it whole (u4466). The fixture's
       // own top change ("Sidebar: workspace groups at a glance") is about as wide as the card's
       // 220px text column at 12px, so whether it wraps depends on the font (it wraps in DejaVu Sans,
       // CI's fallback): these cases use a top change that clearly fits and one that clearly does not.
@@ -194,12 +195,12 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         await page.close();
       });
 
-      test("in a sidebar-wide card a top change too wide for one line wraps to two, never cut on one", async () => {
+      test("in a sidebar-wide card a top change too wide for one line keeps one line and selects whole", async () => {
         const page = await open("updated", 244, topChange("Workspace groups keep their pins across windows", "new"));
-        expect(await page.locator(".wn-card-note").innerText()).toContain("keep their pins across windows");
         const metrics = await noteLines(page);
-        expect(metrics.height).toBeGreaterThan(metrics.line * 1.5);
-        expect(metrics.height).toBeLessThan(metrics.line * 2.5 + 4);
+        expect(metrics.height).toBeLessThan(metrics.line * 1.5 + 4);
+        await page.locator(".wn-card-note").selectText();
+        expect(await selection(page)).toContain("keep their pins across windows");
         await page.close();
       });
 
@@ -209,7 +210,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         expect(await selection(page)).toContain("groups at a");
         await dragAcross(page, ".wn-pop-line");
         expect(await selection(page)).toContain("match the rows");
-        await dragAcross(page, ".wn-pop-from");
+        await dragAcross(page, ".wn-pop-span-from");
         expect(await selection(page)).toContain("3801702");
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
         await page.locator(".wn-pop-all").click();

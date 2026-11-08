@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
@@ -49,11 +50,90 @@ HUMAN_OK_LABEL = "risk:human-ok"
 # The earlier name for the same maintainer sign-off; still honored.
 WAIVED_LABEL = "risk:waived"
 # An independent review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness
-# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. A self-review doesn't
-# count, and the newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP. The same line
-# also counts anywhere in the description (outside <!-- comments -->), where it ranks below every comment.
+# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. This is the one copy of the
+# grammar and of when a receipt counts; defaults_guard.py imports it from here. It stays in this file because
+# risk-tier.yml runs from main and checks out only scripts/ci/risk_tier.py from the base (#36941 split it into a
+# module and every `risk evidence` run failed on the import). A self-review doesn't count. Every agent posts as the
+# pull request author's account, so a SHIP from that account counts only as
+#     Review (<reviewer agent id>, started by <agent id>): SHIP at <full head sha>
+# with an `Author-agent: <agent id>` line in the description and neither id that author agent (cmux-ad m25 item 7;
+# on #36311 the author agent's own subagent posted `Review (claude-review-subagent): SHIP at ...` from the author's
+# account). A receipt from another account keeps the older rule. A BLOCK always counts: an unverified receipt can
+# make a gate red, never green. The newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP.
+# The same line also counts anywhere in the description (outside <!-- comments -->), where it ranks below every
+# comment.
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
                      re.I)
+# "<reviewer agent id>, started by <agent id>": the last comma-separated part of the label names the starter.
+STARTED_BY = re.compile(r"^(?P<reviewer>.*\S)\s*,\s*started\s+by\s+(?P<starter>\S.*?)\s*$", re.I)
+# "Author-agent: <agent id>" on a line of its own, optionally as a list item, quote or bold label.
+AUTHOR_AGENT = re.compile(r"^[\s>*_`-]*author-agent[*_`]*\s*:[\s*_`]*(?P<id>[^\s*`]+)", re.I | re.M)
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+
+@dataclass(frozen=True)
+class Receipt:
+    verdict: str  # "ship" or "block" (BLOCK, FIX, NOT SHIP and HOLD all hold the head)
+    label: str  # the text inside the parentheses
+    reviewer: str | None  # the reviewer agent id, when the label says who started it
+    starter: str | None  # the agent that started the reviewer
+
+    @property
+    def who(self) -> str:
+        return f"review ({self.label})"
+
+
+def parse(line: str, head: str) -> Receipt | None:
+    """The receipt on `line` when it names the full `head` sha and its label does not say self, else None."""
+    match = RECEIPT.match(line or "")
+    if not head or not match or head not in line or "self" in match.group(1).lower():
+        return None
+    label = match.group(1).strip()
+    started = STARTED_BY.match(label)
+    return Receipt("ship" if match.group(2).lower() == "ship" else "block", label,
+                   started.group("reviewer").strip() if started else None,
+                   started.group("starter").strip() if started else None)
+
+
+def norm(agent: str | None) -> str:
+    return (agent or "").strip().strip("`*_").strip().lower()
+
+
+def author_agents(body: str | None) -> set[str]:
+    """Every `Author-agent: <id>` the description names outside <!-- comments -->, normalized."""
+    return {norm(m.group("id")) for m in AUTHOR_AGENT.finditer(HTML_COMMENT.sub("", body or ""))} - {""}
+
+
+def same_account(login: str | None, author: str | None) -> bool:
+    """Whether the receipt's account is the pull request author's. An unknown author or login is treated as
+    the same account: the stricter rule applies when nobody can tell."""
+    return not author or not login or login.strip().lower() == author.strip().lower()
+
+
+def refusal(receipt: Receipt, same: bool, agents: set[str]) -> str | None:
+    """Why `receipt` does not count, or None when it does. Only a SHIP from the author's own account is refused."""
+    if receipt.verdict != "ship" or not same:
+        return None
+    if not agents:
+        return "a SHIP from the author's account, and the description has no `Author-agent: <agent id>` line"
+    if not receipt.reviewer or not receipt.starter:
+        return "a SHIP from the author's account must say `Review (<reviewer agent id>, started by <agent id>)`"
+    if norm(receipt.reviewer) in agents:
+        return f"the reviewer {receipt.reviewer} is the pull request's author agent"
+    if norm(receipt.starter) in agents:
+        return f"the reviewer was started by {receipt.starter}, the pull request's author agent"
+    return None
+
+
+def counted(line: str, head: str, *, login: str | None, author: str | None, body: str | None) -> Receipt | None:
+    """The receipt on `line` if it counts for `head`: parse(), then refusal() for the author's own account.
+    `login` posted it, `author` opened the pull request and `body` is its description."""
+    receipt = parse(line, head)
+    if receipt is None or refusal(receipt, same_account(login, author), author_agents(body)):
+        return None
+    return receipt
+
+
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 NEXT = "Packages/macOS/CmuxNext/Sources/"
 
@@ -208,7 +288,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     )),
     ("low", "CI and tooling", (
         ".claude/*", ".codex/*", ".agents/*", "tools/*", "biome.json", ".coderabbit.yaml", ".greptile/*",
-        "dogfood/*", "Prototypes/*", "KeyboardPinningLab/*", "samples/*", "examples/*",
+        "dogfood/*", "Prototypes/*", "samples/*", "examples/*",
     )),
 )
 
@@ -577,7 +657,9 @@ def classify(files: list[str], patches: dict[str, str] | None = None, sources: d
 
 
 SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an independent review, in the "
-                f"description or leading a comment, an approving review from someone other than the author, or "
+                f"description or leading a comment (from the author's own account it must be `Review (<reviewer "
+                f"agent id>, started by <agent id>)`, neither of them the description's `Author-agent: <agent id>`), "
+                f"an approving review from someone other than the author, or "
                 f"`{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")
 
 
@@ -804,13 +886,44 @@ def rust_sources(repo: str, ref: str, paths: dict[str, str]) -> dict[str, str]:
     return sources
 
 
-def merge_base_of(repo: str, pr: dict) -> str:
-    """The commit the pull request's patches are relative to; the base tip if it can't be read."""
+def merge_base_of(repo: str, pr: dict, repo_dir: str | None = None) -> str:
+    """The commit the pull request's patches are relative to; the base tip if it can't be read.
+    From git when `repo_dir` has both ends (risk-tier.yml fetches the head there), else `compare`."""
+    if repo_dir:
+        try:
+            sha = subprocess.run(["git", "-C", repo_dir, "merge-base", pr["base"]["sha"], pr["head"]["sha"]],
+                                 check=True, capture_output=True, text=True, timeout=30).stdout.strip()
+            if re.fullmatch(r"[0-9a-f]{40}", sha):
+                return sha
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            pass
     try:
         return gh_json("api", f"repos/{repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
                        "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
         return pr["base"]["sha"]
+
+
+def event_pull_request(path: str | None, number: str, attempt: str | None = None) -> dict | None:
+    """The pull request as the triggering event delivered it ($GITHUB_EVENT_PATH), or None when there
+    is no such file or it is about another pull request. It is the same object `GET pulls/N` returns
+    (body, labels, user, author_association, head and base), as of the event, and saves that REST
+    call on every first attempt. A later event runs this again, and its run cancels this one.
+    A re-run (GITHUB_RUN_ATTEMPT above 1) gets the original event's payload, frozen at that event,
+    so it reads the pull request live instead: re-running an old run must grade today's head,
+    description and labels, as it always did."""
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1") if attempt is None else attempt
+    if not path or attempt.strip() not in ("", "1"):
+        return None
+    try:
+        pull = json.loads(Path(path).read_text()).get("pull_request")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(pull, dict) or str(pull.get("number")) != str(number):
+        return None
+    if not ((pull.get("head") or {}).get("sha") and (pull.get("base") or {}).get("sha")):
+        return None
+    return pull
 
 
 def pr_mode(args: argparse.Namespace) -> int:
@@ -820,7 +933,7 @@ def pr_mode(args: argparse.Namespace) -> int:
     patches = {f["filename"]: f.get("patch") or "" for f in entries}
     # A rename moves the old path too: grade both ends.
     files += [f["previous_filename"] for f in entries if f.get("previous_filename")]
-    pr = gh_json("api", base)
+    pr = event_pull_request(getattr(args, "event", None), args.number) or gh_json("api", base)
     # Rust product files that add or remove a delete: read on that side, they place each line in or
     # out of a test module.
     rust = {e["filename"]: e for e in entries if e["filename"].endswith(".rs") and in_delete_scope(e["filename"])}
@@ -828,7 +941,7 @@ def pr_mode(args: argparse.Namespace) -> int:
     removes = {path: e.get("previous_filename") or path for path, e in rust.items()
                if e.get("status") != "added" and delete_lines(patches[path], "-")}
     # The patches' line numbers are relative to the merge base, not the base branch's tip.
-    merge_base = merge_base_of(args.repo, pr) if removes or args.repo_dir else pr["base"]["sha"]
+    merge_base = merge_base_of(args.repo, pr, args.repo_dir) if removes or args.repo_dir else pr["base"]["sha"]
     grade = classify(files, patches, rust_sources(args.repo, pr["head"]["sha"], adds),
                      rust_sources(args.repo, merge_base, removes))
     undone: dict[int, list[str]] = {}
@@ -897,15 +1010,16 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
     every comment and review (at ""): a later BLOCK comment still beats a SHIP line in it. Its author
     must be trusted the same way a commenter must."""
     found = []
+    body = (pr or {}).get("body")
 
-    def verdict(text: str, at: str, where: str = "") -> None:
-        line = RECEIPT.match(text)
-        if line and "self" not in line.group(1).lower() and head_sha in text:
-            found.append((at, "ship" if line.group(2).lower() == "ship" else "block",
-                          f"review ({line.group(1).strip()}){where}"))
+    def verdict(text: str, at: str, login: str, where: str = "") -> None:
+        got = counted(text, head_sha, login=login, author=author, body=body)
+        if got:
+            found.append((at, got.verdict, f"{got.who}{where}"))
 
     def receipt(item: dict, at: str) -> None:
-        verdict(next((line for line in (item.get("body") or "").splitlines() if line.strip()), ""), at)
+        verdict(next((line for line in (item.get("body") or "").splitlines() if line.strip()), ""), at,
+                (item.get("user") or {}).get("login") or "")
 
     def trusted(item: dict) -> bool:
         user = item.get("user") or {}
@@ -913,7 +1027,7 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
 
     if pr and trusted(pr):
         for text in strip_comments(pr.get("body") or "").splitlines():
-            verdict(text, "", " in the description")
+            verdict(text, "", (pr.get("user") or {}).get("login") or "", " in the description")
 
     for review in reviews:
         if not trusted(review):
@@ -1039,6 +1153,8 @@ def main(argv: list[str] | None = None) -> int:
                    "for the takeback check (skipped without it)")
     p.add_argument("--github-output")
     p.add_argument("--summary")
+    p.add_argument("--event", help="the event payload ($GITHUB_EVENT_PATH); its pull_request saves the "
+                   "GET pulls/N call")
     args = parser.parse_args(argv)
 
     if args.mode == "classify":

@@ -437,6 +437,8 @@ pub mod method {
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
     pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
     pub const MUX_INFO: &str = "_acpmux/info";
+    /// The safe machine/workspace capability snapshot for the calling agent.
+    pub const MUX_MACHINE_INFO: &str = "_acpmux/machine_info";
     /// Sign a daemon-owned proof for the currently live turn.
     pub const MUX_TURN_ATTESTATION: &str = "_acpmux/turn_attestation";
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
@@ -560,6 +562,9 @@ pub mod method {
     pub const MUX_FILE_PUT_FINISH: &str = "_acpmux/file_put_finish";
     pub const MUX_FILE_PUT_CANCEL: &str = "_acpmux/file_put_cancel";
     pub const MUX_FILE_PUT_STATUS: &str = "_acpmux/file_put_status";
+    /// `{sessionId, keep}`: keep a chat's uploads past the age cap while it is pinned or starred,
+    /// or stop keeping them (`hub/file_uploads/store.rs`).
+    pub const MUX_UPLOADS_KEEP: &str = "_acpmux/uploads_keep";
     /// A binary data frame's method (`server/upload_frames.rs`); never a text request.
     pub const MUX_FILE_PUT_DATA: &str = "_acpmux/file_put_data";
     pub const MUX_DISPATCH: &str = "_acpmux/dispatch";
@@ -571,6 +576,9 @@ pub mod method {
     pub const MUX_TASKS: &str = "_acpmux/tasks";
     /// The session an agent link, id or name names, here or on a peer (`hub/locate.rs`).
     pub const MUX_RESOLVE: &str = "_acpmux/resolve";
+    /// The other sessions, here and on peers, that work on the files, topic, branch or folder
+    /// a query names (`hub/touched.rs`, `touched_files.rs`).
+    pub const MUX_WHO_ELSE: &str = "_acpmux/who_else";
     /// A chat's image or video, read on the machine that runs it (`hub/media_read.rs`).
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
@@ -642,6 +650,12 @@ pub mod method {
     pub const MUX_ROUTE_TEST: &str = "_acpmux/route/test";
     pub const MUX_ROUTE_DEFAULT_SET: &str = "_acpmux/route/default.set";
     pub const MUX_CHAT_ROUTE_SET: &str = "_acpmux/chat/route.set";
+    // Accounts: the subscription logins and whether routing may move a chat
+    // onto each (server/accounts.rs). list: also the local app; set: the
+    // unix socket only. Never Web or peer.
+    pub const MUX_ACCOUNTS: &str = "_acpmux/accounts";
+    pub const MUX_ACCOUNT_SET: &str = "_acpmux/account/set";
+    pub const MUX_ACCOUNT_USAGE: &str = "_acpmux/account/usage";
     // Cross-harness handoff: a reviewed first message from one session to a
     // new session on another harness (see hub/handoff.rs).
     pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";
@@ -655,6 +669,9 @@ pub mod method {
     pub const MUX_SECRET_REQUEST: &str = "_acpmux/secret_request";
     pub const MUX_SECRET_SUBMIT: &str = "_acpmux/secret_submit";
     pub const MUX_SECRET_RUN: &str = "_acpmux/secret_run";
+    /// An agent asks to run one command as root (`hub/elevation.rs`); the person's card
+    /// answers with `secret_submit`, the password, and the daemon runs sudo itself.
+    pub const MUX_ELEVATION_REQUEST: &str = "_acpmux/elevation_request";
     /// An agent asks to connect an MCP server (`hub/mcp_connect.rs`); only the person's card
     /// answers, with `mcp_connect_answer`.
     pub const MUX_MCP_CONNECT_REQUEST: &str = "_acpmux/mcp_connect_request";
@@ -696,6 +713,11 @@ pub mod method {
     pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
     pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
     pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
+    /// A chat's goal on any harness (`hub/goal_tools.rs`, `generic_goal.rs`): its own agent
+    /// sets it, reports on it and reads it.
+    pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
+    pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
+    pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";

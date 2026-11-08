@@ -12,13 +12,18 @@ use serde_json::{Value, json};
 
 use super::sender::{Answer, OpRequest};
 use super::wire::{
-    BIND_FILE, BOUND_FILE, Bound, DaemonInfo, INSTALL_KEY_FILE, VM_KIND_FILE, WG_KEY_FILE,
-    parse_bind_file,
+    BIND_FILE, BIND_UNANSWERED_FILE, BOUND_FILE, Bound, DaemonInfo, INSTALL_KEY_FILE, VM_KIND_FILE,
+    WG_KEY_FILE, parse_bind_file,
 };
 
 /// JSON HTTP operations: `(status, body)`, or a transport error.
 pub trait Http {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String>;
+    /// A POST with no body (the carrier ticket route refuses any body).
+    /// Transports opt in; the default refuses, like [`Http::request_until`].
+    fn post_empty(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Value), String> {
+        Err("empty-body Cloud transport unavailable".into())
+    }
 
     /// Raw, bounded, no-redirect GET (`body=None`) or JSON POST. All calls
     /// in a receiving-policy read share this absolute deadline. Older
@@ -45,10 +50,28 @@ pub trait Http {
         Err("continuous Cloud transport unavailable".into())
     }
 
+    /// [`Http::request_with_deadline`] with the response's `Retry-After`.
+    /// A transport without headers answers none.
+    fn request_with_headers(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        self.request_with_deadline(url, body, bearer, deadline).map(|(status, bytes)| {
+            cmux_server::cloud_http::Response { status, retry_after: None, bytes }
+        })
+    }
+
     /// Optional for POST-only test transports; production implements both methods.
     fn get(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Value), String> {
         Err("GET is not supported by this transport".to_owned())
     }
+
+    /// Drops any pooled connection, so the next request dials a fresh one (after a pause, a pooled connection is
+    /// dead and nothing says so). A transport with no pool does nothing.
+    fn reset(&self) {}
 }
 
 #[derive(Deserialize)]
@@ -183,6 +206,8 @@ pub enum BindResult {
     None,
     Bound(Box<Bound>),
     /// A final 4xx answer: the token is spent or invalid; `bind.json` is gone.
+    /// A 4xx after an unanswered try of the same token, while the token may
+    /// still live, is a `Retry` instead (see [`bind_machine`]).
     Refused(String),
     /// `bind.json` did not parse; it is gone.
     Invalid(String),
@@ -204,12 +229,18 @@ impl BindResult {
 
 /// Spends `bind.json`'s one-time token: `POST {api_origin}/v1/cloud/bind`
 /// with no bearer. `bound.json` (0600) is written before `bind.json` goes.
+/// `daemon_noise_key` (the session host's Noise static public key,
+/// `daemon_noise_key.rs`) is sent only when given: a bind with a `carrier`
+/// section. That section is kept as `carrier.json` (0600,
+/// `carrier_entry.rs`) before `bound.json`; a bind without one leaves any
+/// existing `carrier.json` as it is.
 pub fn bind_machine(
     store: &mut dyn Store,
     http: &dyn Http,
     key: &InstallKey,
     wg_public_key: &str,
     daemon: &DaemonInfo,
+    daemon_noise_key: Option<&str>,
     now_wall_ms: u64,
 ) -> BindResult {
     let Some(text) = store.read(BIND_FILE) else { return BindResult::None };
@@ -217,10 +248,11 @@ pub fn bind_machine(
         Ok(file) => file,
         Err(why) => {
             store.remove(BIND_FILE);
+            store.remove(BIND_UNANSWERED_FILE);
             return BindResult::Invalid(why);
         }
     };
-    let body = json!({
+    let mut body = json!({
         "team": file.team,
         "machine": file.machine,
         "bind_token": file.bind_token,
@@ -228,22 +260,39 @@ pub fn bind_machine(
         "daemon": daemon.to_json(),
         "install_public_jwk": key.public_jwk(),
     });
+    if let (Some(noise_key), Some(fields)) = (daemon_noise_key, body.as_object_mut()) {
+        fields.insert("daemon_noise_key".to_owned(), json!(noise_key));
+    }
     let (status, answer) =
         match http.post(&format!("{}/v1/cloud/bind", file.api_origin), &body, None) {
             Ok(answer) => answer,
-            Err(e) => return BindResult::Retry(e),
+            Err(e) => {
+                note_unanswered(store, &file.bind_token, now_wall_ms);
+                return BindResult::Retry(e);
+            }
         };
     if status >= 500 || status == 429 {
+        note_unanswered(store, &file.bind_token, now_wall_ms);
         return BindResult::Retry(format!("HTTP {status}"));
     }
     let value = answer.field("value");
     if status != 200 || *answer.field("ok") != true || !value.is_object() {
-        store.remove(BIND_FILE);
         let code = answer
             .field("error")
             .field("code")
             .as_str()
             .map_or(format!("http.{status}"), str::to_owned);
+        // An earlier try may have reached the platform and spent the token
+        // with only its answer lost; this refusal may then be the replay
+        // racing that bind's commit (hq#7542). Removing bind.json here would
+        // leave the machine never bound, so keep it while the token can live.
+        if unanswered_since(store, &file.bind_token)
+            .is_some_and(|at| now_wall_ms.saturating_sub(at) < BIND_TOKEN_LIFE_MS)
+        {
+            return BindResult::Retry(format!("refused {code} after an unanswered try"));
+        }
+        store.remove(BIND_FILE);
+        store.remove(BIND_UNANSWERED_FILE);
         return BindResult::Refused(code);
     }
     let text = |v: &Value| v.as_str().unwrap_or("").to_owned();
@@ -260,6 +309,20 @@ pub fn bind_machine(
         keyset: value.field("keyset").clone(),
         bound_at: now_wall_ms,
     };
+    // The carrier goes down before bound.json, so a bound machine never
+    // lacks the route its bind sent; the session host respawns on it.
+    if let Some(route) = file.carrier {
+        let carrier = crate::carrier_entry::CarrierFile {
+            route,
+            team: bound.team.clone(),
+            issuer: bound.env.grant_issuer(),
+            keyset: bound.keyset.clone(),
+        };
+        let text = format!("{}\n", carrier.to_json());
+        if let Err(e) = store.write(crate::carrier_entry::CARRIER_FILE, &text, 0o600) {
+            return BindResult::Retry(format!("carrier.json write: {e}"));
+        }
+    }
     let saved = serde_json::to_string(&bound).unwrap_or_default();
     if let Err(e) = store.write(BOUND_FILE, &format!("{saved}\n"), 0o600) {
         return BindResult::Retry(format!("bound.json write: {e}"));
@@ -274,7 +337,37 @@ pub fn bind_machine(
     // every restart (role.rs); each try keeps a record that is already there.
     let _ = record_owner_kind(store);
     store.remove(BIND_FILE);
+    store.remove(BIND_UNANSWERED_FILE);
     BindResult::Bound(Box::new(bound))
+}
+
+/// How long a bind token can live: it expires 15 minutes after the machine
+/// runs, which is before any try of it was sent.
+const BIND_TOKEN_LIFE_MS: u64 = super::daemon_noise_key::WAIT_DEADLINE_MS;
+
+fn token_digest(token: &str) -> String {
+    use base64::Engine as _;
+    use sha2::Digest as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(token.as_bytes()))
+}
+
+/// Records the first unanswered try of `token`; a later one keeps that time.
+/// Best effort: without the record a later refusal is final, as before.
+fn note_unanswered(store: &mut dyn Store, token: &str, now_wall_ms: u64) {
+    if unanswered_since(store, token).is_some() {
+        return;
+    }
+    let text = json!({ "token": token_digest(token), "at": now_wall_ms });
+    let _ = store.write(BIND_UNANSWERED_FILE, &format!("{text}\n"), 0o600);
+}
+
+/// When a try of `token` first went unanswered, if one did.
+fn unanswered_since(store: &dyn Store, token: &str) -> Option<u64> {
+    let saved: Value = serde_json::from_str(&store.read(BIND_UNANSWERED_FILE)?).ok()?;
+    if saved.get("token")?.as_str()? != token_digest(token) {
+        return None;
+    }
+    saved.get("at")?.as_u64()
 }
 
 /// Records this machine as an owner VM ([`VM_KIND_FILE`]) when nothing has
@@ -315,6 +408,11 @@ impl<H: Http> CloudClient<H> {
 
     pub fn bound(&self) -> &Bound {
         &self.bound
+    }
+
+    /// The next request (a bearer mint included) goes on a fresh connection: see [`Http::reset`].
+    pub fn reset_transport(&self) {
+        self.http.reset();
     }
 
     pub(super) fn url(&self, path: &str) -> String {
@@ -439,6 +537,26 @@ impl<H: Http> CloudClient<H> {
         Ok(result)
     }
 
+    /// [`Self::request_until`] with the response's `Retry-After`: the same
+    /// origin check and size bound.
+    pub(super) fn request_with_headers(
+        &self,
+        path: &str,
+        deadline: &RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        if self.bound.api_origin != self.bound.env.api_origin() || deadline.remaining().is_none() {
+            return Err("bounded Cloud request unavailable".into());
+        }
+        let response = self
+            .http
+            .request_with_headers(&self.url(path), None, None, deadline)
+            .map_err(|_| "bounded Cloud request unavailable".to_owned())?;
+        if response.bytes.len() > 1024 * 1024 || deadline.remaining().is_none() {
+            return Err("bounded Cloud response unavailable".into());
+        }
+        Ok(response)
+    }
+
     pub(super) fn install_public_jwk(&self) -> Value {
         self.key.public_jwk()
     }
@@ -461,6 +579,22 @@ impl<H: Http> CloudClient<H> {
         let send = |client: &mut Self| -> Option<(u16, Value)> {
             let token = client.token(now_wall_ms).ok()?;
             client.http.post(&url, body, Some(&token)).ok()
+        };
+        let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
+        if status == 401 || status == 403 {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, answer) = again;
+        }
+        Answer::Http { status, body: answer }
+    }
+
+    /// One authenticated POST to `path` with no request body.
+    fn post_empty_with_token(&mut self, path: &str, now_wall_ms: u64) -> Answer {
+        let url = self.url(path);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.post_empty(&url, Some(&token)).ok()
         };
         let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
         if status == 401 || status == 403 {
@@ -501,6 +635,14 @@ impl<H: Http> CloudClient<H> {
 
     /// The person's connected GitHub account (`GET /v1/me/github` as this
     /// machine), checked so the reply never holds a token.
+    /// A relay Register ticket for this machine's carrier slot
+    /// (`carrier_ticket.rs`): the machine names itself; the caller nothing.
+    pub fn carrier_ticket(&mut self, now_wall_ms: u64) -> Value {
+        let path = super::carrier_ticket::path(&self.bound.machine);
+        let answer = self.post_empty_with_token(&path, now_wall_ms);
+        super::carrier_ticket::reply_for(&answer)
+    }
+
     pub fn github_status(&mut self, now_wall_ms: u64) -> Value {
         let answer = self.github_repos_get(super::github_status::STATUS_PATH, now_wall_ms);
         super::github_status::reply_for(&answer)

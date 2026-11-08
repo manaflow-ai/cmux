@@ -77,6 +77,11 @@ pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostReco
     if let Some(ms) = std::env::var_os(super::host::POOLED_OWNER_WAIT_ENV) {
         cmd.env(super::host::POOLED_OWNER_WAIT_ENV, ms);
     }
+    // Debug builds only: the test process whose end ends the host (`daemon/owner_exit.rs`).
+    #[cfg(debug_assertions)]
+    if let Some(pid) = std::env::var_os(crate::daemon::owner_exit::TEST_OWNER_PID_ENV) {
+        cmd.env(crate::daemon::owner_exit::TEST_OWNER_PID_ENV, pid);
+    }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.
     unsafe {
@@ -434,6 +439,13 @@ pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
 /// with its whole agent and MCP servers, is worse than waiting.
 // timeout: adoption fan-out must yield to its retry pass; normal wake/reattach uses socket liveness.
 pub const ADOPT_HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The bound of each hello in the daemon start's first adoption pass (`adopt_agent_hosts`). That
+/// pass holds the start, and every new session waits for the start: a host that accepts the
+/// connection and never answers (a wedged event loop) held both forever. A host that misses it is
+/// retried with [`ADOPT_HELLO_BUDGET`] after the start, off its path.
+// timeout: the start must not wait on one host; the missed host is retried, not ended.
+pub const START_HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
 tokio::task_local! {
     static HELLO_BUDGET_SCOPE: Option<std::time::Duration>;

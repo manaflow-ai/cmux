@@ -68,6 +68,8 @@ extension DaemonStore {
     /// the visible state returns to the confirmed mirror (plus the others).
     public func rejectIntent(_ transaction: ClientTransactionID) {
         guard intentLog.contains(transaction) else { return }
+        // A rejected close leaves its tabs: no longer closed (`closedLately`), so a new tab's move waits for them again.
+        if case .closeTabs(let surfaces)? = intentLog.entries.first(where: { $0.transaction == transaction })?.kind { intentLog.forgetClosed(Set(surfaces)) }
         withOverlayLifted(writer: "intent rejection") { settleIntent(transaction, .rejected) }
     }
 
@@ -115,6 +117,7 @@ extension DaemonStore {
         guard !overlayLifted else { return body() }
         verifyMirrorUnchanged(before: writer)
         overlayLifted = true
+        let held = holdOverlayPublication()
         liftOverlay()
         let result = body()
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, snapshot: snapshot, in: self) }) {
@@ -127,6 +130,7 @@ extension DaemonStore {
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
         overlayLifted = false
+        publishOverlayNetChange(held)
         recomputeSidebarIfNeeded()
         publishTabListChange()
         checkOverlayConservation(confirmed: confirmedTabs)

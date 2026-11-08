@@ -48,7 +48,6 @@ async function render(items: object[]) {
 
 const FETCH = "cd ~/wt/lanes/cg-next-reds && git fetch -q origin feat-cmux-next && git diff HEAD~1 --stat";
 const REST = "git fetch -q origin feat-cmux-next && git diff HEAD~1 --stat";
-const SHORT = "git fetch -q origin feat-cmux-next …";
 const shell = (id: string, command: string) => ({
   kind: "tool",
   text: "Run",
@@ -58,16 +57,21 @@ const shell = (id: string, command: string) => ({
 test("a shell call reads without its leading cd, and opens to its folder and command", async () => {
   await render([shell("t1", FETCH)]);
   const row = host.querySelector<HTMLButtonElement>(".cv-tool")!;
-  expect(row.querySelector(".cv-tool__text")?.textContent).toBe(`Ran ${SHORT}`);
+  // The table names its first step (commandActions.ts); the opened block draws the whole line.
+  expect(row.querySelector(".cv-tool__text")?.textContent).toBe("Fetched the latest commits …");
   await act(async () => row.click());
   expect(host.querySelector(".cv-shell__folder")?.textContent).toBe("cg-next-reds");
   expect(host.querySelector(".cv-shell__command")?.textContent).toBe(`$ ${REST}`);
 });
 
 test("a group's command rows drop the leading cd too", async () => {
-  await render([shell("t1", FETCH), shell("t2", "cd ~/wt/lanes/x && ls build")]);
+  // Commands the table does not know (commandActions.ts) draw their line.
+  await render([
+    shell("t1", "cd ~/wt/lanes/cg-next-reds && make -j8 && make test"),
+    shell("t2", "cd ~/wt/lanes/x && ./run.sh build"),
+  ]);
   const lines = [...host.querySelectorAll(".cv-command__line")].map((line) => line.textContent);
-  expect(lines).toEqual([SHORT, "ls build"]);
+  expect(lines).toEqual(["make -j8 …", "run.sh build"]);
 });
 
 test("a cd that names no plain folder, or could run code, keeps its prefix", async () => {

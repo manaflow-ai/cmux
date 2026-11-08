@@ -169,15 +169,15 @@ def prompt_text(params):
     return "".join(b.get("text", "") for b in blocks)
 
 
+# The hidden guidance blocks (`context_inventory::override_block`), and only those: the
+# forum's rules, a side question's chat and a message's attachments are cmux-*-context
+# blocks too, and the agent must read them, so their tests read them in the echo.
+GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>")
+
+
 def guidance_text(text):
-    """Recognize a context wrapper after an adapter dropped its metadata."""
-    if not isinstance(text, str):
-        return False
-    text = text.lstrip()
-    if not text.startswith("<cmux-"):
-        return False
-    name = text[1:].split(">", 1)[0]
-    return name.endswith("-context") and not any(c.isspace() for c in name)
+    """Recognize a guidance wrapper after an adapter dropped its metadata."""
+    return isinstance(text, str) and text.lstrip().startswith(GUIDANCE_TAGS)
 
 
 def is_cmux_guidance(block):
@@ -185,7 +185,7 @@ def is_cmux_guidance(block):
     if not isinstance(block, dict):
         return False
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project"}:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
     return guidance_text(block.get("text", ""))
 
@@ -390,6 +390,28 @@ def handle_prompt(rid, params):
         }})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "/compact": a compaction, as Claude Code reports one (acpmux compacts a chat that outgrew
+    # its context before it goes on, hub/auto_resume/compact_first.rs). FAKE_COMPACT=fail
+    # reports it failed and ends the prompt as Claude Code does; FAKE_COMPACT=hold runs it until
+    # session/cancel.
+    if text == "/compact":
+        mode = os.environ.get("FAKE_COMPACT", "")
+        update(sid, {"sessionUpdate": "compaction", "state": "running"})
+        if mode == "hold":
+            for _ in range(600):
+                if sid in cancelled:
+                    cancelled.discard(sid)
+                    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                    return
+                time.sleep(0.05)
+        if mode == "fail":
+            update(sid, {"sessionUpdate": "compaction", "state": "failed", "error": "Prompt is too long"})
+        else:
+            update(sid, {"sessionUpdate": "compaction", "state": "completed"})
+        # Echoed as any other prompt is, so a test can see where the command went in.
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if os.environ.get("FAKE_ASK_MODE") == "1" and "hostname" in text:
         return run_hostname(rid, sid)
     if text == "gh-pr-create":
@@ -402,9 +424,12 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         time.sleep(0.05)
         os._exit(0)
-    # "net-refused-later" waits a moment, then fails with a refused connection.
-    if text == "net-refused-later":
-        time.sleep(0.5)
+    # "net-refused-gate: PATH" blocks on the FIFO at PATH (as "gate:"), then fails with a refused
+    # connection: the test's open of the FIFO returns once the agent has the prompt, and the
+    # answer waits until the test closes it.
+    if text.startswith("net-refused-gate:"):
+        with open(text[len("net-refused-gate:"):].split("<", 1)[0].strip()) as gate:
+            gate.read()
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "connection refused: error sending request for url (https://relay.invalid/responses)"}})
         return
     # A harness-level RPC failure whose wording resembles a dead daemon must
@@ -600,6 +625,44 @@ def handle_prompt(rid, params):
         answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
         update(sid, {"sessionUpdate": "agent_message_chunk",
                      "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "questions: Q1 | Q2 | Q3" asks each Q at once as its own AskUserQuestion (subagents asking
+    # side by side), each with the options Yes and No, then streams each outcome as it lands and
+    # "all answered" once every one is settled (the composer hat's capture, question/HatQuestions.tsx).
+    if text.startswith("questions:"):
+        asks, ids = [], []
+        for index, question in enumerate(q.strip() for q in text[10:].split("<", 1)[0].split("|")):
+            if not question:
+                continue
+            with lock:
+                aid = next_id
+                next_id += 1
+            ev = threading.Event()
+            pending[aid] = [ev, None]
+            ids.append((aid, question))
+            asks.append({"jsonrpc": "2.0", "id": aid, "method": "session/request_permission", "params": {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": f"qs{index}", "title": "Question", "kind": "other", "status": "pending",
+                             "rawInput": {"questions": [{"question": question, "header": "Check-in",
+                                                         "multiSelect": False,
+                                                         "options": [{"label": "Yes"}, {"label": "No"}]}]},
+                             "_meta": {"claude": {"tool": "AskUserQuestion", "interactive": True}}},
+                "options": [
+                    {"optionId": "allow_once", "name": "Answer", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"},
+                ],
+            }})
+        if asks:
+            send_all(asks)
+        for aid, question in ids:
+            pending[aid][0].wait()
+            res = pending.pop(aid)[1] or {}
+            chosen = res.get("outcome", {}).get("optionId", res.get("outcome", {}).get("outcome"))
+            answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
+            update(sid, {"sessionUpdate": "agent_message_chunk",
+                         "content": {"type": "text", "text": f"{question}: {chosen} {json.dumps(answers, sort_keys=True)}\n"}})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "all answered"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "preview-question: Q" asks Q with an option preview (its text ends in a line break the
@@ -1185,13 +1248,16 @@ def handle_prompt(rid, params):
     # its number and this process's pid, until it ends its turn by itself 60 s later.
     # "works-through-cancel-beside-background" does the same after starting background subagent
     # bg-1, which outlives the turn (a Claude Agent call with run_in_background).
-    if text in ("works-through-cancel", "works-through-cancel-beside-background"):
-        if text == "works-through-cancel-beside-background":
+    # The silent variants emit only the initial call, then ignore both cancels.
+    if text in ("works-through-cancel", "works-through-cancel-beside-background",
+                "silent-through-cancel", "silent-through-cancel-beside-background"):
+        if text.endswith("-beside-background"):
             update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "bg-1", "name": "Background",
                          "task": "Background audit", "background": True, "capabilities": {}})
         for n in range(600):
-            update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"work-{os.getpid()}-{n}",
-                         "title": f"step {n} pid {os.getpid()}", "kind": "execute", "status": "in_progress"})
+            if n == 0 or not text.startswith("silent-"):
+                update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"work-{os.getpid()}-{n}",
+                             "title": f"step {n} pid {os.getpid()}", "kind": "execute", "status": "in_progress"})
             time.sleep(0.1)
         cancelled.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

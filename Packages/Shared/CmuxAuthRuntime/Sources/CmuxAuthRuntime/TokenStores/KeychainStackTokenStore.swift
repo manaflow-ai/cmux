@@ -16,8 +16,8 @@ import Security
 /// )
 /// ```
 public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
-    static let accessTokenAccount = "cmux-auth-access-token"
-    static let refreshTokenAccount = "cmux-auth-refresh-token"
+    private static let accessTokenAccount = "cmux-auth-access-token"
+    private static let refreshTokenAccount = "cmux-auth-refresh-token"
     #if canImport(Security)
     static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
     #endif

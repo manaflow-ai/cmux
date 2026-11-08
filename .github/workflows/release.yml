@@ -415,6 +415,16 @@ jobs:
           chmod +x "$wrapper_dir/create-dmg"
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
+      - name: Set up Go for bundled daemons
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # The exact Go of the shipped cmuxd-remote (its go.mod `toolchain` line);
+          # build_remote_daemon_release_assets.sh refuses any other.
+          go-version-file: daemon/remote/go.mod
+          cache: false
+
+
       - name: Build in-tree acpmux for the app bundle
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
@@ -460,14 +470,6 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - name: Set up Go for the SSH daemon assets
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          # The exact Go of the shipped cmuxd-remote (its go.mod `toolchain` line);
-          # build_remote_daemon_release_assets.sh refuses any other.
-          go-version-file: daemon/remote/go.mod
-          cache: false
 
       # The Embed CEF phase embeds the pinned Chromium engine
       # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
@@ -873,6 +875,14 @@ jobs:
           grep -q 'sparkle:edSignature' appcast.xml
           grep -q 'cmux-macos.dmg' appcast.xml
           grep -q "<sparkle:minimumSystemVersion>${SPARKLE_MINIMUM_SYSTEM_VERSION}</sparkle:minimumSystemVersion>" appcast.xml
+          # Classic cmux stable (main) reads releases/latest/download/appcast-<arch>.xml
+          # (UpdateFeedResolver rewrites appcast.xml for cmux's own stable feeds). The
+          # universal DMG serves both architectures, so the per-arch feeds are copies of
+          # appcast.xml; without them every classic stable install reads a 404 once a
+          # cmux-next release is latest and never updates
+          # (plans/cmux-next/classic-migration-DESIGN.md section 5, Stable step 2).
+          cp appcast.xml appcast-arm64.xml
+          cp appcast.xml appcast-x86_64.xml
 
       - name: Upload build artifacts (dry-run)
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'
@@ -883,6 +893,8 @@ jobs:
           path: |
             cmux-macos.dmg
             appcast.xml
+            appcast-arm64.xml
+            appcast-x86_64.xml
             remote-daemon-assets/cmuxd-remote-*
             docs/mdm/com.manaflow.cmux.*
             docs/mdm/cmux-example.mobileconfig
@@ -909,6 +921,8 @@ jobs:
             --immutable docs/mdm/cmux-example.mobileconfig \
             --immutable docs/mdm/ddm-legacy-profile-declaration.json \
             --immutable docs/mdm/managed-preferences.md \
+            --feed appcast-arm64.xml \
+            --feed appcast-x86_64.xml \
             --feed appcast.xml
 
       # GNU libintl is LGPL-2.1-or-later. GhosttyKit and the ghostty CLI helper
@@ -957,6 +971,10 @@ jobs:
           python3 scripts/ci/finalize-release.py download \
             --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --release-id "$RESUME_RELEASE_ID" \
             --asset appcast.xml --dest .
+          # The per-arch feeds are copies of appcast.xml (see Generate Sparkle appcast).
+          for arch in arm64 x86_64; do
+            cp appcast.xml "appcast-$arch.xml"
+          done
 
       # Publish the exact release the upload step staged (or the guard found),
       # by id. A tag lookup cannot see drafts: softprops/action-gh-release made
@@ -1020,15 +1038,17 @@ jobs:
           # Upload after GitHub Release publish so the appcast never references
           # a DMG that doesn't exist yet. R2 PutObject is atomic, so the appcast
           # is either the old version or the new one, never missing.
-          python3 scripts/ci/upload-r2-object.py \
-            --file appcast.xml \
-            --endpoint-url "$R2_ENDPOINT" \
-            --bucket cmux-binaries \
-            --key stable/appcast.xml \
-            --content-type "application/xml" \
-            --cache-control "no-cache, no-store, must-revalidate"
-
-          echo "R2 appcast upload complete: https://files.cmux.com/stable/appcast.xml"
+          # The per-arch feeds first and appcast.xml last, as on GitHub.
+          for feed in appcast-arm64.xml appcast-x86_64.xml appcast.xml; do
+            python3 scripts/ci/upload-r2-object.py \
+              --file "$feed" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries \
+              --key "stable/$feed" \
+              --content-type "application/xml" \
+              --cache-control "no-cache, no-store, must-revalidate"
+            echo "R2 appcast upload complete: https://files.cmux.com/stable/$feed"
+          done
 
       - name: Cleanup keychain
         if: always()

@@ -13,6 +13,12 @@
 //!
 //! - The writer writes on the route of the terminal's current host connection, which the terminal publishes each
 //!   time the connection changes (`PtyTerminalRuntime::replace_runtime`), so it never takes the runtime lock either.
+//! - A person's key (at most 1 KB) to an idle port, with nothing queued or in flight and no reconnect wait, is written
+//!   on the request's own turn when the connection's writer is free and the host socket has room for it now
+//!   (`InputPort::try_write_now`: a room check, then a send with room, under the port lock): no thread hand-off,
+//!   which cost each key a wake under load (#35413 A/B). Anything else (a busy writer, a full socket, an error, a
+//!   frame ahead) goes to the port as below, so a key still never waits for another writer or a host that stopped
+//!   reading.
 //! - Once the writer takes a person's key it runs at user-interactive QoS for its life, as the connection threads
 //!   that carried the key do (server/input_qos.rs); a port only automation writes to keeps the default QoS.
 //! - A lost host connection is retried as `write_bytes` did (cx-6so.49): the writer waits until the terminal
@@ -205,6 +211,9 @@ struct PortState {
     /// Tests: the writer panics after it took its next frame (a writer lost during a write).
     #[cfg(test)]
     panic_after_take: bool,
+    /// Tests: no inline write ([`InputPort::queue_every_write_for_test`]).
+    #[cfg(all(test, unix))]
+    inline_off: bool,
     /// Tests (macOS, where a thread has a QoS class): the writer thread's QoS class when it last took a frame.
     #[cfg(all(test, target_os = "macos"))]
     writer_qos: Option<u32>,
@@ -306,8 +315,9 @@ impl Drop for InputPort {
 }
 
 impl InputPort {
-    /// Takes `bytes` for `terminal`'s current host connection and returns at once ([`InputReply::Accepted`]); the
-    /// terminal's writer thread writes them after every earlier write of the port.
+    /// Takes `bytes` for `terminal`'s current host connection and returns at once ([`InputReply::Accepted`]): written
+    /// on this turn when the port is idle and the connection takes them now (`try_write_now`), else by the terminal's
+    /// writer thread after every earlier write of the port.
     pub(crate) fn enqueue(
         &self,
         terminal: &Arc<PtyTerminalRuntime>,
@@ -398,6 +408,11 @@ impl InputPort {
         if bytes.len() > MAX_FRAME_PAYLOAD {
             return Err(InputRefused::TooLarge);
         }
+        // A person's key with nothing ahead of it is written on this turn: no thread hand-off (#35413 A/B).
+        #[cfg(unix)]
+        if waiter.is_none() && self.try_write_now(terminal, kind, bytes) {
+            return Ok(());
+        }
         // Copied before the lock, so another write to this terminal never waits for this one's copy.
         let bytes = bytes.to_vec();
         let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -428,6 +443,50 @@ impl InputPort {
         drop(state);
         self.shared.changed.notify_one();
         Ok(())
+    }
+
+    /// A person's key to an idle port, written on the caller's turn (#35413 A/B: the hand-off to the port's writer
+    /// thread cost each key its wake, +0.17 ms at p95 and +0.53 ms at p99 under the L6 load). Only when nothing can
+    /// make it wait or pass another frame: the port holds no frame and is not writing one (the writer may run, idle),
+    /// no reconnect wait is under way, and [`HostInputRoute::try_send_now`] can write it now (the connection's writer
+    /// is free and the socket takes it whole). The check and the write are under the port lock, so no frame the port
+    /// takes meanwhile can go first: frames taken later queue behind it, in order. A barrier waiting for frames the
+    /// port took earlier is unaffected: there are none. True when it was written and counted as one of the port's
+    /// frames; false leaves everything to the port, as before.
+    #[cfg(unix)]
+    fn try_write_now(
+        &self,
+        terminal: &Arc<PtyTerminalRuntime>,
+        kind: MessageKind,
+        bytes: &[u8],
+    ) -> bool {
+        if bytes.len() > crate::terminal_host_runtime::INLINE_FRAME_MAX {
+            return false;
+        }
+        let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.closed || state.reconnecting || state.finished < state.accepted {
+            return false;
+        }
+        #[cfg(test)]
+        if state.inline_off {
+            return false;
+        }
+        let route = terminal.input_route.load();
+        let Some(InputRoute::Hosted(route)) = route.as_deref() else { return false };
+        if !route.try_send_now(kind, bytes) {
+            return false;
+        }
+        // Counted as taken and finished at once: no barrier waits for it (none can: the port was idle).
+        state.accepted = state.accepted.saturating_add(1);
+        state.finished = state.finished.saturating_add(1);
+        true
+    }
+
+    /// Tests: every write goes through the port's writer thread, as before the inline write (a test of the writer
+    /// itself: its order, reconnect and QoS).
+    #[cfg(all(test, unix))]
+    pub(crate) fn queue_every_write_for_test(&self) {
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).inline_off = true;
     }
 
     /// The port's order for the other writers of the terminal's host connection.
@@ -495,6 +554,13 @@ impl InputPort {
     #[cfg(test)]
     pub(crate) fn queued_frames_for_test(&self) -> usize {
         self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).frames.len()
+    }
+
+    /// Tests: the port holds no frame and is writing none (the next key may go inline).
+    #[cfg(test)]
+    pub(crate) fn idle_for_test(&self) -> bool {
+        let state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.frames.is_empty() && state.finished >= state.accepted
     }
 }
 

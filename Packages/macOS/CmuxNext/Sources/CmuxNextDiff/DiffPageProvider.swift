@@ -59,6 +59,12 @@ public final class DiffPageProvider: PageProvider {
     /// Sessions of the current grant this tab named or was given, not closed yet.
     var sessions: Set<String> = []
     private var opening: (session: String, task: Task<JSONValue, any Error>)?
+    /// The bench's open timeline (``DiffOpenTimeline``); nil outside the app.
+    public var timeline: DiffOpenTimeline?
+    /// The chat that takes the tab's review comments now (``DiffTabChat``); nil offers no send.
+    public var chat: () -> DiffTabChat? = { nil }
+    /// The tab's first session, opened by the host while the page boots (DiffPageProvider+Preopen.swift).
+    var preopen: Task<DiffPreopened, Never>?
     private var discards: [Task<Void, Never>] = []
     private var events: [UUID: (JSONValue) -> Void] = [:]
     /// Sessions materialized from a remote daemon, keyed by the provider's session id.
@@ -100,6 +106,8 @@ public final class DiffPageProvider: PageProvider {
         switch op {
         case Self.configOp:
             return try await config()
+        case Self.shownOp:
+            return shownCall(params)
         case Self.languagesOp:
             guard let languages else { throw PageError.unknownOp(op) }
             return await languages.pack()
@@ -118,6 +126,7 @@ public final class DiffPageProvider: PageProvider {
             return try await open(folder: URL(fileURLWithPath: path, isDirectory: true), source: DiffOpenSource(page: params["source"]))
         default:
             if let value = try await storeCall(op, params: params) { return value }
+            if let value = try await commentsCall(op, params: params, context: context) { return value }
             if let value = try await gitCall(op, params: params, context: context) { return value }
             if let value = try await revertCall(op, params: params, context: context) { return value }
             if let value = try await openFileCall(op, params: params, context: context) { return value }
@@ -155,7 +164,7 @@ public final class DiffPageProvider: PageProvider {
             // A turn the tab got after its grant (the header's Changes) is offered as Last turn too.
             let config = tab.turn == nil && host?.turn(for: tab.grant.repository) != nil
                 ? DiffPageConfig.offeringTurn(tab.config) : tab.config
-            var served = withOpenFile(withGit(await withStores(config)))
+            var served = withComments(withOpenFile(withGit(await withStores(config))))
             if remote { served = Self.withoutRemoteWhitespace(served) }
             return served
         } catch let failure as DiffTabFailure {
@@ -184,6 +193,7 @@ public final class DiffPageProvider: PageProvider {
         guard !isClosed else { throw PageError.closed }
         ready = host.prepare(repository, source: source)
         host.opened(repository, source: source)
+        startPreopen()
         return try await config()
     }
 
@@ -205,6 +215,9 @@ public final class DiffPageProvider: PageProvider {
             if remote { return Self.remoteHandshake }
             return try await send(method, params: nil)
         case "sessionOpen":
+            mark("diff.session_open")
+            defer { mark("diff.session_opened") }
+            if let opened = try await takePreopened(matching: params, grant: grant) { return opened }
             return try await open(params, tab: tab)
         case "sessionClose":
             guard let id = params["sessionId"]?.stringValue else { throw PageError.invalidParams("sessionId is required") }
@@ -244,7 +257,7 @@ public final class DiffPageProvider: PageProvider {
     /// A new open replaces the one in flight (the page shows one session). Last turn first
     /// writes the chat turn's patch, read from the session host, inside the same open, so a newer
     /// pick stops it as it stops any open.
-    private func open(_ params: [String: JSONValue], tab: DiffTabReady) async throws -> JSONValue {
+    func open(_ params: [String: JSONValue], tab: DiffTabReady) async throws -> JSONValue {
         let grant = tab.grant
         stopOpening(grant: grant)
         let id = UUID().uuidString.lowercased()
@@ -263,7 +276,8 @@ public final class DiffPageProvider: PageProvider {
         }
         opening = (id, task)
         defer { if opening?.session == id { opening = nil } }
-        let result = try await task.value
+        // A cancelled caller (a page call, a cancelled preopen) stops the open, as stopOpening does.
+        let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
         // A patch session (Last turn) gets the sidecar's own id, which the page then closes.
         if let opened = Self.openedSession(result) { sessions.insert(opened) }
         return result
@@ -481,13 +495,18 @@ public final class DiffPageProvider: PageProvider {
         })
     }
 
-    private func closeQuietly(_ id: String, grant: DiffSessionGrant) async {
+    func closeQuietly(_ id: String, grant: DiffSessionGrant) async {
         _ = try? await send("sessionClose", params: ["sessionId": .string(id), "capabilityToken": .string(grant.token)])
         sessions.remove(id)
     }
 
     private func send(_ method: String, params: [String: JSONValue]?) async throws -> JSONValue {
         guard let sidecar else { throw PageError(code: "sidecarUnavailable", message: "Diff sidecar is unavailable") }
+        return try await Self.request(sidecar, method, params: params)
+    }
+
+    /// One sidecar request (`method` with `params`) and its `result`; a sidecar error is a page error.
+    static func request(_ sidecar: any DiffSidecarRunning, _ method: String, params: [String: JSONValue]?) async throws -> JSONValue {
         var envelope: [String: JSONValue] = ["id": .string(UUID().uuidString), "version": 1, "method": .string(method)]
         if let params { envelope["params"] = .object(params) }
         let body = Data(JSONValue.object(envelope).compactText.utf8)
@@ -539,6 +558,8 @@ public final class DiffPageProvider: PageProvider {
     /// Ends the current grant: the open in flight, its sessions, its files.
     func retire() async {
         revertState.reset()
+        preopen?.cancel()
+        preopen = nil
         guard let current = ready else { return }
         ready = nil
         guard let grant = try? await current.value.grant else { return }

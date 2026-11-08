@@ -1,5 +1,7 @@
 // Reply to a part of a message: selecting transcript text shows a small Reply chip above the
-// selection's end, as Claude and ChatGPT do; clicking it quotes the selection into the composer,
+// selection's end; where that spot holds text (the line before, a "Sent to" line over the reply) it
+// takes the nearest spot that covers no other text (selectionReplyPlace). It never floats in the
+// margin past the column or leaves the visible transcript; clicking it quotes the selection into the composer,
 // the same Quote in Reply the selection's right-click menu runs (AgentPaneContextMenu.swift
 // `quote`, App.tsx `chat.quoteReply`). Leo, 2026-11-03: "would it make sense to have a direct
 // reply button? or would you mostly just re-read your own thing anyways? what makes sense here?"
@@ -13,87 +15,22 @@
 // agent-pane.selection-reply): `chip` (the default: quote glyph and "Reply"), `icon` (glyph only),
 // `none` (the right-click menu alone) and `row` (a Reply button on every message's action row,
 // kept to show why the chip won).
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
-
-export type SelectionReplyLook = "chip" | "icon" | "none" | "row";
-const LOOKS: readonly SelectionReplyLook[] = ["chip", "icon", "none", "row"];
-let look: SelectionReplyLook = "chip";
-const listeners = new Set<() => void>();
-
-/// The theme carried a look: the transcript follows at once. Anything else keeps the chip.
-export function configureSelectionReply(value: unknown): void {
-  const next = LOOKS.find((one) => one === value) ?? "chip";
-  if (next === look) return;
-  look = next;
-  for (const listener of listeners) listener();
-}
-
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => void listeners.delete(listener);
-};
-const current = () => look;
-export const useSelectionReplyLook = () => useSyncExternalStore(subscribe, current, current);
-
-/// `text` as a Markdown quote with a blank line after it, as the right-click menu's Quote in Reply
-/// makes it (AgentPaneContextMenu.swift `quote`).
-export function quoteMarkdown(text: string): string {
-  return `${text
-    .split("\n")
-    .map((line) => `> ${line}`)
-    .join("\n")}\n\n`;
-}
-
-/// Where a quote goes: the pane's Quote in Reply (App.tsx), set while the pane is mounted.
-let sink: ((markdown: string) => void) | undefined;
-export function setQuoteReplySink(next: ((markdown: string) => void) | undefined): () => void {
-  sink = next;
-  return () => {
-    if (sink === next) sink = undefined;
-  };
-}
-export function quoteInReply(text: string): boolean {
-  if (!sink || !text.trim()) return false;
-  sink(quoteMarkdown(text));
-  return true;
-}
-
-const EDITABLE = '[contenteditable]:not([contenteditable="false"]), textarea, input';
-/// Text selected here is never offered the chip: the composer and fields, code blocks (selected to
-/// copy; their own Copy is in the corner), a guest's read-only transcript and the chip itself.
-const EXCLUDED = `${EDITABLE}, .cv-codeblock, pre, [data-read-only-transcript], .cv-selection-reply`;
-
-const elementOf = (node: Node | null): Element | null =>
-  node ? (node.nodeType === 1 ? (node as Element) : node.parentElement) : null;
-
-export type SelectionReplyTarget = { text: string; left: number; top: number; bottom: number };
-
-/// The selected transcript text and where its end is (viewport px), or undefined when the
-/// selection is collapsed, blank, or not wholly in transcript messages.
-export function selectionReplyTarget(doc: Document): SelectionReplyTarget | undefined {
-  const selection = doc.getSelection();
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return undefined;
-  for (const node of [selection.anchorNode, selection.focusNode]) {
-    const element = elementOf(node);
-    if (!element?.closest("[data-row-id]") || element.closest(EXCLUDED)) return undefined;
-  }
-  const text = selection.toString().trim();
-  if (!text) return undefined;
-  const range = selection.getRangeAt(0);
-  const rects = Array.from(range.getClientRects?.() ?? []).filter((rect) => rect.width || rect.height);
-  // A backward drag ends at the range's start: the chip goes where the pointer let go.
-  const backward =
-    selection.anchorNode !== null &&
-    selection.focusNode !== null &&
-    (selection.anchorNode === selection.focusNode
-      ? selection.focusOffset < selection.anchorOffset
-      : Boolean(selection.anchorNode.compareDocumentPosition(selection.focusNode) & 2));
-  const rect = (backward ? rects[0] : rects[rects.length - 1]) ?? range.getBoundingClientRect?.();
-  if (!rect) return { text, left: 0, top: 0, bottom: 0 };
-  return { text, left: backward ? rect.left : rect.right, top: rect.top, bottom: rect.bottom };
-}
+import { experimentArm } from "../../../experiments/experiment";
+import { Quote } from "./icons";
+import { selectionReplyWrap } from "./selectionReplyWrap.experiment";
+import {
+  quoteInReply,
+  selectionReplyPlace,
+  selectionReplyTarget,
+  transcriptClip,
+  unselectedTextProbe,
+  useSelectionReplyLook,
+  type SelectionReplyPlace,
+  type SelectionReplyTarget,
+} from "./selectionReplyModel";
 
 /// A Reply button for a message's action row (`row` look only), its glyph the row's 16 px
 /// (MessageActions.tsx ROW_ICON).
@@ -109,22 +46,8 @@ export function RowReplyButton({ text }: { text: string }) {
       title={label}
       onClick={() => quoteInReply(text)}
     >
-      <QuoteGlyph size={16} />
+      <Quote size={16} />
     </button>
-  );
-}
-
-function QuoteGlyph({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M6.5 4.5 3 8l3.5 3.5M3.5 8h6a3.5 3.5 0 0 1 3.5 3.5v0"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }
 
@@ -137,7 +60,11 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
   const shown = useRef(false);
   shown.current = target !== undefined;
   const chip = useRef<HTMLButtonElement>(null);
-  const [placed, setPlaced] = useState<{ left: number; top: number }>();
+  // Undefined while the chip is measured; null where no spot takes it (it hides).
+  const [placed, setPlaced] = useState<SelectionReplyPlace | null>();
+  // The chip's width with its label: a compact chip is narrower, and the next placement (a scroll)
+  // must try the full chip first.
+  const fullWidth = useRef(0);
 
   useEffect(() => {
     if (!enabled) {
@@ -173,16 +100,24 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
     };
   }, [doc, enabled]);
 
-  // Above the selection's end, centred on it and kept inside the pane; below it near the top.
+  // Where no transcript text is under it (selectionReplyPlace), read once per shown selection.
   useLayoutEffect(() => {
     if (!target) return setPlaced(undefined);
-    const width = chip.current?.offsetWidth ?? 0;
-    const height = chip.current?.offsetHeight ?? 0;
-    const pane = doc.documentElement.clientWidth || doc.defaultView?.innerWidth || 0;
-    const gap = 6;
-    const left = Math.max(gap, Math.min(target.left - width / 2, pane - width - gap));
-    const above = target.top - height - gap;
-    setPlaced({ left, top: above >= gap ? above : target.bottom + gap });
+    if (chip.current && chip.current.dataset.compact !== "true") fullWidth.current = chip.current.offsetWidth;
+    const size = { width: fullWidth.current, height: chip.current?.offsetHeight ?? 0 };
+    const selection = doc.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+    if (!range) return setPlaced(undefined);
+    const clip = transcriptClip(doc, range.endContainer);
+    const pane = {
+      width: doc.documentElement.clientWidth || doc.defaultView?.innerWidth || 0,
+      height: clip.bottom,
+      top: clip.top,
+    };
+    setPlaced(
+      selectionReplyPlace(target, size, pane, unselectedTextProbe(doc, range), experimentArm(selectionReplyWrap)) ??
+        null,
+    );
   }, [doc, target]);
 
   const quote = useCallback(() => {
@@ -198,22 +133,32 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
 
   if (!enabled || !target) return null;
   const label = t("message.quoteReply");
+  // Its glyph alone where its label would cover someone else's words (selectionReplyPlace step 6).
+  const compact = placed?.compact === true;
+  const hidden = placed === null;
   return createPortal(
     <button
       ref={chip}
       type="button"
       className="cv-selection-reply"
-      data-look={current}
+      data-look={compact ? "icon" : current}
+      data-compact={compact ? "true" : undefined}
+      data-hidden={hidden ? "true" : undefined}
+      aria-hidden={hidden ? true : undefined}
       aria-label={label}
-      title={current === "icon" ? label : undefined}
-      style={placed ? { left: placed.left, top: placed.top } : { visibility: "hidden", left: 0, top: 0 }}
+      title={current === "icon" || compact ? label : undefined}
+      style={
+        placed
+          ? { left: placed.left, top: placed.top }
+          : { visibility: "hidden", pointerEvents: "none", left: 0, top: 0 }
+      }
       // Pressing the chip keeps the selection it quotes.
       onPointerDown={(event) => event.preventDefault()}
       onMouseDown={(event) => event.preventDefault()}
       onClick={quote}
     >
-      <QuoteGlyph size={14} />
-      {current === "chip" && <span>{label}</span>}
+      <Quote size={14} />
+      {current === "chip" && !compact && <span>{label}</span>}
     </button>,
     doc.body,
   );

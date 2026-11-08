@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { filterPaletteSections, type PaletteSection } from "./PaletteMenu";
+import { filterPaletteSections, type PaletteSection } from "./paletteMenuModel";
 
 const sections: PaletteSection[] = [
   {

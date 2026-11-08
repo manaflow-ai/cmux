@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { artifactKind } from "../src/agent-session/acpmux/conversation/artifactPreview";
-import { outputArtifacts } from "../src/agent-session/acpmux/session-info/OutputsSection";
+import { outputArtifacts } from "../src/agent-session/acpmux/session-info/outputsSectionModel";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
   artifactCanRender,
@@ -9,7 +9,7 @@ import {
   artifactNeedsRun,
 } from "../src/agent-session/acpmux/conversation/artifactSandbox";
 import { uniqueArtifacts } from "../src/agent-session/acpmux/conversation/artifactDedupe";
-import { writtenArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifacts";
+import { writtenArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifactsModel";
 
 const page = '<title>Counter</title><button onclick="this.textContent++">0</button>';
 const rows = (tool: NonNullable<AcpmuxActivity["tool"]>): AcpmuxRow[] => [
@@ -49,6 +49,8 @@ test("artifact frames select only the native pane endpoints", () => {
       ["cmux-agent://pane/index.html", "cmux-agent://render/artifact"],
       ["cmux-page://cmux.agent/", "cmux-page://cmux.agent/__artifact"],
       ["cmux-page://cmux.agent/index.html", "cmux-page://cmux.agent/__artifact"],
+      ["cmux-page://cmux.artifacts/", "cmux-page://cmux.agent/__artifact"],
+      ["cmux-page://cmux.artifacts.evil/", undefined],
       ["cmux-page://cmux.agent.evil/", undefined],
       ["cmux-page://cmux.agent:1234/", undefined],
       ["cmux-page://user@cmux.agent/", undefined],

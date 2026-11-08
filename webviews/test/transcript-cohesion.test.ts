@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 480
 // l10n-allow-file: synthetic transcript assertions.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -156,6 +157,12 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
           deviceScaleFactor: 2,
         });
         const page = await context.newPage();
+        // The claude variant measures Claude's in-place runs (claudeTurnFold.experiment.ts arm
+        // "runs"); by default a Claude turn folds under Worked for, as Codex's does.
+        if (variant === "claude")
+          await page.addInitScript(() => {
+            globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
+          });
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(String(error)));
         try {
@@ -173,46 +180,57 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
             .filter({ hasText: "All three focused tests pass." })
             .waitFor({ timeout: 10_000 });
           const headers = page.locator(".acpmux-worked > .cv-worked");
-          // A finished Claude turn folds under one Worked for too (cmux#34774), so it shares
-          // the closed Codex header's rhythm.
-          await headers.waitFor();
-          await page.waitForFunction(
-            (open) =>
-              document.querySelector(".acpmux-worked > .cv-worked")?.getAttribute("aria-expanded") === String(open),
-            variant === "codex-open",
-          );
-          const measured = await page.evaluate(() => {
-            const header = document.querySelector(".acpmux-worked > .cv-worked")!;
-            const row = header.closest(".acpmux-row")!;
-            const reply = [...document.querySelectorAll(".acpmux-assistant")].find((node) =>
-              node.textContent?.includes("All three focused tests pass."),
-            )!;
-            // Visible text marks, as the shared spacing table measures them; keep row-box
-            // checks too, so the estimate cannot hide a different rendered line height.
-            const firstLineCenter = (element: Element) => {
-              const range = document.createRange();
-              range.selectNodeContents(element);
-              const rect = range.getClientRects()[0]!;
-              return (rect.top + rect.bottom) / 2;
-            };
-            const box = header.getBoundingClientRect();
-            const next = row.nextElementSibling!.getBoundingClientRect();
-            return {
-              headerHeight: box.height,
-              nextGap: next.top - box.bottom,
-              replyGap: reply.getBoundingClientRect().top - box.bottom,
-              replyCenterGap:
-                firstLineCenter(reply.querySelector(".cv-md p")!) -
-                firstLineCenter(header.querySelector(".cv-worked__label")!),
-            };
-          });
-          console.log(`transcript-cohesion ${variant} ${label}: ${JSON.stringify(measured)}`);
-          if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
-            expect(measured.headerHeight).toBeCloseTo(22, 1);
-            if (variant !== "codex-open") {
-              expect(measured.replyGap).toBeCloseTo(16, 1);
-              expect(Math.abs(measured.replyCenterGap - 38.375)).toBeLessThan(1);
-            } else expect(measured.nextGap).toBeCloseTo(0, 1);
+          if (variant === "claude") {
+            expect(await headers.count()).toBe(0);
+            await page
+              .locator(".cv-tool")
+              .filter({ hasText: /Read|Ran|Searched|Used/ })
+              .first()
+              .waitFor();
+          } else {
+            await headers.waitFor();
+            await page.waitForFunction(
+              (open) =>
+                document.querySelector(".acpmux-worked > .cv-worked")?.getAttribute("aria-expanded") === String(open),
+              variant === "codex-open",
+            );
+            const measured = await page.evaluate(() => {
+              const header = document.querySelector(".acpmux-worked > .cv-worked")!;
+              const row = header.closest(".acpmux-row")!;
+              const reply = [...document.querySelectorAll(".acpmux-assistant")].find((node) =>
+                node.textContent?.includes("All three focused tests pass."),
+              )!;
+              // Visible text marks, as the shared spacing table measures them; keep row-box
+              // checks too, so the estimate cannot hide a different rendered line height.
+              const firstLineCenter = (element: Element) => {
+                const range = document.createRange();
+                range.selectNodeContents(element);
+                const rect = range.getClientRects()[0]!;
+                return (rect.top + rect.bottom) / 2;
+              };
+              const box = header.getBoundingClientRect();
+              const next = row.nextElementSibling!.getBoundingClientRect();
+              return {
+                headerHeight: box.height,
+                nextGap: next.top - box.bottom,
+                replyGap: reply.getBoundingClientRect().top - box.bottom,
+                replyCenterGap:
+                  firstLineCenter(reply.querySelector(".cv-md p")!) -
+                  firstLineCenter(header.querySelector(".cv-worked__label")!),
+              };
+            });
+            console.log(`transcript-cohesion ${variant} ${label}: ${JSON.stringify(measured)}`);
+            if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
+              // Worked for's rule sits midway between its words and the next row, open or closed:
+              // 4 under its 22px line, 12 over the next row, and no stack gap after it (Codex parity,
+              // Lucas, 2026-11-07; conversation.css `.cv-worked.has-divider.is-toggle`, model.ts
+              // WORKED_GAP_PT, transcriptGrid.ts MARK_WORKED).
+              expect(measured.headerHeight).toBeCloseTo(22 + 4, 1);
+              if (variant === "codex-closed") {
+                expect(measured.replyGap).toBeCloseTo(12, 1);
+                expect(Math.abs(measured.replyCenterGap - 38.375)).toBeLessThan(1);
+              } else expect(measured.nextGap).toBeCloseTo(12, 1);
+            }
           }
           if (process.env.FAST_CHECKS_OUT) {
             await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });

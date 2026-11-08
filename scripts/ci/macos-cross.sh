@@ -19,6 +19,7 @@
 #   ref-sdk <mac-binary>           print the SDK version recorded in a Mac binary
 #   hosts <sha> <ghostty-sha> [version]  cmux-app-host, cmux-browser-host, cmux-cloud and the
 #                                  agent screen-detection plugin for both macOS targets
+#   acpmux                          focused feature-enabled acpmux link for both targets
 #   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, cmux-tui-host, cmux-holder, acpmux, cmux-relay, chatmux-relay
 #                                  (framework stubs) for both macOS targets
 #   all <sha> <ghostty-sha> <version>   hosts and bins, every cargo invocation at once
@@ -155,11 +156,26 @@ cmd_weaken_compiler_rt() {
 
 cmd_toolchain() {
   local sdk=${1:?sdk version} zig_lib
-  zig_lib="$(dirname "$(readlink -f "$(command -v zig)")")/lib"
+  # The reviewed installer may expose Zig through a wrapper rather than a symlink.
+  zig_lib="$(zig env | python3 -c 'import json, re, sys
+text = sys.stdin.read()
+try:
+    print(json.loads(text)["lib_dir"])
+except (ValueError, KeyError):
+    found = re.search(r"(?m)^\s*\.lib_dir\s*=\s*\"([^\"]+)\"", text)
+    if not found: raise SystemExit("zig env has no lib_dir")
+    print(found.group(1))')"
   [[ -f "$zig_lib/libc/darwin/libSystem.tbd" ]] || die "zig darwin libSystem stub not found under $zig_lib"
   rm -rf "${SYSROOT:?}" "${XC_ROOT:?}/bin"; mkdir -p "$SYSROOT/usr/lib"
   cp -r "$zig_lib/libc/include/any-darwin-any" "$SYSROOT/usr/include"
-  cp "$zig_lib/libc/darwin/libSystem.tbd" "$SYSROOT/usr/lib/"
+  # Zig 0.17.0's stub also lists the arm64e.x1 architecture, which ld64.lld
+  # 20 rejects ("unknown architecture"), and then loads no libSystem symbol at
+  # all. No cmux binary targets arm64e.x1, so drop those targets.
+  perl -0pe 's/,?[ \t\n]*arm64e\.x1-(?:macos|maccatalyst)//g; s/,([ \t\n]*\])/$1/g; s/\[([ \t\n]*),/[$1/g' \
+    "$zig_lib/libc/darwin/libSystem.tbd" > "$SYSROOT/usr/lib/libSystem.tbd"
+  ! grep -q 'arm64e\.x1' "$SYSROOT/usr/lib/libSystem.tbd" || die "arm64e.x1 targets left in libSystem.tbd"
+  ! grep -qE '\[[[:space:]]*\]|target:[[:space:]]*$' "$SYSROOT/usr/lib/libSystem.tbd" ||
+    die "dropping arm64e.x1 left an empty target in libSystem.tbd"
   # libc, libm, libpthread and libdl are libSystem on macOS.
   for l in c m pthread dl; do ln -sf libSystem.tbd "$SYSROOT/usr/lib/lib$l.tbd"; done
   # Rust std links -liconv. No iconv symbol is imported, so the stub only names the dylib.
@@ -244,6 +260,16 @@ cmd_hosts() {
   done
 }
 
+# The focused check uses exactly the production compiler wrappers and sysroot.
+cmd_acpmux() {
+  export CARGO_TARGET_DIR="${XC_CARGO_TARGET_DIR:-$XC_ROOT/target-acpmux}"
+  for t in "${TARGETS[@]}"; do
+    use_target "$t" "${MIN_OS[$t]}"
+    (cd "$repo_root/cmux-tui" && cargo build --locked -p acpmux --bin acpmux --target "$t" \
+      $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t"))
+  done
+}
+
 cmd_bins() {
   local sha=${1:?sha} ghostty=${2:?ghostty sha} version=${3:?distribution version} out="$XC_ROOT/linux"; mkdir -p "$out"
   [[ -f "$SYSROOT/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd" ]] \
@@ -263,7 +289,8 @@ cmd_bins() {
       cargo build -p cmux-holder --bin cmux-holder --release --locked --target "$t"
       cargo build -p cmux-relay --bin cmux-relay --release --locked --target "$t"
       cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target "$t"
-      cargo build -p acpmux --bin acpmux --release --locked --target "$t")
+      cargo build -p acpmux --bin acpmux --release --locked --target "$t" \
+        $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t"))
     echo "bins $t: $(( $(date +%s) - start )) s"
     local r="$CARGO_TARGET_DIR/$t/release"
     cp "$r/cmux-tui" "$out/cmux-tui-$t"
@@ -303,7 +330,7 @@ cmd_all() {
       "?cmux-agent-screen-detection" "cd $(q "$tui") && { $build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml || echo 'cmux-agent-screen-detection did not build for $t; publishing without it' >&2; }" \
       "cmux-relay" "cd $(q "$tui") && $stamps $build -p cmux-relay --bin cmux-relay" \
       "chatmux-relay" "cd $(q "$tui") && $stamps $build -p chatmux-relay --bin chatmux-relay" \
-      "acpmux" "cd $(q "$tui") && $stamps $build -p acpmux --bin acpmux"
+      "acpmux" "cd $(q "$tui") && $stamps $build -p acpmux --bin acpmux $("$repo_root/scripts/ci/acpmux-build-features.sh" "$tui/crates/acpmux/Cargo.toml" "$t")"
     echo "all $t: $(( $(date +%s) - start )) s"
     local r="$target_dir/$t/release"
     cp "$r/cmux-app-host" "$out/cmux-tui-app-host-$t"
@@ -471,6 +498,7 @@ case "$command" in
   ref-sdk) cmd_ref_sdk "$@" ;;
   hosts) cmd_hosts "$@" ;;
   bins) cmd_bins "$@" ;;
+  acpmux) cmd_acpmux ;;
   all) cmd_all "$@" ;;
   weaken-compiler-rt) cmd_weaken_compiler_rt "$@" ;;
   parity-bins) cmd_parity_bins ;;

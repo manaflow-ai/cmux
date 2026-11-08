@@ -1,11 +1,10 @@
 // The transcript never draws under the open Session Info (session-info/SessionInfo.tsx, sessionInfo.css;
 // Leo 2026-10-21: his message's bubble sat on Background tasks, and a message's Retry and Edit sat on
-// "5 finished"). The panel floats outside the chat's layout and never moves it (Leo, 2026-10-29: "it's
-// not supposed to be a fucking sidebar that pushes the fucking layout"): where the right gutter holds
-// it, every row ends left of the panel; with Settings Push always, the chat narrows beside it and every
-// row ends the chat's page edge (--cv-edge, read live from the page) clear of it. Where the
-// gutter cannot hold it, it floats over the chat (session-info-placement.test.ts). Closed, the rows
-// take the column's centered place again.
+// "5 finished"). Wherever the column fits beside the whole panel it pushes, and the column, its width
+// kept, centers beside the panel (Lucas, 2026-11-06): every row ends at least the chat's page edge
+// (--cv-edge, read live from the page) clear of it, and in the narrowest pane that still pushes, exactly
+// that edge. Where the column cannot fit, it lies over the chat (session-info-placement.test.ts).
+// Closed, the rows take the column's centered place again.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Real Chromium and WebKit (the app's engine); CI fails the file when it
@@ -75,18 +74,18 @@ await requireBrowserLane("session-info-overlay-transcript.test.ts", async () => 
     });
 
   for (const name of browsers.keys())
-    for (const { width, placement } of [
-      // 1600px: the 400px gutter holds the 320px panel and its margins.
-      { width: 1600, placement: "overlay" },
-      // 1080px: the 720px column centered leaves 180px each side, less than the 320px panel. Pushed (Push
-      // always), the column keeps its 720px and the rows end the chat's page edge (--cv-edge) clear of it.
-      { width: 1080, placement: "push" },
+    for (const { width, placement, setting } of [
+      // 1600px, the default setting: the column centered beside the whole panel, far clear of it.
+      { width: 1600, placement: "push", setting: "overlay" },
+      // 1160px, Push always: Chat Text Width's 800px column centered in the 832px left beside the panel,
+      // so the rows end the chat's page edge (--cv-edge) clear of it, exactly.
+      { width: 1160, placement: "push", setting: "push" },
     ] as const)
       test(`${name}: no transcript row draws under the open Session Info (${width}px, ${placement})`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 620 });
         try {
-          if (placement === "push") await sessionInfoPushAlways(page);
+          if (setting === "push") await sessionInfoPushAlways(page);
           await page.evaluate(() => {
             (
               window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
@@ -121,14 +120,14 @@ await requireBrowserLane("session-info-overlay-transcript.test.ts", async () => 
           console.log(`${name} open frame: panel left ${left}px, row rights ${JSON.stringify(open)}`);
           expect(open.rows.length).toBeGreaterThan(0);
           expect(open.bubbles.length).toBeGreaterThan(0);
-          // Floating, a row only has to end left of the panel; pushed, it ends the page edge clear of it.
+          // Pushed, every row ends at least the page edge clear of the panel.
           const edge = await pageEdge(page);
           expect(edge).toBeGreaterThan(0);
-          const clear = placement === "push" ? edge : 0;
+          const clear = edge;
           const under = [...open.rows, ...open.bubbles].filter((right) => right > left - clear + 0.5);
           expect({ panelLeft: left, edge, under }).toEqual({ panelLeft: left, edge, under: [] });
-          // Pushed, the rows end exactly that edge clear of the panel (within 1px), no farther.
-          if (placement === "push")
+          // In the narrowest pane that pushes, the rows end exactly that edge clear of it (within 1px).
+          if (setting === "push")
             expect(Math.abs(left - Math.max(...open.rows, ...open.bubbles) - edge)).toBeLessThanOrEqual(1);
 
           // Closed, the rows return to the column's centered place: where they drew before it opened, with
@@ -141,9 +140,8 @@ await requireBrowserLane("session-info-overlay-transcript.test.ts", async () => 
           });
           const closed = await rowEdges(page);
           expect(closed.rows).toEqual(before.rows);
-          // Floating, the rows never moved; pushed, they were narrowed and now reach past the panel's edge.
-          if (placement === "push") expect(Math.max(...closed.rows)).toBeGreaterThan(left + 100);
-          else expect(open.rows).toEqual(before.rows);
+          // Pushed, the rows moved left: closed, they reach past where they ended while it was open.
+          expect(Math.max(...closed.rows)).toBeGreaterThan(Math.max(...open.rows) + 100);
         } finally {
           await page.close();
         }
