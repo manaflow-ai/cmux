@@ -217,4 +217,15 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         ]
     }
 }
+
+public extension SidebarSessionTreeState {
+    /// Lays a fixture's who-started-whom and hosts over the live tree. False when the fixture has neither.
+    mutating func merge(_ fixture: SidebarNestedFixture) -> Bool {
+        guard !fixture.parents.isEmpty || !fixture.hosts.isEmpty else { return false }
+        parents.merge(fixture.parents) { _, fixture in fixture }
+        hosts.merge(fixture.hosts) { _, fixture in fixture }
+        hostNames.merge(fixture.hostNames) { _, fixture in fixture }
+        return true
+    }
+}
 #endif
