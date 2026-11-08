@@ -106,7 +106,15 @@ struct TerminalResizeProgramHoldTests {
         try #require(presenter.stats.boundPresents > before,
                      "SETUP: press 1 showed no size at the hold's bound (bound presents \(before) -> \(presenter.stats.boundPresents)): the quiet program was not held")
 
+        // The program is slow, not dead: as a real one does after its SIGWINCH, it redraws late, once, at its newest grid.
+        // Without this its picture would stay at the grid before press 1, and press 2's first refresh (a 2 px step at
+        // the same grid, so no new grid to answer) would show that stale picture whatever the hold does.
         program.redraws = true
+        for (io, session) in zip(screen.ios, screen.sessions) {
+            let grid = try #require(session.surfaceView.fittedGrid, "SETUP: a terminal fits no grid")
+            io.send(.output(program.redraw(cols: grid.columns, rows: grid.rows)))
+        }
+        await TerminalKeyResizeFrameTests.settle(screen)
         let presents = Presents(screen)
         defer { presents.stop() }
         try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
