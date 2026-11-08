@@ -488,8 +488,15 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.zoom-pane` | chord string or array or `"none"` | `"z"` | Toggle zoom for the active pane |
 | `keys.resize-grow` | chord string or array or `"none"` | `["alt+=","shift+="]` | Grow the focused split |
 | `keys.resize-shrink` | chord string or array or `"none"` | `["alt+-","-"]` | Shrink the focused split |
-| `keys.scroll-up` | chord string or array or `"none"` | `["[","pageup"]` | Scroll active PTY up 10 rows |
-| `keys.scroll-down` | chord string or array or `"none"` | `"pagedown"` | Scroll active PTY down 10 rows |
+| `keys.scroll-up` | chord string or array or `"none"` | unbound | Scroll active PTY up 10 rows |
+| `keys.scroll-down` | chord string or array or `"none"` | unbound | Scroll active PTY down 10 rows |
+| `keys.scroll-page-up` | chord string or array or `"none"` | `"pageup"` | Scroll active PTY up one visible page |
+| `keys.scroll-page-down` | chord string or array or `"none"` | `"pagedown"` | Scroll active PTY down one visible page |
+| `keys.scroll-half-page-up` | chord string or array or `"none"` | unbound | Scroll active PTY up half a visible page |
+| `keys.scroll-half-page-down` | chord string or array or `"none"` | unbound | Scroll active PTY down half a visible page |
+| `keys.copy-mode` | chord string or array or `"none"` | `"["` | Enter keyboard copy mode on the active terminal |
+| `keys.search-scrollback` | chord string or array or `"none"` | `"/"` | Enter copy mode and open a backward scrollback search |
+| `keys.copy_mode` | object | built-in copy-mode keys | Copy-mode command bindings; see [Keyboard](keyboard.md#copy-mode) |
 | `keys.clear-history` | chord string or array or `"none"` | `"cmd+k"` | Clear retained PTY history and completed visible rows while preserving active input |
 | `keys.browser-back` | chord string or array or `"none"` | `"<"` | Browser back |
 | `keys.browser-forward` | chord string or array or `"none"` | `">"` | Browser forward |

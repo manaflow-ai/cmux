@@ -1,0 +1,440 @@
+//! Copy-mode reads of the retained screen: one row's cells, the text of a
+//! block selection, and a scrollback search. Every read is in screen
+//! coordinates (row 0 is the oldest retained row), never moves the viewport,
+//! and consumes no render damage.
+//!
+//! The libghostty-vt pin on this branch has no search API, so the search is
+//! a Rust scan (feat-cmux-next calls `ghostty_search_*` instead; a later
+//! promotion of feat's engine replaces this file). One formatter pass reads
+//! the whole screen as one line per logical line. Only the logical lines whose
+//! text can hold the needle are then read cell by cell to place the matches,
+//! so the cost per search is one formatter pass plus the lines that match.
+
+use super::*;
+use crate::screen_text::{ScreenRowText, ScreenSearch, ScreenTextCell};
+
+/// One character of a logical line and the cell that holds it.
+#[derive(Debug, Clone, Copy)]
+struct PlacedChar {
+    ch: char,
+    col: u16,
+    row: u32,
+}
+
+/// What one search read, for tests that bound its work.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+struct ScanStats {
+    /// Logical lines read cell by cell.
+    precise_lines: usize,
+    /// The formatter's lines did not line up with the screen's logical
+    /// lines, so every logical line was read cell by cell.
+    fallback: bool,
+}
+
+impl Terminal {
+    /// The cells of one screen row and its soft-wrap flag, or `None` past
+    /// the last retained row.
+    pub fn screen_row_text(&self, row: u64) -> Option<ScreenRowText> {
+        let cols = self.cols();
+        if cols == 0 {
+            return None;
+        }
+        let mut cells = Vec::with_capacity(usize::from(cols));
+        let mut codepoints = Vec::new();
+        for column in 0..cols {
+            let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, column, row)?;
+            let mut raw = sys::GhosttyCell::default();
+            check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
+            let width = crate::render::cell_width(raw);
+            let text = grid_ref_text(&grid_ref, &mut codepoints)?;
+            cells.push(ScreenTextCell { text, width });
+        }
+        let wraps = self.screen_row_wraps(row) == Some(true);
+        Some(ScreenRowText { cells, wraps })
+    }
+
+    /// Plain text of the rectangle spanned by two absolute screen points
+    /// (inclusive), one line per row with trailing blanks trimmed.
+    pub fn block_selection_text_absolute(
+        &mut self,
+        start: (u16, u64),
+        end: (u16, u64),
+    ) -> Option<String> {
+        let (left, right) = (start.0.min(end.0), start.0.max(end.0));
+        let (top, bottom) = (start.1.min(end.1), start.1.max(end.1));
+        let tag = sys::GHOSTTY_POINT_TAG_SCREEN;
+        let selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            start: self.grid_ref(tag, left, top)?,
+            end: self.grid_ref(tag, right, bottom)?,
+            rectangle: true,
+        };
+        let bytes = self.format(plain_text_options(&selection, false, true)).ok()?;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// Find `needle` on the active screen, scrollback included.
+    ///
+    /// Matching is exact except for ASCII letters, which match in any case
+    /// unless `case_sensitive` is set. A match may cross a soft wrap; it
+    /// never crosses a hard line break. At most `limit` matches are
+    /// returned, the newest kept; the result is ordered top to bottom.
+    pub fn search_screen(
+        &mut self,
+        needle: &str,
+        case_sensitive: bool,
+        limit: usize,
+    ) -> Result<ScreenSearch> {
+        Ok(self.search_screen_scan(needle, case_sensitive, limit).0)
+    }
+
+    fn search_screen_scan(
+        &mut self,
+        needle: &str,
+        case_sensitive: bool,
+        limit: usize,
+    ) -> (ScreenSearch, ScanStats) {
+        // Red commit: the Rust scan lands in the next commit.
+        let _ = (needle, case_sensitive, limit);
+        (ScreenSearch::default(), ScanStats::default())
+    }
+
+    /// Read the candidate logical lines newest first and place their
+    /// matches. With `texts`, a line is a candidate only when its formatter
+    /// text holds the needle, and every line read is checked against its
+    /// formatter text: `None` means the two disagree and the caller must
+    /// read every line instead.
+    fn scan_lines(
+        &self,
+        lines: &[(u32, u32)],
+        texts: Option<&Vec<String>>,
+        query: &Query,
+        stats: &mut ScanStats,
+    ) -> Option<ScreenSearch> {
+        let mut result = ScreenSearch::default();
+        let mut codepoints = Vec::new();
+        'lines: for (index, &(top, bottom)) in lines.iter().enumerate().rev() {
+            let expected = texts.map(|texts| texts.get(index));
+            if let Some(Some(text)) = expected
+                && !text.contains(query.folded.as_str())
+            {
+                continue;
+            }
+            stats.precise_lines += 1;
+            let placed = self.logical_line_chars(top, bottom, &mut codepoints);
+            if let Some(expected) = expected {
+                // A line past the formatter's last line must be blank.
+                let formatter = expected.map_or("", String::as_str);
+                if fold(placed.iter().map(|placed| placed.ch), query.case_sensitive) != formatter {
+                    return None;
+                }
+            }
+            for range in query.find_in(&placed).into_iter().rev() {
+                if result.matches.len() == query.limit {
+                    result.truncated = true;
+                    break 'lines;
+                }
+                result.matches.push(range);
+            }
+        }
+        result.matches.sort_by_key(|range| (range.start.row, range.start.column));
+        Some(result)
+    }
+
+    /// The first and last rows of every soft-wrapped logical line, top to
+    /// bottom.
+    fn logical_lines(&self, total: u64) -> Vec<(u32, u32)> {
+        let mut lines = Vec::new();
+        let mut top: Option<u32> = None;
+        for row in 0..total {
+            let Ok(row32) = u32::try_from(row) else { break };
+            let start = *top.get_or_insert(row32);
+            if self.screen_row_wraps(row) != Some(true) || row + 1 == total {
+                lines.push((start, row32));
+                top = None;
+            }
+        }
+        lines
+    }
+
+    /// The formatter's text of every logical line, top to bottom, folded
+    /// like the needle. Trailing blank lines are left out.
+    fn folded_line_texts(&mut self, case_sensitive: bool) -> Option<Vec<String>> {
+        let bytes = self.format(plain_text_options(ptr::null(), true, true)).ok()?;
+        let text = String::from_utf8_lossy(&bytes);
+        let mut texts: Vec<String> =
+            text.split('\n').map(|line| fold(line.chars(), case_sensitive)).collect();
+        while texts.last().is_some_and(String::is_empty) {
+            texts.pop();
+        }
+        Some(texts)
+    }
+
+    /// The characters of rows `top..=bottom` and their cells. A blank cell
+    /// reads as a space, a wide grapheme's spacers are skipped, and the
+    /// line's trailing blanks are dropped.
+    fn logical_line_chars(
+        &self,
+        top: u32,
+        bottom: u32,
+        codepoints: &mut Vec<u32>,
+    ) -> Vec<PlacedChar> {
+        let cols = self.cols();
+        let mut placed = Vec::new();
+        for row in top..=bottom {
+            for col in 0..cols {
+                let Some(grid_ref) =
+                    self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, col, u64::from(row))
+                else {
+                    break;
+                };
+                let mut raw = sys::GhosttyCell::default();
+                if check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).is_err() {
+                    continue;
+                }
+                if matches!(
+                    crate::render::cell_width(raw),
+                    CellWidth::SpacerTail | CellWidth::SpacerHead
+                ) {
+                    continue;
+                }
+                let text = grid_ref_text(&grid_ref, codepoints).unwrap_or_default();
+                if text.is_empty() {
+                    placed.push(PlacedChar { ch: ' ', col, row });
+                } else {
+                    placed.extend(text.chars().map(|ch| PlacedChar { ch, col, row }));
+                }
+            }
+        }
+        while placed.last().is_some_and(|placed| placed.ch.is_whitespace()) {
+            placed.pop();
+        }
+        placed
+    }
+
+    /// Whether a screen row soft-wraps into the next one.
+    fn screen_row_wraps(&self, row: u64) -> Option<bool> {
+        let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, 0, row)?;
+        let mut raw_row = sys::GhosttyRow::default();
+        check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut raw_row) }).ok()?;
+        let mut wraps = false;
+        check(unsafe {
+            sys::ghostty_row_get(
+                raw_row,
+                sys::GHOSTTY_ROW_DATA_WRAP,
+                (&mut wraps as *mut bool).cast(),
+            )
+        })
+        .ok()?;
+        Some(wraps)
+    }
+}
+
+/// Text with whitespace removed and, unless `case_sensitive`, ASCII letters
+/// lowercased: the form in which a formatter line and a needle are compared.
+fn fold(chars: impl Iterator<Item = char>, case_sensitive: bool) -> String {
+    chars
+        .filter(|ch| !ch.is_whitespace())
+        .map(|ch| if case_sensitive { ch } else { ch.to_ascii_lowercase() })
+        .collect()
+}
+
+/// One search: the needle as typed and in folded form, and its limits.
+struct Query {
+    needle: Vec<char>,
+    /// The needle as [`fold`] writes it, to test formatter lines.
+    folded: String,
+    case_sensitive: bool,
+    limit: usize,
+}
+
+impl Query {
+    /// Non-overlapping matches of the needle in one logical line, left to
+    /// right.
+    fn find_in(&self, placed: &[PlacedChar]) -> Vec<SelectionRange> {
+        let same =
+            |a: char, b: char| a == b || (!self.case_sensitive && a.eq_ignore_ascii_case(&b));
+        let mut found = Vec::new();
+        let mut start = 0;
+        while let Some(window) = placed.get(start..start + self.needle.len()) {
+            if window.iter().zip(&self.needle).all(|(placed, &ch)| same(placed.ch, ch)) {
+                if let (Some(first), Some(last)) = (window.first(), window.last()) {
+                    found.push(SelectionRange {
+                        start: SelectionPoint { column: first.col, row: first.row },
+                        end: SelectionPoint { column: last.col, row: last.row },
+                    });
+                }
+                start += self.needle.len();
+            } else {
+                start += 1;
+            }
+        }
+        found
+    }
+}
+
+fn plain_text_options(
+    selection: *const sys::GhosttySelection,
+    unwrap: bool,
+    trim: bool,
+) -> sys::GhosttyFormatterTerminalOptions {
+    sys::GhosttyFormatterTerminalOptions {
+        size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+        emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
+        unwrap,
+        trim,
+        extra: sys::GhosttyFormatterTerminalExtra {
+            size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+            ..Default::default()
+        },
+        selection,
+    }
+}
+
+/// The grapheme cluster at a grid reference; empty for a blank cell.
+fn grid_ref_text(grid_ref: &sys::GhosttyGridRef, codepoints: &mut Vec<u32>) -> Option<String> {
+    let mut len = 0usize;
+    let query = unsafe { sys::ghostty_grid_ref_graphemes(grid_ref, ptr::null_mut(), 0, &mut len) };
+    if query != sys::GHOSTTY_SUCCESS && query != sys::GHOSTTY_OUT_OF_SPACE {
+        return None;
+    }
+    if len == 0 {
+        return Some(String::new());
+    }
+    codepoints.clear();
+    codepoints.resize(len, 0);
+    check(unsafe {
+        sys::ghostty_grid_ref_graphemes(
+            grid_ref,
+            codepoints.as_mut_ptr(),
+            codepoints.len(),
+            &mut len,
+        )
+    })
+    .ok()?;
+    Some(codepoints.iter().take(len).map(|&cp| char::from_u32(cp).unwrap_or('\u{FFFD}')).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn terminal(cols: u16, rows: u16, text: &str) -> Terminal {
+        let mut term = Terminal::new(cols, rows, 1_000_000, Callbacks::default()).unwrap();
+        term.vt_write(text.as_bytes());
+        term
+    }
+
+    fn row_text(term: &Terminal, row: u64) -> String {
+        term.screen_row_text(row).unwrap().cells.iter().map(|cell| cell.text.as_str()).collect()
+    }
+
+    #[test]
+    fn copy_mode_screen_row_text_reports_wide_cells_and_soft_wraps() {
+        let term = terminal(4, 3, "ABC橋D");
+        let first = term.screen_row_text(0).unwrap();
+        assert!(first.wraps, "a row that overflowed must report its soft wrap");
+        assert_eq!(first.cells[3].width, CellWidth::SpacerHead);
+        let second = term.screen_row_text(1).unwrap();
+        assert!(!second.wraps);
+        assert_eq!(second.cells[0].text, "橋");
+        assert_eq!(second.cells[0].width, CellWidth::Wide);
+        assert_eq!(second.cells[1].width, CellWidth::SpacerTail);
+        assert_eq!(second.cells[2].text, "D");
+        assert_eq!(row_text(&term, 0), "ABC");
+        assert!(term.screen_row_text(999).is_none());
+    }
+
+    #[test]
+    fn copy_mode_search_screen_covers_scrollback_and_filters_case() {
+        let lines: String = (0..40).map(|n| format!("Foo foo {n:02}\r\n")).collect();
+        let mut term = terminal(30, 5, &lines);
+        assert!(term.history_rows() > 0, "the fixture must reach scrollback");
+
+        let insensitive = term.search_screen("foo", false, 1_000).unwrap();
+        assert_eq!(insensitive.matches.len(), 80);
+        assert!(!insensitive.truncated);
+        let first = insensitive.matches[0];
+        assert_eq!((first.start.row, first.start.column), (0, 0));
+        assert_eq!((first.end.row, first.end.column), (0, 2));
+        assert!(insensitive.matches.windows(2).all(|pair| {
+            (pair[0].start.row, pair[0].start.column) < (pair[1].start.row, pair[1].start.column)
+        }));
+
+        let sensitive = term.search_screen("Foo", true, 1_000).unwrap();
+        assert_eq!(sensitive.matches.len(), 40);
+        assert!(sensitive.matches.iter().all(|range| range.start.column == 0));
+
+        let limited = term.search_screen("foo", false, 3).unwrap();
+        assert!(limited.truncated);
+        assert_eq!(limited.matches.len(), 3);
+        assert_eq!(limited.matches[2].start.row, 39, "the limit keeps the newest matches");
+
+        assert!(term.search_screen("absent", false, 10).unwrap().matches.is_empty());
+    }
+
+    #[test]
+    fn copy_mode_search_screen_matches_across_a_soft_wrap() {
+        let mut term = terminal(4, 3, "xxabcdyy");
+        let found = term.search_screen("abcd", false, 10).unwrap();
+        assert_eq!(found.matches.len(), 1);
+        let range = found.matches[0];
+        assert_eq!((range.start.row, range.start.column), (0, 2));
+        assert_eq!((range.end.row, range.end.column), (1, 1));
+    }
+
+    #[test]
+    fn copy_mode_block_selection_text_cuts_columns() {
+        let mut term = terminal(10, 4, "abcdef\r\nghijkl\r\nmnopqr");
+        assert_eq!(
+            term.block_selection_text_absolute((3, 2), (1, 0)).as_deref(),
+            Some("bcd\nhij\nnop")
+        );
+    }
+
+    #[test]
+    fn copy_mode_search_screen_places_matches_after_blank_rows_and_wide_cells() {
+        // Blank rows, a wide grapheme, a soft wrap, and spaces inside a line
+        // must leave the formatter lines aligned with the logical lines.
+        let mut term = terminal(6, 4, "one\r\n\r\n\r\n橋 two\r\nabcdefghij\r\nx  needle\r\n");
+        let (found, stats) = term.search_screen_scan("needle", false, 10);
+        assert!(!stats.fallback, "the formatter lines must line up: {stats:?}");
+        assert_eq!(found.matches.len(), 1);
+        let range = found.matches[0];
+        let first = term.screen_row_text(u64::from(range.start.row)).unwrap();
+        assert_eq!(first.cells[usize::from(range.start.column)].text, "n");
+        let last = term.screen_row_text(u64::from(range.end.row)).unwrap();
+        assert_eq!(last.cells[usize::from(range.end.column)].text, "e");
+
+        let (wide, stats) = term.search_screen_scan("橋 TWO", false, 10);
+        assert!(!stats.fallback);
+        assert_eq!(wide.matches.len(), 1);
+        assert_eq!(wide.matches[0].start.column, 0);
+        assert_eq!(wide.matches[0].end.column, 5, "the match ends on the `o` after the wide cell");
+
+        assert!(term.search_screen("橋 TWO", true, 10).unwrap().matches.is_empty());
+        assert_eq!(term.search_screen("cdefgh", false, 10).unwrap().matches.len(), 1);
+        assert!(term.search_screen("one two", false, 10).unwrap().matches.is_empty());
+    }
+
+    #[test]
+    fn copy_mode_search_screen_reads_only_matching_lines_of_a_large_scrollback() {
+        let mut term = Terminal::new(40, 10, 50_000_000, Callbacks::default()).unwrap();
+        let lines: String = (0..20_000).map(|n| format!("row {n:05} of output\r\n")).collect();
+        term.vt_write(lines.as_bytes());
+        assert!(term.history_rows() > 19_000, "the fixture must fill a large scrollback");
+
+        let (found, stats) = term.search_screen_scan("row 12345", false, 10_000);
+        assert_eq!(found.matches.len(), 1);
+        assert!(!stats.fallback, "{stats:?}");
+        assert!(
+            stats.precise_lines <= 1 + usize::from(term.rows()),
+            "only the matching line and the blank rows below the output are read: {stats:?}"
+        );
+
+        let (none, stats) = term.search_screen_scan("absent needle", false, 10_000);
+        assert!(none.matches.is_empty());
+        assert!(stats.precise_lines <= usize::from(term.rows()), "{stats:?}");
+    }
+}
