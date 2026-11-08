@@ -326,7 +326,7 @@ mod tests {
         // FNV-1a 64 reference values: a std hasher change cannot move them.
         assert_eq!(label_for_bytes(b""), "com.cmux.acpmux.daemon.cbf29ce484222325");
         assert_eq!(label_for_bytes(b"a"), "com.cmux.acpmux.daemon.af63dc4c8601ec8c");
-        assert_eq!(label_for_bytes(b"/Users/a/.acpmux"), "com.cmux.acpmux.daemon.00d9c837bf223549");
+        assert_eq!(label_for_bytes(b"/Users/a/home"), "com.cmux.acpmux.daemon.3af804ca21d020f0");
         // A home that cannot be resolved is labelled as spelled.
         assert_eq!(
             job_label(Path::new("/nonexistent-acpmux-home/a")),
@@ -368,7 +368,7 @@ mod tests {
     #[cfg(unix)]
     const JOB_PRINT: &str = "gui/501/com.cmux.acpmux.daemon.x = {
 \tactive count = 0
-\tpath = /Users/a/.acpmux/dev/daemon-login-session.plist
+\tpath = /Users/a/home/dev/daemon-login-session.plist
 \ttype = LaunchAgent
 \tstate = not running
 
@@ -404,7 +404,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_jobs_home_is_the_folder_of_the_plist_a_start_wrote() {
-        assert_eq!(job_home(JOB_PRINT).as_deref(), Some(Path::new("/Users/a/.acpmux/dev")));
+        assert_eq!(job_home(JOB_PRINT).as_deref(), Some(Path::new("/Users/a/home/dev")));
         let other = JOB_PRINT.replace("daemon-login-session.plist", "other.plist");
         assert_eq!(job_home(&other), None);
         assert_eq!(job_home("state = not running\n"), None);
