@@ -102,14 +102,17 @@ pub(crate) struct PingHandover {
 /// the Ping hands over. `current` is `current_registration` for the socket.
 /// A daemon silent past the window resumed: circuits sent to it meanwhile
 /// may never have arrived, so it is handed the unjoined ones. A Ping from a
-/// registration that isn't current hands over nothing.
+/// registration that isn't current hands over nothing, and a resumed one
+/// leaves `pending_handover` set, so the first Ping after it becomes current
+/// is handed them instead.
 pub(crate) fn record_ping(
     attachment: &mut SlotAttachment,
     current: bool,
     now_ms: u64,
 ) -> PingHandover {
-    let resumed = !heard_within_window(attachment, now_ms);
+    let resumed = !heard_within_window(attachment, now_ms) || attachment.pending_handover;
     attachment.last_seen_ms = now_ms;
+    attachment.pending_handover = resumed && !current;
     if !current {
         return PingHandover { unjoined: false, parked: false };
     }
@@ -146,6 +149,7 @@ mod tests {
             idle_deadline_ms: last_seen_ms + DAEMON_CONTROL_IDLE_TIMEOUT_MS,
             parked: None,
             last_seen_ms,
+            pending_handover: false,
         }
     }
 
@@ -167,6 +171,7 @@ mod tests {
                 parked_at_ms,
             }),
             last_seen_ms: 0,
+            pending_handover: false,
         }
     }
 

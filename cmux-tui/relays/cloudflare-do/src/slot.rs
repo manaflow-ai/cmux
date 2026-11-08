@@ -301,6 +301,8 @@ impl RelaySlot {
         attachment.phase = SlotPhase::Registered;
         attachment.generation = previous_registration.saturating_add(1);
         attachment.last_seen_ms = now_ms;
+        // The Register itself is handed the unjoined circuits.
+        attachment.pending_handover = false;
         attachment.expires_at = claims.expires_at_unix;
         attachment.idle_deadline_ms = now_ms
             .saturating_add(DAEMON_CONTROL_IDLE_TIMEOUT_MS)
@@ -795,6 +797,7 @@ impl DurableObject for RelaySlot {
             idle_deadline_ms,
             parked: None,
             last_seen_ms: 0,
+            pending_handover: false,
         })?;
         self.state.accept_websocket_with_tags(&pair.server, &[tag]);
         if let Err(error) = self.ensure_cleanup_alarm(idle_deadline_ms).await {
