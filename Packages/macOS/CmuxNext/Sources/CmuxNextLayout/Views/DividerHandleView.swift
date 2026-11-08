@@ -49,7 +49,7 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
     /// The accent band over the line while hovered or dragged (`DividerGlowBand`).
     let glow = DividerGlowBand()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
-    private var isDragging = false { didSet { applyColors() } }
+    private var isDragging = false { didSet { if isDragging != oldValue { applyColors() } } }
     /// Hovered or dragged with a line shown.
     private var isActive: Bool { (isHovered || isDragging) && showsActiveLine }
     /// Escape and modifier keys while a drag runs: this handle is never first responder, so it
