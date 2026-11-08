@@ -191,3 +191,52 @@ fn learned_facts_are_read_from_object_or_string_arguments() {
     assert_eq!(learned_facts(&text), vec!["x"]);
     assert!(learned_facts(&json!({"recap": "r"})).is_empty());
 }
+
+#[cfg(unix)]
+#[test]
+fn write_replaces_the_file_whole_keeping_its_mode_and_leaving_no_temp_file() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("CLAUDE.md");
+    std::fs::write(&path, "# Rules\n\nBe brief.\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    write(dir.path(), "CLAUDE.md", &["Use pnpm, not npm.".into()]).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with("# Rules\n\nBe brief.\n") && text.contains("- Use pnpm, not npm."));
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777, 0o640);
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, vec!["CLAUDE.md".to_owned()]);
+}
+
+#[test]
+fn write_refuses_a_folder_where_the_file_would_be() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("AGENTS.md")).unwrap();
+    assert!(write(dir.path(), "AGENTS.md", &["Use pnpm.".into()]).is_err());
+    assert!(dir.path().join("AGENTS.md").is_dir());
+}
+
+#[test]
+fn concurrent_accepts_both_land() {
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().to_path_buf();
+    let threads: Vec<_> = (0..8)
+        .map(|n| {
+            let cwd = cwd.clone();
+            std::thread::spawn(move || {
+                write(&cwd, "AGENTS.md", &[format!("Fact number {n} about the build.")]).unwrap()
+            })
+        })
+        .collect();
+    for t in threads {
+        t.join().unwrap();
+    }
+    let text = std::fs::read_to_string(cwd.join("AGENTS.md")).unwrap();
+    for n in 0..8 {
+        assert!(text.contains(&format!("Fact number {n} about the build.")), "{text}");
+    }
+    assert_eq!(text.matches(HEADING).count(), 1);
+}

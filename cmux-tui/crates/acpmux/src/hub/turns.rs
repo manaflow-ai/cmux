@@ -1604,6 +1604,9 @@ impl Hub {
             // The turn's wrap-up answer, taken whatever the turn's end (`wrap_up_suggestion.rs`).
             // The facts it offered for the project's instructions (`memory_inbox.rs`), first.
             let learned = crate::wrap_up_suggestion::take_learned(&session.id);
+            // Whether it taught something, taken however it ended: a turn's signals never carry
+            // into the next one.
+            let taught = crate::memory_inbox::take(&session.id);
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
             match &result {
                 Ok(v) => {
@@ -1643,8 +1646,7 @@ impl Hub {
                     {
                         self.offer_wrap_up_suggestion(session, &answer);
                     }
-                    // A stopped turn's correction carries to the next one.
-                    if status == "completed" {
+                    if status == "completed" && taught {
                         self.offer_learned(session, learned);
                     }
                     // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).

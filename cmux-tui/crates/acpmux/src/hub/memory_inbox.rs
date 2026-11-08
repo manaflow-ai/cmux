@@ -33,11 +33,10 @@ impl Hub {
         (meta.cwd, file)
     }
 
-    /// A completed turn of `session` ended with `learned` from its wrap-up: when the turn taught
-    /// something, the facts its folder's file does not say yet are offered. Off the turn's path.
+    /// A completed turn of `session` that taught something ended with `learned` from its wrap-up:
+    /// the facts its folder's file does not say yet are offered. Off the turn's path.
     pub(super) fn offer_learned(self: &Arc<Self>, session: &Arc<Session>, learned: Vec<String>) {
-        let taught = crate::memory_inbox::take(&session.id);
-        if learned.is_empty() || !taught {
+        if learned.is_empty() {
             return;
         }
         let hub = self.clone();

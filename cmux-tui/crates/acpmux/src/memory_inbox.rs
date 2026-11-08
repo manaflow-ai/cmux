@@ -271,7 +271,7 @@ pub fn has_heading(existing: &str) -> bool {
 /// The whole of `rel` in `cwd`, None when it is not there as a regular file; an error when it is
 /// too big to edit or not text.
 pub fn read(cwd: &Path, rel: &str) -> Result<Option<String>, String> {
-    let Some(file) = crate::folder_instructions::open_beneath_with(cwd, rel, libc_rdonly()) else {
+    let Some(file) = crate::folder_instructions::open_beneath(cwd, rel) else {
         return Ok(None);
     };
     let size = file.metadata().map_err(|e| e.to_string())?.len();
@@ -284,31 +284,22 @@ pub fn read(cwd: &Path, rel: &str) -> Result<Option<String>, String> {
     String::from_utf8(bytes).map(Some).map_err(|_| format!("{rel} is not UTF-8 text"))
 }
 
-#[cfg(unix)]
-fn libc_rdonly() -> i32 {
-    libc::O_RDONLY
-}
-#[cfg(not(unix))]
-fn libc_rdonly() -> i32 {
-    0
-}
+/// One write at a time: two Accepts read, merge and replace the file one after the other, so
+/// neither loses the other's lines.
+static WRITING: Mutex<()> = Mutex::new(());
 
 /// Adds `facts` to `rel` in `cwd` (made when missing), skipping the ones it already says; the
-/// ones added. Never follows a link, never commits.
+/// ones added. The file is replaced whole or not at all, never through a link, and never
+/// committed.
 pub fn write(cwd: &Path, rel: &str, facts: &[String]) -> Result<Vec<String>, String> {
+    let _one = WRITING.lock().unwrap_or_else(|e| e.into_inner());
     let existing = read(cwd, rel)?.unwrap_or_default();
     let added = fresh(facts, &existing, &[]);
     if added.is_empty() {
         return Ok(added);
     }
     let text = with_facts(&existing, &added);
-    #[cfg(unix)]
-    let access = libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC;
-    #[cfg(not(unix))]
-    let access = 0;
-    let mut file = crate::folder_instructions::open_beneath_with(cwd, rel, access)
-        .ok_or_else(|| format!("{rel} could not be opened for writing in {}", cwd.display()))?;
-    std::io::Write::write_all(&mut file, text.as_bytes()).map_err(|e| e.to_string())?;
+    crate::folder_instructions::replace_beneath(cwd, rel, text.as_bytes())?;
     Ok(added)
 }
 
@@ -339,6 +330,7 @@ impl Dismissed {
         if facts.is_empty() {
             return;
         }
+        let _one = WRITING.lock().unwrap_or_else(|e| e.into_inner());
         let mut all = self.load();
         let list = all.entry(cwd.to_string_lossy().into_owned()).or_default();
         for fact in facts {

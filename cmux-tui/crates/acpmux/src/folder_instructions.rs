@@ -71,14 +71,32 @@ fn native(family: &str) -> &'static [&'static str] {
 /// at any step: each folder is opened with `O_NOFOLLOW` from the one before it, so a
 /// linked `.github` or a swapped component never leads out of the session folder.
 #[cfg(unix)]
-fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
-    open_beneath_with(root, rel, libc::O_RDONLY)
+pub(crate) fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+
+    let (dir, name) = folder_beneath(root, rel)?;
+    // SAFETY: `dir` is an open descriptor and `name` is NUL-terminated; O_NONBLOCK keeps a fifo
+    // from blocking the open.
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return None;
+    }
+    // SAFETY: `fd` was just opened and nothing else owns it.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    // A regular file only: never a fifo or a device.
+    file.metadata().ok()?.is_file().then_some(file)
 }
 
-/// [`open_beneath`] with the last name opened for `access` (`O_RDONLY`, or `O_WRONLY` with
-/// `O_CREAT` and `O_TRUNC` to write it, `memory_inbox.rs`); a file made is `0644`.
+/// The folder `rel`'s last name is in, opened beneath `root` without following a link at any
+/// step, and that last name.
 #[cfg(unix)]
-pub(crate) fn open_beneath_with(root: &Path, rel: &str, access: i32) -> Option<std::fs::File> {
+fn folder_beneath(root: &Path, rel: &str) -> Option<(std::os::fd::OwnedFd, std::ffi::CString)> {
     use std::ffi::CString;
     use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 
@@ -116,35 +134,86 @@ pub(crate) fn open_beneath_with(root: &Path, rel: &str, access: i32) -> Option<s
         // SAFETY: `fd` was just opened and nothing else owns it.
         dir = unsafe { OwnedFd::from_raw_fd(fd) };
     }
-    let name = CString::new(last).ok()?;
-    // SAFETY: as above; O_NONBLOCK keeps a fifo from blocking the open.
+    Some((dir, CString::new(last).ok()?))
+}
+
+/// Replaces `rel` beneath `root` with `bytes` all at once (`memory_inbox.rs`): written to a new
+/// file beside it, synced, then renamed over it, so a crash or a full disk leaves the old file
+/// whole. It keeps the old file's mode (`0644` for a new one); a link, a folder or any other
+/// non-file at `rel`, or a linked folder on the way, is refused, never replaced.
+#[cfg(unix)]
+pub(crate) fn replace_beneath(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), String> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+
+    let (dir, name) = folder_beneath(root, rel)
+        .ok_or_else(|| format!("{rel}'s folder could not be opened in {}", root.display()))?;
+    // SAFETY: a zeroed `stat` is a valid out-parameter.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `dir` is open, `name` is NUL-terminated and `st` is writable.
+    let found = unsafe {
+        libc::fstatat(dir.as_raw_fd(), name.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW)
+    } == 0;
+    let mode = if found {
+        if st.st_mode & libc::S_IFMT != libc::S_IFREG {
+            return Err(format!("{rel} is not a regular file; edit it by hand"));
+        }
+        st.st_mode & 0o7777
+    } else {
+        0o644
+    };
+    let tmp =
+        CString::new(format!(".{}.cmux-{}.tmp", name.to_string_lossy(), uuid::Uuid::now_v7()))
+            .map_err(|e| e.to_string())?;
+    // SAFETY: as above; O_EXCL makes a new file, never an existing one or a link's target.
     let fd = unsafe {
         libc::openat(
             dir.as_raw_fd(),
-            name.as_ptr(),
-            access | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
-            0o644 as libc::c_uint,
+            tmp.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600 as libc::c_uint,
         )
     };
     if fd < 0 {
-        return None;
+        return Err(format!("{rel}: {}", std::io::Error::last_os_error()));
     }
     // SAFETY: `fd` was just opened and nothing else owns it.
-    let file = unsafe { std::fs::File::from_raw_fd(fd) };
-    // A regular file only: never a fifo or a device.
-    file.metadata().ok()?.is_file().then_some(file)
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let written = std::io::Write::write_all(&mut file, bytes)
+        .and_then(|()| {
+            // SAFETY: `file` is open; `mode` is a permission mask.
+            if unsafe { libc::fchmod(file.as_raw_fd(), mode as libc::mode_t) } == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
+        })
+        .and_then(|()| file.sync_all())
+        .and_then(|()| {
+            // SAFETY: both names are NUL-terminated and beneath the same open folder.
+            let renamed = unsafe {
+                libc::renameat(dir.as_raw_fd(), tmp.as_ptr(), dir.as_raw_fd(), name.as_ptr())
+            };
+            if renamed == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+        });
+    if let Err(e) = written {
+        // SAFETY: as above; the new file is ours and is removed after a failed write.
+        unsafe { libc::unlinkat(dir.as_raw_fd(), tmp.as_ptr(), 0) };
+        return Err(format!("{rel}: {e}"));
+    }
+    Ok(())
 }
 
 /// Elsewhere there is no link-safe open of each step, so no folder file is read.
 #[cfg(not(unix))]
-fn open_beneath(_root: &Path, _rel: &str) -> Option<std::fs::File> {
+pub(crate) fn open_beneath(_root: &Path, _rel: &str) -> Option<std::fs::File> {
     None
 }
 
 /// Elsewhere no folder file is written either.
 #[cfg(not(unix))]
-pub(crate) fn open_beneath_with(_root: &Path, _rel: &str, _access: i32) -> Option<std::fs::File> {
-    None
+pub(crate) fn replace_beneath(_root: &Path, rel: &str, _bytes: &[u8]) -> Result<(), String> {
+    Err(format!("{rel} can only be written on macOS and Linux"))
 }
 
 /// The start of `rel` beneath `cwd` (at most the cap and a few bytes) and its full size;
