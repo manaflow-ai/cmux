@@ -124,3 +124,18 @@ fn the_view_names_each_carrier_its_state_and_round_trip() {
     assert_eq!(ssh["state"], "probing");
     assert!(ssh["rttMs"].is_null());
 }
+
+/// The selector's `Suspect` (an alive path that went silent: `on_silence`) is doubt: the
+/// selector still holds it (`chosen`) but names no current path, the moment to use every path.
+#[test]
+fn a_suspect_path_is_in_doubt_and_still_held() {
+    let mut paths = Paths::new(&[Via::Link, Via::Ssh]);
+    paths.pong(Via::Link, Duration::from_millis(5), 1_000);
+    assert_eq!(paths.active(), Some(Via::Link));
+    let id = paths.find(Via::Link).unwrap().id;
+    paths.selector.on_silence(id).unwrap();
+    assert_eq!(paths.health(Via::Link, 1_000), Some(Health::Doubt));
+    assert_eq!(paths.selector.chosen(), Some(id));
+    assert_eq!(paths.active(), None);
+    assert!(paths.in_doubt(1_000));
+}

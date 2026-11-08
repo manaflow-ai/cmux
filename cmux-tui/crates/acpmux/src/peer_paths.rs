@@ -309,6 +309,10 @@ impl Paths {
                 Health::Doubt
             }
             SelectorState::Alive => Health::Alive,
+            // Answered before, then missed a probe or went silent, not dead yet: the
+            // selector still holds it (`chosen`) while senders use every path, which is this
+            // file's doubt (`in_doubt`).
+            SelectorState::Suspect => Health::Doubt,
         })
     }
 
