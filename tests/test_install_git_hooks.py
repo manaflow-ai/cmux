@@ -643,7 +643,6 @@ cat > node_modules/.bin/vp <<'VP'
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/locales/en.js",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/highlight-worker.js",
-            "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
             # Other checked exports: lanes committed "regenerate after the tip
@@ -780,6 +779,36 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
         self.assertEqual(jsonl.read_text(), row("a.css", '{"8px":1}') + row("b.css", '{"4px":1}')
                          + row("c.css", '{"6px":1}'))
+
+        # Two rows with one key: a merge would keep one row's counts and drop the other's.
+        self.git("checkout", "--quiet", "-b", "doubled")
+        jsonl.write_text(row("a.css", '{"8px":1}') + row("a.css", '{"7px":3}'))
+        self.commit_all("doubled")
+        doubled = self.git("rev-parse", "HEAD").stdout.strip()
+        jsonl.write_text(row("a.css", '{"8px":1}') + row("a.css", '{"7px":3}') + row("d.css", '{"1px":1}'))
+        self.commit_all("doubled ours")
+        self.git("checkout", "--quiet", "-b", "doubled-theirs", doubled)
+        jsonl.write_text(row("a.css", '{"8px":2}') + row("a.css", '{"7px":3}'))
+        self.commit_all("doubled theirs")
+        clash = self.git("merge", "--no-edit", "doubled", check=False)
+        self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
+        self.git("merge", "--abort")
+
+        # The same key with its fields in another order is still the same key.
+        reordered = '{"property":"height","kind":"height","file":"a.css","values":{"7px":3}}\n'
+        self.git("checkout", "--quiet", "-b", "reordered", doubled)
+        jsonl.write_text(row("a.css", '{"8px":1}'))
+        self.commit_all("single")
+        single = self.git("rev-parse", "HEAD").stdout.strip()
+        jsonl.write_text(row("a.css", '{"8px":1}') + reordered)
+        self.commit_all("reordered ours")
+        reordered_ours = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "-b", "reordered-theirs", single)
+        jsonl.write_text(row("a.css", '{"8px":2}'))
+        self.commit_all("reordered theirs")
+        clash = self.git("merge", "--no-edit", reordered_ours, check=False)
+        self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
+        self.git("merge", "--abort")
 
     def test_insertions_both_sides_made_merge_and_changes_still_conflict(self):
         """Two lanes that each append to the same list merge with both entries; a line both
@@ -949,6 +978,20 @@ cat > node_modules/.bin/vp <<'VP'
         surfaces.write_text('{\n "a": 1,\n "m": 0,\n "z": 2,\n "new": 2\n}\n')
         self.commit_all("spread bottom")
         clash = self.git("merge", "--no-edit", "spread-base", check=False)
+        self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
+        self.git("merge", "--abort")
+
+        # A clean merge of a file one side already broke is still not a valid result.
+        self.git("checkout", "--quiet", "-b", "broken-base", base)
+        surfaces.write_text('{\n "a": 1,\n "b": 2,\n "c": 3,\n "d": 4,\n "e": 5\n}\n')
+        self.commit_all("broken base")
+        broken_base = self.git("rev-parse", "HEAD").stdout.strip()
+        surfaces.write_text('{\n "a": 9,\n "b": 2,\n "c": 3,\n "d": 4,\n "e": 5\n}\n')
+        self.commit_all("fine")
+        self.git("checkout", "--quiet", "-b", "broken-ours", broken_base)
+        surfaces.write_text('{\n "a": 1,\n "b": 2,\n "c": 3,\n "d": 4\n "e": 5\n}\n')
+        self.commit_all("broken ours")
+        clash = self.git("merge", "--no-edit", "broken-base", check=False)
         self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
         self.git("merge", "--abort")
 

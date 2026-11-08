@@ -371,6 +371,20 @@ impl Resolver {
         client_config::resolve(self, selection).await
     }
 
+    /// A launch's read, with no network I/O when it can: the validated cache, else a known
+    /// deployment's built-in configuration (what an unreachable or config-less backend gives
+    /// anyway); only a custom origin with no cache is fetched. The app refreshes the cache after
+    /// its window is up, so a changed backend config applies at the next launch.
+    pub async fn client_config_cache_first(
+        &self,
+        selection: Selection,
+    ) -> Result<Selection, String> {
+        match client_config::without_fetch(self, selection.clone()) {
+            Some(selection) => Ok(selection),
+            None => client_config::resolve(self, selection).await,
+        }
+    }
+
     /// Applies a previously fetched, validated client-config cache without
     /// performing network I/O. Daemon consumers use this after CLI bootstrap.
     pub fn cached_client_config(&self, selection: Selection) -> Result<Option<Selection>, String> {
