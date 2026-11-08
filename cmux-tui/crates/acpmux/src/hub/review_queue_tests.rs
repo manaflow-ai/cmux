@@ -105,7 +105,7 @@ async fn an_answer_writes_one_audit_entry_and_leaves_the_queue() {
     let hub = hub();
     let s = hub.insert_test_session(meta("s1", "ready", &[], 2));
     let _rx =
-        ask(&hub, &s, "p1", tool_request("Run ls with ghp_abcdefghijklmnopqrstuvwxyz0123456789"));
+        ask(&hub, &s, "p1", tool_request("Run ls with ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jSaZ3k"));
     let _rx2 = ask(&hub, &s, "p2", tool_request("Delete build"));
     answer(&hub, &s, "p1", "ok");
     answer(&hub, &s, "p2", "no");
@@ -121,7 +121,7 @@ async fn an_answer_writes_one_audit_entry_and_leaves_the_queue() {
     assert_eq!(all[0]["kind"], "approval");
     assert_eq!(all[0]["decision"], json!({"optionId": "ok", "kind": "allow"}));
     assert_eq!(all[0]["answeredBy"], json!({"person": true}));
-    assert!(!all[0]["ask"].as_str().unwrap().contains("ghp_"), "{}", all[0]["ask"]);
+    assert!(!all[0]["ask"].as_str().unwrap().contains("aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS"), "{}", all[0]["ask"]);
     assert_eq!(all[1]["decision"]["kind"], "deny");
     assert_eq!(all[1]["prevHash"], all[0]["hash"]);
     assert_eq!(super::audit_log::verify(&all)["ok"], true);
