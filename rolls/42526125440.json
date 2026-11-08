@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42526125440",
+  "recorded_at": "2026-11-08T21:45:38Z",
+  "reason": "cmux-tui 3f4554a4c08b changes the image's cmux-tui (pinned cfb3ae5949df)",
+  "dry_run": false,
+  "cmux_tui": "3f4554a4c08b69c3a7a9b5dee940191d85ec86aa",
+  "fixes": [
+    {
+      "sha": "3f4554a4c08b69c3a7a9b5dee940191d85ec86aa",
+      "mergedAt": "2026-11-08T13:20:05-08:00",
+      "subject": "feat: fix chats from GitHub issue links (#38625)"
+    },
+    {
+      "sha": "7ea49e29696091422223105164e6209ec61f6906",
+      "mergedAt": "2026-11-08T21:12:26Z",
+      "subject": "carrier: a desktop open whose own send finds the session gone takes a fresh session (#38807)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T21:45:38Z",
+    "snapshot_id": "sh-0dcefb40d1254c47bc7843280fde5091",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42526125440): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "097a9c9c56e8f29684066ad8dbc687e54f15cbcb",
+    "image": "cloud-native-auto-3f4554a4-42526125440-1",
+    "revision": "ci-42526125440-1",
+    "at": "2026-11-08T21:45:38Z"
+  },
+  "rolled_back": false
+}
