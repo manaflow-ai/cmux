@@ -1,5 +1,9 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-08: the Updated card follows a live interface scale change, review of #38107. The first-frame hold
+  (`SidebarUpdatedCardHost.heldHeight`) keeps the scale it was taken at and is read at the scale now, so a scale
+  decrease shrinks the card with its page instead of holding its old, larger height; #38107 made the page's
+  points follow a live scale change. Regression: `UpdatedCardScaleDownTests`, `UpdatedCardLiveScaleTests`.
 - 2026-11-07: a group drawn as its one row folds like any group. Leo, verbatim: "when you're collapsing a group, the
   text needs to fade faster". A group of one member titled as the group draws that row in the header's place
   (`standsForGroup`) and no header, so its collapse found no open header: the row faded over the whole `.move` spring and
