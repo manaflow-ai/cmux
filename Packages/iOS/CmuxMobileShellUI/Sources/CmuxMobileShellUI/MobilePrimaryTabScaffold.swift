@@ -76,7 +76,7 @@ struct MobilePrimaryTabScaffold<
                 .tabViewSearchActivation(.searchTabSelection)
                 .accessibilityIdentifier("MobilePrimaryTabs")
                 .onChange(of: selection, initial: true) { _, selection in
-                    searchCoordinator.synchronizeSelection(selection)
+                    searchCoordinator.scaffoldSelectionChanged(selection)
                 }
 
                 if selection == .workspaces, let taskComposerAction {

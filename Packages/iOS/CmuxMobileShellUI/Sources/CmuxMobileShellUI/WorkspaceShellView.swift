@@ -271,7 +271,12 @@ struct WorkspaceShellView: View {
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
-    @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    /// The logical destination, owned by the search coordinator so destination
+    /// and search-scope transitions have one owner.
+    private var selectedPrimaryTab: MobilePrimaryTab {
+        get { primarySearchCoordinator.destination }
+        nonmutating set { primarySearchCoordinator.destination = newValue }
+    }
     /// One-time What's New notice: the unseen-page snapshot captured when the
     /// sheet presents, so remote list changes mid-presentation cannot mutate
     /// an open sheet.
@@ -368,15 +373,9 @@ struct WorkspaceShellView: View {
     /// The scaffold's physical tab, kept separate from the logical
     /// `selectedPrimaryTab` (see `MobilePrimarySearchCoordinator.scaffoldTab`).
     private var primaryScaffoldSelection: Binding<MobilePrimaryTab> {
-        let hostsDestinationsInSidebar = hostsSplitDestinationsInSidebar
-        return Binding(
-            get: {
-                MobilePrimarySearchCoordinator.scaffoldTab(
-                    for: selectedPrimaryTab,
-                    hostsDestinationsInSidebar: hostsDestinationsInSidebar
-                )
-            },
-            set: { selectedPrimaryTab = $0 }
+        Binding(
+            get: { primarySearchCoordinator.scaffoldTab },
+            set: { primarySearchCoordinator.selectScaffoldTab($0) }
         )
     }
 
@@ -650,7 +649,7 @@ struct WorkspaceShellView: View {
         workspaceActionToastOverlay {
             MobilePrimarySearchNavigationStack(
                 path: primarySearchNavigationPath,
-                selection: $selectedPrimaryTab,
+                selection: $primarySearchCoordinator.destination,
                 searchCoordinator: primarySearchCoordinator
             ) {
                 Group {
@@ -730,11 +729,13 @@ struct WorkspaceShellView: View {
                 splitLayout(presentation: presentation)
             }
         }
-        .onChange(of: usesCompactStack) { _, isCompact in
+        // `initial` gives the coordinator the launch layout before any
+        // scaffold callback can arrive.
+        .onChange(of: usesCompactStack, initial: true) { _, isCompact in
             #if os(iOS)
-            selectedPrimaryTab = primarySearchCoordinator.destinationAfterLayoutChange(
-                toCompact: isCompact,
-                from: selectedPrimaryTab
+            primarySearchCoordinator.updateLayout(
+                isCompact: isCompact,
+                hostsDestinationsInSidebar: hostsSplitDestinationsInSidebar
             )
             #endif
             guard isCompact, hasPresentedSplitDetail, let selectedWorkspaceID = store.selectedWorkspaceID else {
@@ -1387,7 +1388,7 @@ struct WorkspaceShellView: View {
         Binding(
             get: { splitSidebarDestination },
             set: { newValue in
-                selectedPrimaryTab = primarySearchCoordinator.selectDestination(newValue)
+                primarySearchCoordinator.selectDestination(newValue)
             }
         )
     }

@@ -424,11 +424,13 @@ import Testing
         let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
         coordinator.beginSearch(for: .workspaces)
 
-        #expect(coordinator.selectDestination(.feed) == .feed)
+        coordinator.selectDestination(.feed)
+        #expect(coordinator.destination == .feed)
         #expect(coordinator.isPresented)
         #expect(coordinator.scope == .feed)
 
-        #expect(coordinator.selectDestination(.cloud) == .cloud)
+        coordinator.selectDestination(.cloud)
+        #expect(coordinator.destination == .cloud)
         #expect(coordinator.isPresented == false)
         #expect(coordinator.scope == .feed)
     }
@@ -436,36 +438,45 @@ import Testing
     @Test func sidebarDestinationPickWithoutSearchFollowsScope() {
         let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
 
-        #expect(coordinator.selectDestination(.notifications) == .notifications)
+        coordinator.selectDestination(.notifications)
+
+        #expect(coordinator.destination == .notifications)
         #expect(coordinator.isPresented == false)
         #expect(coordinator.scope == .notifications)
     }
 
-    @Test func unfoldingDuringFeedSearchKeepsTheSessionOnTheFeedDestination() {
+    @Test(arguments: [MobilePrimarySearchScope.feed, .notifications])
+    func unfoldingDuringSearchKeepsTheSessionThroughTheScaffoldCallback(
+        scope: MobilePrimarySearchScope
+    ) {
+        // Folded: the compact scaffold shows the Search tab over `scope`.
         let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
-        coordinator.beginSearch(for: .feed)
+        coordinator.updateLayout(isCompact: true, hostsDestinationsInSidebar: false)
+        coordinator.selectScaffoldTab(scope.primaryTab)
+        coordinator.selectScaffoldTab(.search)
+        coordinator.beginSearch(for: scope)
         coordinator.updateNativeSearchText(
             "agent",
-            for: .feed,
+            for: scope,
             activationGeneration: coordinator.activationGeneration
         )
 
-        let destination = coordinator.destinationAfterLayoutChange(toCompact: false, from: .search)
+        // Unfold: the scaffold moves to the split layout's tab and reports it.
+        coordinator.updateLayout(isCompact: false, hostsDestinationsInSidebar: true)
+        #expect(coordinator.scaffoldTab == .workspaces)
+        coordinator.scaffoldSelectionChanged(coordinator.scaffoldTab)
+        coordinator.selectScaffoldTab(coordinator.scaffoldTab)
 
-        #expect(destination == .feed)
+        #expect(coordinator.destination == scope.primaryTab)
+        #expect(coordinator.scope == scope)
         #expect(coordinator.isPresented)
         #expect(coordinator.activeNativeSearchText() == "agent")
-        #expect(
-            MobilePrimarySearchCoordinator.scaffoldTab(
-                for: destination,
-                hostsDestinationsInSidebar: true
-            ) == .workspaces
-        )
     }
 
     @Test func foldingDuringNotificationsSearchCommitsTheDraftAndKeepsTheDestination() {
         let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
-        #expect(coordinator.selectDestination(.notifications) == .notifications)
+        coordinator.updateLayout(isCompact: false, hostsDestinationsInSidebar: true)
+        coordinator.selectDestination(.notifications)
         coordinator.beginSearch(for: .notifications)
         coordinator.updateNativeSearchText(
             "deploy",
@@ -473,30 +484,38 @@ import Testing
             activationGeneration: coordinator.activationGeneration
         )
 
-        let destination = coordinator.destinationAfterLayoutChange(
-            toCompact: true,
-            from: .notifications
-        )
+        coordinator.updateLayout(isCompact: true, hostsDestinationsInSidebar: false)
 
-        #expect(destination == .notifications)
+        #expect(coordinator.destination == .notifications)
+        #expect(coordinator.scaffoldTab == .notifications)
         #expect(coordinator.isPresented == false)
         #expect(coordinator.searchDestinationText(for: .notifications) == "deploy")
     }
 
     @Test func scaffoldTabFollowsTheDestinationUnlessTheSidebarHostsIt() {
-        for destination in [MobilePrimaryTab.home, .workspaces, .feed, .notifications, .cloud, .search] {
-            #expect(
-                MobilePrimarySearchCoordinator.scaffoldTab(
-                    for: destination,
-                    hostsDestinationsInSidebar: false
-                ) == destination
-            )
-            #expect(
-                MobilePrimarySearchCoordinator.scaffoldTab(
-                    for: destination,
-                    hostsDestinationsInSidebar: true
-                ) == .workspaces
-            )
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
+        for destination in [MobilePrimaryTab.home, .workspaces, .feed, .notifications, .cloud] {
+            coordinator.updateLayout(isCompact: true, hostsDestinationsInSidebar: false)
+            coordinator.selectScaffoldTab(destination)
+            #expect(coordinator.destination == destination)
+            #expect(coordinator.scaffoldTab == destination)
+
+            coordinator.updateLayout(isCompact: false, hostsDestinationsInSidebar: true)
+            #expect(coordinator.scaffoldTab == .workspaces)
+            coordinator.selectScaffoldTab(.workspaces)
+            #expect(coordinator.destination == destination)
         }
+    }
+
+    @Test func destinationChangesKeepTheSearchScopeInStep() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
+        coordinator.updateLayout(isCompact: false, hostsDestinationsInSidebar: true)
+
+        coordinator.destination = .feed
+        #expect(coordinator.scope == .feed)
+
+        // The hosted scaffold's physical tab never re-scopes search.
+        coordinator.scaffoldSelectionChanged(.workspaces)
+        #expect(coordinator.scope == .feed)
     }
 }

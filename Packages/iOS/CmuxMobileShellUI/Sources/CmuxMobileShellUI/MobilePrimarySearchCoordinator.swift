@@ -1,12 +1,22 @@
 #if os(iOS)
 import Observation
 
-/// Owns the native Search tab's scope, presentation lifecycle, platform draft
-/// text, and committed filters. The shell keeps one coordinator above the tab
-/// scaffold so search edits do not invalidate shell-wide presentation state.
+/// Owns the shell's logical primary destination and the native Search tab's
+/// scope, presentation lifecycle, platform draft text, and committed filters.
+/// The shell keeps one coordinator above the tab scaffold so search edits do
+/// not invalidate shell-wide presentation state. The scaffold's physical tab is
+/// derived from the destination and never drives search synchronization while
+/// the split sidebar hosts destinations.
 @MainActor
 @Observable
 final class MobilePrimarySearchCoordinator {
+    /// The logical destination. Every change keeps the search scope in step.
+    var destination: MobilePrimaryTab = .workspaces {
+        didSet { synchronizeSelection(destination) }
+    }
+    /// Whether the split sidebar hosts destinations (a regular-width iPhone),
+    /// leaving the scaffold on the tab that renders the split layout.
+    private(set) var hostsDestinationsInSidebar = false
     var scope: MobilePrimarySearchScope
     var isPresented = false
     var workspaces = "" {
@@ -43,10 +53,9 @@ final class MobilePrimarySearchCoordinator {
 
     /// The one transition for a destination picked from the split sidebar.
     /// A presented search re-scopes to a searchable destination, or is
-    /// cancelled for Home and Cloud, before the scope follows the selection.
+    /// cancelled for Home and Cloud, before the destination changes.
     /// - Parameter destination: The destination the person picked.
-    /// - Returns: The logical destination the shell should select.
-    func selectDestination(_ destination: MobilePrimaryTab) -> MobilePrimaryTab {
+    func selectDestination(_ destination: MobilePrimaryTab) {
         if isPresented {
             if let destinationScope = destination.searchScope {
                 beginSearch(for: destinationScope)
@@ -54,45 +63,50 @@ final class MobilePrimarySearchCoordinator {
                 cancelPresentedSearch()
             }
         }
-        synchronizeSelection(destination)
-        return destination
+        self.destination = destination
     }
 
     /// The transition when the shell switches between the compact stack and
     /// the split layout (folding or unfolding an iPhone Duo, iPad multitasking).
     /// The compact stack has no sidebar search field, so a presented search
     /// commits its draft; the split sidebar has no Search destination, so the
-    /// selection returns to the scope's own destination.
+    /// destination returns to the scope's own destination.
     /// - Parameters:
     ///   - isCompact: Whether the shell now uses the compact stack.
-    ///   - selection: The logical destination before the change.
-    /// - Returns: The logical destination after the change.
-    func destinationAfterLayoutChange(
-        toCompact isCompact: Bool,
-        from selection: MobilePrimaryTab
-    ) -> MobilePrimaryTab {
+    ///   - hostsDestinationsInSidebar: Whether the split sidebar now hosts destinations.
+    func updateLayout(isCompact: Bool, hostsDestinationsInSidebar: Bool) {
+        self.hostsDestinationsInSidebar = hostsDestinationsInSidebar
         if isCompact {
             if isPresented {
                 deactivateCurrentSearch()
             }
-            return selection
+        } else if destination == .search {
+            destination = scope.primaryTab
         }
-        return selection == .search ? scope.primaryTab : selection
     }
 
-    /// The physical tab the scaffold shows for a logical destination. While the
-    /// split sidebar hosts destinations (a regular-width iPhone), the tab view
-    /// stays on the tab that renders the split layout and the sidebar shows
-    /// the destination.
-    /// - Parameters:
-    ///   - destination: The logical destination.
-    ///   - hostsDestinationsInSidebar: Whether the split sidebar hosts destinations.
-    /// - Returns: The tab the scaffold selects.
-    static func scaffoldTab(
-        for destination: MobilePrimaryTab,
-        hostsDestinationsInSidebar: Bool
-    ) -> MobilePrimaryTab {
+    /// The physical tab the scaffold shows. While the split sidebar hosts
+    /// destinations, the tab view stays on the tab that renders the split
+    /// layout and the sidebar shows the destination.
+    var scaffoldTab: MobilePrimaryTab {
         hostsDestinationsInSidebar ? .workspaces : destination
+    }
+
+    /// The scaffold's selection callback. A physical tab change selects that
+    /// destination only when the scaffold shows destinations directly; while
+    /// the sidebar hosts them, the scaffold's tab is layout, not a destination.
+    /// - Parameter tab: The tab the scaffold selected.
+    func selectScaffoldTab(_ tab: MobilePrimaryTab) {
+        guard !hostsDestinationsInSidebar else { return }
+        destination = tab
+    }
+
+    /// The scaffold's selection-change hook. Search follows the scaffold's tab
+    /// only when that tab is the destination.
+    /// - Parameter tab: The scaffold's current tab.
+    func scaffoldSelectionChanged(_ tab: MobilePrimaryTab) {
+        guard !hostsDestinationsInSidebar else { return }
+        synchronizeSelection(tab)
     }
 
     func setPresentation(_ presented: Bool) {
