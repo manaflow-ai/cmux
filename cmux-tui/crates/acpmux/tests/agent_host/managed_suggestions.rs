@@ -25,7 +25,8 @@ fn claude_spec(dir: &Path, session: &str, managed: Option<bool>) -> SpawnSpec {
     spec
 }
 
-/// The `initialize` control request the host's translator wrote to Claude Code's stdin.
+/// The `initialize` control request the host's translator wrote to Claude Code's stdin (logged as
+/// a `claude.stdin` tap).
 async fn initialize_sent(dir: &Path, session: &str, managed: Option<bool>) -> Value {
     let record =
         link::spawn(&launcher(), &claude_spec(dir, session, managed)).await.expect("spawn");
@@ -35,11 +36,11 @@ async fn initialize_sent(dir: &Path, session: &str, managed: Option<bool>) -> Va
     request(&owner, 1, "initialize", json!({"protocolVersion": 1})).await;
     let seen = read_until(&owner, &mut logged, |e| {
         matches!(e, Entry::Tap { dir: TapDir::Out, msg }
-            if msg["request"]["subtype"] == "initialize")
+            if msg["method"] == "claude.stdin" && msg["params"]["request"]["subtype"] == "initialize")
     })
     .await;
     let Some((_, Entry::Tap { msg, .. })) = seen.last() else { unreachable!() };
-    let sent = msg["request"].clone();
+    let sent = msg["params"]["request"].clone();
     owner.terminate(Duration::from_millis(500)).await.unwrap();
     read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
     wait_dead(lock).await;
