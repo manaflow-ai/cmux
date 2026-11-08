@@ -94,7 +94,9 @@ pub(crate) use runs::{Caller, RunRequest};
 #[cfg(unix)]
 pub(crate) use store::store_op_mutates;
 #[cfg(unix)]
-pub(crate) use subscriptions::AGENT_INVENTORY_INVALIDATION_CAPABILITY;
+pub(crate) use subscriptions::{
+    AGENT_INVENTORY_INVALIDATION_CAPABILITY, PROVIDER_CHANGED_CAPABILITY,
+};
 #[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
 
