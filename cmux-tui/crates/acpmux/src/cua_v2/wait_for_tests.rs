@@ -413,3 +413,13 @@ async fn a_bounded_gone_check_at_its_deadline_does_not_read_again() {
     assert_eq!(result["structuredContent"]["timed_out"], true);
     assert_eq!(result["structuredContent"]["gone_unconfirmed"], true);
 }
+
+#[test]
+fn a_whole_tree_exactly_at_the_cap_is_whole() {
+    let at_cap = json!({"element_count": 5, "truncated": false});
+    assert_eq!(tree(&at_cap, &json!({"max_elements": 5})), Tree::Whole);
+    let complete = json!({"element_count": HELPER_MAX_ELEMENTS, "elements_complete": true});
+    assert_eq!(tree(&complete, &json!({})), Tree::Whole);
+    assert_eq!(tree(&json!({"element_count": 5}), &json!({"max_elements": 5})), Tree::Cut);
+    assert_eq!(tree(&json!({"element_count": 4}), &json!({})), Tree::Unknown);
+}

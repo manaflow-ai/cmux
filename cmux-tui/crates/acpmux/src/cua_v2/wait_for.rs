@@ -300,6 +300,10 @@ pub fn tree(state: &Value, arguments: &Value) -> Tree {
     {
         return Tree::Cut;
     }
+    // The helper's own word that the tree is whole beats the count below.
+    if flag("truncated") == Some(false) || flag("elements_complete") == Some(true) {
+        return Tree::Whole;
+    }
     let cap = arguments.get("max_elements").and_then(Value::as_u64).unwrap_or(HELPER_MAX_ELEMENTS);
     let rows = ["total_element_count", "element_count"]
         .iter()
@@ -307,9 +311,6 @@ pub fn tree(state: &Value, arguments: &Value) -> Tree {
         .max();
     if rows.is_some_and(|rows| rows >= cap) {
         return Tree::Cut;
-    }
-    if flag("truncated") == Some(false) || flag("elements_complete") == Some(true) {
-        return Tree::Whole;
     }
     if BOUNDS.iter().any(|key| arguments.get(*key).is_some()) { Tree::Cut } else { Tree::Unknown }
 }
