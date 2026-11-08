@@ -172,6 +172,9 @@ nonisolated enum AcpmuxPaneMethods {
         // that chat's agent signed in.
         "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
         "_acpmux/agent_login/cancel",
+        // A chat's scheduled prompt, cmux's own `/loop` (acpmux prompt_schedule.rs): set it,
+        // pause or resume it, or clear it, from the strip over the composer and `/loop`.
+        "_acpmux/schedule/set", "_acpmux/schedule/pause", "_acpmux/schedule/clear",
     ]
 
     /// Notifications (no `id`).
@@ -272,6 +275,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
+        "_acpmux/schedule/set", "_acpmux/schedule/pause", "_acpmux/schedule/clear",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -360,6 +364,9 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/agent_pair_resume": .always,
         // Hand back delivers held messages, which runs turns.
         "_acpmux/agent_hold": .always,
+        // A schedule sends its prompt later, as the person's, so it starts only on their Enter or
+        // click; Pause and Cancel stop it: no gesture.
+        "_acpmux/schedule/set": .always,
         "_acpmux/app_reply": .always,
         // Approve sends a guest's held prompt to the agent; Decline drops it: no gesture.
         "_acpmux/queue_approve": .always,

@@ -29,6 +29,9 @@ pub(super) const SETTLE_MS: u64 = 2_000;
 pub(super) const BUSY_RECHECK_MS: u64 = 15_000;
 /// The longest single wait, so a wall-clock run is at most this late after the machine wakes.
 pub(super) const MAX_SLEEP_MS: u64 = 60_000;
+/// Sends refused in a row (a folder no longer trusted, a harness that will not start) before the
+/// schedule ends: each refused run is given back and tried again `BUSY_RECHECK_MS` later.
+pub(super) const MAX_REFUSALS: u32 = 3;
 
 /// Wall-clock milliseconds since the epoch; tests replace it.
 pub(super) type WallClock = Arc<dyn Fn() -> u64 + Send + Sync>;
@@ -40,6 +43,8 @@ pub(crate) struct Scheduler {
     chats: StdMutex<HashSet<String>>,
     /// A chat whose turn just ended, and when to look at it again.
     settle: StdMutex<HashMap<String, u64>>,
+    /// A chat's sends refused in a row, cleared by one that goes in.
+    refused: StdMutex<HashMap<String, u32>>,
     wall: StdMutex<WallClock>,
 }
 
@@ -50,6 +55,7 @@ impl Default for Scheduler {
             running: AtomicBool::new(false),
             chats: StdMutex::default(),
             settle: StdMutex::default(),
+            refused: StdMutex::default(),
             wall: StdMutex::new(Arc::new(crate::store::now_ms)),
         }
     }
@@ -85,6 +91,7 @@ impl Hub {
         schedule.trust_gate = trust_gate;
         let value = schedule.to_value();
         locked(&session.meta).prompt_schedule = Some(schedule);
+        locked(&self.prompt_schedules.refused).remove(&session.id);
         self.publish_schedule(session)?;
         locked(&self.prompt_schedules.chats).insert(session.id.clone());
         self.wake_scheduler();
@@ -291,16 +298,25 @@ impl Hub {
             && !self.continuation_pending(session)
     }
 
-    /// Sends one run, counting it first, so a restart mid-send never sends it twice. The
-    /// schedule's next run, if it has one.
+    /// Sends one run, counting it first, so a restart mid-send never sends it twice. A send
+    /// that is refused gives its run back (`schedule_refused`). The schedule's next run, if it
+    /// has one.
     fn fire_schedule(self: &Arc<Self>, session: &Arc<Session>, now: u64) -> Option<u64> {
-        let (id, run, prompt, next, done, trust_gate) = {
+        let (before, id, run, prompt, next, done, trust_gate) = {
             let mut m = locked(&session.meta);
             let s = m.prompt_schedule.as_mut()?;
+            let before = s.clone();
             s.fire(now);
             let done = s.finished(now);
-            let fired =
-                (s.id.clone(), s.runs, s.prompt.clone(), s.deadline(now), done, s.trust_gate);
+            let fired = (
+                before,
+                s.id.clone(),
+                s.runs,
+                s.prompt.clone(),
+                s.deadline(now),
+                done,
+                s.trust_gate,
+            );
             if done {
                 m.prompt_schedule = None;
             }
@@ -326,17 +342,70 @@ impl Hub {
                 trust_gate,
                 ..PromptOptions::default()
             };
-            if let Err(e) = hub.prompt_with(&session, blocks, "acpmux", false, opts).await {
-                tracing::warn!(session = %session.id, schedule = %id, run, error = %e.message,
-                    "scheduled prompt refused");
+            match hub.prompt_with(&session, blocks, "acpmux", false, opts).await {
+                Ok(_) => {
+                    locked(&hub.prompt_schedules.refused).remove(&session.id);
+                }
+                Err(e) => {
+                    tracing::warn!(session = %session.id, schedule = %id, run, error = %e.message,
+                        "scheduled prompt refused");
+                    hub.schedule_refused(&session, before, done);
+                }
             }
         });
         if done { None } else { next }
     }
 
+    /// A run's send was refused: the run is given back, to go again `BUSY_RECHECK_MS` from now,
+    /// unless the schedule changed since it went (replaced, paused, cleared) or this is the
+    /// `MAX_REFUSALS`th refusal in a row, which ends it. `before`: the schedule as it was before
+    /// the run; `done`: whether that run ended it.
+    pub(super) fn schedule_refused(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        before: PromptSchedule,
+        done: bool,
+    ) {
+        let refusals = {
+            let mut refused = locked(&self.prompt_schedules.refused);
+            let n = refused.entry(session.id.clone()).or_insert(0);
+            *n += 1;
+            *n
+        };
+        let given_back = {
+            let mut m = locked(&session.meta);
+            let unchanged = match m.prompt_schedule.as_ref() {
+                Some(s) => {
+                    s.id == before.id && s.runs == before.runs.saturating_add(1) && !s.paused
+                }
+                None => done,
+            };
+            if !unchanged {
+                return;
+            }
+            if refusals >= MAX_REFUSALS {
+                false
+            } else {
+                let mut s = before;
+                s.next_run_at = Some(self.schedule_now() + BUSY_RECHECK_MS);
+                m.prompt_schedule = Some(s);
+                true
+            }
+        };
+        if !given_back {
+            locked(&self.prompt_schedules.refused).remove(&session.id);
+            self.end_schedule(session, "refused");
+            return;
+        }
+        locked(&self.prompt_schedules.chats).insert(session.id.clone());
+        self.publish_schedule_logged(session);
+        self.wake_scheduler();
+    }
+
     fn end_schedule(&self, session: &Session, reason: &str) {
         let ended = locked(&session.meta).prompt_schedule.take();
         locked(&self.prompt_schedules.chats).remove(&session.id);
+        locked(&self.prompt_schedules.refused).remove(&session.id);
         if let Some(s) = ended {
             tracing::info!(session = %session.id, schedule = %s.id, runs = s.runs, reason,
                 "scheduled prompt ended");
