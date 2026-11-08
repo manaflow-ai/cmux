@@ -102,7 +102,7 @@ async function render(
       </SubsessionContext.Provider>,
     ),
   );
-  await act(async () => host.querySelector<HTMLButtonElement>(".cv-disclosure__toggle")!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>(".cv-agentmsg__toggle")!.click());
   // The chips ask the host in a microtask; their answers draw on the next.
   for (let i = 0; i < 4; i++) await act(async () => await new Promise((done) => setTimeout(done, 0)));
   return asked;

@@ -18,6 +18,7 @@ import { inboxThreadKey } from "./inboxNotice";
 import { SenderName } from "./IncomingMessageCard";
 import { MessageGroupHead } from "./MessageGroupHead";
 import { groupSender } from "./messageGroupHeadModel";
+import { hoverMessages } from "./MessageGroupHover";
 import "./PendingMessagesCard.css";
 
 /// The ids a digest's lines open by: each message's row, and an inbox thread's line by its own key
@@ -127,6 +128,12 @@ export function PendingMessagesCard({
           }}
           className="cv-pending__toggle"
           iconClassName="cv-pending__icon"
+          messages={hoverMessages(
+            (displayRows ?? rows).map((member) =>
+              member.incoming?.kind === "message" ? member.incoming.message : undefined,
+            ),
+            (displayRows ?? rows).map((member) => member.inboxThread?.count),
+          )}
         />
       </div>
       {open && (

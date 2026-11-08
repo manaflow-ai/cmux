@@ -24,6 +24,7 @@ import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./tu
 import { retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
+import { resendsAttachments } from "../inlinePrompt";
 /// The message's age, relative and live; the exact date and time above it on hover, as Claude's.
 export function MessageTime({ at, className }: { at: number; className: string }) {
   const now = useLabelClock(at, nextRelativeTime);
@@ -284,14 +285,26 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 /// Retry, and Retry with another model when the harness has several: sends prompt row `rowId`
 /// (`prompt`, as the agent got it) again. Only the Messages view's prompts draw it, sent or queued;
 /// in the transcript the last turn's Retry is its reply footer's (TurnRows.tsx TurnFooter).
+/// `hasAttachment`: the prompt carries attachments that can all go again, so an attachment-only
+/// prompt (no text) still gets Retry.
 /// `held`: the prompt is a steer the agent has not read yet (PendingSteer.tsx's row). Its Retry
 /// stays in the row, as the sent row's does, but cannot be pressed and has no model menu: a resend
 /// while the steer still waits would reach the agent twice (cmux#34613, #34614).
-export function PromptRetry({ rowId, prompt, held = false }: { rowId: string; prompt: string; held?: boolean }) {
+export function PromptRetry({
+  rowId,
+  prompt,
+  hasAttachment = false,
+  held = false,
+}: {
+  rowId: string;
+  prompt: string;
+  hasAttachment?: boolean;
+  held?: boolean;
+}) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
   const readOnly = useTranscriptReadOnly();
-  if (!retry || !prompt || readOnly) return null;
+  if (!retry || (!prompt && !hasAttachment) || readOnly) return null;
   return (
     <span className="cv-message-retry">
       <button
@@ -334,19 +347,19 @@ export function PromptActions({
     (retryTarget?.promptId === row.id &&
       retryPlacement(retryTarget, { canRetry: canResend, readOnly, messages: false }) === "prompt");
   const prompt = row.resend ?? row.text ?? "";
+  // An attachment-only prompt (turns.ts offersRetry) retries when all its attachments can go again.
+  const retryProps = { rowId: row.id, prompt, hasAttachment: resendsAttachments(row) };
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      {promptRetry && <PromptRetry rowId={row.id} prompt={prompt} />}
+      {promptRetry && <PromptRetry {...retryProps} />}
       <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
   return (
     <div className="cv-user__actions">
-      {pending
-        ? pending(actions, { retry: promptRetry ? <PromptRetry rowId={row.id} prompt={prompt} held /> : null })
-        : actions}
+      {pending ? pending(actions, { retry: promptRetry ? <PromptRetry {...retryProps} held /> : null }) : actions}
     </div>
   );
 }

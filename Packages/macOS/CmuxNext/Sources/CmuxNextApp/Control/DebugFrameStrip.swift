@@ -14,14 +14,13 @@ import CmuxNextWakeups
 /// `agent_click` with `click`: `debug.agent_pane click`'s params, a real click on an element of a chat's page, found before
 /// the recording starts). `content: "rightmost"` judges the rightmost pane's content area instead of the focused pane's. `repeat` (default 1) sends the key that many times, `repeat_interval_ms` (default 40)
 /// apart, inside one recording (a fast selection burst retargets moves in flight). Frames are read off the main actor back to back for `duration_ms` (default 700) after
-/// the key, and some before it (`above`: ``FrameStripRecording``, ScreenCaptureKit without the Screen Recording grant; `capture` in the report). The report: ``NSWindow/frameStripReport(_:sentAt:sentTime:content:strip:tolerance:jump:dir:)``; motion knobs: ``MotionFrameProgress``.
+/// the key, and some before it (`above`: ``FrameStripRecording``, ScreenCaptureKit without the Screen Recording grant; `capture` in the report). `sent_host_s` is the input's host time (CACurrentMediaTime). The report: ``NSWindow/frameStripReport(_:sentAt:sentTime:content:strip:tolerance:jump:dir:)``; motion knobs: ``MotionFrameProgress``.
 @MainActor
 enum DebugFrameStrip {
     static func run(_ params: [String: JSONValue], _ controller: WindowController, _ services: AppServices) async -> JSONValue {
         guard let window = controller.window, window.windowNumber > 0 else { return .object(["error": .string("no window")]) }
         let number = CGWindowID(window.windowNumber)
-        let scale = params["scale"]?.doubleValue ?? 0.25
-        let duration = params["duration_ms"]?.doubleValue ?? 700
+        let (scale, duration) = (params["scale"]?.doubleValue ?? 0.25, params["duration_ms"]?.doubleValue ?? 700)
         let tolerance = params["tolerance"]?.doubleValue ?? 0.002
         let dir = params["dir"]?.stringValue ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("frame-strip-\(UUID().uuidString)")
         // `agent_click`: the element is found in the chat's page before the recording starts, so the strip
@@ -49,6 +48,7 @@ enum DebugFrameStrip {
         await recording.waitForLead() // The key goes in once the recorder has frames from before it.
         let sent: JSONValue
         var firstSent: (ms: Double, time: CFTimeInterval)? // When the first key went in (a burst's later keys come after it).
+        let preSend = CACurrentMediaTime() // `sent_host_s`: before the key or gesture is dispatched, so its own work counts
         if params["gesture"]?.stringValue == "plus", let pane = controller.content?.focusedPane {
             pane.stripModel.send(.newTab(after: nil))
             sent = .string("plus")
@@ -91,7 +91,7 @@ enum DebugFrameStrip {
                                                          strip: crop != nil ? nil : pane?.view.stripView, tolerance: tolerance, jump: params["jump"]?.doubleValue, dir: dir),
               case .object(var fields)? = JSONValue(foundation: report)
         else { return .object(["error": .string("no frames"), "key": sent]) }
-        fields["key"] = sent
+        (fields["key"], fields["sent_host_s"]) = (sent, .number(agentClick == nil ? preSend : sentTime)) // sent_host_s: a trace's t0_s clock (split-scale-bench.py)
         if case let .object(extra)? = JSONValue(foundation: recorded) { fields.merge(extra) { own, _ in own } }
         fields["spans"] = .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) })
         return .object(fields)
