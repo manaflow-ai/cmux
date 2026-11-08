@@ -24,11 +24,18 @@ public struct FilmZoomVariant: Sendable, Equatable {
         /// Cover-out: the zoomed pane at its final size at once, under the other panes' last pictures, which slide out
         /// and fade (out: the other panes slide in and fade in over the zoomed pane's old full picture).
         case z3 = "Z3"
+        /// Grow and fade (m66, Lawrence: "when i do cmd shift enter i want to see the rest of it fade, in the same easing
+        /// function"): the zoomed pane's frame grows from its place to the full screen (its content at the final grid,
+        /// its top-left on the frame's) while every other pane fades out in place, on one progress value of the curve
+        /// (opacity clamped to 0 ... 1 on a spring's overshoot). Out: the exact reverse.
+        case z4 = "Z4"
     }
 
     /// The m63 curve set (tasks/close-variants.md): bezier curves with a duration, springs with a damping ratio and a
     /// response.
     public enum Curve: String, Sendable, CaseIterable {
+        /// The current zoom spring (`MotionSpring.zoom`'s code default: response 0.2 s, critically damped).
+        case cur = "CUR"
         case k1 = "K1", k2 = "K2", k3 = "K3", k4 = "K4", k5 = "K5", k6 = "K6", k7 = "K7", k8 = "K8", k9 = "K9", k10 = "K10"
 
         /// Bezier control points and seconds; nil for a spring.
@@ -47,6 +54,7 @@ public struct FilmZoomVariant: Sendable, Equatable {
         /// Damping ratio and response (s); nil for a bezier curve.
         var spring: (damping: Double, response: Double)? {
             switch self {
+            case .cur: (1.0, 0.2)
             case .k6: (1.0, 0.15)
             case .k7: (0.9, 0.18)
             case .k8: (0.8, 0.20)
@@ -71,7 +79,9 @@ public struct FilmZoomVariant: Sendable, Equatable {
         if let raw = environment["CMUX_FILM_ZOOM_CURVE"], let curve = Self.curve(raw) { self.curve = curve }
     }
 
-    public static func kind(_ raw: String) -> Kind? { Kind.allCases.first { $0.rawValue.lowercased() == raw.lowercased() } }
+    public static func kind(_ raw: String) -> Kind? {
+        raw.lowercased() == "z0" ? .v0 : Kind.allCases.first { $0.rawValue.lowercased() == raw.lowercased() } // Z0 = V0 (m66)
+    }
     public static func curve(_ raw: String) -> Curve? { Curve.allCases.first { $0.rawValue.lowercased() == raw.lowercased() } }
 
     /// The selection a zoom plays, nil for the current zoom (V0).
@@ -157,6 +167,19 @@ public struct FilmZoomVariant: Sendable, Equatable {
         animation.fromValue = from
         animation.toValue = value
         Motion.add(animation, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).film-zoom")
+    }
+
+    /// The one-value driver on this variant's curve (``FilmProgressDriver``).
+    public var driver: FilmProgressDriver {
+        if let spring = curve.spring { return FilmProgressDriver(damping: spring.damping, response: spring.response) }
+        let bezier = curve.bezier ?? ((0, 0, 1, 1), 0.1)
+        return FilmProgressDriver(points: bezier.points, seconds: bezier.seconds)
+    }
+
+    /// `layer.keyPath` driven by ONE progress value of this variant's curve (``FilmProgressDriver/drive(_:_:_:completion:)``).
+    @MainActor public func drive(_ layer: CALayer, _ keyPath: String, _ value: (Double) -> Any,
+                                 completion: @escaping @MainActor () -> Void) {
+        driver.drive(layer, keyPath, value, completion: completion)
     }
 }
 

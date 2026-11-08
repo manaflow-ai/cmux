@@ -3,58 +3,89 @@ import AppKit
 import CmuxNextDesign
 
 /// ZOOM VARIANTS film selector (``FilmZoomVariant``; DEBUG and bench builds only, branch zoom-variants/film-selector-nomerge,
-/// never merged). Z1, Z2 and Z3 snap a zoom to its final frames (`reconcile`): one resize per terminal, its final grid sent
-/// in the key's turn, the old picture held one tick (`ScreenContentView+SnapFrame`). Z2 and Z3 then play a motion on
-/// copies of the panes' last pictures (their layer trees' contents: a terminal's last frame, the tab strip; a Chromium
-/// page's own window is not in them), started by the presentation that shows the final layout:
+/// never merged). Z1-Z4 snap a zoom to its final frames (`reconcile`): one resize, of the zoomed terminal only, its final
+/// grid sent in the key's turn, the old picture held one tick (`ScreenContentView+SnapFrame`). The panes the zoom covers
+/// are kept as they are (retired until the unzoom: no teardown, no resize), as the current zoom keeps them. Z2-Z4 then
+/// play a motion, started by the presentation that shows the final layout, on copies of the panes' last pictures (their
+/// layer trees' contents: a terminal's last frame, the tab strip; a Chromium page's own window is not in them) or on the
+/// live layers:
 /// - Z2 in: the other panes' pictures over the zoomed pane, with a hole that grows from its old frame to the full screen.
 /// - Z2 out: the zoomed pane's old full picture over the final layout, its frame shrinking to the pane's place.
 /// - Z3 in: the other panes' pictures over the zoomed pane slide out to the screen edges and fade.
 /// - Z3 out: the other panes slide in from the screen edges and fade in over the zoomed pane's old full picture.
+/// - Z4 in (m66): the zoomed pane's frame grows from its place to the full screen, its content (final grid) on the frame's
+///   top-left, while the other panes' pictures fade out in place; one progress value drives the frame and the opacity
+///   (``FilmProgressDriver``).
+/// - Z4 out: the exact reverse: the zoomed pane's old full picture shrinks to its place while the other panes fade in.
+/// The screen is flipped (`isFlipped`), as the pane hosts are: a frame's top-left is its (minX, minY), in layers too.
 extension ScreenContentView {
     func prepareFilmZoom(_ film: FilmZoomVariant, zooming: Bool, before: ScreenGeometry, after: ScreenGeometry) {
+        // A film zoom that never showed (a second key in the same tick): its covered panes are retired now.
+        for pane in frameInput.filmZoomRetire { context.retire(pane, from: screenID, until: .zoom) }
+        frameInput.filmZoomRetire = []
         frameInput.filmZoomPending = nil
         layer?.sublayers?.filter { $0.name?.hasPrefix("film-zoom-pictures-") == true }.forEach { $0.removeFromSuperlayer() }
-        guard film.kind != .z1, Motion.panes.animatesMovement, let root = layer else { return }
+        guard let root = layer else { return }
         let zoomed = zooming ? after.panes.keys.first : before.panes.keys.first { after.panes[$0] != nil }
-        guard let zoomed, let zoomedHost = context.hosts[zoomed] else { return }
-        let oldZoomedFrame = zoomedHost.frame
-        let bounds = self.bounds
-        // The pictures to copy now, before the hosts take their new frames: the other panes going in, the zoomed one out.
-        var pictures: [(pane: PaneID, layer: CALayer, frame: CGRect)] = []
-        if zooming {
-            for (pane, host) in context.hosts where pane != zoomed && host.superview === self && before.panes[pane] != nil {
-                guard let source = host.layer, host.frame.width >= 1, host.frame.height >= 1 else { continue }
-                pictures.append((pane, Self.filmZoomCopy(source), host.frame))
-            }
-        } else if let source = zoomedHost.layer, oldZoomedFrame.width >= 1 {
-            pictures.append((zoomed, Self.filmZoomCopy(source), oldZoomedFrame))
+        guard let zoomed, let zoomedLayer = context.hosts[zoomed]?.layer else { return }
+        let animates = film.kind != .z1 && Motion.panes.animatesMovement
+        // Zoom in: the panes the zoom covers stay as they are and go hidden with the presentation (retired, not torn down).
+        // Zoom out: the panes the unzoom shows again wait at opacity 0 until that presentation.
+        var covered: [PaneID] = [], returning: [PaneID] = []
+        for (pane, host) in context.hosts where pane != zoomed && host.superview === self {
+            if zooming, before.panes[pane] != nil, after.panes[pane] == nil { covered.append(pane) }
+            if !zooming, after.panes[pane] != nil, before.panes[pane] == nil { returning.append(pane) }
         }
-        guard !pictures.isEmpty else { return }
+        frameInput.filmZoomRetire = covered
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for pane in returning { context.hosts[pane]?.layer?.opacity = 0 }
+        CATransaction.commit()
+        let oldZoomed = zoomedLayer.frame
+        let bounds = root.bounds
+        // The pictures to copy now, before the hosts take their new frames: the other panes going in, the zoomed one out.
+        var pictures: [(layer: CALayer, frame: CGRect)] = []
+        if animates, zooming {
+            for pane in covered {
+                guard let source = context.hosts[pane]?.layer, source.frame.width >= 1, source.frame.height >= 1 else { continue }
+                pictures.append((Self.filmZoomCopy(source), source.frame))
+            }
+        } else if animates, oldZoomed.width >= 1 {
+            pictures.append((Self.filmZoomCopy(zoomedLayer), oldZoomed))
+        }
         // The copies go on the root now, hidden, and show with the presentation of the final layout. The pending closure
         // finds them by name (no layer captured in it: it is main-actor code stored on the frame input).
         let tag = "film-zoom-pictures-\(UInt64.random(in: 0 ... UInt64.max))"
         let frames = pictures.map(\.frame)
-        let container = CALayer()
-        container.frame = bounds
-        container.bounds = bounds // the view's coordinates inside it, as the hosts' frames are
-        container.name = tag
-        container.isHidden = true
-        container.zPosition = film.kind == .z3 && !zooming ? -1 : 10_000
-        for picture in pictures {
-            picture.layer.anchorPoint = .zero
-            picture.layer.position = picture.frame.origin
-            picture.layer.transform = CATransform3DIdentity
-            container.addSublayer(picture.layer)
+        if !pictures.isEmpty {
+            let container = CALayer()
+            container.frame = bounds
+            container.bounds = bounds // the root's coordinates inside it, as the hosts' frames are
+            container.name = tag
+            container.isHidden = true
+            container.zPosition = film.kind == .z3 && !zooming ? -1 : film.kind == .z4 && zooming ? 9_000 : 10_000
+            for picture in pictures {
+                picture.layer.anchorPoint = .zero
+                picture.layer.position = picture.frame.origin
+                picture.layer.transform = CATransform3DIdentity
+                container.addSublayer(picture.layer)
+            }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            root.addSublayer(container)
+            CATransaction.commit()
         }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        root.addSublayer(container)
-        CATransaction.commit()
         frameInput.filmZoomPending = { [weak self] in
-            guard let self, let root = self.layer, let container = root.sublayers?.first(where: { $0.name == tag }) else { return }
-            guard let zoomedHost = self.context.hosts[zoomed] else {
-                container.removeFromSuperlayer()
+            guard let self else { return }
+            for pane in self.frameInput.filmZoomRetire { self.context.retire(pane, from: self.screenID, until: .zoom) }
+            self.frameInput.filmZoomRetire = []
+            let container = self.layer?.sublayers?.first { $0.name == tag }
+            guard animates, let container, let zoomedLayer = self.context.hosts[zoomed]?.layer else {
+                container?.removeFromSuperlayer()
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                for pane in returning { self.context.hosts[pane]?.layer?.opacity = 1 }
+                CATransaction.commit()
                 return
             }
             let finish: @MainActor () -> Void = { [weak self] in
@@ -63,26 +94,35 @@ extension ScreenContentView {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             container.isHidden = false
+            if film.kind != .z3, film.kind != .z4 {
+                for pane in returning { self.context.hosts[pane]?.layer?.opacity = 1 }
+            }
             CATransaction.commit()
+            let place = zoomedLayer.frame
+            let returningLayers = returning.compactMap { self.context.hosts[$0]?.layer }
             switch (film.kind, zooming) {
+            case (.z4, true):
+                self.filmGrow(film, zoomedLayer, from: oldZoomed, to: place, container: container, finish: finish)
+            case (.z4, false):
+                self.filmShrink(film, container: container, from: oldZoomed, to: place, fadingIn: returningLayers, finish: finish)
             case (.z2, true):
                 // A hole the zoomed pane shows through, from its old frame to its frame now.
                 let mask = Self.filmHoleMask(bounds: bounds)
                 container.mask = mask
-                film.animate(mask, "path", from: Self.filmHole(bounds, oldZoomedFrame), to: Self.filmHole(bounds, zoomedHost.frame), completion: finish)
+                film.animate(mask, "path", from: Self.filmRing(outer: bounds, inner: oldZoomed),
+                             to: Self.filmRing(outer: bounds, inner: place), completion: finish)
             case (.z2, false):
                 // The old full picture only inside a frame that shrinks to the pane's place, never over that place.
                 let mask = Self.filmHoleMask(bounds: bounds)
                 container.mask = mask
-                let place = zoomedHost.frame
-                film.animate(mask, "path", from: Self.filmRing(outer: oldZoomedFrame, inner: place),
+                film.animate(mask, "path", from: Self.filmRing(outer: oldZoomed, inner: place),
                              to: Self.filmRing(outer: place, inner: place), completion: finish)
             case (.z3, true):
                 let nothing: @MainActor () -> Void = {}
                 let layers = container.sublayers ?? []
                 for (index, layer) in layers.enumerated() where index < frames.count {
                     let last = index == min(layers.count, frames.count) - 1
-                    let exit = Self.filmSlide(frames[index], from: oldZoomedFrame, bounds: bounds)
+                    let exit = Self.filmSlide(frames[index], from: oldZoomed, bounds: bounds)
                     film.animate(layer, "transform", from: NSValue(caTransform3D: CATransform3DIdentity),
                                  to: NSValue(caTransform3D: exit), completion: nothing)
                     film.animate(layer, "opacity", from: NSNumber(value: Float(1)), to: NSNumber(value: Float(0)),
@@ -90,15 +130,10 @@ extension ScreenContentView {
                 }
             case (.z3, false):
                 // The other panes, live at their final frames, slide in from the edges and fade in.
-                let place = zoomedHost.frame
-                var hosts: [CALayer] = []
-                for (pane, host) in self.context.hosts where pane != zoomed && host.superview === self && after.panes[pane] != nil {
-                    if let layer = host.layer { hosts.append(layer) }
-                }
-                guard !hosts.isEmpty else { return finish() }
+                guard !returningLayers.isEmpty else { return finish() }
                 let nothing: @MainActor () -> Void = {}
-                for (index, layer) in hosts.enumerated() {
-                    let last = index == hosts.count - 1
+                for (index, layer) in returningLayers.enumerated() {
+                    let last = index == returningLayers.count - 1
                     let entry = Self.filmSlide(layer.frame, from: place, bounds: bounds)
                     film.animate(layer, "transform", from: NSValue(caTransform3D: entry), to: NSValue(caTransform3D: CATransform3DIdentity),
                                  completion: nothing)
@@ -109,6 +144,82 @@ extension ScreenContentView {
                 finish()
             }
         }
+    }
+
+    /// Z4 in: the zoomed pane (live, at its final frame and grid) shows through a frame that grows from `from` to `to`,
+    /// its content on that frame's top-left (a translation of its layer and a mask of the frame's size), above the
+    /// covered panes' pictures (`container`), which fade out in place; one progress value p drives all three.
+    private func filmGrow(_ film: FilmZoomVariant, _ zoomed: CALayer, from: CGRect, to: CGRect, container: CALayer,
+                          finish: @escaping @MainActor () -> Void) {
+        let mask = CAShapeLayer()
+        mask.frame = zoomed.bounds
+        mask.fillColor = NSColor.black.cgColor
+        mask.path = CGPath(rect: zoomed.bounds, transform: nil)
+        let maskName = "film-zoom-grow-\(UInt64.random(in: 0 ... UInt64.max))"
+        mask.name = maskName
+        let zBefore = zoomed.zPosition
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        zoomed.zPosition = 9_500
+        zoomed.mask = mask
+        CATransaction.commit()
+        let size = zoomed.bounds.size
+        let nothing: @MainActor () -> Void = {}
+        film.drive(zoomed, "transform", { p in
+            let r = Self.filmLerp(from, to, p)
+            return NSValue(caTransform3D: CATransform3DMakeTranslation(r.minX - to.minX, r.minY - to.minY, 0))
+        }, completion: nothing)
+        film.drive(mask, "path", { p in
+            let r = Self.filmLerp(from, to, p)
+            return CGPath(rect: CGRect(x: 0, y: 0, width: max(0, min(size.width, r.width)), height: max(0, min(size.height, r.height))),
+                          transform: nil)
+        }, completion: nothing)
+        film.drive(container, "opacity", { p in NSNumber(value: Float(min(1, max(0, 1 - p)))) }, completion: { [weak self] in
+            // The zoomed pane's layer as it was (found again by the screen: no layer captured here).
+            if let self, let layer = self.layer?.sublayers?.first(where: { $0.mask?.name == maskName }) {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.mask = nil
+                layer.zPosition = zBefore
+                layer.transform = CATransform3DIdentity
+                CATransaction.commit()
+            }
+            finish()
+        })
+    }
+
+    /// Z4 out: the zoomed pane's old full picture (`container`, over the final layout) shows through a frame that shrinks
+    /// from `from` to its place `to`, the picture on that frame's top-left, while the panes the unzoom shows again fade
+    /// in at their places; one progress value p drives all of it.
+    private func filmShrink(_ film: FilmZoomVariant, container: CALayer, from: CGRect, to: CGRect, fadingIn: [CALayer],
+                            finish: @escaping @MainActor () -> Void) {
+        guard let picture = container.sublayers?.first else { return finish() }
+        let mask = CAShapeLayer()
+        mask.frame = container.bounds
+        mask.fillColor = NSColor.black.cgColor
+        mask.path = CGPath(rect: from, transform: nil)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        container.mask = mask
+        CATransaction.commit()
+        let nothing: @MainActor () -> Void = {}
+        film.drive(mask, "path", { p in CGPath(rect: Self.filmLerp(from, to, p).standardized, transform: nil) }, completion: nothing)
+        film.drive(picture, "transform", { p in
+            let r = Self.filmLerp(from, to, p)
+            return NSValue(caTransform3D: CATransform3DMakeTranslation(r.minX - from.minX, r.minY - from.minY, 0))
+        }, completion: nothing)
+        for layer in fadingIn {
+            film.drive(layer, "opacity", { p in NSNumber(value: Float(min(1, max(0, p)))) }, completion: nothing)
+        }
+        // The picture leaves at rest: the live zoomed pane is under it at its place.
+        film.drive(container, "opacity", { _ in NSNumber(value: Float(1)) }, completion: finish)
+    }
+
+    /// The frame at progress `p` (past 1 on a spring's overshoot) from `a` to `b`.
+    private static func filmLerp(_ a: CGRect, _ b: CGRect, _ p: Double) -> CGRect {
+        let t = CGFloat(p)
+        return CGRect(x: a.minX + (b.minX - a.minX) * t, y: a.minY + (b.minY - a.minY) * t,
+                      width: a.width + (b.width - a.width) * t, height: a.height + (b.height - a.height) * t)
     }
 
     /// The film zoom's motion starts with the presentation that shows its final layout (`applyPresentation`).
@@ -125,11 +236,6 @@ extension ScreenContentView {
         mask.fillRule = .evenOdd
         mask.fillColor = NSColor.black.cgColor
         return mask
-    }
-
-    /// The whole screen less `hole` (even-odd).
-    private static func filmHole(_ bounds: CGRect, _ hole: CGRect) -> CGPath {
-        filmRing(outer: bounds, inner: hole)
     }
 
     /// `outer` less `inner` (even-odd); the same two rectangles in every path, so a path animation interpolates them.
@@ -184,7 +290,7 @@ extension ScreenContentView {
 
 #if DEBUG || CMUX_BENCH_HOOKS
 extension LayoutModel {
-    /// A film zoom (Z1, Z2 or Z3) plays: the zoom shows in the key's turn (`DaemonService.filmZoomNow`).
+    /// A film zoom (Z1-Z4) plays: the zoom shows in the key's turn (`DaemonService.filmZoomNow`).
     @MainActor public static var filmZoomPlays: Bool { DesignSettings.shared.filmZoom.active != nil }
 }
 #endif

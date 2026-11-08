@@ -371,6 +371,9 @@ final class ScreenContentView: NSView {
             // pane now and tears it down when the motion lands (`LayoutViewContext.retire`): its neighbours' first
             // frames carry no teardown.
             guard !context.livePanes.contains(pane) else { continue }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if frameInput.filmZoomRetire.contains(pane) { continue }
+            #endif
             if departing, animateFrames { closing.append((pane, frame)) } else if holdsSnap { frameInput.snapDeparted.append(pane) } else { context.release(pane) }
         }
         retireClosing(closing, before: before, carried: carried, offset: offset)

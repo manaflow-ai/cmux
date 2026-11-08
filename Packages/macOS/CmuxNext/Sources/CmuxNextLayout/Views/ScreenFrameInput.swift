@@ -22,5 +22,8 @@ struct ScreenFrameInput {
     var filmSnapSendsGrid = false
     /// The film zoom's motion (pictures, masks), started by the presentation that shows its final layout.
     var filmZoomPending: (@MainActor () -> Void)?
+    /// The panes a film zoom covers: kept as they are (retired until the unzoom, no teardown, no resize) from the
+    /// presentation that shows the zoom, as the current zoom keeps them (`PaneZoomMotion.covered`).
+    var filmZoomRetire: [PaneID] = []
     #endif
 }
