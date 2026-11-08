@@ -86,10 +86,7 @@ enum AgentHandlers {
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
         AgentHarnessHandlers.bind(into: registry, context: context)
-        GitRepositoryActions(place: { gitPlace(context, $0) }, announce: { message in
-            guard let window = context.services.windows.active?.window ?? NSApp.mainWindow else { return }
-            CmuxToastCenter.shared.show(CmuxToast(id: "git-repository-action", message: message), in: window)
-        }).bind(into: registry)
+        GitRepositoryActions(place: { gitPlace(context, $0) }, announce: { BrowserFileImport.toast(context.services, id: "git-repository-action", $0) }).bind(into: registry)
         // The front window's Home, else the Chief directly (HomeChiefActions).
         HomeChiefActions.bind(into: registry, context: context)
         // Start Agent: its key, the palette, the menu and the CLI toggle one floating panel, and so

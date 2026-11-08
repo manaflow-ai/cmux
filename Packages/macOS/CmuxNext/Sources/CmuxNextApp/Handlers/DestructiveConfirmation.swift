@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeModel
 import CmuxNextHomeEngine
@@ -20,7 +21,7 @@ import os
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
-/// no question. The Cloud deletes, profile delete, Delete Chief, agent extension access,
+/// no question. The Cloud deletes, Remove Git Worktree, profile delete, Delete Chief, agent extension access,
 /// remote install and Roll Back (it quits into the kept build) still ask.
 /// A target that does not resolve is not asked about: the handler then
 /// refuses it with the usual typed reason.
@@ -67,6 +68,8 @@ enum DestructiveConfirmation {
         case "cloudFirewallDelete":
             return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
                           button: CloudStrings.deleteFirewallRule)
+        case "git.worktree.remove":
+            return Prompt(title: GitRepositoryActions.removeTitle, body: GitRepositoryActions.removeBody(discard: invocation["discard"]?.boolValue == true), button: GitRepositoryActions.removeButton, returnConfirms: false)
         default:
             return await question(for: id, invocation, context, warn: warn)
         }

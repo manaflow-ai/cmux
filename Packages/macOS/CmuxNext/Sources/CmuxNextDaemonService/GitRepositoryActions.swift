@@ -92,6 +92,22 @@ public struct GitRepositoryActions {
     }
 }
 
+extension GitRepositoryActions {
+    // The question Remove Git Worktree asks before it runs (the registry's destructive gate): a
+    // remove deletes the worktree's folder with the files git ignores (an `.env`), and with
+    // `discard` its uncommitted work too.
+    public nonisolated static var removeTitle: String { GitRepositoryStrings.text("git.removeTitle", "Remove this worktree?") }
+    public nonisolated static var removeButton: String { GitRepositoryStrings.text("git.removeButton", "Remove Worktree") }
+
+    public nonisolated static func removeBody(discard: Bool) -> String {
+        discard
+            ? GitRepositoryStrings.text("git.removeDiscardBody",
+                                        "This deletes the worktree's folder and its branch, with its uncommitted changes and the files git ignores, such as .env. This can't be undone.")
+            : GitRepositoryStrings.text("git.removeBody",
+                                        "This deletes the worktree's folder and its branch, with the files git ignores, such as .env. This can't be undone.")
+    }
+}
+
 nonisolated enum GitRepositoryStrings {
     static var noFolder: String {
         text("git.noFolder", "This tab has no folder on this machine. Focus a terminal in the repository, then try again.")
@@ -115,7 +131,7 @@ nonisolated enum GitRepositoryStrings {
         }
     }
 
-    private static func text(_ key: StaticString, _ english: String.LocalizationValue) -> String {
+    static func text(_ key: StaticString, _ english: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: english, table: "GitActions", bundle: .module)
     }
 }

@@ -1,5 +1,7 @@
+import AppKit
 @testable import CmuxNextActions
 @testable import CmuxNextAgentPane
+@testable import CmuxNextApp
 @testable import CmuxNextDaemonService
 import CmuxNextSettings
 import Testing
@@ -40,6 +42,32 @@ struct GitAndHarnessPaletteActionsTests {
         let descriptor = try #require(ActionCatalog.all.first { $0.id == "git.worktree.remove" })
         #expect(descriptor.isDestructive, "the palette asks first; a script must pass confirm, discard or not")
         #expect(descriptor.arguments.map(\.name) == ["discard", ActionArgument.confirmName])
+    }
+
+    /// Review F1: the destructive flag alone ran it unasked, since the presenter had no question for
+    /// it. A palette run now reaches the presenter, which has a question with or without `discard`
+    /// (a plain remove deletes ignored files such as .env), and a script without `confirm` is refused.
+    @Test func removeAsksItsQuestionBeforeItRuns() async {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        var presented: [ActionID] = []
+        services.registry.confirmationPresenter = { id, _, _ in presented.append(id) }
+        _ = services.registry.perform("git.worktree.remove", invocation: ActionInvocation())
+        #expect(presented == ["git.worktree.remove"], "the palette run did not ask")
+
+        let plain = await DestructiveConfirmation.prompt(for: "git.worktree.remove", ActionInvocation(), services)
+        let discarding = await DestructiveConfirmation.prompt(
+            for: "git.worktree.remove", ActionInvocation(arguments: ["discard": .bool(true)]), services)
+        #expect(plain != nil, "no question, so the presenter runs it unasked")
+        #expect(discarding != nil)
+        #expect(plain?.body != discarding?.body, "discarding says it deletes uncommitted changes too")
+        #expect(plain?.returnConfirms == false, "Return must not remove a worktree")
+
+        let reason = services.registry.capturingRefusal {
+            _ = services.registry.perform("git.worktree.remove", invocation: ActionInvocation(origin: .cli))
+        }
+        #expect(reason == ActionRegistry.confirmationRequiredReason(for: "git.worktree.remove"))
     }
 
     @Test func removeDiscardsOnlyWhenAsked() {

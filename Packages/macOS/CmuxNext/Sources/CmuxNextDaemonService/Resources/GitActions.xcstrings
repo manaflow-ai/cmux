@@ -792,6 +792,534 @@
           }
         }
       }
+    },
+    "git.removeTitle": {
+      "comment": "Remove Git Worktree's confirmation; .env and git stay as written",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد إزالة شجرة العمل هذه؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloniti ovo radno stablo?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern dette worktree?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diesen Worktree entfernen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove this worktree?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Eliminar este worktree?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer ce worktree ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovere questo worktree?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このワークツリーを削除しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប worktree នេះ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 워크트리를 제거할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjerne dette worktreet?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usunąć to drzewo robocze?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover este worktree?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить это рабочее дерево?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ worktree นี้หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu çalışma ağacı kaldırılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити це робоче дерево?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa worktree này?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除此工作树？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除此工作樹？"
+          }
+        }
+      }
+    },
+    "git.removeBody": {
+      "comment": "Remove Git Worktree's confirmation; .env and git stay as written",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يؤدي هذا إلى حذف مجلد شجرة العمل وفرعها، مع الملفات التي يتجاهلها git مثل .env. لا يمكن التراجع عن ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo briše mapu radnog stabla i njegovu granu, zajedno s datotekama koje git zanemaruje, poput .env. Ovo se ne može poništiti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette sletter worktreets mappe og dets branch, med de filer git ignorerer, såsom .env. Det kan ikke fortrydes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dadurch werden der Ordner des Worktrees und sein Branch gelöscht, samt der Dateien, die git ignoriert, etwa .env. Das kann nicht rückgängig gemacht werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This deletes the worktree's folder and its branch, with the files git ignores, such as .env. This can't be undone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esto elimina la carpeta del worktree y su rama, con los archivos que git ignora, como .env. No se puede deshacer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cela supprime le dossier du worktree et sa branche, avec les fichiers que git ignore, comme .env. Cette action est irréversible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo elimina la cartella del worktree e il suo branch, con i file che git ignora, come .env. Non si può annullare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークツリーのフォルダーとそのブランチを、.env など git が無視するファイルごと削除します。元に戻せません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាលុបថតរបស់ worktree និង branch របស់វា រួមទាំងឯកសារដែល git មិនអើពើ ដូចជា .env។ មិនអាចមិនធ្វើវិញបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크트리 폴더와 브랜치를 .env 같은 git이 무시하는 파일까지 함께 삭제합니다. 되돌릴 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette sletter worktreets mappe og grenen, med filene git ignorerer, som .env. Dette kan ikke angres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spowoduje to usunięcie folderu drzewa roboczego i jego gałęzi wraz z plikami ignorowanymi przez git, takimi jak .env. Tej operacji nie można cofnąć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isso exclui a pasta do worktree e seu branch, com os arquivos que o git ignora, como .env. Não é possível desfazer."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Папка рабочего дерева и его ветка будут удалены вместе с файлами, которые git игнорирует, например .env. Это нельзя отменить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การดำเนินการนี้จะลบโฟลเดอร์ของ worktree และ branch ของมัน รวมถึงไฟล์ที่ git ละเว้น เช่น .env และไม่สามารถเลิกทำได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu, çalışma ağacının klasörünü ve dalını, .env gibi git'in yok saydığı dosyalarla birlikte siler. Bu işlem geri alınamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Буде видалено теку робочого дерева та його гілку разом із файлами, які git ігнорує, як-от .env. Це не можна скасувати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thao tác này xóa thư mục của worktree và nhánh của nó, cùng các tệp git bỏ qua như .env. Không thể hoàn tác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这会删除该工作树的文件夹及其分支，包括 git 忽略的文件（如 .env）。此操作无法撤销。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這會刪除該工作樹的資料夾及其分支，包括 git 忽略的檔案（例如 .env）。此操作無法復原。"
+          }
+        }
+      }
+    },
+    "git.removeDiscardBody": {
+      "comment": "Remove Git Worktree's confirmation; .env and git stay as written",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يؤدي هذا إلى حذف مجلد شجرة العمل وفرعها، مع تغييراتها غير المؤكدة والملفات التي يتجاهلها git مثل .env. لا يمكن التراجع عن ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo briše mapu radnog stabla i njegovu granu, zajedno s nepotvrđenim promjenama i datotekama koje git zanemaruje, poput .env. Ovo se ne može poništiti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette sletter worktreets mappe og dets branch, med ucommittede ændringer og de filer git ignorerer, såsom .env. Det kan ikke fortrydes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dadurch werden der Ordner des Worktrees und sein Branch gelöscht, samt nicht committeter Änderungen und der Dateien, die git ignoriert, etwa .env. Das kann nicht rückgängig gemacht werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This deletes the worktree's folder and its branch, with its uncommitted changes and the files git ignores, such as .env. This can't be undone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esto elimina la carpeta del worktree y su rama, con sus cambios sin confirmar y los archivos que git ignora, como .env. No se puede deshacer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cela supprime le dossier du worktree et sa branche, avec ses modifications non validées et les fichiers que git ignore, comme .env. Cette action est irréversible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo elimina la cartella del worktree e il suo branch, con le modifiche non salvate in commit e i file che git ignora, come .env. Non si può annullare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークツリーのフォルダーとそのブランチを、コミットしていない変更と .env など git が無視するファイルごと削除します。元に戻せません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាលុបថតរបស់ worktree និង branch របស់វា រួមទាំងការផ្លាស់ប្ដូរដែលមិនទាន់ commit និងឯកសារដែល git មិនអើពើ ដូចជា .env។ មិនអាចមិនធ្វើវិញបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크트리 폴더와 브랜치를 커밋하지 않은 변경 사항, .env 같은 git이 무시하는 파일까지 함께 삭제합니다. 되돌릴 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette sletter worktreets mappe og grenen, med endringer som ikke er committet og filene git ignorerer, som .env. Dette kan ikke angres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spowoduje to usunięcie folderu drzewa roboczego i jego gałęzi wraz z niezatwierdzonymi zmianami i plikami ignorowanymi przez git, takimi jak .env. Tej operacji nie można cofnąć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isso exclui a pasta do worktree e seu branch, com as alterações não confirmadas e os arquivos que o git ignora, como .env. Não é possível desfazer."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Папка рабочего дерева и его ветка будут удалены вместе с незафиксированными изменениями и файлами, которые git игнорирует, например .env. Это нельзя отменить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การดำเนินการนี้จะลบโฟลเดอร์ของ worktree และ branch ของมัน รวมถึงการเปลี่ยนแปลงที่ยังไม่ได้ commit และไฟล์ที่ git ละเว้น เช่น .env และไม่สามารถเลิกทำได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu, çalışma ağacının klasörünü ve dalını, kaydedilmemiş değişiklikleri ve .env gibi git'in yok saydığı dosyalarla birlikte siler. Bu işlem geri alınamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Буде видалено теку робочого дерева та його гілку разом із незафіксованими змінами й файлами, які git ігнорує, як-от .env. Це не можна скасувати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thao tác này xóa thư mục của worktree và nhánh của nó, cùng các thay đổi chưa commit và các tệp git bỏ qua như .env. Không thể hoàn tác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这会删除该工作树的文件夹及其分支，包括未提交的更改和 git 忽略的文件（如 .env）。此操作无法撤销。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這會刪除該工作樹的資料夾及其分支，包括未提交的變更和 git 忽略的檔案（例如 .env）。此操作無法復原。"
+          }
+        }
+      }
+    },
+    "git.removeButton": {
+      "comment": "Remove Git Worktree's confirmation; .env and git stay as written",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إزالة شجرة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloni radno stablo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern worktree"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Worktree entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Worktree"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminar worktree"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer le worktree"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovi worktree"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークツリーを削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប Worktree"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크트리 제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern worktree"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń drzewo robocze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover worktree"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить рабочее дерево"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ Worktree"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma ağacını kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити робоче дерево"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa worktree"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除工作树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除工作樹"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
