@@ -14,7 +14,7 @@
 //! - `wg-dgram`: cmux-wg's datagram service, frames cut into datagrams with
 //!   no retransmission (the floor an rd media path could reach).
 //!
-//! `CMUX_WG_ULTRA` (`dup`, `fec:8:2`, `rs:8:4`, see `cmux_wg::UltraMode`) turns on
+//! `CMUX_WG_ULTRA` (`dup`, `fec:8:2`, `rs:4:4`, see `cmux_wg::UltraMode`) turns on
 //! ultra mode on both ends; the note says what it sent and rebuilt.
 //!
 //! `--rtt-ms` and `--loss-pct` put the WireGuard paths' UDP through an

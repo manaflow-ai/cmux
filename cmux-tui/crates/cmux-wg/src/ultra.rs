@@ -23,14 +23,16 @@
 //!   (a pass with few datagrams) get a parity of their own, so bytes run
 //!   higher in practice (1.25-1.35x for `fec:8:2` on the desktop bench) and
 //!   never above twice the data bytes.
-//! - `rs` / `rs:K:M` (default `rs:8:4`) groups datagrams the same way, but its
+//! - `rs` / `rs:K:M` (default `rs:4:4`) groups datagrams the same way, but its
 //!   parities are Reed-Solomon over GF(2^8) ([`crate::ultra_rs`]): any `n` of
 //!   a group's parities rebuild any `n` of its lost members, wherever they
 //!   fall, where XOR parity loses a group to two losses in one subgroup. A
-//!   group of `n` members gets `ceil(n * M / K)` parities (at least one), each
-//!   as long as the longest member, so a full group costs (K+M)/K and a lone
-//!   datagram with one parity costs 2x. It holds at loss rates where XOR
-//!   parity collapses (10 %).
+//!   group of `n` members gets `ceil(n * M / K)` parities, and at least two
+//!   (one when M is 1): most groups are a pass's one or two datagrams, and
+//!   with one parity those are what still stall TCP at 10 % loss. Each parity
+//!   is as long as the longest member, so a full group costs (K+M)/K and a
+//!   lone datagram 3x; bytes stay under (1+M)x. It holds at loss rates where
+//!   XOR parity collapses (10 %).
 //!
 //! A parity datagram is a header plus the XOR of ciphertexts; the WireGuard
 //! header of a rebuilt datagram comes from the parity header, so a parity is
@@ -143,7 +145,7 @@ impl UltraMode {
             "" | "off" | "0" | "false" => return Some(Self::Off),
             "dup" => return Some(Self::Duplicate { copies: 2 }),
             "fec" => return Some(Self::Fec { group: 8, parity: 2 }),
-            "rs" => return Some(Self::Rs { group: 8, parity: 4 }),
+            "rs" => return Some(Self::Rs { group: 4, parity: 4 }),
             _ => {}
         }
         if let Some(copies) = text.strip_prefix("dup") {
@@ -216,11 +218,13 @@ impl UltraMode {
         wanted.clamp(1, usize::from(parity).min(members.max(1)))
     }
 
-    /// Reed-Solomon parities for a group of `members`: like
-    /// [`Self::parities_for`], but not capped at the member count.
+    /// Reed-Solomon parities for a group of `members`: in proportion like
+    /// [`Self::parities_for`], not capped at the member count, and at least
+    /// two (when `parity` allows), so a pass's lone datagram survives any two
+    /// of its three datagrams being lost.
     fn rs_parities_for(group: u8, parity: u8, members: usize) -> usize {
         let wanted = (members * usize::from(parity)).div_ceil(usize::from(group).max(1));
-        wanted.clamp(1, usize::from(parity).max(1))
+        wanted.clamp(usize::from(parity).clamp(1, 2), usize::from(parity).max(1))
     }
 }
 
@@ -1303,7 +1307,7 @@ mod tests {
 
     #[test]
     fn parses_reed_solomon_modes() {
-        assert_eq!(UltraMode::parse("rs"), Some(UltraMode::Rs { group: 8, parity: 4 }));
+        assert_eq!(UltraMode::parse("rs"), Some(UltraMode::Rs { group: 4, parity: 4 }));
         assert_eq!(UltraMode::parse("RS:16:8"), Some(UltraMode::Rs { group: 16, parity: 8 }));
         assert_eq!(UltraMode::parse("rs:2:3"), Some(UltraMode::Rs { group: 2, parity: 3 }));
         assert_eq!(UltraMode::parse("rs:8:16"), None);
@@ -1311,10 +1315,11 @@ mod tests {
         assert_eq!(UltraMode::parse("rs:8:0"), None);
         assert_eq!(UltraMode::Rs { group: 8, parity: 0 }.normalized(), UltraMode::Off);
         assert_eq!(UltraMode::Rs { group: 8, parity: 4 }.overhead_under_load(), 1.5);
-        assert_eq!(UltraMode::rs_parities_for(8, 4, 1), 1);
-        assert_eq!(UltraMode::rs_parities_for(8, 4, 3), 2);
+        assert_eq!(UltraMode::rs_parities_for(8, 4, 1), 2, "at least two");
+        assert_eq!(UltraMode::rs_parities_for(8, 4, 5), 3);
         assert_eq!(UltraMode::rs_parities_for(8, 4, 8), 4);
-        assert_eq!(UltraMode::rs_parities_for(2, 3, 1), 2, "not capped at the members");
+        assert_eq!(UltraMode::rs_parities_for(8, 1, 8), 1, "never more than M");
+        assert_eq!(UltraMode::rs_parities_for(1, 3, 1), 3, "not capped at the members");
     }
 
     fn rs_group(
@@ -1455,7 +1460,7 @@ mod tests {
         ultra.flush();
         let wire = wire.lock().unwrap();
         let parity: Vec<&Vec<u8>> = wire.iter().filter(|d| is_parity(d)).collect();
-        assert_eq!(parity.len(), 3, "2 for the full group, 1 for the lone datagram");
+        assert_eq!(parity.len(), 4, "2 for the full group, and 2 for the lone datagram");
         assert!(parity.iter().all(|p| p[1] == VERSION_RS && classify(p) == DatagramClass::Unknown));
         assert!(parity.iter().all(|p| parse_parity(p).unwrap().code == Code::ReedSolomon));
     }
