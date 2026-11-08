@@ -135,11 +135,13 @@ fn an_assistant_app_is_claimed_but_a_terminal_is_the_persons() {
 
 #[test]
 fn the_chain_stops_at_the_first_app_and_on_a_loop() {
+    // The walk starts at acpmux itself, as every send's does.
     let table = [
+        proc(6, 5, "acpmux"),
         proc(5, 4, "/Applications/Ghostty.app/Contents/MacOS/ghostty"),
         proc(4, 1, "/Applications/Claude.app/Contents/MacOS/Claude"),
     ];
-    assert_eq!(chain(of(&table), 5).app.unwrap().0, "Ghostty.app");
+    assert_eq!(chain(of(&table), 6).app.unwrap().0, "Ghostty.app");
     let looped = [proc(3, 2, "sh"), proc(2, 3, "sh")];
     assert_eq!(chain(of(&looped), 3), Chain::default());
 }
