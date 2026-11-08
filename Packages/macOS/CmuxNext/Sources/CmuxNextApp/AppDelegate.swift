@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var daemonPrestart: DaemonPrestart?
     /// Resolves once before any auth or daemon is constructed; cancelled on quit.
     private var cloudBootstrap: Task<Void, Never>?
+    private let cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>  // started in `main` (startAtLaunch)
     /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
     /// Launch work that starts after the first window frame (perf-launch-memory).
@@ -80,11 +81,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
-         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
-        self.environment = environment
-        self.launchReads = launchReads
-        self.daemonPrestart = daemonPrestart
-        self.launchCleanup = launchCleanup
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake),
+         cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
+        self.environment = environment; self.cloudEnvironment = cloudEnvironment
+        self.launchReads = launchReads; self.daemonPrestart = daemonPrestart; self.launchCleanup = launchCleanup
         let firstFrame = FirstFrameGate()
         self.firstFrame = firstFrame
         launchSettle = LaunchSettle(firstFrame: firstFrame)
@@ -95,11 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // task-owner: cloudBootstrap; one CLI read before services, then the cache refresh after the first frame, cancelled at termination.
-        cloudBootstrap = Task { [weak self] in
+        // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
+        cloudBootstrap = Task { [weak self, cloudEnvironment] in
             guard let self else { return }
             do {
-                let (selection, refresh) = try await CloudEnvironmentBootstrap(work: launchReads.work).resolveAtLaunch()
+                let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
                 try Task.checkCancellation()
                 environment.cloudConfiguration = CloudConfiguration.from(selection: selection, isDebugBuild: ControlService.isDebugBuild)
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
