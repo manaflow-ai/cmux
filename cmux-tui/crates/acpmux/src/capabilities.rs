@@ -268,6 +268,8 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_STASH_DROP,
         ],
     },
+    // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
+    Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",

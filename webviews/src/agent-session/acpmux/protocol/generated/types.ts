@@ -697,6 +697,15 @@ export interface MemberApproverDecision {
   decisionNonce: string;
 }
 
+export interface MemoryResolveParams {
+  _meta?: RequestMeta;
+  accept?: unknown;
+  dismiss?: unknown;
+  file?: unknown;
+  offerId?: unknown;
+  sessionId?: unknown;
+}
+
 /** The sender and receiver projection of a persisted session-to-session message. */
 export type MessageEvent = {
   at: number;
