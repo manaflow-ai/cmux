@@ -38,7 +38,7 @@
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
 import { bareSender, provenanceAuthenticated, relayAddress, senderRecord, senderUnverified } from "./senderIdentity";
-import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabelOfMessage } from "./relayEnvelope";
+import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./relayEnvelope";
 import {
   legacyNotice,
   noticeBody,
@@ -361,10 +361,12 @@ function senderProven(msg: Parameters<typeof promptOf>[1]): boolean {
 }
 
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
+/// `preview`: the text is a queue list's one-line preview, which acpmux cut, not the sender.
 export function incomingPrompt(
   text: string,
   msg: Parameters<typeof promptOf>[1],
   context?: IncomingContext,
+  preview = false,
 ): IncomingPrompt | undefined {
   // A lane VM's message the lane-gh broker relayed (relayEnvelope.ts): the message inside its
   // label, read as any other; the label names the sender when nothing else does. The prompt the
@@ -376,8 +378,15 @@ export function incomingPrompt(
     // written kept as `raw`. A head cut inside itself is a preview's (relayEnvelope.ts); a whole
     // message that only starts like one keeps its words. Anyone can type a head, so only a sender
     // acpmux proved (a relay's record, a session it stamped) loses one with no closing line; any
-    // other agent's record keeps it as its own text (cmux#38642 review).
-    const cut = fromAgent(msg) && senderProven(msg) ? withoutRelayLabelOfMessage(text) : text;
+    // other agent's record keeps it as its own text (cmux#38642 review). A queue list's preview is
+    // acpmux's own line, so its head goes whoever sent it, as queuedText reads it (cmux#38791 review).
+    const cut = !fromAgent(msg)
+      ? text
+      : preview
+        ? withoutRelayLabel(text)
+        : senderProven(msg)
+          ? withoutRelayLabelOfMessage(text)
+          : text;
     if (cut === text) return withSender(promptOf(text, msg, context), msg);
     const inner = promptOf(cut, msg, context);
     return withSender(

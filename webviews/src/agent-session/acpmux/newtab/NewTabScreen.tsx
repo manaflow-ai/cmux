@@ -137,6 +137,7 @@ import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
+import { githubIssueLink } from "../../../githubReferences";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -158,6 +159,10 @@ export type NewTabScreenActions = NewTabCommandActions & {
     attachments?: ComposerAttachment[],
     saved?: { peer?: string },
   ): unknown;
+  /// A lone GitHub issue URL starts the core fix-from-link flow in a new worktree. `cwd` is the
+  /// project the person picked on this page, when there is one; it must win over the tab's
+  /// inherited folder so checkout discovery uses the explicit choice.
+  onFixFromLink?(url: string, cwd?: string, harness?: string, model?: string): void | Promise<void>;
   onOpen(url: string): void;
   /// Open in Profile…'s pick (Lawrence 2026-11-05): `url` in the browser profile `id`.
   onOpenInProfile?(url: string, id: string): void;
@@ -342,6 +347,8 @@ type Props = NewTabScreenActions & {
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Saves files chosen from the New Tab plus menu when the session has no chat upload yet.
   upload?(files: File[]): Promise<UploadResult>;
+  /// A fix-from-link request failed while the New Tab remains mounted.
+  fixError?: string;
 };
 
 /// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
@@ -414,6 +421,10 @@ export function NewTabScreen(props: Props) {
   const [picked, setPicked] = useState(false);
   // No folder (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  useEffect(() => {
+    if (props.fixError) setFixing(false);
+  }, [props.fixError]);
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
@@ -640,6 +651,9 @@ export function NewTabScreen(props: Props) {
     : project && project !== props.cwd
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Issue fixes must never treat the tab's home or private agent-home as a checkout pick. An
+  // absent folder lets the host search only its approved local checkout roots.
+  const fixFolder = [project, askFolder].find((folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder));
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
   const envFolder = none
@@ -927,6 +941,17 @@ export function NewTabScreen(props: Props) {
   /// prompt) is the text as typed, the way the chat composer sends it (`agentText`).
   /// One parse per change of the value, not per render.
   const typed = useMemo(() => (fieldReady ? (field.current?.agentText(text) ?? text) : text), [text, fieldReady]);
+  const fixFromLink = useMemo(
+    () =>
+      !shell &&
+      !machine &&
+      !environment &&
+      (props.runMode?.mode ?? "persistent") === "persistent" &&
+      attachments.length === 0
+        ? githubIssueLink(typed)
+        : undefined,
+    [typed, shell, machine, environment, props.runMode?.mode, attachments.length],
+  );
   // The create actions the buttons under the field offer, at the end of the rows too.
   const creates = useMemo(
     (): CreateKind[] => [
@@ -2167,6 +2192,33 @@ export function NewTabScreen(props: Props) {
               composer's (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */}
             {split && pickers}
           </div>
+          {fixFromLink && props.onFixFromLink && (
+            <div className="nt-create-strip">
+              <button
+                type="button"
+                className="nt-create-strip-item nt-fix-chip"
+                disabled={fixing}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={() => {
+                  if (fixing) return;
+                  setFixing(true);
+                  void Promise.resolve()
+                    .then(() => props.onFixFromLink?.(fixFromLink.url, fixFolder, harness, chipModel))
+                    .then(
+                      () => setFixing(false),
+                      () => setFixing(false),
+                    );
+                }}
+              >
+                {t("worktree.fixFromLink")}
+              </button>
+              {props.fixError && (
+                <p className="nt-fix-error" role="alert">
+                  {props.fixError}
+                </p>
+              )}
+            </div>
+          )}
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
             the field: the box's top is where the page anchors it, so the strip grows away from the
             text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}
