@@ -91,7 +91,12 @@ mod tests {
     const NOW: u64 = 1_800_000_000_000;
 
     fn command(age_ms: u64, silent_ms: Option<u64>) -> Command {
-        Command { since_ms: NOW - age_ms, output_ms: silent_ms.map(|s| NOW - s), agent: false, terminal: true }
+        Command {
+            since_ms: NOW - age_ms,
+            output_ms: silent_ms.map(|s| NOW - s),
+            agent: false,
+            terminal: true,
+        }
     }
 
     fn plan_of(commands: Vec<Command>) -> Plan {
@@ -112,7 +117,8 @@ mod tests {
 
     #[test]
     fn a_command_quiet_for_ten_minutes_stops_counting_and_is_watched() {
-        let plan = plan_of(vec![command(60 * 60_000, Some(QUIET_MS)), command(2 * 60_000, Some(0))]);
+        let plan =
+            plan_of(vec![command(60 * 60_000, Some(QUIET_MS)), command(2 * 60_000, Some(0))]);
         assert_eq!(plan, Plan { running: 1, quiet: vec![0], recheck_ms: Some(QUIET_MS) });
     }
 
@@ -135,7 +141,8 @@ mod tests {
 
     #[test]
     fn a_start_ahead_of_the_clock_is_young() {
-        let ahead = Command { since_ms: NOW + 5_000, output_ms: None, agent: false, terminal: true };
+        let ahead =
+            Command { since_ms: NOW + 5_000, output_ms: None, agent: false, terminal: true };
         assert_eq!(plan_of(vec![ahead]).recheck_ms, Some(COMMAND_AFTER_MS));
     }
 
