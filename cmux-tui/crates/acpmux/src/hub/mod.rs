@@ -288,10 +288,10 @@ pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
 mod goal_tools;
-#[cfg(feature = "sim")]
-mod sim_startup;
 #[cfg(test)]
 mod history_detail_tests;
+#[cfg(feature = "sim")]
+mod sim_startup;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
 mod turns;
