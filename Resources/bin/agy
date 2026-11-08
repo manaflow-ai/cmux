@@ -164,7 +164,7 @@ should_install_agy_hooks() {
     return 0
 }
 
-REAL_AGY="$(find_real_agy)" || { echo "Error: agy not found in PATH" >&2; exit 127; }
+REAL_AGY="$(find_real_agy)" || { echo "Error: agy executable not found" >&2; exit 127; }
 
 IN_CMUX=0
 if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
