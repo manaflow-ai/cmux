@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42521015535",
+  "recorded_at": "2026-11-08T20:39:16Z",
+  "reason": "cmux-tui d9e804bf228c changes the image's cmux-tui (pinned b5bdc0b816e4)",
+  "dry_run": false,
+  "cmux_tui": "d9e804bf228c9181fa5b12309cd1b6a3fa64007e",
+  "fixes": [
+    {
+      "sha": "d9e804bf228c9181fa5b12309cd1b6a3fa64007e",
+      "mergedAt": "2026-11-08T12:21:06-08:00",
+      "subject": "acpmux: a reconnecting peer link sends its watch with initialize and replays its chats at once (#38298)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-08T20:39:16Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
