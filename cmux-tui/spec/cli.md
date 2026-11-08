@@ -462,6 +462,48 @@ long-lived attachment connection. SDK attachment objects manage those
 connection controls; one-shot CLI paths do not advertise them. `raw operation`
 remains available for transport testing.
 
+## Identity and agent guide
+
+```text
+cmux identify
+cmux skill show
+```
+
+`identify` prints where the calling process runs. In a cmux-tui terminal
+(`CMUX_TUI_TERMINAL_ID` names a `term_…` id) it reads that terminal's own
+session (`CMUX_TUI_SOCKET`, or the session `--socket`/`--session` names) and
+follows the terminal to its tab, pane, screen and workspace. With `--json` it
+prints one object:
+
+```json
+{"kind": "cmux-tui", "socket_path": "...",
+ "session": {"id": "session_…", "name": "main"},
+ "machine": {"id": "machine_…", "name": "local"},
+ "caller": {"found": true, "terminal_id": "term_…", "tab": "tab_…", "tab_name": null,
+            "pane": "pane_…", "screen": "screen_…", "screen_name": "0",
+            "workspace": "ws_…", "workspace_name": "api"},
+ "outer_app": null, "guide": "cmux skill show"}
+```
+
+`caller` uses the field names of the cmux app's `system.identify` caller, so a
+script reads either answer the same way. Outside a cmux-tui terminal, or when
+the session does not place the terminal, `caller.found` is false and
+`caller.error` says why; `session` and `machine` are still the ones this CLI
+reaches. `outer_app.socket_path` is the cmux app the environment names
+(`CMUX_SOCKET_PATH`); this answer is not from it. Exit codes: 0, 3 when the
+session cannot be reached, 1 when it refuses a read.
+
+`skill show` prints the agent guide for this build as Markdown: the caller's
+live ids (as `identify` reports them), the targeting rules, task recipes, waits,
+errors and exit codes, the scope table and the terminal, pane and tab paths.
+The recipes are data that a test runs through this parser, and the scope table
+and paths come from the help text, so the guide never names a command the build
+lacks. With `--json` it prints `{name, version, markdown}`.
+
+Claude Code and Codex started through the cmux-tui shims receive a short form of
+the same place at session start (`SessionStart` `additionalContext`); see
+[Agent hooks](../docs/agent-hooks.md#session-context).
+
 ## Local sidebar plugins
 
 `sidebar plugin` commands read and write local plugin installation state. They

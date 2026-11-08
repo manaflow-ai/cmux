@@ -7,8 +7,10 @@
 mod attention;
 mod command;
 mod lifecycle;
+mod pane_identify;
 mod raw;
 mod shorthand;
+mod skill;
 mod wire;
 
 use std::borrow::Cow;
@@ -251,6 +253,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
             CommandPlan::Attention(plan) => attention::run(global, plan),
+            CommandPlan::Identify => pane_identify::run(&global),
+            CommandPlan::SkillShow => skill::run(&global),
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
@@ -305,7 +309,10 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
+            Some(scope)
+                if matches!(scope.as_str(), "start" | "shorthands")
+                    || LOCAL_COMMANDS.contains(&scope.as_str()) =>
+            {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
@@ -313,6 +320,9 @@ fn parse_command(
             }
             Some(scope) => Err(unknown_scope(scope)),
         };
+    }
+    if let Some(parsed) = parse_local_command(&global, &command_args)? {
+        return Ok(parsed);
     }
     if has_help_option(&command_args) {
         return Ok(ParsedCommand::Help(help_topic(&command_args)));
@@ -327,6 +337,39 @@ fn parse_command(
     }
     let plan = command::parse(&command_args)?;
     Ok(ParsedCommand::Command { global, plan })
+}
+
+/// Commands this CLI answers itself, beside the resource scopes.
+const LOCAL_COMMANDS: &[&str] = &["identify", "skill"];
+
+/// `identify` and `skill [show]`, with `--help` as their own help topic;
+/// `None` for every other command.
+fn parse_local_command(
+    global: &GlobalArgs,
+    command_args: &[String],
+) -> Result<Option<ParsedCommand>, UsageError> {
+    let Some((first, rest)) = command_args.split_first() else { return Ok(None) };
+    let help = || rest.iter().any(|word| matches!(word.as_str(), "-h" | "--help"));
+    let plan = match first.as_str() {
+        "identify" if help() => return Ok(Some(ParsedCommand::Help(Some("identify".into())))),
+        "identify" if rest.is_empty() => CommandPlan::Identify,
+        "identify" => {
+            return Err(UsageError::new(format!(
+                "identify takes no arguments: {}",
+                rest.join(" ")
+            )));
+        }
+        "skill" if help() => return Ok(Some(ParsedCommand::Help(Some("skill".into())))),
+        "skill" if rest.is_empty() || rest == ["show"] => CommandPlan::SkillShow,
+        "skill" => {
+            return Err(UsageError::new(format!(
+                "skill takes one action, show: {}",
+                rest.join(" ")
+            )));
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(ParsedCommand::Command { global: global.clone(), plan }))
 }
 
 /// Help topic prefix for one action, followed by its catalog path.
@@ -559,6 +602,8 @@ fn scope_help_for(
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
+        "identify" => Cow::Borrowed(catalog.pane_cli.identify_help),
+        "skill" => Cow::Borrowed(catalog.pane_cli.skill_help),
         _ => return Cow::Owned(root_help(&catalog.local_server)),
     };
     if scope == "server" || !PUBLIC_SCOPES.contains(&scope) {
@@ -624,9 +669,15 @@ Run `cmux <scope> --help` for scope-specific paths, and add --help to an
 action for its options.
 ";
 
+const ROOT_HELP_AGENT_COMMANDS: &str = "
+AGENT COMMANDS
+  identify      Print this terminal's session, workspace, screen, pane, tab and terminal
+  skill show    Print the agent guide for this cmux build
+";
+
 fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
     format!(
-        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}",
+        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}{ROOT_HELP_AGENT_COMMANDS}",
         messages.root_remote_usage, messages.root_server_usage, messages.root_server_scope,
     )
 }

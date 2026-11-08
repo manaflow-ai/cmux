@@ -9,6 +9,8 @@
 #[cfg(unix)]
 mod agent_browser_provider;
 mod agent_hook_install;
+#[cfg(unix)]
+mod agent_session_context;
 mod app;
 mod attention;
 mod browser_input;
@@ -1646,6 +1648,9 @@ fn run_main() {
         }
         if let Some(wrapper_args) = codex_wrapper::invocation(&args) {
             client_log::exit(codex_wrapper::run(wrapper_args));
+        }
+        if agent_session_context::invocation(&args) {
+            client_log::exit(agent_session_context::run());
         }
     }
     // Pin the launch directory before any subsystem can move the process:

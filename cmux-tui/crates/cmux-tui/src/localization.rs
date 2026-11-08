@@ -1254,6 +1254,25 @@ pub(crate) struct AgentWrapperMessages {
     pub agent_start_failed: &'static str,
 }
 
+/// `cmux identify` and `cmux skill`: the identity labels and the help.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PaneCliMessages {
+    pub session: &'static str,
+    pub machine: &'static str,
+    pub workspace: &'static str,
+    pub screen: &'static str,
+    pub pane: &'static str,
+    pub tab: &'static str,
+    pub terminal: &'static str,
+    pub socket: &'static str,
+    pub outer_app: &'static str,
+    pub guide: &'static str,
+    /// The terminal row when the caller is not placed; `{why}` is the reason.
+    pub not_found: &'static str,
+    pub identify_help: &'static str,
+    pub skill_help: &'static str,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
@@ -1281,6 +1300,7 @@ pub(crate) struct Catalog {
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
     pub attention: AttentionMessages,
+    pub pane_cli: PaneCliMessages,
 }
 
 impl Catalog {
@@ -1297,6 +1317,35 @@ static ENGLISH: Catalog = Catalog {
         hooks_unavailable: "cmux: starting the agent without cmux status updates",
         agent_not_found: "cmux: the agent executable was not found",
         agent_start_failed: "cmux: the agent could not be started",
+    },
+    pane_cli: PaneCliMessages {
+        session: "session",
+        machine: "machine",
+        workspace: "workspace",
+        screen: "screen",
+        pane: "pane",
+        tab: "tab",
+        terminal: "terminal",
+        socket: "socket",
+        outer_app: "outer app",
+        guide: "agent guide",
+        not_found: "not found ({why})",
+        identify_help: "USAGE
+  cmux identify
+
+Print where this process runs: the session, machine, workspace, screen, pane,
+tab and terminal of the cmux-tui terminal it runs in (CMUX_TUI_TERMINAL_ID),
+read from that terminal's session. Outside a cmux-tui terminal, caller.found
+is false. Pass --json for the record (kind, session, machine, caller,
+outer_app, guide).
+",
+        skill_help: "USAGE
+  cmux skill show
+
+Print the agent guide for this cmux build as Markdown: where you run, the
+rules, recipes, waits, errors, scopes and the terminal, pane and tab paths.
+Pass --json for {name, version, markdown}.
+",
     },
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
@@ -2046,6 +2095,35 @@ static JAPANESE: Catalog = Catalog {
         hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
         agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",
         agent_start_failed: "cmux: エージェントを起動できませんでした",
+    },
+    pane_cli: PaneCliMessages {
+        session: "セッション",
+        machine: "マシン",
+        workspace: "ワークスペース",
+        screen: "スクリーン",
+        pane: "ペイン",
+        tab: "タブ",
+        terminal: "ターミナル",
+        socket: "ソケット",
+        outer_app: "外側のアプリ",
+        guide: "エージェントガイド",
+        not_found: "見つかりません（{why}）",
+        identify_help: "使用方法
+  cmux identify
+
+このプロセスが動いている場所を表示します。実行中の cmux-tui ターミナル
+（CMUX_TUI_TERMINAL_ID）のセッション、マシン、ワークスペース、スクリーン、
+ペイン、タブ、ターミナルを、そのターミナルのセッションから読み取ります。
+cmux-tui ターミナルの外では caller.found が false になります。--json で
+レコード（kind、session、machine、caller、outer_app、guide）を表示します。
+",
+        skill_help: "使用方法
+  cmux skill show
+
+この cmux ビルドのエージェントガイドを Markdown で表示します。現在の場所、
+ルール、レシピ、待機、エラー、スコープ、terminal・pane・tab のパスを含みます。
+--json で {name, version, markdown} を表示します。
+",
     },
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",

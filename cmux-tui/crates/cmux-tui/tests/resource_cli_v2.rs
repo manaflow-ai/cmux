@@ -314,8 +314,9 @@ fn nested_non_hyphenated_actions_have_specific_help() {
 #[test]
 fn old_action_first_commands_are_all_usage_errors() {
     let missing_socket = unique_temp_dir("removed-actions").join("missing.sock");
+    // `identify` was a removed action-first command; it is again a command
+    // with its own meaning (the caller's place), checked below.
     for removed in [
-        "identify",
         "ping",
         "set-client-info",
         "list-clients",
@@ -394,6 +395,25 @@ fn old_action_first_commands_are_all_usage_errors() {
         assert!(output.stdout.is_empty(), "{removed:?} wrote success output");
         assert!(!output.stderr.is_empty(), "{removed:?} omitted its usage diagnostic");
     }
+}
+
+/// `identify` asks the session it routes to: with no session there it fails
+/// as unreachable (exit 3), not as a usage error, and says which socket.
+#[test]
+fn pane_cli_identify_reports_an_unreachable_session() {
+    let missing_socket = unique_temp_dir("identify").join("missing.sock");
+    let output = cmux_command()
+        .arg("--socket")
+        .arg(&missing_socket)
+        .args(["--json", "identify"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3), "stderr:\n{}", stderr(&output));
+    assert!(output.stdout.is_empty());
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["code"], "socket.unreachable", "{error}");
 }
 
 #[test]
