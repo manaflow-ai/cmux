@@ -294,7 +294,9 @@ impl Outbox {
     pub fn attachments_path(&self, d: &Delivery) -> Option<PathBuf> {
         let blocks = d.request.get("prompt").and_then(Value::as_array)?;
         let path = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
-        crate::attach::any(blocks).then(|| attachments_dir(&path).join(format!("{}.json", d.id)))
+        // What a move needs of the prompt names what is kept (`open_delivery::part`).
+        crate::hub::open_delivery::kept_apart(blocks)
+            .then(|| attachments_dir(&path).join(format!("{}.json", d.id)))
     }
 
     /// Records a new delivery; the same prompt id again answers with the first one.
@@ -515,7 +517,7 @@ impl Outbox {
                 .iter()
                 .map(|(id, d)| {
                     let blocks = d.request.get("prompt").and_then(Value::as_array);
-                    if !blocks.is_some_and(|b| crate::attach::any(b)) {
+                    if !blocks.is_some_and(|b| crate::hub::open_delivery::kept_apart(b)) {
                         return (id, std::borrow::Cow::Borrowed(d));
                     }
                     let mut d = d.clone();

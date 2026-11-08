@@ -58,19 +58,20 @@ pub const MAX_RECORDS: usize = 4096;
 
 /// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
 /// history, for the tests and the move simulation to replay (0: the rules of now). Each later
-/// head's fixes are missing from an earlier one too. a088585e's: the sixteenth review's F1 to
-/// F3.
-pub(crate) const AT_A088: u8 = 1;
+/// head's fixes are missing from an earlier one too. 77f91e5a's: the eighteenth review's F1.
+pub(crate) const AT_77F9: u8 = 1;
+/// a088585e's (the sixteenth review's F1 to F3 are missing too).
+pub(crate) const AT_A088: u8 = 2;
 /// 07f76930's (the fourteenth review's F1 and F2 are missing too).
-pub(crate) const AT_07F7: u8 = 2;
+pub(crate) const AT_07F7: u8 = 3;
 /// ff3da306's (the twelfth review's F1 and F2 are missing too).
-pub(crate) const AT_FF3D: u8 = 3;
+pub(crate) const AT_FF3D: u8 = 4;
 /// c4a6f4e7's (the eleventh review's F1 to F3 are missing too).
-pub(crate) const AT_C4A6: u8 = 4;
+pub(crate) const AT_C4A6: u8 = 5;
 /// 4dcbe192's (the tenth review's F1 to F6 are missing too).
-pub(crate) const AT_4DCB: u8 = 5;
+pub(crate) const AT_4DCB: u8 = 6;
 /// 91b1343d's (the ninth review's F1 to F5 are missing too).
-pub(crate) const AT_91B: u8 = 6;
+pub(crate) const AT_91B: u8 = 7;
 
 #[cfg(test)]
 thread_local! {
@@ -105,6 +106,11 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn replay_rules(&self, rules: u8) {
         self.old_rules.store(rules, Ordering::SeqCst);
+    }
+
+    /// Whether this hub replays the rules of 77f91e5a (tests only; never in a build).
+    pub(crate) fn at_77f9(&self) -> bool {
+        self.old_rules() >= AT_77F9
     }
 
     /// Whether this hub replays the rules of a088585e (tests only; never in a build).
@@ -149,6 +155,11 @@ fn thread_rules() -> u8 {
 /// copies' store and the restore's merge, which tests drive on their own thread.
 pub(crate) fn rules_of_91b() -> bool {
     thread_rules() >= AT_91B
+}
+
+/// Whether this thread replays the rules of 77f91e5a (tests only; never in a build).
+pub(crate) fn rules_of_77f9() -> bool {
+    thread_rules() >= AT_77F9
 }
 
 /// Whether this thread replays the rules of a088585e (tests only; never in a build).
@@ -680,10 +691,26 @@ impl Hub {
             };
             wanted.push((path, image.to_owned()));
         }
+        // And the uploads its prompt names, which only this machine holds (review of #37284 at
+        // 77f91e5a, F1): each a finished upload of the chat, as the prompt reads it
+        // (`prompt_uploads.rs`).
+        let mut uploads = Vec::new();
+        for upload in params.get("uploads").and_then(Value::as_array).into_iter().flatten() {
+            let text = |key: &str| upload.get(key).and_then(Value::as_str);
+            let path = text("uploadId")
+                .zip(text("fileName"))
+                .and_then(|(upload, name)| super::file_uploads::finished_path(&id, upload, name));
+            let Some(path) = path else {
+                return Err(RpcError::invalid_params(
+                    "each upload is an uploadId and fileName of this chat",
+                ));
+            };
+            uploads.push(path);
+        }
         let held = tokio::task::spawn_blocking(move || {
             wanted.iter().all(|(path, hash)| {
                 std::fs::read(path).is_ok_and(|b| crate::attach::sha256(&b) == *hash)
-            })
+            }) && uploads.iter().all(|path| super::file_uploads::open_finished(path).is_ok())
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;

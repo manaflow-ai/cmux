@@ -385,7 +385,11 @@ async fn move_to_a_fresh_machine(fault: Fault) {
         "A's copy caught up only once the running turn ended"
     );
     if fault == Fault::CacheBound {
-        // A page again, under a bound of two records: the copy cuts everything else.
+        // The copy's write reports what it saw first, so the deliveries hold their prompts'
+        // records (a record a bound cuts before any write reported it is held by nothing, and
+        // a proof past it is not whole: `peer_snapshot.rs`). Then a page again, under a bound
+        // of two records: the copy cuts everything else.
+        a.flush();
         acpmux::hub::peer_snapshot_bound(2);
         ca.call(method::MUX_ATTACH, json!({"session": "b/moved", "limit": 400})).await;
         copy_until(&mut ca, "a copy cut to its bound", |e| !e.is_empty() && e.len() <= 2).await;

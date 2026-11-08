@@ -1899,3 +1899,99 @@ fn an_unsent_seq_continues_a_copy_only_next_to_it() {
     assert_eq!(seqs, vec![1, 2, 3, 5], "6 never came: 7 and 8 do not join");
     assert_eq!(head.last_seq, 5);
 }
+
+/// A delivery of a prompt of `blocks` to `m1`, proven by its `queued` record, which links to a
+/// saved file for each inline attachment and names each image by id, as a machine's would.
+fn proven_with(blocks: Vec<Value>) -> crate::hub::outbox::Delivery {
+    use crate::hub::open_delivery as od;
+    let outbox = crate::hub::outbox::Outbox::default();
+    let now = crate::store::now_ms();
+    let links: Vec<Value> = crate::attach::saved_names(&blocks)
+        .into_iter()
+        .map(|(_, name)| {
+            let path = format!("/state/uploads/m1/019a-saved/{name}");
+            json!({"type": "resource_link", "uri": format!("file://{path}"), "name": name})
+        })
+        .collect();
+    let images: Vec<Value> = crate::hub::prompt_images::image_bytes(&blocks)
+        .into_iter()
+        .map(|(id, _)| json!({"id": id, "mimeType": "image/png"}))
+        .collect();
+    let d: crate::hub::outbox::Delivery = serde_json::from_value(json!({
+        "id": "d1", "target": format!("{PEER}/m1"),
+        "request": {"sessionId": format!("{PEER}/m1"), "_meta": {"acpmux": {"promptId": "p1"}},
+                    "prompt": blocks},
+        "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+        "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+    }))
+    .unwrap();
+    outbox.add(d);
+    let mut queued = life("m1", 4, "queued", "p1");
+    queued["msg"]["prompt"] = json!(links);
+    queued["msg"]["images"] = json!(images);
+    od::take_written(&outbox, (PEER, "m1", 7), &[queued], (1, 1));
+    outbox.get("d1").unwrap()
+}
+
+/// Review of #37284 at 77f91e5a, F1: every kind of block a prompt can carry (each one
+/// `attach::blocks_for` makes, and what a sender and the daemon add) is named by
+/// `open_delivery::part`, and a proven delivery of a prompt of it alone needs it of a machine
+/// unless its records carry it. A new kind of block fails here until a rule names it.
+#[test]
+fn every_block_a_prompt_can_carry_is_named_by_what_a_move_needs() {
+    use crate::hub::open_delivery as od;
+    use base64::Engine as _;
+    let png = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n a picture");
+    let resolved = "/state/uploads/m1/019a0000-0000-7000-8000-000000000002/big.log";
+    let mut blocks = crate::attach::every_block_kind();
+    blocks.extend([
+        json!({"type": "text", "text": "see these"}),
+        json!({"type": "text", "text": "<cmux-attachments-context>\n- big.log\n</cmux-attachments-context>",
+               "_meta": {"acpmux": {"context": true}}}),
+        json!({"type": "resource_link", "uri": "https://example.com/a", "name": "a"}),
+        json!({"type": "resource", "resource": {"uri": "file:///a.txt", "text": "the text"}}),
+        json!({"type": "image", "mimeType": "image/png", "data": png}),
+        json!({"type": "resource_link", "uri": format!("file://{resolved}"), "name": "big.log",
+               "_meta": {"acpmux": {"uploadPath": resolved}}}),
+    ]);
+    for block in &blocks {
+        let part = od::part(block);
+        assert_ne!(part, od::Part::Unknown, "no rule names {block}");
+        let needs = od::proof_needs(&proven_with(vec![block.clone()]));
+        assert_eq!(
+            part == od::Part::Carried,
+            needs == od::Needs::default(),
+            "{part:?} {block}: {needs:?}"
+        );
+    }
+    // An audio block, or an upload's link that names no upload, is named as none of them: its
+    // prompt is delivered again whole, never taken as held.
+    for block in [
+        json!({"type": "audio", "mimeType": "audio/wav", "data": png}),
+        json!({"type": "resource_link", "uri": "acpmux-upload:019a", "name": "x"}),
+    ] {
+        assert_eq!(od::part(&block), od::Part::Unknown, "{block}");
+        assert!(od::proof_needs(&proven_with(vec![block])).unknown);
+    }
+}
+
+/// Review of #37284 at 77f91e5a, F1: a prompt of an upload named by reference (a file past one
+/// message, `attach::blocks_for`), proven by its `queued` record, goes only once its machine
+/// shows it holds the upload, which no restore can bring back (its bytes are only there). At
+/// 77f91e5a nothing was asked, so a fresh machine without the upload took the delivery as held
+/// and refused the prompt at its turn (`upload.missing`).
+#[test]
+fn an_upload_prompt_goes_only_once_its_machine_holds_the_upload() {
+    use crate::hub::open_delivery as od;
+    let upload = crate::attach::every_block_kind()
+        .into_iter()
+        .find(|b| b["type"] == "resource_link")
+        .unwrap();
+    let id = upload["_meta"]["acpmux"]["upload"]["uploadId"].clone();
+    let d = proven_with(vec![json!({"type": "text", "text": "the log"}), upload]);
+    assert_eq!(od::held_ask(&d, (false, false, true)), None, "77f91e5a asked nothing");
+    let ask = od::held_ask(&d, (false, false, false)).expect("the upload is asked for");
+    assert_eq!(ask["uploads"], json!([{"uploadId": id, "fileName": "big.log"}]));
+    assert_eq!(ask["sessionId"], "m1");
+    assert!(od::proof_files(&d).is_empty() && od::proof_images(&d).is_empty());
+}

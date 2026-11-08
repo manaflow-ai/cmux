@@ -317,18 +317,41 @@ impl Sent {
     /// The block that names the upload (`prompt_uploads.rs`), marked as this prompt's own: the
     /// daemon deletes it if the prompt is refused before the chat takes it (`Saved`).
     fn block(&self) -> Value {
-        let (id, name) = (&self.id, &self.name);
-        let mut upload = json!({"uploadId": id, "fileName": name});
-        if let Some(token) = &self.owner {
-            upload.set("owned", json!(token));
-        }
-        let meta = json!({"acpmux": {"upload": upload}});
-        match image_type(&self.head) {
-            Some(mime) => json!({"type": "image", "mimeType": mime, "_meta": meta}),
-            None => json!({"type": "resource_link", "name": name,
-                "uri": format!("{}{id}", crate::prompt_uploads::URI_SCHEME), "_meta": meta}),
-        }
+        upload_block(&self.id, &self.name, self.owner.as_deref(), &self.head)
     }
+}
+
+/// The block that names upload `id` of file `name`, whose first bytes are `head`; `owner`: the
+/// token that marks it as this prompt's own ([`Sent::block`]).
+fn upload_block(id: &str, name: &str, owner: Option<&str>, head: &[u8]) -> Value {
+    let mut upload = json!({"uploadId": id, "fileName": name});
+    if let Some(token) = owner {
+        upload.set("owned", json!(token));
+    }
+    let meta = json!({"acpmux": {"upload": upload}});
+    match image_type(head) {
+        Some(mime) => json!({"type": "image", "mimeType": mime, "_meta": meta}),
+        None => json!({"type": "resource_link", "name": name,
+            "uri": format!("{}{id}", crate::prompt_uploads::URI_SCHEME), "_meta": meta}),
+    }
+}
+
+/// Tests only: one block of each kind [`blocks_for`] (and [`reference_for`]) can put in a
+/// prompt, made by the same constructors: an inline image and an inline file, each marked as an
+/// attachment ([`block`]), and an upload named by reference, an image or any other file
+/// ([`upload_block`]), with or without its owner token. A new kind of block those functions
+/// make goes here, and `open_delivery`'s coverage test then says what a move needs of it.
+#[cfg(test)]
+pub(crate) fn every_block_kind() -> Vec<Value> {
+    const PNG: &[u8] =
+        b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
+    let id = "019a0000-0000-7000-8000-000000000001";
+    vec![
+        block("shot.png", PNG),
+        block("notes.txt", b"the notes"),
+        upload_block(id, "big.png", Some("owner-token"), PNG),
+        upload_block(id, "big.log", None, b"a log"),
+    ]
 }
 
 fn mark(block: &Value) -> Option<&Value> {

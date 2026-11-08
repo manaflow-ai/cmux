@@ -728,3 +728,23 @@ async fn a_restore_writes_its_prompts_images_back() {
     assert_eq!(hub.attachments_held(&held).await.unwrap()["held"], json!(true));
     let _ = std::fs::remove_file(&path);
 }
+
+/// Review of #37284 at 77f91e5a, F1: the machine says it holds a prompt's upload only when the
+/// chat has that finished upload, which its prompt reads at its turn (`prompt_uploads.rs`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_machine_holds_an_upload_only_once_it_is_finished_there() {
+    let (hub, session) = hub_at(0).await;
+    let id = "019a0000-0000-7000-8000-000000000003";
+    let held = json!({"sessionId": session.id, "files": [],
+                      "uploads": [{"uploadId": id, "fileName": "big.log"}]});
+    assert_eq!(hub.attachments_held(&held).await.unwrap()["held"], json!(false));
+    let path = super::file_uploads::finished_path(&session.id, id, "big.log").unwrap();
+    let dir = path.parent().unwrap();
+    crate::config::private_state_dir(dir.parent().unwrap()).unwrap();
+    crate::config::private_state_dir(dir).unwrap();
+    crate::agent_tools::write_private(&path, b"a log").unwrap();
+    assert_eq!(hub.attachments_held(&held).await.unwrap()["held"], json!(true));
+    let other = json!({"sessionId": session.id, "files": [],
+                       "uploads": [{"uploadId": "../x", "fileName": "big.log"}]});
+    assert!(hub.attachments_held(&other).await.is_err());
+}

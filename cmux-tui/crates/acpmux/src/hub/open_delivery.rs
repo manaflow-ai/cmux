@@ -186,10 +186,10 @@ pub(crate) fn restarts(records: &[Value]) -> bool {
 /// 07f76930, F2, and at a088585e, F2: an image prompt started at once came back without its
 /// images). Only a delivery again (`resend`), which carries the whole prompt, runs that one.
 pub(crate) fn rerunnable(records: &[Value], images: &HashSet<String>) -> bool {
-    let has = |kinds: &[&str]| records.iter().any(|r| kinds.contains(&kind(r)));
-    if has(&["turn_result", "queue_removed", "queue_declined", "prompt_retracted"]) {
+    if ended(records) {
         return true;
     }
+    let has = |kinds: &[&str]| records.iter().any(|r| kinds.contains(&kind(r)));
     if !named_images(records).iter().all(|id| images.contains(*id)) {
         return false;
     }
@@ -211,6 +211,12 @@ pub(crate) fn rerunnable(records: &[Value], images: &HashSet<String>) -> bool {
                 && provenance != Some(crate::hub::digest::DIGEST_KIND)
                 && !apart
         })
+}
+
+/// Whether `records` of a prompt's life show how it ended.
+fn ended(records: &[Value]) -> bool {
+    let ends = ["turn_result", "queue_removed", "queue_declined", "prompt_retracted"];
+    records.iter().any(|r| ends.contains(&kind(r)))
 }
 
 /// a088585e's [`rerunnable`]: a started turn, or a `user_message` without a hidden context, a
@@ -240,23 +246,128 @@ fn named_images(records: &[Value]) -> std::collections::BTreeSet<&str> {
         .collect()
 }
 
-/// The images `d`'s proof names whose bytes its request holds, by id (review of #37284 at
-/// a088585e, F2): a restore writes them back where the machine keeps a prompt's images, so a
-/// prompt it continues or runs again has them, and the delivery goes only once a later link
-/// shows them held ([`Hub::proof_held`]).
-pub(crate) fn proof_images(d: &Delivery) -> Vec<(String, Vec<u8>)> {
-    let Some(proof) = &d.proof else { return Vec::new() };
-    let Some(blocks) = d.request.get("prompt").and_then(Value::as_array) else {
-        return Vec::new();
-    };
+/// What one block of a prompt is to a machine that runs the prompt again (review of #37284 at
+/// 77f91e5a, F1): the one place each kind of block is named. Every path that keeps, gives back
+/// or checks what a prompt holds besides its records reads it: [`proof_needs`] (the files and
+/// images a restore writes back, `peer_snapshot/restore.rs`; the uploads only the machine
+/// holds; what `_acpmux/attachments_held` is asked, [`held_ask`]), [`kept_apart`] (what the
+/// outbox keeps beside its book) and [`step`] (a block named here as none of the others is
+/// delivered again whole). Reads no bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Part {
+    /// What the records carry themselves: text (a hidden context too), a link to a URL or a
+    /// file, a resource's text.
+    Carried,
+    /// An inline image with no attachment mark: the machine keeps it by id, and the owner's
+    /// request holds its bytes.
+    Image,
+    /// An inline attachment (`attach::block`): `attach::receive` saves it on the machine, a file
+    /// the `queued` record links to or an image kept by id, and the owner's request holds its
+    /// bytes.
+    Attachment,
+    /// An upload of the chat's own, named by reference or resolved from one
+    /// (`prompt_uploads.rs`): its bytes are only on the machine, which must hold it still.
+    Upload,
+    /// Anything else: nothing here says what a machine needs of it, so a prompt with one is not
+    /// proven by its records alone and is delivered again whole.
+    Unknown,
+}
+
+/// What `block` is to a machine that runs its prompt again ([`Part`]).
+pub(crate) fn part(block: &Value) -> Part {
+    if crate::attach::any(std::slice::from_ref(block)) {
+        return Part::Attachment;
+    }
+    match crate::prompt_uploads::named_upload(block) {
+        Some(Some(_)) => return Part::Upload,
+        Some(None) => return Part::Unknown,
+        None => {}
+    }
+    match block.get("type").and_then(Value::as_str) {
+        Some("text" | "resource_link") => Part::Carried,
+        Some("image") if block.get("data").is_some_and(Value::is_string) => Part::Image,
+        Some("resource") if block.pointer("/resource/text").is_some_and(Value::is_string) => {
+            Part::Carried
+        }
+        _ => Part::Unknown,
+    }
+}
+
+/// Whether the outbox keeps `blocks`' bytes beside its book (`outbox.rs` `keep_attachments`):
+/// some are inline attachments ([`Part::Attachment`]).
+pub(crate) fn kept_apart(blocks: &[Value]) -> bool {
+    blocks.iter().any(|b| part(b) == Part::Attachment)
+}
+
+/// What a machine needs, besides a proof's records, to run `d`'s prompt again ([`proof_needs`]).
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct Needs {
+    /// The files its prompt was saved as on its machine (the `queued` record's links to its
+    /// inline attachments), and their bytes: a restore writes them back.
+    pub(crate) files: Vec<(std::path::PathBuf, Vec<u8>)>,
+    /// The images its records name whose bytes the request holds, by id: a restore writes them
+    /// back where the machine keeps a prompt's images.
+    pub(crate) images: Vec<(String, Vec<u8>)>,
+    /// The uploads it names (id, file name), which only the machine holds: none goes back, so
+    /// the delivery goes only once the machine shows it holds each one.
+    pub(crate) uploads: Vec<(String, String)>,
+    /// A block [`part`] names as no other kind.
+    pub(crate) unknown: bool,
+}
+
+/// What `d`'s prompt needs, besides its proof's records, for a machine to run it again: each
+/// of its blocks, by [`part`], none passed over. An ended prompt needs no upload any more.
+pub(crate) fn proof_needs(d: &Delivery) -> Needs {
+    let mut needs = Needs::default();
+    let Some(proof) = &d.proof else { return needs };
+    let Some(blocks) = d.request.get("prompt").and_then(Value::as_array) else { return needs };
+    let saved: HashMap<usize, String> = crate::attach::saved_names(blocks).into_iter().collect();
     let named = named_images(&proof.records);
-    let mut held: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-    for (id, bytes) in crate::hub::prompt_images::image_bytes(blocks) {
-        if named.contains(id.as_str()) {
-            held.insert(id, bytes);
+    let links: Vec<(std::path::PathBuf, String)> = proof
+        .records
+        .iter()
+        .filter(|r| kind(r) == "queued")
+        .filter_map(|r| r.pointer("/msg/prompt").and_then(Value::as_array))
+        .flat_map(|b| crate::attach::saved_links(b))
+        .collect();
+    let mut images: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    for (index, block) in blocks.iter().enumerate() {
+        let one = std::slice::from_ref(block);
+        match part(block) {
+            Part::Carried => {}
+            kind @ (Part::Image | Part::Attachment) => {
+                for (id, bytes) in crate::hub::prompt_images::image_bytes(one) {
+                    if named.contains(id.as_str()) {
+                        images.insert(id, bytes);
+                    }
+                }
+                let name = saved.get(&index).filter(|_| kind == Part::Attachment);
+                if let Some((name, bytes)) = name.zip(crate::attach::bytes_of(block)) {
+                    for (path, _) in links.iter().filter(|(_, n)| n == name) {
+                        needs.files.push((path.clone(), bytes.clone()));
+                    }
+                }
+            }
+            Part::Upload => {
+                if let Some(Some(upload)) = crate::prompt_uploads::named_upload(block)
+                    && !ended(&proof.records)
+                {
+                    needs.uploads.push(upload);
+                }
+            }
+            Part::Unknown => needs.unknown = true,
         }
     }
-    held.into_iter().collect()
+    needs.images = images.into_iter().collect();
+    needs
+}
+
+/// The images `d`'s proof names whose bytes its request holds, by id (review of #37284 at
+/// a088585e, F2; [`proof_needs`]): a restore writes them back where the machine keeps a
+/// prompt's images, so a prompt it continues or runs again has them, and the delivery goes only
+/// once a later link shows them held ([`Hub::proof_held`]).
+pub(crate) fn proof_images(d: &Delivery) -> Vec<(String, Vec<u8>)> {
+    proof_needs(d).images
 }
 
 /// The seq from which the owner's copy of each session saw every record, with its generation
@@ -324,25 +435,35 @@ thread_local! {
 /// `queued` record names by path. A restore writes them back before that record goes in, and
 /// the bytes go only once a later link shows the machine holds them.
 pub(crate) fn proof_files(d: &Delivery) -> Vec<(std::path::PathBuf, Vec<u8>)> {
-    let Some(proof) = &d.proof else { return Vec::new() };
-    let Some(blocks) = d.request.get("prompt").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    let named: HashMap<String, Vec<u8>> = crate::attach::saved_names(blocks)
-        .into_iter()
-        .filter_map(|(i, name)| Some((name, crate::attach::bytes_of(blocks.get(i)?)?)))
-        .collect();
-    if named.is_empty() {
-        return Vec::new();
-    }
-    proof
-        .records
+    proof_needs(d).files
+}
+
+/// What [`Hub::proof_held`] asks `d`'s machine besides the records (`_acpmux/attachments_held`):
+/// whether it holds each file, image and upload of [`proof_needs`]. None: nothing to ask.
+/// `(at_a088, at_4dcb, at_77f9)`: the rules of those heads (tests only), which asked for no
+/// image, nothing, and no upload.
+pub(crate) fn held_ask(
+    d: &Delivery,
+    (at_a088, at_4dcb, at_77f9): (bool, bool, bool),
+) -> Option<Value> {
+    let pin = d.pin.as_ref()?;
+    let needs = proof_needs(d);
+    let files: Vec<Value> = needs
+        .files
         .iter()
-        .filter(|r| kind(r) == "queued")
-        .filter_map(|r| r.pointer("/msg/prompt").and_then(Value::as_array))
-        .flat_map(|b| crate::attach::saved_links(b))
-        .filter_map(|(path, name)| Some((path, named.get(&name)?.clone())))
-        .collect()
+        .map(|(path, bytes)| json!({"path": path, "sha256": crate::attach::sha256(bytes)}))
+        .collect();
+    let images: Vec<&String> =
+        if at_a088 { Vec::new() } else { needs.images.iter().map(|(id, _)| id).collect() };
+    let uploads: Vec<Value> = if at_77f9 {
+        Vec::new()
+    } else {
+        needs.uploads.iter().map(|(id, name)| json!({"uploadId": id, "fileName": name})).collect()
+    };
+    if at_4dcb || (files.is_empty() && images.is_empty() && uploads.is_empty()) {
+        return None;
+    }
+    Some(json!({"sessionId": pin.session, "files": files, "images": images, "uploads": uploads}))
 }
 
 /// The machine's answer whether it holds the files a proof names ([`Hub::proof_held`]).
@@ -382,11 +503,14 @@ pub(crate) fn step(
     let (Some(pin), Some(proof)) = (&d.pin, &d.proof) else { return Step::Again };
     // A proof that holds nothing a machine runs again from, whole, proves nothing yet (review of
     // #37284 at 07f76930, F2, and at a088585e, F2): delivered again, as one not proven is.
-    let images: HashSet<String> = proof_images(d).into_iter().map(|(id, _)| id).collect();
+    let needs = proof_needs(d);
+    let images: HashSet<String> = needs.images.into_iter().map(|(id, _)| id).collect();
     let rerun = if crate::hub::journal_restore::rules_of_a088() {
         rerunnable_at_a088(&proof.records)
     } else {
+        // A block no rule names (at 77f91e5a, F1) is never taken as held.
         rerunnable(&proof.records, &images)
+            && (!needs.unknown || crate::hub::journal_restore::rules_of_77f9())
     };
     if !rerun && !crate::hub::journal_restore::rules_of_07f7() {
         return Step::Again;
@@ -476,21 +600,11 @@ impl Hub {
                 return Some(false);
             }
         }
-        // And the files its prompt was saved as, by their hashes (F4): until then it waits, its
-        // bytes kept, and lapses visibly.
-        let files = proof_files(d);
-        // And its images (review of #37284 at a088585e, F2).
-        let images: Vec<String> = if self.at_a088() {
-            Vec::new()
-        } else {
-            proof_images(d).into_iter().map(|(id, _)| id).collect()
-        };
-        if (!files.is_empty() || !images.is_empty()) && !self.at_4dcb() {
-            let files: Vec<Value> = files
-                .iter()
-                .map(|(path, bytes)| json!({"path": path, "sha256": crate::attach::sha256(bytes)}))
-                .collect();
-            let params = json!({"sessionId": pin.session, "files": files, "images": images});
+        // And the files its prompt was saved as, by their hashes (F4), its images (review of
+        // #37284 at a088585e, F2) and its uploads, which only the machine holds (at 77f91e5a,
+        // F1): until then it waits, its bytes kept, and lapses visibly.
+        let rules = (self.at_a088(), self.at_4dcb(), self.at_77f9());
+        if let Some(params) = held_ask(d, rules) {
             let held = peer.request_on(ATTACHMENTS_HELD, params, Some(link.1)).await.ok()?;
             if held.get("held") != Some(&Value::Bool(true)) {
                 return None;
