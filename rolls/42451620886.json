@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42451620886",
+  "recorded_at": "2026-11-08T05:46:05Z",
+  "reason": "cmux-tui d07d1737128b changes the image's cmux-tui (pinned 1cad10e9ab6e)",
+  "dry_run": false,
+  "cmux_tui": "d07d1737128bf1546dc6f47892a2dcd785870b7e",
+  "fixes": [
+    {
+      "sha": "d07d1737128bf1546dc6f47892a2dcd785870b7e",
+      "mergedAt": "2026-11-07T21:22:56-08:00",
+      "subject": "Rust action catalog: the action hint, Edit cmux Live… first (#37681) (#38223)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T05:46:05Z",
+    "snapshot_id": "sh-1011cd10e9654f8ba5cd869221895a72",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42451620886): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9660f6265c5acbc3bd96d522b44d35c1f9e721d4",
+    "image": "cloud-native-auto-d07d1737-42451620886-1",
+    "revision": "ci-42451620886-1",
+    "at": "2026-11-08T05:46:05Z"
+  },
+  "rolled_back": false
+}
