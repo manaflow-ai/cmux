@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import signal
 import socket
 import subprocess
 import tempfile
@@ -75,6 +76,62 @@ def run_case(
     return {"real": real, "calls": calls, "socket": str(socket_path)}
 
 
+def shim(path: Path, root: Path) -> None:
+    """A per-surface agy shim as cmux writes it: publish its own location, then run the wrapper."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    executable(
+        path,
+        "#!/bin/bash\n"
+        f"export CMUX_AGY_WRAPPER_SHIM='{path}'\n"
+        f"export CMUX_AGY_WRAPPER_SHIM_ROOT='{root}'\n"
+        f"exec '{WRAPPER}' \"$@\"\n",
+    )
+
+
+def run_shim_case(root: Path, *, custom_points_at_shim: bool = False) -> dict[str, object]:
+    """Launch agy through the surface shim with the shim, a stale shim, another cmux bundle's
+    wrapper and the real agy on PATH, in that order."""
+    shim_root = root / "home" / ".cmuxterm" / "cmux-cli-shims" / "surface-agy"
+    stale_root = root / "home" / ".cmuxterm" / "cmux-cli-shims" / "surface-earlier"
+    current_shim = shim_root / "agy"
+    shim(current_shim, shim_root)
+    shim(stale_root / "agy", stale_root)
+    other_bundle_bin = root / "cmux NIGHTLY.app" / "Contents" / "Resources" / "bin"
+    other_bundle_bin.mkdir(parents=True)
+    executable(other_bundle_bin / "agy", "#!/bin/sh\nexit 97\n")
+    real_bin = root / "real-bin"
+    real_bin.mkdir()
+    real_result = root / "agy-result.json"
+    executable(
+        real_bin / "agy",
+        "#!/bin/sh\n"
+        "python3 -c 'import json,os,sys; json.dump({\"argv\":sys.argv[1:]}, open(os.environ[\"AGY_RESULT\"], \"w\"))' \"$@\"\n",
+    )
+    environment = {
+        "PATH": f"{shim_root}:{stale_root}:{other_bundle_bin}:{real_bin}:/usr/bin:/bin",
+        "HOME": str(root / "home"),
+        "AGY_RESULT": str(real_result),
+        "CMUX_SURFACE_ID": "surface-agy",
+    }
+    if custom_points_at_shim:
+        environment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] = str(current_shim)
+    process = subprocess.Popen([str(current_shim), "--version"], env=environment, start_new_session=True)
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+        raise AssertionError(
+            "agy through the surface shim did not exit within 5s: the wrapper re-entered a cmux agy "
+            f"shim instead of the real agy (custom_points_at_shim={custom_points_at_shim})"
+        ) from None
+    if process.returncode != 0:
+        raise AssertionError(
+            f"agy through the surface shim exited {process.returncode}; 97 means it ran another cmux bundle's agy wrapper"
+        )
+    return json.loads(real_result.read_text(encoding="utf-8"))
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-") as directory:
         root = Path(directory)
@@ -131,7 +188,17 @@ def main() -> int:
         if "CMUX_AGENT_LAUNCH_KIND" not in result["real"]["env"]:
             raise AssertionError(f"custom agy executable lost launch metadata: {result}")
 
-    print("PASS: agy wrapper installs hooks, captures metadata, and preserves custom executables")
+    with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-shim-") as directory:
+        real = run_shim_case(Path(directory))
+        if real["argv"] != ["--version"]:
+            raise AssertionError(f"real agy did not receive the shim's arguments: {real}")
+
+    with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-custom-shim-") as directory:
+        real = run_shim_case(Path(directory), custom_points_at_shim=True)
+        if real["argv"] != ["--version"]:
+            raise AssertionError(f"a custom path naming the shim did not fall back to the real agy: {real}")
+
+    print("PASS: agy wrapper installs hooks, captures metadata, preserves custom executables, and skips cmux shims")
     return 0
 
 
