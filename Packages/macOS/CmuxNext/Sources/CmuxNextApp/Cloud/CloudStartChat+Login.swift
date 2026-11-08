@@ -47,10 +47,14 @@ extension CloudStartChat {
     }
 
     func passHarnessLogin(harness: String?, target: LoginTarget, codexPrompt: Bool = true, ask: CloudHarnessLoginAsk = .init()) async -> Bool {
-        // A start waits for a warm copy in flight (CloudStartChat+WarmSpare) instead of racing it on the same machine.
-        if !target.ownerOnly, let warm = services.cloud.spareWarm { await warm.value }
         let cloud = services.cloud, userID = cloud.auth.user?.id, asker = self.asker ?? .window(services)
         let teamID = cloud.auth.teamID, machineID = target.machineID, api = cloud.machineAPI.pinningTeam(teamID)
+        // A Claude start waits for a warm copy in flight (CloudStartChat+WarmSpare) instead of racing it on the same
+        // machine; the start stays bound to the account and team it began in.
+        if !target.ownerOnly, harness?.hasPrefix("claude") ?? true, let warm = cloud.spareWarm {
+            await warm.value
+            guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
+        }
         let otherTeams = Self.loginScopes(cloud) // the person's cached login under any of their teams, or their personal scope: one per person
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
