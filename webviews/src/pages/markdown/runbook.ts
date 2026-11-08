@@ -49,25 +49,27 @@ export function runnableCommand(language: string, text: string): string {
 /** Why the agent, or the Run button, asks before a step runs. */
 export type StepRisk = "destructive" | "credentials" | "decision";
 
-/** Commands that delete, overwrite, force, deploy or run code fetched from the network. */
+/** Commands that delete, overwrite, force, deploy or run code fetched from the network. A tool's
+ * global flags may stand before its subcommand (`kubectl --context prod delete`): `[^\n;&|]*\s`
+ * spans them, never past the command's end. */
 const DESTRUCTIVE: RegExp[] = [
   /(^|[\s;&|(])rm\s+(-[a-z]*[rf][a-z]*\b|--recursive|--force)/i,
   /(^|[\s;&|(])sudo\s/,
-  /\bgit\s+(reset\s+--hard|clean\s+-[a-z]*f|push\s+(.*\s)?(--force(-with-lease)?|-f)\b|branch\s+-D\b|checkout\s+--\s+\.|restore\s+\.|stash\s+(drop|clear))/,
+  /\bgit\b[^\n;&|]*\s(reset\s+--hard|clean\s+-[a-z]*f|push\b[^\n;&|]*\s(--force(-with-lease)?|-f)\b|branch\s+-D\b|checkout\s+--\s+\.|restore\s+\.|stash\s+(drop|clear))/,
   /\b(drop|truncate)\s+(table|database|schema)\b/i,
   /\bdelete\s+from\b/i,
-  /\b(kubectl|oc)\s+(delete|drain|replace\s+--force)\b/,
-  /\bhelm\s+(uninstall|delete)\b/,
-  /\bterraform\s+(destroy|apply\b.*-auto-approve)/,
-  /\bdocker\s+(system\s+prune|volume\s+(rm|prune)|rm\s+-f|rmi\b)/,
-  /\b(aws\s+s3\s+(rm|rb)|gsutil\s+(-m\s+)?rm|gcloud\s+\S+(\s+\S+)*\s+delete)\b/,
+  /\b(kubectl|oc)\b[^\n;&|]*\s(delete|drain|replace\b[^\n;&|]*--force)\b/,
+  /\bhelm\b[^\n;&|]*\s(uninstall|delete)\b/,
+  /\bterraform\b[^\n;&|]*\s(destroy\b|apply\b[^\n;&|]*-auto-approve)/,
+  /\bdocker\b[^\n;&|]*\s(system\s+prune|volume\s+(rm|prune)|rm\s+-f|rmi\b)/,
+  /\baws\b[^\n;&|]*\ss3\s+(rm|rb)\b|\bgsutil\b[^\n;&|]*\srm\b|\bgcloud\b[^\n;&|]*\sdelete\b/,
   /(^|[\s;&|(])(dd\s+.*\bof=|mkfs(\.\w+)?\s|fdisk\s|diskutil\s+erase)/,
   /(^|[\s;&|(])(shutdown|reboot|halt)(\s|$)/,
   /(^|[\s;&|(])(kill\s+-9|pkill|killall)\s/,
   /(^|[\s;&|(])chmod\s+-R\s|(^|[\s;&|(])chown\s+-R\s/,
   /\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|fi)?sh\b/,
-  /\b(npm|pnpm|yarn)\s+publish\b|\bcargo\s+publish\b|\bgh\s+release\s+create\b/,
-  /(^|[\s;&|(])(deploy|wrangler\s+deploy|fly\s+(deploy|destroy)|vercel\s+--prod)\b/,
+  /\b(npm|pnpm|yarn|cargo)\b[^\n;&|]*\spublish\b|\bgh\b[^\n;&|]*\srelease\s+create\b/,
+  /(^|[\s;&|(])deploy\b|\b(wrangler|fly|flyctl|vercel)\b[^\n;&|]*\s(deploy|destroy|--prod)\b/,
 ];
 
 /** Commands that log in, take a secret, or carry a placeholder the reader fills in. */
@@ -119,17 +121,30 @@ const LEAD_LIMIT = 240;
 
 /**
  * The runnable steps of a Markdown source: its fenced shell blocks with a command, in order. One
- * pass over the lines, so a long doc costs a scan and nothing per render.
+ * pass over the lines, so a long doc costs a scan and nothing per render. A fence opens at most
+ * three spaces past its container (the page, or the list item it is in), as CommonMark reads it:
+ * a line indented further is an indented code block's text, which the viewer shows without Run.
  */
 export function parseRunbook(source: string): RunbookStep[] {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const steps: RunbookStep[] = [];
   let section = "";
   let paragraph: string[] = [];
+  // Where the content of the list item the scan is in starts (null outside a list).
+  let listContent: number | null = null;
   for (let at = 0; at < lines.length; at++) {
     const line = lines[at]!;
+    const indent = line.length - line.trimStart().length;
+    if (line.trim()) {
+      const item = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)\S/.exec(line);
+      if (item && (listContent === null ? item[1]!.length <= 3 : item[1]!.length < listContent + 4))
+        listContent = item[1]!.length + item[2]!.length + item[3]!.length;
+      else if (listContent !== null && indent < listContent && (!lines[at - 1]?.trim() || /^\s{0,3}#/.test(line)))
+        listContent = null;
+    }
+    const container = listContent !== null && indent >= listContent ? listContent : 0;
     const fence = /^(\s*)(`{3,}|~{3,})(.*)$/.exec(line);
-    if (fence && !(fence[2]![0] === "`" && fence[3]!.includes("`"))) {
+    if (fence && indent - container <= 3 && !(fence[2]![0] === "`" && fence[3]!.includes("`"))) {
       const [, indent, marker, info] = fence;
       const body: string[] = [];
       const start = at;
@@ -180,8 +195,8 @@ function flatten(text: string): string {
   return plain.length > LEAD_LIMIT ? `${plain.slice(0, LEAD_LIMIT - 1)}…` : plain;
 }
 
-/** The most command text one Run all prompt carries; past it the agent reads the rest from the file. */
-const PROMPT_COMMAND_LIMIT = 24_000;
+/** The most step text one Run all prompt carries; past it the agent reads the rest from the file. */
+const PROMPT_STEPS_LIMIT = 48_000;
 
 const RISK_NOTE: Record<StepRisk, string> = {
   destructive: "destructive",
@@ -197,27 +212,28 @@ const RISK_NOTE: Record<StepRisk, string> = {
 export function runbookPrompt(path: string, steps: readonly RunbookStep[]): string {
   const total = steps.length;
   const listed: string[] = [];
-  let budget = PROMPT_COMMAND_LIMIT;
+  let budget = PROMPT_STEPS_LIMIT;
   for (const step of steps) {
-    if (budget - step.command.length < 0 && listed.length > 0) {
-      listed.push(`(Steps ${step.index} to ${total} are in the file: read them there.)`);
-      break;
-    }
-    budget -= step.command.length;
     const where = [step.section, `line ${step.line}`].filter(Boolean).join(", ");
     const asks = step.risks.length ? ` ASK FIRST (${step.risks.map((risk) => RISK_NOTE[risk]).join(", ")})` : "";
     const fence = step.command.includes("```") ? "~~~~" : "```";
-    listed.push(
-      [
-        `${step.index}. Step ${step.index} of ${total} (${where})${asks}`,
-        step.lead ? `   The doc says: ${step.lead}` : "",
-        `${fence}${step.language}`,
-        step.command,
-        fence,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
+    const entry = [
+      `${step.index}. Step ${step.index} of ${total} (${where})${asks}`,
+      step.lead ? `   The doc says: ${step.lead}` : "",
+      `${fence}${step.language}`,
+      step.command,
+      fence,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    // The whole entry counts, so many short steps stay as bounded as a few long ones. A first
+    // step too long for the budget is left to the file too.
+    if (entry.length > budget) {
+      listed.push(`(Steps ${step.index} to ${total} are in the file: read them there.)`);
+      break;
+    }
+    budget -= entry.length + 2;
+    listed.push(entry);
   }
   return [
     `Run this runbook for me, step by step: ${path}`,

@@ -59,7 +59,13 @@ async function setup() {
       openLink: () => {},
       imageURL: (src) => src,
       label: (key) => key,
-      run: { runBlock: (command) => sent.push(command), label: (key) => key },
+      run: {
+        runBlock: async (command) => {
+          sent.push(command);
+          if (command === "make") throw new Error("refused");
+        },
+        label: (key) => key,
+      },
     },
   });
   editors.push(editor);
@@ -78,13 +84,17 @@ describe("Run buttons", () => {
     expect(blocks.map((block) => !!block.querySelector(".md-run-button"))).toEqual([true, true, true, false]);
   });
 
-  test("Run sends the block's command; a console block sends its prompt lines", async () => {
+  test("Run sends the block's command; a console block sends its prompt lines; only a taken one reads Sent", async () => {
     const { root, sent } = await setup();
     const blocks = root.querySelectorAll(".md-code");
     click(blocks[0]!.querySelector(".md-run-button"));
     click(blocks[1]!.querySelector(".md-run-button"));
     expect(sent).toEqual(["npm ci", "make"]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(blocks[0]!.querySelector(".md-run")!.getAttribute("data-state")).toBe("sent");
+    // The host refused `make`: its block still offers Run.
+    expect(blocks[1]!.querySelector(".md-run")!.hasAttribute("data-state")).toBe(false);
+    expect(blocks[1]!.querySelector(".md-run-button")!.textContent).toBe("run");
   });
 
   test("a destructive command asks first; Cancel sends nothing, Run sends it", async () => {

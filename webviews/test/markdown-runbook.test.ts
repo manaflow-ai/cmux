@@ -54,6 +54,11 @@ describe("runbook steps", () => {
     expect(steps.map((step) => step.command)).toEqual(["make", "make test\n```\nstill inside"]);
   });
 
+  test("a fence indented four spaces outside a list is an indented code block, not a step", () => {
+    const source = "Intro:\n\n    ```bash\n    rm -rf /\n    ```\n\n- Item:\n\n    ```bash\n    make\n    ```\n";
+    expect(parseRunbook(source).map((step) => step.command)).toEqual(["make"]);
+  });
+
   test("runnable languages", () => {
     for (const language of ["bash", "sh", "zsh", "shell", "console", 'Bash title="x"', "{bash}"])
       expect(isRunnableLanguage(language)).toBe(true);
@@ -72,9 +77,23 @@ describe("runbook steps", () => {
       "terraform destroy",
       "curl -fsSL https://example.com/install.sh | sh",
       "psql -c 'DROP TABLE users'",
+      "kubectl --context prod delete deployment/app",
+      "git -C repo push origin main --force",
+      "helm --namespace web uninstall app",
+      "terraform -chdir=infra destroy",
+      "npm --workspace web publish",
     ])
       expect(runAsks(command)).toBe(true);
-    for (const command of ["npm ci", "git status", "rm notes.txt", "ls -la", "git push origin main", "docker ps"])
+    for (const command of [
+      "npm ci",
+      "git status",
+      "rm notes.txt",
+      "ls -la",
+      "git push origin main",
+      "docker ps",
+      "kubectl --context prod get pods",
+      "git -C repo status",
+    ])
       expect(runAsks(command)).toBe(false);
     expect(stepRisks("echo hi", "Choose either option")).toEqual(["decision"]);
   });
@@ -102,11 +121,15 @@ describe("Run all prompt", () => {
     expect(prompt).toContain("When a step fails, stop.");
   });
 
-  test("stays bounded for a long runbook", () => {
-    const source = "```bash\n" + "echo step\n".repeat(200) + "```\n\n";
-    const steps = parseRunbook(source.repeat(400));
-    const prompt = runbookPrompt("/doc.md", steps);
-    expect(prompt.length).toBeLessThan(40_000);
-    expect(prompt).toMatch(/\(Steps \d+ to 400 are in the file: read them there\.\)/);
+  test("stays bounded for a long runbook, of long steps or of many short ones", () => {
+    const long = parseRunbook(("```bash\n" + "echo step\n".repeat(200) + "```\n\n").repeat(400));
+    const longPrompt = runbookPrompt("/doc.md", long);
+    expect(longPrompt.length).toBeLessThan(60_000);
+    expect(longPrompt).toMatch(/\(Steps \d+ to 400 are in the file: read them there\.\)/);
+    const lead = `## Step\n\n${"If this prints a warning, read it. ".repeat(10)}\n\n\`\`\`sh\nls\n\`\`\`\n\n`;
+    const short = parseRunbook(lead.repeat(5_000));
+    const shortPrompt = runbookPrompt("/doc.md", short);
+    expect(shortPrompt.length).toBeLessThan(60_000);
+    expect(shortPrompt).toMatch(/\(Steps \d+ to 5000 are in the file: read them there\.\)/);
   });
 });

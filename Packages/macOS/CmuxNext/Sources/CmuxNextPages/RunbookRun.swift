@@ -5,7 +5,8 @@ public import Foundation
 /// {path, command}` types a shell block's command into a new terminal, and `cmux.markdown.runAll
 /// {path, prompt}` opens an agent chat that runs the steps, both started in the file's git
 /// repository (its folder outside one). The page builds the command and the prompt; the host only
-/// checks the click, the file and the text, then opens the terminal or chat.
+/// checks the click, the file and the text, then opens the terminal or chat. The host reads the
+/// page's file once and refuses the run when a followed link showed another file meanwhile.
 public nonisolated struct RunbookRun: Sendable, Equatable {
     public enum Target: Sendable, Equatable {
         /// A Run button: the text is a command typed into a new terminal.

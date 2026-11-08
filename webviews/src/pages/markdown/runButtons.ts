@@ -7,8 +7,9 @@ import { runAsks } from "./runbook";
 export type RunLabel = "run" | "runTitle" | "runAsk" | "runConfirm" | "runCancel" | "runSent";
 
 export interface RunButtonHost {
-  /** Sends `command` to a new terminal in the doc's repository (the host op needs this click). */
-  runBlock(command: string): void;
+  /** Sends `command` to a new terminal in the doc's repository (the host op needs this click);
+   * rejects when the host refused it. */
+  runBlock(command: string): Promise<void>;
   label(key: RunLabel): string;
 }
 
@@ -84,12 +85,18 @@ export function runControls(host: RunButtonHost, command: () => string): HTMLEle
     });
     return element;
   };
+  // "Sent" only once the host took the command: a refused one (too long, the page closed) leaves Run.
   const send = () => {
     const text = command();
     if (!text) return;
-    host.runBlock(text);
-    row.dataset.state = "sent";
-    run.textContent = host.label("runSent");
+    host.runBlock(text).then(
+      () => {
+        if (!row.isConnected || row.dataset.state === "ask") return;
+        row.dataset.state = "sent";
+        run.textContent = host.label("runSent");
+      },
+      (error: unknown) => console.warn("cmux markdown run", error),
+    );
   };
   const idle = () => {
     delete row.dataset.state;

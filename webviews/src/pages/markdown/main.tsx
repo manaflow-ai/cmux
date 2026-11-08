@@ -183,12 +183,10 @@ function editorHost(
     // A Run button's click sends its block to a new terminal in the file's repository.
     run: client
       ? {
-          runBlock: (command) => {
+          runBlock: async (command) => {
             const path = config()?.path;
-            if (!path) return;
-            void client.call(MARKDOWN_RUN_BLOCK_OP, { path, command }).catch((error: unknown) => {
-              console.warn("cmux markdown run", error);
-            });
+            if (!path) throw new Error("no file");
+            await client.call(MARKDOWN_RUN_BLOCK_OP, { path, command });
           },
           label: (key) => strings.t(RUN_LABELS[key]),
         }
