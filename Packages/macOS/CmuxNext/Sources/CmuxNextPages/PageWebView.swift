@@ -95,6 +95,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var popupHost: WebPopupHost?
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
+    /// How many times ``applyTheme(force:)`` built the theme (tests: a move that changes nothing builds none).
+    private(set) var themeBuilds = 0
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
     /// shown after a change paints its first frame in the new colors (cx-8w027.12).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
@@ -690,6 +692,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         themeFollower.rebind()
         guard loaded else { return }
         let theme = currentTheme()
+        themeBuilds += 1
         if force || theme.payloadJSON != appliedTheme {
             appliedTheme = theme.payloadJSON
             evaluateInPage(theme.applyScript)
