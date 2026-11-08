@@ -13,6 +13,7 @@ import Foundation
 ///   `AudioBufferSourceNode`'s own) and keeps each started source of a live `AudioContext` until
 ///   its `ended`; a source of a context that is not `running` (suspended, closed) makes no sound;
 /// - the wrappers are proxies, so the page still sees the native functions' name and length;
+/// - a hidden element reports `video: false`: Picture in Picture finds only the document's videos;
 /// - on any change it fires `cmux-media-hidden-changed` on the document; the observer then asks
 ///   (`cmux-media-hidden-ask`) and the answer comes back at once as `cmux-media-hidden`, a JSON
 ///   string `{element, sound}`: the element outside the document that plays (else one that
@@ -21,8 +22,10 @@ import Foundation
 ///   `play`, `pause`, `toggleMute`, `seek:<seconds>`, then `|started` when the document has an element
 ///   that played, which wins over a paused hidden one); the listener cancels the event when it acted.
 ///
-/// Nothing here keeps a timer: an idle page pays one wrapper call per `play()` and per source
-/// start. A page can see and replace the wrappers, which only changes its own tab's speaker.
+/// Nothing here keeps a timer (one 2 s timeout after a source ends): an idle page pays one
+/// wrapper call per `play()` and per source start. Not heard: a never-ending silent source (a
+/// keep-alive loop at gain 0) shows the speaker; AudioWorklet, ScriptProcessor and MediaStream
+/// output show none. A page can see and replace the wrappers, which only changes its own tab's speaker.
 nonisolated extension BrowserMediaState {
     /// The page-world recorder of sound outside the document (see above).
     static let hiddenSoundScript = #"""
@@ -38,10 +41,13 @@ nonisolated extension BrowserMediaState {
       const hidden = (e) => !e.isConnected || e.getRootNode() !== document;
       const kinds = ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata', 'durationchange',
         'seeked', 'ratechange'];
+      // `seen`: the element has its listeners; `tracked`: it is in `elements` (dropped once ended,
+      // and back when it plays again, as a reused `new Audio()` or sound effect does).
+      const tracked = new WeakSet();
       const watch = (e) => {
+        if (!tracked.has(e)) { tracked.add(e); elements.add(new WeakRef(e)); }
         if (seen.has(e)) return;
         seen.add(e);
-        elements.add(new WeakRef(e));
         for (const type of kinds) e.addEventListener(type, changed, true);
       };
       // Wrappers as proxies keep the originals' name, length and native toString (as `BrowserPageBusy`).
@@ -63,13 +69,21 @@ nonisolated extension BrowserMediaState {
           if (e instanceof HTMLMediaElement) { watch(e); changed(); }
         }, true);
       });
+      // A source that ends keeps the speaker 2 s, as Chrome's, so short sound effects do not blink
+      // it; one timeout per end, none while idle.
+      let heard = 0;
+      const quiet = () => {
+        heard = Date.now();
+        setTimeout(changed, 2100);
+        changed();
+      };
       // `AudioBufferSourceNode` declares its own `start`, which hides the shared one: wrap each owner.
       // An offline context renders to a buffer (no sound), and a closed one never plays again.
       const started = (node) => {
         const context = node.context;
         if (!context || context.state === 'closed' || (window.OfflineAudioContext && context instanceof OfflineAudioContext)) return;
         sources.add(node);
-        node.addEventListener('ended', () => { sources.delete(node); changed(); }, { once: true });
+        node.addEventListener('ended', () => { sources.delete(node); quiet(); }, { once: true });
         if (!contexts.has(context)) {
           contexts.add(context);
           context.addEventListener('statechange', () => {
@@ -87,7 +101,7 @@ nonisolated extension BrowserMediaState {
         let started = null;
         for (const ref of elements) {
           const e = ref.deref();
-          if (!e || e.ended && !e.isConnected) { elements.delete(ref); continue; }
+          if (!e || e.ended && !e.isConnected) { elements.delete(ref); if (e) tracked.delete(e); continue; }
           if (!hidden(e)) continue;
           if (!e.paused && !e.ended) return e;
           if (!started && e.currentTime > 0 && !e.ended) started = e;
@@ -96,7 +110,7 @@ nonisolated extension BrowserMediaState {
       };
       const sounding = () => {
         for (const s of sources) if (s.context && s.context.state === 'running') return true;
-        return false;
+        return Date.now() - heard < 2000;
       };
       // `{element, sound}`: the hidden element's state (or null), and whether Web Audio sounds.
       const answer = () => {
@@ -106,7 +120,7 @@ nonisolated extension BrowserMediaState {
         return {
           sound,
           element: e ? {
-            playing: !e.paused && !e.ended, muted: e.muted || e.volume === 0, video: e.tagName === 'VIDEO',
+            playing: !e.paused && !e.ended, muted: e.muted || e.volume === 0, video: false,
             position: e.currentTime, duration: isFinite(e.duration) ? e.duration : null, rate: e.playbackRate,
           } : null,
         };

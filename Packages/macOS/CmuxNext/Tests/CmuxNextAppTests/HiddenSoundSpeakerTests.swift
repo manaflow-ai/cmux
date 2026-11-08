@@ -23,6 +23,21 @@ import Testing
         try await rig.until("the speaker clears once the audio stops") { BrowserTabAudio.badge(page.state) == nil }
     }
 
+    @Test func aDetachedAudioPlayedAgainAfterItEndsShowsTheSpeakerAgain() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        // One reused element, as a player's next track or a repeated sound effect.
+        let page = try await rig.page("again", body: Self.onKey("window.a = new Audio(\(Self.tone)); a.play();"))
+        try await rig.pressDown(page)
+        try await rig.until("the tab shows its speaker") { BrowserTabAudio.badge(page.state) == .playing }
+        try await Self.until(rig, page, "the one-second tone ends", "!!window.a && a.ended")
+        try await rig.until("the speaker clears once it ends") { BrowserTabAudio.badge(page.state) == nil }
+        _ = try await page.evaluate("a.loop = true; a.play(); true", world: .page, gesture: .cmux)
+        try await rig.until("the speaker shows again when it plays again") { BrowserTabAudio.badge(page.state) == .playing }
+        _ = try await page.evaluate("a.pause(); true", world: .page, gesture: .cmux)
+        try await rig.until("the speaker clears once the audio stops") { BrowserTabAudio.badge(page.state) == nil }
+    }
+
     @Test func anAudioElementInAClosedShadowRootShowsTheSpeaker() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }

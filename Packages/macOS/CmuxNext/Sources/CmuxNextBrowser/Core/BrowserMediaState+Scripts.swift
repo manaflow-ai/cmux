@@ -237,11 +237,13 @@ nonisolated extension BrowserMediaState {
 nonisolated extension BrowserMediaCommand {
     /// The script that runs the command, and the world it needs.
     var script: (source: String, world: BrowserScriptWorld) {
-        // The document's playing element, else what plays outside the document (`hiddenSoundScript`
-        // acts on it and cancels the event), else the document's element that played, or its first.
+        // The document's playing (or floating) element, else what plays outside the document
+        // (`hiddenSoundScript` acts on it and cancels the event), else the document's element that
+        // played, or its first.
         func element(_ hidden: String) -> String {
             "const all = Array.from(document.querySelectorAll('video, audio')); "
-                + "const p = all.find((m) => !m.paused && !m.ended); "
+                + "const p = all.find((m) => !m.paused && !m.ended) || document.pictureInPictureElement "
+                + "|| all.find((m) => m.webkitPresentationMode === 'picture-in-picture'); "
                 + "if (!p && !document.dispatchEvent(new CustomEvent('cmux-media-hidden-command', { detail: '\(hidden)' + (all.some((m) => m.currentTime > 0 && !m.ended) ? '|started' : ''), cancelable: true }))) return true; "
                 + "const e = p || all.find((m) => m.currentTime > 0) || all[0]; "
                 + "if (!e) return false; "
