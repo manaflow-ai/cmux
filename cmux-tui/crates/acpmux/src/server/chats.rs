@@ -46,11 +46,12 @@
 //!   a transcript; its store root joins the index (recorded roots file).
 //! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
 //!   permissionMode?, permissionModeManaged?, allowFullAccess?,
-//!   allowFullAccessManaged?}`: the app's effective cmux.json
-//!   `agents.chats.*` values (`chats/settings.rs`) and its effective
-//!   `agents.defaultPermissionMode` and `sessions.allowFullAccess`, each with
-//!   whether MDM or the team policy forces it (`hub/start_mode_state.rs`; a
-//!   forced full-access off is an upper bound); answers the roots view with
+//!   allowFullAccessManaged?, promptSuggestions?, promptSuggestionsManaged?}`:
+//!   the app's effective cmux.json `agents.chats.*` values (`chats/settings.rs`)
+//!   and its effective `agents.defaultPermissionMode`, `sessions.allowFullAccess`
+//!   and `agents.promptSuggestions`, each with whether MDM or the team policy
+//!   forces it (`hub/start_mode_state.rs`; a forced full-access off is an upper
+//!   bound, a forced prompt-suggestions value beats the file); answers the roots view with
 //!   `applied: true`. While chats are off, `_acpmux/chats` answers
 //!   `enabled: false` and no chats.
 //!
@@ -166,6 +167,12 @@ pub(super) async fn route(
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
+    }
+    // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
+    if let Some(reply) =
+        super::review_queue::route(hub, conn.origin, conn.auth, conn.is_person(), m, &params).await
+    {
+        return reply;
     }
     // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
     if m == crate::rpc::method::MUX_LEDGER {
@@ -412,6 +419,7 @@ pub(super) async fn route(
             let forced = full_access_managed
                 .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
             hub.apply_full_access_push(forced).await;
+            hub.apply_prompt_suggestions_push(prompt_suggestions_forced(&params)?).await;
             hub.set_session_recap(settings.session_recap);
             let hub = hub.clone();
             blocking(move || {
@@ -442,6 +450,20 @@ pub(super) async fn route(
         "_acpmux/chats_window_close" => super::chat_windows::close(conn, &params),
         other => Err(RpcError::method_not_found(other)),
     }
+}
+
+/// The `agents.promptSuggestions` MDM or the team policy forces, from a `_acpmux/chat_settings`
+/// push: `None` unless `promptSuggestionsManaged` is true (an older app sends neither key). A forced
+/// value that is not a boolean is off, so an unreadable policy never turns on extra model calls.
+fn prompt_suggestions_forced(params: &Value) -> Result<Option<bool>, RpcError> {
+    let managed = match params.get("promptSuggestionsManaged") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(managed)) => *managed,
+        Some(_) => {
+            return Err(RpcError::invalid_params("promptSuggestionsManaged must be true or false"));
+        }
+    };
+    Ok(managed.then(|| params.get("promptSuggestions") == Some(&Value::Bool(true))))
 }
 
 async fn page(
@@ -581,4 +603,36 @@ pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Va
     let if_live = crate::adopt::IfLive::parse(super::str_param(params, "ifLive"))
         .map_err(RpcError::invalid_params)?;
     hub.watch_take_over(&s, if_live).await
+}
+
+#[cfg(test)]
+mod prompt_suggestions_push_tests {
+    use super::prompt_suggestions_forced;
+    use serde_json::json;
+
+    #[test]
+    fn only_a_managed_push_forces_and_a_non_boolean_is_off() {
+        let forced = |p| prompt_suggestions_forced(&p).unwrap();
+        assert_eq!(forced(json!({})), None, "an older app sends neither key");
+        assert_eq!(
+            forced(json!({"promptSuggestions": false})),
+            None,
+            "not managed: the file decides"
+        );
+        assert_eq!(forced(json!({"promptSuggestionsManaged": null})), None);
+        assert_eq!(
+            forced(json!({"promptSuggestions": false, "promptSuggestionsManaged": true})),
+            Some(false)
+        );
+        assert_eq!(
+            forced(json!({"promptSuggestions": true, "promptSuggestionsManaged": true})),
+            Some(true)
+        );
+        assert_eq!(
+            forced(json!({"promptSuggestions": "true", "promptSuggestionsManaged": true})),
+            Some(false)
+        );
+        assert_eq!(forced(json!({"promptSuggestionsManaged": true})), Some(false));
+        assert!(prompt_suggestions_forced(&json!({"promptSuggestionsManaged": "yes"})).is_err());
+    }
 }
