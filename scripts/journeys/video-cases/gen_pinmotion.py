@@ -120,14 +120,40 @@ def journey(jid, prefix, curve, view):
     return spec, index
 
 
+def prof_journey(jid, runs):
+    """Step 3 (pin-motion-4): RUNS pin/unpin keys on w5 under one time profile (ext_pmprof), fixture colours, K6."""
+    check = [{"do": "type", "text": "echo pm-ready-${nonce}", "enter": True, "mark": "ready"},
+             {"do": "expect", "title": "set-up check: the app types", "since": "ready", "timeout": 10,
+              "all": [{"daemon_line": "pm-ready-${nonce}"}, {"app_text_line": "pm-ready-${nonce}"}, {"frame_text": "pm-ready-${nonce}"}]}]
+    steps = G.first_pane(jid, False) + check + [X.fixture_settings(), BIND]
+    steps += [{"do": "try_action", "action": "renameWorkspace", "args": {"name": "alpha"}, "title": "set-up: name p0 alpha"}]
+    for n, label in enumerate(["bravo", "charlie", "delta", "echo", "foxtrot", "golf"], 1):
+        steps += ws(f"w{n}", label)
+    steps += pin_now("p0") + pin_now("w1")
+    steps += [G.settle(0.6), X.focus("w5"), G.settle(1.0),
+              {"do": "pm_xctrace_pins", "runs": runs, "gap": 1.0, "rest": 0.6, "window_ms": 150, "key": WS_KEY,
+               "title": f"{runs} pin/unpin keys of w5 under one time profile"}]
+    return {"id": jid, "priority": "P1", "title": f"PIN MOTION profile: {runs} sidebar pin/unpin keys under xctrace",
+            "why": "pin-motion-4 step 3: name the work behind 1-2 missed refreshes per pin at 120 Hz.",
+            "source": "pin-motion task kit (video-cases/gen_pinmotion.py --prof)", "budget_seconds": 400,
+            "recordings": [], "options": {"key_path": "real"}, "steps": steps, "finally": [UNBIND, X.settings_back()]}
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--prof", type=int, default=0, help="write pm-prof (this many pin keys under xctrace) and stop")
     ap.add_argument("--out", default=os.path.join(os.path.dirname(HERE), "journeys", "video"))
     ap.add_argument("--prefix", default="p0")
     ap.add_argument("--curves", default="V0")
     ap.add_argument("--passes", default="view,meas")
     ap.add_argument("--films-dir", default="/work/wt/close-perf-tools/pin")
     o = ap.parse_args()
+    if o.prof:
+        with open(os.path.join(o.out, "pm-prof.json"), "w") as fh:
+            json.dump(prof_journey("pm-prof", o.prof), fh, indent=1)
+            fh.write("\n")
+        print("pm-prof", o.prof)
+        return
     os.makedirs(o.films_dir, exist_ok=True)
     for kind in o.passes.split(","):
         idx_all = []
