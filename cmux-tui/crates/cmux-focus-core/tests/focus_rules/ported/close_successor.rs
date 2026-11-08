@@ -14,12 +14,8 @@ fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
     pairs.iter().map(|(a, b)| ((*a).to_owned(), (*b).to_owned())).collect()
 }
 
-fn pick(closed: &str, old: &[&str], opener: &[(&str, &str)], hidden: &[&str]) -> Option<String> {
-    let old = s(old);
-    let surviving: Vec<String> = old.iter().filter(|id| *id != closed).cloned().collect();
-    let shown: HashSet<String> =
-        surviving.iter().filter(|id| !hidden.contains(&id.as_str())).cloned().collect();
-    tab(Some(&closed.to_owned()), &old, &surviving, &shown, &map(opener))
+fn pick(closed: &str, old: &[&str], hidden: &[&str]) -> Option<String> {
+    close(closed, &[closed], old, hidden)
 }
 
 fn some(id: &str) -> Option<String> {
@@ -34,23 +30,23 @@ fn close(selected: &str, closed: &[&str], old: &[&str], hidden: &[&str]) -> Opti
         old.iter().filter(|id| !closed.contains(&id.as_str())).cloned().collect();
     let shown: HashSet<String> =
         surviving.iter().filter(|id| !hidden.contains(&id.as_str())).cloned().collect();
-    tab(Some(&selected.to_owned()), &old, &surviving, &shown, &HashMap::new())
+    tab(Some(&selected.to_owned()), &old, &surviving, &shown)
 }
 
 #[test]
 fn tab_close_selects_before_the_tab_before_it() {
     // Lawrence 2026-11-08: "it should always focus the tab before it if it
     // exists" (left in a strip, above in a vertical list).
-    assert_eq!(pick("B", &["A", "B", "C"], &[], &[]), some("A"));
-    assert_eq!(pick("C", &["A", "B", "C"], &[], &[]), some("B"));
-    assert_eq!(pick("D", &["A", "B", "C", "D"], &[], &[]), some("C"));
+    assert_eq!(pick("B", &["A", "B", "C"], &[]), some("A"));
+    assert_eq!(pick("C", &["A", "B", "C"], &[]), some("B"));
+    assert_eq!(pick("D", &["A", "B", "C", "D"], &[]), some("C"));
 }
 
 #[test]
 fn tab_close_selects_before_else_the_tab_after_the_first() {
-    assert_eq!(pick("A", &["A", "B", "C"], &[], &[]), some("B"));
-    assert_eq!(pick("A", &["A", "B"], &[], &[]), some("B"));
-    assert_eq!(pick("A", &["A"], &[], &[]), None);
+    assert_eq!(pick("A", &["A", "B", "C"], &[]), some("B"));
+    assert_eq!(pick("A", &["A", "B"], &[]), some("B"));
+    assert_eq!(pick("A", &["A"], &[]), None);
 }
 
 #[test]
@@ -64,31 +60,21 @@ fn tab_close_selects_before_keeps_the_selection_on_an_unselected_close() {
 fn tab_close_selects_before_the_last_pinned_tab() {
     // Pinned tabs come first in the strip: closing the first unpinned tab
     // selects the last pinned tab before it.
-    assert_eq!(pick("U1", &["P1", "P2", "U1", "U2"], &[], &[]), some("P2"));
-    assert_eq!(pick("P2", &["P1", "P2", "U1"], &[], &[]), some("P1"));
+    assert_eq!(pick("U1", &["P1", "P2", "U1", "U2"], &[]), some("P2"));
+    assert_eq!(pick("P2", &["P1", "P2", "U1"], &[]), some("P1"));
 }
 
 #[test]
 fn tab_close_selects_before_across_groups_and_past_collapsed_ones() {
     // The tab before, even in another (expanded) group: A [B C] [D].
-    assert_eq!(pick("D", &["A", "B", "C", "D"], &[], &[]), some("C"));
+    assert_eq!(pick("D", &["A", "B", "C", "D"], &[]), some("C"));
     // A collapsed group's members are skipped to the nearest shown tab
     // before: A [B C collapsed] D, close D: A.
-    assert_eq!(pick("D", &["A", "B", "C", "D"], &[], &["B", "C"]), some("A"));
+    assert_eq!(pick("D", &["A", "B", "C", "D"], &["B", "C"]), some("A"));
     // No shown tab before: the nearest shown tab after.
-    assert_eq!(pick("A", &["A", "B", "C", "D"], &[], &["B", "C"]), some("D"));
+    assert_eq!(pick("A", &["A", "B", "C", "D"], &["B", "C"]), some("D"));
     // Only hidden tabs are left: the one before (its group then expands).
-    assert_eq!(pick("D", &["A", "B", "D"], &[], &["A", "B"]), some("B"));
-}
-
-#[test]
-fn tab_close_selects_before_ignores_link_openers() {
-    // No opener family first any more (the old Chrome rule): a link tab
-    // closes to the tab before it like every other tab.
-    // Y A B, B opened by A: closing A selects Y, not its child B.
-    assert_eq!(pick("A", &["Y", "A", "B"], &[("B", "A")], &[]), some("Y"));
-    // A X B C, B and C opened by A: closing B selects X, not its sibling C.
-    assert_eq!(pick("B", &["A", "X", "B", "C"], &[("B", "A"), ("C", "A")], &[]), some("X"));
+    assert_eq!(pick("D", &["A", "B", "D"], &["A", "B"]), some("B"));
 }
 
 #[test]
@@ -111,7 +97,7 @@ fn tab_close_selects_before_on_rapid_repeated_closes() {
     while let Some(current) = selected.clone() {
         let surviving: Vec<String> = strip.iter().filter(|id| **id != current).cloned().collect();
         let shown: HashSet<String> = surviving.iter().cloned().collect();
-        selected = tab(Some(&current), &strip, &surviving, &shown, &HashMap::new());
+        selected = tab(Some(&current), &strip, &surviving, &shown);
         picks.push(selected.clone());
         strip = surviving;
     }
@@ -134,17 +120,15 @@ fn live_openers_skip_tabs_that_left() {
 #[test]
 fn a_surviving_selection_stays() {
     let shown: HashSet<String> = s(&["A"]).into_iter().collect();
-    let picked =
-        tab(Some(&"A".to_owned()), &s(&["A", "B"]), &s(&["A"]), &shown, &map(&[("B", "A")]));
-    assert_eq!(picked, some("A"));
+    assert_eq!(tab(Some(&"A".to_owned()), &s(&["A", "B"]), &s(&["A"]), &shown), some("A"));
 }
 
 #[test]
 fn no_selection_takes_the_first_shown_survivor() {
     let shown: HashSet<String> = s(&["B"]).into_iter().collect();
-    assert_eq!(tab(None, &s(&["A", "B"]), &s(&["A", "B"]), &shown, &HashMap::new()), some("B"));
-    assert_eq!(tab(None, &s(&["A"]), &s(&["A"]), &HashSet::new(), &HashMap::new()), some("A"));
-    assert_eq!(tab::<String>(None, &[], &[], &HashSet::new(), &HashMap::new()), None);
+    assert_eq!(tab(None, &s(&["A", "B"]), &s(&["A", "B"]), &shown), some("B"));
+    assert_eq!(tab(None, &s(&["A"]), &s(&["A"]), &HashSet::new()), some("A"));
+    assert_eq!(tab::<String>(None, &[], &[], &HashSet::new()), None);
 }
 
 #[test]

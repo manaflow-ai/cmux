@@ -594,7 +594,7 @@ fn explore_tabs(rule: TabRule) -> (usize, Vec<String>) {
 #[test]
 fn tab_close_selects_before_for_every_close_sequence() {
     let (sequences, violations) = explore_tabs(&|selected, old, surviving, shown| {
-        tab(selected.as_ref(), old, surviving, shown, &HashMap::new())
+        tab(selected.as_ref(), old, surviving, shown)
     });
     assert!(violations.is_empty(), "{violations:?}");
     println!("close_focus::tab: {sequences} close sequences");
@@ -606,7 +606,7 @@ fn tab_close_selects_before_mutants_are_caught() {
     // first (the rule before 2026-11-08).
     let (_, ignores_hidden) = explore_tabs(&|selected, old, surviving, _| {
         let all: HashSet<Id> = surviving.iter().copied().collect();
-        tab(selected.as_ref(), old, surviving, &all, &HashMap::new())
+        tab(selected.as_ref(), old, surviving, &all)
     });
     assert!(!ignores_hidden.is_empty());
     let (_, right_first) = explore_tabs(&|selected, old, surviving, shown| {
