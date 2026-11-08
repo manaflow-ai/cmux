@@ -9,8 +9,10 @@
 //! every resume, and every minute. When the channel names another
 //! build than the current profile links, it:
 //!
-//! 1. waits until no acpmux session runs a turn or waits on a permission
-//!    (checked again right before the flip), never mid-turn;
+//! 1. waits until no acpmux session runs a turn or waits on a permission,
+//!    and no carrier session is attached to the session host (for at most
+//!    [`carrier::CARRIER_MAX_HOLD`]; checked again right before the flip),
+//!    never mid-turn;
 //! 2. downloads both binaries into the store, each checked against the
 //!    signed sha256 and size ([`store::add_entry`]);
 //! 3. builds the next profile and flips `/opt/cmux/current` to it with one
@@ -37,6 +39,7 @@
 //! in-place `cmux link machine update` replaced it).
 //! `cmux host update status|check|guard` are the operator verbs ([`role::verb`]).
 
+pub mod carrier;
 pub mod channel;
 #[cfg(target_os = "linux")]
 pub mod role;
@@ -262,17 +265,6 @@ pub fn busy_sessions_in(ls: &str) -> Option<Vec<String>> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     busy_sessions_at(ls, now_ms)
-}
-
-/// The busy entry for `chats` relay chats running in this cmux-host, if any: the
-/// restart after a flip restarts cmux-host, which would end the relay socket and
-/// each chat on it, a first chat on a fresh machine included.
-pub fn relay_chats_busy(chats: usize) -> Option<String> {
-    match chats {
-        0 => None,
-        1 => Some("1 relay chat".to_owned()),
-        n => Some(format!("{n} relay chats")),
-    }
 }
 
 /// How recently a session of an acpmux too old to report `starting` was created or changed for

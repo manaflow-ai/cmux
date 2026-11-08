@@ -620,6 +620,7 @@ impl Hub {
                 crate::prompt_provenance::unverified(&target.id, s.transport, Default::default())
             }),
             human_authenticated: false,
+            unproven_owner: false,
             agent: None,
             class: None,
             after_turn: None,
@@ -630,6 +631,7 @@ impl Hub {
             admitted: false,
             send_now: false,
             thread: None,
+            wake_or_fail: false,
             inbox: false,
         };
         let (hub, session) = (self.clone(), target.clone());

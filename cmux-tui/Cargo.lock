@@ -26,6 +26,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-mcp-connect",
  "cmux-palette-ranker",
  "cmux-panic-log",
@@ -1446,13 +1447,11 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
- "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
  "cmux-server",
  "cmux-server-core",
  "flate2",
- "futures-util",
  "libc",
  "proptest",
  "ring",
@@ -1462,7 +1461,6 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
- "tokio-tungstenite",
  "url",
  "x25519-dalek",
  "yaml-rust",
@@ -1540,7 +1538,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "zeroize",
 ]
 
 [[package]]
@@ -1550,6 +1547,13 @@ dependencies = [
  "hmac",
  "sha2 0.10.9",
  "subtle",
+]
+
+[[package]]
+name = "cmux-local-url"
+version = "0.1.0"
+dependencies = [
+ "regex",
 ]
 
 [[package]]
@@ -1984,6 +1988,7 @@ dependencies = [
  "cmux-cloud-wire",
  "cmux-config",
  "cmux-conversation",
+ "cmux-focus-core",
  "cmux-git",
  "cmux-holder",
  "cmux-host",
@@ -2096,6 +2101,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-feed-core",
  "cmux-flow-trace",
+ "cmux-focus-core",
  "cmux-git",
  "cmux-history",
  "cmux-holder",
@@ -2104,6 +2110,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-palette-ranker",
  "cmux-process",
  "cmux-pty",

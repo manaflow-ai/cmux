@@ -14,6 +14,9 @@ tree cmux-tui
 gitlink ghostty
 gitlink ghostty-next
 blob scripts/cmux-next/build-layout-reducer-ffi.sh
+blob scripts/ci/acpmux-build-features.sh
+blob scripts/ci/tailnet-go.sh
+blob scripts/cmux-next/build-acpmux.sh
 blob scripts/ci/cargo-groups.sh
 blob scripts/ci/cmux-tui-darwin-builder
 blob scripts/ci/macos-cross.sh
@@ -66,6 +69,7 @@ blob schemas/remote-tab/scroll-writer.json
 blob schemas/remote-tab/session.json
 blob schemas/terminal-sizing/fixtures.json
 blob schemas/settings/retired-keys.json
+blob schemas/settings/source/agent-cache.json
 blob schemas/settings/source/agent-retry.json
 blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json

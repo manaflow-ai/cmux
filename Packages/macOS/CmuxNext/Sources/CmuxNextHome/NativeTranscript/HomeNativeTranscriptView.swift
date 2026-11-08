@@ -30,10 +30,6 @@ public final class HomeNativeTranscriptView: NSView {
     }
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
-    /// The agent pane's tabs (one per agent opened from its pill) and its view on the right; the view is made
-    /// at the first open (HomeNativeTranscriptView+AgentPane.swift).
-    lazy var agentPane = HomeAgentPane(conversation: conversationID, threads: binding.store)
-    var agentPaneView: HomeAgentPaneView?
     var starterSent = false
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
@@ -81,6 +77,13 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
+    /// Start now on a queued agent's pill (its card or its menu): the host asks this chat's Chief to start it past
+    /// the cap; true when it did. Nil: no Start now.
+    public var onStartAgent: ((String) async -> Bool)?
+    /// The card a click on a pill with no workspace showed (``openAgent(_:at:)``).
+    var agentCard: HomeAgentPillCard?
+    /// The last Start now request (its card's or its menu's), while it runs and after.
+    var pendingAgentStart: Task<Void, Never>?
     /// Forward… on a bubble: the host routes its text to another chat (nil: no Forward…).
     public var onForward: ((String) -> Void)? {
         get { transcript.onForward }
@@ -219,7 +222,11 @@ public final class HomeNativeTranscriptView: NSView {
             self?.onHideSwitchKeys()
         }
         firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
-        transcript.onAgentPill = { [weak self] peer in self?.openAgent(peer) }
+        transcript.onAgentPill = { [weak self] peer, pill in
+            guard let self else { return }
+            self.openAgent(peer, at: self.convert(pill, from: nil))
+        }
+        transcript.agentPillMenu = { [weak self] peer in self?.agentPillMenuItems(peer) ?? [] }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         // A long draft grows the field with no size change: refit the panel and the notice above it.
@@ -257,7 +264,7 @@ public final class HomeNativeTranscriptView: NSView {
         stopped = true
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
-        agentPaneView?.stop()
+        closeAgentCard()
         voice.close()
         transcript.stop()
         binding.stop()
@@ -344,6 +351,19 @@ public final class HomeNativeTranscriptView: NSView {
     /// The primary input (spec/app-screens.md section 3): the message box's
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
+
+    /// The home (`$MUX_HOME`) of the Chief that answers here, when its host runs on this Mac: `/` in the
+    /// message box then lists its skills, the person's Claude Code skills and their plugins' skills (the
+    /// folders its host reads, slash_skills.rs). Nil: no `/` menu.
+    public var slashSkillsHome: URL? {
+        didSet {
+            guard slashSkillsHome != oldValue else { return }
+            let configured = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"] ?? ""
+            let claude = configured.isEmpty
+                ? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude") : URL(fileURLWithPath: configured)
+            transcript.slashSkillCatalog = slashSkillsHome.map { SlashSkillCatalog(chiefHome: $0, claudeHome: claude) }
+        }
+    }
 
     /// The host's opt-in system spell checking preference for the native composer.
     public var composerSpellCheckingEnabled: Bool {
@@ -471,7 +491,6 @@ public final class HomeNativeTranscriptView: NSView {
         // debugTranscriptWidthTrim narrows it (automation: a pane width change).
         var place = bounds.offsetBy(dx: debugTranscriptOffset.x, dy: debugTranscriptOffset.y)
         place.size.width = max(0, place.width - debugTranscriptWidthTrim)
-        place.size.width = max(0, place.width - layoutAgentPane())
         if transcript.frame != place {
             let resized = transcript.frame.size != place.size
             transcript.frame = place

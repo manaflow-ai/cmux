@@ -68,7 +68,7 @@ extension CloudHandlers {
         return folder.cwd
     }
 
-    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil) {
+    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil, environment: String? = nil) {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
@@ -88,7 +88,7 @@ extension CloudHandlers {
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
                 // The app server's create takes no repository and no size for now.
                 supportsRepository: false, suggested: pick?.repo,
-                environments: environments, supportsEnvironments: true,
+                environments: environments, supportsEnvironments: true, selectedEnvironment: environment,
                 sizes: [], autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
             var request = CloudChatPick.request(plan, sizedFor: pick)
             if let new = plan.newEnvironment {
@@ -356,13 +356,10 @@ extension CloudHandlers {
         return fields
     }
 
-    /// What is left to make a lane machine a fleet host: the ssh route and acpmux peer from the
-    /// Mac that drives it (`cloud enroll-machine`), and the registry entries leo-workspace keeps
+    /// What is left to make a lane machine a fleet host: the registry entries leo-workspace keeps
     /// (`tools/lane-vm-enroll`).
     static func newMachineEnrollment(_ request: CloudMachineRequest, _ machine: CloudMachine) -> [String: ActionResultValue] {
-        var answer: [String: ActionResultValue] = ["done": .array([]), "pending": .array([.string("ssh-route"), .string("acpmux-peer"), .string("fleet-registry")])]
-        let named = request.name.map { " --name \($0)" } ?? ""
-        answer["enroll_command"] = .string("cmux cloud enroll-machine --target machine:\(machine.id)\(named)")
+        var answer: [String: ActionResultValue] = ["done": .array([]), "pending": .array([.string("fleet-registry")])]
         guard request.bootstrapKind == .lane, request.bootstrapPath != nil, let name = request.name else { return answer }
         let address = machine.address?.ipv4.map { " --address \($0)" } ?? ""
         answer["registry_command"] = .string("tools/lane-vm-enroll \(name) \(machine.id)\(address) --apply")

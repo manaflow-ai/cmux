@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1375,
-    "shortcuts": 189
+    "entries": 1373,
+    "shortcuts": 188
   },
   "sections": [
     {
@@ -162,13 +162,13 @@
         {
           "id": "focusHistoryBack",
           "title": "Go Back",
-          "shortcut": "⌃-",
+          "shortcut": "⌥⌘,",
           "command": null
         },
         {
           "id": "focusHistoryForward",
           "title": "Go Forward",
-          "shortcut": "⌃⇧-",
+          "shortcut": "⌥⌘.",
           "command": null
         },
         {
@@ -650,6 +650,12 @@
           "title": "Toggle Top Dock",
           "shortcut": null,
           "command": "cmux window toggle-dock-top"
+        },
+        {
+          "id": "home.undockChief",
+          "title": "Undock Chief",
+          "shortcut": null,
+          "command": "cmux home undock-chief"
         },
         {
           "id": "zoomWindow",
@@ -6052,12 +6058,6 @@
           "command": "cmux notification preview-sound"
         },
         {
-          "id": "feed.show",
-          "title": "Show Feed",
-          "shortcut": "⇧⌘I",
-          "command": null
-        },
-        {
           "id": "showNotifications",
           "title": "Show Notifications",
           "shortcut": null,
@@ -6838,12 +6838,6 @@
           "command": "cmux cloud bring-back"
         },
         {
-          "id": "cloudRelayChat",
-          "title": "Chat on Cloud Machine via the Relay…",
-          "shortcut": null,
-          "command": "cmux cloud relay-chat"
-        },
-        {
           "id": "cloudPortClose",
           "title": "Close Forwarded Machine Port…",
           "shortcut": null,
@@ -6944,12 +6938,6 @@
           "title": "Detach Cloud Tunnel Network",
           "shortcut": null,
           "command": "cmux cloud tunnel-detach"
-        },
-        {
-          "id": "cloudEnrollMachine",
-          "title": "Enroll Machine as Agent Host",
-          "shortcut": null,
-          "command": "cmux cloud enroll-machine"
         },
         {
           "id": "palette.cloud.fork",

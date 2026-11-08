@@ -64,13 +64,11 @@ final class LinkOpener {
         placement = { [weak services] in services?.settings?.snapshot.linkPlacement ?? .fallback }
     }
 
-    /// The pane a link opened from tab `key` (a tab id or resource id) starts from: the pane
-    /// showing that tab, else the active window's focused pane.
-    func source(tab key: String?) -> PaneController? {
-        guard let services else { return nil }
-        if let key, let (_, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) { return controller }
-        if let key, let controller = services.paneController(showingTab: key) { return controller }
-        return services.windows.active?.focusedPane
+    /// The pane an open from tab `key` (a tab id or resource id) starts from (``route(tab:)``): never another workspace's focused pane.
+    func source(tab key: String?) -> PaneController? { route(tab: key).pane }
+    func route(tab key: String?) -> LinkSourceRoute<PaneController> {
+        services.map { services in LinkSourceRoute<PaneController>.resolve(key: key, shown: { key in services.locateTabOnAnyMachine(key).flatMap { services.paneController(for: $0.1) } ?? services.paneController(showingTab: key) },
+                                            exists: { services.locateTabOnAnyMachine($0) != nil }, focused: { services.windows.active?.focusedPane }) } ?? .none
     }
 
     /// The pane showing `view` (a Home or agent chat, a cmux page) in any window, or nil: a click

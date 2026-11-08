@@ -31,6 +31,7 @@
     {"id": "contextMenus", "note": "Settings > Menus: every right-click menu's rows, arranged by the person (ContextMenuLayout)."},
     {"id": "server", "note": "Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet address (plans/cmux-next/server-updates-DESIGN.md section 10)."},
     {"id": "cloudEnvironments", "note": "Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`."},
+    {"id": "tailnet", "note": "Settings > Server > This Mac on Your Tailnet: sign this Mac's own tailnet node in or out (acpmux's embedded node, `_acpmux/tailnet/*`, relayed by the app on its person connection); `cmux.settings.tailnet.*`. Shown only where acpmux answers."},
     {"id": "sharedLinks", "note": "Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks."}
   ],
   "section_actions": {
@@ -158,7 +159,7 @@
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card.", "keys": [
-              "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette"
+              "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarExtras", "text": "Sidebar Buttons and Spaces"}, "keys": [
               "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
@@ -274,7 +275,9 @@
             {"group": "settings.group.agentChat", "keys": ["app.warnBeforeClosingAgentSession"]},
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [
               "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
-              "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
+              "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle",
+              "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
+              "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
               "agentPane.display.environment.placement"
             ]},
             {"title": {"key": "settings.pageGroup.chatText", "text": "Chat Text"}, "keys": [
@@ -296,6 +299,7 @@
             {"group": "settings.group.subsessions", "note": "Whether agent sessions may start sub-sessions, how many and how deep."},
             {"group": "settings.group.agentGuidance", "note": "cmux's guidance for the agents it runs and the person's own skills."},
             {"group": "settings.group.agentRetry", "note": "Whether a turn a rate limit or a lost connection ended is tried again, how often."},
+            {"group": "settings.group.agentCache", "note": "Whether an idle Claude chat is compacted while its prompt cache is warm."},
             {"group": "settings.group.folderTrust", "note": "Folders that start an agent without the trust question."}
           ],
           "trail": ["computerUse", "harnesses", "agentHarnesses", "agentIntegrations"]
@@ -406,7 +410,7 @@
           "symbol": "server.rack",
           "note": "The servers behind the app (cmux-tui, acpmux): status, versions, restart when one is older.",
           "groups": [],
-          "lead": ["server"]
+          "lead": ["server", "tailnet"]
         }
       ]
     },

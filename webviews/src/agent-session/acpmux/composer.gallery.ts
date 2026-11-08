@@ -695,6 +695,24 @@ const PARAGRAPH = Array.from(
 ).join(" ");
 
 /// Pastes PARAGRAPH on the prompt and waits for its card (`card`).
+/// Pastes a 131-line build log into the inline prompt: its card of first lines over "Pasted text ·
+/// 131 lines" (composer/TextAttachmentCard.tsx), with Keep as .txt on it.
+async function pasteBuildLog(ctx: PlayContext) {
+  const view = ctx.document.defaultView!;
+  const data = new view.DataTransfer();
+  const log = Array.from({ length: 130 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`);
+  data.setData("text/plain", ["Ran a command, read a file", ...log].join("\n"));
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: data });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-md-inline-chip[data-preview="text"]'));
+  const card = ctx.find({ selector: '.acpmux-md-inline-chip[data-preview="text"]' });
+  if (!card.querySelector(".acpmux-text-card__lines")?.textContent?.startsWith("Ran a command, read a file"))
+    throw new Error("the inline paste card must show the paste's first lines");
+  if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
+    throw new Error("the inline paste card must say its line count");
+}
+
 async function pasteParagraph(ctx: PlayContext, card: string) {
   const view = ctx.document.defaultView!;
   const data = new view.DataTransfer();
@@ -1092,22 +1110,29 @@ export default agentPaneEntry({
       ready: { draft: "Why does the build fail? " },
       snapshot: chat(finished),
       play: async (ctx) => {
-        const view = ctx.document.defaultView!;
-        const data = new view.DataTransfer();
-        const log = Array.from(
-          { length: 130 },
-          (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
-        );
-        data.setData("text/plain", ["Ran a command, read a file", ...log].join("\n"));
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: data });
-        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-md-inline-chip[data-preview="text"]'));
+        await pasteBuildLog(ctx);
+      },
+    },
+    // Keep as .txt in the inline card's right-click menu (review of #37516): beside Edit in Prompt.
+    "text-pasted-inline-menu": {
+      note: "Right-click on the inline paste card: Edit in Prompt, Keep as .txt, Remove.",
+      ready: { draft: "Why does the build fail? " },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await pasteBuildLog(ctx);
         const card = ctx.find({ selector: '.acpmux-md-inline-chip[data-preview="text"]' });
-        if (!card.querySelector(".acpmux-text-card__lines")?.textContent?.startsWith("Ran a command, read a file"))
-          throw new Error("the inline paste card must show the paste's first lines");
-        if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
-          throw new Error("the inline paste card must say its line count");
+        const box = card.getBoundingClientRect();
+        card.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: box.left + 40,
+            clientY: box.top + 20,
+          }),
+        );
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+        if (!/Keep as \.txt/.test(ctx.document.querySelector('[role="menu"]')?.textContent ?? ""))
+          throw new Error("the inline paste card's menu must offer Keep as .txt");
       },
     },
     // Leo (2026-11-05): "we don't even render bullet points properly in our thing when we're pasting
@@ -1854,10 +1879,14 @@ export default agentPaneEntry({
       play: async (ctx) => {
         // It waits as its own line; with others it waits in their one collapsed group (PendingMessagesCard.tsx).
         if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
-        await ctx.waitFor(() => ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle'));
-        await ctx.click({ selector: '[data-queued-message="q1"] .cv-disclosure__toggle' });
         await ctx.waitFor(() =>
-          ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle[aria-expanded="true"]'),
+          ctx.document.querySelector('[data-queued-message="q1"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)'),
+        );
+        await ctx.click({ selector: '[data-queued-message="q1"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)' });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(
+            '[data-queued-message="q1"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)[aria-expanded="true"]',
+          ),
         );
       },
     },

@@ -172,8 +172,13 @@ impl Hub {
         }
         self.pair_logs(opts.provenance.as_ref()).await;
         // A person's own prompt is the person asking for the chat: what a daemon start held in
-        // its protected folder goes on, ahead of this prompt (`protected_hold.rs`).
-        if opts.agent.is_none() && opts.provenance.is_none() && opts.after_turn.is_none() {
+        // its protected folder goes on, ahead of this prompt (`protected_hold.rs`). Not the
+        // owner's terminal send, which no connection proved (`PromptOptions::unproven_owner`).
+        if opts.agent.is_none()
+            && opts.provenance.is_none()
+            && opts.after_turn.is_none()
+            && !opts.unproven_owner
+        {
             self.release_protected_hold(session);
         }
         let Some(prompt_id) = opts.prompt_id.clone() else {
@@ -413,6 +418,8 @@ impl Hub {
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
         // Another agent's message queued as the running turn crosses its cap still gets the
         // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
+        // An FYI asks for none.
+        let fyi = opts.class == Some(crate::prompt_class::PromptClass::Fyi);
         let from_agent =
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
@@ -423,7 +430,7 @@ impl Hub {
                 }
                 let queued = v.get("queued") == Some(&Value::Bool(true));
                 f(v);
-                if queued && from_agent {
+                if queued && from_agent && !fyi {
                     self.turn_cap_recheck(session);
                 }
             }
@@ -439,7 +446,7 @@ impl Hub {
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
         let capped = running.is_some()
             && !opts.send_now
-            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
+            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref(), fyi);
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
         // (`inbox.rs`). Boxed, out of this future.
         let route = self.inbox_route(
@@ -468,6 +475,7 @@ impl Hub {
                     opts.thread.as_deref(),
                     opts.provenance.as_ref(),
                     opts.human_authenticated,
+                    opts.wake_or_fail,
                     &mut accept,
                 ))
                 .await;
@@ -1092,7 +1100,8 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            super::prompt_sender::run_params(&agent_sid, json!(wire), &run),
+            // The effective provenance: a fan-in turn's is its digest's (above), not its head's.
+            super::prompt_sender::run_params(&agent_sid, json!(wire), &run, provenance.as_ref()),
             &turn_id,
             false,
             false,
@@ -1272,7 +1281,13 @@ impl Hub {
                                     super::steer_end::agent_prompt_hook(
                                         session,
                                         &child2,
-                                        json!({"sessionId": sid2, "prompt": wire}),
+                                        // Its sender and marks as on the first write.
+                                        super::prompt_sender::run_params(
+                                            &sid2,
+                                            json!(wire),
+                                            &run,
+                                            provenance.as_ref(),
+                                        ),
                                         &turn_id,
                                         false,
                                         false,
@@ -1354,10 +1369,10 @@ impl Hub {
         }
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
-        // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
+        // A cut turn goes on by itself (`auto_resume.rs`), unless carried on or cache_compact's.
+        let goes_on = !trigger && !super::idle::cache_compact::is_own(run.provenance.as_ref());
         let cut = match (&result, detached) {
-            // A turn its agent runs on with carried steers was not cut.
-            (Err(e), false) if carried.is_none() && !trigger => Some(super::auto_resume::CutTurn {
+            (Err(e), false) if carried.is_none() && goes_on => Some(super::auto_resume::CutTurn {
                 // A family message's continuation speaks for its sender (`is_family`).
                 from: run
                     .provenance
@@ -1614,22 +1629,21 @@ impl Hub {
                         stop.as_str() == Some("cancelled") || (was_stopping && !carries_on);
                     let status = if stopped { "cancelled" } else { "completed" };
                     let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
+                    // What the turn spent, where its harness says, for a goal's token budget:
+                    // its input as reported (the cache's reads in it, for an ACP harness that
+                    // counts them there) and its output (`turn_usage::as_reported`).
+                    let (usage, spent) = super::turn_usage::turn_usage(session, v);
                     if let Some(o) = msg.as_object_mut() {
                         o.extend(self.turn_error_fields(session, None));
                         // acpmux ended a turn whose agent did not answer the cancel (`cancel`).
                         if v.pointer("/_meta/acpmux/cancelForced") == Some(&Value::Bool(true)) {
                             o.insert("cancelForced".into(), Value::Bool(true));
                         }
-                        o.extend(super::turn_usage::turn_usage(session, v));
+                        o.extend(usage);
                         if let Some(to) = carried_to() {
                             o.insert("carriedTo".into(), to);
                         }
                     }
-                    // What the turn spent, where its harness says, for a goal's token budget.
-                    let spent = ["inputTokens", "outputTokens"]
-                        .iter()
-                        .filter_map(|k| msg.get(*k).and_then(Value::as_u64))
-                        .reduce(u64::saturating_add);
                     self.write_turn_result(session, msg, git);
                     if status == "completed"
                         && let Some(answer) = wrap_up_answer
@@ -2273,6 +2287,18 @@ impl Hub {
         {
             return Ok(());
         }
+        // A chat that goes: its forks take its history before anything of it is stopped or marked
+        // purged, and no fork references it after. A fork still being made fails the delete here,
+        // with the chat as it was (review of #37020: it failed after `purged`, and the chat's
+        // later records were never written).
+        let _fence = if purge && !session.replaced.load(Ordering::SeqCst) {
+            Some(
+                crate::store::fence_history(self.store.as_ref(), &session.id)
+                    .map_err(|e| RpcError::internal(e.to_string()))?,
+            )
+        } else {
+            None
+        };
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);

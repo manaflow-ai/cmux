@@ -48,7 +48,7 @@ pub const CASES_TALK_VIEW: &[EnumCase] = &[EnumCase { value: "talk", title: t("A
 #[rustfmt::skip]
 pub const CASES_ACP_TERMINAL: &[EnumCase] = &[EnumCase { value: "acp", title: t("ActionCatalog", "argument.agent.harness.protocol.acp", "ACP") }, EnumCase { value: "terminal", title: t("ActionCatalog", "argument.agent.harness.protocol.terminal", "Terminal") }];
 #[rustfmt::skip]
-pub const CASES_RD_WEB: &[EnumCase] = &[EnumCase { value: "rd", title: t("Localizable", "argument.value.viewerRd", "Video Stream") }, EnumCase { value: "web", title: t("Localizable", "argument.value.viewerWeb", "Browser") }, EnumCase { value: "native", title: t("Localizable", "argument.value.viewerNative", "Native") }];
+pub const CASES_RD: &[EnumCase] = &[EnumCase { value: "rd", title: t("Localizable", "argument.value.viewerRd", "Video Stream") }];
 #[rustfmt::skip]
 pub const CASES_SMALL_MEDIUM: &[EnumCase] = &[EnumCase { value: "small", title: t("Localizable", "argument.value.small", "Small") }, EnumCase { value: "medium", title: t("Localizable", "argument.value.medium", "Medium") }, EnumCase { value: "large", title: t("Localizable", "argument.value.large", "Large") }, EnumCase { value: "xlarge", title: t("Localizable", "argument.value.xlarge", "Extra Large") }];
 #[rustfmt::skip]
@@ -249,8 +249,6 @@ pub const EXPANDED: Argument = Argument { name: "expanded", title: t("HomeAction
 #[rustfmt::skip]
 pub const TEAM: Argument = Argument { name: "team", title: t("HomeActions", "argument.home.playgroundTeam", "Team Chat"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
-pub const OPEN: Argument = Argument { name: "open", title: t("HomeActions", "argument.home.playgroundOpen", "Pill Click"), kind: ArgKind::Int(Some((0, 6))), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
-#[rustfmt::skip]
 pub const PEER: Argument = Argument { name: "peer", title: t("HomeActions", "argument.home.playgroundPeer", "Agent"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const DARK: Argument = Argument { name: "dark", title: t("HomeActions", "argument.home.playgroundDark", "Dark Look"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
@@ -395,6 +393,8 @@ pub const ACCOUNT: Argument = Argument { name: "account", title: t("ActionCatalo
 #[rustfmt::skip]
 pub const ROLE: Argument = Argument { name: "role", title: t("ActionCatalog", "argument.agentShare.role", "Access"), kind: ArgKind::Enumeration(CASES_TALK_VIEW), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
+pub const SIGNED_IN_ROLE: Argument = Argument { name: "signedInRole", title: t("ActionCatalog", "argument.agentShare.signedInRole", "Signed-in Guests"), kind: ArgKind::Enumeration(CASES_TALK_VIEW), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
 pub const KEY_2: Argument = Argument { name: "key", title: t("ActionCatalog", "argument.agentChat.key", "Chat"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const COMMAND_3: Argument = Argument { name: "command", title: t("ActionCatalog", "argument.agent.harness.command", "Command"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
@@ -443,13 +443,11 @@ pub const KEY_3: Argument = Argument { name: "key", title: t("Localizable", "arg
 #[rustfmt::skip]
 pub const WORKSPACE_2: Argument = Argument { name: "workspace", title: t("Localizable", "argument.workspace", "Workspace"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
-pub const VIEWER: Argument = Argument { name: "viewer", title: t("Localizable", "argument.viewer", "Viewer"), kind: ArgKind::Enumeration(CASES_RD_WEB), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+pub const VIEWER: Argument = Argument { name: "viewer", title: t("Localizable", "argument.viewer", "Viewer"), kind: ArgKind::Enumeration(CASES_RD), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const SIZE_2: Argument = Argument { name: "size", title: t("Localizable", "argument.size", "Size"), kind: ArgKind::Enumeration(CASES_SMALL_MEDIUM), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const DISK: Argument = Argument { name: "disk", title: t("Localizable", "argument.diskGiB", "Disk (GiB)"), kind: ArgKind::Int(Some((4, 256))), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
-#[rustfmt::skip]
-pub const SSH_KEY: Argument = Argument { name: "sshKey", title: t("Localizable", "argument.sshKey", "SSH Public Key"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const REPO_2: Argument = Argument { name: "repo", title: t("Localizable", "argument.secretRepo", "Repository"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
@@ -506,10 +504,6 @@ pub const NAME_6: Argument = Argument { name: "name", title: t("CloudSessionActi
 pub const CWD_3: Argument = Argument { name: "cwd", title: t("CloudSessionActions", "argument.cloudStartSession.cwd", "Folder on the Machine"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const LOGIN: Argument = Argument { name: "login", title: t("CloudSessionActions", "argument.cloudStartSession.login", "Harness Login"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
-#[rustfmt::skip]
-pub const PROMPT: Argument = Argument { name: "prompt", title: t("CloudSessionActions", "argument.cloudRelayChat.prompt", "Prompt"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
-#[rustfmt::skip]
-pub const PROMPT_ID: Argument = Argument { name: "promptId", title: t("CloudSessionActions", "argument.cloudRelayChat.promptID", "Prompt ID"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const KEYMAP: Argument = Argument { name: "keymap", title: t("Localizable", "argument.keymap", "Keymap"), kind: ArgKind::Enumeration(CASES_CMUX_ITERM2), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]

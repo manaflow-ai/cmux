@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c. */
+/* cmux-tui mux protocol 12, IR 1768118a3f6c36eca9967eb1114909809bec1c337cc65d95be19e530da94a705. */
 
 
 import type * as T from "./types.js";
@@ -2612,6 +2612,7 @@ export interface ShutdownDaemonRequest extends CmuxRequestBase {
   "generation": string;
   "keep_layout"?: boolean;
   "pid": number;
+  "restart"?: (boolean) | null;
 }
 
 /** Protocol v6; authority: frontend. */

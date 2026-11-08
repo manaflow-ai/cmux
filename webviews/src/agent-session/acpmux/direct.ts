@@ -43,6 +43,7 @@ import type {
   TurnTokenSplit,
 } from "./model";
 import { QUEUED_MESSAGE, TURN_RETRY, type AcpmuxTurnRetry } from "./model";
+import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -56,17 +57,24 @@ import {
   type ComposerAttachment,
 } from "./attachments";
 import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFileDisplay } from "./inlinePrompt";
-import { fitPromptBudget } from "./promptBudget";
+import { fitPromptBudget, uploadsToFit } from "./promptBudget";
+import type { SendPrompt, SendUploadResult } from "./sendUploads";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages, withSentShapes } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
 import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
-import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
+import {
+  peerConnectedFromStatus,
+  peerKindsFromStatus,
+  peerLinksFromStatus,
+  peerStatesFromStatus,
+} from "./environments";
+import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
-import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import { hostKind, sessionEntry, sessionTitle, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
@@ -115,6 +123,8 @@ import {
 } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
+import { withoutRelayLabel } from "./conversation/relayEnvelope";
+import { bareSender } from "./conversation/senderIdentity";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
@@ -326,38 +336,6 @@ const callOutputTokens = (update: any): number | undefined => {
   const value = Number(update?.outputTokens ?? update?.output_tokens);
   return Number.isFinite(value) && value >= 0 ? value : undefined;
 };
-const tokenCount = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
-/// A marked call's split: its output (`callOutputTokens`) apart from what it read, the fresh input,
-/// cache reads and cache writes acpmux sends beside it (claude_stdio/inbound.rs). Unset for a call
-/// that names no output or no input (an older acpmux).
-function callTokenSplit(update: any, output: number | undefined): TurnTokenSplit | undefined {
-  if (output === undefined || typeof update?.inputTokens !== "number") return undefined;
-  return {
-    output,
-    input: tokenCount(update.inputTokens),
-    cacheRead: tokenCount(update.cachedReadTokens),
-    cacheWrite: tokenCount(update.cachedWriteTokens),
-  };
-}
-/// A `turn_result`'s tokens (acpmux hub/turn_usage.rs: Claude Code's main loop for the turn), when
-/// it names its output and has any (an all-zero result is an empty turn, with nothing to show).
-function resultTokenSplit(msg: any): TurnTokenSplit | undefined {
-  if (typeof msg?.outputTokens !== "number") return undefined;
-  const split = {
-    output: tokenCount(msg.outputTokens),
-    input: tokenCount(msg.inputTokens),
-    cacheRead: tokenCount(msg.cacheReadTokens),
-    cacheWrite: tokenCount(msg.cacheWriteTokens),
-  };
-  return split.output + split.input + split.cacheRead + split.cacheWrite > 0 ? split : undefined;
-}
-const addSplit = (sum: TurnTokenSplit, call: TurnTokenSplit): TurnTokenSplit => ({
-  output: sum.output + call.output,
-  input: sum.input + call.input,
-  cacheRead: sum.cacheRead + call.cacheRead,
-  cacheWrite: sum.cacheWrite + call.cacheWrite,
-});
-const NO_TOKENS: TurnTokenSplit = { output: 0, input: 0, cacheRead: 0, cacheWrite: 0 };
 /// acpmux's `contextBreakdown` (a Claude Code chat's /context), or unset when it sent none.
 const contextBreakdownOf = (value: any): AcpmuxContextBreakdown | undefined =>
   value && typeof value === "object" && Array.isArray(value.categories) ? value : undefined;
@@ -855,12 +833,21 @@ export function queuedMessage(msg: any, context?: IncomingContext): IncomingMess
   const text = String(msg?.text ?? "");
   const incoming = incomingPrompt(text, msg, context);
   if (incoming?.kind === "message") return incoming.message;
-  const name = typeof msg?.fromAgent === "string" ? msg.fromAgent.trim() : "";
+  // The list's `fromAgent` is the name acpmux shows the agent, an unverified one with its suffix
+  // (conversation/senderIdentity.ts): the line names it bare and marks it.
+  const sender = bareSender(typeof msg?.fromAgent === "string" ? msg.fromAgent : "");
+  const name = sender.name;
   if (!name) return undefined;
-  const lead = text.trimStart();
+  const lead = withoutRelayLabel(text).trimStart();
   const named = [`[${name}]`, `From ${name}:`].find((prefix) => lead.toLowerCase().startsWith(prefix.toLowerCase()));
   const harness = typeof msg?.fromHarness === "string" && msg.fromHarness.trim() ? msg.fromHarness.trim() : undefined;
-  return { name, ...(harness ? { harness } : {}), text: (named ? lead.slice(named.length) : text).trim(), raw: text };
+  return {
+    name,
+    ...(harness ? { harness } : {}),
+    ...(sender.declared ? { unverified: true as const } : {}),
+    text: (named ? lead.slice(named.length) : lead).trim(),
+    raw: text,
+  };
 }
 
 /// A `queued` record that is acpmux's inbox notice (provenance `inbox_notice`), as its threads.
@@ -2200,9 +2187,13 @@ export class AcpmuxDirectClient {
   /// The promptIds drawn as prompts. An older page folds in after the rows below it, so the steer
   /// a held prompt re-ran comes after that prompt: it draws nothing. Kept across that fold.
   private promptsShown = new Set<string>();
-  /// Where each prompt was sent from, by prompt id (`sender_claim`, conversation/sentFromHarness.ts): its
-  /// record comes before the prompt's own, which reads it as its row is drawn.
+  /// Where each prompt was sent from, by prompt id (`sender_claim`, conversation/sentFromHarness.ts): a
+  /// row drawn after its claim reads it here, and a claim after its row (the daemon writes it once
+  /// the prompt is kept, an older page folds in later) updates that row.
   private sentFromPrompts = new Map<string, SentFrom>();
+  /// The inbox notice row that names each prompt id (agentInbox's route of another agent's send): a
+  /// claim that comes after its notice reaches that row's thread.
+  private inboxClaimRows = new Map<string, string>();
   /// Attachments sent with a prompt until its user-message event gives it a durable row id.
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
   /// Attachments for completed prompts, used when their turn is retried later.
@@ -2486,6 +2477,8 @@ export class AcpmuxDirectClient {
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
   private peerConnected: Record<string, boolean> = {};
   private peerStates: Record<string, string> = {};
+  /// Each peer's whole link state as acpmux said it (linkState.ts), from a daemon that sends it.
+  private peerLinks: Record<string, PeerLinkDetail> = {};
   private peerResources: NonNullable<AcpmuxSnapshot["peerResources"]> = {};
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
@@ -3293,6 +3286,7 @@ export class AcpmuxDirectClient {
     this.lateSteers = [];
     this.promptsShown.clear();
     this.sentFromPrompts.clear();
+    this.inboxClaimRows.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
@@ -6115,6 +6109,7 @@ export class AcpmuxDirectClient {
     this.lateSteers = [];
     this.promptsShown.clear();
     this.sentFromPrompts.clear();
+    this.inboxClaimRows.clear();
     this.firstSeq = undefined;
     // Found again as the held events are reduced (`reduceEvent`).
     this.nativeSeed = undefined;
@@ -6681,6 +6676,19 @@ export class AcpmuxDirectClient {
   /// and then sends the reply (App.tsx `withdrawForTypedReply`), so the decline comes first; a prompt
   /// steered in while it waits comes before. Either way its record reads "Answered in chat", also on
   /// a reload, which replays the same records in the same order.
+  /// `notice` with each thread's sender claims (`sender_claim`), by the prompt ids it names.
+  private withSentFrom(notice: InboxNotice): InboxNotice {
+    if (this.sentFromPrompts.size === 0) return notice;
+    return {
+      threads: notice.threads.map((thread) => {
+        const claims = thread.promptIds.flatMap((id) => {
+          const from = this.sentFromPrompts.get(id);
+          return from ? [[id, from] as const] : [];
+        });
+        return claims.length ? { ...thread, sentFrom: { ...thread.sentFrom, ...Object.fromEntries(claims) } } : thread;
+      }),
+    };
+  }
   private answeredInChat(event: EventRecord): void {
     // One reply answers one question: the oldest waiting, the one the card shows. The others stay
     // as they are, so a later Skip or Stop of one of them still reads as such.
@@ -7001,6 +7009,21 @@ export class AcpmuxDirectClient {
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
       } else if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
+        // Where the chat's history ends and the fork's own begins: what the fork holds, and from
+        // which chat (Leo, 2026-11-06: "where did the forked chat even go??? what does it even
+        // have???"). One quiet line at the cut; the rows above it are the chat's, through the
+        // turn it was forked at.
+        const parent =
+          typeof msg.parentId === "string" ? this.sessions.find((s) => s.sessionId === msg.parentId) : undefined;
+        this.rows.set(`forked-from-${event.seq}`, {
+          id: `forked-from-${event.seq}`,
+          version: 1,
+          at: event.at,
+          kind: "notice",
+          text: parent
+            ? translate("notice.forkedFrom", { chat: sessionTitle(parent) })
+            : translate("notice.forkedFromGone"),
+        });
         // An agent that could not fork the working chat: the fork's agent reads the chat's
         // transcript instead, and the fork says so in one line (acpmux `hub/fork.rs`).
         if (msg.from === "transcript") {
@@ -7014,6 +7037,18 @@ export class AcpmuxDirectClient {
             text: translate("notice.forkFromTranscript", { harness }),
           });
         }
+      } else if (event.kind === "fork_start_failed") {
+        // The fork's agent did not start after the fork answered (acpmux `hub/fork.rs`); the
+        // first prompt starts it again.
+        const id = `fork-start-${event.seq}`;
+        const reason = typeof msg.error === "string" && msg.error ? msg.error : undefined;
+        this.rows.set(id, {
+          id,
+          version: 1,
+          at: event.at,
+          kind: "notice",
+          text: reason ? translate("notice.forkStartFailedReason", { reason }) : translate("notice.forkStartFailed"),
+        });
       } else if (event.kind === "failover") {
         // acpmux moved the chat to its fallback harness (`hub/turns.rs`); the turn goes on there.
         if (typeof msg.from === "string" && typeof msg.to === "string") {
@@ -7096,7 +7131,25 @@ export class AcpmuxDirectClient {
         this.takeSubagentRows();
       } else if (event.kind === "sender_claim") {
         const from = sentFrom(msg);
-        if (from) this.sentFromPrompts.set(from.promptId, from);
+        if (from) {
+          this.sentFromPrompts.set(from.promptId, from);
+          const rowId = this.promptRowKeys.get(from.promptId);
+          const row = rowId === undefined ? undefined : this.rows.get(rowId);
+          if (
+            row?.kind === "user" &&
+            (!row.untyped || row.incoming?.kind === "message") &&
+            row.promptId === from.promptId
+          )
+            this.rows.set(row.id, { ...row, version: row.version + 1, sentFrom: from });
+          const noticeId = this.inboxClaimRows.get(from.promptId);
+          const notice = noticeId === undefined ? undefined : this.rows.get(noticeId);
+          if (notice?.incoming?.kind === "inbox")
+            this.rows.set(notice.id, {
+              ...notice,
+              version: notice.version + 1,
+              incoming: { ...notice.incoming, notice: this.withSentFrom(notice.incoming.notice) },
+            });
+        }
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;
@@ -7199,7 +7252,15 @@ export class AcpmuxDirectClient {
         // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
         // acpmux's own continuation of a failed turn or subagent (its retry, automatic or the Retry
         // button's) is not the person's prompt: it draws nothing either (subagents/retryState.ts).
-        const blank = !received && (isRetryContinuation(msg) || (!raw.trim() && promptImages(msg.images).length === 0));
+        // A prompt of only a document, audio, file or paste keeps its row too: its recorded parts
+        // are what it says, and its row draws them with its footer and Retry (UserBubble.tsx).
+        const inlineParts = recordedPromptParts(msg, knownParts) ?? knownParts;
+        const blank =
+          !received &&
+          (isRetryContinuation(msg) ||
+            (!raw.trim() &&
+              promptImages(msg.images).length === 0 &&
+              !inlineParts?.some((part) => part.kind !== "text")));
         const incoming = received
           ? undefined
           : blank
@@ -7219,7 +7280,10 @@ export class AcpmuxDirectClient {
             : incoming?.kind === "notice"
               ? { text: incoming.text, incoming }
               : incoming?.kind === "inbox"
-                ? { text: inboxText(incoming.notice), incoming }
+                ? {
+                    text: inboxText(incoming.notice),
+                    incoming: { ...incoming, notice: this.withSentFrom(incoming.notice) },
+                  }
                 : incoming?.kind === "hidden"
                   ? { text: "", incoming }
                   : { text: incoming?.kind === "prompt" ? incoming.text : raw };
@@ -7256,6 +7320,9 @@ export class AcpmuxDirectClient {
           (fallbackPromptId ? this.promptRowKeys.get(fallbackPromptId) : undefined) ??
           `user-${event.seq}`;
         if (fallbackPromptId) this.promptRowKeys.set(fallbackPromptId, durableRowId);
+        if (incoming?.kind === "inbox")
+          for (const thread of incoming.notice.threads)
+            for (const id of thread.promptIds) this.inboxClaimRows.set(id, durableRowId);
         // A new list, never one changed in place: the snapshot names its rows by the list's identity.
         if (steer === "waiting") this.waitingSteers = [...this.waitingSteers, { rowId: durableRowId, promptId }];
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, durableRowId);
@@ -7267,7 +7334,6 @@ export class AcpmuxDirectClient {
             msg.turnId === this.stoppingTurn.turnId)
         )
           this.lateSteers = [...this.lateSteers, durableRowId];
-        const inlineParts = recordedPromptParts(msg, knownParts) ?? knownParts;
         const optimisticRow = optimisticRowId ? this.rows.get(optimisticRowId) : undefined;
         this.rows.set(durableRowId, {
           id: durableRowId,
@@ -7445,6 +7511,15 @@ export class AcpmuxDirectClient {
           this.endedTurns.add(turnId);
           if (this.runningTurnId === turnId) this.runningTurnId = undefined;
         }
+        // An older acpmux's record is read by the chat's harness (tokenSplit.ts `inputIsFresh`).
+        const resultTokens =
+          event.kind === "turn_result"
+            ? resultTokenSplit(msg, {
+                harness: this.summary?.harness,
+                family: this.summary?.family,
+                backgroundsWork: this.summary?.backgroundsWork,
+              })
+            : undefined;
         if (event.kind === "turn_result")
           this.rows.set(summaryId, {
             id: summaryId,
@@ -7456,7 +7531,7 @@ export class AcpmuxDirectClient {
             ...(event.seq >= 1 ? { seq: event.seq } : {}),
             ...(turnId ? { turnId } : {}),
             ...this.turnTotals(event.at),
-            ...(event.kind === "turn_result" && resultTokenSplit(msg) ? { tokens: resultTokenSplit(msg) } : {}),
+            ...(event.kind === "turn_result" && resultTokens ? { tokens: resultTokens } : {}),
             status,
             ...(continued ? { continued } : {}),
             // An agent that could not start ends its turn with `error` and no `errorText`
@@ -8238,6 +8313,7 @@ export class AcpmuxDirectClient {
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,
       peerStates: this.peerStates,
+      peerLinks: this.peerLinks,
       peerResources: this.peerResources,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: this.publishedSummary(summary, effort, limits),
@@ -8353,6 +8429,10 @@ export class AcpmuxDirectClient {
   /// Opens a chat's Cloud hand-off turn before a prompt that starts one (cloudHandoffTurn.ts); set
   /// by the page only for a chat on a Cloud machine whose app opens them.
   handoffTurn?: (sessionId: string) => Promise<number | undefined>;
+  /// Uploads attachments too large to go inline at the Send (sendUploads.ts); set by the page.
+  uploadForSend?: (chips: ComposerAttachment[], prompt: SendPrompt) => Promise<SendUploadResult>;
+  /// The send tickets `bindSendGesture` bound to a chat, by prompt id: only these hold uploads.
+  private boundSendTickets = new Map<string, { sessionId: string; ticket: Promise<string | undefined> }>();
   /// The hand-off turn each chat asks the app for now (sendNow), with the selection it was asked in.
   private handoffAsks = new Map<string, { generation: number; ask: Promise<number | undefined> }>();
   /// The newest hand-off turn each chat sent a prompt under: the store may still say it is `starting`
@@ -8459,10 +8539,19 @@ export class AcpmuxDirectClient {
   /// Binds the person's current gesture to one prompt before the caller waits for a start or
   /// persistence. The host still refuses frames without a ticket, so forged/script sends remain
   /// denied; a ticket is scoped to this prompt id and can be spent only once.
+  /// A chat already shown binds the ticket to it (`sessionId`, AgentPaneGestureIntent's binding
+  /// key): only a prompt to that chat redeems it, and only such a ticket may hold the uploads of
+  /// attachments too large to go inline (sendUploads.ts). A ticket bound to no chat (a new chat's,
+  /// a prompt held for the trust answer) sends as before, its attachments inline.
   bindSendGesture(
     promptId: string = crypto.randomUUID(),
   ): { promptId: string; ticket: Promise<string | undefined> } | undefined {
-    return { promptId, ticket: reservePromptGesture(promptId) };
+    const sessionId = this.creating ? undefined : this.selectedSessionId;
+    const ticket = reservePromptGesture(promptId, sessionId);
+    if (sessionId) this.boundSendTickets.set(promptId, { sessionId, ticket });
+    if (this.boundSendTickets.size > BOUND_SEND_TICKETS_KEPT)
+      this.boundSendTickets.delete(this.boundSendTickets.keys().next().value!);
+    return { promptId, ticket };
   }
 
   async send(
@@ -8523,6 +8612,8 @@ export class AcpmuxDirectClient {
     suggestionTaken = false,
   ): Promise<string | undefined> {
     const trustCancellation = this.trustCancellation;
+    /// The prompt's own id, before a hand-off turn names it: its send ticket is bound under it.
+    const ownPromptId = promptId;
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
     // agent and the chat's compaction never see base64 (inlineImages.ts, Leo 2026-10-20).
     ({ text: input, attachments } = liftInlineImages(input, attachments));
@@ -8603,7 +8694,49 @@ export class AcpmuxDirectClient {
     // The prompt is one acpmux message: past its budget, the largest image previews go as the links
     // to their saved originals (promptBudget.ts). The row and a Retry keep what the prompt carried:
     // such an image is its original's link, drawn as a file as acpmux's echo and a reload draw it.
-    const carried = fitPromptBudget(input, sendAttachments, options);
+    let carried = fitPromptBudget(input, sendAttachments, options);
+    // Still too large: the largest attachments with no saved copy upload now, under the Send's
+    // ticket, and go as links (sendUploads.ts). A failed upload fails the send with its words.
+    // Only under a ticket bound to this chat (bindSendGesture): the host holds no other for an
+    // upload, and a send under any other goes as before, inline.
+    const bound = this.boundSendTickets.get(ownPromptId);
+    this.boundSendTickets.delete(ownPromptId);
+    // Only a send with files to upload waits for its ticket: any other draws its row in the frame
+    // of the send, as before.
+    const uploads =
+      this.uploadForSend && bound?.sessionId === sessionId && bound.ticket === ticket
+        ? uploadsToFit(input, sendAttachments, options)
+        : [];
+    const ticketGeneration = this.selectionGeneration;
+    const unclaim = () => {
+      if (claim && this.handoffTurnsSent.get(sessionId) === claim.turn) {
+        if (claim.before === undefined) this.handoffTurnsSent.delete(sessionId);
+        else this.handoffTurnsSent.set(sessionId, claim.before);
+      }
+    };
+    const boundTicket = uploads.length ? await ticket : undefined;
+    // The selection moved while the ticket came: the prompt goes back to its sender, never into
+    // the chat shown now.
+    if (boundTicket && (ticketGeneration !== this.selectionGeneration || this.selectedSessionId !== sessionId)) {
+      unclaim();
+      throw new Error(translate("error.notOpen"));
+    }
+    if (uploads.length && boundTicket) {
+      const sent = await this.uploadForSend!(uploads, { sessionId, promptId, ticket: boundTicket });
+      if ("error" in sent) {
+        unclaim();
+        throw new Error(sent.error);
+      }
+      // The selection moved while the files uploaded: the prompt goes back to its sender, never
+      // into the chat shown now.
+      if (ticketGeneration !== this.selectionGeneration || this.selectedSessionId !== sessionId) {
+        unclaim();
+        throw new Error(translate("error.notOpen"));
+      }
+      ticket = sent.ticket;
+      const uploaded = new Map(sent.attachments.map((chip) => [chip.id, chip]));
+      carried = carried.map((chip) => uploaded.get(chip.id) ?? chip);
+    }
     // A video sent without its frames (an agent that takes no images, or past the budget) is the
     // file chip in the row its echo draws, not a tile (conversation/sentVideos.ts).
     if (carried !== audible) {
@@ -8773,6 +8906,10 @@ export class AcpmuxDirectClient {
       ),
     );
     this.emit();
+    // A send with nothing to upload goes to its own chat however late its ticket comes: its row is
+    // already drawn there, the prompt names `sessionId`, and a bound ticket redeems only for that
+    // chat. Only an upload depends on the chat shown now (its stager saves there), so only a send
+    // with files to upload is refused when the selection moved (above).
     const gesture = await ticket;
     try {
       await this.request("session/prompt", {
@@ -9121,9 +9258,11 @@ export class AcpmuxDirectClient {
     if (kept?.length) return resentAttachments(kept);
     const images = this.rows.get(rowId)?.images ?? [];
     const read = await Promise.all(
-      images.map(async (image, index): Promise<ComposerAttachment | undefined> => {
+      images.map(async (image, index): Promise<ComposerAttachment> => {
         const data = await this.promptImageData(image.id);
-        if (!data) return undefined;
+        // An image that cannot be read back (a reload or eviction lost its bytes) fails the whole
+        // resend, as restoreInline does: Retry never sends the prompt without it, or empty.
+        if (!data) throw new Error(translate("attachment.unavailable", { name: image.name ?? image.id }));
         return {
           id: `sent-${image.id}`,
           kind: "image",
@@ -9135,7 +9274,7 @@ export class AcpmuxDirectClient {
         };
       }),
     );
-    return read.filter((attachment): attachment is ComposerAttachment => attachment !== undefined);
+    return read;
   }
   /// The image `id` a prompt of the open chat sent, as a data URL; undefined when acpmux has none.
   /// An id names the image's bytes, so one read serves every bubble that shows it.
@@ -9465,6 +9604,27 @@ export class AcpmuxDirectClient {
   /// `picks`: the task's Options (offer/offerChoice.ts). The agent is the offer's, else the one the
   /// picks were made for, else the default; a picked effort or permission mode goes to the new
   /// chat under its own gesture ticket before the prompt, and one it refuses ends the start there.
+  /// A repo tour's first task (repoTour/TourCard.tsx Start): a new chat in `cwd` given `prompt`,
+  /// as a started offer is, with no offer behind it. With `side`, acpmux tags it that chat's side
+  /// chat and `opened` shows it before the prompt goes, so it is never an untagged chat at work.
+  /// A trust question routes as any new chat's does; Trust starts it again.
+  async startTask(
+    cwd: string,
+    prompt: string,
+    { harness, side, opened }: { harness?: string; side?: string; opened?: (sessionId: string) => unknown } = {},
+  ): Promise<string> {
+    const again = () => void this.startTask(cwd, prompt, { harness, side, opened }).catch(() => undefined);
+    const child = (await this.newSession(newSessionParams({ cwd }, harness, false), again))?.sessionId;
+    if (!child) throw new Error(translate("tour.startFailedUnknown"));
+    const sessionId = String(child);
+    if (side) {
+      // A tag acpmux refused leaves an ordinary chat, which the sidebar lists; the task still runs.
+      await this.markSide(sessionId, side).catch(() => undefined);
+      await Promise.resolve(opened?.(sessionId)).catch(() => undefined);
+    }
+    void this.promptUnseen(sessionId, prompt);
+    return sessionId;
+  }
   async startOffer(sessionId: string, offer: AcpmuxSessionOffer, cwd: string, picks: OfferPicks = {}): Promise<string> {
     const params = newSessionParams({ cwd }, offer.harness ?? picks.harness, false, picks.model ?? offer.model);
     // A trust question routes as any new chat's does; Trust starts the offer again.
@@ -10971,6 +11131,17 @@ export class AcpmuxDirectClient {
       ...(this.peerEvents.authoritative ? {} : this.peerStates),
       ...Object.fromEntries(peers.map(([peer, link]) => [peer, link.state])),
     };
+    const links = Object.fromEntries(
+      peers.flatMap(([peer, link]) => (link.detail ? [[peer, link.detail] as const] : [])),
+    );
+    // A note from an older daemon (no detail) leaves no stale whole state behind.
+    const said = new Set(peers.map(([peer]) => peer));
+    this.peerLinks = {
+      ...Object.fromEntries(
+        Object.entries(this.peerEvents.authoritative ? {} : this.peerLinks).filter(([peer]) => !said.has(peer)),
+      ),
+      ...links,
+    };
     this.peerConnected = {
       ...unlisted,
       ...Object.fromEntries(peers.map(([peer, link]) => [peer, link.connected])),
@@ -11001,6 +11172,7 @@ export class AcpmuxDirectClient {
     this.peerKinds = peerKindsFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
     this.peerStates = peerStatesFromStatus(status);
+    this.peerLinks = peerLinksFromStatus(status);
     this.peerResources = peerResourcesFromStatus(status);
     this.peerStatus = peerStatusFromStatus(status);
     if (this.peerEvents.observed) this.applyPeerStates();
@@ -11668,10 +11840,13 @@ export class AcpmuxDirectClient {
 /// The params field that carries a pick's gesture ticket, or nothing without one.
 /// Reserves the person's current gesture for one prompt. A page or script without a trusted
 /// AppKit event gets no ticket; the host's normal gesture check then refuses its send.
-const reservePromptGesture = (promptId: string): Promise<string | undefined> => {
+/// The newest chat-bound send tickets a client remembers (`boundSendTickets`); a send takes its own.
+const BOUND_SEND_TICKETS_KEPT = 16;
+
+const reservePromptGesture = (promptId: string, sessionId?: string): Promise<string | undefined> => {
   try {
     return postNative<{ ticket?: string }>("transport.gesture", {
-      intent: { method: "session/prompt", params: { promptId } },
+      intent: { method: "session/prompt", params: { promptId, ...(sessionId ? { sessionId } : {}) } },
     }).then(
       (reply) => reply?.ticket,
       () => undefined,

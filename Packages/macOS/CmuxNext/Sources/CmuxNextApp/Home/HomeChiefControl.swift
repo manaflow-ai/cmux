@@ -88,7 +88,7 @@ struct HomeChiefControl {
     }
 
     var turnControl: HomeChiefTurnControl {
-        HomeChiefTurnControl(connection: connection, named: named, isHosted: isHosted)
+        HomeChiefTurnControl(connection: connection, named: named, isHosted: isHosted, brainHome: server == nil && !isHosted ? brainHome : nil)
     }
     func stop() async -> HomeChiefEngineError? { await turnControl.stop() }
     func stopAll() async -> Result<ChiefStopAll, HomeChiefEngineError> { await turnControl.stopAll() }

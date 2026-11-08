@@ -163,8 +163,24 @@ export function ComposerBox({
   );
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
+  /// Set while a file that stays in the strip is attached: its intake places it synchronously
+  /// (attachmentIntake.tsx), so `place` reads this in the same call.
+  const toStrip = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
-  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt, onPasteFile);
+  const pastedChips = usePastedChips(
+    attachmentsRef ?? ownAttachments,
+    setAttachments,
+    prompt,
+    onPasteFile &&
+      ((file, inText = true) => {
+        toStrip.current = !inText;
+        try {
+          onPasteFile(file);
+        } finally {
+          toStrip.current = false;
+        }
+      }),
+  );
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   const inline = useInlineAttachments({
@@ -182,6 +198,7 @@ export function ComposerBox({
       pastedChips.expand(id);
       prompt.current?.removeInline(id);
     },
+    ...(pastedChips.keepAsFile ? { keepFile: pastedChips.keepAsFile } : {}),
     placing: () => !fieldOverlay,
     codex,
     ...(originalFailures ? { originalFailures } : {}),
@@ -195,7 +212,7 @@ export function ComposerBox({
         plainPaste.current();
         prompt.current?.plainPaste();
       },
-      place: (chips, kind) => inline.place(chips, kind),
+      place: (chips, kind) => inline.place(chips, kind, toStrip.current),
       sent: (ids) => {
         inline.sent(ids);
         pastedChips.pastes.current = [];
@@ -294,6 +311,7 @@ export function ComposerBox({
           {...(originalFailures ? { originalFailures } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
           onExpand={inline.expand}
+          {...(pastedChips.keepAsFile ? { onKeepFile: inline.keepFile } : {})}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>

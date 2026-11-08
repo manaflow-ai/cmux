@@ -1,5 +1,5 @@
 import { type Translate } from "../i18n";
-import type { NeedsYouItem } from "./model";
+import type { NeedsYouAnswer, NeedsYouItem } from "./model";
 import { messagePreview } from "../conversation/incomingMessage";
 
 /// The Debug choice `agentPane.debug.needsYou` (data-needs-you on <html>): `pinned` (the default)
@@ -39,4 +39,40 @@ export function sideQuestionPrompt(item: NeedsYouItem, question: string): string
     "Answer briefly from what this chat has done: what the agent is doing, why it asks, and what each answer would lead to.",
   ];
   return lines.join("\n");
+}
+
+/// A permission's answer's letter, as the permission card's (permissions/prompt.ts
+/// PERMISSION_LETTERS): y allows once, n denies. A question's choices and a held pair's Resume
+/// have none; the list offers no lasting allow, so it has no a.
+export function answerKey(item: NeedsYouItem, choice: NeedsYouAnswer): "y" | "n" | undefined {
+  if (!item.permissionId || item.question || item.kind === "held") return undefined;
+  return choice.tone === "allow" ? "y" : choice.tone === "deny" ? "n" : undefined;
+}
+
+/// Where the keyboard belongs to a field or a picker in the list (Ask about this, a question's form).
+const TYPES_HERE =
+  'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="menu"], [role="listbox"], [role="combobox"]';
+
+/// The answer button a key presses in the list: y or n answers the row that has focus, or the top
+/// row with a lettered answer when the list itself has it. None while a field has the keyboard.
+export function keyedAnswer(
+  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "target"> & {
+    repeat?: boolean;
+    isComposing?: boolean;
+    keyCode?: number;
+    defaultPrevented?: boolean;
+  },
+  panel: Element,
+): HTMLButtonElement | null {
+  if (event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229) return null;
+  if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
+  const key = event.key.toLowerCase();
+  if (key !== "y" && key !== "n") return null;
+  const target = event.target as Element | null;
+  const element = typeof target?.closest === "function" ? target : null;
+  if (element?.closest(TYPES_HERE)) return null;
+  const rows = [...panel.querySelectorAll(".acpmux-needs-you-item")];
+  const row =
+    element?.closest(".acpmux-needs-you-item") ?? rows.find((each) => each.querySelector("[data-answer-key]"));
+  return row?.querySelector<HTMLButtonElement>(`button[data-answer-key="${key}"]:not(:disabled)`) ?? null;
 }

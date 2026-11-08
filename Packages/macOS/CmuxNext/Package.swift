@@ -12,7 +12,7 @@ import PackageDescription
 //   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
 //   CmuxNextBrowserCore -> Compat, Wakeups (the browser's engine-neutral values and protocols; Browser re-exports it)
 //   CmuxNextFavicons -> CmuxNextBrowser, CmuxNextTabs (public read-only favicon leaf)
-//   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
+//   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Home -> DesignTokens (the tab close rule); Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
 //   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
@@ -184,8 +184,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-f1ebca568c5dd8c1337f5ab80e9728919c63a202/CCmuxAppFFI.xcframework.zip",
-    checksum: "e865c3bb71cc1ffc6596ad34b9b9281f2370911c1294905d5d4194bbbc1159ed"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-9c8286e8777be41f4785426cc7a4765ba3eeb6fe/CCmuxAppFFI.xcframework.zip",
+    checksum: "e2fdf95a95a05f42949fbd63ec7c390701f3efa04ea3140a258b1491664f569e"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -834,6 +834,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextDictation",
                 "CmuxNextHomeModel",
                 "CmuxNextIcons",
@@ -1071,14 +1072,20 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Bookmarks (plans/cmux-next/bookmarks.md): the tree per browser
-        // profile, Netscape HTML import/export, omnibar ranking, the local
-        // file store, the cmux://bookmarks page, the bookmarks bar and the
-        // edit bubble.
+        // profile mirrored from the home daemon, the client of its routed
+        // `bookmarks.*` ops (file import/export, search, rank), the local
+        // file store, the cmux://bookmarks React page's host, the bookmarks
+        // bar and the edit bubble.
         .target(
             name: "CmuxNextBookmarks",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextBrowser",
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
+                "CmuxNextPages",
+                "CmuxNextSettings",
             ],
             resources: [
                 .process("Resources"),
@@ -2156,6 +2163,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 "CmuxNextResources",
                 "CmuxNextWakeups",

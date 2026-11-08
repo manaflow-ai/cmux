@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: pinning never renames a workspace. Lawrence, verbatim: "i pinned a workspace and it's name disappeared
+  and went back to workspace-936". A workspace nobody named keeps the daemon's `workspace-N`; its list row shows the
+  auto name the page face gives (`AppServices.sidebarPageFace`). Pinned (layout tiles), it leaves the list for a band
+  item (`SidebarWorkspaceItems`), which mapped the row with that face's favicon only, so its title fell back to
+  `workspace-N`. Band items now read the list rows' whole page face (`SidebarMapping.tileInfos(pageFace:)`), so a
+  pinned row shows the title its list row showed: the user's name, a stored auto name, or the shown auto name. Not a
+  data loss: display-only auto names were never stored, and stored names were never changed, so nothing to restore.
+  Regression: `PinnedWorkspaceKeepsTitleTests`.
 - 2026-11-08: the Updated card's remembered height keeps its scale, review F1 and F2 of #38150. The heights
   `SidebarUpdatedCardHost` remembers across launches are CSS pixels (points over `app.uiScale`) under new `.v3`
   keys, read back at the scale now, so a 60 pt card remembered at 125% holds 48 at 100%; the `.v2` points at an
@@ -289,6 +297,26 @@
   smaller than its own rows; it now takes `titleFont`'s size, semibold. The veil, rim and radius are the role's, owned
   with the other glass roles (real-glass-material, #36240); only the color's share is sidebar's. Gallery: `AANoColorGroupGalleryTests`
   (today and the three glass looks over a busy wallpaper). Regression: `GroupHeaderGlassTests`.
+- 2026-11-07: the Pictorial palette (`sidebar.groupPalette` `pictorial`). Leo, verbatim: "perhaps, like, have hints of
+  your background wallpaper, or some other selection of the background wallpaper as possible for the thing. You know,
+  like a pictorial group". The desktop picture's existing small decode (64 px, off the main actor) is also averaged
+  in 16 horizontal bands (`WallpaperTint.bands`); each group with a palette color takes the band at its place among
+  them, top group from the top of the picture, its hue kept and lifted to the group colors' lightness (gallery P2
+  "soft": the slice's color, no detail). Same path as Gradient (`SidebarGroup.drawnTints`, once per reload); a new
+  picture's color reloads the list once (`DesktopWallpaperWatch.follow`). The bands ride on
+  `DesignSettings.groupWallpaperTint`, sampled for Pictorial as for Wallpaper (`samplesForGroups`, keyed on
+  `GroupPalette.followsWallpaper`). The picture itself inside a header (P1 "window")
+  is a follow-up. Regression: `GroupPictorialPaletteTests`, `GroupGradientPlacementTests.pictorialPlacesGroupsDownThePicture`.
+- 2026-11-07: the Gradient palette (`sidebar.groupPalette` `gradient`, `sidebar.groupGradient`: Sunset, Aurora,
+  Lagoon, Two-Tone). Leo, verbatim: "imagine the gradients are just, like, based off of placement, and they're not,
+  like, just static. They're, like, dynamic" and "you want to make sure you do the thing where they don't become
+  brown". Each group with a palette color takes the gradient's color at its place among them, top to bottom, spread
+  over the whole gradient (gallery G1 "stepped": one color per group, so every header look and the rail work as they
+  are; G2 "flowing", each header blending into the next, can follow). Nothing is stored: the list works out
+  `drawnTints` once per reload (`SidebarGroup.drawnTints`, O(groups)) and the header and line draw it; a picked custom
+  color keeps its own and no color stays glass. The blend is OKLCH, hue the short way, chroma pulled in to fit sRGB
+  (`GroupGradient.rgb(at:)`). Regression: `GroupGradientTests`, `GroupGradientPlacementTests`,
+  `SidebarGroupGradientSettingTests`.
 - 2026-11-07: group colors come from a palette (`sidebar.groupPalette`): Glass (default), Theme, Wallpaper,
   Grayscale, Vibrant. Leo, verbatim (2026-11-06): "if it's a choice between frumpy colors or no colors at all slash
   black and white, you just pick black and white", "you pick this circle, right? And it's like this ball of colors
@@ -715,6 +743,47 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## A workspace row's favicon follows the tab last focused in it (2026-11-07)
+
+Lawrence msg 23802: "workspace favicon needs to reflect the latest focused/interacted entity that was interacted with
+in that workspace". A row's icon is the favicon (or the site globe) of the tab the window last focused in that
+workspace: a page focused in a split beside a terminal or chat shows its favicon; a click back into the terminal or
+chat drops it (the row is then text only, as a terminal row is). The row's name still yields to the work beside a
+page (#22249). This takes back #22250 ("a page beside work leaves the row's icon to the work", Leo 2026-10-21: "why
+did this turn into the githb favicon?"): that mark came from the daemon's stale `focused_at` (the app never writes
+it, focus.md 2), which kept a page opened in a split as the row's front after the person clicked back into the
+terminal. The row's front now ranks the window's own last focused pane (`TabSelectionMemory.focusedPane`, keyed per
+workspace, written only when the pane changes, saved in the window record and seeded at relaunch). Tests:
+`SidebarWorkTabIconTests`, `PaneFocusMemoryObservationTests`, `SidebarSnapshotPageIconTests`.
+
+## The Updated card's hover preview reads whole: header first (2026-11-07)
+
+Lawrence msg 23769, 2026-11-07, on the Updated card's open hover preview: "this ui is very bad" (every line cut with an
+ellipsis, "Updated to ..." with no version, What's New floating after the cut title, the x in a heavy box, the third
+row dimmed). The card's title line is "Updated to Nightly" alone (What's New beside it cut it; this takes back the
+title-line What's New of 57e3b2eca23, Leo's "What's New with the up and to the right arrow", for the shipped
+layout). Open, the header leads the panel: the title with the x, the full version, What's New ↗, then the changes
+under a hairline, each title and detail wrapping to two lines. The dimmed row was the card scroller's 28 px edge
+fade: gone, the list shows its scrollbar. The host's x is light (`SidebarIconButton.isRound`, a round hover fill)
+and moves to the header's title line while the preview is open (`SidebarUpdatedCardHost.closeTop`); the header
+layouts open with no height run. Gallery variants (`previewLayout`): `header` (ships), `header-bottom`, `titles`.
+Regression: webviews `updated-card-preview-reads-whole.test.ts`.
+
+## The Updated card stays still; its changes open beside the sidebar (2026-11-07)
+
+Lawrence, 2026-11-07 7:18pm, on the change list that grew up out of the bottom card over the sidebar's rows: "i dont
+like how it expands upwards, also it looks very bad who keeps on making this bad ? show me variations that it looks
+better". The card no longer grows: resting on it (280 ms) opens its changes beside the sidebar in the app's one hover
+card window (`SidebarUpdatedNotesPopover`, page `#/surface/updated-notes`, `UpdatedNotes.tsx`), menu-wide (340 pt),
+as the staged update card's highlights open: "Updated to Nightly" with What's New ↗ on one line, the full version
+under it, a hairline, then each change's title whole and a quiet detail (2 lines). No edge fade. The popover stays
+while the pointer travels to it and closes 250 ms after it left both (corridor capped at 1.2 s); a drag closes it.
+Debug Settings `sidebar.updatedCard.preview` (`UpdatedCardPreviewMode`) keeps the looks to compare: `beside`
+(ships), `beside-titles`, `version` (the full version as the card's second line), `quiet` (no list, See What's New),
+`above` (the in-card list that grows up, the look before). The page reads the look from the theme slot
+`updated-card-preview`, sent only when it is not the shipped one. Regression: webviews
+`updated-card-stays-still.test.tsx`.
+
 ## The window top shares one line; the + sits on the trailing column (2026-11-07)
 
 Leo 2026-11-07: "i was thinking we can do some work to align the top bit of the sidebar with the tabs/vice versa, and
@@ -727,6 +796,15 @@ alone, centers on the trailing column (`SidebarStyle.trailingColumnFrame`) that 
 and footer Search share; with the chooser segment shown the pair keeps the row's trailing inset. Debug
 `chrome.topRowLine`: `lights` (default), `tabs`, `titlebar`, `off`. Regression: `TopRowAlignmentTests`,
 `TopRowSidebarColumnTests`; live lines: `debug.top_alignment`, tours `top-alignment`, `top-alignment-cozy` and `top-alignment-spacious` (one tour holds 30 steps).
+
+## New Workspace's + is the tab row's + (2026-11-07)
+
+Leo 2026-11-07, on the tab row's + beside the sidebar's: "decrease the size of the tab area plus button, or increase
+the size of the new workspace area button? Or I guess, like, probably do something in the middle". The sidebar's
+New Workspace drew the pack's `action.add` in a 14 pt box (an 8 pt + at 0.9 pt) and the tab row's + was 10 pt at
+1.4 pt. Both now draw the one + of `Metrics.addGlyphExtent` (9 pt at Compact) and `addGlyphLineWidth`
+(`SidebarIconButton.drawsAddGlyph`, `NSImage.addGlyph`); the button's frame and hover fill are unchanged, and the
+chooser's chevron keeps its smaller menu-indicator size. Regression: `TabHoverCardProportionsTests`.
 
 ## The notice card's rows share one leading edge and show whole (2026-11-05)
 
@@ -847,6 +925,7 @@ some undid each other:
 
 | Commit | Date | Who | Change |
 | --- | --- | --- | --- |
+| sb-favicon-focus fix (after the red commit "a focused page beside work gives the row its favicon") | 11-07 | Chief subagent a1032 | cmux NEXT sidebar: a workspace row's favicon follows the tab last focused in it (window focus, not the daemon's stamp); takes back #22250 (Lawrence msg 23802) |
 | sb-states: "feat(sidebar): Sidebar States Playground, every row state at every density (Debug menu)" and its gallery test commit | 11-03 | sidebar owner a590 helper (lawrencecchen) | cmux NEXT sidebar: Debug > Sidebar States Playground draws every row state with the real row views at every density and text size, light and dark, with measured mark sizes (Lawrence msg 19746). No visual change |
 | sb-left-bar fix (after the red commit "the sidebar's left bar is one capsule") | 11-02 | sidebar owner a590 helper (lawrencecchen) | cmux NEXT sidebar: the group rail is one capsule, equal top and bottom rounding (Lawrence msg 19775) |
 | sb-favicon-placeholder fix (after the red commit "a site with no favicon keeps the icon slot") | 11-03 | sidebar owner a590 helper (lawrencecchen) | cmux NEXT sidebar: a site with no favicon (yet) shows a neutral globe in the favicon slot on workspace rows, band items and hover card tab rows; band items show a loaded site favicon |
@@ -1706,6 +1785,20 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - The first pin, which creates the Pinned block, translates too: the block shows at once and its header fades in on
   the move.
 
+## A space another window shows wears a ring; its click offers Go to Window and Move Here (2026-11-08, #38281)
+
+- Leo 2026-10-29: "there's also other ergo wrt new windows being like new spaces, incognito spaces, etc... this could
+  legit make our thing more useful than chrome by having windows be switchable in this way"
+- The spaces strip's dot for a space another open window shows gets a thin 1 pt ring; no dot moves and its click
+  target stays. A click on a ringed space opens a menu at once with Go to Window and Move Here (`space.bringHere`);
+  Option-click goes straight to that window; Move Here is left out when either window is incognito. While the menu is
+  open the dot stays lit and the hover chrome stays revealed. A space no other window shows still switches in place.
+  Debug tunable `tunable.sidebar.spaceSwitcher` (ring, the default; glyph; menu; plain). Rules:
+  `SpaceSwitcherLogic`; tests: `SpaceSwitcherWindowMarksTests`, gallery `SpaceSwitcherGalleryTests`.
+- A dot drag keeps the marks: each moving dot's snapshot draws its ring or glyph too (`ProfileBarDotDragWindowMarkTests`).
+- Commits (carried from #30817): 991f4dae1cd, a90551963f2, 6a4ba590061, d052543bd1d, d9cef9ff37d, aa68b42fc71,
+  9ba13003412.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
@@ -1745,3 +1838,17 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   painted over the ground, opaque); the p1j films showed the passed titles through a flying selected row.
   Then the pin flight begins on the display's frame grid: the next vsync after the apply (`MotionFrameClock`, the
   window's `FrameScheduler` grid; one refresh on with none), so the first moved frame shows curve(1 refresh) on any phase.
+- 2026-11-08 (lane/updated-card-sections, ask-e3ef9cc2d3): `SidebarUpdatedCardHost` hovers through `PointerHover`
+  over its glass and a closing preview's frame, refreshed when the glass moves, instead of a tracking area on the
+  whole view: the room handed back under a still pointer sent no exit, and the list reopened over the rows. Look
+  change: the in-card list (the `above` look) no longer flickers open and closed; the shipped `beside` popover
+  hears the same steadier hover. Sidebar-Look: Leo 2026-11-08, "flicker upon
+  hovering over what's new". Regression: UpdatedCardHoverPreviewTests.
+- 2026-11-07 (a1027, for a590): the update card's Cancel is a quiet text button on the title's row, at the top right
+  (`SidebarNoticeCardView.trailingButton` is a `SidebarCardTextButton`); the detail and the progress bar span the
+  card's inner width in every loading stage. Regression: UpdateCardProgressWidthTests. Sidebar-Look: Lawrence
+  2026-11-07 11:26pm, "cancel button is ugly not taking up full width here".
+- 2026-11-07 (a1027, for a590): the Updated card's two lines are trimmed to their capitals and baseline and stand the
+  side inset in from the top and the bottom (updateSurfaces.css), so the text has the same room on all four sides.
+  Regression: updated-card-even-insets (browser lane). Sidebar-Look: Lawrence 2026-11-07 11:28pm, "feels like too
+  much padding on top".

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 607,
+  "count": 612,
   "sections": [
     {
       "id": "general",
@@ -225,6 +225,27 @@
             "min": 0,
             "max": 3600,
             "unit": "seconds"
+          }
+        },
+        {
+          "key": "agents.cacheCompact.enabled",
+          "title": "Compact Before the Cache Expires",
+          "help": "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Prompt Cache"
+        },
+        {
+          "key": "agents.cacheCompact.minContextPercent",
+          "title": "Only Above Context Used (%)",
+          "help": "Chats using less of their context window than this are left as they are.",
+          "kind": "number",
+          "default": 50,
+          "group": "Prompt Cache",
+          "range": {
+            "min": 10,
+            "max": 95,
+            "unit": "count"
           }
         },
         {
@@ -1249,14 +1270,6 @@
           ]
         },
         {
-          "key": "tabs.cmdWClosesPinnedTabs",
-          "title": "Cmd-W Closes Pinned Tabs",
-          "help": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Tabs"
-        },
-        {
           "key": "tabs.hideLoneChatTab",
           "title": "Hide the Tab of a Chat Alone in Its Pane",
           "help": "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back.",
@@ -1975,6 +1988,45 @@
           "values": [
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.badge",
+          "title": "Sender Badge",
+          "help": "The small colored glyph on a sender's icon that tells sessions of one model family apart.",
+          "kind": "choice",
+          "default": "diamond",
+          "group": "Agent Chat",
+          "values": [
+            "diamond",
+            "robot",
+            "none"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.corner",
+          "title": "Sender Badge Corner",
+          "help": "Where the small glyph sits on a sender's icon.",
+          "kind": "choice",
+          "default": "bottom-right",
+          "group": "Agent Chat",
+          "values": [
+            "bottom-right",
+            "bottom-left",
+            "top-right",
+            "top-left"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.lead",
+          "title": "Sender Icon Emphasis",
+          "help": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge.",
+          "kind": "choice",
+          "default": "family",
+          "group": "Agent Chat",
+          "values": [
+            "family",
+            "session"
           ]
         },
         {
@@ -3625,6 +3677,20 @@
           ]
         },
         {
+          "key": "sidebar.groupGradient",
+          "title": "Group Gradient",
+          "help": "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors.",
+          "kind": "choice",
+          "default": "sunset",
+          "group": "Sidebar",
+          "values": [
+            "sunset",
+            "aurora",
+            "lagoon",
+            "twoTone"
+          ]
+        },
+        {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
           "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
@@ -3656,7 +3722,7 @@
         {
           "key": "sidebar.groupPalette",
           "title": "Group Colors",
-          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list.",
           "kind": "choice",
           "default": "glass",
           "group": "Sidebar",
@@ -3665,7 +3731,9 @@
             "theme",
             "wallpaper",
             "grayscale",
-            "vibrant"
+            "vibrant",
+            "gradient",
+            "pictorial"
           ]
         },
         {

@@ -857,8 +857,16 @@ button.cv-subagent > :last-child {
      2026-11-03: the lines' Stop squares and chevrons sat left of the header's). */
   max-height: calc(var(--acpmux-tray-lines) * var(--ui-row-height, 28px) + 2px);
 }
-.acpmux-running-tray__head + .acpmux-running-tray__fold {
-  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
+/* The header's divider is drawn inside the fold's box, as its first item, not as a border on it: a
+   border lies outside the height the fold animates, so it came in whole on the first frame of an
+   expand and left whole a frame after a collapse had landed, a hairline-tall step of the dock that
+   Jump to latest caught a frame late (composer-hat-fold-balance.test.ts). Inside the box it grows in
+   and folds away with the list, and stays put while the list scrolls under it. */
+.acpmux-running-tray__head + .acpmux-running-tray__fold::before {
+  content: "";
+  flex: none;
+  height: var(--cmux-hairline, 0.5px);
+  background: var(--acpmux-composer-edge, transparent);
 }
 /* The list, in the box the shared fold sizes (conversation/fold.ts `useFold`): it gives
    up its height in a short pane as the list did, and the list in it still scrolls alone. */
@@ -1459,16 +1467,21 @@ div.cv-subagent-done[data-toggle-line]::before {
    same things as everything else") ---------- */
 /* The card's entrance and its kept copy's exit. Shipped: the house settle (#37845, schemas/motion-scale
    `settle`: a strong ease-out that decelerates into rest and never overshoots, Leo 2026-11-07: "they
-   dont overshoot but they decelerate at the end"), a fade with a 4px rise, no scale; what leaves goes
-   quicker, on --agent-motion-out. The gallery's other arm (trayMotion.experiment.ts) lives in
+   dont overshoot but they decelerate at the end"), a fade with a 4px rise, no scale; what leaves folds
+   its height away as it fades, on the same settle. The gallery's other arm (trayMotion.experiment.ts) lives in
    gallery/fixtures/trayMotionArms.css only. The card is marked to enter only while motion may run
    (trayMotionModel.ts `motionAllowed`), so Reduce Motion and the host's switch show it at once. */
 .acpmux-running-tray {
   /* The tray's box is part of the transcript's dock. Its arrival must not move visible rows; the
      dock and VirtualTranscript settle their measured height in one frame, then the ink settles in
      (translate moves no layout). */
-  --acpmux-tray-enter: acpmux-tray-settle-in var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both; /* motion-allow: the house settle (schemas/motion-scale `settle`, #37845), a measured length beside the steps */
-  --acpmux-tray-leave: acpmux-tray-leave var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
+  --acpmux-tray-enter: acpmux-tray-settle-in var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  /* The kept copy leaves in the card's place, folding its height to 0 as it fades, on the same settle
+     as the entrance, so the composer and the transcript over the stack move once, continuously, as
+     the hat goes (Leo, 2026-11-08: "the hat auto removing/auto hiding stuff that's super done is maybe
+     a bit jarring?"; trayMotionModel.ts `playTrayExit`). Reduce Motion makes no copy: the hat goes at
+     once. */
+  --acpmux-tray-leave: acpmux-tray-leave var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
 }
 /* A line that joins or leaves the open list grows from, or folds to, 0 height with its opacity on the
    shared fold (SubagentTray.tsx `TrayRow`, conversation/fold.ts), so the lines around it move with it.
@@ -1526,8 +1539,11 @@ div.cv-subagent-done[data-toggle-line]::before {
 }
 @keyframes acpmux-tray-leave {
   to {
+    height: 0;
+    margin-block: 0;
+    padding-block: 0;
+    border-block-width: 0;
     opacity: 0;
-    translate: 0 4px;
   }
 }
 /* Words that tick (trayMotion.tsx `Tick`): the old and the new share one cell; the old leave up as the
@@ -2096,7 +2112,24 @@ div.cv-subagent-done[data-toggle-line]::before {
 .acpmux-done-mark__check {
   flex: none;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: color-mix(in srgb, var(--agent-status-success) 70%, var(--agent-muted));
+}
+/* In the hat, the time and its check stand one tray gap apart, the gap between a line's time and its
+   Stop column (Leo, 2026-11-08, on "47s ✓": "it just feels iffy how it's close the the number"). */
+.acpmux-running-tray .acpmux-done-mark {
+  gap: var(--acpmux-tray-gap);
+}
+/* The `column` arm (hatParts.experiment.ts `hatDoneCheckPlace`, the default): a lone item's check on the
+   folded header is centred in a Stop-wide column of its own, so the digits keep a line's time-to-Stop
+   spacing and the check sits on the same centre a line's check and Stop square do within their track. */
+.acpmux-running-tray .acpmux-done-mark[data-place="column"] > .acpmux-done-mark__check {
+  width: var(--acpmux-tray-stop-width);
+}
+/* The `leading` arm: the check in the header's leading glyph column, centred there as a line's glyph is. */
+.acpmux-running-tray__head > .acpmux-lineage__icon > .acpmux-done-mark__check {
+  width: 100%;
 }
 .acpmux-done-mark__time {
   flex: none;
