@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Why an agent-chat action can't run, in its own words: the action's title and the cause.
 public nonisolated enum AgentChatRefusal: Sendable {
@@ -12,6 +12,9 @@ public nonisolated enum AgentChatRefusal: Sendable {
     case needsFocus
     /// It ran without the value it sets.
     case needsValue
+
+    /// The bundle with the refusals' string table.
+    public static var bundle: Bundle { .module }
 
     /// The reason, naming the action `title`.
     public func reason(_ title: String) -> String {
