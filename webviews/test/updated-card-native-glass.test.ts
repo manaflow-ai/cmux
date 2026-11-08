@@ -213,6 +213,23 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
           });
         }
       }
+
+      test("a card with its own page glass (the gallery over a wallpaper) keeps the tint, open or held", async () => {
+        // Its blur frosts what is under it in its own document: the solid surface is only for the
+        // sidebar's card, whose page has no glass and nothing under it the blur could read.
+        const page = await open("updated", "plain", true, { previewOpen: true, look: "dark" });
+        await page.waitForSelector('.wn-updated[data-preview="open"]');
+        const got = await page.evaluate(() => {
+          const card = document.querySelector<HTMLElement>(".wn-card")!;
+          const open = getComputedStyle(card).backgroundColor;
+          card.dataset.dragging = "";
+          const held = getComputedStyle(card).backgroundColor;
+          return { open, held };
+        });
+        expect(alpha(got.open)).toBeLessThan(0.9);
+        expect(alpha(got.held)).toBeLessThan(0.9);
+        await page.close();
+      });
     });
   }
 });
