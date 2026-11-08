@@ -618,7 +618,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "square.stack.3d.up",
         surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::STYLE.optional(), args::EXPANDED.optional(), args::TEAM.optional(), args::OPEN.optional(), args::PEER.optional(), args::DARK.optional()],
+        arguments: &[args::STYLE.optional(), args::EXPANDED.optional(), args::TEAM.optional(), args::PEER.optional(), args::DARK.optional()],
         cli_name: "action home-agent-message-playground",
         main_menu: Some("debug"),
         is_debug_only: true,

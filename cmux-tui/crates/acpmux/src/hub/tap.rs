@@ -407,6 +407,8 @@ impl Hub {
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {
                 tap_hub.note_process(&tap_session, &rec, output.as_deref());
+                // A dev server's URL, from its output file (`process_preview.rs`).
+                tap_hub.watch_previews(&tap_session);
             }
             // A failed subagent's retry, once its end is logged (`subagent_retry.rs`).
             if d == "in"

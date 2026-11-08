@@ -108,7 +108,8 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 /// The session's status dot, decided here once so every client draws the
 /// same one (cx-zlox). First match wins:
 ///
-/// - `input`: a permission or question waits for the person.
+/// - `input`: a permission or question waits for the person, here or in an
+///   open sub-session below it (`subsessionsWaiting`, `asks_below.rs`).
 /// - `working`: a turn runs.
 /// - `failed`: the last turn failed (also when the agent then exited).
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
@@ -144,6 +145,9 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "disconnected" if !summary["turn"].is_null() => Some("lost"),
         "waiting" => Some("input"),
         _ if pending => Some("input"),
+        // A sub-session below it waits on the person: its run stalls there until someone answers,
+        // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
+        _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
@@ -229,7 +233,13 @@ pub fn lane(summary: &Value) -> Value {
             "working",
             summary["turn"]["startedAt"].as_u64().or(summary["subagentsWorkingSince"].as_u64()),
         ),
-        Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
+        Some("input") => (
+            "input",
+            summary["inputSince"]
+                .as_u64()
+                .or(summary["subsessionsWaitingSince"].as_u64())
+                .or(updated),
+        ),
         Some("failed") => ("failed", ended),
         Some("lost") if in_turn => ("lost", updated),
         Some("lost") => ("lost", summary["lastTurn"]["endedAt"].as_u64().or(updated)),
@@ -434,27 +444,15 @@ impl Hub {
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
-        let loop_episode = if m.status == SessionStatus::Closed {
+        let loop_episode = if m.status == SessionStatus::Closed || turn.is_none() {
             None
         } else {
             session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).active().cloned()
         };
-        let stuck = if m.status == SessionStatus::Closed {
-            None
-        } else {
-            m.harness_failures
-                .stuck()
-                .map(|(reason, since, error)| (reason, since, error.to_owned()))
-                .or_else(|| {
-                    loop_episode.as_ref().map(|episode| {
-                        (
-                            crate::session_liveness::StuckReason::Loop,
-                            episode.since,
-                            episode.diagnosis.clone(),
-                        )
-                    })
-                })
-        };
+        // Harness failure state has scheduling meaning beyond the UI. A tool loop remains a
+        // running turn and is reported separately as `loopEpisode`.
+        let stuck =
+            (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
         let stopping = turn.as_ref().is_some_and(|t| {
             session.stopping.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
                 == Some(t.turn_id.as_str())
@@ -475,9 +473,9 @@ impl Hub {
             } else {
                 m.status.to_string()
             },
-            stuck_reason: stuck.as_ref().map(|s| s.0),
-            stuck_since: stuck.as_ref().map(|s| s.1),
-            stuck_error: stuck.as_ref().map(|s| s.2.clone()),
+            stuck_reason: stuck.map(|s| s.0),
+            stuck_since: stuck.map(|s| s.1),
+            stuck_error: stuck.map(|s| s.2.to_owned()),
             loop_episode: loop_episode.map(|episode| {
                 crate::protocol::session::LoopEpisodeSummary {
                     episode_id: episode.episode_id,
@@ -661,6 +659,10 @@ impl Hub {
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
+        let waiting = self.subsessions_waiting(session);
+        summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
+        summary.set("subsessionsWaitingSince", json!(waiting.map(|(_, since)| since)));
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).

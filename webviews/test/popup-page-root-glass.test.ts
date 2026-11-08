@@ -45,6 +45,12 @@ const POPUP_PAGES: Record<string, string[]> = {
     "pages/changelog/updateSurfaces.css",
     "pages/changelog/surface.css",
   ],
+  // The floating web card host (server cards): the panel's glass is the page's background.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebCard/WebCardPanel.swift": [
+    "pages/shared/pageBase.css",
+    "ui/ui.css",
+    "pages/server-cards/styles.css",
+  ],
 };
 
 // Popup documents whose fix is in an open pull request that owns the file; each goes when it lands.

@@ -2,6 +2,7 @@
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
+import { withoutRelayLabel } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
 import { senderSessionName } from "./senderIdentity";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
@@ -98,8 +99,6 @@ export type AcpmuxSessionEntry = {
   unsent?: boolean;
   /** Its last turn completed: its harness profile runs here (signed in, routed). */
   worked?: boolean;
-  /** One active loop episode detected from the running tool stream. */
-  stuck?: { reason: string; since?: number; diagnosis?: string };
   /** Explicit lifecycle evidence; absent until the protocol producer supplies a validated receipt. */
   lifecycleReceipt?: LifecycleReceipt;
   /** The folder of a sub-session this chat's agent wants to start but cannot until the person trusts
@@ -291,8 +290,10 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     side: session.side === true || tagged(session.tags, SIDE_TAG) || tagged(session.tags, ASIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
     pullRequestUrls: pullRequestUrls(session.pullRequests),
-    preview: text(session.preview),
-    lastMessage: text(session.lastMessage?.text) ?? text(session.preview),
+    // A relayed message's text holds the broker's label for the agent (conversation/relayEnvelope.ts):
+    // a list's preview reads the message.
+    preview: shown(session.preview),
+    lastMessage: shown(session.lastMessage?.text) ?? shown(session.preview),
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),
@@ -322,23 +323,6 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
       session.status !== "running" &&
       session.status !== "waiting",
     worked: session.lastTurn?.status === "completed",
-    ...(session.loopEpisode && typeof session.loopEpisode === "object"
-      ? {
-          stuck: {
-            reason: "loop",
-            since: typeof session.loopEpisode.since === "number" ? session.loopEpisode.since : undefined,
-            diagnosis: text(session.loopEpisode.diagnosis),
-          },
-        }
-      : session.state === "stuck" || text(session.stuckReason)
-      ? {
-          stuck: {
-            reason: text(session.stuckReason) ?? "loop",
-            since: typeof session.stuckSince === "number" ? session.stuckSince : undefined,
-            diagnosis: text(session.stuckError),
-          },
-        }
-      : {}),
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
     trustPending: trustPending(session.tags),
     retry: readRetry(session.retry) ?? undefined,
@@ -456,10 +440,20 @@ export function sessionTitle(
     // A name that reads as an id or a counter (`cloud-item-14`) yields to the chat's title, and
     // still beats "New chat" while it has none.
     if (!isOpaqueName(bare)) return name;
-    return session.title?.trim() || session.lastPrompt?.trim() || name;
+    return session.title?.trim() || firstPrompt(session.lastPrompt) || name;
   }
-  return session.title?.trim() || session.lastPrompt?.trim() || t("sidebar.newChat");
+  return session.title?.trim() || firstPrompt(session.lastPrompt) || t("sidebar.newChat");
 }
+
+/// A chat's first prompt as its title: a lane's message the broker relayed reads as the message,
+/// never the label around it (conversation/relayEnvelope.ts).
+const firstPrompt = (prompt: string | undefined) => withoutRelayLabel(prompt?.trim() ?? "").trim();
+
+/// A list's preview text without the broker's label; undefined when none is left.
+const shown = (value: unknown): string | undefined => {
+  const read = text(value);
+  return read === undefined ? undefined : withoutRelayLabel(read).trim() || undefined;
+};
 
 /**
  * A folderless workspace's private chat folder, `~/Library/Application Support/cmux/agent-home/<workspace-id>`

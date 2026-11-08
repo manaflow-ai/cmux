@@ -39,13 +39,17 @@ pub(in crate::cli) struct AgentRosterView {
     /// `--counts`: `--json` prints `{"agents","counts"}` instead of the
     /// bare agent array.
     pub counts: bool,
+    /// `--state <status>` (`--needs-me` is `blocked`): only the agents with
+    /// this shared status word (`ended` for a session that ended). The
+    /// daemon filters by its own state first (agent_roster.rs).
+    pub status: Option<&'static str>,
 }
 
 /// `agent list --sort`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) enum AgentSort {
-    /// Blocked first, then working, then idle and done, then unknown; the
-    /// most recently updated first within each group.
+    /// Blocked first, then done, working, idle, unknown and ended; the most
+    /// recently updated first within each group.
     #[default]
     NeedsMe,
     /// The most recently updated first.

@@ -876,13 +876,32 @@ pub(super) fn read_envelope(
 /// Prints a request's successful result as the command shows it; returns
 /// the exit code.
 pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Value) -> i32 {
+    // `terminal status` prints its program status records; for a person it
+    // also names the last command the shell finished (`--json` keeps the
+    // record list; `terminal show --json` has it as `extra.last_command`).
+    let last_command = (global.output == OutputMode::Human
+        && plan.view == super::command::ResponseView::TerminalProgramStatus)
+        .then(|| result.pointer("/extra/last_command").cloned())
+        .flatten();
     let result = plan.view.project(result);
     let shown = match global.output {
         OutputMode::Human => human_view(plan, &result),
         output => agent_roster::machine_view(plan, &result, output),
     };
     let code = print_success(&shown, global.output);
+    if let Some(last) = last_command {
+        println!("{}", last_command_line(&last));
+    }
     if code == 0 { success_exit_code(plan, &result) } else { code }
+}
+
+/// `terminal status`'s line for the last command the shell finished
+/// (OSC 133 `D`): its exit status, or that the shell reported none.
+fn last_command_line(last: &Value) -> String {
+    match last.get("exit_code").and_then(Value::as_i64) {
+        Some(code) => format!("LAST COMMAND exit {code}"),
+        None => "LAST COMMAND exit status unknown".to_owned(),
+    }
 }
 
 /// A printed result that exits 1: a `terminal <id> screen wait` timeout
@@ -1158,6 +1177,10 @@ mod sanitize;
 mod socket;
 mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
+pub(super) use agent_roster::{NOTIFICATION_LIMIT, daemon_state_for_status};
+// terminal_talk (unix-only) reads unread notifications the same way.
+#[cfg(unix)]
+pub(super) use agent_roster::unseen_terminals;
 pub(super) use hints::connect_failure;
 #[cfg(test)]
 use human::human_text;

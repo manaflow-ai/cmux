@@ -2,7 +2,14 @@
 // acpmux's inbox notices next to each other draw as one (inboxNotice.ts `mergeInboxNotices`).
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { joinNotices, mergeInboxNotices, threadLabel, type InboxNotice, type InboxThread } from "./inboxNotice";
+import {
+  inboxNotice,
+  joinNotices,
+  mergeInboxNotices,
+  threadLabel,
+  type InboxNotice,
+  type InboxThread,
+} from "./inboxNotice";
 
 const thread = (threadId: string, from: string, count = 1, fields: Partial<InboxThread> = {}): InboxThread => ({
   threadId,
@@ -84,4 +91,39 @@ test("a joined thread keeps its messages whole only when both notices held them"
   const one = joinNotices({ threads: [whole("a")] }, { threads: [thread("pr:9", "b")] });
   expect(one.threads[0]?.messages).toBeUndefined();
   expect(one.threads[0]?.blocker).toBe(false);
+});
+
+// chat-fork-fast's agent chip (#37626) opens a sender by its record: the name reads bare, the
+// record keeps the declared label and session whole.
+test("a bare sender name keeps its record's label and session", () => {
+  const sender = {
+    label: "gcp-agent-lane-2/lock-proof-routes",
+    labelDeclared: true,
+    session: "s-9",
+    verification: "declared",
+  };
+  const notice = inboxNotice("[inbox] New messages from other agents in 1 thread.", {
+    threads: [
+      {
+        threadId: "declared:gcp-agent-lane-2/lock-proof-routes",
+        label: "gcp-agent-lane-2/lock-proof-routes (self-declared, unauthenticated)",
+        from: ["gcp-agent-lane-2/lock-proof-routes (self-declared, unauthenticated)"],
+        promptIds: ["p1"],
+        preview: "done",
+        sender,
+        messages: [
+          {
+            promptId: "p1",
+            from: "gcp-agent-lane-2/lock-proof-routes (self-declared, unauthenticated)",
+            text: "done",
+            sender,
+          },
+        ],
+      },
+    ],
+  });
+  const thread = notice!.threads[0]!;
+  expect(thread.from).toEqual(["gcp-agent-lane-2/lock-proof-routes"]);
+  expect(thread.sender).toMatchObject({ label: sender.label, session: "s-9" });
+  expect(thread.messages![0]!.sender).toMatchObject({ label: sender.label, session: "s-9" });
 });

@@ -14,19 +14,6 @@ const base = [
     updatedAt: 1000,
   }),
   session({
-    sessionId: "chief-stuck",
-    title: "Repair the failing tests",
-    status: "running",
-    indicator: "working",
-    stuck: {
-      reason: "loop",
-      since: 950,
-      diagnosis: "Repeated cargo test -p acpmux 3 times; the same call keeps failing",
-    },
-    preview: "The agent is repeating the same failed call.",
-    updatedAt: 950,
-  }),
-  session({
     sessionId: "chief-input",
     title: "Review the sidebar polish",
     status: "waiting",
@@ -87,7 +74,6 @@ const mascotOption = (mascot: ChiefMascot, note: string) => ({
     onSelect: () => undefined,
     onNewChat: () => undefined,
     onMoveToTab: () => undefined,
-    onNudge: () => undefined,
   },
 });
 
@@ -139,7 +125,6 @@ export default componentEntry({
         onSelect: () => undefined,
         onNewChat: () => undefined,
         onMoveToTab: () => undefined,
-        onNudge: () => undefined,
       },
     },
     "wallpaper-glass": {
@@ -151,7 +136,6 @@ export default componentEntry({
         onSelect: () => undefined,
         onNewChat: () => undefined,
         onMoveToTab: () => undefined,
-        onNudge: () => undefined,
       },
       play: wallpaperGlassPlay,
     },

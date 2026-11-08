@@ -88,9 +88,9 @@ public nonisolated final class DaemonBridgeStream: Sendable {
 extension DaemonBridge {
     /// Spawns the bridge, waits for its dial line, and returns the connected stream; throws why
     /// the dial failed (the child is then killed and reaped). Blocking (up to the dial line's
-    /// deadline): call it off the main actor.
-    public func openStream() throws(DaemonError) -> DaemonBridgeStream {
-        let (fd, child) = try open()
+    /// deadline): call it off the main actor. `spawned` gets a kill for the child while it dials.
+    public func openStream(spawned: (_ kill: @escaping @Sendable () -> Void) -> Void = { _ in }) throws(DaemonError) -> DaemonBridgeStream {
+        let (fd, child) = try open(spawned: spawned)
         return DaemonBridgeStream(descriptor: fd, child: child)
     }
 }

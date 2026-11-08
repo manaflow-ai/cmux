@@ -63,14 +63,21 @@ impl Hub {
     /// A `session/update` from `session`'s agent (`tap.rs`): its open tool calls follow it. The
     /// last one ending brings the turn's deadline nearer: the reaper looks again.
     pub(super) fn note_tool_update(&self, session: &Session, update: &Value) {
+        if !matches!(
+            update.get("sessionUpdate").and_then(Value::as_str),
+            Some("tool_call" | "tool_call_update")
+        ) {
+            return;
+        }
         // Before its prompt is written the tools are not this turn's: a failover's old agent
         // still sending, the new agent's history replayed on load.
         if session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
             return;
         }
-        if let Some(event) =
-            session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).observe(update)
-        {
+        // Release the detector before appending: summary readers hold meta before the
+        // detector, while append takes meta to publish the record.
+        let event = session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).observe(update);
+        if let Some(event) = event {
             match event {
                 super::loop_detector::LoopEvent::Detected(episode) => self.append(
                     session,
@@ -282,5 +289,66 @@ fn quiet_for(ms: u64) -> String {
         3600.. => format!("{}h {}m", s / 3600, s % 3600 / 60),
         60.. => format!("{}m", s / 60),
         _ => format!("{s}s"),
+    }
+}
+
+#[cfg(test)]
+mod loop_episode_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn loop_episode_updates_summary_sequence_and_clears_on_progress() {
+        let cfg = crate::config::Config::default();
+        let store = Box::new(crate::store::MemoryStore::default());
+        let hub = Hub::new(cfg, store);
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "loop-test", "name": "loop-test",
+            "harness": "fake", "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap();
+        let session = hub.make_session(meta);
+        *session.turn.lock().unwrap() = Some(TurnInfo {
+            trigger: false,
+            started_at: 1,
+            client: "test".into(),
+            prompt_preview: String::new(),
+            masked_preview: String::new(),
+            turn_id: "turn-test".into(),
+            prompt_id: "prompt-test".into(),
+            turn_seq: 1,
+            control: Control::Local,
+            doing: Default::default(),
+            notice: false,
+            persons: false,
+        });
+        hub.watch_stalled_turn(&session, None);
+        let before = session.state_seq.load(Ordering::SeqCst);
+        for id in ["a", "b", "c", "d"] {
+            hub.note_tool_update(&session, &json!({"sessionUpdate": "tool_call", "toolCallId": id,
+                "kind": "execute", "title": "cargo test", "rawInput": {"command": "cargo test"}, "status": "in_progress"}));
+            hub.note_tool_update(
+                &session,
+                &json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": "failed"}),
+            );
+        }
+        let summary = hub.session_summary(&session);
+        assert_eq!(summary["state"], "running");
+        assert_eq!(summary["loopEpisode"]["count"], 3);
+        assert!(summary["stuckReason"].is_null());
+        assert_eq!(
+            session.state_seq.load(Ordering::SeqCst),
+            before + 1,
+            "one detection per episode"
+        );
+        hub.note_tool_update(&session, &json!({"sessionUpdate": "tool_call_update", "toolCallId": "success", "status": "completed"}));
+        let summary = hub.session_summary(&session);
+        assert_eq!(
+            summary.get("loopEpisode"),
+            Some(&Value::Null),
+            "clear must be explicit on the wire"
+        );
+        assert_eq!(summary["state"], "running");
+        assert_eq!(session.state_seq.load(Ordering::SeqCst), before + 2);
+        hub.shutdown_all().await;
     }
 }
