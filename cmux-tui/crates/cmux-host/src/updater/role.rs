@@ -8,7 +8,7 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -16,7 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContext};
 use serde_json::{Value, json};
 
-use super::carrier::{CARRIER_MAX_HOLD, CarrierHold};
+use super::carrier::{CARRIER_MAX_HOLD, CarrierHold, CarrierLook};
 use super::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI, CMUX_TUI_HOOK};
 use super::store::{self, STORE_DIR};
 use super::{
@@ -97,60 +97,128 @@ pub(super) fn hold_left(held: Option<Instant>, now: Instant) -> Option<Duration>
 /// a restore or a new carrier session. The Cloud role calls it before a bind
 /// goes out, which the supervisor's `Bound` (an instance id change) does not see.
 ///
-/// False when this host's restart is already queued (the flip or a rollback
-/// held the lock first): the caller's link would be cut, so a bind leaves
-/// `bind.json` for the restarted host, whose role start holds again.
-/// A restart that hasn't ended this process [`RESTART_GRACE`] after it was
-/// queued failed, and binds go out again.
+/// It takes the restart gate ([`restart_gate`]), the one path every flip and
+/// restart of this machine's services goes through, the guard's rollback in
+/// its own process too. False when the gate already queued a restart of this
+/// process: the caller's link would be cut, so a bind leaves `bind.json` for
+/// the restarted host, whose role start holds again.
 pub(crate) fn hold_connects() -> bool {
-    hold_in(&HELD_UNTIL, &RESTART_QUEUED, Instant::now())
-        || RESTART_AT
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_some_and(|at| at.elapsed() > RESTART_GRACE)
+    let _gate = GateLock::take();
+    hold_in(&HELD_UNTIL, Instant::now(), || restart_marked_for(std::process::id()))
 }
 
-/// Set under the hold's lock right before this host queues its own restart.
-static RESTART_QUEUED: AtomicBool = AtomicBool::new(false);
-/// When [`RESTART_QUEUED`] was set.
-static RESTART_AT: Mutex<Option<Instant>> = Mutex::new(None);
-/// How long a queued restart has to end this process.
-const RESTART_GRACE: Duration = Duration::from_secs(120);
-
-/// Marks this host's restart queued; called with the hold's lock held.
-fn restart_queued() {
-    RESTART_QUEUED.store(true, Ordering::SeqCst);
-    *RESTART_AT.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
-}
-
-/// Starts the connect hold in `held` at `now`. It takes the same lock the
-/// flip holds from its last look at the hold through its restarts
-/// ([`unless_held`]), so a hold either comes first and the flip sees it, or
-/// waits until the restarts are queued.
-/// False when `restarting` was set first.
+/// Starts the connect hold in `held` at `now`, under `held`'s lock, which the
+/// gate holds from its look at the hold through the restarts it queues
+/// ([`gate`]): a hold either comes first and the gate sees it, or waits until
+/// the restarts are queued. False when `restarting` says one was queued.
 pub(super) fn hold_in(
     held: &Mutex<Option<Instant>>,
-    restarting: &AtomicBool,
     now: Instant,
+    restarting: impl FnOnce() -> bool,
 ) -> bool {
     let mut held = held.lock().unwrap_or_else(|e| e.into_inner());
     *held = Some(extended_hold(*held, now));
-    !restarting.load(Ordering::SeqCst)
+    !restarting()
 }
 
-/// Runs `act` (the flip and its restarts) unless the hold in `held` is on at
-/// `now`, holding the hold's lock throughout: a bind that takes the hold in
-/// the meantime waits for `act` to end, and never lands between the last
-/// look and the restart. `Err` is the hold left.
-pub(super) fn unless_held<R>(
+/// The gate's core: runs `act` under `held`'s lock, unless `honor_hold` and
+/// the hold is on at `now` (`Err` is the hold left). `act` gets the call
+/// that marks the restart queued, made after its flip and before its
+/// restarts, so a bind waiting on the lock learns of it. An update's flip
+/// honors the hold; a rollback does not (keeping a build that never proved
+/// itself is worse than a restart, #37280), but it is still serialized, so
+/// no bind goes out between its flip and its restart.
+pub(super) fn gate<R>(
     held: &Mutex<Option<Instant>>,
     now: Instant,
-    act: impl FnOnce() -> R,
+    honor_hold: bool,
+    mark: &dyn Fn(),
+    act: impl FnOnce(&dyn Fn()) -> R,
 ) -> Result<R, Duration> {
     let held = held.lock().unwrap_or_else(|e| e.into_inner());
-    match hold_left(*held, now) {
-        Some(left) => Err(left),
-        None => Ok(act()),
+    if honor_hold && let Some(left) = hold_left(*held, now) {
+        return Err(left);
+    }
+    Ok(act(mark))
+}
+
+/// Every flip and restart of the services: the cross-process gate lock, then
+/// [`gate`]. `host_pid` is the cmux-host process the restart ends, which the
+/// marker names so only that process refuses binds.
+fn restart_gate<R>(
+    honor_hold: bool,
+    host_pid: u32,
+    act: impl FnOnce(&dyn Fn()) -> R,
+) -> Result<R, Duration> {
+    let _gate = GateLock::take();
+    gate(&HELD_UNTIL, Instant::now(), honor_hold, &|| mark_restart(host_pid), act)
+}
+
+/// A restart of the cmux-host process `pid`, queued at a wall time: binds
+/// in that process wait for its successor (tmpfs, gone at a reboot).
+const RESTART_MARKER: &str = "/run/cmux/self-update-restart";
+/// How long a queued restart has to end the process it names; past it the
+/// restart failed and binds go out again.
+const RESTART_GRACE_SECS: u64 = 120;
+
+fn mark_restart(pid: u32) {
+    let path = Paths::new("/").at(RESTART_MARKER);
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    let _ = fs::write(&path, format!("{pid} {}\n", now()));
+}
+
+fn restart_marked_for(pid: u32) -> bool {
+    fs::read_to_string(Paths::new("/").at(RESTART_MARKER))
+        .is_ok_and(|text| marker_names(&text, pid, now()))
+}
+
+/// Whether a marker's text names a restart of `pid` queued less than
+/// [`RESTART_GRACE_SECS`] before `now`.
+pub(super) fn marker_names(text: &str, pid: u32, now: u64) -> bool {
+    let mut words = text.split_whitespace();
+    let named = words.next().and_then(|w| w.parse::<u32>().ok());
+    let at = words.next().and_then(|w| w.parse::<u64>().ok());
+    matches!((named, at), (Some(named), Some(at))
+        if named == pid && pid != 0 && now.saturating_sub(at) < RESTART_GRACE_SECS)
+}
+
+/// cmux-host.service's main process, which a restart from the guard (its
+/// own process) ends; 0 when none runs.
+fn host_service_pid() -> u32 {
+    Command::new("timeout")
+        .args(["20", "systemctl", "show", "-p", "MainPID", "--value", HOST_UNIT])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// The gate's lock across processes (flock on `<state>/gate.lock`), so the
+/// guard's rollback and cmux-host's binds are serialized too. Taken before
+/// the hold's lock, on every path. None when the file can't be opened (not
+/// root, no state dir): the in-process lock still serializes this process.
+struct GateLock {
+    _file: fs::File,
+}
+
+impl GateLock {
+    fn take() -> Option<GateLock> {
+        use std::os::unix::io::AsRawFd as _;
+        let dir = Paths::new("/").at(super::STATE_DIR);
+        fs::create_dir_all(&dir).ok()?;
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.join("gate.lock"))
+            .ok()?;
+        // SAFETY: flock on a descriptor this function owns.
+        (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0)
+            .then_some(GateLock { _file: file })
     }
 }
 
@@ -514,9 +582,9 @@ fn check_inner(paths: &Paths) -> Outcome {
         return outcome;
     }
     // The connect hold's last look, the flip and the queued restarts run
-    // under the hold's lock (`unless_held`): a bind or a new session that
+    // under the restart gate (`restart_gate`): a bind or a new session that
     // takes the hold before the restart is seen here, and one after waits.
-    let flipped = unless_held(&HELD_UNTIL, Instant::now(), || {
+    let flipped = restart_gate(true, std::process::id(), |queued| {
         store::flip(paths, plan.to)?;
         log(&format!(
             "profile {} -> {}: cmux-tui {} ({}); restarting the services",
@@ -525,7 +593,7 @@ fn check_inner(paths: &Paths) -> Outcome {
             short_hex(&plan.cmux_tui.sha256),
             short_hex(&plan.commit)
         ));
-        restart_queued();
+        queued();
         restart_after_flip(&store_binary(&plan.old_cmux_tui));
         Ok::<(), std::io::Error>(())
     });
@@ -701,8 +769,17 @@ pub(super) fn carrier_busy_from(sessions: Result<Vec<String>, String>) -> Option
     let mut hold = CARRIER.lock().unwrap_or_else(|e| e.into_inner());
     let look = hold.get_or_insert_with(CarrierHold::default).look(Instant::now(), sessions);
     drop(hold);
-    if look.new_session {
+    act_on_look(look, || {
         hold_connects();
+    })
+}
+
+/// What one carrier look does: a new session starts the connect hold
+/// (`start_hold`), the bound is logged once, and the answer is why the
+/// update waits, if it does.
+pub(super) fn act_on_look(look: CarrierLook, start_hold: impl FnOnce()) -> Option<String> {
+    if look.new_session {
+        start_hold();
         log("a new carrier session: no flip during the connect hold");
     }
     if look.bound_passed {
@@ -924,24 +1001,26 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
         return;
     }
     log(&format!("rolling {} back to profile {}: {why}", pending.commit, pending.from));
-    if let Err(e) = store::flip(paths, pending.from) {
-        log(&format!("flipping back to profile {}: {e}", pending.from));
-        return;
-    }
-    let mut state = load_state(paths);
-    record_rollback(&mut state, pending);
-    state.last = Some(format!("rolled back {}: {why}", pending.commit));
-    state.last_at = now();
-    let _ = save_state(paths, &state);
-    clear_pending(paths);
-    if in_host {
-        disarm_guard();
-    }
-    // A bind from here on waits for the restarted host (`hold_connects`).
-    let held = HELD_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
-    restart_queued();
-    drop(held);
-    restart_after_flip(&store_binary(&pending.cmux_tui));
+    // The flip back and its restarts go through the gate, so no bind goes out
+    // between them; the hold does not stop a rollback.
+    let host_pid = if in_host { std::process::id() } else { host_service_pid() };
+    let _ = restart_gate(false, host_pid, |queued| {
+        if let Err(e) = store::flip(paths, pending.from) {
+            log(&format!("flipping back to profile {}: {e}", pending.from));
+            return;
+        }
+        let mut state = load_state(paths);
+        record_rollback(&mut state, pending);
+        state.last = Some(format!("rolled back {}: {why}", pending.commit));
+        state.last_at = now();
+        let _ = save_state(paths, &state);
+        clear_pending(paths);
+        if in_host {
+            disarm_guard();
+        }
+        queued();
+        restart_after_flip(&store_binary(&pending.cmux_tui));
+    });
 }
 
 fn systemctl(args: &[&str]) -> bool {

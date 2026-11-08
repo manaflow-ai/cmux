@@ -510,12 +510,10 @@ fn many_small_clock_syncs_never_start_a_restore_hold() {
     assert!(!role::restore_look(&mut last, offset + 3600 * 1_000_000_000 + step));
 }
 
-/// Review F1 of #38326: a bind that takes the connect hold while the flip is
-/// between its last look and its restarts waits for them (the hold's lock),
-/// and a hold taken before the flip's look wins: nothing flips.
+/// A bind that lands while a gated flip (`update`) or rollback runs: it
+/// waits for the restart to be queued, then learns of it and doesn't bind.
 #[cfg(target_os = "linux")]
-#[test]
-fn a_bind_in_the_flip_window_never_lands_between_the_look_and_the_restart() {
+fn bind_during_gate(honor_hold: bool) {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc;
     use std::sync::{Arc, Mutex};
@@ -529,37 +527,77 @@ fn a_bind_in_the_flip_window_never_lands_between_the_look_and_the_restart() {
         let held = Arc::clone(&held);
         let restarting = Arc::clone(&restarting);
         std::thread::spawn(move || {
-            role::unless_held(&held, Instant::now(), || {
+            let mark = || restarting.store(true, Ordering::SeqCst);
+            role::gate(&held, Instant::now(), honor_hold, &mark, |queued| {
                 in_window.send(()).unwrap();
-                // The flip, then the queued restarts, take a moment.
+                // The flip takes a moment, then the restarts are queued.
                 std::thread::sleep(Duration::from_millis(200));
-                restarting.store(true, Ordering::SeqCst);
+                queued();
                 restarted.send(Instant::now()).unwrap();
             })
         })
     };
     window.recv().unwrap();
-    // The bind lands inside the window: it waits for the restart, and learns
-    // that the restart was queued, so it leaves bind.json to the next host.
-    let may_bind = role::hold_in(&held, &restarting, Instant::now());
+    // The bind lands inside the window.
+    let may_bind = role::hold_in(&held, Instant::now(), || restarting.load(Ordering::SeqCst));
     let bind_held_at = Instant::now();
     let restart_queued_at = restart_done.recv().unwrap();
-    assert!(flipper.join().unwrap().is_ok(), "the flip had looked before the bind");
-    assert!(
-        bind_held_at >= restart_queued_at,
-        "the bind's hold landed before the restart was queued"
-    );
+    assert!(flipper.join().unwrap().is_ok(), "the gate had looked before the bind");
+    assert!(bind_held_at >= restart_queued_at, "the bind landed before the restart was queued");
     assert!(!may_bind, "a bind went out with this host's restart queued");
+}
 
-    // A hold taken before the flip's look: the flip does not run, and the
-    // bind goes out.
+/// Review F1 of #38326: a bind that takes the connect hold while the flip is
+/// between its last look and its restarts waits for them, and a hold taken
+/// before the flip's look wins: nothing flips.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_bind_in_the_flip_window_never_lands_between_the_look_and_the_restart() {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    bind_during_gate(true);
+
     let held = Mutex::new(None);
-    let restarting = AtomicBool::new(false);
-    assert!(role::hold_in(&held, &restarting, Instant::now()));
+    assert!(role::hold_in(&held, Instant::now(), || false), "no restart queued: the bind goes");
     let mut ran = false;
-    let outcome = role::unless_held(&held, Instant::now(), || ran = true);
+    let outcome = role::gate(&held, Instant::now(), true, &|| {}, |_| ran = true);
     assert!(outcome.is_err_and(|left| left > role::CONNECT_HOLD - Duration::from_secs(5)));
     assert!(!ran, "a flip ran under a hold taken before it");
+}
+
+/// Review P1 of #38483: a rollback's flip and restart go through the same
+/// gate, so a bind that lands during a rollback waits for its restart and
+/// doesn't bind. A rollback is not stopped by the hold (a build that never
+/// proved itself is not kept), only serialized with it.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_bind_during_a_rollback_never_lands_between_its_flip_and_restart() {
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    bind_during_gate(false);
+
+    let held = Mutex::new(None);
+    role::hold_in(&held, Instant::now(), || false);
+    let mut ran = false;
+    assert!(role::gate(&held, Instant::now(), false, &|| {}, |_| ran = true).is_ok());
+    assert!(ran, "a rollback runs under the hold");
+}
+
+/// The restart marker refuses binds only in the process it names, and only
+/// within the grace: the restarted host (another pid) binds at once, and a
+/// restart that never came frees binds again.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_restart_marker_names_one_process_for_a_while() {
+    assert!(role::marker_names("4242 1000\n", 4242, 1000));
+    assert!(role::marker_names("4242 1000", 4242, 1119));
+    assert!(!role::marker_names("4242 1000", 4242, 1120), "past the grace");
+    assert!(!role::marker_names("4242 1000", 4243, 1000), "the restarted host");
+    assert!(!role::marker_names("0 1000", 0, 1000), "no host ran");
+    assert!(!role::marker_names("", 4242, 1000));
+    assert!(!role::marker_names("x 1000", 4242, 1000));
 }
 
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
@@ -663,4 +701,36 @@ fn the_first_read_after_failed_reads_counts_its_sessions_as_new() {
     let mut fresh = CarrierHold::default();
     assert!(fresh.look(t0, Ok(vec!["mac/s1#1".to_owned()])).new_session);
     assert!(!CarrierHold::default().look(t0, Ok(Vec::new())).new_session);
+}
+
+/// Review F2 of #38326, the exact sequence: reads of the session list fail
+/// (past the carrier hold's bound), then the first one that reads shows an
+/// attached session, and that look starts the 5-minute connect hold.
+#[cfg(target_os = "linux")]
+#[test]
+fn failed_reads_then_an_attached_session_start_the_connect_hold() {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    use carrier::{CARRIER_MAX_HOLD, CarrierHold};
+
+    let held = Mutex::new(None::<Instant>);
+    let start = || {
+        role::hold_in(&held, Instant::now(), || false);
+    };
+    let t0 = Instant::now();
+    let mut hold = CarrierHold::default();
+    for minute in 0..=CARRIER_MAX_HOLD.as_secs() / 60 {
+        let at = t0 + Duration::from_secs(minute * 60);
+        let look = hold.look(at, Err("its admin channel answered exit status: 1".to_owned()));
+        role::act_on_look(look, start);
+    }
+    assert_eq!(*held.lock().unwrap(), None, "failed reads start no connect hold");
+
+    let at = t0 + CARRIER_MAX_HOLD + Duration::from_secs(120);
+    let look = hold.look(at, Ok(vec!["mac/s1#1".to_owned()]));
+    role::act_on_look(look, start);
+    let until = held.lock().unwrap().expect("the first readable session starts the connect hold");
+    let left = until.saturating_duration_since(Instant::now());
+    assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
 }
