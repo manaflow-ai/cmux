@@ -64,11 +64,14 @@ export function ReviewScreen({
   const { rows, pending, extend } = useReviewQueue(sessions, readDiff, local, now);
   const [selected, setSelected] = useState<string | undefined>();
   const lastIndex = useRef(0);
-  /// The open comment; `sent` is a send that failed: its words and prompt id, so a retry of the same
-  /// words reuses the id and acpmux delivers it once even if the first one got through.
-  const [comment, setComment] = useState<
-    { key: string; text: string; sent?: { text: string; promptId: string } } | undefined
-  >(initialComment ? { key: initialComment, text: "" } : undefined);
+  /// The open comment.
+  const [comment, setComment] = useState<{ key: string; text: string } | undefined>(
+    initialComment ? { key: initialComment, text: "" } : undefined,
+  );
+  /// Sends that failed, by row: their words and prompt id, kept whatever comment is open, so `r` on
+  /// that row gives the words back and a retry of the same words reuses the id (acpmux delivers it
+  /// once even if the first one got through).
+  const [unsent, setUnsent] = useState<ReadonlyMap<string, { text: string; promptId: string }>>(() => new Map());
   const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
   const list = useRef<HTMLDivElement>(null);
 
@@ -113,16 +116,20 @@ export function ReviewScreen({
 
   const sendComment = (row: ReviewRow, text: string) => {
     if (!text.trim()) return;
-    const retry = comment?.key === row.key ? comment.sent : undefined;
+    const retry = unsent.get(row.key);
     const promptId = retry && retry.text === text ? retry.promptId : newPromptId();
     setComment(undefined);
+    setUnsent((previous) => without(previous, row.key));
     decide(
       row,
       "changes",
       (tag) => send(row.owner.sessionId, changesPrompt(row, text), tag, promptId),
       t("review.failed.send"),
-      // A send that failed gives the person's words back, unless another comment is open now.
-      () => setComment((open) => open ?? { key: row.key, text, sent: { text, promptId } }),
+      // A send that failed keeps the person's words, and opens them again unless another comment is open.
+      () => {
+        setUnsent((previous) => new Map(previous).set(row.key, { text, promptId }));
+        setComment((open) => open ?? { key: row.key, text });
+      },
     );
     list.current?.focus({ preventScroll: true });
   };
@@ -149,7 +156,7 @@ export function ReviewScreen({
           if (current) acceptRow(current);
           return Boolean(current);
         case "r":
-          if (current) setComment({ key: current.key, text: "" });
+          if (current) setComment({ key: current.key, text: unsent.get(current.key)?.text ?? "" });
           return Boolean(current);
         default:
           return false;
@@ -182,7 +189,7 @@ export function ReviewScreen({
             now={now}
             failure={failures.get(row.key)}
             comment={comment?.key === row.key ? comment.text : undefined}
-            onComment={(text) => setComment((open) => ({ ...open, key: row.key, text }))}
+            onComment={(text) => setComment({ key: row.key, text })}
             onSend={(text) => sendComment(row, text)}
             onCancel={() => {
               setComment(undefined);

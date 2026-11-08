@@ -11487,7 +11487,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ) : showNewTab && newTab.review ? (
             <ReviewScreen
               sessions={snapshot.sessions}
-              readDiff={(cwd, scope) => callNative("git.diff", { cwd, scope, include_patch: false })}
+              readDiff={(cwd, scope) => postNative("git.diff", { cwd, scope, include_patch: false })}
               openDiff={(cwd) => callNative("pane.action", { id: "openDiffViewer", cwd })}
               accept={(sessionId, tag) => callNative("review.accept", { sessionId, tag })}
               send={(sessionId, text, tag, promptId) => callNative("review.send", { sessionId, text, tag, promptId })}
