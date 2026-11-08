@@ -179,7 +179,11 @@ pub fn save(path: &Path, name: &str, text: &str, now_ms: u64) -> Result<Prompt, 
     let mut saved = load(path).map_err(unreadable)?;
     let prompt = Saved { name: name.to_owned(), text: text.to_owned(), updated_at: now_ms };
     match saved.iter().position(|s| same_name(&s.name, name)) {
-        Some(at) => saved[at] = prompt.clone(),
+        Some(at) => {
+            if let Some(slot) = saved.get_mut(at) {
+                *slot = prompt.clone();
+            }
+        }
         None if saved.len() >= MAX_SAVED => {
             return Err(RpcError::invalid_params(format!(
                 "You already have {MAX_SAVED} saved prompts; delete one before you save another."
