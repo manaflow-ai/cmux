@@ -78,7 +78,9 @@ export function isFinishedTurnRow(moment: FinishMoment | undefined, rowAt: numbe
   if (moment?.kind !== "turn" || moment.turnStartedAt === undefined) return false;
   const start = moment.turnStartedAt;
   // A later prompt's row (a new turn started while the moment shows) starts after this turn's start.
-  return rowAt <= start + 2_000 && (endAt ?? rowAt) >= start - 2_000;
+  // The ended turn's row ends at least LONG_TURN_MS after its start; the turn before it ended at
+  // or before that start, so the end has no tolerance (a live row with no end yet is judged by its start).
+  return rowAt <= start + 2_000 && (endAt === undefined ? rowAt >= start - 2_000 : endAt > start);
 }
 
 let current: FinishMoment | undefined;

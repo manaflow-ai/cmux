@@ -38,7 +38,6 @@
               "appearance.metrics.tabFontSize",
               "appearance.metrics.tabStripHeight",
               "tabs.overflow",
-              "tabs.cmdWClosesPinnedTabs",
               "tabs.verticalTabs",
               "tabs.verticalTabsExpandOnHover",
               "tabs.hideLoneChatTab",
@@ -1174,7 +1173,6 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
-              "agentPane.display.finishSound",
               "agentPane.display.transcriptView",
               "agentPane.display.presentation",
               "agentPane.display.statusVerbs.mode",
@@ -1840,7 +1838,8 @@
         ],
         "id" : "server",
         "lead" : [
-          "server"
+          "server",
+          "tailnet"
         ],
         "symbol" : "server.rack",
         "title" : {
@@ -6519,141 +6518,6 @@
       "title" : {
         "key" : "settings.newTerminal.opensWorkspace",
         "text" : "New Terminal Opens a Workspace"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.cmdWClosesPinnedTabs.help",
-        "text" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.cmdWClosesPinnedTabs",
-      "keywords" : [
-        "pin",
-        "pinned",
-        "close",
-        "cmd-w",
-        "tab",
-        "keep"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "cmdWClosesPinnedTabs"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:tabs.cmdWClosesPinnedTabs"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.tabs.cmdWClosesPinnedTabs",
-        "text" : "Cmd-W Closes Pinned Tabs"
       },
       "validation" : "portable"
     },
@@ -45778,148 +45642,6 @@
         "text" : "Agent Chat"
       },
       "help" : {
-        "key" : "settings.agentPane.display.finishSound.help",
-        "text" : "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agentPane.display.finishSound",
-      "keywords" : [
-        "agent",
-        "chat",
-        "sound",
-        "sounds",
-        "audio",
-        "finish",
-        "finished",
-        "done",
-        "merged",
-        "checks",
-        "turn",
-        "notification"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "agentPane",
-        "display",
-        "finishSound"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:agentPane.display.finishSound"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.agentPane.display.finishSound",
-        "text" : "Play Sound When Work Finishes"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.agentChat",
-        "text" : "Agent Chat"
-      },
-      "help" : {
         "key" : "settings.agentPane.display.trayTucked.help",
         "text" : "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back."
       },
@@ -61278,7 +61000,8 @@
         "wallpaper",
         "grayscale",
         "vibrant",
-        "gradient"
+        "gradient",
+        "pictorial"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -61324,6 +61047,13 @@
             "text" : "Gradient"
           },
           "value" : "gradient"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupPalettePictorial",
+            "text" : "Pictorial"
+          },
+          "value" : "pictorial"
         }
       ],
       "consumers" : [
@@ -61337,7 +61067,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupPalette.help",
-        "text" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient."
+        "text" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupPalette",
@@ -61355,7 +61085,9 @@
         "vibrant",
         "glass",
         "automatic",
-        "gradient"
+        "gradient",
+        "pictorial",
+        "picture"
       ],
       "kind" : "choice",
       "page_hidden" : false,

@@ -79,6 +79,9 @@ test("a resumed turn's row, whose prompt came long before its latest start, stil
   expect(isFinishedTurnRow(moment, 300_000, 560_000)).toBe(true);
   // An older turn that ended before this one began does not.
   expect(isFinishedTurnRow(moment, 200_000, 290_000)).toBe(false);
+  // The turn right before it, which ended just before this one started, does not either (review 3 F2).
+  expect(isFinishedTurnRow(moment, 460_000, 499_000)).toBe(false);
+  expect(isFinishedTurnRow(moment, 460_000, 500_000)).toBe(false);
 });
 
 test("a new turn's live row, started while the moment shows, does not take the ended turn's check", () => {
