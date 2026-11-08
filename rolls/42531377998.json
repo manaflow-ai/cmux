@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42531377998",
+  "recorded_at": "2026-11-08T22:53:43Z",
+  "reason": "cmux-tui 5cf84aa4d6bb changes the image's cmux-tui (pinned 589a5664ee96)",
+  "dry_run": false,
+  "cmux_tui": "5cf84aa4d6bbc821dd2dbbb546d6693f642bb506",
+  "fixes": [
+    {
+      "sha": "5cf84aa4d6bbc821dd2dbbb546d6693f642bb506",
+      "mergedAt": "2026-11-08T14:24:47-08:00",
+      "subject": "acpmux machine_join: status tests restore the account consent state they enrol (tool_inventory red) (#38895)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T22:53:43Z",
+    "snapshot_id": "sh-a86f70f5bffe40c98677fbd540cfc3b7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42531377998): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1e3bc769e505728ac18077095c5092d11b0fd4aa",
+    "image": "cloud-native-auto-5cf84aa4-42531377998-1",
+    "revision": "ci-42531377998-1",
+    "at": "2026-11-08T22:53:43Z"
+  },
+  "rolled_back": false
+}
