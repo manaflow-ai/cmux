@@ -172,6 +172,14 @@ import Testing
         #expect(started == ["second a7", "first a7"])
     }
 
+    private static func transcript(in view: NSView) -> HomeNativeTranscriptView? {
+        if let transcript = view as? HomeNativeTranscriptView { return transcript }
+        for subview in view.subviews {
+            if let transcript = transcript(in: subview) { return transcript }
+        }
+        return nil
+    }
+
     #if DEBUG
     /// The DEBUG fixture page (`debug.home_native_fixture.open`) registers each transcript it shows, so its queued
     /// pills keep the menu's Start now (review of #38595 at 231883bb: only the playground registered).
@@ -180,11 +188,8 @@ import Testing
         let page = DebugHomeNativeFixture(openPanel: MadeAheadOpenPanel(), homes: homes)
         let container = page.makeView(for: "fixture", in: nil)
         defer { page.tabClosed("fixture"); withExtendedLifetime(homes) {} } // the page holds it weakly, as the app does
-        func transcript(in view: NSView) -> HomeNativeTranscriptView? {
-            view as? HomeNativeTranscriptView ?? view.subviews.lazy.compactMap(transcript(in:)).first
-        }
-        for _ in 0..<100_000 where transcript(in: container)?.startAgentMenuItem == nil { await Task.yield() }
-        #expect(transcript(in: container)?.startAgentMenuItem != nil)
+        for _ in 0..<100_000 where Self.transcript(in: container)?.startAgentMenuItem == nil { await Task.yield() }
+        #expect(Self.transcript(in: container)?.startAgentMenuItem != nil)
     }
     #endif
 }
