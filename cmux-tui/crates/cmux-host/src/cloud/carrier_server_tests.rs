@@ -856,6 +856,10 @@ mod model {
         wants: u64,
         wanted: u64,
         handed: u64,
+        /// Replies whose generation ended between their ask and hand-out.
+        refused_stale: u64,
+        /// Requests that came back after their generation ended.
+        stale_replies: u64,
         trace: Vec<String>,
     }
 
@@ -873,6 +877,8 @@ mod model {
                 wants: 0,
                 wanted: 0,
                 handed: 0,
+                refused_stale: 0,
+                stale_replies: 0,
                 trace: Vec::new(),
             }
         }
@@ -902,6 +908,7 @@ mod model {
         fn hand_out(&mut self, seed: u64) {
             let Some(pending) = self.pending.take() else { return };
             if !self.core.may_hand_out(pending.generation) {
+                self.refused_stale += 1;
                 // The real asker asks again within its wait.
                 return self.ask(seed, pending.started);
             }
@@ -984,7 +991,8 @@ mod model {
                         self.start(seed, Task::ticket("refreshed", false), generation);
                     }
                 }
-                Job::Done(..) | Job::Wait(_) | Job::Stop => {}
+                Job::Done(_, current, _) => self.stale_replies += u64::from(!current),
+                Job::Wait(_) | Job::Stop => {}
             }
         }
 
@@ -1008,7 +1016,7 @@ mod model {
 
     #[test]
     fn random_interleavings_keep_one_request_per_want_and_no_older_ticket() {
-        let mut handed = 0;
+        let (mut handed, mut refused, mut wanted, mut stale) = (0, 0, 0, 0);
         for seed in 0..SEEDS {
             let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
             let mut model = Model::new();
@@ -1043,7 +1051,19 @@ mod model {
                 }
             }
             handed += model.handed;
+            refused += model.refused_stale;
+            wanted += model.wanted;
+            stale += model.stale_replies;
         }
-        assert!(handed > SEEDS, "the model handed out only {handed} tickets: it drives too little");
+        // Every path the invariants guard was driven, many times over.
+        let reached = [
+            ("tickets handed out", handed),
+            ("replies refused at the hand-out as stale", refused),
+            ("ticket requests for asks", wanted),
+            ("requests answered after their generation ended", stale),
+        ];
+        for (what, count) in reached {
+            assert!(count >= SEEDS / 10, "the model reached {what} only {count} times");
+        }
     }
 }
