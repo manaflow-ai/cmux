@@ -6,9 +6,12 @@
 use super::*;
 use cmux_tui_core::{Actor, NotificationLevel, NotificationSource};
 
-fn rendered_app(mux: &Arc<Mux>) -> (App, Terminal<TestBackend>) {
+/// An app showing the workspace rail. `host_focused` is set before the
+/// first layout frame, which may already ack a done tab the person views.
+fn rendered_app(mux: &Arc<Mux>, host_focused: bool) -> (App, Terminal<TestBackend>) {
     let mut app = test_app(Session::Local(mux.clone()));
     app.sidebar_view = SidebarView::Workspaces;
+    app.host_focused = host_focused;
     app.replace_tree(app.session.tree());
     app.sync_layout((100, 20));
     let terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
@@ -55,7 +58,7 @@ fn a_blocked_agent_shows_on_its_workspace_row_and_tops_the_agents_section() {
     let other = mux.new_workspace(Some("other".into()), Some((20, 8))).unwrap();
     mux.report_agent(agent_tab.id, AgentState::Blocked, AgentSource::Hook, Some("s1".into()))
         .unwrap();
-    let (mut app, mut terminal) = rendered_app(&mux);
+    let (mut app, mut terminal) = rendered_app(&mux, true);
     wait_for_status(
         &mut app,
         &mut terminal,
@@ -120,9 +123,8 @@ fn a_finished_turn_stays_done_until_the_person_views_its_tab() {
         NotificationSource::Cli,
     )
     .unwrap();
-    let (mut app, mut terminal) = rendered_app(&mux);
     // The host terminal is in the background: the turn is not seen.
-    app.host_focused = false;
+    let (mut app, mut terminal) = rendered_app(&mux, false);
     wait_for_status(&mut app, &mut terminal, agent_tab.id, Some(cmux_tui_core::AgentStatus::Done));
     draw(&mut app, &mut terminal);
     assert_eq!(app.sidebar_status.tab(agent_tab.id), Some(cmux_tui_core::AgentStatus::Done));
