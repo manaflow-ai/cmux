@@ -790,7 +790,7 @@ Object.assign(variants, {
   "worktree-setup-edited": variant("agents", {
     note: "Edited: a replaced setup script, the run script turned off (empty), with Use Repository's under each, Save lit.",
     steps: [
-      wait('[data-worktree-field="setup"] textarea'),
+      wait('[data-worktree-field="setup"] textarea:not([disabled])'),
       input('[data-worktree-field="setup"] textarea', "bun install --frozen-lockfile"),
       input('[data-worktree-field="run"] textarea', "x"),
       input('[data-worktree-field="run"] textarea', ""),
