@@ -77,11 +77,7 @@ enum BrowserProfileHandlers {
     /// A new profile: the given name, color and icon, else "Profile N" and
     /// the first color no other profile uses.
     private static func create(invocation: ActionInvocation, _ profiles: BrowserProfileService) throws {
-        let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-            ?? BrowserProfileAppStrings.defaultName(profiles.ordered.count + 1)
-        let used = Set(profiles.ordered.compactMap(\.color))
-        let color = invocation["color"]?.stringValue
-            ?? GroupColor.automatic(used: used)?.rawValue
+        let (name, color) = profiles.newProfileDefaults(name: invocation["name"]?.stringValue, color: invocation["color"]?.stringValue)
         let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         try profiles.createProfileNow(name: name, color: color, icon: icon)
     }

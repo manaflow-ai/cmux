@@ -4,7 +4,7 @@
   "id": "cmux/github-prs",
   "name": { "en": "GitHub PRs", "ja": "GitHub PR" },
   "version": "1.0.0",
-  "description": "Your open pull requests as a sidebar section: review state, drafts, and one click to open.",
+  "description": "Your pull requests as sidebar sections: review state, recent activity, drafts, and one click to open.",
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "GPL-3.0-or-later",
@@ -20,7 +20,10 @@
     "integration:github:read": "Use your connected GitHub account (private repositories) without seeing its token."
   },
   "contributes": {
-    "sidebarSections": [{ "id": "prs", "title": { "en": "Pull Requests", "ja": "プルリクエスト" }, "symbol": "arrow.triangle.pull", "defaultRegion": "middle", "render": "renderPRs", "maxRows": 10 }],
+    "sidebarSections": [
+      { "id": "prs", "title": { "en": "Pull Requests", "ja": "プルリクエスト" }, "symbol": "arrow.triangle.pull", "defaultRegion": "middle", "render": "renderPRs", "maxRows": 10 },
+      { "id": "recent", "title": { "en": "PRs · last 24h", "ja": "PR · 過去24時間" }, "symbol": "clock.arrow.circlepath", "defaultRegion": "bottom", "render": "renderRecentPRs", "maxRows": 10 }
+    ],
     "commands": [{ "id": "refresh", "title": { "en": "Refresh Pull Requests", "ja": "プルリクエストを更新" }, "run": "refresh", "keywords": ["github", "pr"], "contexts": ["palette", "sidebarSection:prs"] }],
     "settings": {
       "type": "object",
@@ -30,6 +33,6 @@
       }
     }
   },
-  "activation": ["onSidebarSection:prs", "onCommand:refresh"],
+  "activation": ["onSidebarSection:prs", "onSidebarSection:recent", "onCommand:refresh"],
   "files": ["dist/", "assets/"]
 }

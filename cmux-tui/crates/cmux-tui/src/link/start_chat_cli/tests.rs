@@ -318,7 +318,13 @@ fn a_finished_copy_is_kept_per_send_and_machine_across_a_relaunch() {
     Ledger::update(&path, |pins| {
         pins.record("vm-a", &send(&key));
         assert_eq!(pins.copied_chat(&send(&key), "vm-a"), None);
-        pins.record_copy("/home/cmux/work/chats/k/paint", &send(&key), "vm-a", "chats/k");
+        pins.record_copy(
+            "/home/cmux/work/chats/k/paint",
+            "/home/cmux/work/chats/k/paint",
+            &send(&key),
+            "vm-a",
+            "chats/k",
+        );
         // Pinning the same machine again (the retry) keeps the finished copy.
         pins.record("vm-a", &send(&key));
     })
@@ -480,10 +486,65 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     assert_eq!(*count.borrow(), 1);
     assert_eq!(retry["copied"], json!(false));
     assert_eq!(retry["chat"], first["chat"]);
+    assert_eq!(retry["folder"], first["folder"]);
+    assert_eq!(first["chat"], format!("{}/sub", first["folder"].as_str().unwrap()));
     // On another machine (the first is gone) it copies again.
     let elsewhere = StartCopy { machine: "vm-b".into(), ..copy }.run(&path, &push);
     assert_eq!(elsewhere["copied"], json!(true));
     assert_eq!(*count.borrow(), 2);
+}
+
+#[test]
+fn a_finished_copy_keeps_its_original_folder_when_retry_arguments_change() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "web/sub");
+    let first = copy.run(&path, &|_: &Path, _: &Path, _: &str| Ok(json!({})));
+    assert_eq!(first["ok"], true, "{first}");
+    // Pinning again must keep the copy's root, just as it keeps its chat and place.
+    assert_eq!(pin(&path, &copy.key, ACCOUNT, &copy.machine, None)["ok"], true);
+    let retry = StartCopy {
+        local: "/Users/me/renamed-project".into(),
+        subpath: "other".into(),
+        work_roots: vec!["/new/work-root".into()],
+        ..copy
+    }
+    .run(&path, &|_: &Path, _: &Path, _: &str| panic!("a finished copy must not push again"));
+    assert_eq!(retry["ok"], true, "{retry}");
+    assert_eq!(retry["copied"], false);
+    assert_eq!(retry["chat"], first["chat"]);
+    assert_eq!(retry["folder"], first["folder"]);
+}
+
+#[test]
+fn a_finished_copy_from_an_older_ledger_recovers_its_original_folder() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "web/sub");
+    let place = format!("{}/01234567", Keys::of(&copy.key).place);
+    let (folder, chat) = copy.remote("/old/work-root", &place);
+    // Older ledgers kept only the place and the chat, with no copied-folder field.
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        json!({"sends": [{"key": copy.key.to_lowercase(), "account": ACCOUNT, "machine_id": copy.machine,
+            "place": place, "copied_chat": chat}]})
+        .to_string(),
+    )
+    .unwrap();
+    let retry = StartCopy {
+        local: "/Users/me/renamed-project".into(),
+        subpath: "other".into(),
+        work_roots: vec!["/new/work-root".into()],
+        ..copy
+    }
+    .run(&path, &|_: &Path, _: &Path, _: &str| {
+        panic!("a legacy finished copy must not push again")
+    });
+    assert_eq!(retry["ok"], true, "{retry}");
+    assert_eq!(retry["copied"], false);
+    assert_eq!(retry["chat"], chat);
+    assert_eq!(retry["folder"], folder);
 }
 
 /// A copy cannot report machine boot or harness startup: both are outside its lifetime.
@@ -1411,7 +1472,7 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
     .expect("ensure");
     assert_eq!(
         ensure.body(),
-        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV})
+        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV, "projectKey": "git:github.com/manaflow-ai/cmux"})
     );
     let with_ref = Ensure::of(&flags(&[
         "--workspace",
@@ -1426,7 +1487,7 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
     .unwrap();
     assert_eq!(
         with_ref.body(),
-        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main"})
+        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main", "projectKey": "git:github.com/a/b"})
     );
     for bad in [
         vec!["--key", key.as_str(), "--repo", "a/b"],
@@ -1488,7 +1549,7 @@ fn ensures_line_names_the_machine_or_the_platforms_code() {
 }
 
 /// Zero-setup hot start: a new machine for a send from a repository's folder, on the personal account, is the
-/// platform's workspace machine, pinned like one the App made; a team's send, a folder with no repository, or a
+/// platform's workspace machine, pinned like one the App made; a team's send or a
 /// platform that made none keeps the App's own create; one that may have made it refuses the send.
 #[test]
 fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
@@ -1527,7 +1588,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(
         asked.borrow().as_slice(),
         [(
-            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV}),
+            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV, "projectKey": "git:github.com/me/paint"}),
             "token-1".to_string()
         )]
     );
@@ -1639,4 +1700,365 @@ fn a_copy_answers_how_the_push_went() {
     assert_eq!(answer["install_url"], json!("https://github.com/apps/cmux/installations/new"));
     assert_eq!(answer["skipped_files"][0]["path"], json!(".env"));
     assert!(answer.get("head").is_none() && answer.get("bundle_bytes").is_none(), "{answer}");
+}
+
+#[test]
+fn project_identity_unifies_git_transports_without_leaking_credentials() {
+    for remote in [
+        "https://GitHub.com/Owner/Repo.git/",
+        "git@github.com:owner/repo",
+        "ssh://git@GITHUB.COM:22/OWNER/REPO.GIT",
+        "https://user:secret@github.com:443/owner/repo",
+        "http://github.com:80/owner/repo",
+    ] {
+        assert_eq!(
+            super::project::remote_key(remote).as_deref(),
+            Some("git:github.com/owner/repo"),
+            "{remote}"
+        );
+    }
+    assert_eq!(
+        super::project::remote_key("git@gitlab.com:Group/Nested/Repo.git").as_deref(),
+        Some("git:gitlab.com/group/nested/repo")
+    );
+    for remote in [
+        "",
+        "/tmp/repo",
+        "file:///tmp/repo",
+        "ssh://host:2222/a/b",
+        "https://host/a/../b",
+        "https://host/a/b?token=secret",
+        "https://host/a/b#main",
+        "host:a",
+        "https://host//a/b",
+    ] {
+        assert_eq!(super::project::remote_key(remote), None, "{remote}");
+    }
+}
+
+#[test]
+fn project_folder_identity_survives_relaunch_and_distinguishes_installations() {
+    let dir = scratch();
+    let folder = dir.path().join("project");
+    std::fs::create_dir(&folder).unwrap();
+    let local = folder.to_str().unwrap();
+    let ledger = ledger_in(dir.path());
+    let first = super::project::folder_key(&ledger, local).unwrap().unwrap();
+    assert!(first.starts_with("folder:"));
+    assert_eq!(
+        super::project::folder_key(&ledger, local).unwrap().as_deref(),
+        Some(first.as_str())
+    );
+    let another_install = dir.path().join("another-install/destinations.json");
+    assert_ne!(
+        super::project::folder_key(&another_install, local).unwrap().as_deref(),
+        Some(first.as_str())
+    );
+    let alias = dir.path().join("alias");
+    std::os::unix::fs::symlink(&folder, &alias).unwrap();
+    assert_eq!(
+        super::project::folder_key(&ledger, alias.to_str().unwrap()).unwrap().as_deref(),
+        Some(first.as_str())
+    );
+}
+
+#[test]
+fn project_ensure_shares_a_machine_between_workspaces_and_keeps_both_pins() {
+    let dir = scratch();
+    let ledger = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    std::fs::write(
+        folder.join(".git/config"),
+        "[remote \"origin\"]\n url = git@gitlab.com:Me/Project.git\n",
+    )
+    .unwrap();
+    let asked = RefCell::new(Vec::new());
+    let ensure = |ensure: &Ensure, _: &str| {
+        asked.borrow_mut().push(ensure.body());
+        Ok(json!({"machine": {"id": "project-machine"}, "created": false}))
+    };
+    for workspace in ["ws-a", "ws-b"] {
+        let request = json!({"key": key(), "account": "user-leo/", "workspace": workspace,
+            "local": folder, "credential_on_stdin": true});
+        let answer = plan_with(&ledger, &request.to_string(), &mut "token\n".as_bytes(), &ensure);
+        assert_eq!(answer["machine"], json!("project-machine"), "{answer}");
+    }
+    assert_eq!(asked.borrow().len(), 2);
+    for body in asked.borrow().iter() {
+        assert_eq!(body["projectKey"], json!("git:gitlab.com/me/project"));
+        assert!(body.get("repo").is_none());
+    }
+    Ledger::update(&ledger, |pins| {
+        assert_eq!(pins.workspace_machine("ws-a", "user-leo/").as_deref(), Some("project-machine"));
+        assert_eq!(pins.workspace_machine("ws-b", "user-leo/").as_deref(), Some("project-machine"));
+        assert!(!pick::claim_project(pins, "ws-b", "user-leo/", "racing-machine"));
+    })
+    .unwrap();
+}
+
+#[test]
+fn project_ensure_accepts_a_folder_without_a_remote() {
+    let dir = scratch();
+    let ledger = ledger_in(dir.path());
+    let request = json!({"key": key(), "account": "user-leo/", "workspace": "ws-folder",
+        "local": dir.path(), "credential_on_stdin": true});
+    let answer =
+        plan_with(&ledger, &request.to_string(), &mut "token\n".as_bytes(), &|ensure, _| {
+            assert!(ensure.body()["projectKey"].as_str().unwrap().starts_with("folder:"));
+            assert!(ensure.body().get("repo").is_none());
+            Ok(json!({"machine": {"id": "folder-machine"}, "created": true}))
+        });
+    assert_eq!(answer["machine"], json!("folder-machine"), "{answer}");
+}
+
+#[test]
+fn project_key_cli_keeps_folder_ids_and_normalizes_git_keys() {
+    for (input, expected) in [
+        ("folder:local-ID", "folder:local-ID"),
+        ("git:GitLab.com/Group/Repo.GIT", "git:gitlab.com/group/repo"),
+    ] {
+        let ensure =
+            Ensure::of(&flags(&["--workspace", "ws", "--key", &key(), "--project-key", input]))
+                .unwrap();
+        assert_eq!(ensure.body()["projectKey"], json!(expected));
+        assert!(ensure.body().get("repo").is_none());
+    }
+    for bad in ["folder:", "git:host/../repo", "folder:path/to/folder", "git:host/a/b?token=secret"]
+    {
+        assert!(
+            Ensure::of(&flags(&["--workspace", "ws", "--key", &key(), "--project-key", bad]))
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn a_reserved_machine_binds_once_before_the_send_is_pinned() {
+    use super::reservations::{Action, Call};
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let compose = key();
+    let send = key();
+    let team = "team_0123456789abcdef0123";
+    let request = json!({"key": send, "account": ACCOUNT, "workspace": "new-ws", "loaded": false,
+        "reservation_key": compose, "credential_on_stdin": true, "team": team,
+        "platform": "https://cmux-platform-development.debussy.workers.dev"})
+    .to_string();
+    let calls = RefCell::new(Vec::new());
+    let bind = |call: &Call, token: &str| {
+        calls.borrow_mut().push((
+            call.action,
+            call.compose_key.clone(),
+            call.send_key.clone(),
+            call.team.clone(),
+            token.to_string(),
+        ));
+        Ok(json!({"leaseId": "lease-1", "machine": "vm_0123456789abcdef0123", "expiresAt": 123}))
+    };
+    let never_ensure = |_: &Ensure, _: &str| panic!("team sends never ensure personal projects");
+    let first = super::plan_with_calls(
+        &path,
+        &request,
+        &mut "stack-session\n".as_bytes(),
+        &never_ensure,
+        &bind,
+    );
+    assert_eq!(first["machine"], "vm_0123456789abcdef0123", "{first}");
+    assert_eq!(
+        Ledger::update(&path, |pins| pins.machine(&Send::new(&send, ACCOUNT))).unwrap(),
+        Some("vm_0123456789abcdef0123".into())
+    );
+    assert_eq!(
+        calls.borrow().as_slice(),
+        &[(
+            Action::Bind,
+            compose.to_lowercase(),
+            Some(send.to_lowercase()),
+            Some(team.into()),
+            "stack-session".into()
+        )]
+    );
+    let retry = super::plan_with_calls(
+        &path,
+        &request,
+        &mut "stack-session\n".as_bytes(),
+        &never_ensure,
+        &bind,
+    );
+    assert_eq!(retry["machine"], "vm_0123456789abcdef0123");
+    assert_eq!(calls.borrow().len(), 1, "a pinned retry must not bind again");
+}
+
+#[test]
+fn an_uncertain_bind_never_turns_into_a_second_paid_cold_create() {
+    use super::reservations::Call;
+    use crate::cli::PlatformCallError as E;
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let send = key();
+    let compose = key();
+    let request = json!({"key": send, "account": ACCOUNT, "loaded": false,
+        "reservation_key": compose, "credential_on_stdin": true})
+    .to_string();
+    let never_ensure = |_: &Ensure, _: &str| panic!("no project");
+    for error in [
+        E::Unreachable("answer lost".into()),
+        E::Unreadable(200),
+        E::Status { status: 500, code: "" },
+        E::Status { status: 409, code: "reservation.bound" },
+    ] {
+        let bind = |call: &Call, _: &str| {
+            assert_eq!(call.send_key.as_deref(), Some(send.to_lowercase().as_str()));
+            Err(error.clone())
+        };
+        let answer = super::plan_with_calls(
+            &path,
+            &request,
+            &mut "token\n".as_bytes(),
+            &never_ensure,
+            &bind,
+        );
+        assert_eq!(answer["ok"], false, "{answer}");
+        assert!(answer.get("new_name").is_none(), "{answer}");
+    }
+    // A retry uses the same compose/send keys and recovers the already-bound machine.
+    let recovered = |call: &Call, _: &str| {
+        assert_eq!(call.compose_key, compose.to_lowercase());
+        assert_eq!(call.send_key.as_deref(), Some(send.to_lowercase().as_str()));
+        Ok(json!({"machine": "vm_0123456789abcdef0123"}))
+    };
+    assert_eq!(
+        super::plan_with_calls(
+            &path,
+            &request,
+            &mut "token\n".as_bytes(),
+            &never_ensure,
+            &recovered
+        )["machine"],
+        "vm_0123456789abcdef0123"
+    );
+    for error in [
+        E::Status { status: 404, code: "lease.not_found" },
+        E::Status { status: 409, code: "reservation.expired" },
+        E::Status { status: 409, code: "reservation.terminal" },
+    ] {
+        let request = json!({"key": key(), "account": ACCOUNT, "reservation_key": key(), "credential_on_stdin": true}).to_string();
+        let bind = |_: &Call, _: &str| Err(error.clone());
+        let answer = super::plan_with_calls(
+            &path,
+            &request,
+            &mut "token\n".as_bytes(),
+            &never_ensure,
+            &bind,
+        );
+        assert_eq!(answer["ok"], true, "{answer}");
+        assert!(answer["machine"].is_null());
+        assert!(answer["new_name"].is_string());
+    }
+}
+
+#[test]
+fn an_existing_workspace_wins_without_binding_an_unused_reservation() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    Ledger::update(&path, |pins| pins.bind("ws", ACCOUNT, "vm-existing")).unwrap();
+    let request = json!({"key": key(), "account": ACCOUNT, "workspace": "ws", "loaded": false,
+        "reservation_key": key(), "credential_on_stdin": true})
+    .to_string();
+    let answer = super::plan_with_calls(
+        &path,
+        &request,
+        &mut "token\n".as_bytes(),
+        &|_, _| panic!("no ensure for an existing workspace"),
+        &|_, _| panic!("no reservation bind needed"),
+    );
+    assert_eq!(answer["machine"], "vm-existing", "{answer}");
+}
+
+#[test]
+fn a_malformed_bind_answer_is_never_pinned_or_replaced_by_a_cold_create() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    for machine in [
+        Value::Null,
+        json!(""),
+        json!("provider-id"),
+        json!("vm_short"),
+        json!({"id": "vm_0123456789abcdef0123"}),
+    ] {
+        let send = key();
+        let request = json!({"key": send, "account": ACCOUNT, "reservation_key": key(), "credential_on_stdin": true}).to_string();
+        let bind = |_: &super::reservations::Call, _: &str| Ok(json!({"machine": machine}));
+        let answer = super::plan_with_calls(
+            &path,
+            &request,
+            &mut "token\n".as_bytes(),
+            &|_, _| panic!("no project"),
+            &bind,
+        );
+        assert_eq!(answer["ok"], false, "{answer}");
+        assert_eq!(answer["error_code"], "bad_answer");
+        assert!(answer.get("new_name").is_none());
+        assert_eq!(
+            Ledger::update(&path, |pins| pins.machine(&Send::new(&send, ACCOUNT))).unwrap(),
+            None
+        );
+    }
+}
+
+#[test]
+fn project_ensure_carries_the_reservation_and_its_send_key_without_enabling_new_ensure_paths() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir(&folder).unwrap();
+    let send = key();
+    let compose = key();
+    let mut request = json!({"key": send, "account": "user-leo/", "loaded": false,
+        "local": folder.to_str().unwrap(), "credential_on_stdin": true,
+        "reservation_key": compose, "ensure_project": true});
+    let ensure = |ask: &Ensure, _: &str| {
+        assert_eq!(ask.body()["reservationKey"], compose);
+        assert_eq!(ask.body()["reservationSendKey"], send.to_lowercase());
+        Ok(json!({"machine": {"id": "vm-project"}, "created": false}))
+    };
+    let answer = super::plan_with_calls(
+        &path,
+        &request.to_string(),
+        &mut "token\n".as_bytes(),
+        &ensure,
+        &|_, _| panic!("the project ensure owns binding"),
+    );
+    assert_eq!(answer["machine"], "vm-project", "{answer}");
+    request["key"] = json!(key());
+    request["ensure_project"] = json!(false);
+    let answer = super::plan_with_calls(
+        &path,
+        &request.to_string(),
+        &mut "token\n".as_bytes(),
+        &|_, _| panic!("reservation credentials must not enable production project ensure"),
+        &|_, _| Ok(json!({"machine": "vm_0123456789abcdef0123"})),
+    );
+    assert_eq!(answer["machine"], "vm_0123456789abcdef0123", "{answer}");
+}
+
+#[test]
+fn reservation_accepts_cloud_machine_ids_with_letters() {
+    let id = "vm_m0123456789abcdef012";
+    assert_eq!(super::reservations::machine(&json!({"machine": id})), Some(id));
+}
+
+#[test]
+fn reservation_bind_preserves_the_environment_authorization_input() {
+    let call = super::reservations::Call {
+        action: super::reservations::Action::Bind,
+        compose_key: key(),
+        send_key: Some(key()),
+        environment: Some("env_project".into()),
+        platform: None,
+        team: None,
+    };
+    assert_eq!(call.bind_payload()["environment"], "env_project");
+    assert_eq!(call.bind_payload()["sendKey"], json!(call.send_key));
 }

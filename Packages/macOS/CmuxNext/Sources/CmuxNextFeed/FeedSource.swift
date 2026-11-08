@@ -28,4 +28,12 @@ public protocol FeedSource: AnyObject {
 @MainActor
 public protocol FeedPostingSource: FeedSource {
     func post(_ item: FeedItem)
+    /// The poster withdraws its open item with this dedupe key (`feed.cancel`, reason `poster`):
+    /// what it asked for no longer waits on the user. Nothing happens when none is open.
+    func withdraw(dedupeKey: String)
+}
+
+public extension FeedPostingSource {
+    /// An owner that cannot withdraw keeps the item until it expires.
+    func withdraw(dedupeKey: String) {}
 }

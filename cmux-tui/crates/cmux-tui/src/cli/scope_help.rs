@@ -42,11 +42,13 @@ USAGE
   cmux notification list [--limit <1..256>]
   cmux notification create --title <value> --body <value> [--subtitle <value>]
     [--level info|warning|error] [--terminal <term_id> | --workspace <ws_id>]
-  cmux notification clear [--terminal <term_id> | --workspace <ws_id>]
+  cmux notification clear [--terminal <term_id> | --workspace <ws_id> |
+    --notification <notification_id>]
   cmux notification ack --client <id> <notification_id>...
 
-clear without --terminal or --workspace clears every notification of the
-session; --workspace clears that workspace's rows and those of its terminals. `cmux
+clear without a scope clears every notification of the session;
+--workspace clears that workspace's rows and those of its terminals;
+--notification clears that one row. `cmux
 notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
 ";
 
@@ -198,6 +200,7 @@ USAGE
   cmux git worktree create [TARGET] [--name <name>] [--base <revision>]
   cmux git worktree apply [TARGET]
   cmux git worktree remove [TARGET] [--discard]
+  cmux git worktree setup [TARGET] [--since <offset>]
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -276,7 +279,11 @@ work does not apply cleanly there.
 worktree remove, run in such a worktree, removes it (with its ignored files) and
 the cmux/<name> branch worktree create made. It is refused while the worktree has
 uncommitted changes or commits on no other branch or remote, unless --discard.
-The main checkout is never removed.
+The main checkout is never removed. Before it goes, the project's teardown runs.
+
+worktree setup shows the project's worktree recipe (.worktreeinclude,
+.cmux/worktree.toml and the saved one) and, in a worktree worktree create made,
+its setup: state, port and output (from byte --since).
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.

@@ -30,7 +30,7 @@ import CmuxNextWakeups
     /// Children whose owner set their alpha during the fade: the fade leaves them alone after.
     private var released: Set<ObjectIdentifier> = []
     private lazy var frames = FrameClient(owner: "WindowCloseMotion.fade", on: .app) { [weak self] tick in
-        self?.step(tick.elapsed) ?? false
+        self?.step(tick.frameElapsed) ?? false
     }
 
     /// Whether a close of `window` fades: it shows on screen and motion is on.

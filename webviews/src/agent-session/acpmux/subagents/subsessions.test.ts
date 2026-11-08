@@ -92,6 +92,21 @@ test("a sub-session's state: working, needs input, failed (or lost) or done, wit
   expect(subsessionInfo(titled).name).toBe("Audit the fetch helper");
 });
 
+test("a sub-session's title is its own title, not the name the pane shows in its place (cmux#32934)", () => {
+  // sessionEntry's display title is the session's name when acpmux gave it one, so the real title
+  // must win over it; the finished task line (conversation/TaskLine.tsx) is named by this.
+  const named = summary("review", {
+    name: "lead/october-review",
+    shortName: "october-review",
+    title: "Review October engineering work",
+  });
+  expect(named.displayTitle).toBe("lead/october-review");
+  expect(subsessionInfo(named)).toMatchObject({ name: "october-review", title: "Review October engineering work" });
+  // A title that only repeats the name or the id is none.
+  expect(subsessionInfo(summary("plain", { name: "lead/plain", shortName: "plain" })).title).toBeUndefined();
+  expect(subsessionInfo(summary("same", { shortName: "same", title: "same" })).title).toBeUndefined();
+});
+
 test("the chat's sub-sessions, theirs indented under each, waiting first, then working, then ended", () => {
   const sessions = [
     summary("chat"),

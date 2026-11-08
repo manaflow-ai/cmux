@@ -22,7 +22,9 @@ extension ScreenContentView {
     /// `[fx, fy, fwidth, fheight]` (window points, top-left origin), the content view's size
     /// `[cwidth, cheight]`, and `header`, the share of the content's header (its tab strip)
     /// that shows (1: all of it; 0 without a header), then the content view in the window
-    /// `[cx, cy, cwidth, cheight]`.
+    /// `[cx, cy, cwidth, cheight]`. `closing`: each closing pane's ground (FRAME OWNER S3c: a springing close keeps the
+    /// pane's host, with only its ground, on what its neighbours have not covered yet) as `[pane, x, y, width, height,
+    /// alpha, z]`, apart from `panes`: it lays out no content.
     static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let screen = view as? ScreenContentView else { return nil }
         guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor else { return [:] }
@@ -31,12 +33,17 @@ extension ScreenContentView {
             let shown = view.convert(rect, to: nil)
             return [shown.minX, height - shown.maxY, shown.width, shown.height].map { (Double($0) * 100).rounded() / 100 }
         }
-        var panes: [Any] = [], dividers: [Any] = []
+        var panes: [Any] = [], dividers: [Any] = [], closing: [Any] = []
         for (index, subview) in screen.subviews.enumerated() {
             if let host = subview as? PaneHostView, !host.isHidden {
                 var visible = host.frame
                 if let mask = host.layer?.mask { visible = visible.intersection(mask.frame.offsetBy(dx: host.frame.minX, dy: host.frame.minY)) }
                 let rect = visible.isNull ? CGRect.zero : visible
+                let row: [Any] = [host.pane.rawValue as Any] + topLeft(rect, in: screen).map { $0 as Any } + [Double(host.alphaValue) as Any, index as Any]
+                if host.showsClosingGround {
+                    closing.append(row)
+                    continue
+                }
                 let header = CGRect(x: host.frame.minX + host.contentRect.minX, y: host.frame.minY + host.contentRect.minY,
                                     width: host.contentRect.width, height: host.headerHeight)
                 let shownHeader = header.intersection(rect)
@@ -44,15 +51,13 @@ extension ScreenContentView {
                     ? Double(shownHeader.width * shownHeader.height / (header.width * header.height)) : 0
                 let laidOut = topLeft(host.frame, in: screen) + [Double(host.content.frame.width), Double(host.content.frame.height), (headerShare * 1000).rounded() / 1000]
                     + topLeft(host.content.bounds, in: host.content)
-                let row: [Any] = [host.pane.rawValue as Any] + topLeft(rect, in: screen).map { $0 as Any } + [Double(host.alphaValue) as Any, index as Any]
-                    + laidOut.map { $0 as Any }
-                panes.append(row)
+                panes.append(row + laidOut.map { $0 as Any })
             } else if let divider = subview as? DividerHandleView, !divider.isHidden {
                 let row: [Any] = [divider.kind.mouseAreaID as Any] + topLeft(divider.frame, in: screen).map { $0 as Any } + [Double(divider.alphaValue) as Any, index as Any]
                 dividers.append(row)
             }
         }
-        return ["panes": panes, "dividers": dividers, "zoom": [screen.zoomMotion.pane?.rawValue ?? ""]]
+        return ["panes": panes, "dividers": dividers, "zoom": [screen.zoomMotion.pane?.rawValue ?? ""], "closing": closing]
     }
 }
 #endif

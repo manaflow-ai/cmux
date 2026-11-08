@@ -68,28 +68,36 @@ impl Mux {
         // update sends no `tree-changed`, which made every delta client
         // refetch and re-apply the whole tree for one workspace's status
         // (the app's sidebar churn: ~10 Hz of `--task-status`).
-        let effects = if update.title.is_some() || update.color.is_some() || update.icon.is_some() {
-            StateEffects::PRESENTATION
-        } else {
-            StateEffects::NOTES
-        };
-        self.commit_state(
+        let shown = update.title.is_some() || update.color.is_some() || update.icon.is_some();
+        // A shown field reaches delta clients as that workspace's entity
+        // (`workspace-presentation-changed`), never as a `tree-changed` that makes
+        // each of them read the whole tree for one workspace (#32408).
+        let changed = std::cell::Cell::new(None);
+        let commit = self.commit_state(
             mutation,
             "workspace.update",
             &fingerprint,
             expected_revision,
-            effects,
+            StateEffects::NOTES,
             |transaction, state| {
                 let resolved =
                     self.resolve_in_state(state, crate::ResourceTarget::Workspace, selectors)?;
                 let (key, public_id) = workspace_identity(state, resolved.workspace)?;
+                changed.set(resolved.workspace);
                 write_workspace_identity(transaction, &key, &update)?;
                 let changes = fresh_upserts(transaction, &[public_id.to_string()], &[], &[])?;
                 let result = upserted_value(&changes, "workspace", public_id.as_str())
                     .context("updated workspace has no public value")?;
                 Ok(StateChanges::new(result, changes))
             },
-        )
+        )?;
+        if shown && !commit.replayed {
+            match changed.get() {
+                Some(workspace) => self.emit(MuxEvent::WorkspacePresentationChanged(workspace)),
+                None => self.emit(MuxEvent::TreeChanged),
+            }
+        }
+        Ok(commit)
     }
 
     /// `workspace_status.*`, `workspace_progress.*`, `workspace_log.*`.

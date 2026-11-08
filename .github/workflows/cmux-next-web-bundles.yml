@@ -59,7 +59,6 @@ jobs:
             Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane \
             Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages \
             Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity \
-            Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js \
             Resources/markdown-viewer/webviews-app \
             Native/OptChat/optchat-chief/inspector; do
             diff -r -x GENERATED.md "$path" "$out/$path" >/dev/null || { echo "::error::$path differs between two builds"; diff -rq -x GENERATED.md "$path" "$out/$path" || true; status=1; }

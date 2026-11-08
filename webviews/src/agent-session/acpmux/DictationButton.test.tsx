@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { DictationButton } from "./DictationButton";
-import { DictationFinishButton } from "./DictationListening";
+import { DictationCancelButton } from "./DictationListening";
 import type { Dictation } from "./dictation";
 import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
 
@@ -14,7 +14,17 @@ const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+  // test/preload.ts installs the real pane table; restore it after, never delete it.
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "IS_REACT_ACT_ENVIRONMENT",
+    "__cmuxPaneStrings",
+  ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -29,7 +39,8 @@ function installDom(): HTMLElement {
     en: {
       "dictation.start": "Dictate",
       "dictation.stop": "Stop dictation",
-      "dictation.finish": "Finish dictation",
+      "dictation.cancel": "Cancel dictation",
+      "dictation.dictateWith": "Dictate with {name}",
     },
   };
   return dom.window.document.getElementById("root")!;
@@ -43,7 +54,6 @@ async function resetDom(): Promise<void> {
   root = undefined;
   dom?.window.close();
   dom = undefined;
-  delete globalThis.__cmuxPaneStrings;
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -55,15 +65,15 @@ afterEach(async () => {
   await resetDom();
 });
 
-function fakeDictation(state: Dictation["state"], finished: string[] = []): Dictation {
+function fakeDictation(state: Dictation["state"], cancelled: string[] = []): Dictation {
   return {
     state,
     notice: null,
     toggle() {},
-    finish() {
-      finished.push(state);
+    finish() {},
+    cancel() {
+      cancelled.push(state);
     },
-    cancel() {},
     openSettings() {},
     dismiss() {},
   };
@@ -117,25 +127,38 @@ test("a running session's mic stays a mic glyph, pressed; its level shows beside
   expect(listening.querySelector(".acpmux-mic-meter")).toBeNull();
 });
 
-async function renderFinish(state: Dictation["state"], finished: string[]): Promise<HTMLButtonElement> {
+async function renderCancel(state: Dictation["state"], cancelled: string[]): Promise<HTMLButtonElement> {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
-    root.render(<DictationFinishButton dictation={fakeDictation(state, finished)} />);
+    root.render(<DictationCancelButton dictation={fakeDictation(state, cancelled)} />);
   });
   return container.querySelector("button")!;
 }
 
-test("the finish key finishes the session (keeps its words) and waits while the last words land", async () => {
-  const finished: string[] = [];
-  const listening = await renderFinish("listening", finished);
-  expect(listening.getAttribute("aria-label")).toBe("Finish dictation");
-  expect(listening.disabled).toBe(false);
+test("Codex's ✕ cancels the session (drops its words), as Esc does", async () => {
+  const cancelled: string[] = [];
+  const listening = await renderCancel("listening", cancelled);
+  expect(listening.getAttribute("aria-label")).toBe("Cancel dictation");
   await act(async () => listening.click());
-  expect(finished).toEqual(["listening"]);
+  expect(cancelled).toEqual(["listening"]);
+});
 
+test("a dictation app as the source names it on the mic; cmux's own keeps Dictate", async () => {
+  const { setComposerSettings } = await import("./composerSettings");
+  const { setDictationApps } = await import("./dictationSources");
+  setDictationApps([{ id: "chatgpt", bundleId: "com.openai.codex" }]);
+  setComposerSettings({ dictationSource: "chatgpt" });
+  try {
+    const named = await render("idle");
+    expect(named.getAttribute("data-source")).toBe("chatgpt");
+    expect(named.getAttribute("aria-label")).toContain("ChatGPT");
+  } finally {
+    setComposerSettings({ dictationSource: "cmux" });
+    setDictationApps([]);
+  }
   await resetDom();
-
-  const finalizing = await renderFinish("finalizing", finished);
-  expect(finalizing.disabled).toBe(true);
+  const own = await render("idle");
+  expect(own.getAttribute("data-source")).toBeNull();
+  expect(own.getAttribute("aria-label")).toBe("Dictate");
 });

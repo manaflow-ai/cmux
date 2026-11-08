@@ -22,7 +22,8 @@ When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
-`start_session` (with `worktree: true` for a worktree of its own),
+`start_session` (with `worktree: true` for a worktree of its own, or `fork: true` for a
+fork of your own chat that keeps its history),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message`,
 `stop_session` and `retry_session` (a child's failed turn or subagent, again now). Prefer
 them when you have them; this CLI is the fallback (`acpmux retry NAME`).
@@ -114,12 +115,16 @@ acpmux run -m codex --cwd ~/proj --policy approve-edits --tag task=fix "fix the 
 acpmux --json run -m claude "…"                    # {"sessionId","name","reply","stopReason"}
 acpmux exec -m claude "…"                          # run, then delete the session
 acpmux ensure NAME -m codex --cwd DIR --tag task=review # get it, or create it with a label
-acpmux send NAME "next step"                       # stream the reply; -q for the final text only. From an agent it steers into a running turn and prints that turn's reply
+acpmux send NAME "next step"                       # the person's send: stream the reply; -q for the final text only
+acpmux send NAME "…"                               # from an agent (or with --class): queued here and returns in ms, delivered in the background even while the peer is down; prints the delivery id
+acpmux send NAME --wait "…"                        # an agent's send that waits: steers into a running turn and prints that turn's reply
+acpmux send --status [ID]                          # one delivery's state, or every message this daemon still delivers or delivered today
 acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers (read at its next tool boundary; never stops it), else queues; returns at once
 acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead
-acpmux send NAME --no-steer "…"                    # an agent's send that waits: queue behind the running turn instead
+acpmux send NAME --wait --no-steer "…"             # an agent's send that waits: queue behind the running turn instead
 acpmux send NAME --steer "…"                       # the person's send that waits: steer it (it queues by default)
 acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt still queued under KEY (a correction is never read after the order it corrects); prints "replaced N queued", --json adds replaced and replacedPromptIds
+acpmux send NAME --no-wait --notice --severity fire --title "fast tier failed on 3 PRs" --link https://github.com/o/r/pull/1=#1 "body"   # a tool's notice: the chat draws a notice row (severity, sender, title, links); --sender defaults to --from/ACPMUX_FROM/this session
 acpmux send MACHINE/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; any size and number (large ones are uploaded in chunks first)
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
@@ -149,6 +154,14 @@ it again reuses the session and worktree and sends nothing:
 ```bash
 acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME -d
 ```
+
+Name a session after its task: a short readable title in 2-5 words
+(`-n session-info-drag-handles`), never an id or a
+counter (`cloud-item-14`, `optchat-sub-6b68ac4a-a26`). People read it in the cmux
+sidebar and in `acpmux ls`. Keep ids, item numbers and bead ids in a tag
+(`--tag item=14`). `new` and `ensure` print a one-line hint for a name that reads
+as an id; it is never refused and still works as an address. A `Title: ...`
+first line in the prompt titles the chat.
 
 `--group "GROUP"` is optional person-facing app state. It runs `cmux agent
 open`, creates a workspace and places it in the named cmux sidebar group (and
@@ -229,7 +242,9 @@ resolve): your policy answers those, and `ask` sends them to a person.
 A session on another machine is named `MACHINE/NAME` (`big-red/review-42`), and every command takes that
 form. A bare name (`review-42`) or an id prefix also works when exactly one live session on this
 machine or the machines you added has it; when several do, the command refuses and prints the exact
-`MACHINE/NAME` command for each, so pick one and run it. Say and pass `MACHINE/NAME`: never ask the
+`MACHINE/NAME` command for each, so pick one and run it. A name in another case (`td2-a` for
+`td2-A`), a unique prefix of it or the name without `-`, `_` and spaces works too, and so does a
+machine named that way; several matches are refused with each one, never guessed. Say and pass `MACHINE/NAME`: never ask the
 person for a session id.
 
 ```bash
@@ -269,6 +284,10 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
   pushed and checked out there as a fresh worktree; uncommitted changes refuse the move unless
   `--leave-dirty`. A running turn refuses it unless `--interrupt`. `--dry-run` says where each
   would go. The copy left here never runs again and `resolve` points at the new one.
+  `--from MACHINE` moves chats that are on another machine, driven from here over ssh to both
+  ends (they need not reach each other), and `--machine local` brings them here. The agent's own
+  transcript goes with the chat (Claude Code, Codex, pi files; OpenCode as its export), so it
+  resumes with its full context; other agents resume from the chat's history.
   `acpmux session export MACHINE/NAME` fetches a bundle to `~/.acpmux/bundles/`, and
   `acpmux session import DIR` restores a copy on this machine.
 - **What the machine allows.** Some machines are not for builds or long jobs. When the task or the
@@ -312,3 +331,7 @@ turn was denied · 6 `session stop --if-idle` refused (`busy` or
 - Do not delete sessions you did not create. Do not change defaults, presets, or machines
   unless the task is about them.
 - `--current` / `@` targets your own session only when `ACPMUX_ENV=1`.
+- To hand another session an image (a screenshot, a mockup), attach the file:
+  `acpmux send NAME --no-wait "…" --attach /abs/shot.png`, or `attach` in the MCP
+  `send` tool. It shows as a preview. Never pass a provider's own file id
+  (ChatGPT's `libfile_…`, an upload id): nobody here can open one.

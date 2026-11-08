@@ -1,0 +1,951 @@
+[
+ {
+  "name": "the ghostty identity does not advertise a version",
+  "op": "ghostty_identity",
+  "request": {
+   "home": "/home/u",
+   "fs": {}
+  },
+  "expect": {
+   "TERM": "xterm-256color",
+   "COLORTERM": "truecolor",
+   "TERM_PROGRAM": "ghostty"
+  }
+ },
+ {
+  "name": "xterm-256color even with xterm-ghostty installed",
+  "op": "ghostty_identity",
+  "request": {
+   "home": "/home/u",
+   "fs": {
+    "files": [
+     "/home/u/.terminfo/78/xterm-ghostty",
+     "/usr/share/terminfo/78/xterm-ghostty"
+    ]
+   }
+  },
+  "expect": {
+   "TERM": "xterm-256color",
+   "COLORTERM": "truecolor",
+   "TERM_PROGRAM": "ghostty"
+  }
+ },
+ {
+  "name": "the bundled terminfo alone does not select xterm-ghostty; resources dir is exported",
+  "op": "ghostty_identity",
+  "request": {
+   "home": "/home/u",
+   "resourcesDirectory": "/Applications/cmux.app/Contents/Resources/ghostty",
+   "fs": {
+    "files": [
+     "/Applications/cmux.app/Contents/Resources/terminfo/78/xterm-ghostty"
+    ]
+   }
+  },
+  "expect": {
+   "TERM": "xterm-256color",
+   "COLORTERM": "truecolor",
+   "TERM_PROGRAM": "ghostty",
+   "GHOSTTY_RESOURCES_DIR": "/Applications/cmux.app/Contents/Resources/ghostty"
+  }
+ },
+ {
+  "name": "the opt-in reaches the identity when installed in the system terminfo",
+  "op": "ghostty_identity",
+  "request": {
+   "home": "/home/u",
+   "prefersGhosttyTerm": true,
+   "fs": {
+    "files": [
+     "/usr/share/terminfo/78/xterm-ghostty"
+    ]
+   }
+  },
+  "expect": {
+   "TERM": "xterm-ghostty",
+   "COLORTERM": "truecolor",
+   "TERM_PROGRAM": "ghostty"
+  }
+ },
+ {
+  "name": "opt-in, installed in ~/.terminfo",
+  "op": "term",
+  "request": {
+   "prefersGhosttyTerm": true,
+   "home": "/home/u",
+   "fs": {
+    "files": [
+     "/home/u/.terminfo/78/xterm-ghostty"
+    ]
+   }
+  },
+  "expect": "xterm-ghostty"
+ },
+ {
+  "name": "opt-in, installed under x/",
+  "op": "term",
+  "request": {
+   "prefersGhosttyTerm": true,
+   "home": "/home/u",
+   "fs": {
+    "files": [
+     "/opt/homebrew/share/terminfo/x/xterm-ghostty"
+    ]
+   }
+  },
+  "expect": "xterm-ghostty"
+ },
+ {
+  "name": "opt-in, not installed",
+  "op": "term",
+  "request": {
+   "prefersGhosttyTerm": true,
+   "home": "/home/u",
+   "fs": {}
+  },
+  "expect": "xterm-256color"
+ },
+ {
+  "name": "no opt-in",
+  "op": "term",
+  "request": {
+   "prefersGhosttyTerm": false,
+   "home": "/home/u",
+   "fs": {
+    "files": [
+     "/home/u/.terminfo/78/xterm-ghostty"
+    ]
+   }
+  },
+  "expect": "xterm-256color"
+ },
+ {
+  "name": "the provider starts terminals with xterm-256color whatever TERM the overrides carried",
+  "op": "terminal_spawn_environment",
+  "request": {
+   "login": {},
+   "base": {},
+   "overrides": {
+    "TERM": "xterm-ghostty"
+   },
+   "home": "/home/u",
+   "fs": {}
+  },
+  "expect": {
+   "TERM": "xterm-256color"
+  }
+ },
+ {
+  "name": "the allowlist: no identity, no session, no credential",
+  "op": "terminal_filter",
+  "request": {
+   "environment": {
+    "PATH": "/p",
+    "LANG": "en",
+    "LC_ALL": "C",
+    "XDG_CONFIG_HOME": "/x",
+    "HOMEBREW_PREFIX": "/opt/homebrew",
+    "PWD": "/w",
+    "TERM": "xterm",
+    "CMUX_SOCKET_PATH": "/s",
+    "CMUX_TAG": "t",
+    "CMUX_DOGFOOD_STACK_PASSWORD": "pw",
+    "CMUX_API_KEY": "k",
+    "XDG_TOKEN_FILE": "f",
+    "GITHUB_TOKEN": "t",
+    "HOME": "/h",
+    "CMUXD_UNIX_PATH": "/d",
+    "CMUX_PASS_KEYS": "x",
+    "LC_PRIVATE_THING": "y"
+   }
+  },
+  "expect": {
+   "PATH": "/p",
+   "LANG": "en",
+   "LC_ALL": "C",
+   "XDG_CONFIG_HOME": "/x",
+   "HOMEBREW_PREFIX": "/opt/homebrew",
+   "CMUX_TAG": "t"
+  }
+ },
+ {
+  "name": "a terminal gets the login env and the app's own CMUX_ keys, never its launch knobs",
+  "op": "terminal_environment",
+  "request": {
+   "login": {
+    "PATH": "/login/bin",
+    "CMUX_TAG": "login"
+   },
+   "base": {
+    "PATH": "/app",
+    "CMUX_TAG": "app",
+    "CMUX_THEME": "dark",
+    "CMUX_NEXT_SOCKET_PATH": "/s"
+   }
+  },
+  "expect": {
+   "PATH": "/login/bin",
+   "CMUX_TAG": "login",
+   "CMUX_THEME": "dark"
+  }
+ },
+ {
+  "name": "without a capture the common tool prefixes go first",
+  "op": "terminal_environment",
+  "request": {
+   "base": {
+    "PATH": "/usr/bin:/bin"
+   }
+  },
+  "expect": {
+   "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+  }
+ },
+ {
+  "name": "without a capture a PATH with homebrew stays",
+  "op": "terminal_environment",
+  "request": {
+   "base": {
+    "PATH": "/opt/homebrew/bin:/usr/bin"
+   }
+  },
+  "expect": {
+   "PATH": "/opt/homebrew/bin:/usr/bin"
+  }
+ },
+ {
+  "name": "the daemon gets the app's identity keys and the overrides",
+  "op": "daemon_environment",
+  "request": {
+   "login": {
+    "PATH": "/l",
+    "HOME": "/login-home"
+   },
+   "base": {
+    "HOME": "/h",
+    "USER": "u",
+    "SSH_AUTH_SOCK": "/a",
+    "SHELL": "/bin/zsh"
+   },
+   "overrides": {
+    "CMUX_TUI_STATE_DIR": "/s",
+    "PATH": "/o"
+   }
+  },
+  "expect": {
+   "PATH": "/o",
+   "HOME": "/h",
+   "USER": "u",
+   "SSH_AUTH_SOCK": "/a",
+   "CMUX_TUI_STATE_DIR": "/s"
+  }
+ },
+ {
+  "name": "the identity keys",
+  "op": "daemon_identity_keys",
+  "request": {},
+  "expect": [
+   "HOME",
+   "USER",
+   "LOGNAME",
+   "TMPDIR",
+   "SSH_AUTH_SOCK"
+  ]
+ },
+ {
+  "name": "features: Ghostty's defaults with blink",
+  "op": "shell_integration_features",
+  "request": {
+   "integration": {
+    "resourcesDirectory": "/R/ghostty",
+    "ghosttyBinary": "/R/bin/ghostty"
+   }
+  },
+  "expect": "cursor:blink,path,title"
+ },
+ {
+  "name": "features: the ssh ones need the Ghostty CLI",
+  "op": "shell_integration_features",
+  "request": {
+   "integration": {
+    "features": 63,
+    "cursorBlink": false
+   }
+  },
+  "expect": "cursor:steady,path,sudo,title"
+ },
+ {
+  "name": "features: all with the CLI",
+  "op": "shell_integration_features",
+  "request": {
+   "integration": {
+    "features": 63,
+    "ghosttyBinary": "/R/bin/ghostty"
+   }
+  },
+  "expect": "cursor:blink,path,ssh-env,ssh-terminfo,sudo,title"
+ },
+ {
+  "name": "features: none",
+  "op": "shell_integration_features",
+  "request": {
+   "integration": {
+    "features": 0
+   }
+  },
+  "expect": null
+ },
+ {
+  "name": "detect: Apple's bash is never integrated",
+  "op": "shell_integration_shell",
+  "request": {
+   "integration": {},
+   "shell": "/bin/bash"
+  },
+  "expect": null
+ },
+ {
+  "name": "detect: a homebrew bash",
+  "op": "shell_integration_shell",
+  "request": {
+   "integration": {},
+   "shell": "/opt/homebrew/bin/bash"
+  },
+  "expect": "bash"
+ },
+ {
+  "name": "detect: nu is nushell",
+  "op": "shell_integration_shell",
+  "request": {
+   "integration": {},
+   "shell": "/usr/local/bin/nu"
+  },
+  "expect": "nushell"
+ },
+ {
+  "name": "a forced mode wins",
+  "op": "shell_integration_shell",
+  "request": {
+   "integration": {
+    "mode": "fish"
+   },
+   "shell": "/bin/zsh"
+  },
+  "expect": "fish"
+ },
+ {
+  "name": "none never integrates",
+  "op": "shell_integration_shell",
+  "request": {
+   "integration": {
+    "mode": "none"
+   },
+   "shell": "/bin/zsh"
+  },
+  "expect": null
+ },
+ {
+  "name": "zsh through ZDOTDIR, the user's kept",
+  "op": "shell_integration_apply",
+  "request": {
+   "integration": {
+    "resourcesDirectory": "/R/ghostty",
+    "ghosttyBinary": "/R/bin/ghostty"
+   },
+   "env": {
+    "SHELL": "/bin/zsh",
+    "PATH": "/usr/bin",
+    "ZDOTDIR": "/u/zdot"
+   },
+   "home": "/h",
+   "fs": {
+    "dirs": [
+     "/R/ghostty/shell-integration/zsh"
+    ]
+   }
+  },
+  "expect": {
+   "SHELL": "/bin/zsh",
+   "PATH": "/usr/bin:/R/bin",
+   "GHOSTTY_BIN": "/R/bin/ghostty",
+   "GHOSTTY_BIN_DIR": "/R/bin",
+   "XDG_DATA_DIRS": "/usr/local/share:/usr/share:/R/ghostty/..",
+   "MANPATH": ":/R/ghostty/../man",
+   "GHOSTTY_SHELL_FEATURES": "cursor:blink,path,title",
+   "GHOSTTY_ZSH_ZDOTDIR": "/u/zdot",
+   "ZDOTDIR": "/R/ghostty/shell-integration/zsh"
+  }
+ },
+ {
+  "name": "the Ghostty bin dir is not added twice",
+  "op": "shell_integration_apply",
+  "request": {
+   "integration": {
+    "ghosttyBinary": "/R/bin/ghostty",
+    "features": 0
+   },
+   "env": {
+    "PATH": "/R/bin:/usr/bin"
+   },
+   "home": "/h",
+   "fs": {}
+  },
+  "expect": {
+   "PATH": "/R/bin:/usr/bin",
+   "GHOSTTY_BIN": "/R/bin/ghostty",
+   "GHOSTTY_BIN_DIR": "/R/bin"
+  }
+ },
+ {
+  "name": "fish through XDG_DATA_DIRS",
+  "op": "shell_integration_apply",
+  "request": {
+   "integration": {
+    "resourcesDirectory": "/R/ghostty",
+    "features": 0
+   },
+   "env": {
+    "SHELL": "/opt/homebrew/bin/fish",
+    "XDG_DATA_DIRS": "/x"
+   },
+   "home": "/h",
+   "fs": {
+    "dirs": [
+     "/R/ghostty/shell-integration"
+    ]
+   }
+  },
+  "expect": {
+   "SHELL": "/opt/homebrew/bin/fish",
+   "XDG_DATA_DIRS": "/R/ghostty/shell-integration:/x:/R/ghostty/..",
+   "MANPATH": ":/R/ghostty/../man",
+   "GHOSTTY_SHELL_INTEGRATION_XDG_DIR": "/R/ghostty/shell-integration"
+  }
+ },
+ {
+  "name": "bash through ENV in POSIX mode, HISTFILE kept at ~/.bash_history",
+  "op": "shell_integration_apply",
+  "request": {
+   "integration": {
+    "resourcesDirectory": "/R/ghostty",
+    "features": 0
+   },
+   "env": {
+    "SHELL": "/opt/homebrew/bin/bash",
+    "ENV": "/u/env",
+    "HOME": "/home/u"
+   },
+   "home": "/fallback",
+   "fs": {
+    "dirs": [
+     "/R/ghostty/shell-integration/bash"
+    ]
+   }
+  },
+  "expect": {
+   "SHELL": "/opt/homebrew/bin/bash",
+   "HOME": "/home/u",
+   "XDG_DATA_DIRS": "/usr/local/share:/usr/share:/R/ghostty/..",
+   "MANPATH": ":/R/ghostty/../man",
+   "GHOSTTY_BASH_ENV": "/u/env",
+   "ENV": "/R/ghostty/shell-integration/bash/ghostty.bash",
+   "GHOSTTY_BASH_INJECT": "1",
+   "HISTFILE": "/home/u/.bash_history",
+   "GHOSTTY_BASH_UNEXPORT_HISTFILE": "1"
+  }
+ },
+ {
+  "name": "no integration directory leaves the shell alone",
+  "op": "shell_integration_apply",
+  "request": {
+   "integration": {
+    "resourcesDirectory": "/R/ghostty",
+    "features": 0
+   },
+   "env": {
+    "SHELL": "/bin/zsh"
+   },
+   "home": "/h",
+   "fs": {}
+  },
+  "expect": {
+   "SHELL": "/bin/zsh",
+   "XDG_DATA_DIRS": "/usr/local/share:/usr/share:/R/ghostty/..",
+   "MANPATH": ":/R/ghostty/../man"
+  }
+ },
+ {
+  "name": "bash gets --posix",
+  "op": "shell_arguments",
+  "request": {
+   "env": {
+    "SHELL": "/opt/homebrew/bin/bash",
+    "GHOSTTY_BASH_INJECT": "1",
+    "ENV": "/R/shell-integration/bash/ghostty.bash"
+   }
+  },
+  "expect": [
+   "--posix"
+  ]
+ },
+ {
+  "name": "bash under the cmux layer gets --posix",
+  "op": "shell_arguments",
+  "request": {
+   "env": {
+    "SHELL": "/opt/homebrew/bin/bash",
+    "GHOSTTY_BASH_INJECT": "1",
+    "ENV": "/R/cmux-cli-path/bash/cmux-cli-path.bash",
+    "CMUX_CLI_BASH_ENV": "/R/shell-integration/bash/ghostty.bash"
+   }
+  },
+  "expect": [
+   "--posix"
+  ]
+ },
+ {
+  "name": "Apple's bash gets nothing",
+  "op": "shell_arguments",
+  "request": {
+   "env": {
+    "SHELL": "/bin/bash",
+    "GHOSTTY_BASH_INJECT": "1",
+    "ENV": "/R/shell-integration/bash/ghostty.bash"
+   }
+  },
+  "expect": null
+ },
+ {
+  "name": "nushell uses ghostty",
+  "op": "shell_arguments",
+  "request": {
+   "env": {
+    "SHELL": "/usr/local/bin/nu",
+    "GHOSTTY_SHELL_INTEGRATION_XDG_DIR": "/R/si"
+   }
+  },
+  "expect": [
+   "--execute",
+   "use ghostty *"
+  ]
+ },
+ {
+  "name": "zsh gets none",
+  "op": "shell_arguments",
+  "request": {
+   "env": {
+    "SHELL": "/bin/zsh"
+   }
+  },
+  "expect": null
+ },
+ {
+  "name": "BROWSER names the bundled opener",
+  "op": "bundled_cli_apply",
+  "request": {
+   "cli": {
+    "binDirectory": "/A.app/Contents/Resources/bin"
+   },
+   "env": {
+    "PATH": "/usr/bin",
+    "SHELL": "/bin/zsh"
+   },
+   "fs": {
+    "executables": [
+     "/A.app/Contents/Resources/bin/cmux",
+     "/A.app/Contents/Resources/bin/cmux-open-url"
+    ]
+   }
+  },
+  "expect": {
+   "PATH": "/A.app/Contents/Resources/bin:/usr/bin",
+   "SHELL": "/bin/zsh",
+   "CMUX_BUNDLED_CLI_PATH": "/A.app/Contents/Resources/bin/cmux",
+   "BROWSER": "cmux-open-url"
+  }
+ },
+ {
+  "name": "a BROWSER the user set wins",
+  "op": "bundled_cli_apply",
+  "request": {
+   "cli": {
+    "binDirectory": "/A.app/Contents/Resources/bin"
+   },
+   "env": {
+    "PATH": "/usr/bin",
+    "BROWSER": "firefox"
+   },
+   "fs": {
+    "executables": [
+     "/A.app/Contents/Resources/bin/cmux",
+     "/A.app/Contents/Resources/bin/cmux-open-url"
+    ]
+   }
+  },
+  "expect": {
+   "PATH": "/A.app/Contents/Resources/bin:/usr/bin",
+   "CMUX_BUNDLED_CLI_PATH": "/A.app/Contents/Resources/bin/cmux",
+   "BROWSER": "firefox"
+  }
+ },
+ {
+  "name": "no opener in the bundle leaves BROWSER unset",
+  "op": "bundled_cli_apply",
+  "request": {
+   "cli": {
+    "binDirectory": "/A.app/Contents/Resources/bin"
+   },
+   "env": {
+    "PATH": "/usr/bin"
+   },
+   "fs": {
+    "executables": [
+     "/A.app/Contents/Resources/bin/cmux"
+    ]
+   }
+  },
+  "expect": {
+   "PATH": "/A.app/Contents/Resources/bin:/usr/bin",
+   "CMUX_BUNDLED_CLI_PATH": "/A.app/Contents/Resources/bin/cmux"
+  }
+ },
+ {
+  "name": "no bundled cmux changes nothing",
+  "op": "bundled_cli_apply",
+  "request": {
+   "cli": {
+    "binDirectory": "/A/bin"
+   },
+   "env": {
+    "PATH": "/usr/bin"
+   },
+   "fs": {}
+  },
+  "expect": {
+   "PATH": "/usr/bin"
+  }
+ },
+ {
+  "name": "the bin dir moves to the front once",
+  "op": "bundled_cli_apply",
+  "request": {
+   "cli": {
+    "binDirectory": "/A/bin"
+   },
+   "env": {
+    "PATH": "/x::/A/bin:/y"
+   },
+   "fs": {
+    "executables": [
+     "/A/bin/cmux"
+    ]
+   }
+  },
+  "expect": {
+   "PATH": "/A/bin:/x:/y",
+   "CMUX_BUNDLED_CLI_PATH": "/A/bin/cmux"
+  }
+ },
+ {
+  "name": "zsh: the layer over Ghostty's ZDOTDIR",
+  "op": "bundled_cli_apply",
+  "request": {
+   "cli": {
+    "binDirectory": "/A/bin",
+    "pathIntegration": "/A/layer"
+   },
+   "env": {
+    "PATH": "",
+    "SHELL": "/bin/zsh",
+    "ZDOTDIR": "/R/si/zsh"
+   },
+   "fs": {
+    "executables": [
+     "/A/bin/cmux"
+    ],
+    "files": [
+     "/A/layer/zsh/.zshenv"
+    ]
+   }
+  },
+  "expect": {
+   "PATH": "/A/bin",
+   "SHELL": "/bin/zsh",
+   "CMUX_BUNDLED_CLI_PATH": "/A/bin/cmux",
+   "CMUX_CLI_ZSH_ZDOTDIR": "/R/si/zsh",
+   "ZDOTDIR": "/A/layer/zsh"
+  }
+ },
+ {
+  "name": "bash: the layer only over Ghostty's ENV",
+  "op": "bundled_cli_apply",
+  "request": {
+   "cli": {
+    "binDirectory": "/A/bin",
+    "pathIntegration": "/A/layer"
+   },
+   "env": {
+    "SHELL": "/opt/homebrew/bin/bash",
+    "ENV": "/R/si/bash/ghostty.bash",
+    "GHOSTTY_BASH_INJECT": "1"
+   },
+   "fs": {
+    "executables": [
+     "/A/bin/cmux"
+    ],
+    "files": [
+     "/A/layer/bash/cmux-cli-path.bash"
+    ]
+   }
+  },
+  "expect": {
+   "PATH": "/A/bin",
+   "SHELL": "/opt/homebrew/bin/bash",
+   "CMUX_BUNDLED_CLI_PATH": "/A/bin/cmux",
+   "GHOSTTY_BASH_INJECT": "1",
+   "CMUX_CLI_BASH_ENV": "/R/si/bash/ghostty.bash",
+   "ENV": "/A/layer/bash/cmux-cli-path.bash"
+  }
+ },
+ {
+  "name": "fish: the layer on XDG_DATA_DIRS",
+  "op": "bundled_cli_apply",
+  "request": {
+   "cli": {
+    "binDirectory": "/A/bin",
+    "pathIntegration": "/A/layer"
+   },
+   "env": {
+    "SHELL": "/usr/local/bin/fish"
+   },
+   "fs": {
+    "executables": [
+     "/A/bin/cmux"
+    ],
+    "files": [
+     "/A/layer/fish/vendor_conf.d/cmux-cli-path.fish"
+    ]
+   }
+  },
+  "expect": {
+   "PATH": "/A/bin",
+   "SHELL": "/usr/local/bin/fish",
+   "CMUX_BUNDLED_CLI_PATH": "/A/bin/cmux",
+   "CMUX_CLI_FISH_XDG_DIR": "/A/layer",
+   "XDG_DATA_DIRS": "/A/layer:/usr/local/share:/usr/share"
+  }
+ },
+ {
+  "name": "a terminal's env: login, overrides, TERM, integration, cli",
+  "op": "terminal_spawn_environment",
+  "request": {
+   "login": {
+    "PATH": "/usr/bin",
+    "SHELL": "/bin/zsh",
+    "GITHUB_TOKEN": "t"
+   },
+   "base": {
+    "CMUX_THEME": "x"
+   },
+   "overrides": {
+    "CMUX_SOCKET_PATH": "/s",
+    "COLORTERM": "truecolor"
+   },
+   "home": "/h",
+   "integration": {
+    "features": 0,
+    "resourcesDirectory": "/R/ghostty"
+   },
+   "cli": {
+    "binDirectory": "/A/bin"
+   },
+   "fs": {
+    "dirs": [
+     "/R/ghostty/shell-integration/zsh"
+    ],
+    "executables": [
+     "/A/bin/cmux"
+    ]
+   }
+  },
+  "expect": {
+   "PATH": "/A/bin:/usr/bin",
+   "SHELL": "/bin/zsh",
+   "CMUX_THEME": "x",
+   "CMUX_SOCKET_PATH": "/s",
+   "COLORTERM": "truecolor",
+   "TERM": "xterm-256color",
+   "XDG_DATA_DIRS": "/usr/local/share:/usr/share:/R/ghostty/..",
+   "MANPATH": ":/R/ghostty/../man",
+   "ZDOTDIR": "/R/ghostty/shell-integration/zsh",
+   "CMUX_BUNDLED_CLI_PATH": "/A/bin/cmux"
+  }
+ },
+ {
+  "name": "the capture runs the login shell with a minimal seed",
+  "op": "login_capture_plan",
+  "request": {
+   "base": {
+    "HOME": "/h",
+    "USER": "u",
+    "SHELL": "/opt/homebrew/bin/fish",
+    "PATH": "/app",
+    "GITHUB_TOKEN": "t"
+   }
+  },
+  "expect": {
+   "shell": "/opt/homebrew/bin/fish",
+   "arguments": [
+    "-l",
+    "-i",
+    "-c",
+    "printf '\\n__CMUX_NEXT_LOGIN_ENV__\\n'; /usr/bin/env -0"
+   ],
+   "environment": {
+    "HOME": "/h",
+    "USER": "u",
+    "SHELL": "/opt/homebrew/bin/fish",
+    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"
+   }
+  }
+ },
+ {
+  "name": "the account shell, then zsh",
+  "op": "login_capture_plan",
+  "request": {
+   "base": {
+    "SHELL": ""
+   },
+   "userShell": "/bin/bash"
+  },
+  "expect": {
+   "shell": "/bin/bash",
+   "arguments": [
+    "-l",
+    "-i",
+    "-c",
+    "printf '\\n__CMUX_NEXT_LOGIN_ENV__\\n'; /usr/bin/env -0"
+   ],
+   "environment": {
+    "SHELL": "/bin/bash",
+    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"
+   }
+  }
+ },
+ {
+  "name": "the store keeps only the allowlist",
+  "op": "login_store_encode",
+  "request": {
+   "environment": {
+    "PATH": "/p",
+    "GITHUB_TOKEN": "t",
+    "HOME": "/h"
+   }
+  },
+  "expect": "{\"version\":1,\"environment\":{\"PATH\":\"/p\"}}"
+ },
+ {
+  "name": "no PATH is not stored",
+  "op": "login_store_encode",
+  "request": {
+   "environment": {
+    "LANG": "en"
+   }
+  },
+  "expect": null
+ },
+ {
+  "name": "the stored copy is filtered again",
+  "op": "login_store_decode",
+  "request": {
+   "text": "{\"version\":1,\"environment\":{\"PATH\":\"/p\",\"SECRET_X\":\"s\"}}"
+  },
+  "expect": {
+   "PATH": "/p"
+  }
+ },
+ {
+  "name": "another version is ignored",
+  "op": "login_store_decode",
+  "request": {
+   "text": "{\"version\":2,\"environment\":{\"PATH\":\"/p\"}}"
+  },
+  "expect": null
+ },
+ {
+  "name": "without a capture no launch knob of the app reaches a terminal",
+  "op": "terminal_environment",
+  "request": {
+   "base": {
+    "PATH": "/opt/homebrew/bin:/usr/bin",
+    "CMUX_THEME": "dark",
+    "CMUX_NEXT_TUI_BIN": "/x/cmux-tui",
+    "CMUX_NEXT_CLOUD_RUNTIME": "1",
+    "CMUX_NEXT_CLOUD_BACKEND": "https://b"
+   }
+  },
+  "expect": {
+   "PATH": "/opt/homebrew/bin:/usr/bin",
+   "CMUX_THEME": "dark"
+  }
+ },
+ {
+  "name": "a launch knob the login shell exports does not reach a terminal",
+  "op": "terminal_environment",
+  "request": {
+   "login": {
+    "PATH": "/l",
+    "CMUX_NEXT_NO_ACTIVATE": "1",
+    "CMUX_TAG": "t"
+   },
+   "base": {}
+  },
+  "expect": {
+   "PATH": "/l",
+   "CMUX_TAG": "t"
+  }
+ },
+ {
+  "name": "the daemon takes launch knobs only from the overrides",
+  "op": "daemon_environment",
+  "request": {
+   "base": {
+    "PATH": "/opt/homebrew/bin",
+    "CMUX_NEXT_TUI_BIN": "/x",
+    "CMUX_NEXT_CLOUD_LAUNCHER": "1"
+   },
+   "overrides": {
+    "CMUX_NEXT_CLOUD_RUNTIME": "1"
+   }
+  },
+  "expect": {
+   "PATH": "/opt/homebrew/bin",
+   "CMUX_NEXT_CLOUD_RUNTIME": "1"
+  }
+ },
+ {
+  "name": "the app's Cloud selection in the overrides reaches the terminal, inherited knobs do not",
+  "op": "terminal_spawn_environment",
+  "request": {
+   "login": {
+    "PATH": "/l",
+    "CMUX_NEXT_TUI_BIN": "/x"
+   },
+   "base": {
+    "CMUX_NEXT_NO_ACTIVATE": "1"
+   },
+   "overrides": {
+    "CMUX_NEXT_CLOUD_RUNTIME": "1",
+    "CMUX_NEXT_CLOUD_ENV": "staging"
+   },
+   "home": "/home/u",
+   "fs": {}
+  },
+  "expect": {
+   "PATH": "/l",
+   "CMUX_NEXT_CLOUD_RUNTIME": "1",
+   "CMUX_NEXT_CLOUD_ENV": "staging",
+   "TERM": "xterm-256color"
+  }
+ }
+]

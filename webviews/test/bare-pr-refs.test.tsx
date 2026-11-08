@@ -204,7 +204,7 @@ test("a reference in a code span or a code block is not a link", async () => {
   // Finish loading the lazy card inside this test. Without a highlight worker (as in jsdom),
   // the card deliberately keeps its plain-code fallback; references must stay literal there too.
   const { act } = await import("react");
-  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/codeBlockModel");
   await act(async () => {
     await loadHighlightedCode();
   });

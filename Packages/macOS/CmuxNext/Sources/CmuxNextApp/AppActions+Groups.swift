@@ -8,7 +8,7 @@ extension AppActions {
     static func bindBrowser(_ services: AppServices) {
         let registry = services.registry
         func chrome(_ invocation: ActionInvocation = ActionInvocation()) -> BrowserChromeView? {
-            if case .browser(let entry) = scope(services, invocation).pane?.currentContent { return entry.chrome }
+            if case .browser(let entry) = scope(services, invocation).pane?.currentContent { return entry.chrome }  // shown: bound
             return nil
         }
         let commands: [(String, BrowserChromeCommand)] = [
@@ -75,8 +75,8 @@ extension AppActions {
             // Cmd-L while the omnibar already has focus shows the full URL
             // and selects all again. The responder stays; focusing the pane
             // first would hand focus to the page and back.
-            if entry.chrome.addressBar.isEditing {
-                entry.chrome.addressBar.focus()
+            if let bar = entry.chrome?.addressBar, bar.isEditing {
+                bar.focus()
                 return
             }
             window.focus.send(.focusPane(pane.paneKey, source: .intent))
@@ -87,11 +87,11 @@ extension AppActions {
         registry.bind("browser.focusSearch", isEnabled: { chrome() != nil }, invoke: { invocation in
             guard let pane = scope(services, invocation).pane, case .browser(let entry) = pane.currentContent,
                   let window = services.windowController(showing: pane) else { return }
-            if !entry.chrome.addressBar.isEditing {
+            if entry.chrome?.addressBar.isEditing != true {
                 window.focus.send(.focusPane(pane.paneKey, source: .intent))
                 window.focus.send(.focusTarget(.addressBar, source: .intent))
             }
-            entry.chrome.addressBar.beginSearch()
+            entry.chrome?.addressBar.beginSearch()
         })
     }
 }

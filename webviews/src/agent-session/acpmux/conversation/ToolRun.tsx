@@ -6,13 +6,15 @@ import { useId, useMemo, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { ChevronRight, Globe, Magnifier, MultiTool, Pencil, TerminalSquare, ToolGroup } from "./icons";
-import { isFailed } from "./toolGroups";
+import { countsFailed } from "./toolGroups";
 import { isMixedToolRun, mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useToolRunLook } from "../toolRunLook";
-import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
+import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosureModel";
 import { isThought } from "./thoughts";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { EditCounts, useEditTotals } from "./EditCounts";
+import { EditCounts } from "./EditCounts";
+import { useEditTotals } from "./editCountsModel";
+import { FailedCount } from "./FailedCount";
 import { ToolLabel } from "./ToolVerb";
 
 /// The summary's glyph: its one kind of work's, with searches and reads both as the magnifier, or the
@@ -22,16 +24,16 @@ function runIcon(category: ToolRunCategory | "mixed" | undefined): ReactNode {
     case "mixed":
       return <MultiTool />;
     case "edited":
-      return <Pencil size={16} strokeWidth={1.1} />;
+      return <Pencil size={16} />;
     case "read":
     case "searched":
       return <Magnifier />;
     case "web":
-      return <Globe size={16} strokeWidth={1.1} />;
+      return <Globe size={16} />;
     case "ran":
       return <TerminalSquare />;
     default:
-      return <ToolGroup size={16} strokeWidth={1.2} />;
+      return <ToolGroup size={16} />;
   }
 }
 
@@ -39,10 +41,13 @@ export function ToolRun({
   items,
   children,
   disclosureKey,
+  defaultOpen = false,
 }: {
   items: readonly AcpmuxActivity[];
   children: ReactNode;
   disclosureKey: string;
+  /// Open until the reader closes it: a run inside a steered turn's opened Worked for (turns.ts).
+  defaultOpen?: boolean;
 }) {
   const t = useT();
   const look = useToolRunLook();
@@ -50,7 +55,7 @@ export function ToolRun({
   // thought, so the thought it opens is on screen.
   const thinking = useTranscriptViewContext() === "thinking";
   const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, holdsThought, true);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, defaultOpen || holdsThought, true);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
@@ -61,7 +66,7 @@ export function ToolRun({
       summary: toolRunSummary(t, items),
       main: isMixedToolRun(items) ? ("mixed" as const) : mainToolRunCategory(items),
       // A failed call never hides behind the summary: the line counts it, as a group's line does.
-      failures: items.filter((item) => item.tool && isFailed(item.tool)).length,
+      failures: items.filter((item) => item.tool && countsFailed(item.tool)).length,
     }),
     [t, items],
   );
@@ -86,13 +91,9 @@ export function ToolRun({
             <ToolLabel text={summary} tight />
           </span>
           {totals && <EditCounts totals={totals} />}
-          {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
+          <FailedCount n={failures} />
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>

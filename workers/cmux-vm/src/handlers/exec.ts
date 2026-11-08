@@ -33,7 +33,7 @@ export const execHandlers = HttpApiBuilder.group(CmuxVmApi, "exec", (handlers) =
                   ? vmNotFound()
                   : error.status === 409
                     ? conflict("The VM is not running, or it stopped answering during the command (which may have run)")
-                    : unavailable(),
+                    : unavailable(error),
               ),
             );
           return HttpServerResponse.raw(body, { contentType: "application/json" });

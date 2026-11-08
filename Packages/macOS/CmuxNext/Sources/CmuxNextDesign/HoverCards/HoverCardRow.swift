@@ -117,7 +117,20 @@ extension HoverCardAccessory {
 /// text wraps keeps them on its first line (Lawrence 2026-10-21).
 @MainActor
 public final class HoverCardRowView: NSView {
+    /// The default icon column: 13 pt, a step above the 10.5 pt caption.
     public static var iconSize: CGFloat { 13 }
+
+    /// This row's icon column; a card sized by its own tokens (the sidebar's workspace card) sets it.
+    public var iconSide: CGFloat = HoverCardRowView.iconSize {
+        didSet {
+            guard iconSide != oldValue else { return }
+            iconWidth?.constant = iconSide
+            iconHeight?.constant = iconSide
+            iconView.side = iconSide
+        }
+    }
+    private var iconWidth: NSLayoutConstraint?
+    private var iconHeight: NSLayoutConstraint?
 
     public let icon: NSImageView
     private let iconView = HoverCardIconView()
@@ -155,13 +168,16 @@ public final class HoverCardRowView: NSView {
         stack.setCustomSpacing(Metrics.space3, after: deletionsLabel)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+        let iconWidth = icon.widthAnchor.constraint(equalToConstant: iconSide)
+        let iconHeight = icon.heightAnchor.constraint(equalToConstant: iconSide)
+        (self.iconWidth, self.iconHeight) = (iconWidth, iconHeight)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            icon.widthAnchor.constraint(equalToConstant: Self.iconSize),
-            icon.heightAnchor.constraint(equalToConstant: Self.iconSize),
+            iconWidth,
+            iconHeight,
         ])
     }
 

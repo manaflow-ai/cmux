@@ -1,0 +1,1294 @@
+{
+  "$comment": "HAND-EDITED source of the Notifications section's rows: dismissal, banners and sound, the feed mirror, the attention ring, muted workspaces and per-event sounds (cx-d5b5d). gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the full format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here. Row fields: see schemas/settings/source/tabs.json.",
+  "lists": [
+    {
+      "name": "dismissal",
+      "section": "notifications",
+      "group": {
+        "key": "settings.group.dismissal",
+        "text": "Dismissal"
+      },
+      "rows": [
+        {
+          "key": "notifications.dismissal",
+          "title": {
+            "key": "settings.notifications.dismissal",
+            "text": "Clear Notification When"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "keystroke",
+              "title": {
+                "key": "settings.choice.keystroke",
+                "text": "You Type in the Pane"
+              }
+            },
+            {
+              "value": "click",
+              "title": {
+                "key": "settings.choice.click",
+                "text": "You Click or Type in the Pane"
+              }
+            },
+            {
+              "value": "focus",
+              "title": {
+                "key": "settings.choice.focus",
+                "text": "The Pane Is Focused"
+              }
+            },
+            {
+              "value": "explicit",
+              "title": {
+                "key": "settings.choice.explicit",
+                "text": "You Open It"
+              }
+            },
+            {
+              "value": "timeout",
+              "title": {
+                "key": "settings.choice.timeout",
+                "text": "After the Timeout"
+              }
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.neverDismiss",
+                "text": "You Mark It Read"
+              }
+            }
+          ],
+          "default": "focus",
+          "keywords": [
+            "read",
+            "unread"
+          ],
+          "swift_enum": {
+            "name": "NotificationDismissal",
+            "generated": false
+          }
+        },
+        {
+          "key": "notifications.timeoutSeconds",
+          "name": "timeout",
+          "title": {
+            "key": "settings.notifications.timeoutSeconds",
+            "text": "Timeout"
+          },
+          "help": {
+            "key": "settings.notifications.timeoutSeconds.help",
+            "text": "Used when a source clears after a timeout."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 86400,
+            "step": 5,
+            "unit": "seconds"
+          },
+          "default": 30,
+          "keywords": []
+        },
+        {
+          "key": "notifications.sources.agent.dismissal",
+          "name": "agentDismissal",
+          "title": {
+            "key": "settings.notifications.source.agent",
+            "text": "Agents"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "keystroke",
+              "title": {
+                "key": "settings.choice.keystroke",
+                "text": "You Type in the Pane"
+              }
+            },
+            {
+              "value": "click",
+              "title": {
+                "key": "settings.choice.click",
+                "text": "You Click or Type in the Pane"
+              }
+            },
+            {
+              "value": "focus",
+              "title": {
+                "key": "settings.choice.focus",
+                "text": "The Pane Is Focused"
+              }
+            },
+            {
+              "value": "explicit",
+              "title": {
+                "key": "settings.choice.explicit",
+                "text": "You Open It"
+              }
+            },
+            {
+              "value": "timeout",
+              "title": {
+                "key": "settings.choice.timeout",
+                "text": "After the Timeout"
+              }
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.neverDismiss",
+                "text": "You Mark It Read"
+              }
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsAbove",
+            "text": "Same as above"
+          },
+          "keywords": [],
+          "swift_enum": {
+            "name": "NotificationDismissal",
+            "generated": false
+          }
+        },
+        {
+          "key": "notifications.sources.terminal.dismissal",
+          "name": "terminalDismissal",
+          "title": {
+            "key": "settings.notifications.source.terminal",
+            "text": "Terminal Programs"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "keystroke",
+              "title": {
+                "key": "settings.choice.keystroke",
+                "text": "You Type in the Pane"
+              }
+            },
+            {
+              "value": "click",
+              "title": {
+                "key": "settings.choice.click",
+                "text": "You Click or Type in the Pane"
+              }
+            },
+            {
+              "value": "focus",
+              "title": {
+                "key": "settings.choice.focus",
+                "text": "The Pane Is Focused"
+              }
+            },
+            {
+              "value": "explicit",
+              "title": {
+                "key": "settings.choice.explicit",
+                "text": "You Open It"
+              }
+            },
+            {
+              "value": "timeout",
+              "title": {
+                "key": "settings.choice.timeout",
+                "text": "After the Timeout"
+              }
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.neverDismiss",
+                "text": "You Mark It Read"
+              }
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsAbove",
+            "text": "Same as above"
+          },
+          "keywords": [],
+          "swift_enum": {
+            "name": "NotificationDismissal",
+            "generated": false
+          }
+        },
+        {
+          "key": "notifications.sources.cli.dismissal",
+          "name": "cliDismissal",
+          "title": {
+            "key": "settings.notifications.source.cli",
+            "text": "cmux notify"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "keystroke",
+              "title": {
+                "key": "settings.choice.keystroke",
+                "text": "You Type in the Pane"
+              }
+            },
+            {
+              "value": "click",
+              "title": {
+                "key": "settings.choice.click",
+                "text": "You Click or Type in the Pane"
+              }
+            },
+            {
+              "value": "focus",
+              "title": {
+                "key": "settings.choice.focus",
+                "text": "The Pane Is Focused"
+              }
+            },
+            {
+              "value": "explicit",
+              "title": {
+                "key": "settings.choice.explicit",
+                "text": "You Open It"
+              }
+            },
+            {
+              "value": "timeout",
+              "title": {
+                "key": "settings.choice.timeout",
+                "text": "After the Timeout"
+              }
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.neverDismiss",
+                "text": "You Mark It Read"
+              }
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsAbove",
+            "text": "Same as above"
+          },
+          "keywords": [],
+          "swift_enum": {
+            "name": "NotificationDismissal",
+            "generated": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "banners",
+      "section": "notifications",
+      "group": {
+        "key": "settings.group.banners",
+        "text": "Banners and Sound"
+      },
+      "rows": [
+        {
+          "key": "notifications.desktop",
+          "title": {
+            "key": "settings.notifications.desktop",
+            "text": "macOS Banners"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "unlessFocused",
+              "title": {
+                "key": "settings.choice.unlessFocused",
+                "text": "Unless the Pane Is Focused"
+              }
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.always",
+                "text": "Always"
+              }
+            },
+            {
+              "value": "whenInactive",
+              "title": {
+                "key": "settings.choice.whenInactive",
+                "text": "When cmux Is Inactive"
+              }
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.never",
+                "text": "Never"
+              }
+            }
+          ],
+          "default": "unlessFocused",
+          "keywords": [],
+          "swift_enum": {
+            "name": "DesktopNotificationMode",
+            "generated": false
+          }
+        },
+        {
+          "key": "notifications.sound",
+          "title": {
+            "key": "settings.notifications.sound",
+            "text": "Sound"
+          },
+          "kind": "sound",
+          "default": "default",
+          "keywords": []
+        },
+        {
+          "key": "notifications.quietHours",
+          "title": {
+            "key": "settings.notifications.quietHours",
+            "text": "Quiet Hours"
+          },
+          "help": {
+            "key": "settings.notifications.quietHours.help",
+            "text": "No banners or sounds between these times."
+          },
+          "kind": "time_range",
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.off",
+            "text": "Off"
+          },
+          "keywords": [
+            "do not disturb"
+          ]
+        },
+        {
+          "key": "notifications.suppressWhileTypingSeconds",
+          "name": "typing",
+          "title": {
+            "key": "settings.notifications.suppressWhileTyping",
+            "text": "Quiet After Typing"
+          },
+          "help": {
+            "key": "settings.notifications.suppressWhileTyping.help",
+            "text": "A pane typed into this recently is marked read at once. 0 turns it off."
+          },
+          "summary": {
+            "key": "settings.notifications.suppressWhileTyping.summary",
+            "text": "No alerts from a pane you just typed in"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 60,
+            "step": 1,
+            "unit": "seconds"
+          },
+          "default": 0,
+          "keywords": []
+        },
+        {
+          "key": "status.runNotifyMinimumSeconds",
+          "name": "runNotify",
+          "title": {
+            "key": "settings.status.runNotifyMinimumSeconds",
+            "text": "Notify When a Run Takes"
+          },
+          "help": {
+            "key": "settings.status.runNotifyMinimumSeconds.help",
+            "text": "cmux status run notifies when the command took at least this long."
+          },
+          "summary": {
+            "key": "settings.status.runNotifyMinimumSeconds.summary",
+            "text": "Long runs notify when they finish"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3600,
+            "step": 1,
+            "unit": "seconds"
+          },
+          "default": 10,
+          "keywords": [],
+          "swift_owner": {
+            "type": "StatusBehaviorSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "status.runNotifyWhenVisible",
+          "title": {
+            "key": "settings.status.runNotifyWhenVisible",
+            "text": "Notify Even When the Terminal Is Visible"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [],
+          "swift_owner": {
+            "type": "StatusBehaviorSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "notifications.dockBadge",
+          "title": {
+            "key": "settings.notifications.dockBadge",
+            "text": "Unread Count on Dock Icon"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": []
+        },
+        {
+          "key": "notifications.dockBounce",
+          "title": {
+            "key": "settings.notifications.dockBounce",
+            "text": "Bounce Dock Icon"
+          },
+          "help": {
+            "key": "settings.notifications.dockBounce.help",
+            "text": "When a notification alerts while cmux isn't the active app."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.dockBounceOff",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "once",
+              "title": {
+                "key": "settings.choice.dockBounceOnce",
+                "text": "Once"
+              }
+            },
+            {
+              "value": "untilActive",
+              "title": {
+                "key": "settings.choice.dockBounceUntilActive",
+                "text": "Until You Switch to cmux"
+              }
+            }
+          ],
+          "default": "once",
+          "keywords": [
+            "dock",
+            "bounce",
+            "attention",
+            "badge"
+          ],
+          "swift_enum": {
+            "name": "DockBounceMode",
+            "generated": false
+          }
+        },
+        {
+          "key": "notifications.showPreviews",
+          "title": {
+            "key": "settings.notifications.showPreviews",
+            "text": "Show Message in Banners"
+          },
+          "help": {
+            "key": "settings.notifications.showPreviews.help",
+            "text": "Whether a banner shows what the agent said, or only where and what state."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.previewsAlways",
+                "text": "Always"
+              }
+            },
+            {
+              "value": "whenUnlocked",
+              "title": {
+                "key": "settings.choice.previewsWhenUnlocked",
+                "text": "When Unlocked"
+              }
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.previewsNever",
+                "text": "Never"
+              }
+            }
+          ],
+          "default": "whenUnlocked",
+          "keywords": [
+            "preview",
+            "privacy",
+            "message",
+            "lock screen",
+            "banner"
+          ],
+          "swift_enum": {
+            "name": "NotificationPreviews",
+            "generated": false,
+            "module": "CmuxNextCompat"
+          }
+        }
+      ]
+    },
+    {
+      "name": "feedMirror",
+      "section": "notifications",
+      "group": {
+        "key": "settings.group.feedMirror",
+        "text": "Feed"
+      },
+      "rows": [
+        {
+          "key": "feed.mirrorNotifications.agents",
+          "title": {
+            "key": "settings.feed.mirrorAgents",
+            "text": "Copy Agent Notifications to the Feed"
+          },
+          "help": {
+            "key": "settings.feed.mirrorAgents.help",
+            "text": "Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "cloud",
+            "iphone",
+            "push"
+          ],
+          "swift_owner": {
+            "type": "FeedMirrorPreferences",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "feed.mirrorNotifications.terminal",
+          "title": {
+            "key": "settings.feed.mirrorTerminal",
+            "text": "Copy Terminal Notifications to the Feed"
+          },
+          "help": {
+            "key": "settings.feed.mirrorTerminal.help",
+            "text": "Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account."
+          },
+          "summary": {
+            "key": "settings.feed.mirrorTerminal.summary",
+            "text": "Terminal output can contain secrets"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.feedMirror.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "title",
+              "title": {
+                "key": "settings.choice.feedMirror.title",
+                "text": "Title Only"
+              }
+            },
+            {
+              "value": "full",
+              "title": {
+                "key": "settings.choice.feedMirror.full",
+                "text": "Title and Text"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "cloud",
+            "iphone",
+            "push",
+            "osc"
+          ],
+          "swift_enum": {
+            "name": "FeedTerminalMirror",
+            "generated": false
+          },
+          "swift_owner": {
+            "type": "FeedMirrorPreferences",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "feed.agentPermissionPrompts",
+          "title": {
+            "key": "settings.feed.agentPermissionPrompts",
+            "text": "Send Agent Permission Requests to the Feed"
+          },
+          "help": {
+            "key": "settings.feed.agentPermissionPrompts.help",
+            "text": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "iphone",
+            "push",
+            "approve",
+            "allow"
+          ],
+          "swift_owner": {
+            "type": "FeedMirrorPreferences",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "feed.needsYouInChief",
+          "note": "Chief Home's pinned Needs you card: opt-in, the Feed always lists the requests (Leo 2026-11-03).",
+          "title": {
+            "key": "settings.feed.needsYouInChief",
+            "text": "Pin Needs You in Chief"
+          },
+          "help": {
+            "key": "settings.feed.needsYouInChief.help",
+            "text": "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "chief",
+            "home",
+            "needs you",
+            "requests",
+            "permissions",
+            "approve",
+            "pinned"
+          ],
+          "swift_owner": "HomeNeedsYouSetting"
+        }
+      ]
+    },
+    {
+      "name": "attention",
+      "section": "notifications",
+      "group": {
+        "key": "settings.group.attention",
+        "text": "Attention Ring"
+      },
+      "rows": [
+        {
+          "key": "notifications.attention.style",
+          "title": {
+            "key": "settings.attention.style",
+            "text": "Style"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "blink",
+              "title": {
+                "key": "settings.choice.blink",
+                "text": "Blink"
+              }
+            },
+            {
+              "value": "pulse",
+              "title": {
+                "key": "settings.choice.pulse",
+                "text": "Pulse"
+              }
+            },
+            {
+              "value": "steady",
+              "title": {
+                "key": "settings.choice.steady",
+                "text": "Steady"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "steady",
+          "keywords": [
+            "ring",
+            "flash"
+          ],
+          "swift_enum": {
+            "name": "AttentionStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          }
+        },
+        {
+          "key": "notifications.attention.color",
+          "title": {
+            "key": "settings.attention.color",
+            "text": "Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.themeAccent",
+            "text": "Theme Accent"
+          },
+          "keywords": []
+        },
+        {
+          "key": "notifications.attention.terminals",
+          "title": {
+            "key": "settings.attention.terminals",
+            "text": "Ring Terminal Panes"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "glow",
+              "title": {
+                "key": "settings.choice.glow",
+                "text": "Glow"
+              }
+            },
+            {
+              "value": "ring",
+              "title": {
+                "key": "settings.choice.ring",
+                "text": "Ring"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "glow",
+          "keywords": [
+            "ring",
+            "glow",
+            "flash",
+            "blink",
+            "terminal"
+          ],
+          "swift_enum": {
+            "name": "FocusRingStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          }
+        },
+        {
+          "key": "notifications.attention.agentChats",
+          "title": {
+            "key": "settings.attention.agentChats",
+            "text": "Ring Agent Chat Panes"
+          },
+          "help": {
+            "key": "settings.attention.agentChats.help",
+            "text": "Ring an agent chat's pane when its turn ends, until you click or type in it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "glow",
+              "title": {
+                "key": "settings.choice.glow",
+                "text": "Glow"
+              }
+            },
+            {
+              "value": "ring",
+              "title": {
+                "key": "settings.choice.ring",
+                "text": "Ring"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "none",
+          "keywords": [
+            "ring",
+            "glow",
+            "flash",
+            "blink",
+            "agent",
+            "chat",
+            "turn"
+          ],
+          "swift_enum": {
+            "name": "FocusRingStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          }
+        },
+        {
+          "key": "notifications.attention.agentChatBlinkCount",
+          "title": {
+            "key": "settings.attention.agentChatBlinkCount",
+            "text": "Agent Chat Blinks"
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 10,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 1,
+          "keywords": []
+        },
+        {
+          "key": "notifications.attention.width",
+          "title": {
+            "key": "settings.attention.width",
+            "text": "Width"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.5,
+            "max": 8,
+            "step": 0.5,
+            "unit": "points"
+          },
+          "default": 2,
+          "keywords": []
+        },
+        {
+          "key": "notifications.attention.blinkCount",
+          "title": {
+            "key": "settings.attention.blinkCount",
+            "text": "Blinks"
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 10,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 2,
+          "keywords": []
+        },
+        {
+          "key": "notifications.attention.duration",
+          "name": "pulseDuration",
+          "note": "Its own name: AttentionSettings.durationRange is the design layer's clamp (Motion).",
+          "title": {
+            "key": "settings.attention.duration",
+            "text": "Pulse Duration"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.3,
+            "max": 30,
+            "step": 0.5,
+            "unit": "seconds"
+          },
+          "default": 3,
+          "keywords": []
+        },
+        {
+          "key": "notifications.attention.persist",
+          "title": {
+            "key": "settings.attention.persist",
+            "text": "Keep Ring Until Read"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": []
+        },
+        {
+          "key": "notifications.attention.flash",
+          "title": {
+            "key": "settings.attention.flash",
+            "text": "Flash the Pane When Read"
+          },
+          "help": {
+            "key": "settings.attention.flash.help",
+            "text": "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "ring",
+            "flash",
+            "blink",
+            "unread"
+          ]
+        },
+        {
+          "key": "notifications.attention.flashOnTyping",
+          "title": {
+            "key": "settings.attention.flashOnTyping",
+            "text": "Flash When Typing Reads It"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "ring",
+            "flash",
+            "keystroke",
+            "unread"
+          ]
+        },
+        {
+          "key": "notifications.attention.showOnTab",
+          "title": {
+            "key": "settings.attention.showOnTab",
+            "text": "Mark the Tab"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": []
+        },
+        {
+          "key": "notifications.attention.showOnSidebar",
+          "title": {
+            "key": "settings.attention.showOnSidebar",
+            "text": "Mark the Sidebar Row"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": []
+        },
+        {
+          "key": "notifications.attention.moveToTop",
+          "title": {
+            "key": "settings.attention.moveToTop",
+            "text": "Move the Workspace to the Top"
+          },
+          "help": {
+            "key": "settings.attention.moveToTop.help",
+            "text": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "reorder",
+            "sort",
+            "bump"
+          ]
+        },
+        {
+          "key": "notifications.attention.moveToTopOnAgentFinish",
+          "title": {
+            "key": "settings.attention.moveToTopOnAgentFinish",
+            "text": "Move the Workspace to the Top When Its Agent Finishes"
+          },
+          "help": {
+            "key": "settings.attention.moveToTopOnAgentFinish.help",
+            "text": "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "reorder",
+            "sort",
+            "bump",
+            "agent",
+            "done",
+            "finished"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mutedWorkspaces",
+      "section": "notifications",
+      "group": {
+        "key": "settings.group.banners",
+        "text": "Banners and Sound"
+      },
+      "rows": [
+        {
+          "key": "notifications.mutedWorkspaces",
+          "note": "Raw workspace ids mean nothing on the page; the sidebar row menu mutes a workspace.",
+          "title": {
+            "key": "settings.notifications.mutedWorkspaces",
+            "text": "Muted Workspaces"
+          },
+          "help": {
+            "key": "settings.notifications.mutedWorkspaces.help",
+            "text": "Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "mute",
+            "silence"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ],
+          "page_hidden": "workspace ids; toggled per workspace from the sidebar row menu"
+        }
+      ]
+    },
+    {
+      "name": "sounds",
+      "section": "notifications",
+      "group": {
+        "key": "settings.group.sounds",
+        "text": "Sounds"
+      },
+      "rows": [
+        {
+          "key": "notifications.sounds.events.finished",
+          "name": "finishedSound",
+          "title": {
+            "key": "settings.notifications.sounds.event.finished",
+            "text": "Agent Finished"
+          },
+          "kind": "sound",
+          "default": null,
+          "default_label": {
+            "key": "settings.notifications.sounds.sameAsSound",
+            "text": "Same as Sound"
+          },
+          "keywords": [
+            "sound",
+            "alert",
+            "chime"
+          ]
+        },
+        {
+          "key": "notifications.sounds.events.needsInput",
+          "name": "needsInputSound",
+          "title": {
+            "key": "settings.notifications.sounds.event.needsInput",
+            "text": "Agent Needs Input"
+          },
+          "kind": "sound",
+          "default": null,
+          "default_label": {
+            "key": "settings.notifications.sounds.sameAsSound",
+            "text": "Same as Sound"
+          },
+          "keywords": [
+            "sound",
+            "alert",
+            "chime"
+          ]
+        },
+        {
+          "key": "notifications.sounds.events.error",
+          "name": "errorSound",
+          "title": {
+            "key": "settings.notifications.sounds.event.error",
+            "text": "Error"
+          },
+          "kind": "sound",
+          "default": null,
+          "default_label": {
+            "key": "settings.notifications.sounds.sameAsSound",
+            "text": "Same as Sound"
+          },
+          "keywords": [
+            "sound",
+            "alert",
+            "chime"
+          ]
+        },
+        {
+          "key": "notifications.sounds.events.bell",
+          "name": "bellSound",
+          "title": {
+            "key": "settings.notifications.sounds.event.bell",
+            "text": "Terminal Notification"
+          },
+          "kind": "sound",
+          "default": null,
+          "default_label": {
+            "key": "settings.notifications.sounds.sameAsSound",
+            "text": "Same as Sound"
+          },
+          "keywords": [
+            "sound",
+            "alert",
+            "chime"
+          ]
+        },
+        {
+          "key": "notifications.sounds.events.message",
+          "name": "messageSound",
+          "title": {
+            "key": "settings.notifications.sounds.event.message",
+            "text": "cmux notify Message"
+          },
+          "kind": "sound",
+          "default": null,
+          "default_label": {
+            "key": "settings.notifications.sounds.sameAsSound",
+            "text": "Same as Sound"
+          },
+          "keywords": [
+            "sound",
+            "alert",
+            "chime"
+          ]
+        },
+        {
+          "key": "notifications.sounds.volume",
+          "title": {
+            "key": "settings.notifications.sounds.volume",
+            "text": "Volume"
+          },
+          "help": {
+            "key": "settings.notifications.sounds.volume.help",
+            "text": "Sounds cmux plays itself. A banner's default sound follows the system alert volume."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": 1,
+          "keywords": [
+            "sound",
+            "loud",
+            "quiet"
+          ]
+        },
+        {
+          "key": "notifications.sounds.when",
+          "title": {
+            "key": "settings.notifications.sounds.when",
+            "text": "Play Sounds"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "unlessViewed",
+              "title": {
+                "key": "settings.notifications.sounds.when.unlessViewed",
+                "text": "Unless the Pane Is in Front"
+              }
+            },
+            {
+              "value": "whenInactive",
+              "title": {
+                "key": "settings.notifications.sounds.when.whenInactive",
+                "text": "Only When cmux Is Inactive"
+              }
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.notifications.sounds.when.always",
+                "text": "Always"
+              }
+            }
+          ],
+          "default": "unlessViewed",
+          "keywords": [
+            "sound",
+            "focused",
+            "background"
+          ],
+          "swift_enum": {
+            "name": "NotificationSoundTiming",
+            "generated": false
+          }
+        },
+        {
+          "key": "notifications.sounds.cooldownSeconds",
+          "name": "cooldown",
+          "title": {
+            "key": "settings.notifications.sounds.cooldown",
+            "text": "Burst Cooldown"
+          },
+          "help": {
+            "key": "settings.notifications.sounds.cooldown.help",
+            "text": "Many notifications at once sound once. An agent asking for input still sounds. 0 turns it off."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 60,
+            "step": 0.5,
+            "unit": "seconds"
+          },
+          "default": 1.5,
+          "keywords": [
+            "sound",
+            "rate limit",
+            "throttle",
+            "burst"
+          ]
+        },
+        {
+          "key": "notifications.sounds.workspaces",
+          "title": {
+            "key": "settings.notifications.sounds.workspaces",
+            "text": "Workspace Sounds"
+          },
+          "help": {
+            "key": "settings.notifications.sounds.workspaces.help",
+            "text": "Sounds per workspace id. Set one from the workspace's sidebar menu."
+          },
+          "kind": "sound_rules",
+          "default": {},
+          "keywords": [
+            "sound",
+            "mute"
+          ],
+          "page_hidden": "ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"
+        },
+        {
+          "key": "notifications.sounds.groups",
+          "title": {
+            "key": "settings.notifications.sounds.groups",
+            "text": "Group Sounds"
+          },
+          "help": {
+            "key": "settings.notifications.sounds.groups.help",
+            "text": "Sounds per group id or name. Set one from the group's sidebar menu."
+          },
+          "kind": "sound_rules",
+          "default": {},
+          "keywords": [
+            "sound",
+            "mute"
+          ],
+          "page_hidden": "ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"
+        },
+        {
+          "key": "notifications.sounds.agents",
+          "title": {
+            "key": "settings.notifications.sounds.agents",
+            "text": "Agent Sounds"
+          },
+          "help": {
+            "key": "settings.notifications.sounds.agents.help",
+            "text": "Sounds per agent kind, such as claude or codex."
+          },
+          "kind": "sound_rules",
+          "default": {},
+          "keywords": [
+            "sound",
+            "mute"
+          ],
+          "page_hidden": "ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"
+        }
+      ]
+    }
+  ]
+}

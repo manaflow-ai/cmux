@@ -31,7 +31,7 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
         eprintln!("cmux: {}", m.empty_message);
         return 2;
     }
-    session.sender = args.sender(super::acpmux_session().as_deref());
+    session.sender = args.sender(&|key| std::env::var(key).ok(), &super::caller::host_name);
     let (seq, id) = match session.send(text) {
         Ok(sent) => sent,
         Err(LinkError::Transport(message)) => {
@@ -44,6 +44,17 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
         }
     };
     let json = json_output(output);
+    if args.no_wait {
+        // Like `acpmux send --no-wait`: the message is in the Chief's
+        // conversation, and the Chief reads it at its next turn (now when it
+        // is idle, after the running turn when it is busy).
+        if json {
+            println!("{}", serde_json::json!({"delivered": true, "seq": seq, "id": id}));
+        } else {
+            println!("{}", m.delivered.replace("{seq}", &seq.to_string()));
+        }
+        return 0;
+    }
     let stream = !json && std::io::stdout().is_terminal();
     let links = !json && super::hyperlink::enabled();
     let mut out = Printer { streamed: String::new(), wrote: false, json, links };
@@ -77,8 +88,9 @@ pub(super) trait ReplySink {
     fn draft(&mut self, talk: &str);
     /// A posted reply message.
     fn message(&mut self, message: &Value);
-    /// The Chief has not read the message after a while.
-    fn not_read(&mut self);
+    /// The Chief has not read the message after a while; `busy`: it is in
+    /// a turn, which the message waits for.
+    fn not_read(&mut self, busy: bool);
     /// The wait ended (any way).
     fn end(&mut self);
 }
@@ -153,7 +165,7 @@ pub(super) fn follow(
                 }
                 if !hinted && !turn.read && Instant::now() >= started + NOT_READ_AFTER {
                     hinted = true;
-                    out.not_read();
+                    out.not_read(turn.chief_busy());
                 }
                 continue;
             }
@@ -234,8 +246,8 @@ impl ReplySink for Printer {
         self.streamed.clear();
     }
 
-    fn not_read(&mut self) {
-        eprintln!("cmux: {}", messages().not_read);
+    fn not_read(&mut self, busy: bool) {
+        eprintln!("cmux: {}", not_read_text(busy));
     }
 
     fn end(&mut self) {
@@ -255,6 +267,13 @@ impl Printer {
     }
 }
 
+/// Why the Chief has not read the message: a Chief in a turn reads it at
+/// its next turn (its brain runs); one that is not working may be down.
+fn not_read_text(busy: bool) -> &'static str {
+    let m = messages();
+    if busy { m.not_read_busy } else { m.not_read }
+}
+
 /// What to write for a posted reply `text` after `streamed` draft text: the
 /// rest when the draft was its start, else the whole text on a new line.
 /// A second reply is set off by a blank line.
@@ -266,4 +285,16 @@ pub(super) fn finish_text(streamed: &str, text: &str, wrote: bool) -> String {
         };
     }
     if wrote { format!("\n{text}") } else { text.to_owned() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_busy_chief_is_not_called_down() {
+        assert!(not_read_text(true).contains("in a turn"));
+        assert!(!not_read_text(true).contains("brain running"));
+        assert!(not_read_text(false).contains("brain running"));
+    }
 }

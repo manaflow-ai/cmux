@@ -104,12 +104,13 @@ const chat = (count: number) =>
     { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
   ]).flat();
 
-async function mount(prompts: number) {
+async function mount(prompts: number, props: { promptCount?: number; earlier?: AcpmuxRow[] } = {}) {
   const root = createRoot(document.getElementById("root")!);
   await act(async () =>
     root.render(
       <VirtualTranscript
         rows={turnView(chat(prompts), new Set())}
+        {...props}
         sessionId="scroll-map-test"
         onToggleActivity={() => {}}
         expanded={new Set()}
@@ -184,6 +185,28 @@ test("focus opens the card at once; the arrows walk the prompts; Escape closes; 
     await view.unmount();
   }
 });
+
+// The map draws the loaded turns, numbered from 0; the rail's turns start with the prompts the count or
+// the index names above them (model.ts pendingTurns, `earlier`). A click lands on its own prompt.
+for (const [name, props] of [
+  ["a count of prompts not held yet", { promptCount: 45 }],
+  [
+    "indexed earlier prompts",
+    { earlier: Array.from({ length: 33 }, (_, index) => row(`user-${index + 100}`, "user", `Earlier ${index}`)) },
+  ],
+] as const)
+  test(`a mark's click lands on its prompt with ${name} above the loaded ones`, async () => {
+    const view = await mount(12, props);
+    try {
+      expect(ticks()).toHaveLength(12);
+      await act(async () => tick(7).click());
+      await view.scrolled();
+      await frame();
+      expect(view.scroller.scrollTop).toBe(landing(7));
+    } finally {
+      await view.unmount();
+    }
+  });
 
 test("a focused prompt keeps its card when earlier turns arrive above it", async () => {
   const view = await mount(12);

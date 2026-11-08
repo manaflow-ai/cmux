@@ -134,7 +134,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     /// A row of the sidebar's Priority view: mark read, pin, snooze and archive its chat.
     case priorityRow
     /// A machine joined with a one-line token, in the right sidebar's Machines section (its "…"
-    /// button; Labs `labs.machineJoin`): Check, Rotate Credential and Revoke.
+    /// button): Check, Rotate Credential and Revoke.
     case joinedMachine
     /// A tab bar's empty area: the strip's or the vertical tab list's (Edge's and Chrome's
     /// vertical-tab menus: New Tab, the vertical tabs rows, Task Manager).
@@ -169,5 +169,14 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .agentChat: .tab
         case .priorityRow: .agentChat
         }
+    }
+
+    /// The kinds of the objects this menu's target holds whose actions its rows offer, with the
+    /// target as their place. The tab bar's empty area targets its pane and offers New Tab and
+    /// Reopen Closed Tab, which act on the pane's tabs (Chrome's and Edge's tab strip menus); the
+    /// handlers take the pane as the place. Surface coverage counts such a row for its action's
+    /// target kind (`ActionSurfaceParityTests`). Every other menu's rows act on its target itself.
+    public var contentKinds: [ActionTargetKind] {
+        self == .tabStrip ? [.tab] : []
     }
 }

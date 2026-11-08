@@ -14,8 +14,9 @@ import { chatGallery } from "./chatGallery";
 import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
-import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
-import { sessionStatus } from "../session-info/ChildSessionRows";
+import { SubagentStatusList } from "./SubagentStatusList";
+import { SUBSESSION_STATUS, subagentStatus, waitingSubagents } from "./subagentStatusListModel";
+import { sessionStatus } from "../session-info/childSessionRowsModel";
 import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
 import { startedChatsOutsideSubsessions } from "./startedChatsOutsideSubsessions";
@@ -36,6 +37,17 @@ const NO_TASKS: readonly SummaryBackgroundTask[] = [];
 const NO_REGISTRY: ProcessRegistry = { processes: [], listed: false };
 
 const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
+
+function SummaryTabLabel({ label }: { label: string }) {
+  return (
+    <span className="acpmux-summary-tab__text">
+      <span>{label}</span>
+      <span className="acpmux-summary-tab__measure" aria-hidden="true">
+        {label}
+      </span>
+    </span>
+  );
+}
 
 /// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
 /// uses a popover that dismisses on outside click or Escape. Both start with Environment and have no
@@ -285,7 +297,7 @@ export function SummaryCard({
                   data-selected={onSubagents ? undefined : ""}
                   onClick={() => showTab("summary")}
                 >
-                  {t("summary.title")}
+                  <SummaryTabLabel label={t("summary.title")} />
                 </button>
                 <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
                   <button
@@ -294,7 +306,7 @@ export function SummaryCard({
                     aria-pressed={onSubagents}
                     onClick={() => showTab("subagents")}
                   >
-                    {t("summary.subagents")}
+                    <SummaryTabLabel label={t("summary.subagents")} />
                   </button>
                   <button
                     type="button"

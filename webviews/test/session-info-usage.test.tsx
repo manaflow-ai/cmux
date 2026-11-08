@@ -17,9 +17,16 @@ import {
   resetSessionInfoState,
   setSessionInfoMore,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { DEFAULT_ORDER, GROUP_SECTIONS } from "../src/agent-session/acpmux/session-info/sectionOrder";
+import { DEFAULT_ORDER } from "../src/agent-session/acpmux/session-info/sectionOrder";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
-import { byUsage, sameUsageStats, usageCost, usageStatsOf } from "../src/agent-session/acpmux/usageStats";
+import {
+  byUsage,
+  sameUsageStats,
+  usageCallCost,
+  usageCost,
+  usageShare,
+  usageStatsOf,
+} from "../src/agent-session/acpmux/usageStats";
 import { SessionPager, withUsage } from "../src/agent-session/acpmux/sessionPages";
 
 const scope = globalThis as Record<string, unknown>;
@@ -153,6 +160,17 @@ test("usageStatsOf reads acpmux's usageStats; null numbers are unknown, and only
   expect(SESSIONS[3]!.usageStats).toBeUndefined();
 });
 
+test("usageStatsOf reads the prompt cache's share and cost per call; a share outside 0 to 1 is not one", () => {
+  const read = usageStatsOf(stats({ calls24h: 182, cacheReadShare24h: 0.981, costPerCallUsd24h: 0.3363 }));
+  expect([read?.calls24h, read?.cacheReadShare24h, read?.costPerCallUsd24h]).toEqual([182, 0.981, 0.3363]);
+  expect(usageStatsOf(stats({ cacheReadShare24h: 1.5 }))?.cacheReadShare24h).toBeUndefined();
+  expect(usageStatsOf(stats({ cacheReadShare24h: null }))?.cacheReadShare24h).toBeUndefined();
+  expect(usageShare(0.9431, "en")).toBe("94.3%");
+  // A call under a cent keeps two significant digits, never $0.00.
+  expect(usageCallCost(0.0042, "en")).toBe("$0.0042");
+  expect(usageCallCost(0.3363, "en")).toBe("$0.34");
+});
+
 test("sameUsageStats keeps the previous object while acpmux's numbers are the same, so a snapshot per token redraws no Usage row", () => {
   const first = sameUsageStats(stats({ costUsd24h: 3.5 }), undefined);
   // A new raw object from the next session_changed, the same numbers: the same decoded object.
@@ -170,9 +188,8 @@ test("byUsage ranks by 24h cost or by context, highest first, and leaves out ses
   expect(usageCost(12.4, "en")).toBe("$12.40");
 });
 
-test("Usage is a folded row in the top block, after Context, valued at this chat's 24h cost", async () => {
-  expect(GROUP_SECTIONS.about).toEqual(["environment", "context", "usage", "connectors"]);
-  expect(DEFAULT_ORDER.indexOf("usage")).toBe(DEFAULT_ORDER.indexOf("context") + 1);
+test("Usage is a folded row under the Show more line, valued at this chat's 24h cost", async () => {
+  expect(DEFAULT_ORDER.indexOf("usage")).toBeGreaterThan(DEFAULT_ORDER.indexOf("more"));
   expect(DEFAULT_SECTIONS.usage).toBe(false);
   await render(
     <SessionInfo
@@ -194,7 +211,16 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
         sessionId: "this-chat",
         cwd: "/repo",
         usageStats: usageStatsOf(
-          stats({ costUsd24h: 12.4, tokens24h: 4_000_000, subagentsLive: 2, subagents1h: 5, subagents24h: 14 }),
+          stats({
+            costUsd24h: 12.4,
+            tokens24h: 4_000_000,
+            subagentsLive: 2,
+            subagents1h: 5,
+            subagents24h: 14,
+            calls24h: 40,
+            cacheReadShare24h: 0.9431,
+            costPerCallUsd24h: 0.31,
+          }),
         ),
       }}
       allSessions={SESSIONS}
@@ -208,13 +234,13 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
     row.dataset.usage,
     row.querySelector(".acpmux-session-info-row__end")?.textContent,
   ]);
-  expect(
-    [...usage.querySelectorAll<HTMLElement>("li[data-usage]")].every((row) =>
-      row.querySelector(".acpmux-session-info-usage__lead-slot"),
-    ),
-  ).toBe(true);
+  // Flush on the icon column, where the section's title starts: no empty leading slot.
+  expect(usage.querySelector("li[data-usage] .acpmux-session-info-usage__lead-slot")).toBeNull();
   expect(own).toEqual([
     ["cost", "$12.40"],
+    // The prompt cache's share of the prompt tokens and one call's cost (the 1h cache's win).
+    ["cache-read", "94.3%"],
+    ["call-cost", "$0.31"],
     ["tokens", "4M"],
     // acpmux sent no context for it: unknown, never 0.
     ["context", "—"],
@@ -292,7 +318,16 @@ test("unknown numbers show an em dash, never 0 or $0.00, and an unread cap offer
       row.querySelector(".acpmux-session-info-row__end")?.textContent,
     ]),
   );
-  expect(values).toEqual({ cost: "—", tokens: "—", context: "—", cap: "—", compactions: "—", subagents: "—" });
+  expect(values).toEqual({
+    cost: "—",
+    "cache-read": "—",
+    "call-cost": "—",
+    tokens: "—",
+    context: "—",
+    cap: "—",
+    compactions: "—",
+    subagents: "—",
+  });
   expect(host.querySelectorAll("li[data-usage] button").length).toBe(0);
   // Folded, the section names no value rather than a made-up one.
   expect(host.querySelector('section[data-section="usage"] .acpmux-session-info-section__meta')).toBeNull();
@@ -336,13 +371,16 @@ test("sorted by 24h cost, a session whose cost is unknown shows an em dash, neve
   ]);
 });
 
-test("a chat with no usage of its own still shows Usage while another session reports some; none at all shows none", async () => {
+test("a chat with no usage of its own still shows Usage while another session reports some; none at all reads None", async () => {
   await render(<SessionInfo summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={SESSIONS} />);
   const usage = host.querySelector<HTMLElement>('section[data-section="usage"]');
   expect(usage).not.toBeNull();
   expect(usage?.querySelector(".acpmux-session-info-section__meta")).toBeNull();
+  // Nothing read yet (acpmux reads a new chat's records a few minutes in): one plain line, no fold.
   await render(<SessionInfo summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={[SESSIONS[3]!]} />);
-  expect(host.querySelector('section[data-section="usage"]')).toBeNull();
+  const none = host.querySelector<HTMLElement>('section[data-section="usage"]')!;
+  expect(none.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("None");
+  expect(none.querySelector(".ui-disclosure-trigger")).toBeNull();
 });
 
 test("more than five sessions fold behind View all", async () => {

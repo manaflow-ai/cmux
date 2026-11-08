@@ -5,7 +5,7 @@
 // a lone ended line drew no surface over the transcript. In real Chromium (Playwright; CI fails the
 // file when it cannot launch, requireBrowserLane), on gallery `agent-pane.subagent-row-anatomy`:
 // - the line's title is its task, not "Subagent";
-// - its state word comes before its time ("Done · 36s");
+// - its state word comes before its time ("Done · 36s"); a running line shows its time alone;
 // - the tray draws a surface (a fill, or the composer's frost), settled or running;
 // - that surface spans the composer card's width, edge to edge.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -46,6 +46,9 @@ await requireBrowserLane("subagent-tray-row.test.ts", async () => {
         try {
           await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, theme })}`);
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          // One item heads the hat folded (Leo, 2026-11-07): its header expands it to show the line.
+          const head = page.locator(".acpmux-running-tray__head");
+          if ((await head.getAttribute("aria-expanded")) === "false") await head.click();
           await page.locator(".acpmux-running-tray .acpmux-agent-line").first().waitFor();
           const row = await page.evaluate(() => {
             for (const animation of document.getAnimations()) {
@@ -61,7 +64,7 @@ await requireBrowserLane("subagent-tray-row.test.ts", async () => {
             return {
               title: line.querySelector(".acpmux-summary-agent__name")?.textContent ?? "",
               state: box(line.querySelector(".acpmux-agent-line__meta")!),
-              stateText: line.querySelector(".acpmux-summary-agent__state")?.textContent ?? "",
+              stateText: line.querySelector(".acpmux-summary-agent__state, [data-hat-done]")?.textContent ?? "",
               time: box(line.querySelector(".acpmux-agent-line__time")!),
               timeText: line.querySelector(".acpmux-agent-line__time")?.textContent ?? "",
               tray: box(tray),
@@ -77,8 +80,10 @@ await requireBrowserLane("subagent-tray-row.test.ts", async () => {
               ? "Review the subagent tray row"
               : "Audit the bottom stack for motion that skips the tokens",
           );
-          // The state word, then its time: "Done · 36s".
-          expect(row.stateText).toBe(variant === "done-task-label" ? "Done" : "Running");
+          // The state (a done line's check, its word for screen readers), then its time. A running line shows its time alone, with
+          // no Running word (Leo, 2026-11-03: "do we really need a running symbol vs just having the
+          // time and a square stop button?").
+          expect(row.stateText).toBe(variant === "done-task-label" ? "Done" : "");
           expect(row.timeText).not.toBe("");
           expect(row.state.right).toBeLessThanOrEqual(row.time.left + 0.5);
           // A surface the transcript never shows through: a fill, a frost, or both.

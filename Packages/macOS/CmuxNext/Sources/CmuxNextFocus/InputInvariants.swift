@@ -1,80 +1,97 @@
-/// The global input invariants (plans/cmux-next/input-spec.md), as pure
-/// checks. The live monitor, `debug.focus`, replay and the model fuzzer all
-/// call these, so a rule has one definition. The key routing checks (K) read
-/// the app's `KeyRouter` and stay in the app (`InputInvariants+Routing.swift`).
+/// The global input invariants (plans/cmux-next/input-spec.md): the model (F), transition (T) and
+/// world (W) checks run in cmux-focus-core (`invariants`), over the app FFI's JSON channel
+/// (`focus_input_step`, `focus_input_world`, `focus_debug_window`). The live monitor,
+/// `debug.focus` and the journal replay call these, so a rule has one definition; none is in Swift.
+/// Debug tooling only, never per event. The key routing checks (K) read the app's `KeyRouter` and
+/// stay in the app (`InputInvariants+Routing.swift`).
 public nonisolated struct InputInvariants: Sendable {
     public nonisolated init() {}
 
-    // MARK: Model (F)
+    public struct WorldResult: Hashable, Sendable, Codable {
+        public var violations: [InputViolation]
+        /// Windows skipped because content was still being presented.
+        public var unsettled: [String]
 
-    /// Invariants every focus state must satisfy.
-    public static func model(_ state: FocusState, window: String? = nil) -> [InputViolation] {
-        var out: [InputViolation] = []
-        func fail(_ invariant: InputInvariant, _ detail: String) {
-            out.append(InputViolation(invariant: invariant, window: window, detail: detail))
+        public init(violations: [InputViolation], unsettled: [String]) {
+            self.violations = violations
+            self.unsettled = unsettled
         }
-        let resolved = state.resolved
-        if let top = state.overlays.last, resolved != .overlay(top) {
-            fail(.overlayOnTop, "resolved \(resolved.kind) with overlay \(top.rawValue) open")
-        }
-        if let pane = state.pane, !state.topology.contains(pane: pane) {
-            fail(.livePane, "focused pane \(pane) is not in the topology")
-        }
-        if let pane = resolved.pane {
-            if pane != state.pane { fail(.livePane, "resolved pane \(pane) != focused pane \(state.pane ?? "nil")") }
-            if let tab = resolved.tab, state.topology.pane(pane)?.selected != tab {
-                fail(.livePane, "resolved tab \(tab) is not the selection of \(pane)")
-            }
-        }
-        if state.pane == nil, state.target.isPaneScoped, !state.topology.panes.isEmpty {
-            fail(.paneWhenPanes, "\(state.topology.panes.count) panes and no focused pane")
-        }
-        let selectedKind = state.pane.flatMap { state.topology.pane($0)?.selectedTab?.kind }
-        switch resolved {
-        case .terminal where selectedKind != .terminal,
-             .browserPage where selectedKind != .browser,
-             .addressBar where selectedKind != .browser,
-             .findBar where selectedKind != .browser,
-             .agentPage where selectedKind != .agent,
-             .page where selectedKind != .page,
-             .conversation where selectedKind != .conversation:
-            fail(.targetKind, "\(resolved.kind) on a \(selectedKind?.rawValue ?? "missing") tab")
-        default:
-            break
-        }
-        if state.target == .addressBar || state.target == .findBar, selectedKind != .browser {
-            fail(.targetKind, "target \(state.target) kept on a \(selectedKind?.rawValue ?? "missing") tab")
-        }
-        if let expectation = state.expectation, expectation.generation != state.generation {
-            fail(.noStaleExpectation, "expectation \(expectation.key) from generation \(expectation.generation) at \(state.generation)")
-        }
-        let dead = state.browserFocusMode.subtracting(state.topology.allTabIDs)
-        if !dead.isEmpty { fail(.focusModeLive, "focus mode on missing tabs \(dead.sorted())") }
-        return out
     }
 
-    // MARK: Transitions (T)
+    // MARK: Model and transitions (F, T)
 
-    /// Rules about how one event may change the state.
-    public static func transition(from old: FocusState, _ event: FocusEvent, to new: FocusState, window: String? = nil) -> [InputViolation] {
-        var out: [InputViolation] = []
-        func fail(_ invariant: InputInvariant, _ detail: String) {
-            out.append(InputViolation(invariant: invariant, window: window, detail: detail))
+    private struct StepRequest: Encodable {
+        var old: FocusState
+        var event: FocusEvent
+        var new: FocusState
+        var window: String?
+    }
+
+    private struct StepResponse: Decodable {
+        var violations: [InputViolation]
+    }
+
+    /// The model checks of `new` and the transition checks of `event` taking `old` to `new`. A
+    /// refused call (an FFI wire mismatch) checked nothing: it fails loud in debug builds.
+    public static func reduction(from old: FocusState, _ event: FocusEvent, to new: FocusState,
+                                 window: String? = nil) -> [InputViolation] {
+        let request = StepRequest(old: old, event: event, new: new, window: window)
+        guard let response = FocusReducer.call("focus_input_step", request, as: StepResponse.self) else {
+            assertionFailure("focus_input_step refused the reduction: nothing was checked")
+            return []
         }
-        let moved = old.pane != new.pane || old.target != new.target
-        switch event {
-        case .expect(_, _, _, let generation) where generation != old.generation:
-            if moved || new.expectation != old.expectation { fail(.noSteal, "stale expect (\(generation) at \(old.generation)) changed focus") }
-        case .windowKey, .appActive, .overlayOpened, .overlayClosed, .contentPresented:
-            if moved { fail(.passiveEvents, "\(event) moved focus \(old.pane ?? "nil")/\(old.target) -> \(new.pane ?? "nil")/\(new.target)") }
-        case .responder where !old.overlays.isEmpty:
-            if moved { fail(.passiveEvents, "responder report under an overlay moved focus") }
-        default:
-            break
+        return response.violations
+    }
+
+    // MARK: World (W)
+
+    /// Every model and world check over `observation` (valid once effects and presentation
+    /// settled; a window whose focused pane does not present the targeted tab yet is unsettled).
+    /// A refused call (an FFI wire mismatch) checked nothing: every window is unsettled, and it
+    /// fails loud in debug builds.
+    public static func world(_ observation: InputObservation) -> WorldResult {
+        guard let result = FocusReducer.call("focus_input_world", observation, as: WorldResult.self) else {
+            assertionFailure("focus_input_world refused the observation: nothing was checked")
+            return WorldResult(violations: [], unsettled: observation.windows.map(\.id))
         }
-        if new.generation < old.generation, old.generation != .max {
-            fail(.monotonicGeneration, "generation \(old.generation) -> \(new.generation)")
+        return result
+    }
+
+    /// The responder AppKit should report for `resolved` (W1; `debug.focus` uses the same table);
+    /// `childPage` names the tab whose Chromium page window has the keys. Nil when none is expected.
+    public static func expectedResponder(_ resolved: FocusState.Resolved, childPage: String?) -> FocusEvent.Responder? {
+        debugWindow(resolved, childPage: childPage, ghostty: [], ownTabs: [], isKey: false)?.expectedResponder
+    }
+
+    // MARK: debug.focus
+
+    private struct DebugRequest: Encodable {
+        var resolved: FocusState.Resolved
+        var childPage: String?
+        var ghostty: [String]
+        var ownTabs: [String]
+        var isKey: Bool
+    }
+
+    /// `debug.focus`'s checks of one window, by the machine's rules.
+    public struct DebugWindow: Decodable, Sendable {
+        /// The responder AppKit should report (W1, the monitor's own table); nil when none is
+        /// expected (an empty pane, an overlay, no focus).
+        public var expectedResponder: FocusEvent.Responder?
+        /// The problem with the terminal tabs Ghostty reports focused; nil when they agree.
+        public var ghosttyMismatch: String?
+    }
+
+    /// `debug.focus`'s checks for a window focused on `resolved`: `childPage` names the tab whose
+    /// Chromium page window has the keys, `ghostty` the app-wide focused terminal tabs, `ownTabs`
+    /// this window's tabs. Nil when the call failed (an FFI wire mismatch): it fails loud in debug builds.
+    public static func debugWindow(_ resolved: FocusState.Resolved, childPage: String?, ghostty: [String],
+                                   ownTabs: Set<String>, isKey: Bool) -> DebugWindow? {
+        let request = DebugRequest(resolved: resolved, childPage: childPage, ghostty: ghostty, ownTabs: ownTabs.sorted(), isKey: isKey)
+        guard let checks = FocusReducer.call("focus_debug_window", request, as: DebugWindow.self) else {
+            assertionFailure("focus_debug_window refused the window: nothing was checked")
+            return nil
         }
-        return out
+        return checks
     }
 }
