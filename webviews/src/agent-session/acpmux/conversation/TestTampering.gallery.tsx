@@ -49,7 +49,7 @@ const variants: Record<string, ComponentVariant<Props>> = {
       await waitFor(() => document.querySelector(".acpmux-tampering-evidence-title"));
     },
   },
-  multiFile: {
+  "multi-file": {
     note: "Multiple findings stay grouped in one turn disclosure and keep each path visible.",
     props: {
       rows: rows(

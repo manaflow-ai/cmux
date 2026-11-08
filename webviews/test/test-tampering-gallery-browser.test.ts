@@ -15,7 +15,7 @@ await requireBrowserLane("test-tampering-gallery-browser.test.ts", async () => {
   const ENTRY = "agent-pane.test-tampering";
   const WIDTH = 640;
   const HEIGHT = 600;
-  const VARIANTS = ["compact", "expanded", "multiFile"] as const;
+  const VARIANTS = ["compact", "expanded", "multi-file"] as const;
   const out = process.env.FAST_CHECKS_OUT;
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -96,7 +96,7 @@ await requireBrowserLane("test-tampering-gallery-browser.test.ts", async () => {
             expect(reason).not.toContain("testTampering.");
             expect(reason).toMatch(/assertion/i);
             expect(reason).toMatch(/exact|truth|weaken/i);
-            if (variant === "multiFile") {
+            if (variant === "multi-file") {
               const second = evidence.nth(1);
               expect(await second.locator(".acpmux-tampering-evidence-title code").textContent()).toBe(
                 "crates/api/tests/auth.rs",
@@ -137,7 +137,7 @@ await requireBrowserLane("test-tampering-gallery-browser.test.ts", async () => {
             await disclosure.click();
             await card.locator(".acpmux-tampering-body").waitFor();
             expect(await first.locator("pre del").textContent()).toBe("expect(response.status).toEqual(401)");
-            expect(await evidence.count()).toBe(variant === "multiFile" ? 2 : 1);
+            expect(await evidence.count()).toBe(variant === "multi-file" ? 2 : 1);
             expect(errors).toEqual([]);
           } finally {
             await page.close();
