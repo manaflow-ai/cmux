@@ -5542,6 +5542,15 @@
         "rulesJson": {
           "description": "The session's permission rules."
         },
+        "seenSeq": {
+          "description": "The log seq the person had seen when they last stopped showing the chat: a client\nopening it while `unreadTurns` is above 0 draws \"New since you looked\" after it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
@@ -5693,6 +5702,12 @@
         "unread": {
           "type": "boolean"
         },
+        "unreadTurns": {
+          "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "updatedAt": {
           "format": "uint64",
           "minimum": 0,
@@ -5761,6 +5776,7 @@
         "tags",
         "stateSeq",
         "unread",
+        "unreadTurns",
         "attached",
         "shown",
         "pending"
@@ -6163,6 +6179,15 @@
           "description": "The session has its own permission rules.",
           "type": "boolean"
         },
+        "seenSeq": {
+          "description": "The log seq the person had seen when they last stopped showing the chat: a client\nopening it while `unreadTurns` is above 0 draws \"New since you looked\" after it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
@@ -6314,6 +6339,12 @@
         "unread": {
           "type": "boolean"
         },
+        "unreadTurns": {
+          "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "updatedAt": {
           "format": "uint64",
           "minimum": 0,
@@ -6381,6 +6412,7 @@
         "tags",
         "stateSeq",
         "unread",
+        "unreadTurns",
         "attached",
         "shown"
       ],
