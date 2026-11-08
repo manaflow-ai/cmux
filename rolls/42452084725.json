@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42452084725",
+  "recorded_at": "2026-11-08T05:53:25Z",
+  "reason": "cmux-tui d96c7313a741 changes the image's cmux-tui (pinned d07d1737128b)",
+  "dry_run": false,
+  "cmux_tui": "d96c7313a741c1b8afa5ae3c5733deebe72ac9c5",
+  "fixes": [
+    {
+      "sha": "b9867f610b6025ae8cd937a7b7bffea0aabbce8e",
+      "mergedAt": "2026-11-07T21:27:25-08:00",
+      "subject": "fix(l10n): a NEXT action string key no longer generates the same symbol as another (nightly build red) (#38221)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T05:53:25Z",
+    "snapshot_id": "sh-f3ad2ac6f9a7429ba54a431489b31710",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42452084725): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1b2a125d3774c226770602331934380f9b6571f2",
+    "image": "cloud-native-auto-d96c7313-42452084725-1",
+    "revision": "ci-42452084725-1",
+    "at": "2026-11-08T05:53:25Z"
+  },
+  "rolled_back": false
+}
