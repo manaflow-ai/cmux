@@ -58,7 +58,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces, text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces | chief_name (close), text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -149,13 +149,14 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             let texts = view.debugMessageTexts(limit: params["limit"]?.intValue ?? 50) + view.debugStreamTexts
             return .object(["ok": .bool(true), "texts": .array(texts.map { .string($0) }),
                             "statusLine": view.debugStatusLine.map { .string($0) } ?? .null, "rebuilds": .number(Double(view.debugRebuilds)), "streams": .number(Double(view.debugStreamTexts.count)), "lineCloseAfterHandOffFires": view.debugLineCloseAfterHandOffFires.map { .number(Double($0)) } ?? .null])
-        case "engine_set", "chief_control":
+        case "engine_set", "chief_control", "chief_name":
             // One pick in the shown conversation's Chief settings panel (`key`: harness, model or effort;
             // no `value`: default), as its popup does (scripts/cmux-next/chief-home-fixes-live.py).
             // "chief_control": the named Chief the shown view's controls name (null: the default Chief).
             guard let host = sequence(first: view as NSView, next: \.superview).lazy.compactMap({ $0 as? HomeHostView }).first else {
                 return .object(["error": .string("no Home host view")])
             }
+            if params["action"]?.stringValue == "chief_name" { return .object(["ok": .bool(host.debugEditChiefName(close: params["close"]?.boolValue == true))]) }
             if params["action"]?.stringValue == "chief_control" {
                 return .object(["ok": .bool(true), "named": host.debugNamedChief.map { .string($0) } ?? .null])
             }
