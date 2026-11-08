@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42482428137",
+  "recorded_at": "2026-11-08T13:00:40Z",
+  "reason": "cmux-tui 0aedf301d9b4 changes the image's cmux-tui (pinned d383f8521627)",
+  "dry_run": false,
+  "cmux_tui": "0aedf301d9b47aba433a481b78b890ceba74d437",
+  "fixes": [
+    {
+      "sha": "0aedf301d9b47aba433a481b78b890ceba74d437",
+      "mergedAt": "2026-11-08T12:38:14Z",
+      "subject": "relay: park a Connect past a stale daemon registration, and hand a dead daemon's circuits to the new one (#38382)"
+    },
+    {
+      "sha": "6cd2b63aadadaf965b07d36f9ee004d0ac3e4fe5",
+      "mergedAt": "2026-11-08T12:38:00Z",
+      "subject": "Cloud carrier: serve holds one session per machine, and the connect log gets per-step times (#38343)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-08T13:00:40Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
