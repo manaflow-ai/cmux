@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42483272959",
+  "recorded_at": "2026-11-08T13:15:45Z",
+  "reason": "cmux-tui 1752445e71d1 changes the image's cmux-tui (pinned 0ecfdb7e524a)",
+  "dry_run": false,
+  "cmux_tui": "1752445e71d1ab6d426b6865f5b0bdba7c268ce7",
+  "fixes": [
+    {
+      "sha": "1752445e71d1ab6d426b6865f5b0bdba7c268ce7",
+      "mergedAt": "2026-11-08T04:50:06-08:00",
+      "subject": "cmux-host updater: a snapshot restore starts the connect hold before the next look can flip (#38280)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T13:15:45Z",
+    "snapshot_id": "sh-be12cdeebd0d4ad2917797113c534575",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42483272959): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a8dbcd59e0a70faf80eddd22d8e52cd027472707",
+    "image": "cloud-native-auto-1752445e-42483272959-1",
+    "revision": "ci-42483272959-1",
+    "at": "2026-11-08T13:15:45Z"
+  },
+  "rolled_back": false
+}
