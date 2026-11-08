@@ -238,18 +238,21 @@ import Testing
         let card = try #require(chrome.currentCookieImportCard)
         let holder = try #require(card.superview)
         holder.layoutSubtreeIfNeeded()
-        let resting = card.frame.minY
+        // Window coordinates grow upward, whatever the overlay holder's flip: higher is a larger y.
+        let bottom = { card.convert(card.bounds, to: nil).minY }
+        let resting = bottom()
         #expect(chrome.pageOverlays.lift(of: card) == 0)
 
         chrome.showCookieImportOffer(offer, aboveToast: true) { _ in }
         #expect(chrome.currentCookieImportCard === card && card.superview === holder, "a new card or a new present")
         #expect(chrome.pageOverlays.lift(of: card) == BrowserChromeView.toastClearance)
         holder.layoutSubtreeIfNeeded()
-        #expect(abs(abs(card.frame.minY - resting) - BrowserChromeView.toastClearance) < 0.5, "the card stayed under the toast")
+        #expect(abs(bottom() - resting - BrowserChromeView.toastClearance) < 0.5,
+                "the card did not rise by the toast clearance: \(resting) -> \(bottom())")
 
         chrome.showCookieImportOffer(offer) { _ in }
         holder.layoutSubtreeIfNeeded()
-        #expect(chrome.pageOverlays.lift(of: card) == 0 && abs(card.frame.minY - resting) < 0.5)
+        #expect(chrome.pageOverlays.lift(of: card) == 0 && abs(bottom() - resting) < 0.5)
     }
 
     /// History is the tab's, not the toolbar's (Chrome's HistoryTabHelper): a tab that never shows, or loads while
