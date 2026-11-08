@@ -121,9 +121,17 @@ fn a_dial_parked_until_the_daemon_registers_20_s_later_connects_on_its_first_att
     assert_eq!(line(&mut stdout), "{\"cmd\":\"identify\",\"id\":1}\n");
     drop(stdin);
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
-    // The connect log has every attempt's route line: this one alone.
+    // The connect log has every attempt's route line: this one alone. Each
+    // attempt also writes its phases line there, and this one wrote one.
     let log = world.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
-    assert_eq!(std::fs::read_to_string(&log).unwrap(), route, "the dial retried");
+    let text = std::fs::read_to_string(&log).unwrap();
+    let routes: Vec<&str> =
+        text.lines().filter(|line| line.starts_with("cloud.connect ")).collect();
+    assert_eq!(routes, [route.trim_end()], "the dial retried: {text}");
+    let phases: Vec<&str> =
+        text.lines().filter(|line| line.starts_with("carrier.phases ")).collect();
+    assert_eq!(phases.len(), 1, "one phases line: {text}");
+    assert!(phases[0].contains(" outcome=ok "), "{text}");
 }
 
 #[test]
