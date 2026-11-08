@@ -714,7 +714,8 @@ client <selector> metadata set
 client <selector> sizing set|release
 client <selector> cell pixels set
 
-workspace list|create
+workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+workspace create
 workspace create --worktree <name> [--repo <path>] [--base <revision>] [workspace create options]
 workspace <selector> show|rename|move|focus|close|run
 workspace <selector> close --remove-worktree [--discard]
@@ -728,7 +729,8 @@ screen <selector> layout export|undo
 screen <selector> column <split_id> update
 screen <selector> pane ...
 
-pane list|create
+pane list [--name <name>] [--cwd <path>]
+pane create
 pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
 pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--focus]
 pane <selector> focus direction <left|right|up|down>
@@ -741,7 +743,7 @@ tab create terminal|browser [--engine chromium|webkit]
 tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
-terminal list
+terminal list [--cwd <path>]
 terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
 terminal <term_id> keep on|off
 terminal <selector> focus <in|out>
@@ -1494,7 +1496,21 @@ puts a group right before the personal workspace at placement index `<n>`;
 sets the group's icon (one emoji, an SF Symbol name, or a stored
 `image:sha256-<hex>` or `svg:sha256-<hex>` asset) and `--clear-icon`
 removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
-or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
+or unpins it (`workspace-group-pin-v1`). `workspace list --name <name>` keeps the workspaces whose name is exactly
+`<name>`, and `--cwd <path>` those with at least one terminal whose folder
+(`terminal.cwd`) is `<path>` or inside it; `pane list` takes the same two
+flags for panes, and `terminal list --cwd <path>` keeps the terminals in or
+under `<path>`. `<path>` is made absolute against the caller's folder (`.`
+and `..` resolved) and also matched with its links resolved. Filters combine
+with AND and keep the list's JSON shape and order; no match prints `[]` and
+exits 0. The CLI filters the rows it read: `--name` and `terminal list --cwd`
+add no request, and a workspace or pane `--cwd` adds one `session.snapshot`
+read on the same connection, joined in memory (a constant two requests, not
+one per row). A Cloud machine's workspaces (`--machine <Cloud machine> workspace
+list`, which the app answers) take `--name`; a `--cwd` there fails with
+`validation.invalid`, since those rows carry no terminals. A `name:<name>` selector that two workspaces share fails with
+`selector.ambiguous`; `workspace list --name <name> --json` lists both ids.
+`workspace list --order personal` lists the
 workspaces in the sidebar order. With the sidebar document (`sidebar-doc-v1`),
 `workspace list` without `--order` also lists the sidebar order (one order
 with the sidebar). `--order session` (and, without the
