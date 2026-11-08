@@ -300,6 +300,21 @@ fn acpmuxs_own_app_bundle_is_not_where_a_send_came_from() {
 }
 
 #[test]
+fn the_shipped_cli_resolved_to_cmux_is_not_where_a_send_came_from() {
+    // cmux.app's bin/acpmux is a link to bin/cmux, and the kernel names the resolved path: the
+    // first process is still acpmux, whatever its file is called, so the walk goes past it.
+    let table = [
+        proc(50, 40, "/Applications/cmux.app/Contents/Resources/bin/cmux"),
+        proc(40, 30, "/bin/zsh"),
+        proc(30, 20, "/Users/l/Library/Application Support/Claude/claude-code/2.1.3/claude"),
+        proc(20, 1, "/Applications/Claude.app/Contents/MacOS/Claude"),
+    ];
+    let walked = chain(of(&table), 50);
+    assert_eq!(walked.harness, Some(("claude-code".into(), 30)));
+    assert_eq!(walked.app, Some(("Claude.app".into(), "/Applications/Claude.app".into())));
+}
+
+#[test]
 fn an_mcp_send_from_codex_under_a_claude_shell_is_codex_by_its_chain_or_by_default() {
     let both = [("CLAUDECODE", "1"), ("CODEX_THREAD_ID", "t-1")];
     let client = json!({"name": "claude-ai"});
