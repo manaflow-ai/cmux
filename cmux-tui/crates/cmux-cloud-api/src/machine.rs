@@ -98,7 +98,15 @@ pub(crate) fn read(line: &Value, path: &str) -> Result<Value, Failure> {
         0 if code == Some("too_large") => {
             Err(Failure::Transport(format!("{path}: the answer is larger than {FILE_LIMIT} bytes")))
         }
-        0 => Err(Failure::Transport(code.unwrap_or("no answer").to_owned())),
+        // The refusal's own words when it has them (a proxied answer past the answer limit says
+        // so), so a caller can tell why; else its code.
+        0 => Err(Failure::Transport(
+            body.pointer("/error/message")
+                .and_then(Value::as_str)
+                .or(code)
+                .unwrap_or("no answer")
+                .to_owned(),
+        )),
         200..=299 => Ok(body),
         _ => Err(vm_error(status, body.to_string().as_bytes(), code)),
     }

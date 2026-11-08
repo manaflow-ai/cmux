@@ -78,11 +78,12 @@ public struct CloudAPICaller: Sendable {
     /// The refusal the daemon sent (`operation.failed`, its `extra.failure` the crate's failure
     /// object: `timed_out`, `transport`, `no_backend`, `http`, `plan_required` or `decoding`).
     static func failure(_ error: DaemonError, call: String, api: URL) -> CloudAPIError {
-        guard case let .command(_, message, _, details, _) = error,
-              case let .object(failure)? = details?["extra"]?["failure"] else {
+        guard case let .command(_, message, _, details, _) = error else {
             if case .timedOut = error { return .timedOut(call) }
             return .transport(error.description)
         }
+        // A refusal before the call ran (the daemon's own validation) says why in its message.
+        guard case let .object(failure)? = details?["extra"]?["failure"] else { return .transport(message) }
         let text = { (name: String) in failure[name]?.stringValue }
         switch text("kind") {
         case "timed_out": return .timedOut(text("path") ?? call)

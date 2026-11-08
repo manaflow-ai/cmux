@@ -90,6 +90,16 @@ extension CloudAPIClient {
     /// (cmux-tui `resource::MAX_MESSAGE_BYTES`), less room for the envelope and the credentials.
     static let daemonWriteLimit = (4 << 20) - (128 << 10)
 
+    /// `query` as the route's URLSearchParams reads it: everything but unreserved characters escaped.
+    static func formQuery(_ query: [URLQueryItem]) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~/")
+        return query.map { item in
+            let escape = { (text: String) in text.addingPercentEncoding(withAllowedCharacters: allowed) ?? "" }
+            return "\(escape(item.name))=\(escape(item.value ?? ""))"
+        }.joined(separator: "&")
+    }
+
     /// One file call straight to the route (`.../fs/<op>`), with the headers the daemon's call would
     /// send: only a file too large for one daemon request or answer goes this way.
     private func fileRouteRequest(_ method: String, _ id: String, op: String, query: [URLQueryItem],
@@ -100,7 +110,8 @@ extension CloudAPIClient {
               var components = URLComponents(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + route) else {
             throw CloudAPIError.transport("not a Cloud machine id")
         }
-        if !query.isEmpty { components.queryItems = query }
+        // Percent-encoded here: `queryItems` leaves `+`, which the route reads as a space.
+        if !query.isEmpty { components.percentEncodedQuery = Self.formQuery(query) }
         guard let url = components.url else { throw CloudAPIError.transport("bad path \(route)") }
         var request = URLRequest(url: url, timeoutInterval: 120)
         request.httpMethod = method

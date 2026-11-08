@@ -1005,6 +1005,14 @@ fn a_machine_io_answer_reads_as_its_routes() {
     assert_eq!(machine::read(&late, path).unwrap_err(), Failure::TimedOut(path.into()));
     let gone = json!({ "route": "proxy", "status": 0, "code": "transport", "body": null });
     assert_eq!(machine::read(&gone, path).unwrap_err(), Failure::Transport("transport".into()));
+    let big = json!({ "route": "proxy", "status": 0, "code": "transport",
+                      "body": { "ok": false, "error": { "code": "transport",
+                                "message": "the cmux API's answer is larger than 16777216 bytes" } } });
+    assert_eq!(
+        machine::read(&big, path).unwrap_err(),
+        Failure::Transport("the cmux API's answer is larger than 16777216 bytes".into()),
+        "a refusal keeps its words, so the app can tell an answer too large for the daemon"
+    );
 }
 
 #[test]

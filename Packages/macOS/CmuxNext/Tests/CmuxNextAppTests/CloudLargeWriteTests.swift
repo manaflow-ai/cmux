@@ -49,14 +49,23 @@ import Testing
         let fake = FakeCloudAPI { _ in throw FakeCloudAPI.refusal(#"{"kind":"transport","message":"the answer is larger than the reply limit (16711680 bytes)"}"#) }
         var api = fake.classic()
         api.fileRoute = Self.session()
-        let contents = try await api.readFile("vm_abcdefghij0123456789", path: "/big file")
+        let contents = try await api.readFile("vm_abcdefghij0123456789", path: "/big file+1")
         #expect(contents.dataBase64 == "aGk=")
         #expect(fake.operations == ["cloud.machine.io"], "the daemon is asked first")
         let sent = try #require(WriteRouteProtocol.requests.first)
         #expect(sent.httpMethod == "GET")
         #expect(sent.url?.path == "/api/vm/vm_abcdefghij0123456789/fs/read")
-        #expect(sent.url?.query == "path=/big%20file")
+        #expect(sent.url?.query == "path=/big%20file%2B1", "a + is escaped, never read as a space")
         #expect(sent.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh")
+    }
+
+    @Test func aWorkerReadPastTheProxysAnswerLimitGoesToTheRoute() async throws {
+        WriteRouteProtocol.reset()
+        let fake = FakeCloudAPI { _ in throw FakeCloudAPI.refusal(#"{"kind":"transport","message":"the cmux API's answer is larger than 16777216 bytes"}"#) }
+        var api = fake.worker()
+        api.fileRoute = Self.session()
+        #expect(try await api.readFile("vm_abcdefghij0123456789", path: "/a").dataBase64 == "aGk=")
+        #expect(WriteRouteProtocol.requests.first?.url?.path == "/v1/cloud/machines/vm_abcdefghij0123456789/fs/read")
     }
 
     @Test func anyOtherReadRefusalIsNotSentAgain() async {
