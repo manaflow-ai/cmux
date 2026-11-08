@@ -126,6 +126,16 @@ fn alternate_screen_modes_are_recognised_in_every_form() {
 }
 
 #[test]
+fn a_full_reset_leaves_the_alternate_screen() {
+    // `ESC c` puts the terminal back on a cleared primary screen with no
+    // `?1049l`, the way a mirror resets before replaying a snapshot.
+    assert_eq!(scan("\x1bc"), [AlternateScreen(false)]);
+    assert_eq!(scan_chunks(&["\x1b", "c"]), [AlternateScreen(false)]);
+    // It ends a cursor-save detour too: the reset forgets the saved cursor.
+    assert_eq!(scan("\x1b7\x1bcx"), [AlternateScreen(false), Printable(0x78)]);
+}
+
+#[test]
 fn other_private_mode_changes_are_disruptive() {
     // Bracketed paste and mouse reporting change what input means, so the
     // echo stops being predictable.

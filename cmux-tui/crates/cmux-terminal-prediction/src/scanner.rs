@@ -13,7 +13,8 @@ pub enum OutputSignal {
     /// Changes styling or host state but no grid content: SGR, and the string
     /// sequences (OSC, DCS, APC, PM, SOS) whatever their payload.
     Ignorable,
-    /// Entered (`true`) or left (`false`) the alternate screen.
+    /// Entered (`true`) or left (`false`) the alternate screen. A full reset
+    /// (`ESC c`) leaves it too: the terminal is back on a cleared primary screen.
     AlternateScreen(bool),
     /// Moved the cursor exactly one cell left: BS, `CSI D` or `CSI 1 D`.
     /// Disruptive unless the engine waits for the erase of a glyph the user
@@ -235,6 +236,15 @@ impl TerminalOutputScanner {
                     self.state = State::Ground;
                     self.detour_bytes = None;
                     Some(OutputSignal::Ignorable)
+                }
+                b'c' => {
+                    // RIS, a full reset: the terminal clears both screens and
+                    // shows the primary one, whatever mode it was in, with no
+                    // `?1049l`. A mirror resets this way before it replays a
+                    // snapshot, which may be of the primary screen.
+                    self.state = State::Ground;
+                    self.detour_bytes = None;
+                    Some(OutputSignal::AlternateScreen(false))
                 }
                 // Another ESC restarts the escape, as it does in ghostty.
                 0x1B => None,
