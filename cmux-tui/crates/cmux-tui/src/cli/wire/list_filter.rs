@@ -28,12 +28,7 @@ pub(super) fn apply(
     }
     let WireOperation::Typed(operation) = &plan.operation else { return Ok(result) };
     let Value::Array(rows) = result else { return Ok(result) };
-    let scope = match *operation {
-        ResourceOperation::WorkspaceList => Scope::Workspace,
-        ResourceOperation::PaneList => Scope::Pane,
-        ResourceOperation::TerminalList => Scope::Terminal,
-        _ => return Ok(Value::Array(rows)),
-    };
+    let Some(scope) = scope_of(*operation) else { return Ok(Value::Array(rows)) };
     let in_folder = match (&filter.cwd, scope) {
         (None, _) | (Some(_), Scope::Terminal) => None,
         (Some(cwd), scope) => {
@@ -48,6 +43,42 @@ pub(super) fn apply(
     Ok(Value::Array(
         rows.into_iter().filter(|row| keeps(filter, scope, in_folder.as_ref(), row)).collect(),
     ))
+}
+
+/// `result` with only the rows `plan.filter` keeps, for rows that did not
+/// come from this session (the app's Cloud machine workspaces): `--name`
+/// filters them, and a workspace or pane `--cwd`, which needs the session's
+/// terminals, is refused rather than ignored.
+pub(super) fn apply_listed(plan: &RequestPlan, result: Value) -> Result<Value, Value> {
+    let WireOperation::Typed(operation) = &plan.operation else { return Ok(result) };
+    let Some(scope) = scope_of(*operation) else { return Ok(result) };
+    listed(&plan.filter, scope, result)
+}
+
+fn listed(filter: &ListFilter, scope: Scope, result: Value) -> Result<Value, Value> {
+    if filter.is_empty() {
+        return Ok(result);
+    }
+    if filter.cwd.is_some() && scope != Scope::Terminal {
+        return Err(serde_json::json!({
+            "code": "validation.invalid",
+            "message": "--cwd needs the session's terminals, and a Cloud machine's workspaces \
+                        come from the app without them; filter with --name, or list the \
+                        machine's terminals with `cmux --machine <machine> terminal list --cwd <path>`",
+            "retryable": false,
+        }));
+    }
+    let Value::Array(rows) = result else { return Ok(result) };
+    Ok(Value::Array(rows.into_iter().filter(|row| keeps(filter, scope, None, row)).collect()))
+}
+
+fn scope_of(operation: ResourceOperation) -> Option<Scope> {
+    match operation {
+        ResourceOperation::WorkspaceList => Some(Scope::Workspace),
+        ResourceOperation::PaneList => Some(Scope::Pane),
+        ResourceOperation::TerminalList => Some(Scope::Terminal),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,5 +198,29 @@ mod tests {
         let panes = ids_in_folder(&snapshot(), Scope::Pane, under_work);
         assert_eq!(panes, HashSet::from(["pane_a".to_owned()]));
         assert!(ids_in_folder(&snapshot(), Scope::Workspace, |_| false).is_empty());
+    }
+
+    /// The app's Cloud machine workspaces skip the daemon's list: `--name`
+    /// still filters them, and `--cwd` is refused instead of ignored.
+    #[test]
+    fn rows_from_the_app_are_filtered_by_name_and_refuse_a_workspace_cwd() {
+        let rows = json!([{"id": "ws_api", "name": "api"}, {"id": "ws_web", "name": "web"}]);
+        let by_name = ListFilter { name: Some("api".to_owned()), cwd: None };
+        assert_eq!(
+            listed(&by_name, Scope::Workspace, rows.clone()).unwrap(),
+            json!([{"id": "ws_api", "name": "api"}])
+        );
+        assert_eq!(listed(&ListFilter::default(), Scope::Workspace, rows.clone()).unwrap(), rows);
+        let by_cwd = ListFilter {
+            name: None,
+            cwd: Some(super::super::super::command::CwdFilter::for_test("/work")),
+        };
+        let error = listed(&by_cwd, Scope::Workspace, rows).unwrap_err();
+        assert_eq!(error["code"], "validation.invalid");
+        let terminals = json!([{"id": "t1", "cwd": "/work/app"}, {"id": "t2", "cwd": "/home"}]);
+        assert_eq!(
+            listed(&by_cwd, Scope::Terminal, terminals).unwrap(),
+            json!([{"id": "t1", "cwd": "/work/app"}])
+        );
     }
 }

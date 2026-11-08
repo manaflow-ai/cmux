@@ -39,6 +39,8 @@ pub(super) use settings::{SettingsList, human_rows as settings_human_rows, resol
 mod sidebar_doc;
 mod state;
 mod workspace;
+#[cfg(test)]
+pub(super) use list_filter::CwdFilter;
 pub(super) use list_filter::ListFilter;
 pub(super) use plan::{
     AgentRosterView, AgentSort, RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep,

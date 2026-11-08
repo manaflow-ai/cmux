@@ -626,6 +626,7 @@ fn run_response(
                     #[cfg(unix)]
                     if let Some(listed) = super::cloud_workspaces::for_machine(global, plan, &error)
                     {
+                        let listed = listed.and_then(|rows| list_filter::apply_listed(plan, rows));
                         return match listed {
                             Ok(result) => {
                                 key_report.succeeded();

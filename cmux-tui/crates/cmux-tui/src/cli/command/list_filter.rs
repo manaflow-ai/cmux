@@ -56,24 +56,18 @@ impl CwdFilter {
         Self { roots }
     }
 
-    /// Whether a terminal folder `cwd` is a root or inside one.
+    /// Whether a terminal folder `cwd` is a root or inside one, compared
+    /// part by part with this platform's separators (`/`, and `\\` on
+    /// Windows), so `/a/bc` is not inside `/a/b`.
     pub(in crate::cli) fn contains(&self, cwd: &str) -> bool {
-        let cwd = trim_slash(cwd);
-        self.roots.iter().any(|root| {
-            let root = trim_slash(root);
-            cwd == root
-                || match root {
-                    "/" => cwd.starts_with('/'),
-                    root => cwd.strip_prefix(root).is_some_and(|rest| rest.starts_with('/')),
-                }
-        })
+        let cwd = Path::new(cwd);
+        self.roots.iter().any(|root| cwd.starts_with(Path::new(root)))
     }
-}
 
-fn trim_slash(path: &str) -> &str {
-    match path.trim_end_matches('/') {
-        "" if path.starts_with('/') => "/",
-        trimmed => trimmed,
+    /// The filter of an absolute `path`, for tests elsewhere in the CLI.
+    #[cfg(test)]
+    pub(in crate::cli) fn for_test(path: &str) -> Self {
+        Self { roots: vec![path.to_owned()] }
     }
 }
 
@@ -158,6 +152,15 @@ mod tests {
         assert!(!projects.contains("/nonexistent-cmux/projects-old"));
         assert!(!projects.contains("/nonexistent-cmux"));
         assert!(filter("/", "/").contains("/anything"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cwd_matches_inside_a_windows_folder() {
+        let projects = filter(r"C:\work\projects", r"C:\");
+        assert!(projects.contains(r"C:\work\projects\app"));
+        assert!(projects.contains(r"C:\work\projects"));
+        assert!(!projects.contains(r"C:\work\projects-old"));
     }
 
     #[test]
