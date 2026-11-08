@@ -174,8 +174,6 @@ public final class TerminalSession {
     /// Local-history READYs restored with the surface's own reflowed history
     /// (proves the local path ran in dogfood).
     private(set) var localSnapshots = 0
-    /// Kitty images the owner left out of its image replays (its cap).
-    private(set) var skippedImages = 0
 
     /// Reports a pane that still shows nothing after a reveal (``TerminalBlankWatch``).
     let blankWatch: TerminalBlankWatch
@@ -611,10 +609,6 @@ public final class TerminalSession {
     }
 
     // MARK: From the surface view
-
-    func noteSkippedImages(_ count: Int) {
-        skippedImages += max(0, count)
-    }
 
     func noteLocalSnapshot() {
         localSnapshots += 1
