@@ -127,12 +127,10 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     match identity.get("lifecycle_ready") {
         Some(Value::Bool(true)) | None => {}
         Some(Value::Bool(false)) => {
-            return local_error(
-                "server.unavailable",
-                crate::localization::catalog().local_server.starting,
-                global.output,
-                3,
-            );
+            let message = crate::localization::catalog().local_server.starting;
+            // The message says to retry: a server still starting is retryable.
+            let error = json!({"code":"server.unavailable","message":message,"details":{"reason":"starting"},"retryable":true});
+            return super::wire::print_local_error(&error, global.output, 3);
         }
         Some(_) => {
             return local_error(

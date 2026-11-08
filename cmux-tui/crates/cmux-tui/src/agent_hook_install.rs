@@ -509,12 +509,6 @@ pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
     Some(runtime_cmux_tui_data_home()?.join("bin/cmux-tui-hook"))
 }
 
-/// Where `agent hook install` places the detached `cmux-tui-hook` helper.
-#[cfg(not(unix))]
-pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
-    None
-}
-
 #[cfg(unix)]
 pub(crate) fn run(plan: &Plan) -> RunResult {
     match Context::runtime() {
@@ -2883,7 +2877,6 @@ mod tests {
         let result = run(&Plan { action: Action::Status, providers: Vec::new() });
         assert!(result.failed);
         assert!(result.value["errors"][0].as_str().unwrap().contains("unsupported"));
-        assert!(runtime_helper_path().is_none());
     }
 
     #[test]

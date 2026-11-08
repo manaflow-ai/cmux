@@ -50,7 +50,7 @@ mod target_selection_tests {
         assert!(error.contains("term_2222"), "{error}");
     }
 }
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use cmux::{
     Client, Config, ProcessInfoResult, ReadScreenOptions, Selector, SessionId, TerminalId,
@@ -72,27 +72,71 @@ pub struct LiveRoute {
     pub session: Option<String>,
 }
 
-/// Resolve the daemon of a live explain (stub: the inherited socket only).
+/// Resolve the daemon the way the `cmux` CLI does: `--socket` is exact;
+/// `--session NAME` derives that session's socket, and a socket the shell
+/// inherited from a cmux terminal (`CMUX_TUI_SOCKET`) does not redirect it;
+/// with neither, the inherited socket (`CMUX_TUI_SOCKET`, then
+/// `CMUX_MUX_SOCKET`) and its `CMUX_TUI_SESSION_ID`, else the `main`
+/// session's socket. `env` reads one environment variable.
 pub fn live_route(
     socket: Option<&str>,
     session: Option<&str>,
     env: impl Fn(&str) -> Option<String>,
 ) -> Result<LiveRoute, String> {
-    let _ = (socket, session);
-    let socket = env("CMUX_TUI_SOCKET")
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "CMUX_TUI_SOCKET is required for live explain".to_string())?;
-    let session = env("CMUX_TUI_SESSION_ID").unwrap_or_else(|| "main".into());
-    Ok(LiveRoute { socket: socket.into(), session: Some(session) })
+    let env = |name: &str| env(name).filter(|value| !value.is_empty());
+    if let Some(name) = session {
+        validate_session_name(name)?;
+    }
+    if let Some(socket) = socket {
+        if socket.is_empty() {
+            return Err("--socket must not be empty".into());
+        }
+        return Ok(LiveRoute { socket: socket.into(), session: session.map(str::to_owned) });
+    }
+    if let Some(name) = session {
+        return Ok(LiveRoute {
+            socket: cmux::raw::default_socket_path(name),
+            session: Some(name.to_owned()),
+        });
+    }
+    match env("CMUX_TUI_SOCKET").or_else(|| env("CMUX_MUX_SOCKET")) {
+        Some(socket) => {
+            Ok(LiveRoute { socket: socket.into(), session: env("CMUX_TUI_SESSION_ID") })
+        }
+        None => Ok(LiveRoute { socket: cmux::raw::default_socket_path("main"), session: None }),
+    }
+}
+
+/// The SDK's rule for a session name in a socket path: one non-empty path
+/// component without separators or control characters.
+fn validate_session_name(name: &str) -> Result<(), String> {
+    let invalid = name.is_empty()
+        || matches!(name, "." | "..")
+        || name.chars().any(|character| {
+            matches!(character, '/' | '\\' | '\0' | '\u{0085}' | '\u{2028}' | '\u{2029}')
+                || character.is_control()
+        });
+    if invalid {
+        return Err(format!("--session {name:?} is not a session name"));
+    }
+    Ok(())
 }
 
 /// Explain one live terminal selected by its opaque ID or exact title.
 ///
 /// The operation is read-only. It never registers a producer, appends a
 /// journal event, changes terminal scroll position, or sends input.
-pub fn explain_live(socket: &str, session_name: &str, target: &str) -> Result<Value, String> {
+/// `session_name` `None` reads the session the socket serves.
+pub fn explain_live(
+    socket: &Path,
+    session_name: Option<&str>,
+    target: &str,
+) -> Result<Value, String> {
     validate_target(target)?;
-    let session_selector = session_selector(session_name)?;
+    let session_selector = match session_name {
+        Some(name) => session_selector(name)?,
+        None => Selector::current(),
+    };
     let client = Client::connect(Config::from_socket_path(socket))
         .map_err(|error| format!("connect to cmux: {error}"))?;
     let session = client.session(session_selector);
@@ -201,7 +245,7 @@ fn validate_target(target: &str) -> Result<(), String> {
 
 fn session_selector(session_name: &str) -> Result<Selector<SessionId>, String> {
     if session_name.trim().is_empty() {
-        return Err("CMUX_TUI_SESSION_ID must not be empty".into());
+        return Err("the session must not be empty".into());
     }
     match SessionId::parse(session_name.to_owned()) {
         Ok(id) => Ok(Selector::id(id)),
