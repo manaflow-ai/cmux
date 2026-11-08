@@ -287,7 +287,7 @@ fn indexed_turns(
         answer_at,
         tool_calls: Vec::new(),
     })
-        .collect())
+    .collect())
 }
 
 fn portable_indexed(chat: &IndexedChat, turns: Vec<PortableTurn>) -> PortableChat {
@@ -397,43 +397,31 @@ fn imported_events(chat: &PortableChat, id: &str) -> Vec<EventRecord> {
 }
 
 pub fn import_session_dir(root: &Path, chat: &PortableChat, harness: &str) -> Result<PathBuf> {
-    let mut meta = match chat.session.clone() {
-        Some(meta) => meta,
-        None => {
-            let now = crate::store::now_ms();
-            let cwd = chat
-                .cwd
-                .as_deref()
-                .map(PathBuf::from)
-                .filter(|path| path.is_dir())
-                .unwrap_or_else(crate::config::home);
-            serde_json::from_value(json!({
-                "schema": crate::store::META_SCHEMA,
-                "id": imported_id(chat),
-                "name": chat.title.clone().unwrap_or_else(|| format!("Imported {} chat", chat.harness)),
-                "harness": harness,
-                "cwd": cwd,
-                "status": "idle",
-                "createdAt": chat.created_at.unwrap_or(now),
-                "updatedAt": chat.updated_at.unwrap_or(now),
-                "title": chat.title.clone(),
-                "modelRequest": chat.model.clone(),
-            }))?
-        }
-    };
-    // Runtime environment is local credential and workspace state, never part of a portable
-    // chat bundle. Ignore it even when an externally supplied bundle includes the field.
-    meta.session_env.clear();
-    anyhow::ensure!(super::transfer::is_plain_id(&meta.id), "invalid session id in chat bundle");
-    meta.harness = harness.to_owned();
-    if !meta.cwd.is_dir() {
-        meta.cwd = chat
-            .cwd
-            .as_deref()
-            .map(PathBuf::from)
-            .filter(|path| path.is_dir())
-            .unwrap_or_else(crate::config::home);
-    }
+    let source = chat.session.as_ref();
+    let id = source.map(|meta| meta.id.clone()).unwrap_or_else(|| imported_id(chat));
+    anyhow::ensure!(super::transfer::is_plain_id(&id), "invalid session id in chat bundle");
+    let cwd = chat
+        .cwd
+        .as_deref()
+        .map(PathBuf::from)
+        .filter(|path| path.is_dir())
+        .unwrap_or_else(crate::config::home);
+    let now = crate::store::now_ms();
+    // Portable documents carry history, not authority to resume a destination's native session.
+    // Reconstruct metadata from chat fields so new runtime fields are safe by default too.
+    let mut meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA,
+        "id": id,
+        "name": source.map(|meta| meta.name.clone()).or_else(|| chat.title.clone())
+            .unwrap_or_else(|| format!("Imported {} chat", chat.harness)),
+        "harness": harness,
+        "cwd": cwd,
+        "status": "idle",
+        "createdAt": chat.created_at.unwrap_or(now),
+        "updatedAt": chat.updated_at.unwrap_or(now),
+        "title": chat.title,
+        "modelRequest": chat.model,
+    }))?;
     let mut events = imported_events(chat, &meta.id);
     meta.last_seq = events.iter().map(|event| event.seq).max().unwrap_or(0);
     meta.transcript_seq = meta.last_seq;
@@ -561,36 +549,50 @@ pub fn export_value(
     Ok(json!({"format": format, "content": content, "chatCount": bundle.chats.len()}))
 }
 
+fn usable_import_harness(name: &str, profile: &crate::config::HarnessProfile) -> bool {
+    name != "cmux-harness"
+        && profile.family.as_deref() != Some("cmux-harness")
+        && profile.kind != crate::config::HarnessKind::Terminal
+        && !profile.argv.is_empty()
+}
+
 /// Import the lossless acpmux entries in a portable bundle through the same
 /// validation and rollback path as the directory transfer format.
 pub async fn import(hub: &Arc<Hub>, path: &Path) -> std::result::Result<Value, RpcError> {
     let bundle = read(path).map_err(|e| RpcError::invalid_params(e.to_string()))?;
-    let root = crate::config::home()
-        .join("bundles")
-        .join(format!(".chat-import-{}", crate::store::now_ms()));
-    std::fs::create_dir_all(&root).map_err(|e| RpcError::internal(e.to_string()))?;
-    let configured: Vec<String> = hub.config.read().await.harnesses.keys().cloned().collect();
-    let fallback = configured
+    let configured: Vec<String> = hub
+        .config
+        .read()
+        .await
+        .harnesses
         .iter()
-        .find(|harness| harness.as_str() != "cmux-harness")
-        .or_else(|| configured.first())
-        .cloned()
-        .ok_or_else(|| RpcError::invalid_params("no configured harness can host imported chats"))?;
+        .filter(|(name, profile)| usable_import_harness(name, profile))
+        .map(|(name, _)| name.clone())
+        .collect();
+    let fallback = configured.first().cloned().ok_or_else(|| {
+        RpcError::invalid_params("no configured non-cmux chat harness can host imported chats")
+    })?;
+    let root = tempfile::Builder::new()
+        .prefix("cmux-chat-import-")
+        .tempdir()
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    // Validate and stage the whole document before making any chat visible.
+    let mut dirs = Vec::new();
+    let mut ids = std::collections::HashSet::new();
+    for chat in &bundle.chats {
+        let harness =
+            configured.iter().find(|candidate| *candidate == &chat.harness).unwrap_or(&fallback);
+        let dir = import_session_dir(root.path(), chat, harness)
+            .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+        if !ids.insert(dir.clone()) {
+            return Err(RpcError::invalid_params("duplicate chat id in bundle"));
+        }
+        dirs.push(dir);
+    }
     let mut imported = Vec::new();
     let mut imported_sessions = Vec::new();
     let mut restored_attachments = Vec::new();
-    for chat in &bundle.chats {
-        // cmux-harness has additional durable state that is intentionally not embedded in this
-        // portable document. Restore its readable event journal into a fresh configured harness.
-        let harness = if chat.harness == "cmux-harness" {
-            fallback.as_str()
-        } else if configured.iter().any(|candidate| candidate == &chat.harness) {
-            chat.harness.as_str()
-        } else {
-            fallback.as_str()
-        };
-        let dir = import_session_dir(&root, chat, harness)
-            .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+    for (chat, dir) in bundle.chats.iter().zip(dirs) {
         match restore_attachments(chat) {
             Ok(attachments) => restored_attachments.extend(attachments),
             Err(error) => {
@@ -600,7 +602,6 @@ pub async fn import(hub: &Arc<Hub>, path: &Path) -> std::result::Result<Value, R
                 for path in restored_attachments {
                     let _ = std::fs::remove_file(path);
                 }
-                let _ = std::fs::remove_dir_all(&root);
                 return Err(RpcError::invalid_params(format!("restore attachments: {error}")));
             }
         }
@@ -616,12 +617,10 @@ pub async fn import(hub: &Arc<Hub>, path: &Path) -> std::result::Result<Value, R
                 for path in restored_attachments {
                     let _ = std::fs::remove_file(path);
                 }
-                let _ = std::fs::remove_dir_all(&root);
                 return Err(error);
             }
         }
     }
-    let _ = std::fs::remove_dir_all(&root);
     Ok(json!({"schema": SCHEMA, "imported": imported, "skipped": 0}))
 }
 
@@ -725,5 +724,90 @@ mod tests {
         };
         let events = imported_events(&chat, "imported");
         assert_eq!(events[0].msg.get("text").and_then(Value::as_str), Some("remember this"));
+    }
+    fn fixture() -> PortableChat {
+        let mut chat: PortableChat = serde_json::from_value(json!({
+            "key": "acpmux:portable", "harness": "codex", "sessionId": "portable",
+            "title": "Saved chat", "cwd": std::env::temp_dir(), "createdAt": 1,
+            "updatedAt": 2, "model": "test-model", "turns": [{
+                "prompt": "remember this", "answer": "I remember", "promptAt": 1,
+                "answerAt": 2, "toolCalls": []
+            }]
+        }))
+        .unwrap();
+        chat.session = Some(
+            serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": "portable", "name": "Saved chat",
+                "harness": "codex", "cwd": std::env::temp_dir(), "status": "idle",
+                "createdAt": 1, "updatedAt": 2, "agentSessionId": "existing-local-native",
+                "previousAgentSessionIds": ["another-local-native"], "preset": "unsafe-preset",
+                "sessionEnv": {"OPTCHAT_TURN_SEAL": "secret"}, "spawnArgv": ["unsafe-command"]
+            }))
+            .unwrap(),
+        );
+        chat
+    }
+
+    #[test]
+    fn portable_import_never_resumes_a_native_conversation_or_launch_state() {
+        let root = tempfile::tempdir().unwrap();
+        let chat = fixture();
+        let dir = import_session_dir(root.path(), &chat, "codex").unwrap();
+        let meta: SessionMeta =
+            serde_json::from_slice(&std::fs::read(dir.join("session.json")).unwrap()).unwrap();
+        assert_eq!(meta.id, "portable");
+        assert_eq!(meta.model_request.as_deref(), Some("test-model"));
+        assert!(meta.agent_session_id.is_none());
+        assert!(meta.previous_agent_session_ids.is_empty());
+        assert!(meta.session_env.is_empty());
+        assert!(meta.spawn_argv.is_none());
+        assert!(meta.preset.is_none());
+    }
+
+    #[test]
+    fn import_harness_filter_rejects_terminal_and_durable_profiles() {
+        let mut profile: crate::config::HarnessProfile =
+            serde_json::from_value(json!({"argv": ["agent"]})).unwrap();
+        assert!(usable_import_harness("codex", &profile));
+        assert!(!usable_import_harness("cmux-harness", &profile));
+        profile.family = Some("cmux-harness".into());
+        assert!(!usable_import_harness("alias", &profile));
+        profile.family = None;
+        profile.kind = crate::config::HarnessKind::Terminal;
+        assert!(!usable_import_harness("terminal", &profile));
+    }
+
+    #[tokio::test]
+    async fn export_delete_store_import_restores_readable_chats() {
+        use crate::store::MemoryStore;
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        cfg.harnesses.clear();
+        cfg.harnesses.insert(
+            "codex".into(),
+            serde_json::from_value(json!({"argv": ["unused-agent"]})).unwrap(),
+        );
+        let source = Hub::new(cfg.clone(), Box::new(MemoryStore::default()));
+        let chat = fixture();
+        let session = source.insert_test_session(chat.session.clone().unwrap());
+        for record in imported_events(&chat, "portable") {
+            source.append(&session, &record.dir, &record.kind, record.msg);
+        }
+        let exported = export_value(&source, None, &json!({"all": true})).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("chats.json");
+        std::fs::write(&path, exported["content"].as_str().unwrap()).unwrap();
+        drop(session);
+        drop(source); // Discard the original profile's only store before restoring.
+        let destination = Hub::new(cfg, Box::new(MemoryStore::default()));
+        let restored = import(&destination, &path).await.unwrap();
+        assert_eq!(restored["imported"].as_array().unwrap().len(), 1);
+        let exported = export_value(&destination, None, &json!({"all": true})).unwrap();
+        let bundle: PortableBundle =
+            serde_json::from_str(exported["content"].as_str().unwrap()).unwrap();
+        assert_eq!(bundle.chats[0].turns[0].prompt, "remember this");
+        assert_eq!(bundle.chats[0].turns[0].answer, "I remember");
+        assert!(markdown(&bundle).contains("remember this"));
+        assert!(destination.resolve("portable").unwrap().meta().agent_session_id.is_none());
     }
 }
