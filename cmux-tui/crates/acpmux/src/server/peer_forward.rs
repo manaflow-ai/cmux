@@ -109,6 +109,11 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_PROMPTS_LIST,
     method::MUX_PROMPTS_SAVE,
     method::MUX_PROMPTS_DELETE,
+    // So are the stashed drafts; their `chat` is the composer's key.
+    method::MUX_STASH_LIST,
+    method::MUX_STASH_PUSH,
+    method::MUX_STASH_GET,
+    method::MUX_STASH_DROP,
 ];
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
@@ -1076,7 +1081,15 @@ mod tests {
     /// A saved prompt's `name` is never a session's: no peer gets the library's requests.
     #[test]
     fn saved_prompts_stay_on_this_daemon() {
-        for m in [method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE] {
+        for m in [
+            method::MUX_PROMPTS_LIST,
+            method::MUX_PROMPTS_SAVE,
+            method::MUX_PROMPTS_DELETE,
+            method::MUX_STASH_LIST,
+            method::MUX_STASH_PUSH,
+            method::MUX_STASH_GET,
+            method::MUX_STASH_DROP,
+        ] {
             assert!(!names_a_session(m), "{m}");
         }
     }

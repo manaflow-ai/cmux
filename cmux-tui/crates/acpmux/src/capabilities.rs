@@ -258,6 +258,16 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "prompt-library-v1",
         wire: &[method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE],
     },
+    // The composer's stashed drafts, kept here so they outlive the pane's page (`stash.rs`).
+    Capability {
+        id: "draft-stash-v1",
+        wire: &[
+            method::MUX_STASH_LIST,
+            method::MUX_STASH_PUSH,
+            method::MUX_STASH_GET,
+            method::MUX_STASH_DROP,
+        ],
+    },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",

@@ -245,6 +245,11 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::PromptsListParams>(method::MUX_PROMPTS_LIST, Request),
         keyed::<params::PromptsSaveParams>(method::MUX_PROMPTS_SAVE, Request),
         keyed::<params::PromptsDeleteParams>(method::MUX_PROMPTS_DELETE, Request),
+        // Stashed drafts (`stash.rs`).
+        keyed::<params::StashListParams>(method::MUX_STASH_LIST, Request),
+        keyed::<params::StashPushParams>(method::MUX_STASH_PUSH, Request),
+        keyed::<params::StashGetParams>(method::MUX_STASH_GET, Request),
+        keyed::<params::StashDropParams>(method::MUX_STASH_DROP, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
         untyped(method::MUX_INBOX_DIGEST, Request),
         untyped(method::MUX_SEND_QUEUE, Request),

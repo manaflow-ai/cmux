@@ -1,0 +1,334 @@
+//! The composer's stashed drafts (`_acpmux/stash_list`, `_acpmux/stash_push`, `_acpmux/stash_get`,
+//! `_acpmux/stash_drop`): a draft put aside with ⌃S and brought back later, a short stack per chat.
+//!
+//! The pane's own storage does not outlive its page (its web views use a store that is not kept),
+//! so the stacks live here, in acpmux's home: `stash/<sha256 of the chat>.json`, one file per chat
+//! (`{"version": 1, "chat": ..., "drafts": [...]}`, newest first). A chat is the composer's key: a
+//! session id, or a new chat's own key until it has one. A draft is its text and its chips as the
+//! page sent them (contents included), so a reload, a new page or a relaunch brings it back whole.
+//!
+//! A list answers the chips without their contents (`data`, `text`): the row needs only their
+//! count. A take is two steps: `stash_get` reads the whole draft, and `stash_drop` removes it once
+//! the composer holds it, so a page that goes away in between loses nothing.
+//!
+//! Bounds: [`STASH_LIMIT`] drafts per chat (a push past it lets the oldest go) and [`STASH_CHATS`]
+//! chats (the file written longest ago goes). One draft is bounded by the message size a request
+//! may have (`rpc::MAX_MESSAGE_BYTES`); a push larger than that never arrives, and the composer
+//! keeps the draft.
+
+use std::fs;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value, json};
+
+use crate::rpc::{RpcError, method};
+
+/// The stash folder in acpmux's home.
+pub const DIR: &str = "stash";
+/// A chat file's format version.
+pub const VERSION: u32 = 1;
+/// The most drafts one chat holds.
+pub const STASH_LIMIT: usize = 5;
+/// The most chats whose stacks are kept.
+pub const STASH_CHATS: usize = 50;
+/// The longest chat key.
+pub const MAX_CHAT_CHARS: usize = 256;
+
+/// Every read-modify-write holds this, so two pushes at once never lose one.
+static WRITES: Mutex<()> = Mutex::new(());
+
+/// One stashed draft.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Draft {
+    pub id: String,
+    pub text: String,
+    /// The chips as the page sent them.
+    pub attachments: Vec<Value>,
+    /// When it was stashed (ms since the epoch).
+    pub at: u64,
+}
+
+impl Draft {
+    /// The draft as a list shows it: its chips without their contents.
+    pub fn row(&self) -> Value {
+        let chips: Vec<Value> = self
+            .attachments
+            .iter()
+            .map(|chip| match chip {
+                Value::Object(map) => {
+                    let mut light: Map<String, Value> = map.clone();
+                    light.remove("data");
+                    light.remove("text");
+                    Value::Object(light)
+                }
+                other => other.clone(),
+            })
+            .collect();
+        json!({"id": self.id, "text": self.text, "attachments": chips, "at": self.at})
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ChatFile {
+    version: u32,
+    chat: String,
+    drafts: Vec<Draft>,
+}
+
+/// The stash folder: `stash` in acpmux's home.
+pub fn dir() -> PathBuf {
+    crate::config::home().join(DIR)
+}
+
+/// Chat `chat`'s file in `dir`: a digest of the key, so any key is a safe name.
+pub fn chat_path(dir: &Path, chat: &str) -> PathBuf {
+    dir.join(format!("{}.json", crate::sha256::sha256_hex(chat.as_bytes())))
+}
+
+/// Serves the four methods, with the stash in [`dir`].
+pub fn handle(m: &str, params: &Value) -> Result<Value, RpcError> {
+    let dir = dir();
+    let chat = chat_param(params)?;
+    match m {
+        method::MUX_STASH_LIST => {
+            let drafts = load(&chat_path(&dir, chat)).map_err(unreadable)?;
+            Ok(json!({"drafts": drafts.iter().map(Draft::row).collect::<Vec<_>>()}))
+        }
+        method::MUX_STASH_PUSH => {
+            let text = params.get("text").and_then(Value::as_str).unwrap_or_default();
+            let attachments = match params.get("attachments") {
+                None | Some(Value::Null) => Vec::new(),
+                Some(Value::Array(list)) if list.iter().all(Value::is_object) => list.clone(),
+                Some(_) => return Err(RpcError::invalid_params("attachments must be a list of chips")),
+            };
+            let draft = push(&dir, chat, text, attachments, crate::store::now_ms())?;
+            Ok(json!({"draft": draft.row()}))
+        }
+        method::MUX_STASH_GET => {
+            let id = id_param(params)?;
+            let drafts = load(&chat_path(&dir, chat)).map_err(unreadable)?;
+            let draft = drafts
+                .into_iter()
+                .find(|d| d.id == id)
+                .ok_or_else(|| RpcError::not_found("no stashed draft with that id"))?;
+            Ok(json!({"draft": draft}))
+        }
+        method::MUX_STASH_DROP => Ok(json!({"removed": remove(&dir, chat, id_param(params)?)?})),
+        _ => Err(RpcError::method_not_found(m)),
+    }
+}
+
+/// Puts a draft on top of `chat`'s stack, the oldest past [`STASH_LIMIT`] let go.
+pub fn push(
+    dir: &Path,
+    chat: &str,
+    text: &str,
+    attachments: Vec<Value>,
+    now_ms: u64,
+) -> Result<Draft, RpcError> {
+    static SERIAL: AtomicU64 = AtomicU64::new(0);
+    if text.trim().is_empty() && attachments.is_empty() {
+        return Err(RpcError::invalid_params("the draft is empty"));
+    }
+    let _held = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let path = chat_path(dir, chat);
+    let mut drafts = load(&path).map_err(unreadable)?;
+    let draft = Draft {
+        id: format!("stash-{now_ms}-{}", SERIAL.fetch_add(1, Ordering::Relaxed)),
+        text: text.to_owned(),
+        attachments,
+        at: now_ms,
+    };
+    drafts.insert(0, draft.clone());
+    drafts.truncate(STASH_LIMIT);
+    write(&path, chat, &drafts).map_err(not_saved)?;
+    trim_chats(dir, &path);
+    Ok(draft)
+}
+
+/// Removes draft `id` from `chat`'s stack; whether it was there.
+pub fn remove(dir: &Path, chat: &str, id: &str) -> Result<bool, RpcError> {
+    let _held = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let path = chat_path(dir, chat);
+    let mut drafts = load(&path).map_err(unreadable)?;
+    let before = drafts.len();
+    drafts.retain(|d| d.id != id);
+    if drafts.len() == before {
+        return Ok(false);
+    }
+    if drafts.is_empty() {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(not_saved(e)),
+        }
+    } else {
+        write(&path, chat, &drafts).map_err(not_saved)?;
+    }
+    Ok(true)
+}
+
+/// Lets the chats written longest ago go once more than [`STASH_CHATS`] have a stack; never `keep`.
+fn trim_chats(dir: &Path, keep: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json") && path != keep)
+        .filter_map(|path| Some((fs::metadata(&path).ok()?.modified().ok()?, path)))
+        .collect();
+    let over = (files.len() + 1).saturating_sub(STASH_CHATS);
+    files.sort();
+    for (_, path) in files.into_iter().take(over) {
+        let _ = fs::remove_file(path);
+    }
+}
+
+fn chat_param(params: &Value) -> Result<&str, RpcError> {
+    let chat = params
+        .get("chat")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("chat is required"))?;
+    if chat.is_empty() || chat.chars().count() > MAX_CHAT_CHARS {
+        return Err(RpcError::invalid_params(format!(
+            "chat must be 1 to {MAX_CHAT_CHARS} characters"
+        )));
+    }
+    Ok(chat)
+}
+
+fn id_param(params: &Value) -> Result<&str, RpcError> {
+    params
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| RpcError::invalid_params("id is required"))
+}
+
+fn unreadable(reason: String) -> RpcError {
+    RpcError::internal(format!("{reason}; the stash is not changed until it is fixed or moved away"))
+}
+
+fn not_saved(e: io::Error) -> RpcError {
+    RpcError::internal(format!("the stash is not saved: {e}"))
+}
+
+/// A chat's drafts: none when its file is missing, an error when it cannot be read, does not
+/// parse, or has another version.
+fn load(path: &Path) -> Result<Vec<Draft>, String> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("{} cannot be read: {e}", path.display())),
+    };
+    let file: ChatFile = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("{} is not a stash file: {e}", path.display()))?;
+    if file.version != VERSION {
+        return Err(format!(
+            "{} is version {}, which this acpmux does not read",
+            path.display(),
+            file.version
+        ));
+    }
+    Ok(file.drafts)
+}
+
+/// Writes a chat's file (0600, through a temp file and a rename), as `prompts.rs` does.
+fn write(path: &Path, chat: &str, drafts: &[Draft]) -> io::Result<()> {
+    static SAVES: AtomicU64 = AtomicU64::new(0);
+    crate::config::refuse_lost_home(path).map_err(io::Error::other)?;
+    let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
+    fs::create_dir_all(dir)?;
+    let file = ChatFile { version: VERSION, chat: chat.to_owned(), drafts: drafts.to_vec() };
+    let bytes = serde_json::to_vec(&file).map_err(io::Error::other)?;
+    let n = SAVES.fetch_add(1, Ordering::Relaxed);
+    let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let written = options.open(&tmp).and_then(|mut out| {
+        out.write_all(&bytes)?;
+        out.sync_all()?;
+        fs::rename(&tmp, path)
+    });
+    if written.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    written
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chip(id: &str) -> Value {
+        json!({"id": id, "kind": "image", "name": "a.png", "mimeType": "image/png", "size": 3, "data": "AAA"})
+    }
+
+    #[test]
+    fn a_push_then_get_brings_the_draft_back_whole_and_a_drop_removes_it() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        let draft = push(&dir, "chat", "first", vec![chip("a")], 1).unwrap();
+        let path = chat_path(&dir, "chat");
+        let kept = load(&path).unwrap();
+        assert_eq!(kept, vec![draft.clone()]);
+        assert_eq!(kept[0].attachments[0]["data"], "AAA");
+        // The list's row has no contents.
+        assert!(draft.row()["attachments"][0].get("data").is_none());
+        assert!(remove(&dir, "chat", &draft.id).unwrap());
+        assert!(!remove(&dir, "chat", &draft.id).unwrap());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_stack_holds_at_most_stash_limit_newest_first() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        for at in 0..(STASH_LIMIT as u64 + 2) {
+            push(&dir, "chat", &format!("draft {at}"), Vec::new(), at).unwrap();
+        }
+        let texts: Vec<String> =
+            load(&chat_path(&dir, "chat")).unwrap().into_iter().map(|d| d.text).collect();
+        assert_eq!(texts.len(), STASH_LIMIT);
+        assert_eq!(texts[0], format!("draft {}", STASH_LIMIT + 1));
+    }
+
+    #[test]
+    fn an_empty_draft_is_refused_and_chats_are_apart() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        assert!(push(&dir, "chat", "  ", Vec::new(), 0).is_err());
+        push(&dir, "one", "a", Vec::new(), 0).unwrap();
+        push(&dir, "two", "b", Vec::new(), 0).unwrap();
+        assert_eq!(load(&chat_path(&dir, "one")).unwrap()[0].text, "a");
+        assert_eq!(load(&chat_path(&dir, "two")).unwrap()[0].text, "b");
+    }
+
+    #[test]
+    fn at_most_stash_chats_keep_a_stack() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        for n in 0..=STASH_CHATS {
+            push(&dir, &format!("chat {n}"), "draft", Vec::new(), n as u64).unwrap();
+        }
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), STASH_CHATS);
+        assert!(chat_path(&dir, &format!("chat {STASH_CHATS}")).exists());
+    }
+
+    #[test]
+    fn a_file_that_does_not_parse_is_never_written_over() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        fs::create_dir_all(&dir).unwrap();
+        let path = chat_path(&dir, "chat");
+        fs::write(&path, "not json").unwrap();
+        assert!(push(&dir, "chat", "draft", Vec::new(), 0).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "not json");
+    }
+}

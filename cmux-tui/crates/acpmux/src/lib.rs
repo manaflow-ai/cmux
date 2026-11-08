@@ -162,6 +162,7 @@ pub mod shell_words;
 pub mod sim_agent;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
+pub mod stash;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;

@@ -91,6 +91,10 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/prompts_list": ([], []),
         "_acpmux/prompts_save": (["name", "text"], []),
         "_acpmux/prompts_delete": (["name"], []),
+        "_acpmux/stash_list": (["chat"], []),
+        "_acpmux/stash_push": (["chat", "text", "attachments"], []),
+        "_acpmux/stash_get": (["chat", "id"], []),
+        "_acpmux/stash_drop": (["chat", "id"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
         // `queue.stale` on another one; direct.ts answerHeld names both).

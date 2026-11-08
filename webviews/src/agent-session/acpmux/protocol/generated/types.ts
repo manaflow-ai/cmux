@@ -1915,6 +1915,30 @@ export interface StartModeParams {
   preset?: unknown;
 }
 
+export interface StashDropParams {
+  _meta?: RequestMeta;
+  chat?: unknown;
+  id?: unknown;
+}
+
+export interface StashGetParams {
+  _meta?: RequestMeta;
+  chat?: unknown;
+  id?: unknown;
+}
+
+export interface StashListParams {
+  _meta?: RequestMeta;
+  chat?: unknown;
+}
+
+export interface StashPushParams {
+  _meta?: RequestMeta;
+  attachments?: unknown;
+  chat?: unknown;
+  text?: unknown;
+}
+
 export interface StatusParams {
   _meta?: RequestMeta;
 }

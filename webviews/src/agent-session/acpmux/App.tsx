@@ -102,6 +102,7 @@ import { startNewTabTransition } from "./newtab/startTransition";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { setSavedPromptsTransport } from "./savedPrompts";
+import { setStashTransport } from "./composer/draftStash";
 import {
   composerDraft,
   DRAFT_SETTLE_MS,
@@ -7085,6 +7086,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           save: (name, text) => client.savePrompt(name, text),
           remove: (name) => client.deletePrompt(name),
         });
+        // Stashed drafts live in acpmux too: the page's own storage is gone with it (draftStash.ts).
+        setStashTransport({
+          list: (chat) => client.listStash(chat),
+          push: (chat, text, attachments) => client.pushStash(chat, text, attachments),
+          get: (chat, id) => client.getStash(chat, id),
+          drop: (chat, id) => client.dropStash(chat, id),
+        });
         // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
         client.onPeerSessionStarted = () => {
@@ -8344,6 +8352,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current = undefined;
       setBookmarkTransport(undefined);
       setSavedPromptsTransport(undefined);
+      setStashTransport(undefined);
       delete window.cmuxAcpmuxActions;
       notifyDraftActionsChanged();
     };

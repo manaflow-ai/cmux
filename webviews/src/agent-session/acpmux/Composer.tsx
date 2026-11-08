@@ -164,7 +164,7 @@ import {
   type EmojiShortcodes,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
-import { moveStash, stashDraft, stashedChips, takeStashed, useStash } from "./composer/draftStash";
+import { dropStashed, moveStash, readStashed, stashDraft, useStash } from "./composer/draftStash";
 import { StashedChip } from "./composer/StashedChip";
 import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts } from "./savedPrompts";
 
@@ -910,7 +910,7 @@ function ComposerFrame({
     attachmentsRef.current = attachmentsRef.current.filter((chip) => chip.shellRun);
     setAttachments((current) => current.filter((chip) => chip.shellRun));
   };
-  // Still the draft `held` (a large draft's stash waits on its chip store): what was typed since stays.
+  // Still the draft `held` (a stash waits on acpmux's answer): what was typed since stays.
   const stillHeld = (held: ReturnType<typeof heldDraft>) => {
     const now = heldDraft();
     return (
@@ -919,34 +919,48 @@ function ComposerFrame({
       now.attachments.every((chip, index) => chip.id === held.attachments[index]?.id)
     );
   };
-  const stashNow = (): boolean => {
+  // Whether this composer still shows `chat`: a stash's answer for a chat it left, or after it
+  // closed, changes nothing here (the draft stays stashed, or stays where it was).
+  const stashFor = useRef(stashChat);
+  stashFor.current = stashChat;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => void (mounted.current = false);
+  }, []);
+  const showing = (chat: string) => mounted.current && stashFor.current === chat;
+  const stashNow = () => {
+    const chat = stashChat;
     const held = heldDraft();
-    const stashed = stashDraft(stashChat, held.text, held.attachments);
-    if (stashed === false) return false;
-    if (stashed === true) clearDraft();
-    else void stashed.then((done) => done && stillHeld(held) && clearDraft());
-    field.current?.focus();
-    return true;
+    // The prompt empties once acpmux holds the draft; a refusal leaves it as it was.
+    void stashDraft(chat, held.text, held.attachments).then(
+      (done) => done && showing(chat) && stillHeld(held) && clearDraft(),
+    );
   };
-  const unstash = (id?: string): boolean => {
-    const entry = takeStashed(stashChat, id);
-    if (!entry) return false;
-    const held = heldDraft();
-    const stashed = stashDraft(stashChat, held.text, held.attachments);
-    const chips = stashedChips(entry);
-    const bringBack = (done: boolean, attachments: ComposerAttachment[]) => {
-      if (done && stillHeld(held)) clearDraft();
-      restoreDraft(entry.text, attachments);
+  const unstash = (id?: string) => {
+    const chat = stashChat;
+    const target = id ?? stashed[0]?.id;
+    if (!target) return;
+    void (async () => {
+      // Read whole, and dropped only once this composer holds it again in the same chat.
+      const entry = await readStashed(chat, target);
+      if (!entry || !showing(chat)) return;
+      const held = heldDraft();
+      const typed = !!held.text.trim() || held.attachments.length > 0;
+      // A draft typed meanwhile goes on the stack in its place; one acpmux refuses stays, and the
+      // stashed one comes back beside it.
+      const put = typed && (await stashDraft(chat, held.text, held.attachments));
+      if (!showing(chat)) return;
+      if (put && stillHeld(held)) clearDraft();
+      restoreDraft(entry.text, entry.attachments);
       field.current?.focus();
-    };
-    if (typeof stashed === "boolean" && Array.isArray(chips)) bringBack(stashed, chips);
-    else void Promise.all([stashed, chips]).then(([done, attachments]) => bringBack(done, attachments));
-    return true;
+      await dropStashed(chat, entry.id);
+    })();
   };
   // A new chat's stack follows it to its session.
   const stashedFor = useRef(sessionId);
   useEffect(() => {
-    if (!stashedFor.current && sessionId) moveStash(newChatKey, sessionId);
+    if (!stashedFor.current && sessionId) void moveStash(newChatKey, sessionId);
     stashedFor.current = sessionId;
   }, [sessionId, newChatKey]);
   useImperativeHandle(
@@ -1865,6 +1879,7 @@ function ComposerFrame({
       // A draft that could not be stashed stays in the prompt; only an empty one brings one back.
       if (held.text.trim() || held.attachments.length) stashNow();
       else unstash();
+      field.current?.focus();
       return;
     }
     // Tab takes the suggested prompt into the field; the next Tab moves focus on as usual. Esc puts

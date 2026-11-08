@@ -212,6 +212,22 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_PROMPTS_DELETE,
             Any(json!({"name": "stack"}), "the person check refuses this connection"),
         ),
+        (
+            method::MUX_STASH_LIST,
+            Any(json!({"chat": "stack"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_PUSH,
+            Any(json!({"chat": "stack", "text": "aside"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_GET,
+            Any(json!({"chat": "stack", "id": "x"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_DROP,
+            Any(json!({"chat": "stack", "id": "x"}), "the person check refuses this connection"),
+        ),
         (method::MUX_ASK, Run(json!({"sessionId": "$S", "text": "what did you say?"}))),
         (
             method::MUX_BTW,

@@ -272,6 +272,14 @@ keyed! {
     SetToolsParams: ["sessionId", "id", "enabled"];
     /// `_acpmux/side`.
     SideParams: ["sessionId", "chat"];
+    /// `_acpmux/stash_drop`.
+    StashDropParams: ["chat", "id"];
+    /// `_acpmux/stash_get`.
+    StashGetParams: ["chat", "id"];
+    /// `_acpmux/stash_list`.
+    StashListParams: ["chat"];
+    /// `_acpmux/stash_push`.
+    StashPushParams: ["chat", "text", "attachments"];
     /// `_acpmux/start_mode`.
     StartModeParams: ["harness", "preset", "cwd"];
     /// `_acpmux/status`.

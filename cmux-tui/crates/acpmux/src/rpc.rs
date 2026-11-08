@@ -550,6 +550,12 @@ pub mod method {
     pub const MUX_PROMPTS_LIST: &str = "_acpmux/prompts_list";
     pub const MUX_PROMPTS_SAVE: &str = "_acpmux/prompts_save";
     pub const MUX_PROMPTS_DELETE: &str = "_acpmux/prompts_delete";
+    /// The composer's stashed drafts, a short stack per chat (`stash.rs`): list a chat's, push one,
+    /// read one whole, and drop one once the composer holds it again.
+    pub const MUX_STASH_LIST: &str = "_acpmux/stash_list";
+    pub const MUX_STASH_PUSH: &str = "_acpmux/stash_push";
+    pub const MUX_STASH_GET: &str = "_acpmux/stash_get";
+    pub const MUX_STASH_DROP: &str = "_acpmux/stash_drop";
     pub const MUX_ASK: &str = "_acpmux/ask";
     /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
     /// cheap model, sent the question; answers with its session id at once.

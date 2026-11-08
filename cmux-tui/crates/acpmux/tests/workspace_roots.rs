@@ -208,3 +208,41 @@ async fn only_the_person_saves_or_deletes_a_prompt() {
     let r = person.call("_acpmux/prompts_delete", json!({"name": "person-only-review"})).await;
     assert!(r.get("error").is_none(), "{r}");
 }
+
+/// A stashed draft is the person's: only the person's composer pushes, lists, reads or drops one,
+/// and a draft comes back whole (its chips' contents too) until it is dropped (`stash.rs`).
+#[tokio::test]
+async fn only_the_person_stashes_and_a_stashed_draft_comes_back_whole() {
+    let hub = hub();
+    let mut web = Client::new(&hub, Origin::Web);
+    web.call("initialize", json!({"protocolVersion": 1})).await;
+    let mut agent = Client::new(&hub, Origin::Local);
+    agent.call("initialize", json!({"protocolVersion": 1})).await;
+    let chat = format!("stash-test-{}", std::process::id());
+    let chip = json!({"id": "a", "kind": "image", "name": "a.png", "mimeType": "image/png", "size": 3, "data": "AAA"});
+    for client in [&mut web, &mut agent] {
+        for (m, params) in [
+            ("_acpmux/stash_list", json!({"chat": chat})),
+            ("_acpmux/stash_push", json!({"chat": chat, "text": "aside"})),
+            ("_acpmux/stash_get", json!({"chat": chat, "id": "x"})),
+            ("_acpmux/stash_drop", json!({"chat": chat, "id": "x"})),
+        ] {
+            let r = client.call(m, params).await;
+            assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{m}: {r}");
+        }
+    }
+    let mut person = Client::person(&hub).await;
+    let r = person
+        .call("_acpmux/stash_push", json!({"chat": chat, "text": "aside", "attachments": [chip.clone()]}))
+        .await;
+    let id = r["result"]["draft"]["id"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let listed = person.call("_acpmux/stash_list", json!({"chat": chat})).await;
+    assert_eq!(listed["result"]["drafts"][0]["id"], id, "{listed}");
+    assert!(listed["result"]["drafts"][0]["attachments"][0].get("data").is_none(), "{listed}");
+    let whole = person.call("_acpmux/stash_get", json!({"chat": chat, "id": id})).await;
+    assert_eq!(whole["result"]["draft"]["attachments"][0], chip, "{whole}");
+    let r = person.call("_acpmux/stash_drop", json!({"chat": chat, "id": id})).await;
+    assert_eq!(r["result"]["removed"], true, "{r}");
+    let after = person.call("_acpmux/stash_list", json!({"chat": chat})).await;
+    assert_eq!(after["result"]["drafts"], json!([]), "{after}");
+}
