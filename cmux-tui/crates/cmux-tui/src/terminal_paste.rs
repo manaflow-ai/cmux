@@ -70,12 +70,22 @@ struct Endpoint {
     _child: Option<BridgeChild>,
 }
 
+/// A poll timeout of at least 1 ms, saturating at `i32::MAX`.
+fn poll_millis(remaining: Duration) -> i32 {
+    i32::try_from(remaining.as_millis()).unwrap_or(i32::MAX).max(1)
+}
+
+/// `now + timeout`, or the furthest representable instant.
+fn deadline_after(timeout: Duration) -> Result<Instant> {
+    Instant::now().checked_add(timeout).ok_or("terminal-paste-timeout")
+}
+
 fn wait_fd(fd: RawFd, events: i16, deadline: Instant) -> Result<()> {
     loop {
         let remaining =
             deadline.checked_duration_since(Instant::now()).ok_or("terminal-paste-timeout")?;
         let mut descriptor = libc::pollfd { fd, events, revents: 0 };
-        let millis = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let millis = poll_millis(remaining);
         let result = unsafe { libc::poll(&mut descriptor, 1, millis) };
         if result > 0 {
             if descriptor.revents & libc::POLLNVAL != 0 {
@@ -103,7 +113,8 @@ fn connect_socket(path: &Path) -> Result<UnixStream> {
     let socket = unsafe { UnixStream::from_raw_fd(fd) };
     socket.set_nonblocking(true).map_err(|_| "terminal-paste-daemon-unavailable")?;
     let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
-    address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+    address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX)
+        .map_err(|_| "terminal-paste-daemon-unavailable")?;
     let bytes = path.as_os_str().as_bytes();
     if bytes.contains(&0) || bytes.len() >= address.sun_path.len() {
         return Err("terminal-paste-daemon-unavailable");
@@ -111,11 +122,14 @@ fn connect_socket(path: &Path) -> Result<UnixStream> {
     for (destination, byte) in address.sun_path.iter_mut().zip(bytes) {
         *destination = *byte as libc::c_char;
     }
-    let length =
-        (std::mem::offset_of!(libc::sockaddr_un, sun_path) + bytes.len() + 1) as libc::socklen_t;
+    let length = std::mem::offset_of!(libc::sockaddr_un, sun_path)
+        .checked_add(bytes.len())
+        .and_then(|length| length.checked_add(1))
+        .and_then(|length| libc::socklen_t::try_from(length).ok())
+        .ok_or("terminal-paste-daemon-unavailable")?;
     #[cfg(target_vendor = "apple")]
     {
-        address.sun_len = length as u8;
+        address.sun_len = u8::try_from(length).map_err(|_| "terminal-paste-daemon-unavailable")?;
     }
     let result =
         unsafe { libc::connect(fd, (&address as *const libc::sockaddr_un).cast(), length) };
@@ -123,7 +137,7 @@ fn connect_socket(path: &Path) -> Result<UnixStream> {
         if io::Error::last_os_error().raw_os_error() != Some(libc::EINPROGRESS) {
             return Err("terminal-paste-daemon-unavailable");
         }
-        wait_fd(fd, libc::POLLOUT, Instant::now() + REQUEST_TIMEOUT)?;
+        wait_fd(fd, libc::POLLOUT, deadline_after(REQUEST_TIMEOUT)?)?;
         if socket.take_error().map_err(|_| "terminal-paste-daemon-unavailable")?.is_some() {
             return Err("terminal-paste-daemon-unavailable");
         }
@@ -151,7 +165,7 @@ impl Endpoint {
             let mut child = BridgeChild(child);
             let mut stderr = child.0.stderr.take().ok_or("terminal-paste-bridge-unavailable")?;
             let deadline =
-                Instant::now() + Duration::from_millis(bridge.reply_timeout_ms.clamp(1, 300_000));
+                deadline_after(Duration::from_millis(bridge.reply_timeout_ms.clamp(1, 300_000)))?;
             let mut line = Vec::new();
             loop {
                 wait_fd(stderr.as_raw_fd(), libc::POLLIN, deadline)?;
@@ -197,7 +211,7 @@ impl Endpoint {
                     revents: 0,
                 },
             ];
-            let millis = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+            let millis = poll_millis(remaining);
             let result = unsafe { libc::poll(descriptors.as_mut_ptr(), 2, millis) };
             if result < 0 {
                 if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
@@ -239,15 +253,12 @@ impl Endpoint {
             self.wait_io(libc::POLLOUT, deadline)?;
             match self.socket.write(rest) {
                 Ok(0) => return Err("terminal-paste-daemon-unavailable"),
-                Ok(n) => rest = &rest[n..],
+                Ok(n) => rest = rest.get(n..).ok_or("terminal-paste-daemon-unavailable")?,
                 Err(error)
                     if matches!(
                         error.kind(),
                         io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
-                    ) =>
-                {
-                    ()
-                }
+                    ) => {}
                 Err(_) => return Err("terminal-paste-daemon-unavailable"),
             }
         }
@@ -260,8 +271,12 @@ impl Endpoint {
             if Instant::now() >= deadline {
                 return Err("terminal-paste-timeout");
             }
-            if let Some(relative) = self.pending[scanned..].iter().position(|byte| *byte == b'\n') {
-                let end = scanned + relative;
+            let newline = self
+                .pending
+                .get(scanned..)
+                .and_then(|unscanned| unscanned.iter().position(|byte| *byte == b'\n'))
+                .and_then(|relative| scanned.checked_add(relative));
+            if let Some(end) = newline {
                 let line: Vec<_> = self.pending.drain(..=end).collect();
                 return serde_json::from_slice(&line)
                     .map_err(|_| "terminal-paste-daemon-unavailable");
@@ -274,15 +289,14 @@ impl Endpoint {
             let mut buffer = [0; 8192];
             match self.socket.read(&mut buffer) {
                 Ok(0) => return Err("terminal-paste-daemon-unavailable"),
-                Ok(n) => self.pending.extend_from_slice(&buffer[..n]),
+                Ok(n) => self
+                    .pending
+                    .extend_from_slice(buffer.get(..n).ok_or("terminal-paste-daemon-unavailable")?),
                 Err(error)
                     if matches!(
                         error.kind(),
                         io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
-                    ) =>
-                {
-                    ()
-                }
+                    ) => {}
                 Err(_) => return Err("terminal-paste-daemon-unavailable"),
             }
         }
@@ -307,11 +321,14 @@ impl Session {
             terminal_id: request.terminal_id.clone(),
         };
         let identify = session.request("identify", json!({}))?;
-        let data = &identify["data"];
-        if data["protocol"].as_u64() != Some(12) {
+        let data = identify.get("data").ok_or("terminal-paste-daemon-incompatible")?;
+        if data.get("protocol").and_then(Value::as_u64) != Some(12) {
             return Err("terminal-paste-daemon-incompatible");
         }
-        let capabilities = data["capabilities"].as_array().ok_or("terminal-paste-unsupported")?;
+        let capabilities = data
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .ok_or("terminal-paste-unsupported")?;
         let required = if request.image.is_some() {
             "terminal-image-paste-v1"
         } else {
@@ -322,7 +339,8 @@ impl Session {
                 return Err("terminal-paste-unsupported");
             }
         }
-        let generation = data["generation"].as_str().ok_or("terminal-paste-attach-failed")?;
+        let generation =
+            data.get("generation").and_then(Value::as_str).ok_or("terminal-paste-attach-failed")?;
         session.request(
             "set-client-info",
             json!({
@@ -338,35 +356,38 @@ impl Session {
                 "expected_terminal_id": session.terminal_id, "expected_generation": generation
             }),
         )?;
-        session.lease =
-            attached["data"]["lease"].as_str().ok_or("terminal-paste-attach-failed")?.to_owned();
+        session.lease = attached
+            .pointer("/data/lease")
+            .and_then(Value::as_str)
+            .ok_or("terminal-paste-attach-failed")?
+            .to_owned();
         session.surface.ok_or("terminal-paste-attach-failed")?;
         Ok(session)
     }
 
     fn request(&mut self, command: &str, mut fields: Value) -> Result<Value> {
         let id = self.next_id;
-        self.next_id += 1;
+        self.next_id = self.next_id.wrapping_add(1);
         let object = fields.as_object_mut().ok_or("terminal-paste-invalid-request")?;
         object.insert("id".into(), json!(id));
         object.insert("cmd".into(), json!(command));
-        let deadline = Instant::now() + REQUEST_TIMEOUT;
+        let deadline = deadline_after(REQUEST_TIMEOUT)?;
         self.endpoint.send(&fields, deadline)?;
         loop {
             let response = self.endpoint.read_line(deadline)?;
-            if response.get("event").is_some() {
+            if let Some(event) = response.get("event") {
                 if command == "attach-surface"
                     && self.surface.is_none()
-                    && response["event"].as_str() == Some("vt-state")
+                    && event.as_str() == Some("vt-state")
                 {
-                    self.surface = response["surface"].as_u64();
+                    self.surface = response.get("surface").and_then(Value::as_u64);
                 }
                 continue;
             }
-            if response["id"].as_u64() != Some(id) {
+            if response.get("id").and_then(Value::as_u64) != Some(id) {
                 continue;
             }
-            if response["ok"] != true {
+            if response.get("ok") != Some(&Value::Bool(true)) {
                 return Err("terminal-paste-daemon-rejected");
             }
             return Ok(response);
@@ -384,27 +405,31 @@ impl Session {
         let upload_id = format!("{:032x}", self.next_id);
         let mut begin = json!({"surface": surface, "terminal_id": self.terminal_id,
             "lease": self.lease, "upload_id": upload_id, "op": "begin", "size": size});
+        let fields = begin.as_object_mut().ok_or("terminal-paste-invalid-request")?;
         if let Some(mime) = mime {
-            begin["mime"] = json!(mime);
+            fields.insert("mime".into(), json!(mime));
         }
         if let Some(filename) = filename {
-            begin["filename"] = json!(filename);
+            fields.insert("filename".into(), json!(filename));
         }
         self.request("paste-image", begin)?;
-        let mut offset = 0;
+        let mut offset = 0_u64;
         let mut buffer = [0; CHUNK_BYTES];
         while offset < size {
-            let count = (size - offset).min(CHUNK_BYTES as u64) as usize;
-            source.read_exact(&mut buffer[..count]).map_err(|_| "terminal-paste-file-changed")?;
+            let count = usize::try_from(size.saturating_sub(offset))
+                .unwrap_or(CHUNK_BYTES)
+                .min(CHUNK_BYTES);
+            let chunk = buffer.get_mut(..count).ok_or("terminal-paste-invalid-request")?;
+            source.read_exact(chunk).map_err(|_| "terminal-paste-file-changed")?;
             self.request(
                 "paste-image",
                 json!({
                     "surface": surface, "terminal_id": self.terminal_id, "lease": self.lease,
                     "upload_id": upload_id, "op": "chunk", "offset": offset,
-                    "data": base64::engine::general_purpose::STANDARD.encode(&buffer[..count])
+                    "data": base64::engine::general_purpose::STANDARD.encode(&*chunk)
                 }),
             )?;
-            offset += count as u64;
+            offset = offset.saturating_add(count as u64);
         }
         let mut extra = [0];
         if source.read(&mut extra).map_err(|_| "terminal-paste-file-unavailable")? != 0 {
