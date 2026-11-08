@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42499506626",
+  "recorded_at": "2026-11-08T16:29:49Z",
+  "reason": "cmux-tui def9bc218ad2 changes the image's cmux-tui (pinned 67a6c13fb7e9)",
+  "dry_run": false,
+  "cmux_tui": "def9bc218ad234ac7694a32ceae49cd189adc3a0",
+  "fixes": [
+    {
+      "sha": "def9bc218ad234ac7694a32ceae49cd189adc3a0",
+      "mergedAt": "2026-11-08T08:06:35-08:00",
+      "subject": "fix(cmux-tui): own-build pane helpers, dismissed dialog clears without the plugin, dialog-stop reply, explain --live --session (W4-I) (#38663)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T16:29:49Z",
+    "snapshot_id": "sh-81e11b9e975943c3abbff8e961a3378e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42499506626): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "34915884e12c4150fe9962f6de807cc5b20cf878",
+    "image": "cloud-native-auto-def9bc21-42499506626-1",
+    "revision": "ci-42499506626-1",
+    "at": "2026-11-08T16:29:49Z"
+  },
+  "rolled_back": false
+}
