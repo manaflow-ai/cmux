@@ -79,11 +79,10 @@ enum BrowserProfileHandlers {
     private static func bindDaemonVerbs(into registry: ActionRegistry, context: AppActionContext) {
         let profiles = context.services.browserProfiles
         func bind(_ id: ActionID, _ edit: @escaping @MainActor (String, ActionInvocation) throws -> Void) {
-            registry.bindEffect(id, effect: { invocation in
-                do { try edit(context.browserProfile(invocation).id, invocation) } catch let error as BrowserProfileBookError {
+            registry.bindEffect(id, requires: nil, effect: { invocation in
+                do { try edit(context.browserProfile(invocation).id, invocation); return .done } catch let error as BrowserProfileBookError {
                     throw ActionFailure.invalidTarget(BrowserProfileAppStrings.message(error))
                 }
-                return .done
             })
         }
         bind("browserProfile.move") { id, invocation in

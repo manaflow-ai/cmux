@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextImportCards
 import CmuxNextMacScreen
+import CmuxNextNotifications
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
