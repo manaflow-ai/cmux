@@ -93,11 +93,19 @@ extension ConversationViewController {
     private func setCatchUpVisible(_ visible: Bool) {
         guard catchUpButton.isHidden == visible else { return }
         catchUpButton.isHidden = false
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.catchUpButton.alpha = visible ? 1 : 0
-            self.catchUpButton.transform = visible ? .identity : CGAffineTransform(scaleX: 0.6, y: 0.6)
         } completion: { _ in
             if self.catchUpButton.alpha == 0 { self.catchUpButton.isHidden = true }
+        }
+        // Reduce Motion: the button only fades, at its own size.
+        guard !UIView.reducesMotion else {
+            catchUpButton.transform = .identity
+            return
+        }
+        UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.catchUpButton.transform = visible ? .identity : CGAffineTransform(scaleX: 0.6, y: 0.6)
         }
         if visible {
             catchUpButton.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
