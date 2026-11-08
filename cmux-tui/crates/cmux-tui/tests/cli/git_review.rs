@@ -437,6 +437,10 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     // A worktree on the review's branch name that no review recorded is not
     // taken over: a new one is made, and its comments stay.
     git(&checkout, &["config", "--unset", "branch.cmux/review-7.cmuxReview"]);
+    // Nor is it a review any longer: its stored review no longer takes drafts.
+    let stale = git_cli(&server, &worktree, &draft);
+    assert!(!stale.status.success());
+    assert!(String::from_utf8_lossy(&stale.stderr).contains("not_a_review"));
     let note = serde_json::json!({"root": review_root, "comment": {
         "filePath": "a.txt", "side": "additions", "startLine": 2, "endLine": 2,
         "lineText": "line 2", "message": "Mine, not the review's",
@@ -491,6 +495,20 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert!(!other_root.exists(), "the review's worktree was not removed");
     assert!(!teardown_ran.exists(), "the project's teardown ran in a review's checkout");
     assert!(!fsmonitor_ran.exists(), "an fsmonitor ran in a review's checkout");
+
+    // A pull request pushed to after gh answered: the older head is here, but
+    // the fetch brought a newer one, so no review starts on stale code.
+    let stale_view = serde_json::json!({
+        "title": "Fix line 10",
+        "headRefOid": merge_base,
+        "baseRefOid": main,
+        "baseRefName": "main",
+    });
+    fs::write(bin_dir.join("view.json"), stale_view.to_string()).unwrap();
+    let moved =
+        git_cli(&server, &checkout, &["review", "start", url, "--idempotency-key", "rv-moved"]);
+    assert!(!moved.status.success());
+    assert!(String::from_utf8_lossy(&moved.stderr).contains("pull_request_moved"));
 
     // A comment outside a review worktree is refused.
     let plain = git_cli(&server, &checkout, &draft);

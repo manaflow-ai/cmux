@@ -122,7 +122,16 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
             let message = format!("git fetch {remote} {pulled} failed");
             return Err(refused(START, "fetch_failed", message, output_extra(&run.output())));
         }
-        if repository.commit(&view.head).is_none() || repository.commit(&view.base).is_none() {
+        // The pull request's head as fetched (FETCH_HEAD's first line): a
+        // push since `gh` answered leaves the older head present but stale.
+        let fetched = repository
+            .run(&["rev-parse", "--verify", "--quiet", "FETCH_HEAD"], 4096)
+            .ok()
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string());
+        if fetched.as_deref() != Some(view.head.as_str())
+            || repository.commit(&view.head).is_none()
+            || repository.commit(&view.base).is_none()
+        {
             let message = "the pull request moved while it was fetched; start the review again";
             return Err(refused(START, "pull_request_moved", message, Value::Null));
         }
@@ -308,6 +317,22 @@ fn existing(
     })
 }
 
+/// Whether the worktree at `repository` is still the review of `url`: its
+/// branch records it (`cmuxReview`). Records a removed review left under its
+/// path, which an ordinary worktree took since, do not make that one a review.
+fn still_reviews(repository: &Repository, url: &str) -> bool {
+    let text = |arguments: &[&str]| {
+        let output = repository.run(arguments, 4096).ok()?;
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    };
+    let Some(branch) = text(&["symbolic-ref", "--quiet", "--short", "HEAD"]) else { return false };
+    let setting = format!("branch.{branch}.cmuxReview");
+    !branch.is_empty()
+        && !url.is_empty()
+        && text(&["config", "--get", setting.as_str()])
+            .is_some_and(|recorded| recorded.eq_ignore_ascii_case(url))
+}
+
 fn comment(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     let fields = &request.fields;
     let message = fields.get("message").and_then(Value::as_str).unwrap_or_default().trim();
@@ -340,8 +365,9 @@ fn comment(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Res
     let file = file_path(fields.get("file").and_then(Value::as_str), &repository.root)?;
     let store = Store::open(mux, COMMENT)?;
     let stored = store.read(&root).map_err(|error| diff_comments::io_failed(COMMENT, &error))?;
+    let url = stored.review.as_ref().and_then(|review| review.get("url")?.as_str());
     let base = stored.review.as_ref().and_then(|review| review.get("base")?.as_str());
-    let Some(base) = base else {
+    let Some(base) = base.filter(|_| still_reviews(&repository, url.unwrap_or_default())) else {
         let message = format!(
             "{root} is not a pull request review's worktree; run cmux git review start <url> and comment in the folder it prints"
         );
@@ -490,7 +516,10 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
         let review = file.review.clone().unwrap_or(Value::Null);
         let text =
             |name: &str| review.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
-        let (Some(pull), head, base) = (PullRef::parse(&text("url")), text("head"), text("base"))
+        let reviewing = open_repository(Path::new(root), POST)
+            .is_ok_and(|repository| still_reviews(&repository, &text("url")));
+        let (Some(pull), head, base, true) =
+            (PullRef::parse(&text("url")), text("head"), text("base"), reviewing)
         else {
             let message = format!("{root} is not a pull request review's worktree");
             return Err(refused(POST, "not_a_review", message, Value::Null));
