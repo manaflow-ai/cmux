@@ -291,7 +291,7 @@ fn run(
 mod tests {
     use super::*;
     use crate::link::{LinkState, LinkSupervisor};
-    use std::io::{BufRead as _, BufReader, Write as _};
+    use std::io::{BufRead as _, BufReader};
     use std::sync::mpsc::channel;
     use std::time::Duration;
 

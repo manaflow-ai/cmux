@@ -646,7 +646,7 @@ mod hint_tests {
     fn revoked_state_keeps_recovery_context_on_later_connects() {
         struct NoCalls;
         impl ControlPlane for NoCalls {
-            fn call(&mut self, _: &crate::WireCall) -> Result<crate::WireReply, RelayError> {
+            fn call(&mut self, _: &crate::WireCall) -> Result<WireReply, RelayError> {
                 panic!("a revoked link must not call the backend")
             }
             fn session(&mut self) -> Result<crate::SessionStatus, RelayError> {
