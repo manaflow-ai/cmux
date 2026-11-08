@@ -549,7 +549,10 @@ def main():
         run = Run(env)
         run.launch()
         results["app_version"] = (run.app.identify() or {}).get("version")
-        STRESS.place_window(run.rpc)
+        _, problem = STRESS.place_window(run.rpc)
+        if problem:  # a window off its screen or the wrong size measures nothing comparable; fail the run
+            results["errors"]["placement"] = problem
+            raise SystemExit(f"split-scale: {problem}: run with a 1920 x 1080 display (--vdisplay=120)")
         time.sleep(4)  # test script: launch work ends before the first cell
         for count in WORKSPACES:
             for splits in SPLITS:

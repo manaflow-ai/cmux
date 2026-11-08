@@ -344,6 +344,9 @@ impl Hub {
                 effort: variant.effort.clone(),
                 cwd: None,
                 worktree: true,
+                // A plan build is no model race (`hub/races.rs`): the person's own build.
+                owner_authorized_race: false,
+                race_id: None,
                 fork: false,
                 force_admit: false,
                 local,

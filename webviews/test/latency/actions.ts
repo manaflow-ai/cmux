@@ -710,6 +710,76 @@ function composerMenu(id: string, name: string, key: string, popup: string): Lat
   };
 }
 
+// Typing behind a long draft (Leo, 2026-11-04: interaction cost stays constant as sessions grow).
+// A key into a 10,000- or 200,000-character prompt, with the 3,000-turn chat behind it or not, should
+// paint as soon as a key into an empty one does. The draft is pasted in pieces under the chip limit
+// (pastedText.ts PASTE_CHIP_CHARS, PASTE_CHIP_WORDS), so it stays inline text, as typed or restored
+// prose does; it is laid once per page and each run types one `x` at its end and deletes it after.
+const DRAFT_LINE = "composer latency fixture words keep the prompt long ".repeat(2).trim();
+async function seedDraft(page: Page, chars: number): Promise<void> {
+  const seeded = await page.evaluate(
+    (chars) => (window as unknown as { __latencyDraft?: number }).__latencyDraft === chars,
+    chars,
+  );
+  if (seeded) return;
+  await flowChat(page);
+  if (!chars) return;
+  await page.evaluate(
+    async ({ chars, line, editor }) => {
+      const field = document.querySelector<HTMLElement>(editor)!;
+      // One paste is 8,000 characters and about 1,000 short words on separate lines: a chip at 750
+      // words, so the lines carry few long words instead.
+      const words = line.split(" ").length;
+      const perPaste = Math.max(1, Math.floor(Math.min(8_000 / (line.length + 1), 600 / words)));
+      let laid = 0;
+      while (laid < chars) {
+        const lines: string[] = [];
+        for (let at = 0; at < perPaste && laid < chars; at += 1) {
+          lines.push(line);
+          laid += line.length + 1;
+        }
+        const transfer = new DataTransfer();
+        transfer.setData("text/plain", `\n${lines.join("\n")}.`);
+        const event = new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: transfer });
+        field.dispatchEvent(event);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    },
+    { chars, line: DRAFT_LINE, editor: composerEditor },
+  );
+  await quiet(page);
+  const length = await page.evaluate(
+    (editor) => document.querySelector(editor)?.textContent?.length ?? 0,
+    composerEditor,
+  );
+  if (length < chars * 0.9) throw new Error(`draft fixture laid ${length} of ${chars} characters inline`);
+  if (await page.$(".acpmux-attachments .acpmux-attachment")) throw new Error("draft fixture became a paste chip");
+  await page.evaluate((chars) => ((window as unknown as { __latencyDraft?: number }).__latencyDraft = chars), chars);
+}
+
+function draftTyping(chars: number, turns: number): LatencyAction {
+  return {
+    id: `chat.type.character.draft-${chars}${turns ? `.turns-${turns}` : ""}`,
+    name: `type a character (${chars.toLocaleString("en-US")}-character draft${turns ? `, ${turns}-turn chat` : ""})`,
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await seedDraft(page, chars);
+      await page.focus(composerEditor);
+      await page.keyboard.press("ControlOrMeta+End");
+      await quiet(page);
+      return `document.querySelector(${js(composerEditor)})?.lastElementChild?.textContent?.endsWith("x") === true`;
+    },
+    async input(page) {
+      await page.keyboard.press("x");
+    },
+    async settle(page) {
+      await page.keyboard.press("Backspace");
+      await quiet(page);
+    },
+  };
+}
+
 const flowActions: LatencyAction[] = [
   pickerOpen(
     "chat.picker.model.pointer",
@@ -882,6 +952,14 @@ export const LONG_CHAT_PAGES: LatencyPageSpec[] = [false, true].map((resident) =
   path: `/test/latency/flows.html?mock&turns=3000${resident ? "&resident" : ""}`,
   ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
   actions: [longScroll(resident)],
+}));
+
+// The same key with a long draft, and with a 3,000-turn chat (its rows resident) behind it.
+export const DRAFT_TYPING_PAGES: LatencyPageSpec[] = [0, 3000].map((turns) => ({
+  name: `chat draft typing${turns ? ` ${turns} resident` : ""}`,
+  path: `/test/latency/flows.html?mock${turns ? `&turns=${turns}&resident` : ""}`,
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: (turns ? [0, 200_000] : [10_000, 200_000]).map((chars) => draftTyping(chars, turns)),
 }));
 
 export const RAIL_DRAG_PAGE: LatencyPageSpec = {
@@ -1289,6 +1367,8 @@ export const PAGES: LatencyPageSpec[] = [
   ...RAIL_SWEEP_PAGES,
   // Experiment comparisons (design/glass.md, design/motion-and-polish.md in leo-workspace): run on
   // demand with CMUX_LATENCY_EXPERIMENTS=1, never in the CI scoreboard.
+  // Typing behind a long draft: run on demand with CMUX_LATENCY_DRAFTS=1, never in the CI scoreboard.
+  ...(process.env.CMUX_LATENCY_DRAFTS === "1" ? DRAFT_TYPING_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? CHAT_SWITCH_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? GLASS_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? LIVE_BACKGROUND_PAGES : []),

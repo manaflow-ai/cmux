@@ -8,7 +8,7 @@
 // never changes height as diffs arrive or a build is kept: only words and colours change, together.
 // The diffs are read once when the card mounts and again only when a build's turn ends.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { callNative } from "../callNative";
 import { openSessionAttributes } from "../conversation/menuParts";
 import { useT, type Translate } from "../i18n";
@@ -58,12 +58,12 @@ export function PlanBuildCard({
   const [error, setError] = useState<string>();
   // The reads in flight answer only the newest: an older reply never overwrites a newer one.
   const reads = useRef(0);
-  const compareRef = useRef(compare);
-  compareRef.current = compare;
+  // The newest `compare`, read when a read starts: a new function never starts a read itself.
+  const readCompare = useEffectEvent((session: string, buildId: string) => compare(session, buildId));
   useEffect(() => {
     if (given || !sessionId) return;
     const mine = ++reads.current;
-    void compareRef.current(sessionId, build.buildId).then(
+    void readCompare(sessionId, build.buildId).then(
       (reply) => {
         const checked = planBuildReply(reply);
         if (checked && mine === reads.current) setRead(checked);

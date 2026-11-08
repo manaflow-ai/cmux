@@ -24,8 +24,12 @@ type OneTimeStyle = "line" | "callout" | "pill";
 /// the filled Approve plan), "quiet" (a quiet "Build elsewhere" button at the row's leading edge) or
 /// "detached" (a separate quiet chevron just before Approve plan).
 type BuildStyle = "split" | "quiet" | "detached";
+/// How each answer's letter (y, a, n) sits beside its other keys: "slash" (shipped, "Y / ⌘ ↩"),
+/// "only" (the letter alone; Esc and ⌘↩ still answer) or "joined" (no slash, a wider gap).
+type LetterStyle = "slash" | "only" | "joined";
 type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness" | "fullAccessMode" | "shortcuts"> & {
   buildStyle?: BuildStyle;
+  letterStyle?: LetterStyle;
   scopeStyle?: ScopeStyle;
   rowStyle?: RowStyle;
   oneTimeStyle?: OneTimeStyle;
@@ -59,6 +63,16 @@ const oneTimeStyles: Record<Exclude<OneTimeStyle, "line">, string> = {
   pill: `
     [data-one-time-style="pill"] .acpmux-permission-one-time { align-self: flex-start; padding: 2px 8px;
       border-radius: 999px; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); }`,
+};
+
+const letterStyles: Record<Exclude<LetterStyle, "slash">, string> = {
+  only: `
+    [data-letter-style="only"] .acpmux-permission-keys-or,
+    [data-letter-style="only"] .acpmux-permission-keys .acpmux-keycap:not(:first-child),
+    [data-letter-style="only"] .acpmux-permission-keys .acpmux-permission-action-shortcut { display: none; }`,
+  joined: `
+    [data-letter-style="joined"] .acpmux-permission-keys-or { display: none; }
+    [data-letter-style="joined"] .acpmux-permission-keys .acpmux-keycap:first-child { margin-inline-end: 6px; }`,
 };
 
 const rowStyles: Record<Exclude<RowStyle, "light">, string> = {
@@ -230,6 +244,7 @@ function GalleryPermissionCard({
   rowStyle,
   oneTimeStyle,
   buildStyle,
+  letterStyle,
 }: Props) {
   return (
     <div
@@ -237,12 +252,14 @@ function GalleryPermissionCard({
       data-scope-style={scopeStyle}
       data-row-style={rowStyle}
       data-one-time-style={oneTimeStyle}
+      data-letter-style={letterStyle}
       style={{ paddingTop: 12 }}
     >
       {scopeStyle && scopeStyle !== "under" && <style>{scopeStyles[scopeStyle]}</style>}
       {rowStyle && rowStyle !== "light" && <style>{rowStyles[rowStyle]}</style>}
       {oneTimeStyle && oneTimeStyle !== "line" && <style>{oneTimeStyles[oneTimeStyle]}</style>}
       {buildStyle && buildStyle !== "split" && <style>{buildStyles[buildStyle]}</style>}
+      {letterStyle && letterStyle !== "slash" && <style>{letterStyles[letterStyle]}</style>}
       <div className="acpmux-main">
         <div className="acpmux-permission acpmux-asks-stack">
           <ShortcutsContext value={labels}>
@@ -416,6 +433,18 @@ export default componentEntry<Props>({
     "trailing-four-options": {
       note: "Row variant D with four options.",
       props: { permission: fourOptions, harness: "codex", rowStyle: "trailing" },
+    },
+    "letters-slash": {
+      note: "Answer letters variant A (shipped): Y / ⌘ ↩, A / ⌥⌘2, N / Esc.",
+      props: { permission: longRule, harness: "claude", letterStyle: "slash" },
+    },
+    "letters-only": {
+      note: "Answer letters variant B: the letter alone on each answer; Esc and ⌘↩ still answer.",
+      props: { permission: longRule, harness: "claude", letterStyle: "only" },
+    },
+    "letters-joined": {
+      note: "Answer letters variant C: the letter, a wider gap, then the other keys, no slash.",
+      props: { permission: longRule, harness: "claude", letterStyle: "joined" },
     },
   },
 });
