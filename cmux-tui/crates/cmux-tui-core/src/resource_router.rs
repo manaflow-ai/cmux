@@ -1180,6 +1180,8 @@ mod create_argv_tests;
 #[cfg(test)]
 mod frontend_browser_effect_tests;
 #[cfg(test)]
+mod pane_move_tests;
+#[cfg(test)]
 mod partial_create_tests;
 #[cfg(test)]
 mod split_focus_tests;
