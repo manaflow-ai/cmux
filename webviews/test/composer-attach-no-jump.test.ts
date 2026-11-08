@@ -317,9 +317,9 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
     for (const frame of frames) {
       expect(frame.tiles.filter((each) => each.where === "strip")).toEqual([]);
       if (frame.row && final.row)
-        expect(
-          close({ ...frame.row, y: frame.row.y - frame.top }, { ...final.row, y: final.row.y - final.top }),
-        ).toBe(true);
+        expect(close({ ...frame.row, y: frame.row.y - frame.top }, { ...final.row, y: final.row.y - final.top })).toBe(
+          true,
+        );
     }
     // The composer never grows past where it ends.
     const finalBox = frames.at(-1)!.box;
