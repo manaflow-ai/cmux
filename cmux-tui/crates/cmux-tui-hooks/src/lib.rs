@@ -4025,7 +4025,7 @@ mod tests {
     /// one JSON object either way.
     #[cfg(unix)]
     #[test]
-    fn codex_launch_session_start_prints_one_json_object() {
+    fn codex_launch_session_context_prints_one_json_object() {
         use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
         let helper = root.path().join("hook");
