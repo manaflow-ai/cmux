@@ -38,7 +38,7 @@ final class AppScenePanelNSView: AppSceneNodeNSView {
         card.isHidden = !isCard
     }
 
-    override func updateLayer() {
+    override func paint() {
         performWithTheme {
             title.textColor = Palette.textSecondary
             // An inline card on the sidebar: a translucent tint over the sidebar, never an opaque fill.
