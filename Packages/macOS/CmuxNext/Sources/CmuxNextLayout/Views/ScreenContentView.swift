@@ -123,6 +123,12 @@ final class ScreenContentView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
+    /// The pane tree places by frame: what joins it leaves the window's Auto Layout engine (`placeSubtreeByFrame`).
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        subview.placeSubtreeByFrame()
+    }
+
     var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 
     override func setFrameSize(_ newSize: NSSize) {

@@ -142,9 +142,11 @@ public final class PaneContentAreaView: NSView {
 
     /// A container that joins during a following hold (a tab switch) follows from now on. It came in at the held rect
     /// (``contentBounds``), so what it measured on its way in (a terminal's rest size) is from the held size, as for the
-    /// containers that were there when the hold began.
+    /// containers that were there when the hold began. What joins the area leaves the window's Auto Layout engine: the pane
+    /// tree places by frame (`placeSubtreeByFrame`).
     public override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
+        subview.placeSubtreeByFrame()
         guard let heldSize, let hold, let follower = subview as? any PaneMotionHoldFollowing, follows(follower),
               handed.insert(ObjectIdentifier(follower)).inserted else { return }
         follower.followPaneMotion(hold, heldSize: heldSize)

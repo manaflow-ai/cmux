@@ -39,10 +39,6 @@ struct SpringFrameNoWindowPassTests {
         case appWindow
         /// The control: the same window with a plain content view and the layout by its autoresizing mask.
         case titledPlain
-        /// Diagnosis (P0 11 M2): `appWindow` with every view of the layout's subtree not translating its mask.
-        case appWindowTreeNoMask
-        /// Diagnosis (P0 11 M2): `appWindow` with only the pane classes (layout, screen, host, terminal) not translating.
-        case appWindowPaneClassesNoMask
 
         var description: String { rawValue }
 
@@ -53,19 +49,11 @@ struct SpringFrameNoWindowPassTests {
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             switch self {
-            case .appWindow, .appWindowTreeNoMask, .appWindowPaneClassesNoMask:
+            case .appWindow:
                 let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))
                 window.contentView = root
                 root.layoutSubtreeIfNeeded()
                 root.show(layout)
-                if self != .appWindow {
-                    var stack: [NSView] = [layout]
-                    while let view = stack.popLast() {
-                        stack.append(contentsOf: view.subviews)
-                        if self == .appWindowTreeNoMask || view is LayoutRootView || view is ScreenContentView || view is PaneHostView
-                            || view is TerminalSurfaceView { view.translatesAutoresizingMaskIntoConstraints = false }
-                    }
-                }
             case .titledPlain:
                 let content = NSView(frame: rect)
                 window.contentView = content
@@ -156,5 +144,71 @@ struct SpringFrameNoWindowPassTests {
         #expect(frames > 2, "the press did not spring")
         #expect(framePasses == 0, "the window's frame view laid out \(framePasses)x in \(frames) spring frames. \(found)")
         #expect(extra.isEmpty, "\(extra.count) window-pass layouts of views whose size did not change. \(found)")
+    }
+
+    /// Each pane's terminal against its clip: the frames the pane tree places stay right with the tree out of the
+    /// window's engine.
+    static func misplaced(_ root: LayoutRootView) -> [String] {
+        root.context.hosts.compactMap { pane, host in
+            guard let content = host.clipView.subviews.first else { return "\(pane.rawValue): no content" }
+            return content.frame.size == host.clipView.bounds.size ? nil
+                : "\(pane.rawValue): content \(NSStringFromRect(content.frame)) in clip \(NSStringFromRect(host.clipView.bounds))"
+        }.sorted()
+    }
+
+    /// The pane tree leaves the window's Auto Layout engine (`placeSubtreeByFrame`) and keeps every frame right: a
+    /// view placed by its autoresizing mask still follows its container, a view pinned by constraints in a terminal
+    /// (copy mode's badge) does not move the terminal, and a window resize reflows the panes.
+    @Test func thePaneTreeOutOfTheEngineKeepsItsFrames() throws {
+        LayoutPassGuard.shared.install()
+        let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2", host: Host.appWindow.window(for:))
+        defer { rig.close() }
+        rig.root.layoutSubtreeIfNeeded()
+        rig.commit()
+        rig.window.layoutIfNeeded()
+        let hosts = rig.root.context.hosts.sorted { $0.key.rawValue < $1.key.rawValue }.map(\.value)
+        try #require(hosts.count == 2)
+        let first = try #require(hosts[0].clipView.subviews.first), second = try #require(hosts[1].clipView.subviews.first)
+        #expect(!first.translatesAutoresizingMaskIntoConstraints && !hosts[0].translatesAutoresizingMaskIntoConstraints)
+        // A view placed by its mask, added after the pane mounted.
+        let filler = NSView(frame: first.bounds)
+        filler.autoresizingMask = [.width, .height]
+        first.addSubview(filler)
+        // A badge pinned by constraints in the other terminal, as copy mode pins its badge.
+        let badge = NSTextField(labelWithString: "COPY")
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        second.addSubview(badge)
+        NSLayoutConstraint.activate([badge.topAnchor.constraint(equalTo: second.topAnchor, constant: 8),
+                                     badge.trailingAnchor.constraint(equalTo: second.trailingAnchor, constant: -8)])
+        rig.window.layoutIfNeeded()
+        #expect(Self.misplaced(rig.root).isEmpty, "after the badge: \(Self.misplaced(rig.root))")
+
+        #expect(PaneResize.press("p2", .right, model: rig.model, view: rig.root))
+        rig.window.layoutIfNeeded()
+        var frames = 0
+        while frames < 240 {
+            let moving = rig.frame()
+            rig.window.layoutIfNeeded()
+            frames += 1
+            if !moving { break }
+        }
+        let afterSpring = "\(Self.frames(rig.root)), filler \(NSStringFromRect(filler.frame)) in \(NSStringFromRect(first.bounds)), "
+            + "badge \(NSStringFromRect(badge.frame)) in \(NSStringFromRect(second.bounds))"
+        print("M2FRAMES spring: \(afterSpring)")
+        #expect(frames > 2, "the press did not spring")
+        #expect(Self.misplaced(rig.root).isEmpty, "after the spring: \(Self.misplaced(rig.root)). \(afterSpring)")
+        #expect(filler.frame.size == first.bounds.size, "the masked view did not follow its terminal. \(afterSpring)")
+        #expect(abs(badge.frame.maxX - (second.bounds.maxX - 8)) < 1, "the pinned badge did not follow its terminal. \(afterSpring)")
+
+        let before = hosts.map(\.frame.width)
+        rig.window.setContentSize(NSSize(width: 1000, height: 700))
+        rig.window.layoutIfNeeded()
+        rig.root.layoutSubtreeIfNeeded()
+        let afterResize = "\(Self.frames(rig.root)), filler \(NSStringFromRect(filler.frame)) in \(NSStringFromRect(first.bounds))"
+        print("M2FRAMES resize: \(afterResize)")
+        #expect(rig.root.frame.size == rig.root.superview?.bounds.size, "the layout did not follow the window. \(afterResize)")
+        #expect(zip(before, hosts.map(\.frame.width)).allSatisfy { $0 > $1 }, "the panes did not narrow. \(afterResize)")
+        #expect(Self.misplaced(rig.root).isEmpty, "after the window resize: \(Self.misplaced(rig.root)). \(afterResize)")
+        #expect(filler.frame.size == first.bounds.size, "the masked view did not follow after the resize. \(afterResize)")
     }
 }

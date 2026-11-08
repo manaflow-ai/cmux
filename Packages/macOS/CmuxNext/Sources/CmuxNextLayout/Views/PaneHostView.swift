@@ -79,6 +79,12 @@ final class PaneHostView: NSView, RestingPlacement {
 
     nonisolated override var isFlipped: Bool { true }
 
+    /// The pane tree places by frame: what joins it leaves the window's Auto Layout engine (`placeSubtreeByFrame`).
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        subview.placeSubtreeByFrame()
+    }
+
     /// Where the host will rest minus where it shows now (`RestingPlacement`): its spring rect's
     /// target and the strip camera's target, against the presented frame. Zero at rest; coming
     /// to rest tells the content, whose window-relative chrome held its motion layout.
@@ -529,6 +535,12 @@ final class PaneClipView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.masksToBounds = true
+    }
+
+    /// The pane tree places by frame: what joins it leaves the window's Auto Layout engine (`placeSubtreeByFrame`).
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        subview.placeSubtreeByFrame()
     }
 
     @available(*, unavailable)

@@ -210,6 +210,12 @@ public final class LayoutRootView: NSView {
 
     override public var isFlipped: Bool { true }
 
+    /// The pane tree places by frame: what joins it leaves the window's Auto Layout engine (`placeSubtreeByFrame`).
+    public override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        subview.placeSubtreeByFrame()
+    }
+
     override public func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
