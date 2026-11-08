@@ -139,7 +139,7 @@ export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<st
   const total = steps.reduce((n, s) => n + s.ms, 0);
   const head = `${failed ? "FAIL" : "PASS"}: Cloud journey on \`${backend.name}\` (${backend.api}), ${(total / 1000).toFixed(1)} s`;
   const extra = Object.entries(meta).map(([k, v]) => `${k}: ${v}`).join(", ");
-  const rows = steps.map((s) => `| ${s.status === "pass" ? "pass" : s.status === "fail" ? "**FAIL**" : "skip"} | ${s.step} | ${s.ms} | ${s.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 300)} |`);
+  const rows = steps.map((s) => `| ${s.status === "pass" ? "pass" : s.status === "fail" ? "**FAIL**" : "skip"} | ${s.step} | ${s.ms} | ${s.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 1000)} |`);
   return [head, extra ? `\n${extra}` : "", "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
 }
 
@@ -154,7 +154,7 @@ class Journey {
       this.record({ step: name, status: "pass", ms: Date.now() - t0, detail });
       return value;
     } catch (error) {
-      this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: String((error as Error)?.message ?? error).slice(0, 600) });
+      this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: String((error as Error)?.message ?? error).slice(0, 1000) });
       throw error;
     }
   }
@@ -329,21 +329,23 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
 }
 
 /**
- * When the guest set up its carrier, in the guest's own clock: the bind file the platform writes at create, the bind
- * the host finished, the carrier.json and grant the host wrote from it, the session host's start (it is respawned with
- * the relay flags), and the host's journal lines about them. Each line is `<name> <epoch ms>`. The session host's pid and
+ * When the guest set up its carrier, in the guest's own clock: the bind the host finished (bound.json; the platform's
+ * bind.json is gone by now, since the host deletes it once bound.json is written, cmux-host cloud/client.rs), the
+ * carrier.json and grant the host wrote from it, the session host's start (it is respawned with the relay flags; from
+ * /proc/uptime, which keeps hundredths where btime is whole seconds), and the host's journal lines about them. Each line
+ * is `<name> <epoch ms>`. The session host's pid and
  * the journal may need root: the pid falls back to `sudo -n`, and the journal tries it first (journalctl run without
  * root can exit 0 with nothing to show).
  */
 export const GUEST_CARRIER_TIMELINE = [
   'echo "guest_now $(date +%s%3N)"',
-  "for f in /var/lib/cmux/bind.json /var/lib/cmux/bound.json /var/lib/cmux/carrier.json /run/cmux/carrier-grant.json; do",
+  "for f in /var/lib/cmux/bound.json /var/lib/cmux/carrier.json /run/cmux/carrier-grant.json; do",
   '  t=$(date -r "$f" +%s%3N 2>/dev/null || sudo -n date -r "$f" +%s%3N 2>/dev/null) && echo "$(basename "$f") $t"',
   "done",
   "pid=$(cat /run/cmux-host/daemon.pid 2>/dev/null || sudo -n cat /run/cmux-host/daemon.pid 2>/dev/null)",
   'if [ -n "$pid" ] && [ -r "/proc/$pid/stat" ]; then',
-  "  bt=$(awk '/^btime/{print $2}' /proc/stat); st=$(awk '{print $22}' \"/proc/$pid/stat\"); hz=$(getconf CLK_TCK)",
-  '  echo "session_host_start $(( bt * 1000 + st * 1000 / hz ))"',
+  "  now=$(date +%s%3N); up=$(awk '{print $1}' /proc/uptime); st=$(awk '{print $22}' \"/proc/$pid/stat\"); hz=$(getconf CLK_TCK)",
+  "  awk -v n=\"$now\" -v u=\"$up\" -v s=\"$st\" -v h=\"$hz\" 'BEGIN { printf \"session_host_start %.0f\\n\", n - u * 1000 + s * 1000 / h }'",
   "fi",
   "{ sudo -n journalctl -u cmux-host.service -o short-unix --no-pager -n 200 2>/dev/null || journalctl -u cmux-host.service -o short-unix --no-pager -n 200 2>/dev/null; } \\",
   "  | grep -iE 'carrier|session host|relay|regist' | tail -8 | awk '{ t = $1; $1 = \"\"; $2 = \"\"; sub(/^ +/, \"\"); printf \"journal %.0f %s\\n\", t * 1000, $0 }'",
@@ -409,6 +411,8 @@ export function carrierTicketProblem(status: number, body: any, nowS = Date.now(
 
 /** The carrier dials still running, so a cancelled journey stops them instead of leaving them to their deadline. */
 const carrierDials = new Set<ReturnType<typeof spawn>>();
+/** Their state dirs, which a cancel (SIGTERM skips `finally`) removes too. */
+const carrierStateDirs = new Set<string>();
 
 /**
  * `cmux carrier dial` (design/cloud-carrier.md): this device reaches the machine's session daemon over its relay slot,
@@ -416,11 +420,42 @@ const carrierDials = new Set<ReturnType<typeof spawn>>();
  * line gets the daemon's answer. connectMs is the dial's own `cloud.connect ... ms=` (ticket, relay, Noise handshake);
  * replyMs runs from the spawn to the answer.
  */
-export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; retries: number; failed: string[]; reply: string }> {
+/**
+ * The dial's `carrier.phases` lines (cmux-tui carrier/contract.rs phases_line, one per attempt, written only to the
+ * connect log) as `<phase> <outcome>: ticket N, relay N, parked N, handshake N, mux N ms, lanes N, N ms`, without the
+ * machine id. A key the line does not have is left out, so a later field (a detail) shows as `key value`.
+ */
+export function dialPhases(log: string): string[] {
+  const named = ["ticket_ms", "relay_ms", "parked_ms", "handshake_ms", "mux_ms"];
+  return log.split("\n").filter((l) => l.startsWith("carrier.phases ")).map((line) => {
+    const f = Object.fromEntries(line.split(" ").slice(1).map((kv) => kv.split("=")).filter((kv) => kv.length === 2));
+    const steps = named.filter((k) => k in f).map((k) => `${k.replace(/_ms$/, "")} ${f[k]}`);
+    const rest = Object.keys(f).filter((k) => ![...named, "machine", "phase", "carrier", "outcome", "lanes", "ms"].includes(k));
+    return `${f.phase} ${f.outcome}: ${steps.join(", ")} ms${"lanes" in f ? `, lanes ${f.lanes}` : ""}${rest.map((k) => `, ${k} ${f[k]}`).join("")}, ${f.ms} ms`;
+  });
+}
+
+/** A carrier dial step's detail: the connect and reply times, the failed attempts, and each attempt's phases. */
+export function dialDetail(d: { connectMs: number; replyMs: number; retries: number; failed: string[]; phases: string[]; reply: string }): string {
+  return `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}`
+    + `${d.phases.length ? `; phases: ${d.phases.join("; ")}` : ""}: ${d.reply.slice(0, 160)}`;
+}
+
+export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; retries: number; failed: string[]; phases: string[]; reply: string }> {
   const started = performance.now();
+  // The dial's own state dir, so its connect log holds only this dial's lines (the device key is not kept there).
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-carrier-"));
+  carrierStateDirs.add(stateDir);
+  const phases = () => {
+    try {
+      return dialPhases(readFileSync(path.join(stateDir, "carrier", "connect.log"), "utf8"));
+    } catch {
+      return [];
+    }
+  };
   // The team is the journey's own or none: an inherited CMUX_CLOUD_TEAM would send a header its API calls do not.
   const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
-  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
+  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, CMUX_TUI_STATE_DIR: stateDir };
   const args = ["carrier", "dial", "--machine", machine, "--deadline-ms", String(deadlineMs), ...(api.team ? ["--team", api.team] : [])];
   const child = spawn(cmux, args, { env, stdio: ["pipe", "pipe", "pipe"] });
   carrierDials.add(child);
@@ -464,9 +499,13 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
     let connectMs = NaN;
     let retries = 0;
     const failed: string[] = [];
+    // A dial that gives up still says which attempts failed and how.
+    const attempts = (message: string) => new Error(failed.length ? `${message} (failed attempts: ${failed.join(", ")})` : message);
     while (status === undefined || !Number.isFinite(connectMs)) {
-      const line = await within(status === undefined ? "status line" : "ok route line", err());
-      if (line === null) throw new Error(`carrier dial: ${status === undefined ? "ended with no status line" : "ended with no ok route line"}`);
+      const line = await within(status === undefined ? "status line" : "ok route line", err()).catch((e: Error) => {
+        throw attempts(e.message);
+      });
+      if (line === null) throw attempts(`carrier dial: ${status === undefined ? "ended with no status line" : "ended with no ok route line"}`);
       const attempt = /^cloud\.connect route=carrier .*outcome=(\S+) ms=(\d+)/.exec(line);
       // The dial's status line comes first (cmux-tui spec/cli.md), so a route line before it is out of contract.
       if (attempt && status === undefined) throw new Error(`carrier dial: a route line before the status line: ${short(line)}`);
@@ -484,7 +523,15 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
       } catch {
         throw new Error(`carrier dial: not a status line: ${short(line)}`);
       }
-      if (status?.ok !== true) throw new Error(`carrier dial: ${short(status)}`);
+      if (status?.ok !== true) {
+        // A dial that gives up writes its status line first, then the route line of every attempt it made.
+        const next = () => within("route lines", err()).catch(() => null);
+        for (let rest = await next(); rest !== null; rest = await next()) {
+          const tried = /^cloud\.connect route=carrier .*outcome=(\S+) ms=(\d+)/.exec(rest);
+          if (tried && tried[1] !== "ok") failed.push(`${tried[1]} ${tried[2]} ms`);
+        }
+        throw attempts(`carrier dial: ${short(status)}`);
+      }
       if (status.route !== "carrier") throw new Error(`carrier dial: route ${status.route}, not carrier`);
     }
     child.stdin!.write('{"cmd":"identify","id":1}\n');
@@ -500,11 +547,17 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
       }
       if (answer?.id !== 1) continue;
       if (answer.ok !== true || typeof answer.data?.app !== "string") throw new Error(`carrier dial: identify answered ${short(answer)}`);
-      return { connectMs, replyMs: Math.round(performance.now() - started), retries, failed, reply };
+      return { connectMs, replyMs: Math.round(performance.now() - started), retries, failed, phases: phases(), reply };
     }
+  } catch (e) {
+    // Every way a dial fails shows each attempt's phases, read before the dir goes.
+    const tried = phases();
+    throw tried.length ? new Error(`${(e as Error).message} (phases: ${tried.join("; ")})`) : e;
   } finally {
     if (!failed) child.stdin!.end();
     child.kill("SIGTERM");
+    rmSync(stateDir, { recursive: true, force: true });
+    carrierStateDirs.delete(stateDir);
   }
 }
 
@@ -1033,6 +1086,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
     for (const dial of carrierDials) dial.kill("SIGTERM");
+    for (const dir of carrierStateDirs) rmSync(dir, { recursive: true, force: true });
     void cleanup().finally(() => {
       J.flush();
       writeProbe();
@@ -1556,7 +1610,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (cmux) {
       await J.step("connect (carrier dial)", async () => {
         const d = await carrierDial(cmux, api, created.id);
-        return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}: ${d.reply.slice(0, 160)}` };
+        return { value: null, detail: dialDetail(d) };
       });
     } else {
       // Without a cmux binary (the production journeys) the dial cannot run; its platform half still can: the
@@ -1610,7 +1664,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (cmux) {
         await J.step("carrier dial after resume", async () => {
           const d = await carrierDial(cmux, api, created.id);
-          return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}: ${d.reply.slice(0, 160)}` };
+          return { value: null, detail: dialDetail(d) };
         });
       } else {
         J.skip("carrier dial after resume", "--cmux is required for a carrier dial");

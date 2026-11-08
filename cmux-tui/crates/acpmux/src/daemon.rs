@@ -404,7 +404,21 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         None => None,
     };
     // `--listen 127.0.0.1:0` asked for any free port; report the real one.
-    let bound = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()).map(|a| a.to_string());
+    let bound_addr = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
+    // The cmux link carries paired peers' `acpmux` streams only to the listener this record
+    // names while this daemon runs (`listener_record.rs`), never to config.json's port.
+    // The guard removes it on every way out: a startup error after this returns through `?`,
+    // and the shutdown drops it first, while the listener is still bound.
+    let listener_record = match bound_addr.map(|addr| crate::listener_record::write(&home(), addr))
+    {
+        Some(Ok(written)) => Some(written),
+        Some(Err(e)) => {
+            tracing::warn!("could not record the web listener for the cmux link: {e}");
+            None
+        }
+        None => None,
+    };
+    let bound = bound_addr.map(|a| a.to_string());
     if let (Some(addr), Some((_, token))) = (&bound, &ws) {
         let (allowed_origins, allowed_hosts, allow_insecure_network) = config
             .websocket
@@ -885,6 +899,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // First: the cmux link stops sending peers here before admission closes or the listener is
+    // freed, so no process that binds the freed port can be taken for this daemon.
+    drop(listener_record);
     // A home loss must request forced agent cleanup before the shutdown fence refuses changes
     // to the plan. A restart handoff keeps durable provider retries for the next daemon.
     recheck_home();

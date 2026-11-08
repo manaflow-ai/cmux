@@ -124,7 +124,7 @@ public struct ArtifactsBrowser: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(state.grid ? "List" : "Grid", systemImage: state.grid ? "list.bullet" : "square.grid.2x2") {
-                        withAnimation(.snappy) { state.grid.toggle() }
+                        withAnimation(.snappy.unlessReduceMotion) { state.grid.toggle() }
                     }
                     .accessibilityIdentifier("artifacts.layout")
                 }
@@ -141,7 +141,7 @@ public struct ArtifactsBrowser: View {
                 ForEach(filters) { item in
                     let count = counts[item] ?? 0
                     Button {
-                        withAnimation(.snappy) { state.filter = item }
+                        withAnimation(.snappy.unlessReduceMotion) { state.filter = item }
                     } label: {
                         Text(item == .all ? "All \(count)" : item.rawValue)
                             .font(.subheadline.weight(.medium))

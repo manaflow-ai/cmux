@@ -7,9 +7,12 @@
 //! it leads), whose name is not a secret file's or a dot
 //! file's, and that is either one a file request could share (in the home
 //! folder, outside `~/Library`, dot folders and credential folders:
-//! [`grants::shareable_item`]) or in `cmux-pastes` of this Mac's temporary
-//! folder, where the app writes what the person pasted (never when the
-//! temporary folder and the home folder are inside one another). Its name
+//! [`grants::shareable_item`]), one in a place the person keeps files
+//! outside those rules ([`dropped_place`]: iCloud Drive, a cloud-storage
+//! folder, another volume, `/Users/Shared`), or in `cmux-pastes` of this
+//! Mac's temporary folder, where the app writes what the person pasted
+//! (never when the temporary folder and the home folder are inside one
+//! another). Its name
 //! must be one the machine can hold (no control character, at most 255
 //! bytes). Every file of a call is checked before any goes: one refused
 //! file (`upload_refused`) sends nothing. A link failure part way names the
@@ -119,8 +122,49 @@ fn uploadable(path: &Path) -> Result<(PathBuf, String), Failure> {
     if pasted(&canonical) {
         return Ok((canonical, name));
     }
-    grants::shareable_item(&canonical).map_err(|why| refused(&why.to_string()))?;
-    Ok((canonical, name))
+    match grants::shareable_item(&canonical) {
+        Ok(_) => Ok((canonical, name)),
+        Err(_) if dropped_place(&canonical, &grants::homes()) => Ok((canonical, name)),
+        Err(why) => Err(refused(&why.to_string())),
+    }
+}
+
+/// Places under `~/Library` where the person keeps their own files, and how
+/// many names below one a file must be: iCloud Drive itself, and a
+/// cloud-storage provider's own folder (`CloudStorage/<provider>/...`).
+/// Apps' own iCloud containers stay refused with the rest of `~/Library`.
+const HOME_PLACES: &[(&str, usize)] =
+    &[("Library/Mobile Documents/com~apple~CloudDocs", 1), ("Library/CloudStorage", 2)];
+/// Places outside the home folder where the person keeps their own files:
+/// another or external volume (in its own folder, never `/Volumes` itself)
+/// and the Mac's shared folder.
+const OTHER_PLACES: &[(&str, usize)] = &[("/Volumes", 2), ("/Users/Shared", 1)];
+
+/// Whether the canonical file `canonical`, which the home folder's share
+/// rules refuse, is in a place the person keeps their own files
+/// ([`HOME_PLACES`] of a home in `homes`, or [`OTHER_PLACES`]), with no dot
+/// folder or credential folder anywhere on its path from the disk root
+/// (`/Volumes/disk/gcloud/...` stays refused). The file's own name is
+/// checked by the caller. The rest of `~/Library`, system folders, the
+/// temporary folders and other people's home folders stay refused.
+fn dropped_place(canonical: &Path, homes: &[PathBuf]) -> bool {
+    let places = homes
+        .iter()
+        .flat_map(|home| HOME_PLACES.iter().map(move |(place, depth)| (home.join(place), *depth)))
+        .chain(OTHER_PLACES.iter().map(|(place, depth)| (PathBuf::from(place), *depth)));
+    let placed = places.into_iter().any(|(place, depth)| {
+        canonical.strip_prefix(&place).is_ok_and(|rest| rest.components().count() >= depth)
+    });
+    let Some(parent) = canonical.parent().filter(|_| placed) else { return false };
+    parent.components().all(|part| match part {
+        std::path::Component::RootDir => true,
+        std::path::Component::Normal(name) => {
+            let name = name.to_string_lossy();
+            !name.starts_with('.')
+                && !super::SECRET_FOLDERS.contains(&name.to_ascii_lowercase().as_str())
+        }
+        _ => false,
+    })
 }
 
 /// Whether `canonical` is in the app's paste folder of this Mac's

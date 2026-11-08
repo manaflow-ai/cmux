@@ -163,7 +163,15 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
   };
   const probedTop = (page: Page) =>
     page.evaluate(() => document.querySelector<HTMLElement>("[data-probe]")!.getBoundingClientRect().top);
-  const expanded = (page: Page) => page.locator("[data-probe]").getAttribute("aria-expanded");
+  /// The probed control's open state (the toggle's, Details'); the line's chevron is no control of
+  /// its own, so a click on it reads the message's toggle.
+  const expanded = (page: Page) =>
+    page.evaluate((line) => {
+      const probed = document.querySelector("[data-probe]");
+      return (probed?.hasAttribute("aria-expanded") ? probed : document.querySelector(line))?.getAttribute(
+        "aria-expanded",
+      );
+    }, LINE);
   /// Distinct heights the card was painted at, in order: more than two means it moved by frames.
   const steps = (heights: number[]) => heights.filter((height, index) => height !== heights[index - 1]).length;
   const open = async (reducedMotion: "reduce" | "no-preference") => {
@@ -175,14 +183,16 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     await page.waitForFunction(() => "__showRows" in window);
     return page;
   };
-  const LINE = '[data-row-id="msg"] .cv-disclosure__toggle';
+  const LINE = '[data-row-id="msg"] .cv-agentmsg__toggle';
+  /// Opened, the toggle holds no words (the first line is in the card): the line's chevron closes it.
+  const CHEVRON = '[data-row-id="msg"] .cv-agentmsg__chevron';
   const DETAILS = '[data-row-id="msg"] .cv-received__more';
-  const PANEL = '[data-row-id="msg"] .cv-disclosure__panel';
+  const PANEL = '[data-row-id="msg"] .cv-agentmsg__card';
   /// Puts the message's line `y` px down the view, away from the transcript's end.
   const lineAt = (page: Page, y: number) =>
     page.evaluate((down) => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const line = document.querySelector<HTMLElement>('[data-row-id="msg"] .cv-disclosure__toggle')!;
+      const line = document.querySelector<HTMLElement>('[data-row-id="msg"] .cv-agentmsg__toggle')!;
       scroller.scrollTop += line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - down;
     }, y);
 
@@ -233,7 +243,7 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     expect(detailsShut.folded).toBe(true);
     expect(detailsShut.moved).toBeLessThanOrEqual(1);
 
-    await probe(page, LINE);
+    await probe(page, CHEVRON);
     const closed = await clickAndWatch(page);
     expect(await expanded(page)).toBe("false");
     expect(closed.folded).toBe(true);
@@ -248,7 +258,9 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
 
   // The name sits before the line's toggle, outside it (Leo, 2026-10-29: "make the left side
   // identifier like it was before and you can click it to go to that session"); this sender is no
-  // chat, so the name opens nothing, and the line's toggle opens and closes the message.
+  // chat, so the name opens nothing, and the line (`.cv-agentmsg__line`, which toggles anywhere off
+  // the name; its toggle button holds only the closed preview, so it is empty while open) opens and
+  // closes the message.
   test("the sender's name and the line's toggle never become a gap selection", async () => {
     const page = await open("reduce");
     try {
@@ -257,7 +269,7 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
       await lineAt(page, 100);
       await settle(page);
       const chip = page.locator('[data-row-id="msg"] .cv-received__sender .cv-received__from');
-      const toggle = page.locator('[data-row-id="msg"] .cv-disclosure__toggle');
+      const toggle = page.locator('[data-row-id="msg"] .cv-received > .cv-agentmsg__line');
       await chip.evaluate((node) => {
         node.addEventListener("pointerdown", (event) => {
           document.body.dataset.senderPressPrevented = String(event.defaultPrevented);
@@ -303,6 +315,7 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     expect(opened.folded).toBe(false);
     expect(steps(opened.heights)).toBeLessThanOrEqual(2);
     expect(opened.moved).toBeLessThanOrEqual(1);
+    await probe(page, CHEVRON);
     const closed = await clickAndWatch(page, 250);
     expect(await expanded(page)).toBe("false");
     expect(closed.folded).toBe(false);
