@@ -86,6 +86,7 @@ mod command;
 #[cfg(unix)]
 mod dev;
 mod docs;
+mod event_match;
 mod extra_help;
 mod federation;
 mod fix_command;

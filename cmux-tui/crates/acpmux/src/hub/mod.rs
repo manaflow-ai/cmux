@@ -69,9 +69,9 @@ mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
-mod sender_claim_tests;
-#[cfg(test)]
 mod review_queue_tests;
+#[cfg(test)]
+mod sender_claim_tests;
 #[cfg(test)]
 mod shutdown_scan_tests;
 #[cfg(test)]
@@ -196,6 +196,7 @@ mod lane_report_reads;
 mod lane_report_subagents;
 mod lane_report_text;
 mod lane_reports;
+mod loop_detector;
 mod loop_goal;
 #[cfg(test)]
 mod loop_goal_tests;
@@ -273,12 +274,12 @@ pub mod person;
 pub mod presence;
 mod processes;
 mod pull_requests;
-pub(crate) mod review_queue;
 pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+pub(crate) mod review_queue;
 mod touched;
 pub mod vm_boundary;
 pub use vm_boundary::vm_boundary_peer_approves;
@@ -1588,6 +1589,7 @@ impl Hub {
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
+            loop_detector: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
@@ -2224,6 +2226,8 @@ impl Hub {
                 | "turn_error"
                 | "stopping"
                 | "unstuck"
+                | "loop_detected"
+                | "loop_cleared"
                 | work_below::RECORD_KIND
                 | asks_below::RECORD_KIND
                 | "queued"
