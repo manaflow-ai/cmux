@@ -85,8 +85,7 @@ enum FirstPartyPageSchemes {
         .onboarding,
         .passwords,
         .serverCards,
-        .settings,
-        .stats,
+        .settings, .skills, .stats,
         .tasks,
     ]
 
