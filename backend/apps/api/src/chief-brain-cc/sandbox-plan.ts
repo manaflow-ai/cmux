@@ -13,7 +13,10 @@ import type { Principal } from "@cmux/ownership"
  * staging and test (domains/cloud-plan.ts planFor), so production without an answer refuses.
  */
 const FRESH_MS = 60_000
-const answers = new WeakMap<object, { team: string; at: number; paid: boolean }>()
+/** A platform that did not answer is asked again only after this long, so the profile's status polls do not hammer it. */
+export const FAILED_FRESH_MS = 10_000
+/** The platform's last word per object: `paid` from an answer, or null when it did not answer (unknown, never entitled). */
+const answers = new WeakMap<object, { team: string; at: number; paid: boolean | null }>()
 
 /** Whether owner `owner`'s personal team has a Cloud plan; a Chief with no known owner has none. Never throws. */
 export const ownerEntitled = async (b: ChiefBrainDO, owner: string | null): Promise<boolean> => {
@@ -21,14 +24,16 @@ export const ownerEntitled = async (b: ChiefBrainDO, owner: string | null): Prom
   const env = b.doEnv
   const team = personalTeamIdFor(owner)
   const now = Date.now()
+  // The stub rule (development, staging and test only) is read each time; a failure is cached as unknown, never as paid.
+  const stub = () => planFor(env.ENVIRONMENT, team, parseAllowedTeams(env.CLOUD_ALLOWED_TEAMS)) !== null
   const cached = answers.get(b.sql)
-  if (cached && cached.team === team && now - cached.at < FRESH_MS) return cached.paid
+  if (cached && cached.team === team && now - cached.at < (cached.paid === null ? FAILED_FRESH_MS : FRESH_MS)) return cached.paid === null ? stub() : cached.paid
   const principal: Principal = { identity: `session:${owner}`, kind: "session", user: owner }
   const reply = await platformCloud(env.CLOUD_DO, team).readOp(team, principal, "cloud.plan.get", {}).catch(() => null)
   const planId = reply?.ok ? (reply.value as { plan_id?: unknown } | null)?.plan_id : undefined
-  const paid = (typeof planId === "string" && planId !== "none") || planFor(env.ENVIRONMENT, team, parseAllowedTeams(env.CLOUD_ALLOWED_TEAMS)) !== null
-  // Only an answer is kept: an unreachable platform is asked again next time.
-  if (reply?.ok) answers.set(b.sql, { team, at: now, paid })
+  const paid = (typeof planId === "string" && planId !== "none") || stub()
+  // An answer is kept FRESH_MS; an unreachable platform is kept as unknown for FAILED_FRESH_MS, then asked again.
+  answers.set(b.sql, { team, at: now, paid: reply?.ok ? paid : null })
   return paid
 }
 

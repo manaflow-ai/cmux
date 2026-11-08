@@ -509,19 +509,32 @@ const provisioning = (b: ChiefBrainDO, now = Date.now()) => {
  * refusal. A second ask while one is made starts nothing.
  */
 export const ccComputerProvisionStart = async (b: ChiefBrainDO, agent: string, owner: string): Promise<{ status: 200; computer: { id: string; state: string } } | { status: 202; provisioning: true } | { status: 403 | 409; code: string; error: string }> => {
-  const have = computerOf(b)
-  if (have) {
-    const o = await own(b, agent, have.id)
-    if (!("status" in o)) return { status: 200, computer: { id: have.id, state: o.vm.state } }
-  }
   if (provisioning(b)) return { status: 202, provisioning: true }
-  if (!(await ownerEntitled(b, owner))) return { status: 403, code: "cloud.plan.required", error: "a Chief's computer needs a cmux Cloud plan" }
-  if (humanHasControl(b)) return { status: 409, code: "computer.human_has_control", error: "you are using the Chief's computer" }
+  // In flight from here, before the first await: a second ask that arrives while this one awaits the computer it has
+  // or the plan answers 202 and makes nothing (two would both pass and each make a billed VM). An ask that ends
+  // without starting one puts back what was there (the last failure, or nothing).
+  const prev = provisionOf(b)
   const run = { since: Date.now() } as { since: number; error?: string }
   provisions.set(b.sql, run)
+  const release = <T>(out: T): T => {
+    if (provisions.get(b.sql) === run) prev ? provisions.set(b.sql, prev) : provisions.delete(b.sql)
+    return out
+  }
+  try {
+    const have = computerOf(b)
+    if (have) {
+      const o = await own(b, agent, have.id)
+      if (!("status" in o)) return release({ status: 200, computer: { id: have.id, state: o.vm.state } })
+    }
+    if (!(await ownerEntitled(b, owner))) return release({ status: 403, code: "cloud.plan.required", error: "a Chief's computer needs a cmux Cloud plan" })
+    if (humanHasControl(b)) return release({ status: 409, code: "computer.human_has_control", error: "you are using the Chief's computer" })
+  } catch (e) {
+    throw release(e)
+  }
   b.doCtx.waitUntil(ccComputerProvision(b, agent, owner).then((r) => {
-    if (r.status === 200) provisions.delete(b.sql)
-    else run.error = r.error
+    if (r.status === 200) {
+      if (provisions.get(b.sql) === run) provisions.delete(b.sql)
+    } else run.error = r.error
   }, () => { run.error = "the computer was not made" }))
   return { status: 202, provisioning: true }
 }
@@ -539,17 +552,36 @@ export const ccComputerProvision = async (b: ChiefBrainDO, agent: string, owner:
   }
   if (!(await ownerEntitled(b, owner))) return { status: 403, code: "cloud.plan.required", error: "a Chief's computer needs a cmux Cloud plan" }
   if (humanHasControl(b)) return { status: 409, code: "computer.human_has_control", error: "you are using the Chief's computer" }
+  // The sandbox made here, until its desktop is set up: one whose setup failed is deleted, so a retry makes a new one
+  // instead of leaving a billed VM per attempt (and filling the Chief's sandbox cap).
+  let made: string | null = null
   try {
-    const made = await create(b, agent, owner, { ...(b.doEnv.CHIEF_CC_COMPUTER_SNAPSHOT ? { image: "computer" } : {}), ...COMPUTER_SIZE })
-    const id = (made.json as { vm?: { id?: string } } | null)?.vm?.id
-    if (made.status === 429) return { status: 429, code: "computer.sandbox_cap", error: String((made.json as { error?: unknown }).error ?? "the Chief has as many sandboxes as it may") }
-    if (made.status !== 200 || !id) return { status: 502, code: "computer.unreachable", error: String((made.json as { error?: unknown } | null)?.error ?? "the computer was not made") }
+    const r = await create(b, agent, owner, { ...(b.doEnv.CHIEF_CC_COMPUTER_SNAPSHOT ? { image: "computer" } : {}), ...COMPUTER_SIZE })
+    const id = (r.json as { vm?: { id?: string } } | null)?.vm?.id
+    if (r.status === 429) return { status: 429, code: "computer.sandbox_cap", error: String((r.json as { error?: unknown }).error ?? "the Chief has as many sandboxes as it may") }
+    if (r.status !== 200 || !id) return { status: 502, code: "computer.unreachable", error: String((r.json as { error?: unknown } | null)?.error ?? "the computer was not made") }
+    made = id
     const set = await computerVerb(b, id, "running", { op: "setup" })
-    if (set.status !== 200) return { status: 502, code: "computer.setup_failed", error: String((set.json as { error?: unknown } | null)?.error ?? "the desktop did not install") }
+    if (set.status !== 200) {
+      await dropSandbox(b, id)
+      return { status: 502, code: "computer.setup_failed", error: String((set.json as { error?: unknown } | null)?.error ?? "the desktop did not install") }
+    }
+    made = null
     return { status: 200, computer: { id, state: "running" } }
   } catch (e) {
+    if (made) await dropSandbox(b, made)
     return { status: 502, code: "computer.unreachable", error: e instanceof CcError ? e.message : "the computer was not made" }
   }
+}
+
+/** Deletes sandbox `id` this object made and drops it from the list; never throws. One Freestyle did not delete stays listed (its TTL ends it). */
+const dropSandbox = async (b: ChiefBrainDO, id: string): Promise<void> => {
+  await revokeGrant(b, id).catch(() => undefined)
+  const res = await freestyle(b.doEnv, "DELETE", `/v5/vms/${encodeURIComponent(id)}`).catch(() => null)
+  await res?.body?.cancel().catch(() => undefined)
+  if (!res || !(res.ok || res.status === 404)) return
+  save(b, listOf(b).filter((x) => x.id !== id))
+  forgetComputer(b, id)
 }
 
 /** The owner takes the computer over or hands it back (`POST /v1/chiefs/<agent>/computer/control`); 404 with none. */

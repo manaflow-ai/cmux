@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { mintAccessToken } from "../src/auth.ts"
 import { handleChiefBrain } from "../src/chief-brain/routes.ts"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
@@ -74,6 +74,9 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
           seen.askEmpty = await call(s, { action: "computer", id, op: "request_human" })
           seen.ask = await call(s, { action: "computer", id, op: "request_human", reason: "sign in to Gmail" })
           seen.afterAsk = await call(s, { action: "computer", id, op: "type", text: "x" })
+          // Nor look while the person does what it asked (a sign-in): the screen is theirs until the hold ends.
+          seen.afterAskShot = await call(s, { action: "computer", id, op: "screenshot" })
+          seen.afterAskExec = await call(s, { action: "exec", id, command: "echo asked" })
           // A hold the Chief asked for, the Chief may end; then it asks again.
           seen.ownHandBack = await call(s, { action: "computer", id, op: "hand_back" })
           // Nobody handed anything back: the Chief's next verb carries no handed-back note.
@@ -140,15 +143,18 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
     expect((await input({ op: "move", x: 3, y: 3 })).status).toBe(200)
     expect((await status()).acting).toBe(false)
 
-    // While the person holds it, the Chief may look but not act, nor set up a computer to get around it.
+    // While the person holds it, the Chief may neither act nor look (what they type there is theirs), nor set up a
+    // computer to get around it.
+    const shotsBefore = cloud.execs.filter((e) => e.vm === id && e.command.includes("jpg:- | base64 -w0")).length
     expect((await send(token, chief.main_conversation, "k2", "keep going")).ok).toBe(true)
     await replies(token, chief.main_conversation, chief.id, 2)
     expect(seen.heldClick.status).toBe(409)
     expect(seen.heldClick.body).toMatchObject({ code: "computer.human_has_control", control: { holder: "human" } })
     expect(seen.heldSetup.body.code).toBe("computer.human_has_control")
-    expect(seen.heldShot.status).toBe(200)
-    expect(seen.heldShot.body.image).toMatch(/^\/9j\//)
-    expect(seen.heldWindows.status).toBe(200)
+    expect(seen.heldShot).toMatchObject({ status: 409, body: { code: "computer.human_has_control", control: { holder: "human", by: "human" } } })
+    expect(seen.heldShot.body.image).toBeUndefined()
+    expect(seen.heldWindows).toMatchObject({ status: 409, body: { code: "computer.human_has_control" } })
+    expect(cloud.execs.filter((e) => e.vm === id && e.command.includes("jpg:- | base64 -w0")).length).toBe(shotsBefore)
     expect(cloud.execs.some((e) => e.env?.CHIEF_CUA0?.includes('"x":5'))).toBe(false)
     for (const k of ["exec", "write", "mkdir", "stop", "pause", "delete", "fork", "snapshot", "update", "resize"]) {
       expect(seen[`held_${k}`], k).toMatchObject({ status: 409, body: { code: "computer.human_has_control", control: { holder: "human", by: "human" } } })
@@ -174,6 +180,9 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
     expect(seen.ask.body.control).toMatchObject({ holder: "human", reason: "sign in to Gmail" })
     expect(seen.ask.body.control).toMatchObject({ by: "chief", expires_ms: expect.any(Number) })
     expect(seen.afterAsk.body.code).toBe("computer.human_has_control")
+    expect(seen.afterAskShot).toMatchObject({ status: 409, body: { code: "computer.human_has_control", control: { by: "chief" } } })
+    expect(seen.afterAskExec).toMatchObject({ status: 409, body: { code: "computer.human_has_control" } })
+    expect(cloud.execs.some((e) => e.command === "echo asked")).toBe(false)
     expect(seen.ownHandBack.body.control).toMatchObject({ holder: "chief" })
     expect(seen.afterOwnHandBack.status).toBe(200)
     expect(seen.afterOwnHandBack.body.note).toBeUndefined()
@@ -235,6 +244,69 @@ describe("the owner gives a Chief its computer from the profile", { timeout: 120
     expect(refused.json.error.code).toBe("cloud.plan.required")
     expect((await provision(unpaid.token)).status).toBe(404)
     expect(cloud.made.length).toBe(made)
+  })
+})
+
+/** The desktop setup fails on the fake (the fetch fake of fakeCloud wrapped); the returned function undoes it. */
+const failSetup = (): (() => void) => {
+  const spy = vi.mocked(globalThis.fetch)
+  const inner = spy.getMockImplementation()!
+  spy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = new Request(input, init)
+    if (req.method === "POST" && /\/exec-await$/.test(new URL(req.url).pathname)) {
+      const body = (await req.clone().json().catch(() => null)) as { command?: string } | null
+      if (body?.command?.includes("| base64 -d | bash")) return Response.json({ statusCode: 1, stdout: "", stderr: "apt failed" })
+    }
+    return inner(req)
+  })
+  return () => void spy.mockImplementation(inner)
+}
+
+describe("a computer whose setup fails, and two asks at once", { timeout: 120_000 }, () => {
+  it("deletes the sandbox a failed setup made, so a retry does not stack VMs, and makes one computer for two concurrent asks", async () => {
+    const cloud = fakeCloud(() => "ok")
+    const { token, chief } = await enabledChief("chief-cc-computer-provision-fail", "cc")
+    const provision = () => http("POST", `/v1/chiefs/${chief.id}/computer/control`, token, { action: "provision" })
+    const status = async () => (await http("GET", `/v1/chiefs/${chief.id}/computer`, token)).json.value
+    const settled = async (until: (v: any) => boolean) => {
+      let now = await status()
+      for (let i = 0; i < 200 && !until(now); i++) now = (await new Promise((r) => setTimeout(r, 25)), await status())
+      return now
+    }
+    const undo = failSetup()
+    for (const attempt of [1, 2]) {
+      expect((await provision()).status).toBe(202)
+      await settled(() => cloud.deleted.length >= attempt)
+      const failed = await settled((v) => v.provision_error !== undefined)
+      expect(failed).toMatchObject({ computer: null, provision_error: expect.stringContaining("desktop did not install") })
+      // Each attempt made one VM and deleted it: none is left behind for the next.
+      expect(cloud.made.length).toBe(attempt)
+      expect(cloud.deleted).toEqual(cloud.made.map((m) => m.id))
+    }
+    undo()
+    // Two asks at once: one computer (the second answers 202 while the first is made, or 200 with it once it is there).
+    const both = await Promise.all([provision(), provision()])
+    expect(both[0]!.status).toBe(202)
+    expect([200, 202]).toContain(both[1]!.status)
+    const done = await settled((v) => v.computer !== null)
+    expect(done.computer).toMatchObject({ id: cloud.made.at(-1)!.id, state: "running" })
+    expect(cloud.made.length).toBe(3)
+    expect(cloud.deleted).not.toContain(done.computer.id)
+  })
+
+  it("refuses provision where the Claude Code route is not configured, and makes nothing", async () => {
+    const cloud = fakeCloud(() => "ok")
+    const { token, chief } = await enabledChief("chief-cc-computer-provision-off", "cc")
+    const was = testEnv.CHIEF_CC_ENABLED
+    testEnv.CHIEF_CC_ENABLED = "0"
+    try {
+      const r = await http("POST", `/v1/chiefs/${chief.id}/computer/control`, token, { action: "provision" })
+      expect(r.status, r.text).toBe(409)
+      expect(r.json.error.code).toBe("computer.unavailable")
+    } finally {
+      testEnv.CHIEF_CC_ENABLED = was
+    }
+    expect(cloud.made.length).toBe(0)
   })
 })
 

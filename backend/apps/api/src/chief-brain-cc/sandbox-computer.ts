@@ -208,8 +208,9 @@ const shot = async (b: ChiefBrainDO, id: string): Promise<string> => {
  * Who drives the computer (the control lease, DESIGN "Control lease"): the Chief (the default) or its owner, who took
  * over in the profile's Computer tab (`by: "human"`), or whom the Chief asked to (`request_human`, `by: "chief"`, with
  * its reason). Kept in this object's cb_config under CONTROL_KEY and written only here. While the person holds it, the
- * Chief's input verbs, and exec, fs writes, stop, pause, delete and fork on this VM (sandbox.ts), are refused with
- * computer.human_has_control (it may still look: screenshot, windows, control). The hold ends when the person hands it
+ * Chief's verbs on the computer, screenshot and windows included (what the person types or opens there, a sign-in or a
+ * payment, is theirs), and exec, fs writes, stop, pause, delete and fork on this VM (sandbox.ts), are refused with
+ * computer.human_has_control (it may still ask who holds it: control). The hold ends when the person hands it
  * back, when the Chief hands back a hold it asked for itself (never a person's take-over), or by itself after
  * LEASE_IDLE_MS without the person's input (computed when read: no timer). After it ends, the Chief's next verb that
  * succeeds carries a note to look again first.
@@ -224,8 +225,11 @@ type ControlRow = { holder: Holder; since_ms: number; by?: Holder; reason?: stri
 /** A person's hold with no take-over or input for this long returns to the Chief. */
 export const LEASE_IDLE_MS = 10 * 60_000
 const REASON_MAX = 500
-/** Verbs the Chief may run while the person holds the computer: they only look, or end a hold the Chief asked for. */
-const LOOKS = new Set(["screenshot", "windows", "control", "request_human", "hand_back"])
+/**
+ * Verbs the Chief may run while the person holds the computer: they read the lease, or end a hold the Chief asked for.
+ * Not screenshot or windows: the screen while the person drives it (a password field, a card number) is not the Chief's.
+ */
+const LOOKS = new Set(["control", "request_human", "hand_back"])
 export const HANDED_BACK_NOTE = "The person handed the computer back to you: the screen may have changed. Take a fresh screenshot before your next action."
 
 const storedRow = (b: ChiefBrainDO): ControlRow => {
@@ -277,7 +281,7 @@ export const humanInput = (b: ChiefBrainDO) => touchHuman(b)
 export const humanHasControlRefusal = (b: ChiefBrainDO, what = "your computer"): Out => {
   const c = controlOf(b)
   const ends = c.by === "chief" ? "wait until they are done, or chief-vm computer hand-back ID when you no longer need them" : "wait until they hand it back"
-  return { status: 409, json: { code: "computer.human_has_control", error: `computer.human_has_control: the person is using ${what}${c.reason ? ` (you asked: ${c.reason})` : ""}; ${ends}. screenshot and windows still work`, control: c } }
+  return { status: 409, json: { code: "computer.human_has_control", error: `computer.human_has_control: the person is using ${what}${c.reason ? ` (you asked: ${c.reason})` : ""}; ${ends} (chief-vm computer control ID says who has it), then take a fresh screenshot`, control: c } }
 }
 
 /** One input verb on running sandbox `id` (the person's, through the owner's route; the Chief's, below). Writes no state. */

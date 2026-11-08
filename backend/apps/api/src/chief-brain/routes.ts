@@ -5,6 +5,7 @@ import { brainName, type ConfigPatch } from "./brain-do.ts"
 import { childObject } from "./brain-spawn.ts"
 import { githubOf } from "../chief-brain-cc/github.ts"
 import { sandboxesOf } from "../chief-brain-cc/sandbox.ts"
+import { ccConfigured } from "../chief-brain-cc/vm.ts"
 import { chiefMainConversation } from "../domains/user-chief.ts"
 import { PEER_NAME, PEER_TEXT_MAX } from "./brain-turn.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
@@ -37,7 +38,7 @@ import { declared } from "../do-stub.ts"
  *   POST /v1/chiefs/<agent>/computer/control the owner's session: {action: take_over | hand_back} -> {control}; 404 with no computer.
  *        {action: provision} -> {computer: {id, state}} for the one it has, else 202 {provisioning: true} while one is made in
  *        the background (sandbox.ts COMPUTER_SIZE; the status says provisioning, then the computer, or provision_error);
- *        403 cloud.plan.required without a Cloud plan
+ *        403 cloud.plan.required without a Cloud plan; 409 computer.unavailable where the Claude Code route is not configured
  *        A person's hold (by, expires_ms) returns to the Chief by itself 10 min after their last take_over or input
  *   POST /v1/chiefs/<agent>/computer/input  the owner's session while they hold it: {op: click | move | drag | scroll | type | key |
  *        open (open_url), x?, y?, to_x?, to_y?, button?, count?, text?, keys?, direction?, amount? (clamped to 1..30), url?} -> {done, control};
@@ -328,6 +329,9 @@ const handleComputerControl = async (request: Request, env: Env, agent: string, 
   const sandboxes = sandboxesOf(env, agent)
   if (path === "computer/control") {
     if (body.action === "provision") {
+      // A computer is a Chief sandbox at Freestyle: only where the Claude Code route is configured (vm.ts), never a
+      // deployment without its key, snapshot or switch.
+      if (!ccConfigured(env)) return fail({ status: 409, code: "computer.unavailable", message: "a Chief's computer is not available on this server" })
       const r = await sandboxes.ccComputerProvision(agent, p.user!)
       if (r.status === 200) return ok({ computer: r.computer })
       if (r.status === 202) return Response.json({ ok: true, value: { provisioning: true } }, { status: 202, headers: NO_STORE })

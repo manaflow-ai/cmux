@@ -87,8 +87,8 @@ your computer, which the person watches live in your profile as your Computer. T
 \`click ID X Y [--double|--right]\`, \`type ID TEXT\`, \`key ID ctrl+l Return\`, \`scroll ID X Y down 5\`, \`drag ...\`,
 \`screenshot ID\`, \`windows ID\`: each action prints the path of the screen after it (1280x800, pixels from the top left);
 Read it before the next step, and act on what it shows. Keep one computer; it pauses when idle like any sandbox. The
-person can take it over; then your actions on it (and exec, fs writes, stop, pause, delete, fork of it) are refused
-until they hand it back or stay idle 10 min (look again first). The check is when an action starts: one already running
+person can take it over; then your actions on it, screenshot and windows too (and exec, fs writes, stop, pause, delete,
+fork of it) are refused until they hand it back or stay idle 10 min (look again first). The check is when an action starts: one already running
 may finish after they take over. When a step needs them (a sign-in, a payment, a CAPTCHA), \`chief-vm computer
 request-human ID "what to do"\` and tell them in chat; \`chief-vm computer hand-back ID\` ends that request early.
 Network: by default you reach the public Internet over IPv4 and IPv6 with DNS, and the tailnet; private
