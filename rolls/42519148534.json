@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42519148534",
+  "recorded_at": "2026-11-08T20:28:04Z",
+  "reason": "cmux-tui ae5ef7b35fdb changes the image's cmux-tui (pinned d66737e4daff)",
+  "dry_run": false,
+  "cmux_tui": "ae5ef7b35fdb6862140fa0becb9a6c327fa10dbf",
+  "fixes": [
+    {
+      "sha": "ae5ef7b35fdb6862140fa0becb9a6c327fa10dbf",
+      "mergedAt": "2026-11-08T11:59:42-08:00",
+      "subject": "carrier: fault switch and capability line for the ssh failover probe (V0 item 3 S3) (#38678)"
+    },
+    {
+      "sha": "364e5b24f23d6b6dc98ee66354144fc901af3100",
+      "mergedAt": "2026-11-08T11:56:07-08:00",
+      "subject": "Computer Use: wait_for_element waits on the accessibility tree with a deadline (#38764)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T20:28:04Z",
+    "snapshot_id": "sh-b076127cc1fc444e8a319ed1ea04d532",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42519148534): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e91befff037252a2153133860d4f0e3735b1e677",
+    "image": "cloud-native-auto-ae5ef7b3-42519148534-1",
+    "revision": "ci-42519148534-1",
+    "at": "2026-11-08T20:28:04Z"
+  },
+  "rolled_back": false
+}
