@@ -746,10 +746,84 @@ fn read_run_send_pattern_matches_only_output_after_the_typed_command() {
 }
 
 #[test]
+fn run_argv_types_each_word_quoted_so_it_runs_as_given() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let typed = |args: &[&str]| {
+        let mut flags = words(&["--timeout", "20s", "--"]);
+        flags.extend(words(args));
+        super::parse_run("term_a", &flags).expect("parsed").text
+    };
+    // The audit's case: unquoted, `exit 7` ran in the person's shell and ended it.
+    assert_eq!(typed(&["sh", "-c", "echo failing; exit 7"]), "sh -c 'echo failing; exit 7'");
+    // Spaces, double quotes and runs of spaces survive.
+    assert_eq!(typed(&["sh", "-c", "echo a b; echo \"c  d\""]), "sh -c 'echo a b; echo \"c  d\"'");
+    // An embedded single quote closes, escapes and reopens.
+    assert_eq!(typed(&["echo", "it's"]), "echo 'it'\\''s'");
+    // `$`, globs and `~` reach the program as written, never expanded.
+    assert_eq!(
+        typed(&["printf", "%s\\n", "$HOME", "*.rs", "~/x"]),
+        "printf '%s\\n' '$HOME' '*.rs' '~/x'"
+    );
+    // An empty argument stays one argument.
+    assert_eq!(typed(&["printf", "[%s]", ""]), "printf '[%s]' ''");
+    // zsh expands a bare `=name`; it is quoted.
+    assert_eq!(typed(&["echo", "=ls"]), "echo '=ls'");
+    // A command word the shell reads as syntax is quoted: a reserved word or an assignment.
+    assert_eq!(typed(&["if", "true"]), "'if' true");
+    assert_eq!(typed(&["FOO=bar", "x"]), "'FOO=bar' x");
+    assert_eq!(typed(&["env", "FOO=bar", "x"]), "env FOO=bar x");
+    // Plain words stay readable.
+    assert_eq!(
+        typed(&["npm", "test", "--", "--grep=api", "./src/a.rs", "user@host:1"]),
+        "npm test -- --grep=api ./src/a.rs user@host:1"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn run_argv_line_reads_back_as_the_same_argv_in_sh() {
+    let argv: Vec<String> =
+        ["echo failing; exit 7", "a b", "c  d", "it's", "$HOME", "*", "", "=ls", "x\"y", "--f=1"]
+            .iter()
+            .map(|word| (*word).to_owned())
+            .collect();
+    let line = super::shell_line(&argv);
+    // The shell splits the typed line into printf's arguments, NUL-terminated.
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("printf '%s\\0' {line}"))
+        .output()
+        .expect("sh runs");
+    assert!(output.status.success(), "{line}");
+    let words: Vec<String> = String::from_utf8(output.stdout)
+        .expect("utf-8")
+        .split_terminator('\0')
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(words, argv, "{line}");
+}
+
+#[test]
+fn run_one_word_after_dashes_is_a_shell_line_typed_as_written() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let request = super::parse_run("term_a", &words(&["--", "npm test && echo ok; ls $HOME"]))
+        .expect("parsed");
+    assert_eq!(request.text, "npm test && echo ok; ls $HOME");
+    let request = super::parse_run("term_a", &words(&["--", "make"])).expect("parsed");
+    assert_eq!(request.text, "make");
+    // --text is a shell line too, never quoted.
+    let request = super::parse_run("term_a", &words(&["--text", "sh -c 'exit 7' || echo $?"]))
+        .expect("parsed");
+    assert_eq!(request.text, "sh -c 'exit 7' || echo $?");
+    // Nothing after -- is still a usage error.
+    assert!(super::parse_run("term_a", &words(&["--"])).is_err());
+}
+
+#[test]
 fn read_run_run_is_send_wait_prompt_with_exit_status() {
     let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
     let request =
-        super::parse_run("term_a", &words(&["--timeout", "10s", "--", "sh", "-c", "'exit 7'"]))
+        super::parse_run("term_a", &words(&["--timeout", "10s", "--", "sh", "-c", "exit 7"]))
             .expect("parsed");
     assert_eq!(request.text, "sh -c 'exit 7'");
     assert_eq!(request.wait, Wait::Prompt);
@@ -797,4 +871,51 @@ fn read_run_read_and_wait_flags_send_unwrap_lines_and_new() {
         .map(|a| (*a).to_owned())
         .collect();
     assert!(command::parse(&args, super::super::Surface::CmuxTui).is_err());
+}
+
+/// `terminal run -- sh -c 'exit 7'` (bench round 3, T3): the words after
+/// `--` are an argv, so the shell must get each one as one word. A plain
+/// join made the shell run `sh -c exit 7`, which exits 0.
+#[test]
+fn w4j_run_gives_the_shell_each_argv_word_as_one_word() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let shell = |line: &str| {
+        std::process::Command::new("/bin/sh").arg("-c").arg(line).output().expect("sh runs")
+    };
+    let request =
+        super::parse_run("term_a", &words(&["--", "sh", "-c", "exit 7"])).expect("parsed");
+    assert_eq!(shell(&request.text).status.code(), Some(7), "typed {:?}", request.text);
+
+    let argv = ["a b", "it's", "say \"hi\"", "$HOME", "*", "back\\slash", "", "tab\there"];
+    let mut command = vec!["--", "printf", "%s\\n"];
+    command.extend(argv);
+    let request = super::parse_run("term_a", &words(&command)).expect("parsed");
+    let printed = shell(&request.text);
+    assert!(printed.status.success(), "typed {:?}", request.text);
+    let printed = String::from_utf8(printed.stdout).expect("utf-8");
+    assert_eq!(printed.lines().collect::<Vec<_>>(), argv, "typed {:?}", request.text);
+
+    // One word after -- stays a shell line, as `run -- 'a; b'` was.
+    let request =
+        super::parse_run("term_a", &words(&["--", "echo AFTER_$((2+2)); exit 3"])).expect("parsed");
+    assert_eq!(request.text, "echo AFTER_$((2+2)); exit 3");
+    assert_eq!(shell(&request.text).status.code(), Some(3));
+}
+
+/// `send --pattern '^BENCH_OK$'` (bench round 3, T2): a pattern is matched
+/// line by line, so `^` and `$` anchor at each line without `(?m)`.
+#[test]
+fn w4j_send_pattern_anchors_match_at_each_line() {
+    let message = "for i in 1 2 3; do echo step $i; done; echo BENCH_OK";
+    let echo = format!("$ {message}");
+    let daemon = ShellDaemon::new(
+        None,
+        vec![shell_record(json!({"activity": {"state": "running"}}))],
+        &[&echo, &format!("{echo}\nstep 1\nstep 2\nstep 3\nBENCH_OK\n$ ")],
+        true,
+    );
+    let request = SendRequest { pattern: Some("^BENCH_OK$".into()), ..shell_send(message) };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["matched"], true, "{receipt}");
+    assert_eq!(super::send_exit_code(&receipt, false), 0);
 }

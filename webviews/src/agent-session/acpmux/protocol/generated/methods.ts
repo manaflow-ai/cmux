@@ -194,6 +194,7 @@ export interface AcpmuxRequests {
   "_acpmux/chats": { params: unknown; result: unknown };
   "_acpmux/chats_watch": { params: unknown; result: unknown };
   "_acpmux/chat_open": { params: unknown; result: unknown };
+  "_acpmux/chat_resolve": { params: unknown; result: unknown };
   "_acpmux/chat_roots": { params: unknown; result: unknown };
   "_acpmux/chat_roots_record": { params: unknown; result: unknown };
   "_acpmux/chat_settings": { params: unknown; result: unknown };
@@ -524,6 +525,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/chats", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats_watch", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_open", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chat_resolve", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_roots", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_roots_record", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_settings", kind: "request", acp: false, typed: false },

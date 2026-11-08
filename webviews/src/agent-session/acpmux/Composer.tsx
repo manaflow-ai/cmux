@@ -2677,6 +2677,9 @@ function ComposerFrame({
                     ? `acpmux-emoji-${emojiSelected}`
                     : undefined,
             spellcheck: String(spellChecking),
+            // Attached files, or ones still being read, are a draft too: an ask's keys leave it alone
+            // (composerTyped.ts).
+            "data-draft-attachments": attachments.length + pending.length > 0 ? "" : undefined,
             // WEB-SWAP: the prompt keeps its own draft (composerDraft.ts holds until it is written).
             [WEB_SWAP_KEPT_TEXT]: "",
           },
