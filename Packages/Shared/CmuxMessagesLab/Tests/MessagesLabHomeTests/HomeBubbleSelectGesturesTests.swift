@@ -92,7 +92,7 @@ import Testing
         #expect(rig.view.controller.selection.selectedText == Self.second)
     }
 
-    @Test func aTripleClickThenADragNeverReachesTheNeighbours() async throws {
+    @Test func aClickAfterATripleClickLetsTheBubbleGo() async throws {
         let rig = try await rig()
         defer { rig.stop() }
         let p = try point(in: rig, Self.first, dx: 60)

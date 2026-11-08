@@ -139,13 +139,13 @@
 -    /// Rows with text, in transcript order (model index).
 -    private func textRows() -> [(index: Int, key: String, row: PartRow, body: CGRect)] {
 +    /// cmux: a triple-click selects the bubble's whole text and nothing of its neighbours, as in
-+    /// Messages (https://github.com/manaflow-ai/cmux/issues/38145). Returns false when the point
-+    /// is not on text.
++    /// Messages (https://github.com/manaflow-ai/cmux/issues/38145). The caller passes the key of
++    /// the row it hit, so the row selected is the row clicked. Returns false for a row without text.
 +    @discardableResult
-+    func selectRow(at p: CGPoint) -> Bool {
-+        guard let pos = position(at: p), let g = geometry(key: pos.key), g.length > 0 else { return false }
-+        anchor = TextPosition(key: pos.key, offset: 0)
-+        focus = TextPosition(key: pos.key, offset: g.length)
++    func selectRow(key: String) -> Bool {
++        guard let g = geometry(key: key), g.length > 0 else { return false }
++        anchor = TextPosition(key: key, offset: 0)
++        focus = TextPosition(key: key, offset: g.length)
 +        downPoint = nil
 +        dragging = false
 +        refresh()

@@ -844,9 +844,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     /// A triple-click on a bubble's text selects all of that bubble's text and only it
     /// (https://github.com/manaflow-ai/cmux/issues/38145); AppKit counts a fourth click on as three.
+    /// Not in an open thread (the selection walks the main transcript's cells), nor on the header
+    /// strip or the compose field, where rows scroll under the glass.
     func tripleClicked(_ p: CGPoint) {
-        guard let hit = demo?.hit(p), SelText.isText(hit.row.part) else { return }
-        if selection.selectRow(at: p) { window?.makeFirstResponder(host.scrollView.document) }
+        guard let demo, !demo.threadOpen, p.y > host.titlebarHeight,
+              !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p),
+              let hit = demo.hit(p), SelText.isText(hit.row.part) else { return }
+        if selection.selectRow(key: hit.key) { window?.makeFirstResponder(host.scrollView.document) }
     }
 
     func clicked(_ p: CGPoint) {
