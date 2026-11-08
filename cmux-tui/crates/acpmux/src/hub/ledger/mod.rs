@@ -332,6 +332,8 @@ pub(crate) enum Work {
         sid: String,
         cwd: PathBuf,
     },
+    /// Write the first start's seed, already in the state, as one rewrite of the file.
+    Seed,
     #[cfg(test)]
     Flush(std::sync::mpsc::SyncSender<()>),
 }
@@ -552,6 +554,12 @@ impl Ledger {
         }
     }
 
+    /// A chat was created under `session` (`Hub::new_session_with_id`): a purge of that id this
+    /// run no longer blocks it, so the new chat's turns count.
+    pub fn reopen(&self, session: &str) {
+        self.lock().purged.remove(session);
+    }
+
     /// A pull request `session` opened (`hub/pull_requests.rs`).
     pub fn note_pull_request(&self, session: &str, url: &str) {
         let mut s = self.lock();
@@ -595,6 +603,7 @@ impl Ledger {
         s.seeded = true;
         let version = crate::pricing::table().version.clone();
         let mut repos = Vec::new();
+        let mut seeded = false;
         for seed in sessions {
             // A session with turns and no reported usage counts them as unpriced.
             if s.sessions.contains_key(seed.id.as_str()) || seed.turns == 0 || s.blocked(&seed.id) {
@@ -609,14 +618,15 @@ impl Ledger {
             {
                 repos.push(Work::Repo { sid: seed.id.clone(), cwd: PathBuf::from(cwd) });
             }
-            let info = s.sessions.get(seed.id.as_str()).cloned().unwrap_or_default();
-            self.emit(&mut s, Line::Session { sid: seed.id.clone(), info });
             s.add_bucket(&seed.id, &model, &version, seed.at, &totals);
-            let line =
-                Line::Spend { sid: seed.id, at: seed.at, model, pv: version.clone(), totals };
-            self.emit(&mut s, line);
+            seeded = true;
         }
         drop(s);
+        // One rewrite, not a line per row: a crash part way through a seed of appended lines left
+        // a file that read as a ledger, and the sessions after the crash were never seeded.
+        if seeded {
+            self.send(Work::Seed);
+        }
         for work in repos {
             self.send(work);
         }

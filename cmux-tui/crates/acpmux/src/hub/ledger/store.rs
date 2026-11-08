@@ -12,10 +12,11 @@ pub(crate) const FILE: &str = "turns.jsonl";
 
 /// Folds `path` into `state`; returns its size. A complete line that does not parse is skipped.
 /// A last line with no newline (a write torn by a crash) is cut off the file, so the next append
-/// starts a line of its own instead of joining the fragment.
+/// starts a line of its own instead of joining the fragment. The file counts as existing
+/// (`State::existed`, no seed) only once a line of it parsed: an empty file, or one holding only a
+/// torn or unreadable first write, is seeded again rather than taken for a ledger.
 pub(crate) fn fold(path: &Path, state: &mut State) -> u64 {
     let Ok(file) = File::open(path) else { return 0 };
-    state.existed = true;
     let mut reader = BufReader::new(file);
     let mut buf = Vec::new();
     let mut whole: u64 = 0;
@@ -35,7 +36,10 @@ pub(crate) fn fold(path: &Path, state: &mut State) -> u64 {
             continue;
         }
         match serde_json::from_str::<Line>(text) {
-            Ok(line) => apply(state, line),
+            Ok(line) => {
+                state.existed = true;
+                apply(state, line);
+            }
             Err(e) => tracing::debug!("ledger: skipped a line: {e}"),
         }
     }
@@ -139,11 +143,12 @@ impl Writer {
         if self.size <= self.compact_bytes.max(self.floor.saturating_mul(2)) {
             return;
         }
-        self.compact();
+        let _ = self.compact();
     }
 
-    /// Rewrites the file as the state's buckets and sessions.
-    fn compact(&mut self) {
+    /// Rewrites the file as the state's buckets and sessions, through a temporary file and a
+    /// rename: a crash leaves the old file or the new one, never part of either. True when it did.
+    fn compact(&mut self) -> bool {
         let (lines, seq) = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             (snapshot(&state), state.seq)
@@ -159,14 +164,32 @@ impl Writer {
                 self.size = text.len() as u64;
                 self.floor = self.size;
                 self.written_upto = seq;
+                true
             }
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp);
                 tracing::warn!("ledger: compaction failed: {e}");
                 // Try again only after as much again has been appended.
                 self.floor = self.size;
+                false
             }
         }
+    }
+
+    /// The first start's seed ([`super::Ledger::seed`]): written as one compaction, so a crash
+    /// while seeding leaves no ledger file and the next start seeds again. Appended line by line
+    /// only when that rewrite failed (the rows would otherwise live in memory only).
+    fn seed(&mut self) {
+        if self.compact() {
+            return;
+        }
+        let (lines, seq) = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            (snapshot(&state), state.seq)
+        };
+        let text: String = lines.iter().filter_map(encode).collect();
+        self.write(&text);
+        self.written_upto = seq;
     }
 
     fn repo(&mut self, sid: String, cwd: &Path) {
@@ -212,11 +235,16 @@ impl Writer {
                         self.write(&std::mem::take(&mut text));
                         self.repo(sid, &cwd);
                     }
+                    Work::Seed => {
+                        // Lines queued before it are in the state the seed writes.
+                        self.write(&std::mem::take(&mut text));
+                        self.seed();
+                    }
                     #[cfg(test)]
                     Work::Flush(done) => {
                         self.write(&std::mem::take(&mut text));
                         if std::mem::take(&mut purged) {
-                            self.compact();
+                            let _ = self.compact();
                         } else {
                             self.maybe_compact();
                         }
@@ -227,7 +255,7 @@ impl Writer {
             self.write(&text);
             if purged {
                 // A purged session's lines leave the file now, not at the next size bound.
-                self.compact();
+                let _ = self.compact();
             } else {
                 self.maybe_compact();
             }

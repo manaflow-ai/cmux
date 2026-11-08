@@ -9,8 +9,9 @@
 //!   never answered and is not logged. Tool output is never logged; the ask is one line with its
 //!   secrets masked (`session::masked_preview`).
 //! - Entry: `{v, seq, at, sessionId, host?, harness, vendor, kind, permissionId?, promptId?,
-//!   prUrl?, ask, decision {optionId?, kind: allow|deny|answer|cancel|accept|changes}, answeredBy
-//!   {person, device?, via?, feedItem?}, prevHash, hash}`. `kind` is `approval`, `plan`,
+//!   prUrl?, ask, decision {optionId?, kind: allow|deny|answer|cancel|accept|changes, comment?},
+//!   answeredBy {person, device?, via?, feedItem?}, prevHash, hash}`. A Request changes
+//!   verdict's `comment` is masked and cut like an ask. `kind` is `approval`, `plan`,
 //!   `question`, `queued` or `review`. `answeredBy.person` is true only for an answer the
 //!   person's proof stood behind: an allow or an answer (which `respond_permission` accepts only
 //!   from the person or under their decision proof), a verdict from the person's connection.
@@ -96,6 +97,9 @@ enum Msg {
     /// Removes a purged session's entries: answered with how many, unless its caller withdrew
     /// it first ([`Durable::state`]). One that fails leaves the session unfenced.
     Purge(String, tokio::sync::oneshot::Sender<Result<usize, String>>, Arc<AtomicU8>),
+    /// A chat was created under a purged session's id: its entries are written again. An entry
+    /// sent before it (the purged chat's, late) is still refused.
+    Reopen(String),
 }
 
 /// The chain's head: the last entry's `seq` and `hash`.
@@ -287,6 +291,12 @@ impl AuditLog {
         }
     }
 
+    /// A chat was created under `session_id` (`Hub::new_session_with_id`): if a purge fenced that
+    /// id this run, the fence comes down, after every entry sent before. Never blocks.
+    pub(crate) fn reopen(&self, session_id: &str) {
+        let _ = self.send(Msg::Reopen(session_id.to_owned()));
+    }
+
     /// Whether the pull request at `url`, opened by session `session_id`, has a written verdict.
     pub(crate) fn reviewed(&self, session_id: &str, url: &str) -> bool {
         let key = (session_id.to_owned(), url.to_owned());
@@ -448,6 +458,9 @@ impl Writer {
                 }
                 Msg::Flush(done) => {
                     let _ = done.send(());
+                }
+                Msg::Reopen(sid) => {
+                    self.purged.remove(&sid);
                 }
                 Msg::Purge(sid, done, state) => {
                     if state
@@ -972,6 +985,30 @@ mod tests {
         let sessions: Vec<_> = all.iter().map(|e| e["sessionId"].clone()).collect();
         assert_eq!(sessions, vec![json!("kept")]);
         assert_eq!(log.write_errors(), 0, "a refused entry of a purged chat is no write error");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The fence lasts until a chat takes the purged id again, not until a restart: a chat
+    /// recreated under it (a trigger's fixed id) has its answers logged. What the purged chat
+    /// sent before the new one was created is still refused.
+    #[tokio::test]
+    async fn a_chat_recreated_under_a_purged_id_is_logged_again() {
+        let d = dir("reopen");
+        let log = AuditLog::open(Some(d.clone()));
+        log.record(entry("same", 1));
+        assert_eq!(log.purge("same").unwrap().await.unwrap(), Ok(1));
+        log.record(entry("same", 2));
+        log.reopen("same");
+        log.record(entry("same", 3));
+        let written = log.record_durable(json!({"at": 4, "sessionId": "same", "kind": "review",
+                                                "prUrl": "https://github.com/o/r/pull/6",
+                                                "ask": "Review", "decision": {"kind": "accept"},
+                                                "answeredBy": {"person": true}}));
+        assert!(written.is_ok(), "{written:?}");
+        let all = log.all().unwrap();
+        let ats: Vec<_> = all.iter().map(|e| e["at"].clone()).collect();
+        assert_eq!(ats, vec![json!(3), json!(4)]);
+        assert!(log.reviewed("same", "https://github.com/o/r/pull/6"));
         let _ = std::fs::remove_dir_all(&d);
     }
 

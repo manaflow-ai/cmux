@@ -144,16 +144,75 @@ async fn verdict(
         "changes" => false,
         _ => return Err(RpcError::invalid_params("verdict must be accepted or changes")),
     };
+    let comment = review_comment(params, accepted)?;
     let session = hub.resolve(session_id)?;
     let sid = session.id.clone();
-    let (h, u, from_app) = (hub.clone(), url.to_owned(), origin == Origin::LocalApp);
+    // The comment goes to the chat as a prompt: the folder's trust rule holds for it as for
+    // any prompt, checked before the verdict is recorded so a refusal records nothing.
+    let prompt = comment.as_deref().map(|c| changes_prompt(url, c));
+    if let Some(text) = &prompt {
+        let prompt_params =
+            json!({"sessionId": sid, "prompt": [{"type": "text", "text": text}]});
+        super::trust_gate::check(
+            hub,
+            origin,
+            method::SESSION_PROMPT,
+            &prompt_params,
+            Some(&session),
+        )
+        .await?;
+    }
+    let (h, s, u, from_app) =
+        (hub.clone(), session.clone(), url.to_owned(), origin == Origin::LocalApp);
     // The verdict answers once its audit line is on disk.
     let entry = tokio::task::spawn_blocking(move || {
-        h.record_review_verdict(&session, &u, accepted, from_app)
+        h.record_review_verdict(&s, &u, accepted, comment.as_deref(), from_app)
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))??;
-    Ok(json!({"recorded": true, "sessionId": sid, "prUrl": url, "entry": entry}))
+    // Then the chat gets the comment, after any turn it is running, without holding the reply.
+    let delivered = prompt.is_some();
+    if let Some(text) = prompt {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            let blocks = vec![json!({"type": "text", "text": text})];
+            if let Err(e) = hub.prompt(&session, blocks, "review", false).await {
+                tracing::warn!(session = %session.id, "review: the comment was not delivered: {e}");
+            }
+        });
+    }
+    Ok(json!({"recorded": true, "sessionId": sid, "prUrl": url, "entry": entry,
+              "commentDelivered": delivered}))
+}
+
+/// The most bytes a Request changes comment may have.
+const COMMENT_BYTES: usize = 16 * 1024;
+
+/// A verdict's optional `comment`: only with `changes`, nonempty once trimmed, at most
+/// [`COMMENT_BYTES`].
+fn review_comment(params: &Value, accepted: bool) -> Result<Option<String>, RpcError> {
+    let comment = match params.get("comment") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::String(s)) => s.trim(),
+        Some(_) => return Err(RpcError::invalid_params("comment must be a string")),
+    };
+    if comment.is_empty() {
+        return Ok(None);
+    }
+    if accepted {
+        return Err(RpcError::invalid_params("a comment goes with verdict changes only"));
+    }
+    if comment.len() > COMMENT_BYTES {
+        return Err(RpcError::invalid_params(format!(
+            "comment must be at most {COMMENT_BYTES} bytes"
+        )));
+    }
+    Ok(Some(comment.to_owned()))
+}
+
+/// The prompt a Request changes comment reaches the chat as.
+fn changes_prompt(url: &str, comment: &str) -> String {
+    format!("Changes requested on {url}:\n\n{comment}")
 }
 
 async fn audit(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<Value, RpcError> {
@@ -170,6 +229,21 @@ async fn audit(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<Value, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_comment_goes_with_changes_only_and_is_bounded() {
+        let p = |c: Value| json!({"comment": c});
+        assert_eq!(review_comment(&json!({}), false).unwrap(), None);
+        assert_eq!(review_comment(&p(json!("  ")), false).unwrap(), None);
+        assert_eq!(review_comment(&p(json!(" Add a test. ")), false).unwrap().as_deref(), Some("Add a test."));
+        assert!(review_comment(&p(json!("Nice")), true).is_err());
+        assert!(review_comment(&p(json!(3)), false).is_err());
+        assert!(review_comment(&p(json!("x".repeat(COMMENT_BYTES + 1))), false).is_err());
+        assert_eq!(
+            changes_prompt("https://github.com/o/r/pull/7", "Add a test."),
+            "Changes requested on https://github.com/o/r/pull/7:\n\nAdd a test."
+        );
+    }
 
     #[test]
     fn only_this_daemons_own_clients_ask_the_peers() {

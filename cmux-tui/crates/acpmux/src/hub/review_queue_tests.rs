@@ -170,14 +170,32 @@ async fn pull_requests_wait_for_a_verdict_while_their_turn_is_not_running() {
     // The old pull request left the index; the running one stays for later.
     assert_eq!(hub.review_index.sizes().1, 2);
     assert!(
-        hub.record_review_verdict(&idle, "https://github.com/o/r/pull/99", true, true).is_err()
+        hub.record_review_verdict(&idle, "https://github.com/o/r/pull/99", true, None, true).is_err()
     );
-    let entry = hub.record_review_verdict(&idle, url, false, true).unwrap();
+    let entry = hub.record_review_verdict(&idle, url, false, None, true).unwrap();
     assert_eq!(entry["decision"], json!({"kind": "changes"}));
     assert!(hub.review_queue_local(now).0.is_empty());
     let all = hub.audit.all().unwrap();
     assert_eq!((all[0]["kind"].clone(), all[0]["prUrl"].clone()), (json!("review"), json!(url)));
     assert_eq!(all[0]["answeredBy"], json!({"person": true, "via": "app"}));
+}
+
+/// Request changes keeps its comment in the audit entry, secrets masked, so the trail says what
+/// was asked for; the chat gets it as a prompt (`server/review_queue.rs`).
+#[tokio::test]
+async fn a_changes_verdict_keeps_its_comment_masked() {
+    let hub = hub();
+    let now = now_ms();
+    let url = "https://github.com/o/r/pull/7";
+    let s = hub.insert_test_session(meta("a", "idle", &[url], now - 60_000));
+    let token = "ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jSaZ3k";
+    let comment = format!("Add a test for the empty case.\nAnd drop {token} from the fixture.");
+    let entry = hub.record_review_verdict(&s, url, false, Some(&comment), true).unwrap();
+    assert_eq!(entry["decision"]["kind"], "changes");
+    let kept = entry["decision"]["comment"].as_str().unwrap();
+    assert!(kept.starts_with("Add a test for the empty case.\nAnd drop "), "{kept}");
+    assert!(!kept.contains("aZ3kQ9"), "{kept}");
+    assert_eq!(hub.audit.all().unwrap()[0]["decision"], entry["decision"]);
 }
 
 #[tokio::test]
@@ -188,7 +206,7 @@ async fn a_verdict_leaves_the_same_pull_request_of_another_session_queued() {
     let a = hub.insert_test_session(meta("a", "idle", &[url], now - 60_000));
     hub.insert_test_session(meta("b", "idle", &[url], now - 60_000));
     assert_eq!(hub.review_queue_local(now).0.len(), 2);
-    hub.record_review_verdict(&a, url, true, true).unwrap();
+    hub.record_review_verdict(&a, url, true, None, true).unwrap();
     let (items, _) = hub.review_queue_local(now);
     let sessions: Vec<_> = items.iter().map(|i| i["sessionId"].clone()).collect();
     assert_eq!(sessions, vec![json!("b")]);
@@ -275,6 +293,38 @@ async fn a_dismissal_and_an_automatic_allow_are_recorded_as_such() {
         all.iter().map(|e| (e["permissionId"].clone(), e["decision"]["kind"].clone())).collect();
     assert_eq!(got, vec![(json!("p1"), json!("cancel")), (json!("p3"), json!("allow"))]);
     assert_eq!(all[1]["answeredBy"], json!({"person": false, "via": "mode"}));
+}
+
+/// A group deny answers each member with its single-use reject option; a member with none
+/// (a question) is dismissed. That dismissal is the caller's, as a one-ask dismissal is, so the
+/// trail logs it as a cancel instead of dropping it as a withdrawal.
+#[tokio::test]
+async fn a_group_deny_logs_a_member_it_dismissed_as_a_cancel() {
+    let hub = hub();
+    let s = hub.insert_test_session(meta("s1", "ready", &[], 2));
+    let no_reject = json!({"toolCall": {"toolCallId": "t2", "kind": "execute", "title": "Run pwd"},
+                           "options": [{"optionId": "ok", "name": "Allow", "kind": "allow_once"}]});
+    let mut replies = vec![ask(&hub, &s, "p1", tool_request("Run ls")), ask(&hub, &s, "p2", no_reject.clone())];
+    let (group, revision) = {
+        let mut state = s.permissions.lock().unwrap();
+        let now = std::time::Instant::now();
+        let (group, _) = state.register("p1", &tool_request("Run ls"), None, 0, now).unwrap();
+        let (same, _) = state.register("p2", &no_reject, None, 0, now).unwrap();
+        assert_eq!(group, same);
+        let revision = state.open_group(&group);
+        (group, revision)
+    };
+    let params = json!({"groupId": group, "decisionKey": "k1", "decision": "deny", "revision": revision});
+    hub.respond_permission_group(&s, params, Control::Local, true).await.unwrap();
+    // The asking tasks log what each reply said.
+    for (id, rx) in [("p1", replies.remove(0)), ("p2", replies.remove(0))] {
+        let outcome = rx.await.unwrap();
+        hub.append(&s, "mux", "permission_decision", json!({"permissionId": id, "outcome": outcome}));
+    }
+    let all = hub.audit.all().unwrap();
+    let got: Vec<_> =
+        all.iter().map(|e| (e["permissionId"].clone(), e["decision"]["kind"].clone())).collect();
+    assert_eq!(got, vec![(json!("p1"), json!("deny")), (json!("p2"), json!("cancel"))]);
 }
 
 #[tokio::test]

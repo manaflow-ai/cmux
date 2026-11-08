@@ -7,6 +7,9 @@ use super::review_queue::{ASK_CHARS, Ask, Kind, Settled, ask_text, line, vendor}
 use super::*;
 use cmux_json::JsonSet as _;
 
+/// The most characters of a Request changes comment the audit entry keeps (masked first).
+pub(crate) const COMMENT_CHARS: usize = 4000;
+
 /// How long a purge waits for the audit log's rewrite.
 const AUDIT_PURGE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -170,6 +173,8 @@ impl Hub {
 
     /// `_acpmux/review_verdict` from the person's connection: the pull request at `url`, one
     /// `session` opened, is accepted or needs changes, and leaves that session's review queue.
+    /// A Request changes `comment` is kept in the entry's decision, its secrets masked and cut
+    /// at [`COMMENT_CHARS`] (the chat gets it whole: `server/review_queue.rs`).
     /// Blocking: returns once the entry is on disk, and fails (the pull request stays queued)
     /// when it could not be written.
     pub(crate) fn record_review_verdict(
@@ -177,6 +182,7 @@ impl Hub {
         session: &Session,
         url: &str,
         accepted: bool,
+        comment: Option<&str>,
         from_app: bool,
     ) -> Result<Value, RpcError> {
         if session.purged.load(Ordering::SeqCst) {
@@ -192,7 +198,16 @@ impl Hub {
         entry.set("kind", json!("review"));
         entry.set("prUrl", json!(url));
         entry.set("ask", json!(line(&format!("Review {url}"), ASK_CHARS)));
-        entry.set("decision", json!({"kind": if accepted { "accept" } else { "changes" }}));
+        let mut decision = json!({"kind": if accepted { "accept" } else { "changes" }});
+        if let Some(comment) = comment {
+            let masked = crate::secret_scan::mask(comment);
+            let mut kept: String = masked.chars().take(COMMENT_CHARS).collect();
+            if kept.len() < masked.len() {
+                kept.push('…');
+            }
+            decision.set("comment", json!(kept));
+        }
+        entry.set("decision", decision);
         entry.set(
             "answeredBy",
             json!({"person": true, "via": if from_app { "app" } else { "local" }}),
