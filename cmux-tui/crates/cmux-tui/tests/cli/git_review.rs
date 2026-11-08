@@ -69,11 +69,13 @@ impl Owner {
         stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
         let mut reader = BufReader::new(stream);
         if app {
-            let hello = serde_json::json!({"cmd": "client-hello", "role": "main", "install_id": INSTALL});
+            let hello =
+                serde_json::json!({"cmd": "client-hello", "role": "main", "install_id": INSTALL});
             let challenge = reply(&mut reader, "hello", hello);
             let nonce = unhex::<NONCE_LEN>(challenge["data"]["nonce"].as_str().unwrap()).unwrap();
             let proof = hello_proof(&unhex::<32>(KEY_HEX).unwrap(), INSTALL, &nonce);
-            let proof = serde_json::json!({"cmd": "client-hello", "install_id": INSTALL, "proof": proof});
+            let proof =
+                serde_json::json!({"cmd": "client-hello", "install_id": INSTALL, "proof": proof});
             let proved = reply(&mut reader, "proof", proof);
             assert_eq!(proved["data"]["verified"], true, "{proved}");
         }
@@ -88,7 +90,11 @@ impl Drop for Owner {
 }
 
 /// Sends `request` under `id` and answers the reply with that id.
-fn reply(reader: &mut BufReader<UnixStream>, id: &str, mut request: serde_json::Value) -> serde_json::Value {
+fn reply(
+    reader: &mut BufReader<UnixStream>,
+    id: &str,
+    mut request: serde_json::Value,
+) -> serde_json::Value {
     request["id"] = serde_json::json!(id);
     writeln!(reader.get_mut(), "{request}").unwrap();
     loop {
