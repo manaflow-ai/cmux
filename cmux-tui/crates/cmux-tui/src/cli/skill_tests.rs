@@ -230,7 +230,7 @@ fn pane_cli_skill_the_guide_names_the_callers_place() {
             "terminal_id": "term_1",
         },
     });
-    let guide = render(&Some(identity), Some(std::path::Path::new("/opt/cmux/cmux-tui")));
+    let guide = render(&Some(identity), Some(Path::new("/opt/cmux/cmux-tui")));
     assert!(guide.contains("this build's CLI, `/opt/cmux/cmux-tui`"), "{guide}");
     for row in [
         "| session | `session_1` (name `bench`) |",

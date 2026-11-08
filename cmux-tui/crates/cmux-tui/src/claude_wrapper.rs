@@ -793,7 +793,7 @@ mod tests {
 
         // A path the command cannot spell drops only the context hook.
         use std::os::unix::ffi::OsStrExt as _;
-        let invalid = Path::new(std::ffi::OsStr::from_bytes(b"/opt/\xff/cmux-tui"));
+        let invalid = Path::new(OsStr::from_bytes(b"/opt/\xff/cmux-tui"));
         let hooks = session_hook_settings(None, invalid).unwrap();
         let text = serde_json::to_string(&hooks["hooks"]).unwrap();
         assert!(!text.contains("session-context"), "{text}");
