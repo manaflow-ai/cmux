@@ -563,8 +563,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "brain", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
-            // The Home header's Computer toggle and the chat's popup: the Chief's profile page with
-            // its computer (cmux issue 31488), behind cmux Cloud. `conversation` names the Chief.
+            // The Chief's large computer page (cmux issue 31488), behind cmux Cloud: the profile panel's
+            // Expand and the palette open it. `conversation` names the Chief.
             ActionDescriptor(
                 id: "chief.toggleComputer",
                 title: String(localized: "action.chief.toggleComputer", defaultValue: "Chief: Toggle Computer", bundle: .module),

@@ -58,6 +58,8 @@ public final class HomeChiefProfileView: NSView {
     public var place: () -> String = { "" } { didSet { refresh() } }
     /// The ✕.
     public var onClose: () -> Void = {}
+    /// The tab on show changed: a pick, or the panel opened or closed (the chat's computer popup follows it).
+    public var onTab: () -> Void = {}
     /// Upgrade, on the paywall.
     public var onUpgrade: () -> Void = {}
     /// Move to Cloud, for a Chief of this Mac.
@@ -114,7 +116,10 @@ public final class HomeChiefProfileView: NSView {
         buildColumn()
         tabs.shown = settings == nil ? [.details, .computer] : HomeChiefProfileTab.allCases
         tabs.select(settings == nil ? .computer : .details)
-        tabs.onPick = { [weak self] _ in self?.refresh() }
+        tabs.onPick = { [weak self] _ in
+            self?.refresh()
+            self?.onTab()
+        }
         computer.onResize = { [weak self] in self?.refresh() }
         computer.onStatus = { [weak self] in self?.refresh() }
         controlBar.chief = { [weak self] in self?.name() ?? "" }
