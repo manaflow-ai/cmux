@@ -459,9 +459,11 @@ fn an_upload_sends_a_dropped_folder_without_its_secrets() {
     ] {
         std::fs::create_dir_all(app.join(dir)).unwrap();
     }
-    for dir in [".ssh", "Library/Preferences"] {
+    for dir in [".ssh", "Library/Preferences", "Keychains", "backup/keychains"] {
         std::fs::create_dir_all(home.join(dir)).unwrap();
     }
+    std::fs::write(home.join("Keychains/login.plist"), "fake-folder-keychain-root\n").unwrap();
+    std::fs::write(home.join("backup/keychains/meta.db"), "fake-folder-keychain-file\n").unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::create_dir_all(base.join("elsewhere")).unwrap();
     std::fs::write(app.join("README.md"), "the app\n").unwrap();
@@ -509,11 +511,17 @@ fn an_upload_sends_a_dropped_folder_without_its_secrets() {
         assert!(!text.contains("fake-folder"), "a secret reached the machine: {text}");
     }
 
-    // The home folder, a dot folder, ~/Library and a folder outside the
-    // home: refused, and the file beside them does not go either.
-    for refused in
-        [home.clone(), home.join(".ssh"), home.join("Library/Preferences"), base.join("elsewhere")]
-    {
+    // The home folder, a dot folder, ~/Library, a folder outside the home
+    // and a keychain folder or a file in one: refused, and the file beside
+    // them does not go either.
+    for refused in [
+        home.clone(),
+        home.join(".ssh"),
+        home.join("Library/Preferences"),
+        base.join("elsewhere"),
+        home.join("Keychains"),
+        home.join("backup/keychains/meta.db"),
+    ] {
         let before = files_below(&world.machine_home).len();
         let (ok, answer) = upload(&world, &tmp, &[&dropped, &refused]);
         assert!(!ok, "{} was uploaded: {answer}", refused.display());

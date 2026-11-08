@@ -153,6 +153,10 @@ fn uploadable(path: &Path) -> Result<(PathBuf, String, bool), Failure> {
     if name.starts_with('.') || is_secret(&name) {
         return Err(refused("secret files are never uploaded"));
     }
+    // A keychain folder anywhere on the way, the upload's own folder included.
+    if canonical.iter().any(|part| part.eq_ignore_ascii_case("keychains")) {
+        return Err(refused("keychains are never uploaded"));
+    }
     if meta.is_dir() {
         if super::SECRET_FOLDERS.contains(&name.to_ascii_lowercase().as_str()) {
             return Err(refused("credential folders are never uploaded"));
