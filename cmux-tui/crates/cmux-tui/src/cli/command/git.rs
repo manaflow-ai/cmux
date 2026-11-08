@@ -104,9 +104,12 @@ fn commit_range(
     for name in ["base", "head"] {
         match (flags.take(name), commits) {
             (Some(id), true) => {
-                if !(40..=64).contains(&id.len()) || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+                // The session host reads only a full SHA-1 or SHA-256 id in
+                // lowercase (`cmux-git` `diff::commits`).
+                let id = id.to_ascii_lowercase();
+                if !matches!(id.len(), 40 | 64) || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
                     return Err(UsageError::new(format!(
-                        "--{name} must be a full commit id (40 to 64 hex digits)"
+                        "--{name} must be a full commit id (40 or 64 hex digits)"
                     )));
                 }
                 params.insert(name.into(), Value::String(id));

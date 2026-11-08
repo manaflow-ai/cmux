@@ -44,7 +44,9 @@ pub(super) fn parse(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, Us
 }
 
 /// `--root` made absolute against the current directory, or the current
-/// directory itself.
+/// directory itself, with `.`, `..` and a trailing `/` resolved in the text
+/// (no symlink is followed): the session host keys comments by this text, so
+/// `--root app/` and `--root ./app` must name the folder the diff page does.
 fn root(flags: &mut Flags) -> Result<String, UsageError> {
     let current = std::env::current_dir()
         .map_err(|error| UsageError::new(format!("current directory: {error}")))?;
@@ -53,13 +55,32 @@ fn root(flags: &mut Flags) -> Result<String, UsageError> {
         Some(root) => current.join(root),
         None => current,
     };
-    let root = root.to_string_lossy().into_owned();
+    let root = lexical(&root).to_string_lossy().into_owned();
     if root.len() > MAX_ROOT_BYTES || root.contains('\0') {
         return Err(UsageError::new(format!(
             "--root must be at most {MAX_ROOT_BYTES} bytes, with no NUL"
         )));
     }
     Ok(root)
+}
+
+/// `path` with its `.` parts dropped and each `..` taking off the part before
+/// it (never past the root), from the text alone.
+fn lexical(path: &std::path::Path) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut out = std::path::PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(out.components().next_back(), Some(Component::Normal(_))) {
+                    out.pop();
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 fn comment_id(id: &str) -> Result<Value, UsageError> {
