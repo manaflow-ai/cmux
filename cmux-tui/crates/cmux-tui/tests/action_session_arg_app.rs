@@ -20,9 +20,13 @@ use serde_json::{Value, json};
 /// Runs `cmux <args>` against a fake app that answers every request `ok` and
 /// records it; returns the recorded `action.run` params.
 fn action_run_params(args: &[&str]) -> Value {
+    // Tests run in parallel threads of one process and can read the same
+    // clock value: the counter keeps each fake app's socket its own.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let dir: PathBuf =
-        Path::new("/tmp").join(format!("cmux-actsess-{}-{stamp}", std::process::id()));
+        Path::new("/tmp").join(format!("cmux-actsess-{}-{stamp}-{n}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("app.sock");
     let listener = UnixListener::bind(&socket).unwrap();
