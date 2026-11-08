@@ -29,8 +29,9 @@ public struct DaemonBridge: Hashable, Sendable {
 
     /// Spawns the bridge and waits for its dial line: the descriptor of the
     /// connected stream and the child, or why it failed (the child is then
-    /// killed and reaped).
-    func open() throws(DaemonError) -> (fd: Int32, child: BridgeChild) {
+    /// killed and reaped). `spawned` gets, once the child runs, a kill for it while it dials (an
+    /// owner ending it early: the wait then fails as a dial that ended without an answer).
+    func open(spawned: (_ kill: @escaping @Sendable () -> Void) -> Void = { _ in }) throws(DaemonError) -> (fd: Int32, child: BridgeChild) {
         guard executable.hasPrefix("/") else { throw .launchFailed("the bridge executable is not an absolute path") }
         var pair: [Int32] = [-1, -1]
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { throw .launchFailed("socketpair: \(String(cString: strerror(errno)))") }
@@ -70,6 +71,7 @@ public struct DaemonBridge: Hashable, Sendable {
             throw .launchFailed("spawn \(executable): \(String(cString: strerror(spawned)))")
         }
         let child = BridgeChild(pid: pid, stderr: errRead)
+        spawned { [weak child] in child?.kill() }
         do {
             try DaemonBridge.check(try Self.readLine(errRead, timeoutMs: replyTimeoutMs))
         } catch {
@@ -117,6 +119,14 @@ final class BridgeChild: Sendable {
     init(pid: pid_t, stderr: Int32) {
         self.pid = pid
         state = Mutex(stderr)
+    }
+
+    /// Signals the child without reaping it (its owner still does, in ``terminate()``); nothing once reaped.
+    func kill() {
+        state.withLock { stderr in
+            guard stderr >= 0 else { return }
+            Darwin.kill(pid, SIGKILL)
+        }
     }
 
     func terminate() {

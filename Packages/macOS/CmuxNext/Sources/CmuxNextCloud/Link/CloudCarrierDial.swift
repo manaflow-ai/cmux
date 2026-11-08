@@ -146,33 +146,68 @@ public struct CloudCarrierDial: Equatable, Sendable {
     }
 
     /// One machine's carrier for the signed-in person: the bundled CLI and the environment each child reads
-    /// as it starts (a fresh access token), for the desktop dial and the session's `carrier serve`.
+    /// as it starts (a fresh access token), for the desktop dial and the session's `carrier serve`. A desktop
+    /// connector made with ``CloudCarrierStreams`` holds its dials and streams there, fenced at the
+    /// generation it was made in.
     public struct Connector: Sendable {
         /// The bundled `cmux-tui`.
         public let cli: URL
         public let dial: CloudCarrierDial
         public let environment: @Sendable () async throws -> [String: String]
+        /// Where ``open()`` holds its dial child and stream, and the end it was made after.
+        let streams: CloudCarrierStreams?
+        let generation: Int
 
         /// Nil without the bundled CLI or for an id that is not a machine's.
         /// `stateDirectory`: the build's daemon state directory (nil: cmux-tui's default).
-        public init?(machine: String, service: Service, cli: URL?, auth: CloudAuth, platform: URL, team: String?, stateDirectory: URL?) {
+        public init?(machine: String, service: Service, cli: URL?, auth: CloudAuth, platform: URL, team: String?, stateDirectory: URL?,
+                     streams: CloudCarrierStreams? = nil) {
             guard let cli, let dial = CloudCarrierDial(machine: machine, service: service) else { return nil }
-            (self.cli, self.dial) = (cli, dial)
+            (self.cli, self.dial, self.streams, generation) = (cli, dial, streams, streams?.generation ?? 0)
             environment = {
                 CloudCarrierDial.environment(platform: platform, accessToken: try await auth.tokens().access, team: team, stateDirectory: stateDirectory)
             }
         }
 
-        init(cli: URL, dial: CloudCarrierDial, environment: @escaping @Sendable () async throws -> [String: String]) {
-            (self.cli, self.dial, self.environment) = (cli, dial, environment)
+        init(cli: URL, dial: CloudCarrierDial, streams: CloudCarrierStreams? = nil, environment: @escaping @Sendable () async throws -> [String: String]) {
+            (self.cli, self.dial, self.streams, self.environment) = (cli, dial, streams, environment)
+            generation = streams?.generation ?? 0
         }
 
-        /// Runs one dial and returns the connected stream; throws why the carrier refused it.
-        public func open() async throws -> DaemonBridgeStream {
+        /// An end of ``streams`` came after this connector was made.
+        var isFenced: Bool { streams.map { $0.generation != generation } ?? false }
+
+        /// The refusal of an open an end of ``streams`` fenced.
+        static let fenced = CloudLinkError.disconnected(reason: "closed")
+
+        /// Runs one dial and returns the connected stream; throws why the carrier refused it, or ``fenced``
+        /// once ``CloudCarrierStreams/endAll()`` ran after this connector was made (the dial child, if one
+        /// started, is killed then).
+        public func open() async throws -> CloudCarrierStream {
+            let (streams, generation) = (self.streams, self.generation)
+            // A fenced open asks for no token and spawns nothing.
+            guard !isFenced else { throw Self.fenced }
             let bridge = dial.bridge(cli: cli, environment: try await environment())
-            return try await Task.detached(priority: .userInitiated) { () throws -> DaemonBridgeStream in
-                try bridge.openStream()
+            guard !isFenced else { throw Self.fenced }
+            let (stream, id) = try await Task.detached(priority: .userInitiated) { () throws -> (DaemonBridgeStream, Int?) in
+                var id: Int?
+                do {
+                    let stream = try bridge.openStream { kill in id = streams?.hold(generation: generation, stop: kill) }
+                    return (stream, id)
+                } catch {
+                    if let id { streams?.release(id) }
+                    if let streams, streams.generation != generation { throw Self.fenced }
+                    throw error
+                }
             }.value
+            guard let streams else { return CloudCarrierStream(stream: stream) }
+            // The dial child became a stream: an end now closes the stream (an end that came first already
+            // killed the child, which may have answered just before).
+            guard let id, streams.replace(id, stop: { [weak stream] in stream?.close() }) else {
+                stream.close()
+                throw Self.fenced
+            }
+            return CloudCarrierStream(stream: stream) { streams.release(id) }
         }
     }
 }

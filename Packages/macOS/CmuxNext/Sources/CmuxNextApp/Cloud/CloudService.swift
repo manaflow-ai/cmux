@@ -57,6 +57,7 @@ final class CloudService {
     /// The app's `cmux-tui` (the moves', the carrier's) and its daemon's state directory (the carrier's `CMUX_TUI_STATE_DIR`).
     @ObservationIgnored let binary: URL?
     @ObservationIgnored let tuiState: URL?
+    @ObservationIgnored let desktopStreams = CloudCarrierStreams() // Open Desktop's dials and streams; an account end or Cloud turned off ends them.
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
@@ -301,9 +302,10 @@ final class CloudService {
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
-            // The account and selected team: a team switch stays signed in but
-            // must fence the old link and machine wire before reconnecting.
+            // The account and selected team: a team switch stays signed in but must fence the old
+            // link, machine wire and desktop dials (before any await, so none dials with the new token).
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
+                self.desktopStreams.endAll()
                 if accountScope != nil {
                     self.machineWire.stop()
                     // mayCallCloud also fences a managed team that is missing: no socket without its team scope.
@@ -375,6 +377,7 @@ final class CloudService {
             machineWire.stop()
             changes.stop()
             signedOutCreation.cancel()
+            desktopStreams.endAll()
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
                 session.disconnect()
