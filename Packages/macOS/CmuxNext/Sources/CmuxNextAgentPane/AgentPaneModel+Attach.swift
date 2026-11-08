@@ -1,3 +1,4 @@
+import CmuxNextSettings
 import Foundation
 
 extension AgentPaneModel {
@@ -10,7 +11,9 @@ extension AgentPaneModel {
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
         let picks = await onChooseAttachments()
         guard !picks.isEmpty else { return AgentPaneReply.success() }
-        return AgentPaneReply.success(["items": await Self.attachItems(picks)])
+        let items = await Self.attachItems(picks)
+        droppedPaths.linked(Self.files(of: items))
+        return AgentPaneReply.success(["items": items])
     }
 
     /// Where the files of the person's last native drop or paste are (`chat.attach.dropped`), for a
@@ -25,6 +28,7 @@ extension AgentPaneModel {
               let urls = await retainedDropURLs(items, generation: generation) else { return AgentPaneReply.success(["items": [Any]()]) }
         let links = await Self.attachItems(urls)
         guard generation == droppedPaths.generation else { return AgentPaneReply.success(["items": [Any]()]) }
+        droppedPaths.linked(Self.files(of: links))
         return AgentPaneReply.success(["items": links])
     }
 
@@ -51,6 +55,47 @@ extension AgentPaneModel {
         }
         droppedPaths.retain(recordings.map { urls[$0.offset].path })
         return urls
+    }
+
+    /// The files, not folders, of link items made by ``attachItems(_:)``.
+    nonisolated static func files(of items: [[String: Any]]) -> [String] {
+        items.compactMap { $0["folder"] as? Bool == false ? $0["path"] as? String : nil }
+    }
+
+    /// The Mac files of a new chat's first-send chips that may go to Cloud (``AgentPaneCloudStart/carriedFiles``):
+    /// a `link` chip's path when it is a file this pane handed the page from the person's own drop,
+    /// paste or pick (``AgentPaneDroppedPaths/linkedFiles``), or a `saved` chip's file this app wrote
+    /// under Chat Uploads (``ChatUploadFolders``), which are also answered as `saved`. A path page
+    /// script made up is never one; folders aren't.
+    func cloudCarriedFiles(_ attachments: [JSONValue]) async -> (files: Set<String>, saved: Set<String>) {
+        let linked = Set(droppedPaths.linkedFiles), root = chatUploadFolders?.root
+        let asked = attachments.compactMap { chip -> (path: String, saved: Bool)? in
+            guard chip["kind"]?.stringValue == "link", let path = chip["path"]?.stringValue,
+                  path.hasPrefix("/"), !path.contains("\0") else { return nil }
+            if linked.contains(path) { return (path, false) }
+            return chip["saved"]?.boolValue == true ? (path, true) : nil
+        }
+        guard !asked.isEmpty else { return ([], []) }
+        return await Task.detached(priority: .userInitiated) {
+            var files: Set<String> = [], saved: Set<String> = []
+            for (path, _) in asked {
+                var folder: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: path, isDirectory: &folder), !folder.boolValue else { continue }
+                // A drop's own recording snapshot lives under Chat Uploads too: staged like a saved chip.
+                let under = root.map { Self.isSavedUpload(path, root: $0) } ?? false
+                guard linked.contains(path) || under else { continue }
+                files.insert(path)
+                if under { saved.insert(path) }
+            }
+            return (files, saved)
+        }.value
+    }
+
+    /// Whether `path`, its links resolved, is a file under the Chat Uploads folder `root`.
+    nonisolated static func isSavedUpload(_ path: String, root: URL) -> Bool {
+        let top = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let file = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+        return file.hasPrefix(top.hasSuffix("/") ? top : top + "/")
     }
 
     /// Each file or folder of `urls` as the page's link item `{path, folder}`. Whether each is a
