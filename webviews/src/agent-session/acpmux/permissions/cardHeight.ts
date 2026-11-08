@@ -3,7 +3,7 @@
 import { layout, prepare, prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
 import typeScale from "../../../../../schemas/type-scale/type-scale.json";
 import { chatDisplay } from "../chatDisplay";
-import { chatUiMeasureStack } from "../chatUiFont";
+import { chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
 import type { AcpmuxPermission } from "../model";
 import { currentLanguage, translate } from "../i18n";
 import { plainText } from "../question/inlineText";
@@ -31,13 +31,24 @@ export function cardFont(): string {
   return chatUiMeasureStack(chatDisplay().uiFont);
 }
 
+/// The letter-spacing the card's text at `size` px is drawn with, in px: its type-scale step's
+/// `--text-STEP--letter-spacing`, which the Interface Font sets (System UI, tight and cmux Inter
+/// track; the stacks they share with System UI and Inter don't tell them apart).
+export function cardLetterSpacing(size: number): number {
+  const name = typeScale.steps.find((entry) => entry.size === size)?.name;
+  return name ? chatUiTracking(chatDisplay().uiFont, name) * size : 0;
+}
+
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
 function textHeight(text: string, width: number, size: number, line: number, mono = false, weight = 400): number {
   const room = Math.max(1, width);
   if (!mono) text = text.replace(/\s+/g, " ");
   try {
     return layout(
-      prepare(text, `${weight} ${size}px ${mono ? "monospace" : cardFont()}`, { whiteSpace: "pre-wrap" }),
+      prepare(text, `${weight} ${size}px ${mono ? "monospace" : cardFont()}`, {
+        whiteSpace: "pre-wrap",
+        letterSpacing: mono ? 0 : cardLetterSpacing(size),
+      }),
       room,
       line,
     ).height;
@@ -50,8 +61,11 @@ function textHeight(text: string, width: number, size: number, line: number, mon
 function textWidth(text: string, size: number, weight = 400): number {
   try {
     return (
-      layoutWithLines(prepareWithSegments(text, `${weight} ${size}px ${cardFont()}`), Infinity, size).lines[0]?.width ??
-      0
+      layoutWithLines(
+        prepareWithSegments(text, `${weight} ${size}px ${cardFont()}`, { letterSpacing: cardLetterSpacing(size) }),
+        Infinity,
+        size,
+      ).lines[0]?.width ?? 0
     );
   } catch {
     return text.length * size * 0.55;
@@ -77,7 +91,8 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   if (!permission) return 2 * padding * scale + body.lineHeight * scale;
   // Immutable permission snapshots retain their estimate while unrelated reply tokens stream.
   // Keep only the current width per ask; old asks are released with their snapshot.
-  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}`;
+  // The font's stack and its name: two fonts that share a stack track differently.
+  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}/${chatDisplay().uiFont}`;
   const cached = estimates.get(permission);
   if (cached?.key === key) return cached.height;
   const height = estimatePermission(permission, width, scale);
