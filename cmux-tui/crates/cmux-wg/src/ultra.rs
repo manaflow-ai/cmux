@@ -27,8 +27,10 @@
 //! starts with [`TAG`], which no WireGuard or STUN message starts with: a
 //! peer without ultra mode hands it to boringtun, which refuses it, so turning
 //! the mode on never breaks an older peer, it only wastes the parity bytes.
-//! A peer that receives parity answers with the same mode, so one side's
-//! setting protects both directions.
+//! A peer that receives parity from the address its session last
+//! authenticated answers with the same mode, so one side's setting protects
+//! both directions. Parity itself is not authenticated; a forged parity can
+//! only produce a datagram that fails WireGuard's authentication.
 //!
 //! The mode is the `CMUX_WG_ULTRA` environment variable (`off`, `dup`,
 //! `dup3`, `fec`, `fec:8:2`), read when a tunnel starts.
@@ -454,7 +456,12 @@ impl UltraUnderlay {
             // Kept datagrams start now; this first group is not rebuilt.
             self.decoding = true;
         }
+        // Parity is not authenticated, so only the address WireGuard last
+        // authenticated may turn this side's parity on: anyone else could
+        // make it spend bytes.
         if self.mode == UltraMode::Off
+            && origin.addr.is_some()
+            && origin.addr == self.inner.peer_hint()
             && let Some(mode) = UltraMode::fec(parity.k, parity.m)
         {
             self.mode = mode;
