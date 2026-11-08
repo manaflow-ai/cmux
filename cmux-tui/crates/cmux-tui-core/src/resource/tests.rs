@@ -155,6 +155,25 @@ fn a_mistyped_id_says_it_is_not_an_id_and_where_ids_come_from() {
     assert!(error.message.contains("name:"), "{}", error.message);
 }
 
+/// `cmux terminal term_zzz show` (bench rounds 1 and 3) said "reserved or
+/// ambiguous names must use the name: prefix". A word with an id prefix is
+/// a mistyped id: say so, and where ids come from.
+#[test]
+fn w4j_an_id_prefix_with_a_bad_payload_is_a_mistyped_id() {
+    for value in ["term_zzz", "pane_", "ws_Q1", "tab_0123456789abcdef0123456789abcdeg"] {
+        let error = Selector::parse(value).unwrap_err();
+        assert_eq!(error.code, "validation.invalid");
+        assert!(error.message.contains(&format!("{value} is not an id")), "{}", error.message);
+        assert!(error.message.contains("32 hex"), "{}", error.message);
+        assert!(error.message.contains(&format!("name:{value}")), "{}", error.message);
+    }
+    let error = Selector::parse("term_zzz").unwrap_err();
+    assert!(error.message.contains("cmux terminal list"), "{}", error.message);
+    // A name with an underscore and no id prefix still names the escape.
+    let error = Selector::parse("my_tab").unwrap_err();
+    assert!(error.message.contains("name:my_tab"), "{}", error.message);
+}
+
 #[test]
 fn name_escape_selects_reserved_and_id_shaped_names() {
     assert_eq!(Selector::parse("current").unwrap(), Selector::Current);

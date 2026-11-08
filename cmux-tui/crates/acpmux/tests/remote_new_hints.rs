@@ -349,7 +349,14 @@ async fn approve_all_refused_by_a_peer_that_serves_us_as_web_says_to_start_it_th
     );
     assert_eq!(tried(&r), want, "{r}");
     let message = r["error"]["message"].as_str().unwrap();
-    assert!(message.ends_with(&format!("; instead: {want}")), "{r}");
+    // The first line and the last both say it was refused, with the command between them.
+    let lines: Vec<&str> = message.lines().collect();
+    assert!(lines[0].starts_with("refused by b: b does not start chats in full access"), "{r}");
+    assert_eq!(lines[1..lines.len() - 1].join("\n"), want, "{r}");
+    assert_eq!(
+        lines[lines.len() - 1],
+        "refused by b: nothing was started; the command above runs it"
+    );
     assert!(!message.contains("approve-all") && !message.contains("itself"), "{r}");
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -20,6 +20,13 @@ extension PageWebView {
         String(localized: "pages.chromiumMenu.copy", defaultValue: "Copy", bundle: .module)
     }
 
+    /// Ends `menu` with Inspect Element (``PageDeveloperTools``), in either engine. A page that
+    /// refuses probes (``refusesProbes``: a revealed password) never offers it.
+    func appendDeveloperTools(to menu: NSMenu) {
+        guard !refusesProbes else { return }
+        developerTools.append(to: menu, for: self)
+    }
+
     /// A menu item titled `title` that runs `handler` (the item keeps the handler alive).
     public static func menuItem(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
         PageMenuAction.item(title, handler: handler)

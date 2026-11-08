@@ -51,7 +51,9 @@ test("a 5 s turn says Worked for 5s in its time's tooltip, never in front of the
   const markup = renderToStaticMarkup(<TurnFooter row={row} />);
   expect(markup).not.toContain("cv-turn-summary");
   expect(markup).toMatch(/<span class="cv-message-footer-row cv-turn-footer-row"><span class="cv-turn-action-group">/);
-  expect(markup).toMatch(/<time class="cv-turn-time"[^>]*title="Worked for 5s · ↓ 359 out ↑ 328.8K in"/);
+  expect(markup).toMatch(
+    /<time class="cv-turn-time"[^>]*title="Worked for 5s\nOutput 359\nInput across calls 1K\u00a0uncached · 327.8K\u00a0cached"/,
+  );
 });
 
 // Leo, 2026-11-02, on "Worked for" drawn in front of Copy: "this should not be placed in front of
