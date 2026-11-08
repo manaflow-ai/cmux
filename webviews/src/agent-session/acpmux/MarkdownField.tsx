@@ -56,7 +56,7 @@ import { type EditorState, Plugin, Selection, TextSelection } from "@milkdown/ki
 import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
-import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
+import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
 
 /// What the composer drives the field with, in place of a textarea's DOM API.
@@ -387,16 +387,51 @@ const COMMIT_RETURN_MS = 500;
 /** Return or keypad Enter, also when an input method reports its key as "Process". */
 const isReturnKey = (event: KeyboardEvent) =>
   event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
+/// The top-level blocks a prompt's markdown is written block by block from: each writes the same
+/// markdown alone as it does in the document, and the document joins them with one blank line.
+/// A list does not (two lists in a row are written apart), so a document with one is written whole.
+const BLOCKWISE = new Set(["paragraph", "heading", "code_block"]);
+const EMPTY_PARAGRAPH = "<br />";
+/// Each block's markdown, kept by node, apart for a field with placed attachments (their text is
+/// escaped): ProseMirror keeps every block an edit did not touch, so a key writes its own block.
+const blockMarkdown = { plain: new WeakMap<ProseNode, string>(), inline: new WeakMap<ProseNode, string>() };
+
+/** The document's markdown as Milkdown's serializer writes it, from each block's kept markdown
+ * when every block allows it. A key into a 200,000-character prompt then writes one paragraph,
+ * not the whole prompt (Leo, 2026-11-04: interaction cost stays constant as sessions grow). */
+// perf-hot: 2ms composer-draft-typing
+export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) => string, inline: boolean): string {
+  const write = (node: ProseNode) => serialize(inline ? withTextMarksEscaped(node) : node);
+  // The serializer drops an empty paragraph at the end, which alone would write as `<br />`.
+  const last = doc.lastChild;
+  let blockwise = doc.childCount > 1 && !(last?.type.name === "paragraph" && !last.content.size);
+  doc.forEach((block) => {
+    if (!BLOCKWISE.has(block.type.name)) blockwise = false;
+  });
+  if (!blockwise) return write(doc);
+  const kept = inline ? blockMarkdown.inline : blockMarkdown.plain;
+  const parts: string[] = [];
+  doc.forEach((block) => {
+    let markdown = kept.get(block);
+    if (markdown === undefined) {
+      // Alone, an empty paragraph writes nothing; in a document, Milkdown writes it as `<br />`.
+      markdown =
+        block.content.size || block.type.name !== "paragraph"
+          ? write(doc.copy(Fragment.from(block))).replace(/\n+$/, "")
+          : EMPTY_PARAGRAPH;
+      kept.set(block, markdown);
+    }
+    parts.push(markdown);
+  });
+  return `${parts.join("\n\n")}\n`;
+}
+
 /** The document as the prompt's markdown, keeping the spaces typed at its end and the empty reply
  * paragraph needed on restore. A field with placed attachments writes the person's own text shaped
  * like a token escaped (composer/inlineNode.ts withTextMarksEscaped): only its nodes write tokens. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView, inline: boolean): string {
-  const escaped = inline ? withTextMarksEscaped(view.state.doc) : view.state.doc;
-  const written =
-    escaped === view.state.doc
-      ? editor?.action(getMarkdown())
-      : editor?.action((ctx) => ctx.get(serializerCtx)(escaped));
-  const markdown = clean(written ?? "");
+  const serialize = editor?.action((ctx) => ctx.get(serializerCtx));
+  const markdown = clean(serialize ? blockwiseMarkdown(view.state.doc, serialize, inline) : "");
   const { doc, schema } = view.state;
   // The serializer omits the empty typing paragraph Quote in Reply leaves after its block.
   // Keep that boundary in the persisted value: setDocument recreates it from the blank line,
@@ -455,6 +490,18 @@ function typedText(remark: RemarkParser, markdown: string): string {
   const safe = escapeDefinitions(markdown, parsed as unknown as MdNode);
   const tree = remark.runSync(safe === markdown ? parsed : remark.parse(safe), safe) as unknown as MdNode;
   return clean(String(remark.stringify(asWritten(tree) as unknown as Parameters<RemarkParser["stringify"]>[0])));
+}
+
+/** Whether the document holds any text: it stops at the first text node, where the document's
+ * `textContent` would join a long prompt's every character on each key. */
+function hasText(doc: ProseNode): boolean {
+  let found = false;
+  doc.descendants((node) => {
+    if (found) return false;
+    if (node.isText && node.text) found = true;
+    return !found;
+  });
+  return found;
 }
 
 /** The caret's offset inside the first paragraph, else past its end. */
@@ -667,7 +714,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   /// Asks the surface about typed or pasted text first; true when it consumed it.
   const beforeInput = (editorView: EditorView, text: string, paste = false) =>
     latest.current.onBeforeInput?.(text, {
-      empty: editorView.state.doc.textContent === "",
+      empty: !hasText(editorView.state.doc),
       composing: composing.current || editorView.composing,
       paste,
     }) === true;

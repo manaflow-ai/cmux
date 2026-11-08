@@ -1,0 +1,172 @@
+diff --git a/webviews/src/agent-session/acpmux/MarkdownField.tsx b/webviews/src/agent-session/acpmux/MarkdownField.tsx
+index ccc32b6c086..afc7a05dc88 100644
+--- a/webviews/src/agent-session/acpmux/MarkdownField.tsx
++++ b/webviews/src/agent-session/acpmux/MarkdownField.tsx
+@@ -56,7 +56,7 @@ import { type EditorState, Plugin, Selection, TextSelection } from "@milkdown/ki
+ import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
+ import type { EditorView } from "@milkdown/kit/prose/view";
+ import type { RemarkParser } from "@milkdown/kit/transformer";
+-import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
++import { $prose, replaceAll } from "@milkdown/kit/utils";
+ import { FADE_BAND_PX } from "./markdownFieldModel";
+ 
+ /// What the composer drives the field with, in place of a textarea's DOM API.
+@@ -387,16 +387,51 @@ const COMMIT_RETURN_MS = 500;
+ /** Return or keypad Enter, also when an input method reports its key as "Process". */
+ const isReturnKey = (event: KeyboardEvent) =>
+   event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
++/// The top-level blocks a prompt's markdown is written block by block from: each writes the same
++/// markdown alone as it does in the document, and the document joins them with one blank line.
++/// A list does not (two lists in a row are written apart), so a document with one is written whole.
++const BLOCKWISE = new Set(["paragraph", "heading", "code_block"]);
++const EMPTY_PARAGRAPH = "<br />";
++/// Each block's markdown, kept by node, apart for a field with placed attachments (their text is
++/// escaped): ProseMirror keeps every block an edit did not touch, so a key writes its own block.
++const blockMarkdown = { plain: new WeakMap<ProseNode, string>(), inline: new WeakMap<ProseNode, string>() };
++
++/** The document's markdown as Milkdown's serializer writes it, from each block's kept markdown
++ * when every block allows it. A key into a 200,000-character prompt then writes one paragraph,
++ * not the whole prompt (Leo, 2026-11-04: interaction cost stays constant as sessions grow). */
++// perf-hot: 2ms composer-draft-typing
++export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) => string, inline: boolean): string {
++  const write = (node: ProseNode) => serialize(inline ? withTextMarksEscaped(node) : node);
++  // The serializer drops an empty paragraph at the end, which alone would write as `<br />`.
++  const last = doc.lastChild;
++  let blockwise = doc.childCount > 1 && !(last?.type.name === "paragraph" && !last.content.size);
++  doc.forEach((block) => {
++    if (!BLOCKWISE.has(block.type.name)) blockwise = false;
++  });
++  if (!blockwise) return write(doc);
++  const kept = inline ? blockMarkdown.inline : blockMarkdown.plain;
++  const parts: string[] = [];
++  doc.forEach((block) => {
++    let markdown = kept.get(block);
++    if (markdown === undefined) {
++      // Alone, an empty paragraph writes nothing; in a document, Milkdown writes it as `<br />`.
++      markdown =
++        block.content.size || block.type.name !== "paragraph"
++          ? write(doc.copy(Fragment.from(block))).replace(/\n+$/, "")
++          : EMPTY_PARAGRAPH;
++      kept.set(block, markdown);
++    }
++    parts.push(markdown);
++  });
++  return `${parts.join("\n\n")}\n`;
++}
++
+ /** The document as the prompt's markdown, keeping the spaces typed at its end and the empty reply
+  * paragraph needed on restore. A field with placed attachments writes the person's own text shaped
+  * like a token escaped (composer/inlineNode.ts withTextMarksEscaped): only its nodes write tokens. */
+ function promptMarkdown(editor: Editor | undefined, view: EditorView, inline: boolean): string {
+-  const escaped = inline ? withTextMarksEscaped(view.state.doc) : view.state.doc;
+-  const written =
+-    escaped === view.state.doc
+-      ? editor?.action(getMarkdown())
+-      : editor?.action((ctx) => ctx.get(serializerCtx)(escaped));
+-  const markdown = clean(written ?? "");
++  const serialize = editor?.action((ctx) => ctx.get(serializerCtx));
++  const markdown = clean(serialize ? blockwiseMarkdown(view.state.doc, serialize, inline) : "");
+   const { doc, schema } = view.state;
+   // The serializer omits the empty typing paragraph Quote in Reply leaves after its block.
+   // Keep that boundary in the persisted value: setDocument recreates it from the blank line,
+@@ -457,6 +492,18 @@ function typedText(remark: RemarkParser, markdown: string): string {
+   return clean(String(remark.stringify(asWritten(tree) as unknown as Parameters<RemarkParser["stringify"]>[0])));
+ }
+ 
++/** Whether the document holds any text: it stops at the first text node, where the document's
++ * `textContent` would join a long prompt's every character on each key. */
++function hasText(doc: ProseNode): boolean {
++  let found = false;
++  doc.descendants((node) => {
++    if (found) return false;
++    if (node.isText && node.text) found = true;
++    return !found;
++  });
++  return found;
++}
++
+ /** The caret's offset inside the first paragraph, else past its end. */
+ /// Brings a selection the browser changed on its own (not yet told by a selectionchange) into the
+ /// editor's state, as ProseMirror's DOM observer would at that event. Its observer is not public API.
+@@ -667,7 +714,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
+   /// Asks the surface about typed or pasted text first; true when it consumed it.
+   const beforeInput = (editorView: EditorView, text: string, paste = false) =>
+     latest.current.onBeforeInput?.(text, {
+-      empty: editorView.state.doc.textContent === "",
++      empty: !hasText(editorView.state.doc),
+       composing: composing.current || editorView.composing,
+       paste,
+     }) === true;
+diff --git a/webviews/src/agent-session/acpmux/emojiShortcodes.ts b/webviews/src/agent-session/acpmux/emojiShortcodes.ts
+index a92063c7aac..22396c502e7 100644
+--- a/webviews/src/agent-session/acpmux/emojiShortcodes.ts
++++ b/webviews/src/agent-session/acpmux/emojiShortcodes.ts
+@@ -121,11 +121,13 @@ function inCode(markdown: string, at: number): boolean {
+ /// The emoji token the caret ends in the prompt's markdown, or undefined. A token starts a word, so
+ /// a time (`10:30`), a URL (`https://`) or `key:value` never opens the menu; neither does code.
+ export function emojiTrigger(markdown: string, at: number): EmojiTrigger | undefined {
+-  const before = markdown.slice(0, at);
++  // A token never spans a line, so only the caret's line is read: per key, not per draft.
++  const line = markdown.lastIndexOf("\n", at - 1) + 1;
++  const before = markdown.slice(line, at);
+   const found = SPACE.exec(before);
+   if (!found) return undefined;
+   const raw = found[1]!;
+-  const start = before.length - raw.length;
++  const start = line + before.length - raw.length;
+   const token = unescape(raw);
+   const emoticon = Object.hasOwn(EMOTICONS, token);
+   const code = /^:([a-z0-9_+-]+)$/i.exec(token)?.[1];
+diff --git a/webviews/src/agent-session/acpmux/mentionMenuModel.ts b/webviews/src/agent-session/acpmux/mentionMenuModel.ts
+index c32fd25f45f..481be42e18d 100644
+--- a/webviews/src/agent-session/acpmux/mentionMenuModel.ts
++++ b/webviews/src/agent-session/acpmux/mentionMenuModel.ts
+@@ -13,12 +13,14 @@ const MENTION_DEBOUNCE_MS = 80;
+ /// email address) or inside an inline code span is not a mention. The prompt's markdown writes a
+ /// space after an escaped character as an entity (`\_\_init\_\_.py&#x20;`), which ends the word too.
+ export function mentionQuery(markdown: string, at: number): { start: number; query: string } | undefined {
+-  const before = markdown.slice(0, at);
++  // A mention never spans a line, so only the caret's line is read: per key, not per draft.
++  const line = markdown.lastIndexOf("\n", at - 1) + 1;
++  const before = markdown.slice(line, at);
+   const found = /(^|\s|&#x20;|&#32;|&nbsp;)@((?:\\.|(?!&#x20;|&#32;|&nbsp;)[^\s\\@])*)$/i.exec(before);
+   if (!found) return undefined;
+-  const start = before.length - found[2]!.length - 1;
++  const start = line + before.length - found[2]!.length - 1;
+   // An odd number of backticks before it: inside a code span.
+-  if ((before.slice(0, start).match(/`/g)?.length ?? 0) % 2 === 1) return undefined;
++  if ((markdown.slice(0, start).match(/`/g)?.length ?? 0) % 2 === 1) return undefined;
+   return { start, query: found[2]!.replace(/\\(.)/g, "$1") };
+ }
+ 
+@@ -26,13 +28,25 @@ export function mentionQuery(markdown: string, at: number): { start: number; que
+ /// backslash escape and a character reference (the serializer's `&#x20;`) each show as one, and so
+ /// does an attachment placed in the text: the editor counts its atom as one place, the markdown
+ /// holds its whole token (attachments.ts inlineToken).
++/// The prompt's every render asks this for the caret, so it runs over the plain stretches between
++/// escapes natively: a caret at the end of a 200,000-character draft took one regex per character.
++const ESCAPE_START = /[\\&\uFFFC]/g;
++const ESCAPE = /\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);|\uFFFC[\w.~%-]+\uFFFC/iy;
++// perf-hot: 1ms composer-draft-typing
+ export function markdownOffset(markdown: string, shown: number): number {
+   let index = 0;
+-  for (let count = 0; count < shown && index < markdown.length; count++) {
+-    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);|\uFFFC[\w.~%-]+\uFFFC)/i.exec(
+-      markdown.slice(index),
+-    );
+-    index += escape ? escape[0].length : 1;
++  let count = 0;
++  while (count < shown && index < markdown.length) {
++    // Only `\`, `&` and U+FFFC can start an escape: every character before the next one shows as one.
++    ESCAPE_START.lastIndex = index;
++    const next = ESCAPE_START.exec(markdown)?.index ?? markdown.length;
++    if (next - index >= shown - count) return index + (shown - count);
++    count += next - index;
++    index = next;
++    if (index >= markdown.length) break;
++    ESCAPE.lastIndex = index;
++    index += ESCAPE.exec(markdown)?.[0].length ?? 1;
++    count += 1;
+   }
+   return index;
+ }
