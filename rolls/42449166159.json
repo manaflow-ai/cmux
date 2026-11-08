@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42449166159",
+  "recorded_at": "2026-11-08T05:09:47Z",
+  "reason": "cmux-tui b47949eb7779 changes the image's cmux-tui (pinned 8fbc64d4be04)",
+  "dry_run": false,
+  "cmux_tui": "b47949eb777964f1041c733d6fe11fd8899ec71b",
+  "fixes": [
+    {
+      "sha": "b47949eb777964f1041c733d6fe11fd8899ec71b",
+      "mergedAt": "2026-11-07T20:47:42-08:00",
+      "subject": "Share links: cold launch opens signed in, invites name their build, one scheme grammar (#38185)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T05:09:47Z",
+    "snapshot_id": "sh-a5942d06e7794757a89fe3ce335525b5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42449166159): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5a51700c71806e4690568ccf867bc9edf8265d93",
+    "image": "cloud-native-auto-b47949eb-42449166159-1",
+    "revision": "ci-42449166159-1",
+    "at": "2026-11-08T05:09:47Z"
+  },
+  "rolled_back": false
+}
