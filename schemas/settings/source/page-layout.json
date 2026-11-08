@@ -31,6 +31,7 @@
     {"id": "contextMenus", "note": "Settings > Menus: every right-click menu's rows, arranged by the person (ContextMenuLayout)."},
     {"id": "server", "note": "Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet address (plans/cmux-next/server-updates-DESIGN.md section 10)."},
     {"id": "cloudEnvironments", "note": "Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`."},
+    {"id": "tailnet", "note": "Settings > Server > This Mac on Your Tailnet: sign this Mac's own tailnet node in or out (acpmux's embedded node, `_acpmux/tailnet/*`, relayed by the app on its person connection); `cmux.settings.tailnet.*`. Shown only where acpmux answers."},
     {"id": "sharedLinks", "note": "Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks."}
   ],
   "section_actions": {
@@ -409,7 +410,7 @@
           "symbol": "server.rack",
           "note": "The servers behind the app (cmux-tui, acpmux): status, versions, restart when one is older.",
           "groups": [],
-          "lead": ["server"]
+          "lead": ["server", "tailnet"]
         }
       ]
     },

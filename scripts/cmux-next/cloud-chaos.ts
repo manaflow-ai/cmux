@@ -251,7 +251,18 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         out.push({ fault: f.name, outcome: "fail", recover_ms: null, carrier: "", turn: "", detail: `the turn did not start: ${sent.stdout.slice(-200)}` });
         continue;
       }
-      await sleep(300);
+      // Mid-turn: the fault goes in only once the turn shows in the session's history. A stub reply can end before it
+      // is ever seen running; that fault is then reported as after the turn, not as mid-turn.
+      let state = { started: 0, running: false, status: "", detail: "" };
+      for (const until = Date.now() + 60_000; Date.now() < until; await sleep(500)) {
+        state = await turnState(ctx, marker).catch(() => state);
+        if (state.started > 0) break;
+      }
+      if (state.started === 0) {
+        out.push({ fault: f.name, outcome: "fail", recover_ms: null, carrier: "", turn: "", detail: "the turn was sent but never showed in the session's history within 60 s" });
+        continue;
+      }
+      const when = state.running ? "mid-turn" : `after the turn (${state.status})`;
       const dialsBefore = carrier.dials;
       const resumesBefore = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length;
       // The cause starts when the command runs, which is after this moment: timing from here makes recovery an upper
@@ -259,7 +270,8 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const injectedAt = Date.now();
       const injected = await ctx.exec(`${ctx.guest}${f.command}`, f.secs * 1000 + 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
       if (!/@@ok/.test(injected.stdout)) {
-        out.push({ fault: f.name, outcome: "not run", recover_ms: null, carrier: "", turn: "", detail: `could not inject: ${(injected.stdout + injected.stderr).trim().slice(-200)}` });
+        // A fault meant to run that could not be injected fails the leg: a probe must never read ok on a fault it skipped.
+        out.push({ fault: f.name, outcome: "fail", recover_ms: null, carrier: "", turn: "", detail: `could not inject: ${(injected.stdout + injected.stderr).trim().slice(-200)}` });
         continue;
       }
       const healed = injectedAt + f.secs * 1000;
@@ -276,7 +288,7 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         recover_ms: recover,
         carrier: how,
         turn: turn.text,
-        detail: `${recover === null ? `no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}`,
+        detail: `injected ${when}; ${recover === null ? `no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}`,
       };
       ctx.log?.(`chaos: ${f.name}: ${result.detail}`);
       out.push(result);
