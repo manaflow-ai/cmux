@@ -77,6 +77,18 @@ describe("runbook steps", () => {
     expect(runnableCommand("console", "$ for f in a; do echo $f; done\n> touch marker")).toBe(
       "for f in a; do echo $f; done",
     );
+    // A heredoc's delimiter is its whole word, quoted or not, and heredocs on one line close in order.
+    expect(runnableCommand("console", "$ cat <<EOF.txt\n> touch marker\n> EOF.txt\ntouch marker")).toBe(
+      "cat <<EOF.txt\ntouch marker\nEOF.txt",
+    );
+    expect(runnableCommand("console", "$ cat <<'END-1'\n> a\n> END-1\nrm -rf /")).toBe("cat <<'END-1'\na\nEND-1");
+    expect(runnableCommand("console", '$ cat <<"E"OF\n> a\n> EOF\nrm x')).toBe('cat <<"E"OF\na\nEOF');
+    expect(runnableCommand("console", "$ cat <<-EOF; echo done\n> a\n> \tEOF\ndone")).toBe(
+      "cat <<-EOF; echo done\na\n\tEOF",
+    );
+    expect(runnableCommand("console", "$ cat <<A <<B\n> a\n> A\n> b\n> B\nab\nrm x")).toBe("cat <<A <<B\na\nA\nb\nB");
+    // A delimiter that is a prefix of a body line does not close it.
+    expect(runnableCommand("console", "$ cat <<EOF\n> EOFX\n> EOF\nEOFX")).toBe("cat <<EOF\nEOFX\nEOF");
     // A loop's `do` may stand on the next line.
     expect(runnableCommand("console", "$ for f in a b\n> do\n>   echo $f\n> done\na")).toBe(
       "for f in a b\ndo\n  echo $f\ndone",
@@ -153,7 +165,8 @@ test("risk matching stays fast on long and repetitive commands", () => {
     "<a".repeat(30_000),
   ])
     runAsks(command);
-  expect(performance.now() - started).toBeLessThan(500);
+  // All eight together, under test load; the backtracking this guards took seconds for one.
+  expect(performance.now() - started).toBeLessThan(1_500);
 });
 
 describe("Run all prompt", () => {

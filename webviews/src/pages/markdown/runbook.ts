@@ -43,7 +43,7 @@ export function runnableCommand(language: string, text: string): string {
   for (const line of lines) {
     const prompted = /^\s*>\s?(.*)$/.exec(line);
     const continued =
-      open.quote !== null || open.heredoc !== null || open.escaped || ((open.pipe || open.depth > 0) && !!prompted);
+      open.quote !== null || open.heredocs.length > 0 || open.escaped || ((open.pipe || open.depth > 0) && !!prompted);
     const prompt = continued ? null : /^\s*[$%]\s+(.*)$/.exec(line);
     if (!prompt && !continued) {
       open = CLOSED;
@@ -60,7 +60,8 @@ export function runnableCommand(language: string, text: string): string {
  * `\\` or an operator, or the end of `depth` open compound commands. */
 interface ShellOpen {
   quote: "'" | '"' | null;
-  heredoc: string | null;
+  /** The delimiters of the heredocs still open, first to close first. */
+  heredocs: readonly string[];
   escaped: boolean;
   pipe: boolean;
   depth: number;
@@ -68,7 +69,7 @@ interface ShellOpen {
   position: boolean;
 }
 
-const CLOSED: ShellOpen = { quote: null, heredoc: null, escaped: false, pipe: false, depth: 0, position: true };
+const CLOSED: ShellOpen = { quote: null, heredocs: [], escaped: false, pipe: false, depth: 0, position: true };
 /** Reserved words in command position that open and close a compound command (a loop opens at its
  * keyword, so `do` may stand on the next line), and those after which the next word is again in
  * command position. */
@@ -77,10 +78,11 @@ const CLOSES = new Set(["fi", "esac", "done", "}"]);
 const LEADS = new Set(["then", "else", "elif", "do", "while", "until", "if", "!", "{", "time"]);
 
 function shellOpen(line: string, before: ShellOpen): ShellOpen {
-  if (before.heredoc !== null)
-    return { ...before, heredoc: line.trim() === before.heredoc ? null : before.heredoc, escaped: false };
+  // A heredoc line is its body. Trimmed, it may close a little early (the shell would wait then), never late.
+  if (before.heredocs.length > 0)
+    return { ...before, heredocs: line.trim() === before.heredocs[0] ? before.heredocs.slice(1) : before.heredocs };
   let quote = before.quote;
-  let heredoc: string | null = null;
+  const heredocs = [...before.heredocs];
   let depth = before.depth;
   let escaped = false;
   // The current unquoted word, whether a word may be a reserved word here, and the last operator.
@@ -130,10 +132,10 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
       // `<<<` is a here-string, not a heredoc.
       if (line[at + 2] === "<") at += 2;
       else {
-        const match = /^<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1/.exec(line.slice(at));
-        if (match) {
-          heredoc = match[2]!;
-          at += match[0].length - 1;
+        const delimiter = heredocWord(line, at + (line[at + 2] === "-" ? 3 : 2));
+        if (delimiter) {
+          heredocs.push(delimiter.word);
+          at = delimiter.end - 1;
         } else at++;
       }
       last = "";
@@ -151,12 +153,34 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
   endWord();
   return {
     quote,
-    heredoc,
+    heredocs,
     escaped: quote === null && escaped,
     pipe: quote === null && !escaped && (last === "|" || last === "&&"),
     depth,
     position: commandPosition,
   };
+}
+
+/** A heredoc's delimiter after its `<<` (from `from`): the whole shell word, its quotes and `\\`
+ * escapes removed, up to unquoted whitespace or an operator; `end` is the index after it. Null when no
+ * word follows (the shell's syntax error), so nothing is read as a body. */
+function heredocWord(line: string, from: number): { word: string; end: number } | null {
+  let at = from;
+  while (line[at] === " " || line[at] === "\t") at++;
+  let word = "";
+  let quote: string | null = null;
+  for (; at < line.length; at++) {
+    const char = line[at]!;
+    if (quote) {
+      if (char === quote) quote = null;
+      else if (char === "\\" && quote === '"' && at + 1 < line.length) word += line[++at];
+      else word += char;
+    } else if (char === "'" || char === '"') quote = char;
+    else if (char === "\\" && at + 1 < line.length) word += line[++at];
+    else if (/[\s;&|<>()]/.test(char)) break;
+    else word += char;
+  }
+  return word && !quote ? { word, end: at } : null;
 }
 
 /** Why the agent, or the Run button, asks before a step runs. */
