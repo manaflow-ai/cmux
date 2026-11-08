@@ -612,31 +612,30 @@ pub(super) fn copy_folder_with_progress(
         // Each file's checks are round trips too: the app's idle deadline hears them.
         progress();
         // The folder is checked again before each file, so a folder swapped
-        // in while copying stops the copy, and a file reached through a
-        // symlink swapped in after listing stays.
+        // in while copying stops the copy.
         if !unmoved() {
             anyhow::bail!("{} changed while it was sent; the rest was not sent", local.display());
         }
-        let path = local.join(&relative);
-        if !local::below(&relative)
-            || !path.starts_with(local)
-            || !std::fs::canonicalize(&path).is_ok_and(|real| real == path)
-        {
-            skipped = skipped.saturating_add(1);
-            continue;
-        }
-        // Held to the file it is now: a folder on its way swapped for a
-        // symlink before it is read stops its read ([`open`]).
-        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+        // Reached one name at a time with no symlink followed, and held to
+        // the file it is now: a folder on its way swapped for a symlink, now
+        // or before it is read, reads nothing outside ([`open`]).
+        let checked =
+            if local::below(&relative) { place::open_beneath(local, &relative).ok() } else { None };
+        let Some((_, found, root)) = checked else {
             skipped = skipped.saturating_add(1);
             continue;
         };
-        let file = {
-            use std::os::unix::fs::MetadataExt as _;
-            LocalFile {
-                source: Source::Checked(path.clone(), (meta.dev(), meta.ino())),
-                permissions: file.permissions,
-            }
+        if root != identity {
+            anyhow::bail!("{} changed while it was sent; the rest was not sent", local.display());
+        }
+        let file = LocalFile {
+            source: Source::Checked(local::Checked {
+                root: local.to_path_buf(),
+                relative: relative.clone(),
+                root_identity: identity,
+                identity: found,
+            }),
+            permissions: file.permissions,
         };
         let at = format!("{target}/{relative}");
         let (parent, _) = remote::split(&at)?;
@@ -1551,10 +1550,14 @@ impl Listings {
 fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     Ok(match &file.source {
         Source::File(path) => Box::new(open_regular(path)?.0),
-        Source::Checked(path, identity) => {
-            let (opened, now) = open_regular(path)?;
-            if now != *identity {
-                anyhow::bail!("{} changed after it was checked", path.display());
+        Source::Checked(checked) => {
+            let (opened, identity, root) = place::open_beneath(&checked.root, &checked.relative)?;
+            if identity != checked.identity || root != checked.root_identity {
+                anyhow::bail!(
+                    "{} in {} changed after it was checked",
+                    checked.relative,
+                    checked.root.display()
+                );
             }
             Box::new(opened)
         }
@@ -1581,7 +1584,10 @@ fn open_regular(path: &Path) -> anyhow::Result<(std::fs::File, (u64, u64))> {
 
 fn size(file: &LocalFile) -> anyhow::Result<u64> {
     Ok(match &file.source {
-        Source::File(path) | Source::Checked(path, _) => std::fs::metadata(path)?.len(),
+        Source::File(path) => std::fs::metadata(path)?.len(),
+        Source::Checked(checked) => {
+            place::open_beneath(&checked.root, &checked.relative)?.0.metadata()?.len()
+        }
         Source::Bytes(bytes) => bytes.len() as u64,
     })
 }
@@ -1604,7 +1610,7 @@ fn hash(file: &LocalFile) -> anyhow::Result<String> {
 mod checked_source_tests {
     use std::os::unix::fs::MetadataExt as _;
 
-    use super::{LocalFile, Source, open};
+    use super::{LocalFile, Source, local, open};
 
     /// A checked file whose folder was swapped for a symlink to another
     /// folder holding a file of the same name is never read.
@@ -1616,10 +1622,18 @@ mod checked_source_tests {
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(inside.join("app.toml"), "mine\n").unwrap();
         std::fs::write(outside.join("app.toml"), "secret\n").unwrap();
-        let path = inside.join("app.toml");
-        let meta = std::fs::symlink_metadata(&path).unwrap();
+        let root = dir.path().join("pick");
+        let (meta, top) = (
+            std::fs::metadata(inside.join("app.toml")).unwrap(),
+            std::fs::metadata(&root).unwrap(),
+        );
         let file = LocalFile {
-            source: Source::Checked(path, (meta.dev(), meta.ino())),
+            source: Source::Checked(local::Checked {
+                root,
+                relative: "docs/app.toml".into(),
+                root_identity: (top.dev(), top.ino()),
+                identity: (meta.dev(), meta.ino()),
+            }),
             permissions: 0o644,
         };
         assert!(open(&file).is_ok());

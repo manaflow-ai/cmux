@@ -44,12 +44,21 @@ use super::skips::{self, Skips, Why};
 #[derive(Clone, Debug)]
 pub(super) enum Source {
     File(PathBuf),
-    /// A file an upload checked, held to the device and inode it had then:
-    /// opened only while it is still that file, so a folder on its way
-    /// swapped for a symlink since reads nothing outside.
-    Checked(PathBuf, (u64, u64)),
+    /// A file an upload checked below its folder, opened one name at a time
+    /// with no symlink followed, and only while it and the folder are still
+    /// the device and inode they were when checked.
+    Checked(Checked),
     /// Bytes made here (a cleaned git config or reflog).
     Bytes(Vec<u8>),
+}
+
+/// A file an upload checked ([`Source::Checked`]).
+#[derive(Clone, Debug)]
+pub(super) struct Checked {
+    pub root: PathBuf,
+    pub relative: String,
+    pub root_identity: (u64, u64),
+    pub identity: (u64, u64),
 }
 
 /// One file to push, by its path relative to the folder.

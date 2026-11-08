@@ -277,6 +277,36 @@ impl Dir {
     fn dup(&self) -> io::Result<Self> {
         Ok(Self(self.0.try_clone()?))
     }
+
+    /// This folder's device and inode.
+    fn identity(&self) -> io::Result<(u64, u64)> {
+        // SAFETY: zeroed stat is a valid out value.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: a valid descriptor and out pointer; the result is checked.
+        check(unsafe { libc::fstat(self.0.as_raw_fd(), &mut stat) })?;
+        Ok((widen_u64(stat.st_dev), widen_u64(stat.st_ino)))
+    }
+}
+
+/// The regular file `relative` under the folder `root`, opened one name at
+/// a time with `O_NOFOLLOW`, so no symlink anywhere below `root` is
+/// followed; with the file's device and inode and the root's.
+pub(super) fn open_beneath(
+    root: &Path,
+    relative: &str,
+) -> anyhow::Result<(File, (u64, u64), (u64, u64))> {
+    use std::os::unix::fs::MetadataExt as _;
+    let dir = Dir::open(root)?;
+    let root_identity = dir.identity()?;
+    let Some((parent, name)) = parent_of(&dir, relative)? else {
+        bail!("{relative} is gone from {}", root.display());
+    };
+    let file = parent.open_file(&name)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        bail!("{relative} in {} is not a regular file", root.display());
+    }
+    Ok((file, (meta.dev(), meta.ino()), root_identity))
 }
 
 /// What a file here must still be for the pull to replace or delete it:
