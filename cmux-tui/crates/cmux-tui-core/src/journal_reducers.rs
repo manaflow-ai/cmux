@@ -354,8 +354,8 @@ pub(crate) struct HookFence {
     pub(crate) ended: bool,
     /// Observed time of the latest end of `session_id` on this terminal. It
     /// is the incarnation boundary: an event of this session observed at or
-    /// before it belongs to an ended incarnation, and a `SessionStart`
-    /// observed after it resumes the id as a new incarnation. It survives the
+    /// before it belongs to an ended incarnation, and one observed after it
+    /// resumes the id as a new incarnation. It survives the
     /// resume and resets when another session takes the terminal.
     #[serde(default)]
     pub(crate) ended_at_ms: Option<u64>,
@@ -449,10 +449,13 @@ impl HookFence {
         let observed_after_end = after_end == Some(true);
         let accepted = if fence.session_id == session_id {
             if fence.ended {
-                // Only a start resumes an ended id (`claude --resume`), and
-                // not one observed before that end: that start belongs to the
-                // ended incarnation.
-                is_session_start && !observed_before_end
+                // A start resumes an ended id (`claude --resume`), but not
+                // one observed before that end: that start belongs to the
+                // ended incarnation. So does any event observed after the
+                // end: a session the screen saw leave the foreground
+                // (Ctrl+Z) comes back with `fg` and no start, and an agent
+                // that really ended emits nothing after its end.
+                observed_after_end || (is_session_start && !observed_before_end)
             } else {
                 // A live resumed incarnation rejects events its ended
                 // predecessor emitted before it ended.
@@ -576,6 +579,11 @@ impl RosterEntry {
 pub(crate) enum RosterDelta {
     Upsert { terminal_id: String, entry: RosterEntry },
     Remove { terminal_id: String, source: AgentSource },
+    /// The screen proved a hook session's agent gone with no `SessionEnd`
+    /// (the plugin's exit at journal `sequence`, observed at
+    /// `observed_at_ms`): the roster ended `session_id`'s fence and dropped
+    /// its row, and the hook projector ends its fence and row the same way.
+    EndHookSession { terminal_id: String, session_id: String, sequence: u64, observed_at_ms: u64 },
 }
 
 /// Live-agent roster: terminal public id to the agent's last reported
@@ -958,15 +966,38 @@ impl AgentRoster {
                                 _ => false,
                             }))
             });
+            // The screen proved the hook session's agent gone from the
+            // foreground, which no `SessionEnd` will say (a killed harness,
+            // or one suspended with Ctrl+Z): its session ends here, at the
+            // exit's observation, so another session's hooks take the
+            // terminal, this session's resume only when observed after the
+            // exit (`fg`), and a late hook from before the exit is refused.
+            // The hook projector ends its own fence the same way
+            // ([`RosterDelta::EndHookSession`]).
+            if screen_ended_hook_row
+                && let Some(fence) =
+                    self.hook_fences.get(terminal_id).filter(|fence| !fence.ended).cloned()
+            {
+                let session_id = fence.session_id.clone();
+                self.hook_fences.insert(
+                    terminal_id.to_string(),
+                    HookFence::next(
+                        Some(&fence),
+                        session_id.clone(),
+                        event.sequence.max(fence.sequence),
+                        true,
+                        Some(updated_at_ms),
+                    ),
+                );
+                self.entries.remove(terminal_id);
+                return vec![RosterDelta::EndHookSession {
+                    terminal_id: terminal_id.to_string(),
+                    session_id,
+                    sequence: event.sequence,
+                    observed_at_ms: updated_at_ms,
+                }];
+            }
             return if owned_by_event || screen_ended_hook_row {
-                // The screen proved the hook session's agent gone from the
-                // foreground, which no `SessionEnd` will say (a killed
-                // harness, or one suspended with Ctrl+Z): its fence goes, so
-                // the next hook takes the terminal, another session's instead
-                // of being refused, or this session's after `fg`.
-                if screen_ended_hook_row {
-                    self.hook_fences.remove(terminal_id);
-                }
                 self.entries.remove(terminal_id);
                 vec![RosterDelta::Remove { terminal_id: terminal_id.to_string(), source }]
             } else {

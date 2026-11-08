@@ -606,6 +606,14 @@ impl Mux {
             RosterDelta::Remove { terminal_id, source } => {
                 (terminal_id, AgentState::Done, source, None, None)
             }
+            RosterDelta::EndHookSession { terminal_id, session_id, sequence, observed_at_ms } => {
+                return self.end_hook_session_from_screen(
+                    &terminal_id,
+                    &session_id,
+                    sequence,
+                    observed_at_ms,
+                );
+            }
         };
         let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return };
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
@@ -640,6 +648,66 @@ impl Mux {
             eprintln!(
                 "cmux-tui: agent projection update for {terminal_id} ({kind}) failed: {error}"
             );
+        }
+    }
+
+    /// End a hook session the screen saw leave the foreground with no
+    /// `SessionEnd` ([`crate::journal_reducers::RosterDelta::EndHookSession`]),
+    /// as its `SessionEnd` would: commit its done state with the ended fence,
+    /// which deletes the public row, then end the projector's fence so the
+    /// next session's hooks take the terminal. Only when the fence is still
+    /// that session's and no hook after the exit (journal `sequence`) was
+    /// projected yet: the projector runs at ingress, ahead of this fold, and a
+    /// later hook it applied is newer truth than the exit.
+    fn end_hook_session_from_screen(
+        &self,
+        terminal_id: &str,
+        session_id: &str,
+        sequence: u64,
+        observed_at_ms: u64,
+    ) {
+        let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) else { return };
+        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
+        let mut fences = self.agent_hook_fences.lock().unwrap();
+        let Some(fence) = fences.get(&terminal_id).cloned().filter(|fence| {
+            fence.session_id == session_id && !fence.ended && fence.sequence < sequence
+        }) else {
+            return;
+        };
+        let ended = HookFence::next(
+            Some(&fence),
+            fence.session_id.clone(),
+            sequence,
+            true,
+            Some(observed_at_ms),
+        );
+        let hook_state = crate::workspace_registry::AgentHookProjectionState {
+            agent_session_id: ended.session_id.clone(),
+            applied_sequence: ended.sequence,
+            ended: true,
+            ended_at_ms: ended.ended_at_ms,
+        };
+        if let Err(error) = self.report_agent_with_sequence_lock(
+            surface,
+            AgentState::Done,
+            AgentSource::Hook,
+            Some(format!("cmux-hook-ended:{sequence}")),
+            true,
+            Some(hook_state),
+            None,
+            AgentReportOrigin::RosterFold,
+            None,
+        ) {
+            eprintln!("cmux-tui: ending the hook session of {terminal_id} failed: {error}");
+            return;
+        }
+        fences.insert(terminal_id.clone(), ended);
+        drop(fences);
+        // As a hook's `SessionEnd` does: the done state was committed and
+        // broadcast, and the live record goes.
+        let mut records = self.agent_records.lock().unwrap();
+        if records.get(&terminal_id).is_some_and(|record| record.state == AgentState::Done) {
+            records.remove(&terminal_id);
         }
     }
 
