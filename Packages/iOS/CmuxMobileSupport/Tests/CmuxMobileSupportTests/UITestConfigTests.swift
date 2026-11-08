@@ -480,4 +480,23 @@ import Testing
         ).pairingScannerPreviewEnabled == false)
     }
     #endif
+
+    @Test func conversationLabIsRememberedAcrossPlainLaunches() {
+        #if DEBUG
+        let launch = UITestConfig.conversationLab(environment: ["CMUX_UITEST_CONVERSATION_LAB": "ws://h:1/ws?conversation=group"], remembered: nil)
+        #expect(launch.url == "ws://h:1/ws?conversation=group")
+        #expect(launch.remember == .some("ws://h:1/ws?conversation=group"))
+        let relaunch = UITestConfig.conversationLab(environment: [:], remembered: "ws://h:1/ws?conversation=group")
+        #expect(relaunch.url == "ws://h:1/ws?conversation=group")
+        #expect(relaunch.remember == nil)
+        #endif
+    }
+
+    @Test func conversationLabOffForgetsTheRememberedServer() {
+        #if DEBUG
+        let off = UITestConfig.conversationLab(environment: ["CMUX_UITEST_CONVERSATION_LAB": "off"], remembered: "ws://h:1/ws")
+        #expect(off.url == nil)
+        #expect(off.remember == .some(nil))
+        #endif
+    }
 }
