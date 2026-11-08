@@ -75,15 +75,18 @@ if [ "$head" != "$base" ]; then echo "HEAD moved from $base to $head" >&2; exit 
 real=$(git rev-parse --git-path index) || exit 3
 s=$(mktemp -d) || exit 2
 trap 'rm -rf -- "$s"' EXIT
-if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2; fi
 GIT_INDEX_FILE="$s/index"; export GIT_INDEX_FILE
+# With no index, the scratch one starts at HEAD: an empty one would carry every tracked file
+# the untracked list leaves out (a tracked `.env`) as a deletion.
+if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2; else git read-tree HEAD || exit 3; fi
 # Every path is a file name, never pathspec magic: `:(glob)**` must not add the secrets left out.
 GIT_LITERAL_PATHSPECS=1; export GIT_LITERAL_PATHSPECS
 g() { git -c core.fsmonitor=false -c core.quotepath=false "$@"; }
-g add --update -- . || exit 3
+# `--sparse`: a sparse checkout's changes inside its cone carry like any other.
+g add --sparse --update -- . || exit 3
 if [ -n "$keep" ]; then
   printf '%s' "$keep" | { base64 -d 2>/dev/null || base64 -D; } >"$s/keep" || exit 2
-  g add --pathspec-from-file="$s/keep" --pathspec-file-nul -- || exit 3
+  g add --sparse --pathspec-from-file="$s/keep" --pathspec-file-nul -- || exit 3
 fi
 tree=$(g write-tree) || exit 3
 g diff --name-only -z --no-renames "$base" "$tree" >"$s/names" || exit 3
