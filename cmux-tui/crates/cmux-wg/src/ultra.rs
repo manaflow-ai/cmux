@@ -30,9 +30,10 @@
 //! starts with [`TAG`], which no WireGuard or STUN message starts with: a
 //! peer without ultra mode hands it to boringtun, which refuses it, so turning
 //! the mode on never breaks an older peer, it only wastes the parity bytes.
-//! Parity itself is not authenticated, so a receiver acts on parity, and keeps
-//! data datagrams for rebuilding, only from an origin (path and address)
-//! WireGuard has already authenticated a datagram from. Rebuilding is
+//! Parity itself is not authenticated, so a receiver acts on parity only from
+//! an origin (path and address) WireGuard has already authenticated a datagram
+//! from, and keeps a data datagram (received or rebuilt) for rebuilding only
+//! once WireGuard has authenticated that datagram itself. Rebuilding is
 //! automatic: any side rebuilds from trusted parity, whatever its own mode.
 //! Sending repair data is not: each side sends parity or copies only in the
 //! mode it was started with, because the parity header is not authenticated
@@ -419,6 +420,10 @@ pub(crate) struct UltraUnderlay {
     trusted: Vec<Origin>,
     /// Rebuilt datagrams for the tunnel, with where their parity came from.
     rebuilt: VecDeque<(Vec<u8>, Origin)>,
+    /// The data datagram just handed to the tunnel: kept for rebuilding only
+    /// once WireGuard authenticates it, so a forged one cannot move a
+    /// session's counter epoch or fill the kept set.
+    staged: Option<([u8; 4], u64, Vec<u8>)>,
     counters: Arc<UltraCounters>,
 }
 
@@ -438,6 +443,7 @@ impl UltraUnderlay {
             pending: VecDeque::new(),
             trusted: Vec::new(),
             rebuilt: VecDeque::new(),
+            staged: None,
             counters,
         }
     }
@@ -497,9 +503,12 @@ impl UltraUnderlay {
         priority: Option<Priority>,
         k: u8,
     ) {
+        // One class per group: parity takes its group's class, so repair for
+        // input never waits behind bulk data, and never hangs on it arriving.
         let follows = self.group.as_ref().is_some_and(|group| {
             group.index == index
                 && group.first.wrapping_add(group.ciphertexts.len() as u64) == counter
+                && (priority.is_none() || group.priority.is_none() || group.priority == priority)
         });
         if !follows {
             self.close_group();
@@ -531,6 +540,18 @@ impl UltraUnderlay {
         self.trusted.contains(&origin)
     }
 
+    /// Hold a data datagram handed to the tunnel until WireGuard says whether
+    /// it is genuine (see [`Underlay::authenticated`]).
+    fn stage(&mut self, datagram: &[u8]) {
+        if !self.decoding {
+            return;
+        }
+        if let Some((index, counter)) = data_id(datagram) {
+            let ciphertext = datagram.get(WG_DATA_HEADER..).unwrap_or_default();
+            self.staged = Some((index, counter, ciphertext.to_vec()));
+        }
+    }
+
     fn on_parity(&mut self, datagram: &[u8], origin: Origin) {
         // Parity is not authenticated: from anyone else it could make this
         // side buffer datagrams or spend bytes on parity of its own.
@@ -555,14 +576,11 @@ impl UltraUnderlay {
     }
 
     fn on_rebuilt(&mut self, rebuilt: Vec<u8>, origin: Origin) {
-        if let Some((index, counter)) = data_id(&rebuilt) {
-            self.received.keep(index, counter, rebuilt.get(WG_DATA_HEADER..).unwrap_or_default());
-        }
         UltraCounters::add(&self.counters.recovered, 1);
         self.rebuilt.push_back((rebuilt, origin));
     }
 
-    /// A data datagram arrived from a trusted origin: keep it, and retry the
+    /// WireGuard authenticated a data datagram: keep it, and retry the
     /// waiting parities whose subgroup it belongs to.
     fn on_data(&mut self, index: [u8; 4], counter: u64, ciphertext: &[u8]) {
         // The session's first datagram fixes its counter epoch, which a
@@ -643,10 +661,13 @@ impl Underlay for UltraUnderlay {
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
+        // Whatever the tunnel received last was authenticated by now, or not.
+        self.staged = None;
         loop {
             if let Some((datagram, origin)) = self.rebuilt.pop_front() {
                 if let Some(slot) = buffer.get_mut(..datagram.len()) {
                     slot.copy_from_slice(&datagram);
+                    self.stage(&datagram);
                     return Poll::Ready(Ok(Received { len: datagram.len(), origin }));
                 }
                 continue;
@@ -660,12 +681,7 @@ impl Underlay for UltraUnderlay {
                 self.on_parity(&datagram, received.origin);
                 continue;
             }
-            if self.decoding
-                && self.trusts(received.origin)
-                && let Some((index, counter)) = data_id(datagram)
-            {
-                self.on_data(index, counter, datagram.get(WG_DATA_HEADER..).unwrap_or_default());
-            }
+            self.stage(datagram);
             return Poll::Ready(Ok(received));
         }
     }
@@ -673,6 +689,9 @@ impl Underlay for UltraUnderlay {
     /// The driver calls this right after handling the datagram `poll_recv`
     /// returned, when WireGuard authenticated it.
     fn authenticated(&mut self, origin: Origin) {
+        if let Some((index, counter, ciphertext)) = self.staged.take() {
+            self.on_data(index, counter, &ciphertext);
+        }
         if !self.trusts(origin) {
             if self.trusted.len() >= TRUSTED {
                 self.trusted.remove(0);
@@ -941,8 +960,39 @@ mod tests {
         let (first, parity) = group_of(index, 7, 1);
         let (later, _) = group_of(index, 8, 1);
         let inbox = vec![(parity[0].clone(), peer), (later[0].clone(), peer)];
-        let (_, out, _) = receive(UltraMode::Fec { group: 1, parity: 1 }, Some(peer), inbox, &[]);
+        let authentic = [first[0].clone(), later[0].clone()];
+        let (_, out, _) =
+            receive(UltraMode::Fec { group: 1, parity: 1 }, Some(peer), inbox, &authentic);
         assert_eq!(out, vec![later[0].clone(), first[0].clone()]);
+    }
+
+    /// A datagram WireGuard refuses is never kept: a forged one from the
+    /// peer's address cannot move the counter epoch and break rebuilding.
+    #[test]
+    fn a_refused_datagram_cannot_move_the_counter_epoch() {
+        let index = [2, 2, 2, 2];
+        let peer = origin(1);
+        let forged = data(index, 1 << 32, 80, 0xEE);
+        let (sent, parity) = group_of(index, 100, 4);
+        let mut inbox = vec![(forged, peer)];
+        inbox.extend([0, 1, 3].map(|i| (sent[i].clone(), peer)));
+        inbox.push((parity[0].clone(), peer));
+        let (_, out, _) =
+            receive(UltraMode::Fec { group: 4, parity: 1 }, Some(peer), inbox, &sent);
+        assert_eq!(out.last(), Some(&sent[2]), "the lost member is still rebuilt: {out:?}");
+    }
+
+    /// The first datagram WireGuard authenticates from a new origin is kept,
+    /// so a loss later in its group is still rebuilt.
+    #[test]
+    fn the_first_authenticated_datagram_is_kept() {
+        let index = [1, 1, 1, 1];
+        let peer = origin(1);
+        let (sent, parity) = group_of(index, 0, 4);
+        let mut inbox: Vec<_> = [0, 1, 3].map(|i| (sent[i].clone(), peer)).to_vec();
+        inbox.push((parity[0].clone(), peer));
+        let (_, out, _) = receive(UltraMode::Fec { group: 4, parity: 1 }, None, inbox, &sent);
+        assert_eq!(out.last(), Some(&sent[2]), "rebuilt with the first member kept: {out:?}");
     }
 
     /// A parity that arrives before a reordered member waits for it, and
@@ -956,7 +1006,7 @@ mod tests {
         inbox.push((parity[0].clone(), peer)); // members 1 and 2 still missing
         inbox.push((sent[1].clone(), peer)); // 1 arrives late; 2 is lost
         let (ultra, out, _) =
-            receive(UltraMode::Fec { group: 4, parity: 1 }, Some(peer), inbox, &[]);
+            receive(UltraMode::Fec { group: 4, parity: 1 }, Some(peer), inbox, &sent);
         assert_eq!(out.last(), Some(&sent[2]), "rebuilt after the late member: {out:?}");
         assert!(ultra.pending.is_empty());
     }
