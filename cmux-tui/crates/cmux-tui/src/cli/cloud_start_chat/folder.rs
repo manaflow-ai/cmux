@@ -46,9 +46,7 @@ pub(super) fn local_folder_in(
             "--from-folder {dir}: your home folder or a folder above it; pick a project folder"
         )));
     }
-    if let Some(secret) =
-        home.as_deref().and_then(|home| home_credential_folder(&folder, home))
-    {
+    if let Some(secret) = home.as_deref().and_then(|home| home_credential_folder(&folder, home)) {
         return Err(UsageError::new(format!(
             "--from-folder {dir}: is or holds ~/{secret}, a folder of keys or logins, which never goes to a machine"
         )));
