@@ -94,11 +94,11 @@ async fn a_childs_ask_shows_on_its_parent_and_the_persons_answer_there_answers_t
     let mut p = Client::as_session(&hub, &parent).await;
 
     // The parent's agent starts a sub-session that asks to run a command.
-    let child = p.ok("_acpmux/subsession/start", json!({"prompt": "ask: make test"})).await
-        ["sessionId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let child =
+        p.ok("_acpmux/subsession/start", json!({"prompt": "ask: make test"})).await["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
     let w = app
         .ok(
             "_acpmux/wait",
@@ -155,7 +155,9 @@ async fn a_childs_ask_shows_on_its_parent_and_the_persons_answer_there_answers_t
         .unwrap()
         .into_iter()
         .filter(|e| e.kind == "agent_message_chunk")
-        .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str).map(str::to_owned))
+        .filter_map(|e| {
+            e.msg.pointer("/params/update/content/text").and_then(Value::as_str).map(str::to_owned)
+        })
         .collect::<String>();
     assert!(reply.contains("chose yes"), "the child did not continue: {reply}");
 

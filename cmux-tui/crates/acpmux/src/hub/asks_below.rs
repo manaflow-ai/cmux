@@ -65,7 +65,11 @@ impl Hub {
     /// ask, drawn on the parent's page (`server/requests.rs` `route_ask_below`), goes there.
     pub(crate) fn asking_below(&self, session: &Session, permission_id: &str) -> Option<String> {
         let pending = |s: &Session| {
-            s.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.contains_key(permission_id)
+            s.permissions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .pending
+                .contains_key(permission_id)
         };
         if pending(session) {
             return None;

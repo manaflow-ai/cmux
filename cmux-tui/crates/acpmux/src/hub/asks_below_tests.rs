@@ -67,7 +67,11 @@ async fn a_waiting_child_or_grandchild_makes_its_ancestors_read_input() {
     let since = summary["subsessionsWaitingSince"].clone();
     hub.set_status(&grandchild, SessionStatus::Waiting);
     assert_eq!(hub.session_summary(&parent)["subsessionsWaiting"], 2);
-    assert_eq!(hub.session_summary(&parent)["subsessionsWaitingSince"], since, "the first ask dates it");
+    assert_eq!(
+        hub.session_summary(&parent)["subsessionsWaitingSince"],
+        since,
+        "the first ask dates it"
+    );
     assert_eq!(hub.session_summary(&child)["subsessionsWaiting"], 1);
 
     // Answered: the child runs again, then the grandchild; the parent works, never stuck on input.
