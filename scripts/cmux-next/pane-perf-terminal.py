@@ -244,16 +244,15 @@ def display_refusal(placed):
     clamps it, and every layout would then time another window: on aws-m4pro-8 (cbe71202181, 2026-11-08) the
     1600 x 680 window gave 12 more FAILs (New Column never animated, no divider to drag) on top of the placement
     row. STRESS keeps its size: the run refuses, and the line names the display and the remedy (a host with a
-    larger display, or split-spring.sh --vdisplay). The room is the visible frame's width and its height down to
-    the screen's bottom (a bottom Dock may overlap, `window_problem`). A wrong size on a screen with room is the
-    app's fault, not the host's: it stays the placement row's FAIL and the run goes on."""
+    larger display, or split-spring.sh --vdisplay). The room is the visible frame: a bottom Dock does not give
+    room, AppKit clamps the window above it (cmux-austin-mini-1, 1920 x 1080 with a 90 pt Dock, gave 1600 x 960,
+    step 5b671a0b, 2026-11-08). A wrong size on a screen with room is the app's fault, not the host's: it stays
+    the placement row's FAIL and the run goes on."""
     frame = placed.get("frame") if isinstance(placed, dict) else None
     visible = placed.get("visible_frame") if isinstance(placed, dict) else None
     if not frame or not visible or (abs(frame[2] - WINDOW[0]) <= 1 and abs(frame[3] - WINDOW[1]) <= 1):
         return None
-    bottom = (placed.get("screen_frame") or visible)[1]
-    room = (visible[2], visible[1] + visible[3] - bottom)
-    if room[0] >= WINDOW[0] - 1 and room[1] >= WINDOW[1] - 1:
+    if visible[2] >= WINDOW[0] - 1 and visible[3] >= WINDOW[1] - 1:
         return None
     return f"display too small: {STRESS_MODULE.window_problem(placed)}"
 

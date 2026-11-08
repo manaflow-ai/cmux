@@ -39,6 +39,10 @@ AWS_NITRO = {"frame": [-288, 58, 1600, 680], "visible_frame": [0, 58, 1024, 680]
 ROOMY = {"frame": [160, 100, 1600, 1000], "visible_frame": [0, 0, 1920, 1175],
          "screen_frame": [0, 0, 1920, 1200], "screen": "Virtual 1920x1200"}
 
+# cmux-austin-mini-1, no --vdisplay: a 1920 x 1080 display whose bottom Dock leaves a 960 pt visible frame.
+MINI_1080 = {"frame": [160, 90, 1600, 960], "visible_frame": [0, 90, 1920, 960],
+             "screen_frame": [0, 0, 1920, 1080], "screen": ""}
+
 
 class DisplayRefusal(unittest.TestCase):
     def test_a_clamped_window_refuses_the_run_as_display_too_small(self):
@@ -58,11 +62,12 @@ class DisplayRefusal(unittest.TestCase):
         # The app's own fault (full screen, a debug.window_frame regression): the placement row fails, the run goes on.
         self.assertIsNone(SCOPE["display_refusal"]({**ROOMY, "frame": [160, 100, 1200, 800]}))
 
-    def test_a_bottom_dock_over_the_window_still_counts_as_room(self):
-        docked = {**ROOMY, "frame": [160, 100, 1600, 900], "visible_frame": [0, 80, 1920, 1095]}
-        self.assertIsNone(SCOPE["display_refusal"](docked))
-        short = {"frame": [0, 0, 1600, 870], "visible_frame": [0, 25, 1680, 845], "screen_frame": [0, 0, 1680, 900]}
-        self.assertTrue(SCOPE["display_refusal"](short).startswith("display too small"))
+    def test_a_bottom_dock_gives_no_room(self):
+        # cmux-austin-mini-1 (step 5b671a0b): AppKit kept the window above the 90 pt Dock, 1600 x 960.
+        refusal = SCOPE["display_refusal"](MINI_1080)
+        self.assertIsNotNone(refusal)
+        self.assertTrue(refusal.startswith("display too small"), refusal)
+        self.assertIn("1920 x 1080", refusal)
 
     def test_no_reply_is_not_a_display_refusal(self):
         # A failed debug.window_frame is the placement row's failure, not a display size.
