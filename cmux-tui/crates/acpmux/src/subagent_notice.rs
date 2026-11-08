@@ -6,7 +6,7 @@
 //! own conversation. The one way into a subagent's context is a hook's answer to one of its own
 //! tool calls, which Claude Code names by the subagent's `agent_id`. So a report a subagent asked
 //! for (`hub/lane_report_subagents.rs`) is left here, and the hook gives it to the subagent after
-//! its next shell command (`PostToolUse`, `additionalContext`).
+//! its next Bash or acpmux MCP call (`PostToolUse`, `additionalContext`).
 //!
 //! `<home>/run/subagent-notices/<session>/<agent id>/`, the folders 0700:
 //!
@@ -34,11 +34,15 @@ const SUFFIX: &str = ".json";
 /// `session`'s folder: its id with anything but `A-Za-z0-9-_` replaced, as the MCP config's
 /// name is (`agent_tools::mcp_config_path`).
 pub fn session_dir(home: &Path, session: &str) -> PathBuf {
-    let safe: String = session
+    home.join("run").join(DIR).join(safe_name(session))
+}
+
+/// `session` as one folder name: anything but `A-Za-z0-9-_` replaced.
+pub(crate) fn safe_name(session: &str) -> String {
+    session
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect();
-    home.join("run").join(DIR).join(safe)
+        .collect()
 }
 
 /// The folder of subagent `agent` (Claude Code's `agent_id`) of `session`; none for an id that
@@ -49,7 +53,7 @@ pub fn agent_dir(home: &Path, session: &str, agent: &str) -> Option<PathBuf> {
 
 /// A plain word (`cli::sender::subagent_word`) that is one file name of its own: not `.`, `..`
 /// or hidden.
-fn name_word(word: &str) -> bool {
+pub(crate) fn name_word(word: &str) -> bool {
     crate::cli::sender::subagent_word(word) && !word.starts_with('.')
 }
 
@@ -121,9 +125,11 @@ pub fn stopped(dir: &Path) -> bool {
     dir.join(STOPPED).exists()
 }
 
-/// Removes `session`'s folder and every notice in it: the session closed.
+/// Removes `session`'s folder and every notice in it, and its subagents' call records
+/// (`subagent_call.rs`): the session closed.
 pub fn forget(home: &Path, session: &str) {
     let _ = std::fs::remove_dir_all(session_dir(home, session));
+    crate::subagent_call::forget(home, session);
 }
 
 /// Removes `session`'s emptied folders, once its notices were taken and no subagent of it runs.

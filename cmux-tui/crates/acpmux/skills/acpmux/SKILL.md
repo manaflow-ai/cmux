@@ -169,14 +169,20 @@ the person's prompt. What the receiver gets depends on who you are to it:
 - Every agent send prints `sending as NAME` on stderr. A Claude Code subagent
   sends as its lead's session, named `LEAD's TYPE subagent ID`, and so do its
   `acpmux run` and `acpmux new` with a prompt. The reply to its own `run` or
-  `send --wait` reaches only it: the lead gets no lane report of that turn. The
-  report of a turn it asked for without waiting comes to it after its next Bash
-  command (acpmux's PostToolUse hook); once it has ended, the report goes to
-  the lead, saying `This report is for your TYPE subagent ID`. The receiver
-  reads `From another agent (LEAD's TYPE subagent ID)` and ends its turn with
-  its answer; it does not send it to the lead. `acpmux send LEAD` reaches the
-  lead. A subagent's call through the cmux MCP tools (`acpmux_bg_start`,
-  `cmux_exec`) carries no subagent mark, so its reports go to the lead.
+  `send --wait` reaches only it: the lead gets no lane report of that turn.
+  Its calls through the MCP tools (`mcp__acpmux__send`, `bg_start`, and cmux's
+  `acpmux_send`, `acpmux_bg_start`, `cmux_exec`) name it the same way. The
+  report of a turn it asked for without waiting comes to it only after its
+  next Bash command or one of those MCP calls: a subagent that makes no such
+  call any more does not get it. Once it has ended, the report goes to the
+  lead, saying `This report is for your TYPE subagent ID`. If it ended with no
+  `SubagentStop` hook, its reports wait until no subagent of the lead runs. A
+  background task a subagent starts (`bg_start`) still sends its end message
+  to the lead's chat: a subagent passes `notify: false` and reads the task
+  with `bg_output`. The receiver reads `From another agent (LEAD's TYPE
+  subagent ID)` and ends its turn with its answer; it does not send it to the
+  lead.
+  `acpmux send LEAD` reaches the lead.
   A Codex subagent is named `LEAD's codex subagent THREAD` (its own
   `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line
   says `LEAD (subagent identity not available for codex)`.
