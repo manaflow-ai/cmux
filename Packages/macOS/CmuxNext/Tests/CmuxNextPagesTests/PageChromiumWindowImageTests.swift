@@ -114,6 +114,20 @@ struct PageChromiumWindowImageTests {
         let listed = try #require(PageRegistry.shownChromiumPages(in: window).first)
         #expect(listed.rect == page.contentView.convert(CGRect(x: 0, y: 0, width: 300, height: 120), to: nil))
         #expect(listed.rect != NSRect(x: 100, y: 50, width: 300, height: 200), "the page's image would stretch over its DevTools")
+        #expect(view.chromiumDevToolsArea == page.contentView.convert(CGRect(x: 0, y: 124, width: 300, height: 76), to: nil))
+        let area = page.contentView.convert(CGRect(x: 0, y: 124, width: 300, height: 76), to: nil)
+        let blank = try #require(await view.chromiumDevTools())
+        #expect(blank.area == area && blank.image == nil)
+        let provider = try #require(CGDataProvider(data: Data([0, 0, 0, 255]) as CFData))
+        let picture = try #require(CGImage(width: 1, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4,
+                                           space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                                           provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+        page.devToolsPicture = picture
+        #expect(await view.chromiumDevTools()?.image === picture)
+        page.dockedDevTools = nil
+        #expect(view.chromiumDevToolsArea == nil)
+        #expect(await view.chromiumDevTools() == nil)
+        #expect(PageRegistry.shownChromiumPages(in: window).first?.rect == NSRect(x: 100, y: 50, width: 300, height: 200))
         view.close()
         window.close()
     }

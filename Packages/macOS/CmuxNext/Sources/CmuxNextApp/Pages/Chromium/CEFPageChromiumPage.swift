@@ -34,6 +34,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     /// The tab's page window clip (`CEFTab.pageWindowClip`, window coordinates).
     var windowClip: CGPath? { tab.pageWindowClip }
+    var dockedDevTools: (page: CGRect, devTools: CGRect)? { tab.dockedDevToolsFrames }
+    func devToolsImage() async -> CGImage? { try? await tab.devToolsSnapshot() }
 
     var onEvent: ((PageChromiumEvent) -> Void)? {
         didSet { listen() }
