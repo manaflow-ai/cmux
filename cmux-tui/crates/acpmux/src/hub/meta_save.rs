@@ -341,6 +341,9 @@ impl Hub {
             return Ok(());
         }
         let meta = session.meta();
+        // Every other change of a ledgered field (a generated title, a workspace move, the
+        // account, the branch) reaches the ledger with the save that carries it.
+        self.ledger.note_session_info(&session.id, super::ledger::TurnContext::of(&meta).info);
         if meta.status != SessionStatus::Closed {
             self.remove_cached_closed_summary(&session.id);
         }
