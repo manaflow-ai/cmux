@@ -9,9 +9,12 @@ and git ls-remote (no network) and checks what it does to the run:
 
 - at the deadline it does not cancel, prints how to keep waiting, and exits 3;
 - a waiter that returns before the run is done is started again;
-- a run cancelled by someone else and re-run within the rescue window is followed;
+- a run cancelled by someone else and re-run within the rescue window is followed,
+  and a deadline inside that window is "still running", not a failure;
+- glaeda-gh down (exit 3) gives one round of gh run watch, then glaeda-gh again;
+- rounds are spaced, so a waiter that returns at once does not spin on the API;
 - --cancel-on-timeout cancels at the deadline;
-- Ctrl-C (SIGINT to the process group) cancels; SIGTERM to the script does not.
+- Ctrl-C (SIGINT to the process group) cancels; SIGTERM or SIGHUP to the script does not.
 """
 
 from __future__ import annotations
@@ -50,8 +53,21 @@ esac
 """.replace("__RUN_ID__", RUN_ID)
 
 GLAEDA_STUB = r"""#!/usr/bin/env bash
+# Like glaeda-gh wait: exit 2 once --timeout passes (FAKE_WAITER_SLEEP is how
+# long the run takes to look decided), else FAKE_WAITER_STATUS (default 1).
 echo "glaeda-gh $*" >> "$STUB_DIR/calls.log"
-if [[ -n "${FAKE_WAITER_SLEEP:-}" ]]; then sleep "$FAKE_WAITER_SLEEP"; fi
+timeout=""
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "--timeout" ]]; then timeout="$2"; fi
+  shift
+done
+wait_for="${FAKE_WAITER_SLEEP:-0}"
+if [[ -n "$timeout" && "$wait_for" -ge "$timeout" ]]; then
+  sleep "$timeout"
+  echo "run: timeout (stub)"
+  exit 2
+fi
+if [[ "$wait_for" -gt 0 ]]; then sleep "$wait_for"; fi
 echo "run: FAILURE (stub)"
 exit "${FAKE_WAITER_STATUS:-1}"
 """
@@ -70,6 +86,7 @@ class Sandbox:
 
     def __init__(self) -> None:
         self.dir = Path(tempfile.mkdtemp(prefix="verify-hosted-test."))
+        self.groups: list[int] = []
         self.repo = self.dir / "repo"
         self.bin = self.dir / "bin"
         (self.repo / "scripts").mkdir(parents=True)
@@ -104,9 +121,11 @@ class Sandbox:
     def start(self, args: list[str], **env: str) -> subprocess.Popen[str]:
         full_env = dict(self.env, CMUX_TUI_HOSTED_ROUND_SECONDS="1",
                         CMUX_TUI_HOSTED_RESCUE_WINDOW_SECONDS="5", **env)
-        return subprocess.Popen(["bash", f"scripts/{SCRIPT.name}", *args], cwd=self.repo, env=full_env,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                start_new_session=True)
+        process = subprocess.Popen(["bash", f"scripts/{SCRIPT.name}", *args], cwd=self.repo, env=full_env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                   start_new_session=True)
+        self.groups.append(process.pid)
+        return process
 
     def run(self, args: list[str], **env: str) -> tuple[int, str]:
         process = self.start(args, **env)
@@ -126,6 +145,11 @@ class Sandbox:
         return sum(1 for line in self.calls() if line.startswith(prefix))
 
     def close(self) -> None:
+        for group in self.groups:  # stub sleeps a killed waiter left behind
+            try:
+                os.killpg(group, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
         shutil.rmtree(self.dir, ignore_errors=True)
 
 
@@ -159,13 +183,31 @@ def early_waiter_return_waits_again(failures: list[str], name: str, box: Sandbox
 def rescue_rerun_is_followed(failures: list[str], name: str, box: Sandbox) -> None:
     code, out = box.run(["--full"], FAKE_STATES="completed|cancelled|1;queued||2;completed|success|2",
                         CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
-    check(failures, name, box.count("gh run cancel") == 0 and box.count("gh run download") >= 1, box, out)
+    check(failures, name, box.count("gh run cancel") == 0 and box.count("glaeda-gh wait run") == 3
+          and "waiting up to 5s for a re-run" in out and box.count("gh run download") >= 1, box, out)
+
+
+def deadline_inside_rescue_window_is_still_running(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|cancelled|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="3",
+                        CMUX_TUI_HOSTED_RESCUE_WINDOW_SECONDS="60")
+    check(failures, name, code == 3 and box.count("gh run cancel") == 0
+          and box.count("gh run download") == 0, box, out)
+
+
+def daemon_down_falls_back_for_one_round(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="queued||1;queued||1;completed|success|1", FAKE_WAITER_STATUS="3",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh run cancel") == 0 and box.count("gh run watch") == 1
+          and box.count("glaeda-gh wait run") == 2 and box.count("gh run download") >= 1, box, out)
 
 
 def cancelled_without_rerun_fails(failures: list[str], name: str, box: Sandbox) -> None:
     code, out = box.run(["--full"], FAKE_STATES="completed|cancelled|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    # Rounds are CMUX_TUI_HOSTED_ROUND_SECONDS (1 s) apart over the 5 s window:
+    # a dozen reads at most, not a spin on the API.
+    views = box.count(f"gh run view --repo manaflow-ai/cmux {RUN_ID} --json status")
     check(failures, name, code == 1 and box.count("gh run cancel") == 0
-          and box.count("gh run download") == 0, box, out)
+          and box.count("gh run download") == 0 and 2 <= views <= 12, box, out)
 
 
 def cancel_on_timeout_flag_cancels(failures: list[str], name: str, box: Sandbox) -> None:
@@ -207,9 +249,12 @@ def main() -> int:
         ("a waiter that returns before the run is done is started again", early_waiter_return_waits_again),
         ("a run cancelled by the CI rescue and re-run is followed", rescue_rerun_is_followed),
         ("a run cancelled by someone else and not re-run fails without a cancel", cancelled_without_rerun_fails),
+        ("a deadline inside the rescue window is still running (exit 3)", deadline_inside_rescue_window_is_still_running),
+        ("glaeda-gh down: one round of gh run watch, then glaeda-gh again", daemon_down_falls_back_for_one_round),
         ("--cancel-on-timeout cancels at the deadline", cancel_on_timeout_flag_cancels),
         ("Ctrl-C cancels the run", signal_case(signal.SIGINT, True, 1, 130)),
         ("SIGTERM does not cancel the run", signal_case(signal.SIGTERM, False, 0, 143)),
+        ("SIGHUP does not cancel the run", signal_case(signal.SIGHUP, False, 0, 129)),
     ]:
         scenario(failures, name, test)
     if failures:

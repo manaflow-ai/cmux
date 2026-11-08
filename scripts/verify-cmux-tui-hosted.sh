@@ -152,45 +152,6 @@ if [[ "$remote_commit" != "$commit" ]]; then
   exit 1
 fi
 
-request_id="${commit:0:12}-$(date +%s)-$$"
-
-echo "Dispatching $mode verification for $commit"
-# return_run_details makes the dispatch answer with the run it created, so
-# there is no run list to poll for it.
-run_id="$(gh api -X POST "repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
-  -f "ref=$remote_branch" \
-  -f "inputs[commit]=$commit" \
-  -f "inputs[mode]=$mode" \
-  -f "inputs[test_filter]=$test_filter" \
-  -f "inputs[request_id]=$request_id" \
-  -F return_run_details=true \
-  --jq '.workflow_run_id // ""')"
-
-if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
-  echo "error: the workflow dispatch returned no run id" >&2
-  exit 1
-fi
-
-# Re-read the run before accepting it so a branch/ref race cannot make us
-# watch a run for a different revision. The dispatch named this run, so its
-# title (run-name, with request_id) is not checked: GitHub renders it a moment
-# after the dispatch, and a run read sooner is titled only "cmux-tui".
-run_identity="$(gh run view --repo "$REPO" "$run_id" \
-  --json headSha,headBranch,event \
-  --jq '[.headSha, .headBranch, .event] | @tsv')"
-IFS=$'\t' read -r run_head_sha run_head_branch run_event <<< "$run_identity"
-if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
-      "$run_event" != "workflow_dispatch" ]]; then
-  echo "error: dispatched workflow run $run_id is not this revision; refusing it" >&2
-  printf 'expected: sha=%s branch=%s event=workflow_dispatch\n' "$commit" "$remote_branch" >&2
-  printf 'actual:   sha=%s branch=%s event=%s\n' "$run_head_sha" "$run_head_branch" "$run_event" >&2
-  exit 1
-fi
-
-run_url="https://github.com/$REPO/actions/runs/$run_id"
-echo "Run: $run_url"
-echo "Waiting for hosted verification"
-
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-hosted.XXXXXX")"
 watch_owner_pid=""
 cancel_owner_pid=""
@@ -263,11 +224,55 @@ interrupt_hosted_run() {
   fi
   exit 130
 }
-cancel_on_interrupt=true
+# Set once the dispatch names the run: Ctrl-C before that has no run to cancel.
+cancel_on_interrupt=false
+run_id=""
+run_url=""
 trap cleanup EXIT
 trap 'exit_on_signal 129' HUP
 trap interrupt_hosted_run INT
 trap 'exit_on_signal 143' TERM
+
+request_id="${commit:0:12}-$(date +%s)-$$"
+
+echo "Dispatching $mode verification for $commit"
+# return_run_details makes the dispatch answer with the run it created, so
+# there is no run list to poll for it.
+run_id="$(gh api -X POST "repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
+  -f "ref=$remote_branch" \
+  -f "inputs[commit]=$commit" \
+  -f "inputs[mode]=$mode" \
+  -f "inputs[test_filter]=$test_filter" \
+  -f "inputs[request_id]=$request_id" \
+  -F return_run_details=true \
+  --jq '.workflow_run_id // ""')"
+
+if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+  echo "error: the workflow dispatch returned no run id" >&2
+  exit 1
+fi
+run_url="https://github.com/$REPO/actions/runs/$run_id"
+cancel_on_interrupt=true
+
+# Re-read the run before accepting it so a branch/ref race cannot make us
+# watch a run for a different revision. The dispatch named this run, so its
+# title (run-name, with request_id) is not checked: GitHub renders it a moment
+# after the dispatch, and a run read sooner is titled only "cmux-tui".
+run_identity="$(gh run view --repo "$REPO" "$run_id" \
+  --json headSha,headBranch,event \
+  --jq '[.headSha, .headBranch, .event] | @tsv')"
+IFS=$'\t' read -r run_head_sha run_head_branch run_event <<< "$run_identity"
+if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
+      "$run_event" != "workflow_dispatch" ]]; then
+  echo "error: dispatched workflow run $run_id is not this revision; refusing it" >&2
+  printf 'expected: sha=%s branch=%s event=workflow_dispatch\n' "$commit" "$remote_branch" >&2
+  printf 'actual:   sha=%s branch=%s event=%s\n' "$run_head_sha" "$run_head_branch" "$run_event" >&2
+  exit 1
+fi
+
+echo "Run: $run_url"
+echo "Waiting for hosted verification"
+
 
 watch_result_fifo="$temp_dir/run-watch-result"
 mkfifo "$watch_result_fifo"
@@ -276,27 +281,57 @@ mkfifo "$watch_result_fifo"
 # result. The watcher owns the GitHub CLI child and reaps it on every exit path.
 exec 3<> "$watch_result_fifo"
 (
-  gh_child_pid=""
-  stop_gh_child() {
-    if [[ -n "$gh_child_pid" ]]; then
-      kill -KILL "$gh_child_pid" 2>/dev/null || true
-      wait "$gh_child_pid" 2>/dev/null || true
-      gh_child_pid=""
+  stop_children() {
+    # Every background child of this subshell, so a child started a moment
+    # before the signal (its pid not yet recorded) is reaped too.
+    local pids
+    pids="$(jobs -p)"
+    if [[ -n "$pids" ]]; then
+      # shellcheck disable=SC2086 # one pid per word
+      kill -KILL $pids 2>/dev/null || true
+      # shellcheck disable=SC2086
+      wait $pids 2>/dev/null || true
     fi
   }
   stop_watch_owner() {
-    stop_gh_child
+    stop_children
     exit 143
   }
   trap stop_watch_owner HUP TERM INT
-  trap stop_gh_child EXIT
-  # Runs one child as the owned process, so a signal reaps it; sets child_status.
+  trap stop_children EXIT
+  # Runs one child, at most `limit` seconds; sets child_status (143 when the
+  # limit stopped it). gh run watch has no timeout of its own.
   run_child() {
+    local limit="$1"
+    shift
     "$@" &
-    gh_child_pid=$!
-    wait "$gh_child_pid"
+    local child=$!
+    # The limiter keeps no stdio of the script, and TERM stops its sleep too.
+    (
+      sleep "$limit" &
+      sleeper=$!
+      trap 'kill "$sleeper" 2>/dev/null; exit 0' TERM
+      wait "$sleeper"
+      kill -TERM "$child" 2>/dev/null
+    ) </dev/null >/dev/null 2>&1 &
+    local limiter=$!
+    wait "$child"
     child_status=$?
-    gh_child_pid=""
+    kill -TERM "$limiter" 2>/dev/null || true
+    wait "$limiter" 2>/dev/null || true
+  }
+  read_run_state() {
+    : > "$run_state_file"
+    run_child 60 gh run view --repo "$REPO" "$run_id" --json status,conclusion,attempt \
+      --jq '"\(.status)|\(.conclusion)|\(.attempt)"' > "$run_state_file"
+    run_status="unknown"
+    run_conclusion="unknown"
+    run_attempt="?"
+    if [[ "$child_status" -eq 0 ]]; then
+      # "|", not a tab: IFS whitespace would merge the empty conclusion of a
+      # queued run into one separator.
+      IFS='|' read -r run_status run_conclusion run_attempt < "$run_state_file" || true
+    fi
   }
 
   # One waiter per round, no tight loop: glaeda-gh shares one cheap poller per
@@ -311,9 +346,10 @@ exec 3<> "$watch_result_fifo"
   deadline=$((SECONDS + timeout_seconds))
   waiter_log="$temp_dir/waiter.log"
   run_state_file="$temp_dir/run-state"
-  use_glaeda=false
-  command -v glaeda-gh >/dev/null 2>&1 && use_glaeda=true
-  cancelled_since=""
+  have_glaeda=false
+  command -v glaeda-gh >/dev/null 2>&1 && have_glaeda=true
+  use_glaeda=$have_glaeda
+  ended_since=""
   run_status="unknown"
   run_conclusion="unknown"
   while true; do
@@ -321,42 +357,42 @@ exec 3<> "$watch_result_fifo"
     [[ "$remaining" -gt 0 ]] || break
     round_start=$SECONDS
     if [[ "$use_glaeda" == true ]]; then
-      run_child glaeda-gh wait run "$REPO/$run_id" --until "done" --timeout "$remaining" > "$waiter_log" 2>&1
+      # --jobs: glaeda-gh holds a failure that a runner's refusal caused while
+      # the rescue re-runs the failed jobs (--rescue-grace).
+      run_child "$((remaining + 30))" glaeda-gh wait run "$REPO/$run_id" --until "done" --jobs \
+        --timeout "$remaining" > "$waiter_log" 2>&1
       waiter="glaeda-gh wait run"
     else
-      run_child gh run watch --repo "$REPO" "$run_id" --interval 300 > "$waiter_log" 2>&1
+      run_child "$remaining" gh run watch --repo "$REPO" "$run_id" --interval 300 > "$waiter_log" 2>&1
       waiter="gh run watch"
+      # A daemon restart is brief: the next round tries glaeda-gh again.
+      use_glaeda=$have_glaeda
     fi
     waiter_status=$child_status
     waited=$((SECONDS - round_start))
+    read_run_state
 
-    : > "$run_state_file"
-    run_child gh run view --repo "$REPO" "$run_id" --json status,conclusion,attempt \
-      --jq '"\(.status)|\(.conclusion)|\(.attempt)"' > "$run_state_file"
-    run_status="unknown"
-    run_conclusion="unknown"
-    run_attempt="?"
-    if [[ "$child_status" -eq 0 ]]; then
-      # "|", not a tab: IFS whitespace would merge the empty conclusion of a
-      # queued run into one separator.
-      IFS='|' read -r run_status run_conclusion run_attempt < "$run_state_file" || true
-    fi
-
-    if [[ "$run_status" == "completed" && "$run_conclusion" != "cancelled" ]]; then
-      break
-    fi
+    # A run that ended other than in success may be re-run by the CI rescue:
+    # cancelled (the run waited for a busy owned pool) or failed (a runner
+    # refused a job; glaeda-gh --jobs already held that one for a while).
     if [[ "$run_status" == "completed" ]]; then
-      # Cancelled by someone else. ci-owned-pool-rescue re-runs within a minute
-      # or two; after this window the cancellation is the result.
-      if [[ -z "$cancelled_since" ]]; then
-        cancelled_since=$SECONDS
-        echo "note: attempt $run_attempt of the run was cancelled outside this script; waiting up to ${rescue_window_seconds}s for a re-run (CI rescue)" >&2
+      if [[ "$run_conclusion" == "success" ]]; then
+        ended_since=""
+        break
       fi
-      if (( SECONDS - cancelled_since >= rescue_window_seconds )); then
+      if [[ -z "$ended_since" ]]; then
+        ended_since=$SECONDS
+        if [[ "$run_conclusion" == "cancelled" || "$waiter" == "gh run watch" ]]; then
+          echo "note: attempt $run_attempt of the run ended ($run_conclusion) without this script; waiting up to ${rescue_window_seconds}s for a re-run (CI rescue)" >&2
+        fi
+      fi
+      if [[ "$run_conclusion" != "cancelled" && "$waiter" != "gh run watch" ]] || \
+          (( SECONDS - ended_since >= rescue_window_seconds )); then
+        ended_since=""
         break
       fi
     else
-      cancelled_since=""
+      ended_since=""
       if (( SECONDS < deadline )); then
         echo "warning: $waiter exited $waiter_status after ${waited}s with the run ${run_status} (attempt $run_attempt); waiting again, the run is not cancelled" >&2
         if [[ -s "$waiter_log" ]]; then
@@ -364,10 +400,11 @@ exec 3<> "$watch_result_fifo"
         fi
       fi
     fi
-    # glaeda-gh exits 3 when its daemon is down and 64 on a usage error; it
-    # would fail the same way again, so the next rounds use gh run watch.
-    if [[ "$use_glaeda" == true && ( "$waiter_status" -eq 3 || "$waiter_status" -eq 64 ) ]]; then
-      echo "warning: glaeda-gh cannot wait here; using gh run watch (one check per 5 minutes) instead" >&2
+    # glaeda-gh exits 3 when its daemon is down or failing and 64 on a usage
+    # error; the next round uses gh run watch, and the one after glaeda-gh again.
+    if [[ "$use_glaeda" == true && "$waiter" == "glaeda-gh wait run" && \
+          ( "$waiter_status" -eq 3 || "$waiter_status" -eq 64 ) ]]; then
+      echo "warning: glaeda-gh cannot wait now (exit $waiter_status); the next round uses gh run watch (one check per 5 minutes)" >&2
       use_glaeda=false
     fi
     # At most one round per round_seconds (30), so a waiter that keeps
@@ -377,9 +414,13 @@ exec 3<> "$watch_result_fifo"
     remaining=$((deadline - SECONDS))
     (( pause > remaining )) && pause=$remaining
     if (( pause > 0 )); then
-      run_child sleep "$pause"
+      run_child "$((pause + 5))" sleep "$pause"
     fi
   done
+  # The deadline came while a re-run may still follow: that is not a result.
+  if [[ -n "$ended_since" ]]; then
+    run_status="ended-awaiting-rerun"
+  fi
   set -e
   trap - HUP TERM INT EXIT
   printf '%s\t%s\n' "$run_status" "$run_conclusion" >&3
@@ -389,7 +430,7 @@ watch_owner_pid=$!
 
 run_finished=false
 # The watcher publishes at its own deadline; this read is the backstop.
-if IFS=$'\t' read -r -t "$((timeout_seconds + 60))" run_status run_conclusion <&3; then
+if IFS=$'\t' read -r -t "$((timeout_seconds + 150))" run_status run_conclusion <&3; then
   wait "$watch_owner_pid" || true
   watch_owner_pid=""
   [[ "$run_status" == "completed" ]] && run_finished=true
