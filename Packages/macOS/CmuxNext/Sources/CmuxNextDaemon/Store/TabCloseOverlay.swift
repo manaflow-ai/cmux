@@ -36,7 +36,7 @@ import Foundation
     /// (the restore hid it, or the daemon kept it) is not touched.
     func dropFromClosedPanes(_ lifted: [(tab: TabModel, pane: PaneModel)]) {
         for (tab, pane) in lifted where store.index.pane(holding: tab) == nil && store.pane(pane.handle) !== pane {
-            if pane.tabs.contains(where: { $0 === tab }) { _ = pane.removeTab(surface: tab.surface) }
+            if pane.tabs.contains(where: { $0 === tab }) { pane.removeTab(tab) } // its own record, not another of the surface
         }
     }
 

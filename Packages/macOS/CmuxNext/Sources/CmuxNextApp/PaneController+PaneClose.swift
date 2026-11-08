@@ -21,7 +21,6 @@ extension PaneController {
     /// no view change).
     func showPaneClose() -> PendingPaneClose? {
         guard let workspace, let close = workspace.layoutModel.showPaneClose(layoutPaneID) else { return nil }
-        if stripModel.selectedID == nil, currentTabKey != nil { _ = services.presentation.showNow(self) } // an empty strip: the closed tab leaves with this layout, not a frame late (`apply` defers; P0 late start Cost 1)
         let focused = isFocusedInWorkspace
         // The held topology with this pane taken out: no rebuild over every pane (the echo's apply
         // sends the close's one built topology, the perf gate's split budget). A topology a pane
@@ -33,6 +32,7 @@ extension PaneController {
         // The layout shows the reducer's pick in this frame, with or without the window's applier.
         if focused, let pane = workspace.focus.state.pane, pane != paneKey { workspace.layoutModel.focus(LayoutPaneID(pane), notify: false) }
         // The store tree has not changed: the view mirrors the hidden pane now, and the daemon's echo is the close's one apply and topology (the perf gate's split budget).
+        if stripModel.selectedID == nil, currentTabKey != nil { _ = services.presentation.showNow(self) } // an empty strip: the closed tab leaves with this layout, not a frame late (`apply` defers; P0 late start Cost 1)
         workspace.layoutView.syncWithModel()
         return close
     }

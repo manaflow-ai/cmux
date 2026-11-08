@@ -90,6 +90,12 @@ public final class PaneModel: Identifiable {
         return tab
     }
 
+    /// Takes this record of a tab out (by identity: two records of one surface can meet in a move).
+    func removeTab(_ tab: TabModel) {
+        tabs.removeAll { $0 === tab }
+        recomputeSpans()
+    }
+
     /// Moves the tab `surface` to `index` (clamped) inside this pane.
     func moveTab(surface: SurfaceID, to index: Int) {
         guard let from = tabs.firstIndex(where: { $0.surface == surface }) else { return recomputeSpans() }
