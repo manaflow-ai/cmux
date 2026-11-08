@@ -234,11 +234,19 @@ async fn probe(p: &Pending) -> Result<Probe> {
         // Joined on this box: a later start on another box finds the copy.
         host_fingerprint: host_fingerprint::current(),
         cloned: false,
+        // `complete` sets what joined it.
+        joined_by: None,
     })))
 }
 
-fn complete(p: &Pending, record: &MachineCredential, json_out: bool) -> Result<()> {
+fn complete(
+    p: &Pending,
+    record: &MachineCredential,
+    report: Report,
+    joined_by: Option<&str>,
+) -> Result<()> {
     authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
+    let record = &MachineCredential { joined_by: joined_by.map(str::to_owned), ..record.clone() };
     let bytes = Zeroizing::new(serde_json::to_vec(record).map_err(|_| store_error())?);
     write_durable(&credential_path(), &bytes, true).map_err(|_| store_error())?;
     configure_mesh_relay(&p.hub).map_err(|_| store_error())?;
@@ -246,13 +254,18 @@ fn complete(p: &Pending, record: &MachineCredential, json_out: bool) -> Result<(
     crate::config::private_state_file(&state_dir().join(FILE)).map_err(|_| store_error())?;
     std::fs::remove_file(state_dir().join(FILE)).map_err(|_| store_error())?;
     sync_ancestors(&state_dir()).map_err(|_| store_error())?;
-    warn_existing_helpers();
-    if json_out {
-        crate::cli::output::print_json(
-            &json!({"joined":true,"alreadyJoined":false,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":record.hub_origin}),
-        );
-    } else {
-        println!("joined {} ({})", record.name, record.machine_id);
+    match report {
+        Report::Quiet => {}
+        Report::Json => {
+            warn_existing_helpers();
+            crate::cli::output::print_json(
+                &json!({"joined":true,"alreadyJoined":false,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":record.hub_origin}),
+            );
+        }
+        Report::Text => {
+            warn_existing_helpers();
+            println!("joined {} ({})", record.name, record.machine_id);
+        }
     }
     Ok(())
 }
@@ -324,10 +337,12 @@ pub(super) async fn join(
     hub: Option<String>,
     name: Option<String>,
     replace: bool,
-    json_out: bool,
+    report: Report,
     token: Option<String>,
+    joined_by: Option<&str>,
 ) -> Result<()> {
-    if set_aside_copied_pending(host_fingerprint::current().as_deref())? {
+    if set_aside_copied_pending(host_fingerprint::current().as_deref())? && report != Report::Quiet
+    {
         eprintln!(
             "a join begun on another machine was set aside; this join makes this machine's own"
         );
@@ -349,7 +364,7 @@ pub(super) async fn join(
             return Err(error(2, "join incomplete; retry with the original hub and name"));
         }
         match probe(&p).await? {
-            Probe::Live(record) => return complete(&p, &record, json_out),
+            Probe::Live(record) => return complete(&p, &record, report, joined_by),
             Probe::Revoked if replace && token.is_some() => {
                 // Definitive revocation makes the proposal unusable. Only an
                 // explicit replacement with fresh stdin may replace this proof.
@@ -364,7 +379,7 @@ pub(super) async fn join(
         // anything proposes one (the caller holds the join lock).
         settle_clone_at(&state_dir(), host_fingerprint::current().as_deref())
             .map_err(|_| store_error())?;
-        if already_joined(replace, json_out)? {
+        if already_joined(replace, report)? {
             return Ok(());
         }
         if token.is_none() {
@@ -427,7 +442,7 @@ pub(super) async fn join(
         });
     }
     match probe(&pending).await? {
-        Probe::Live(record) => complete(&pending, &record, json_out),
+        Probe::Live(record) => complete(&pending, &record, report, joined_by),
         Probe::Revoked => Err(error(3, "revoked: run machine add again")),
         Probe::Unknown => Err(hub_error()),
     }

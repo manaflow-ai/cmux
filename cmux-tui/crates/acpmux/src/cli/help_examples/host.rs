@@ -164,6 +164,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine enroll-self",
+        &[(
+            "Enroll this machine as the signed-in person, the token on stdin",
+            "printf '%s\\n' \"$CMUX_ACCESS_TOKEN\" | acpmux machine enroll-self --access-token-stdin",
+        )],
+    ),
+    (
         "machine vault",
         &[
             ("Pull this machine's vault now", "acpmux machine vault pull"),

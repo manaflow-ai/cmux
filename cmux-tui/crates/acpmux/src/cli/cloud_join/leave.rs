@@ -28,7 +28,7 @@ pub(super) enum HubAnswer {
 }
 
 impl HubAnswer {
-    fn label(&self) -> &'static str {
+    pub(super) fn label(&self) -> &'static str {
         match self {
             Self::Revoked => "revoked",
             Self::AlreadyGone => "already_revoked",
@@ -38,7 +38,7 @@ impl HubAnswer {
         }
     }
 
-    fn revoked(&self) -> bool {
+    pub(super) fn revoked(&self) -> bool {
         matches!(self, Self::Revoked | Self::AlreadyGone)
     }
 }
@@ -54,7 +54,7 @@ pub(super) fn classify(error: &cmux_cloud_client::ApiError) -> HubAnswer {
     }
 }
 
-async fn revoke_at_hub(record: &MachineCredential) -> HubAnswer {
+pub(super) async fn revoke_at_hub(record: &MachineCredential) -> HubAnswer {
     // Always the hub's word: the local revoked bit is set on any 401 from a mesh call, and by
     // a `--local-only` leave cut short, neither of which proves the hub revoked it.
     let Ok(hub) = origin(Some(record.hub_origin.clone())) else {
@@ -74,6 +74,16 @@ async fn revoke_at_hub(record: &MachineCredential) -> HubAnswer {
 /// live if this stops part way), then `meshRelay` (only a joined one), then the credential and
 /// the node key. Returns what it removed. The caller holds the join lock.
 pub(super) fn remove_local(home: &std::path::Path) -> Result<Vec<&'static str>> {
+    remove_join(home, false)
+}
+
+/// [`remove_local`], keeping `node.wg.key` when `keep_node_key`: a sign-out whose hub did not
+/// revoke the machine keeps it, so the next sign-in finds the hub's row by that key and revokes
+/// it (`enroll.rs`) instead of leaving a second row for this machine.
+pub(super) fn remove_join(
+    home: &std::path::Path,
+    keep_node_key: bool,
+) -> Result<Vec<&'static str>> {
     let mut removed = Vec::new();
     if let Some(mut record) = load_at(home)?
         && !record.revoked
@@ -100,6 +110,9 @@ pub(super) fn remove_local(home: &std::path::Path) -> Result<Vec<&'static str>> 
         }
     }
     for (file, label) in [(CREDENTIAL_FILE, "credential"), ("node.wg.key", "nodeKey")] {
+        if keep_node_key && label == "nodeKey" {
+            continue;
+        }
         match std::fs::remove_file(home.join(file)) {
             Ok(()) => removed.push(label),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}

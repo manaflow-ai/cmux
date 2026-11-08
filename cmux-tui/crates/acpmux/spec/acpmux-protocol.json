@@ -1887,6 +1887,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_leave_if_auto",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_redeem",
       "params": true,
       "result": true

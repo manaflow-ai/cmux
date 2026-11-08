@@ -733,6 +733,11 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
+    /// Signing in enrolls this machine (`server/machine_enroll.rs`): `{accessToken, hub?, userId?,
+    /// buildTag?}` -> `{outcome, relay?}`. Local socket only.
+    pub const MUX_MACHINE_ENROLL: &str = "_acpmux/machine_enroll";
+    /// Signing out leaves the hub only when signing in joined this machine: `{}` -> `{left, kept?, hub?}`.
+    pub const MUX_MACHINE_LEAVE_IF_AUTO: &str = "_acpmux/machine_leave_if_auto";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // The person's vault on this machine (`crate::vault`, `server/vault.rs`).

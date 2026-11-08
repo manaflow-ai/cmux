@@ -503,7 +503,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     crate::hub::watches::Watches::start(&hub);
     // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
-    let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
+    // Kept on the hub, so a sign-in enroll can start one live (`server/machine_enroll.rs`).
+    *hub.mesh_relay.lock().await = crate::server::mesh_relay::start_configured(&hub).await;
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -905,6 +906,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     startup.abort();
     let _ = startup.await;
     // Its last heartbeat empties this daemon's rows in the hub's address book.
+    let mesh_relay = hub.mesh_relay.lock().await.take();
     if let Some(relay) = mesh_relay {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
     }

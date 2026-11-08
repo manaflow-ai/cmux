@@ -6,9 +6,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
+mod enroll;
 pub(crate) mod host_fingerprint;
 mod leave;
 mod recovery;
+
+pub(crate) use enroll::{EnrollOutcome, EnrollRequest, LeaveOutcome, enroll_self, leave_if_auto};
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
 /// The hub a join with no `--hub` uses: cmux-platform's production origin
@@ -58,6 +61,25 @@ pub struct MachineCredential {
     /// this box its own.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cloned: bool,
+    /// What joined this machine: `sign-in` when signing in enrolled it (`enroll.rs`), so signing
+    /// out removes only that join. None for a pair code or a pasted join line: those stay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub joined_by: Option<String>,
+}
+
+/// Where a join says what it did: printed for a person (`Text`), as JSON, or nowhere
+/// (`Quiet`, the daemon's sign-in enroll, which answers its caller instead).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Report {
+    Text,
+    Json,
+    Quiet,
+}
+
+impl Report {
+    fn from_json(json_out: bool) -> Self {
+        if json_out { Self::Json } else { Self::Text }
+    }
 }
 
 /// A hub-supplied id the store keeps: non-empty, one line, and no secret-shaped text.
@@ -434,6 +456,11 @@ pub(crate) fn join_lock() -> Result<HeldLock> {
     anyhow::bail!("machine join requires macOS or Linux")
 }
 
+#[cfg(not(unix))]
+fn join_lock_at(_: &std::path::Path) -> Result<HeldLock> {
+    anyhow::bail!("machine join requires macOS or Linux")
+}
+
 /// A held `flock`. Dropping it unlocks explicitly: a process spawned meanwhile (an agent, a
 /// tool, a login shell) shares the lock's open file description from its fork until its exec,
 /// so closing this descriptor alone would leave the lock held until then, and the next
@@ -455,7 +482,7 @@ pub(crate) fn credential_present() -> Result<bool> {
         .map_err(|_| store_error().into())
 }
 
-pub(crate) fn already_joined(replace: bool, json_out: bool) -> Result<bool> {
+pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
     let Some(record) = load().map_err(|_| store_error())? else { return Ok(false) };
     // A copy of another box's join is no join of this one: the new join line makes one.
     if replace
@@ -469,13 +496,18 @@ pub(crate) fn already_joined(replace: bool, json_out: bool) -> Result<bool> {
     authority().and_then(|authority| authority.enroll()).map_err(|_| store_error())?;
     // Repair a previous config-save failure before reporting idempotent success.
     configure_mesh_relay(&record.hub_origin).map_err(|_| store_error())?;
-    warn_existing_helpers();
-    if json_out {
-        crate::cli::output::print_json(
-            &json!({"joined":false,"alreadyJoined":true,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":record.hub_origin}),
-        );
-    } else {
-        println!("already joined ({})", record.machine_id);
+    match report {
+        Report::Quiet => {}
+        Report::Json => {
+            warn_existing_helpers();
+            crate::cli::output::print_json(
+                &json!({"joined":false,"alreadyJoined":true,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":record.hub_origin}),
+            );
+        }
+        Report::Text => {
+            warn_existing_helpers();
+            println!("already joined ({})", record.machine_id);
+        }
     }
     Ok(true)
 }
@@ -502,7 +534,7 @@ pub async fn join_with_token(
     json_out: bool,
     token: Option<String>,
 ) -> Result<()> {
-    recovery::join(hub, name, replace, json_out, token).await
+    recovery::join(hub, name, replace, Report::from_json(json_out), token, None).await
 }
 
 /// `acpmux machine leave` (`cloud_join/leave.rs`).
@@ -909,6 +941,7 @@ mod tests {
             user_id: None,
             host_fingerprint: None,
             cloned: false,
+            joined_by: None,
         };
         let identity = MachineIdentity::from_record(&record);
         let serialized = serde_json::to_string(&identity).unwrap();

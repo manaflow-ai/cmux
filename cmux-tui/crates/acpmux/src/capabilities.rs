@@ -105,6 +105,12 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    // Signing in enrolls this machine on the hub; signing out leaves only that join
+    // (`server/machine_enroll.rs`).
+    Capability {
+        id: crate::server::machine_enroll::CAPABILITY,
+        wire: &[method::MUX_MACHINE_ENROLL, method::MUX_MACHINE_LEAVE_IF_AUTO],
+    },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
     Capability {
         id: TRIGGER_CHAT,

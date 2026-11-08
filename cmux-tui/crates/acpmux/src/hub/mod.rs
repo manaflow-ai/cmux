@@ -876,6 +876,9 @@ pub struct Hub {
     /// The team hub a send to a name nobody here resolves goes through, once the mesh relay
     /// started (`server/mesh_relay.rs`); unset without one, or in a hub a test builds.
     pub mesh: std::sync::OnceLock<Arc<dyn crate::mesh::MeshHub>>,
+    /// The running mesh relay's loops: the one the daemon started, or one a sign-in enroll
+    /// started live (`server/machine_enroll.rs`). Stopped at shutdown.
+    pub mesh_relay: tokio::sync::Mutex<Option<crate::server::mesh_relay::MeshRelay>>,
     pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
@@ -1123,6 +1126,7 @@ impl Hub {
             trust_waits: Default::default(),
             outbox: Default::default(),
             mesh: Default::default(),
+            mesh_relay: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
             held_peer_asks: Default::default(),
