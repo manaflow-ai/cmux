@@ -3,8 +3,8 @@ import Testing
 @testable import CmuxNextAgentPane
 
 /// The New Tab's New project at the relay boundary (the page's frames into ``AgentPaneTransport``,
-/// out to acpmux): `_acpmux/project_new` makes a folder and trusts it, so it goes out only with a
-/// fresh gesture (the Send that starts its chat) and only as `{name}`.
+/// out to acpmux): `_acpmux/project_new` goes out only as `{name}`, and with no gesture of its own,
+/// so the Send that starts its chat keeps its grant for the folder pick and the first prompt.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneProjectNewRelayTests {
@@ -12,7 +12,7 @@ struct AgentPaneProjectNewRelayTests {
         #"{"jsonrpc":"2.0","id":\#(id),"method":"_acpmux/project_new","params":\#(params)}"#
     }
 
-    @Test func aNewProjectGoesOutOnlyWithAGestureAndOnlyItsName() async throws {
+    @Test func aNewProjectGoesOutOnlyAsItsNameAndSpendsNoGesture() async throws {
         let server = AcpmuxStandInServer()
         try await server.start()
         defer { server.stop() }
@@ -23,9 +23,6 @@ struct AgentPaneProjectNewRelayTests {
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
         let sent = { server.peers.first?.frames.filter { $0.contains("_acpmux/project_new") } ?? [] }
 
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 1, params: #"{"name":"habit-tracker"}"#)]) != nil,
-                "no gesture")
-        transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"name":"x","root":"/etc"}"#)]) != nil,
                 "a param the pane never sends")
         #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
@@ -39,10 +36,11 @@ struct AgentPaneProjectNewRelayTests {
         let params = try #require(object?["params"] as? [String: Any])
         #expect(params["name"] as? String == "habit-tracker")
         #expect(params.count == 1)
+        #expect(transport.gestures.isAvailable, "the Send's grant credit is still there for its chat")
     }
 
-    @Test func aNewProjectNeedsAGesture() {
+    @Test func aNewProjectNeedsNoGesture() {
         let frame = Self.frame(id: 1, params: #"{"name":"a"}"#)
-        #expect(AcpmuxPaneMethods.needsGesture(frame, options: AcpmuxPermissionOptions()))
+        #expect(!AcpmuxPaneMethods.needsGesture(frame, options: AcpmuxPermissionOptions()))
     }
 }

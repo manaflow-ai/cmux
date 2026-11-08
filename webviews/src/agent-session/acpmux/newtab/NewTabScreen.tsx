@@ -655,6 +655,8 @@ export function NewTabScreen(props: Props) {
   const runMode = props.runMode && {
     ...props.runMode,
     onMode: (mode: RunMode) => {
+      // Cloud and Sandboxed start no chat in a folder of this Mac: New project ends.
+      if (mode !== "persistent") setNewProject(undefined);
       if (mode === "cloud") {
         saved.pick(undefined);
         setMachine(undefined);
@@ -1611,6 +1613,8 @@ export function NewTabScreen(props: Props) {
     setMachine(undefined);
     touch();
     setNone(false);
+    // A new folder is this Mac's: a Cloud or Sandboxed pick goes back to this Mac.
+    if (props.runMode && props.runMode.mode !== "persistent") runMode?.onMode("persistent");
     setNewProject((before) => before ?? {});
     requestAnimationFrame(() => field.current?.focus());
   };

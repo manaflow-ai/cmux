@@ -47,8 +47,10 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over",
         // The New Tab's New project (direct.ts newProject, newtab/newProject.ts): acpmux makes one new
         // folder under the person's projects folder with an empty git repository and trusts it
-        // (server/project_new.rs). Only on the Send that starts its chat (``gestureRules``), and only
-        // `name` (``knownParams``), a single path component acpmux checks again.
+        // (server/project_new.rs). Only `name` (``knownParams``), one path component acpmux checks
+        // again. No gesture: the folder is new and empty, so its trust grants nothing an agent-home
+        // folder does not, and the Send that starts its chat keeps its one grant credit for the
+        // folder pick (`workspace.useFolder`) and the first prompt, as for any picked folder.
         "_acpmux/project_new",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
@@ -349,8 +351,6 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt": .always,
         // A side session's question is its first prompt.
         "_acpmux/btw": .always,
-        // New project makes a folder and records its trust: the Send that starts its chat.
-        "_acpmux/project_new": .always,
         // A saved guidance edit reaches every new chat's agent.
         "_acpmux/context_override": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
