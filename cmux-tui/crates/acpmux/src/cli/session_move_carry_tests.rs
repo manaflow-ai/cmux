@@ -97,7 +97,7 @@ fn a_worktree_at_another_commit_takes_nothing() {
         "git config user.email t@t && git config user.name t && git commit -qm moved --allow-empty",
     );
     let out = apply(dst.path(), &carry);
-    assert!(!out.ok && out.stderr.contains("not at"), "{}", out.stderr);
+    assert!(!out.ok && out.stderr.contains("the new worktree is at"), "{}", out.stderr);
     assert_eq!(std::fs::read_to_string(dst.path().join("kept.txt")).unwrap(), "one\n");
 }
 
