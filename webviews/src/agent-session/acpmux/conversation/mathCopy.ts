@@ -7,9 +7,6 @@
 // shows: text that cannot be selected (`user-select: none`) or is hidden stays out. A selection
 // with no math, one across replies, or one that holds highlighted code (drawn in a shadow root
 // the copy cannot read) copies as the page would copy it. Installed when KaTeX first loads.
-// A cmux link's chip in it copies as its link, as every copy of a chip does (chipCopy.ts).
-
-import { chipsAsLinks, LINK_CHIP, withWholeChips } from "./chipCopy";
 
 const MATH = "[data-tex]";
 const BLOCK = /^(P|DIV|LI|PRE|BLOCKQUOTE|H[1-6]|UL|OL|TABLE|TR|FIGURE)$/;
@@ -30,7 +27,7 @@ function elementOf(node: Node): Element | null {
 function onCopy(event: ClipboardEvent) {
   const selection = document.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !event.clipboardData) return;
-  const range = withWholeChips(selection.getRangeAt(0)).cloneRange();
+  const range = selection.getRangeAt(0).cloneRange();
   const first = elementOf(range.startContainer)?.closest<HTMLElement>(MATH);
   if (first) range.setStartBefore(first);
   const last = elementOf(range.endContainer)?.closest<HTMLElement>(MATH);
@@ -75,10 +72,6 @@ function plainText(range: Range): string | null {
       shadow = true;
       return;
     }
-    if (element.matches(LINK_CHIP)) {
-      out += element.getAttribute("href") ?? "";
-      return;
-    }
     if (element.matches(MATH)) {
       math = true;
       const tex = element.dataset.tex ?? "";
@@ -108,7 +101,6 @@ function plainText(range: Range): string | null {
 function html(range: Range): string {
   const holder = document.createElement("div");
   holder.append(range.cloneContents());
-  chipsAsLinks(holder);
   for (const element of holder.querySelectorAll<HTMLElement>(MATH)) {
     const tex = element.dataset.tex ?? "";
     const display = element.classList.contains("cv-math-display") || element.classList.contains("cv-math--display");

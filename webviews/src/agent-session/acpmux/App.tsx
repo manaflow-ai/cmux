@@ -637,8 +637,6 @@ import { queueingOn, setQueueing } from "./queueing";
 import { NO_MENTIONS, StartedMentionsContext, type StartedMentions } from "./started/startedSessionCardModel";
 import { type SessionHover, SessionHoverContext } from "./started/sessionHoverCardModel";
 import { SessionHoverStore, withSessionIds } from "./started/sessionHover";
-import { pageChatStore, setPageChats } from "./chips/cmuxLinkResolve";
-import { setLinkPlaces } from "./chips/cmuxLinkPlaces";
 import { SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
 import {
   type StartedCache,
@@ -741,8 +739,6 @@ declare global {
       applyReadAloud?(state: unknown): void;
       /// The tabs agents marked as needing the person, for Needs you (needsYou/attentionTabs.ts).
       applyAttentionTabs?(tabs: unknown): void;
-      /// The workspaces, panes and tabs a pasted cmux link names (chips/cmuxLinkPlaces.ts).
-      applyLinkPlaces?(places: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -2635,14 +2631,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useLayoutEffect(() => {
     hoverStore.current!.set(snapshot.sessions);
   }, [snapshot.sessions]);
-  // The draft's pasted chat links name their chats from the same list (composer/deeplinkTitles.ts).
-  useLayoutEffect(() => {
-    const store = hoverStore.current!;
-    setPageChats(store);
-    return () => {
-      if (pageChatStore() === store) setPageChats(undefined);
-    };
-  }, []);
   const sessionHover = useMemo<SessionHover>(() => ({ store: hoverStore.current!, open: openOfferChat }), []);
   // The transcript's sub-session cards read each sub-session's state from one store, so a session
   // changing never redraws a turn (subagents/subsessions.ts); a name opens its chat beside this one.
@@ -6633,9 +6621,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
       applyAttentionTabs(tabs) {
         setAttentionTabs(tabs);
-      },
-      applyLinkPlaces(places) {
-        setLinkPlaces(places);
       },
       revealTurn(turnId) {
         revealRef.current(turnId);

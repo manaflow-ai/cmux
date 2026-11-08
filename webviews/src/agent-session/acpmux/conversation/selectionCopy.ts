@@ -6,18 +6,9 @@
 //
 // Across messages it copies the selected message bodies, including complete code cards, without
 // timestamps or controls. Inside one message, math and code retain their specialized copy paths.
-//
-// A cmux link drawn as its chip (chips/CmuxLinkChip.tsx: a workspace's or chat's title) copies as
-// the link, as the plain link did before the chips (review of #38166): in a reply's copy, and in
-// any other selection that holds one (a sent prompt's text, a reply's code or table), whose plain
-// text is then the page's with each chip's words swapped for its link (chipCopy.ts). With math,
-// mathCopy.ts's copy does the same.
 import { copyHref, htmlMarkdown } from "../richClipboard";
 import { safeHref } from "../replyHref";
-import { chipText, chipsAsLinks, withWholeChips } from "./chipCopy";
 import { transcriptSelectionContents } from "./transcriptSelectionCopy";
-
-export { withWholeChips };
 
 const MATH = "[data-tex]";
 /// Attributes the copy keeps; every other one (classes, styles, data, aria) is the transcript's own.
@@ -41,8 +32,7 @@ function elementOf(node: Node): Element | null {
 
 /** The selection's HTML, cleaned of the transcript's chrome and attributes; null when it is not one
  * this copy takes. */
-export function selectionHtml(selected: Range): string | null {
-  const range = withWholeChips(selected);
+export function selectionHtml(range: Range): string | null {
   const reply = elementOf(range.commonAncestorContainer)?.closest(".cv-md");
   if (!reply) {
     const transcript = transcriptSelectionContents(range);
@@ -82,7 +72,6 @@ export function selectionHtml(selected: Range): string | null {
 }
 
 function cleanSelectionHtml(holder: HTMLElement): string {
-  chipsAsLinks(holder);
   for (const element of holder.querySelectorAll(CHROME)) element.remove();
   for (const button of holder.querySelectorAll("button")) button.replaceWith(...button.childNodes);
   for (const element of holder.querySelectorAll("*"))
@@ -109,28 +98,12 @@ function cleanSelectionHtml(holder: HTMLElement): string {
   return holder.innerHTML;
 }
 
-/** The plain text of a selection outside a reply's copy that holds a cmux link chip, each chip as
- * its link (chipCopy.ts: the page's own text around it, code and tables included); null when it
- * holds none (the page's own copy) or holds math (mathCopy.ts's, which turns chips into links too). */
-export function chipSelectionText(selected: Range): string | null {
-  const range = withWholeChips(selected);
-  for (const element of document.querySelectorAll(MATH)) if (range.intersectsNode(element)) return null;
-  return chipText(range);
-}
-
 function onCopy(event: ClipboardEvent) {
   if (event.defaultPrevented || !event.clipboardData) return;
   const selection = document.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
-  const range = selection.getRangeAt(0);
-  const html = selectionHtml(range);
-  if (!html) {
-    const text = chipSelectionText(range);
-    if (!text) return;
-    event.clipboardData.setData("text/plain", text);
-    event.preventDefault();
-    return;
-  }
+  const html = selectionHtml(selection.getRangeAt(0));
+  if (!html) return;
   const markdown = htmlMarkdown(html);
   if (!markdown) return;
   event.clipboardData.setData("text/plain", markdown);

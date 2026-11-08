@@ -11,7 +11,6 @@ import {
   type AcpmuxSessionEntry,
   type SessionWaiting,
   activityTime,
-  cloudHost,
   listed,
   projectLabel,
   sessionPlace,
@@ -98,35 +97,19 @@ export function withSessionIds(
 }
 
 /// The sessions' hover cards by id, which components read with ``useSessionHoverInfo``.
-/// The key an outside agent's link finds its chat by (`cmux://agent/<harness>/<session>`): the
-/// harness and the harness's own session id.
-export const agentLinkKey = (harness: string, agentSessionId: string) => `${harness}/${agentSessionId}`;
-
 export class SessionHoverStore {
   private infos = new Map<string, SessionHoverInfo>();
   private keys = new Map<string, string>();
-  /// Each listed chat by its agent link key (``agentLinkKey``), built with the cards: a pasted
-  /// agent link finds its chat in one lookup however many chats are listed.
-  private agents = new Map<string, string>();
-  /// The machine each chat on another machine runs on, as the session list names it.
-  private hosts = new Map<string, string>();
   private readonly listeners = new Set<() => void>();
 
   /// Replaces the cards with `sessions`'; a card whose content did not change keeps its object.
   set(sessions: readonly AcpmuxSessionEntry[]): void {
     const infos = new Map<string, SessionHoverInfo>();
     const keys = new Map<string, string>();
-    const agents = new Map<string, string>();
-    const hosts = new Map<string, string>();
     let changed = false;
     for (const entry of sessions) {
       const info = hoverInfo(entry);
-      const agent = entry.harness && entry.agentSessionId ? agentLinkKey(entry.harness, entry.agentSessionId) : "";
-      if (agent && !agents.has(agent)) agents.set(agent, entry.sessionId);
-      // This Mac's chats name no machine: only another machine's chat says where it runs.
-      const host = cloudHost(entry);
-      if (host) hosts.set(entry.sessionId, host);
-      const key = `${JSON.stringify(info)}\u0000${agent}\u0000${host ?? ""}`;
+      const key = JSON.stringify(info);
       const kept = this.keys.get(entry.sessionId) === key ? this.infos.get(entry.sessionId) : undefined;
       if (!kept) changed = true;
       infos.set(entry.sessionId, kept ?? info);
@@ -136,23 +119,11 @@ export class SessionHoverStore {
     if (infos.size !== this.infos.size) changed = true;
     this.infos = infos;
     this.keys = keys;
-    this.agents = agents;
-    this.hosts = hosts;
     if (changed) for (const listener of this.listeners) listener();
   }
 
   get(sessionId: string): SessionHoverInfo | undefined {
     return this.infos.get(sessionId);
-  }
-
-  /// The listed chat an agent link names (``agentLinkKey``), or undefined.
-  byAgent(harness: string, agentSessionId: string): string | undefined {
-    return this.agents.get(agentLinkKey(harness, agentSessionId));
-  }
-
-  /// The machine chat `sessionId` runs on, as the session list names it.
-  host(sessionId: string): string | undefined {
-    return this.hosts.get(sessionId);
   }
 
   subscribe = (listener: () => void): (() => void) => {

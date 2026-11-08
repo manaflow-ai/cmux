@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from "react";
-import { selectionText } from "./chipCopy";
 
 export type SelectionReplyLook = "chip" | "icon" | "none" | "row";
 const LOOKS: readonly SelectionReplyLook[] = ["chip", "icon", "none", "row"];
@@ -88,8 +87,7 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
     const element = elementOf(node);
     if (!element?.closest("[data-row-id]") || element.closest(EXCLUDED)) return undefined;
   }
-  // A cmux link chip quotes as its link (chipCopy.ts).
-  const text = selectionText(selection).trim();
+  const text = selection.toString().trim();
   if (!text) return undefined;
   const range = selection.getRangeAt(0);
   const rects = Array.from(range.getClientRects?.() ?? []).filter((rect) => rect.width || rect.height);
