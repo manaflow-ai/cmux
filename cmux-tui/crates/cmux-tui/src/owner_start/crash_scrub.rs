@@ -121,6 +121,8 @@ mod tests {
         let ssn = ["123", "45", "6789"].join("-");
         assert_eq!(scrub(&format!("ssn {ssn}"), None), "ssn <redacted-secret>");
         assert_eq!(scrub("built 2026-11-08", None), "built 2026-11-08");
+        let lower = iban.to_lowercase();
+        assert_eq!(scrub(&format!("iban {lower} x"), None), "iban <redacted-secret> x");
     }
 
     #[test]
@@ -129,6 +131,17 @@ mod tests {
         assert_eq!(scrub("at /Users/bob/src", Some("/home/maya")), "at /Users/<redacted>/src");
         assert_eq!(scrub("at /home/bob/src", None), "at /home/<redacted>/src");
         assert_eq!(scrub("/x", Some("/")), "/x");
+    }
+
+    /// The home directory is replaced only as a whole path component, and user paths match in any
+    /// case, as in `SentryScrubber` (cmux#38555 review F2).
+    #[test]
+    fn home_is_replaced_only_as_a_whole_component() {
+        let home = Some("/Users/al");
+        assert_eq!(scrub("at /Users/alice/project", home), "at /Users/<redacted>/project");
+        assert_eq!(scrub("at /Users/al/project and /Users/al", home), "at ~/project and ~");
+        assert_eq!(scrub(r#"open "/Users/al" failed"#, home), r#"open "~" failed"#);
+        assert_eq!(scrub("at /users/bob/src", None), "at /Users/<redacted>/src");
     }
 
     #[test]
