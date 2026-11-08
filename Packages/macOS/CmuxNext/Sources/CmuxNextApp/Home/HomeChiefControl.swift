@@ -120,30 +120,35 @@ enum HomeStopAllStrings {
     static func couldNotStop(_ count: Int) -> String {
         String(localized: "home.stopAll.couldNotStop", defaultValue: "\(count) could not be stopped", bundle: .module)
     }
-    /// The toast after Stop all agents: the subagents it stopped (else whether the Chief's
-    /// turn stopped), how many could not be stopped, and the daemon's note about any still
-    /// starting. One short line each; the count goes before the note, which is cut first when
-    /// the list of stopped subagents wraps (the tooltip repeats it).
+    /// The toast after Stop all agents, one row (overlay-surfaces.md): the subagents it stopped
+    /// (never "all" while some refused), else whether the Chief's turn stopped, then how many
+    /// could not be stopped. Which ones and why, and the daemon's note about any still starting,
+    /// are the tooltip's (`detail`): a third line saying a stopped one "is still starting" read
+    /// as a contradiction (cmuxterm-hq#6246 item 18).
     static func message(for answer: ChiefStopAll) -> String {
-        var lines: [String] = []
+        var parts: [String] = []
         if !answer.subagents.isEmpty {
-            lines.append(stopped(answer.subagents))
+            parts.append(answer.errors.isEmpty ? stopped(answer.subagents) : stoppedSome(answer.subagents))
         } else if answer.errors.isEmpty {
-            lines.append(answer.stopped ? stoppedChiefOnly : stoppedNone)
+            parts.append(answer.stopped ? stoppedChiefOnly : stoppedNone)
         } else if answer.stopped {
-            lines.append(stoppedChief)
+            parts.append(stoppedChief)
         }
-        if !answer.errors.isEmpty { lines.append(couldNotStop(answer.errors.count)) }
-        if let note = answer.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty { lines.append(note) }
-        return lines.joined(separator: "\n")
+        if !answer.errors.isEmpty { parts.append(couldNotStop(answer.errors.count)) }
+        return parts.joined(separator: " · ")
     }
     /// The toast's tooltip: one line per subagent that could not be stopped, as the daemon
-    /// wrote it (the subagent and acpmux's error), then the note, so a note the toast's three
-    /// lines cut off (a long list of stopped subagents) can still be read; nil with neither.
+    /// wrote it (the subagent and acpmux's error), then the note, which only the tooltip
+    /// carries; nil with neither.
     static func detail(for answer: ChiefStopAll) -> String? {
         let lines = (answer.errors + [answer.note].compactMap { $0 })
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+    /// What stopped when some subagents refused: "Stopped a1 and a3", never "all".
+    static func stoppedSome(_ names: [String]) -> String {
+        String(format: String(localized: "home.stopAll.stoppedSome", defaultValue: "Stopped %@", bundle: .module),
+               ListFormatter.localizedString(byJoining: names))
     }
     static func stopped(_ names: [String]) -> String {
         String(format: String(localized: "home.stopAll.stopped", defaultValue: "Stopped all agents: %@", bundle: .module),
