@@ -82,7 +82,7 @@ def spec(source):
             {"title": "Open the fixture terminal", "cmux": ["workspace", "new", "--name", "Import fixture"]},
             {"title": "Focus the fixture terminal", "cmux": ["workspace", "name:Import fixture", "focus"]},
             terminal(source, "setup", "Create isolated linked worktree and agent rollout"),
-            {"title": "Refresh from real source files", "reopen": "quit", "recordLaunch": 6, "wait": 2},
+            {"title": "Refresh project metadata", "reopen": "quit", "recordLaunch": 6, "wait": 2},
             {"title": "Open Import settings", "settings_section": "import/importSuggestions"},
             page("wait", selector=card + ' [data-action="start"]', timeout_ms=30000),
             page("state"),

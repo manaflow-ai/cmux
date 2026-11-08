@@ -59,6 +59,11 @@ receipt = root / "receipt.json"
 
 
 def command(args, env=None):
+    if args[0] == "/usr/bin/git":
+        # A capture must never inherit a caller's repository or hook routing.
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+                    "GIT_CONFIG_SYSTEM": os.devnull, "GIT_TERMINAL_PROMPT": "0"})
     result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=35)
     # Do not export raw errors: they can contain the lease's absolute path.
     require(result.returncode == 0, "Command failed: " + Path(args[0]).name + " (exit " + str(result.returncode) + ")")
