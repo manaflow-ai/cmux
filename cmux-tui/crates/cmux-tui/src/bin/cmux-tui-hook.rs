@@ -139,7 +139,10 @@ fn run_reading(
 }
 
 fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::Result<()> {
-    let inbox = inbox::Delivery::for_event(&args.source, &args.native_event);
+    let inbox = inbox::Delivery::for_event(&args.source, &args.native_event).or_else(|| {
+        session_context::applies(&args.source, &args.native_event, |name| env::var_os(name))
+            .then_some(inbox::Delivery::SessionContext)
+    });
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         inbox::print_nothing(inbox);
         return Ok(());
@@ -181,6 +184,9 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     match inbox {
         Some(inbox::Delivery::SessionBanner) => {
             inbox::session_banner(terminal.as_deref(), &start_source);
+        }
+        Some(inbox::Delivery::SessionContext) => {
+            session_context::print(&socket, terminal.as_deref());
         }
         Some(inbox) => inbox::deliver(inbox, &socket, terminal.as_deref()),
         None => {}
@@ -242,6 +248,10 @@ mod inbox;
 /// cmux's line under Claude Code's startup banner: how the session compacts.
 #[path = "cmux-tui-hook/session_banner.rs"]
 mod session_banner;
+
+/// Where the agent runs, for the model at session start.
+#[path = "cmux-tui-hook/session_context.rs"]
+pub(crate) mod session_context;
 
 /// The session socket and terminal that receive this event: the terminal's
 /// own `CMUX_TUI_*` values; for an agent that clears its hooks' environment

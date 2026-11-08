@@ -15,6 +15,8 @@ mod agent_browser_provider;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
+mod agent_session_context;
+#[cfg(unix)]
 mod agent_start_host;
 mod app;
 #[cfg(unix)]
@@ -1887,6 +1889,9 @@ fn run_main() {
         }
         if let Some(wrapper_args) = codex_wrapper::invocation(&args) {
             client_log::exit(codex_wrapper::run(wrapper_args));
+        }
+        if agent_session_context::invocation(&args) {
+            client_log::exit(agent_session_context::run());
         }
     }
     // Pin the launch directory before any subsystem can move the process:
