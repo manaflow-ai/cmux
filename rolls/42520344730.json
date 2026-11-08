@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42520344730",
+  "recorded_at": "2026-11-08T20:35:59Z",
+  "reason": "cmux-tui b5bdc0b816e4 changes the image's cmux-tui (pinned ae5ef7b35fdb)",
+  "dry_run": false,
+  "cmux_tui": "b5bdc0b816e472beff7d35f612e4f23aedf9790a",
+  "fixes": [
+    {
+      "sha": "b5bdc0b816e472beff7d35f612e4f23aedf9790a",
+      "mergedAt": "2026-11-08T12:14:08-08:00",
+      "subject": "cmux-tui: agent start/resume by name, readiness with startup dialogs, list --agents names and last reply (#38436)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T20:35:59Z",
+    "snapshot_id": "sh-c74612feeadf41c2a07b8f2ac0de8164",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42520344730): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "80529cd156fac6995c1d59919fd7573f584509d2",
+    "image": "cloud-native-auto-b5bdc0b8-42520344730-1",
+    "revision": "ci-42520344730-1",
+    "at": "2026-11-08T20:35:59Z"
+  },
+  "rolled_back": false
+}
