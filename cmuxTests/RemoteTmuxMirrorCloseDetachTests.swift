@@ -644,6 +644,87 @@ import Testing
     }
 }
 
+/// A named et server mirrors end to end through `remote.tmux.window` (#15022): the handler
+/// builds the socket-named host, discovery runs `tmux -L alpha …` over the one-shot ssh lane,
+/// and the session becomes a workspace keyed by that endpoint. The cached control connection
+/// keeps the et control stream off the network, as the focus-policy test above does for ssh.
+@MainActor
+@Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxSocketNameWindowMirrorTests {
+    @Test func namedETServerMirrorsThroughTheWindowHandler() async throws {
+        let support = RemoteTmuxMirrorCloseDetachTests()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("remote-tmux-socket-name-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sshURL = root.appendingPathComponent("ssh")
+        let callsURL = root.appendingPathComponent("calls.log")
+        try support.writeExecutable(
+            at: sshURL,
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> '\(callsURL.path)'
+            case "$*" in
+              *display-message*) printf '3.4\\n' ;;
+              *list-sessions*) printf '$1:1:0:1:one\\n' ;;
+            esac
+            exit 0
+            """
+        )
+        let remoteTmuxKey = SettingCatalog().betaFeatures.remoteTmux.userDefaultsKey
+        let previousRemoteTmux = UserDefaults.standard.object(forKey: remoteTmuxKey)
+        UserDefaults.standard.set(true, forKey: remoteTmuxKey)
+        defer {
+            if let previousRemoteTmux {
+                UserDefaults.standard.set(previousRemoteTmux, forKey: remoteTmuxKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: remoteTmuxKey)
+            }
+        }
+
+        let harness = try RemoteTmuxMirrorCloseDetachTests.Harness()
+        var targetWindowID: UUID?
+        defer {
+            if let targetWindowID { harness.closeWindow(targetWindowID) }
+            harness.tearDown()
+        }
+        let destination = "socket-\(UUID().uuidString)@example.test"
+        let host = RemoteTmuxHost(destination: destination, transport: .et, socketName: "alpha")
+        // Discovery for an et host still rides ssh; inject only this endpoint's transport.
+        let transport = RemoteTmuxSSHTransport(host: host, sshExecutablePath: sshURL.path)
+        harness.controller.transportRegistry.transports[host.connectionHash] = transport
+        #expect(harness.controller.transport(for: host) === transport)
+        defer { harness.controller.detach(host: host, sessionName: "one") }
+        harness.cacheConnection(host: host, session: "one")
+
+        let responseText = await Task.detached {
+            TerminalController.shared.v2RemoteTmuxWindow(
+                id: 1,
+                params: ["host": destination, "transport": "et", "socket_name": "alpha", "session": "one"]
+            )
+        }.value
+        let responseData = try #require(responseText.data(using: .utf8))
+        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        let result = try #require(response["result"] as? [String: Any], "\(responseText)")
+        #expect(result["mirrored"] as? Bool == true)
+        #expect((result["workspace_ids"] as? [String])?.count == 1)
+        targetWindowID = try #require(
+            (result["window_id"] as? String).flatMap(UUID.init(uuidString:))
+        )
+
+        // Every tmux command discovery ran carried the socket flag.
+        let calls = try String(contentsOf: callsURL, encoding: .utf8)
+            .split(separator: "\n")
+            .filter { $0.contains("list-sessions") || $0.contains("display-message") }
+        #expect(!calls.isEmpty, "discovery ran no tmux command")
+        #expect(calls.allSatisfy { $0.contains("'-L' 'alpha'") }, "\(calls)")
+
+        // The mirror belongs to the socket-named endpoint, not to the host's default server.
+        #expect(harness.controller.sessionMirror(host: host, sessionName: "one") != nil)
+        let defaultServer = RemoteTmuxHost(destination: destination, transport: .et)
+        #expect(harness.controller.sessionMirror(host: defaultServer, sessionName: "one") == nil)
+    }
+}
+
 /// Keeps the multi-window placement regression in its own app-host suite. It
 /// creates three native windows and several Ghostty-backed panels; running it
 /// after the close-path cases can retain renderer teardown work on headless CI

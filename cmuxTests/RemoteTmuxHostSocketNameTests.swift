@@ -181,7 +181,7 @@ import Testing
 /// handlers reach it with the right inputs.
 @Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxSocketNameHandlerTests {
     @Test(arguments: ["remote.tmux.mirror", "remote.tmux.window", "remote.tmux.attach"])
-    func overBudgetSessionOnANamedETServerIsInvalidParams(method: String) throws {
+    func overBudgetSessionOnANamedETServerIsInvalidParams(method: String) async throws {
         let remoteTmuxKey = SettingCatalog().betaFeatures.remoteTmux.userDefaultsKey
         let previousRemoteTmux = UserDefaults.standard.object(forKey: remoteTmuxKey)
         UserDefaults.standard.set(true, forKey: remoteTmuxKey)
@@ -207,6 +207,19 @@ import Testing
         #expect(error["code"] as? String == "invalid_params")
         // The session check is what refused it: the host, transport and socket name were fine.
         let message = try #require(error["message"] as? String)
-        #expect(message.contains("session"), "\(method) refused for another reason: \(message)")
+        #expect(
+            message == String(localized: "socket.remoteTmux.sessionRequired", defaultValue: "session is required"),
+            "\(method) refused for another reason: \(message)")
+        // Nothing was started for the refused endpoint. Every ssh one-shot goes through a
+        // transport the registry creates on first use, and every et control stream through a
+        // connection the controller records, so an absent entry for this host is an absent process.
+        let host = RemoteTmuxHost(destination: "dev@host", transport: .et, socketName: "alpha")
+        let controller = try await MainActor.run { try #require(AppDelegate.shared).remoteTmuxController }
+        let started = await MainActor.run {
+            (transport: controller.transportRegistry.transports[host.connectionHash] != nil,
+             connection: controller.connection(host: host, sessionName: session) != nil)
+        }
+        #expect(!started.transport, "\(method) created an ssh transport for the refused host")
+        #expect(!started.connection, "\(method) recorded a control connection for the refused session")
     }
 }
