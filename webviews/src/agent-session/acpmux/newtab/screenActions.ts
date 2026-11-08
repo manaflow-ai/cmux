@@ -33,6 +33,7 @@ export function newTabScreenActions(deps: {
   startsHere?(): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
+  clearError?(): void;
   showError?(error: unknown): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
@@ -125,6 +126,7 @@ export function newTabScreenActions(deps: {
       });
     },
     onFixFromLink: (url) => {
+      deps.clearError?.();
       ignore(
         callNative("chat.fix_from_link", { url, ...(cwd ? { cwd } : {}) })
           .then((result) => {
