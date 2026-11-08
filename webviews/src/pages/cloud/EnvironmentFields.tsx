@@ -3,12 +3,10 @@ import type { Strings } from "../shared/i18n";
 import { L } from "./strings";
 import {
   DEFAULT_SECRET_HEADER,
-  headerValid,
+  headerIssue,
   hostsValid,
-  secretDeliveryChanged,
   secretHosts,
   type EnvironmentDraft,
-  type EnvironmentSecret,
   type SecretDraft,
 } from "./environmentModel";
 import type { EnvironmentState, EnvironmentStore } from "./environmentStore";
@@ -125,7 +123,7 @@ export function EnvironmentValues({
         return (
           <div className="env-secret" key={index}>
             {value}
-            <SecretDelivery row={row} stored={stored} strings={strings} onChange={(patch) => edit(index, patch)} />
+            <SecretDelivery row={row} strings={strings} onChange={(patch) => edit(index, patch)} />
           </div>
         );
       })}
@@ -141,12 +139,10 @@ export function EnvironmentValues({
  *  its own height, so the rows below move with it and nothing pops in. */
 export function SecretDelivery({
   row,
-  stored,
   strings,
   onChange,
 }: {
   row: SecretDraft;
-  stored?: EnvironmentSecret;
   strings: Strings;
   onChange(patch: Partial<SecretDraft>): void;
 }) {
@@ -156,14 +152,14 @@ export function SecretDelivery({
   const header = row.header ?? DEFAULT_SECRET_HEADER;
   const hasHosts = secretHosts(row.hosts).length > 0;
   const hostsBad = !editingHosts && !hostsValid(row.hosts);
-  const headerBad = hasHosts && !headerValid(row.header);
-  const retype = !row.value && stored !== undefined && secretDeliveryChanged(row, stored);
+  const headerProblem = hasHosts ? headerIssue(row.header) : undefined;
+  const headerBad = headerProblem !== undefined;
   const message = hostsBad
     ? L.envInvalidHosts
-    : headerBad
-      ? L.envInvalidHeader
-      : retype
-        ? L.envSecretRetype
+    : headerProblem === "route"
+      ? L.envReservedHeader
+      : headerProblem
+        ? L.envInvalidHeader
         : undefined;
   const id = useId();
   return (
@@ -208,7 +204,7 @@ export function SecretDelivery({
                   autoComplete="off"
                   spellCheck={false}
                   value={header.name}
-                  onChange={(event) => onChange({ header: { ...header, name: event.target.value } })}
+                  onChange={(event) => onChange({ header: { ...header, name: event.target.value.toLowerCase() } })}
                 />
                 <input
                   aria-label={t(L.envSecretHeaderFormat)}
@@ -227,7 +223,7 @@ export function SecretDelivery({
       <div className="env-fold" data-open={message ? true : undefined}>
         <div className="env-fold-body">
           {message && (
-            <small id={`${id}-message`} className={retype && !hostsBad && !headerBad ? "env-note" : "env-error"}>
+            <small id={`${id}-message`} className="env-error">
               {t(message)}
             </small>
           )}

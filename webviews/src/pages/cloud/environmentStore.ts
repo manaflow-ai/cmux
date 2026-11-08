@@ -2,7 +2,6 @@ import {
   environmentDraft,
   environmentPatch,
   scriptFits,
-  secretDeliveryChanged,
   SETUP_SCRIPT_BYTES,
   storedEnvironment,
   validateEnvironment,
@@ -35,7 +34,15 @@ export type EnvironmentState = {
     | "secret"
     | "hosts"
     | "header"
-    | "retype";
+    | "route";
+};
+
+/** The platform's secret refusals (cmux-platform#1008), shown as the same sentence the editor's own check shows.
+ *  `secret_value_required`: a value-less entry for a secret removed elsewhere since the sheet opened.
+ *  `invalid_secret_route`: a header the request itself needs, a header without hosts, or a host given twice. */
+const refusals: Record<string, EnvironmentState["error"]> = {
+  "cloud_environment.secret_value_required": "secret",
+  "cloud_environment.invalid_secret_route": "route",
 };
 
 /** One draft for every entry point; stale reads never resurrect a closed or different editor. */
@@ -132,13 +139,6 @@ export class EnvironmentStore {
     if (invalid) return this.error(invalid);
     if (draft.secrets.some((row) => !row.value && !original.secrets.some((secret) => secret.name === row.name)))
       return this.error("secret");
-    if (
-      draft.secrets.some((row) => {
-        const stored = original.secrets.find((secret) => secret.name === row.name);
-        return !row.value && stored !== undefined && secretDeliveryChanged(row, stored);
-      })
-    )
-      return this.error("retype");
     const patch = environmentPatch(original, draft);
     if (!Object.keys(patch).length) return this.close();
     this.set({ saving: true, error: undefined });
@@ -146,8 +146,9 @@ export class EnvironmentStore {
       await this.client.update(original.id, patch);
       this.set({ saving: false });
       this.close();
-    } catch {
-      this.set({ saving: false, error: "save" });
+    } catch (error) {
+      const code = error instanceof Object && "code" in error ? error.code : undefined;
+      this.set({ saving: false, error: (typeof code === "string" && refusals[code]) || "save" });
     }
   }
 }

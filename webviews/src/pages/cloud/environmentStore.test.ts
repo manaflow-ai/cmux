@@ -3,6 +3,7 @@ import { EnvironmentStore } from "./environmentStore";
 import {
   environmentDraft,
   environmentPatch,
+  headerIssue,
   hostsValid,
   secretHosts,
   validateEnvironment,
@@ -454,7 +455,7 @@ describe("secret delivery hosts and header", () => {
     expect(writes).toEqual([]);
   });
 
-  test("changing an existing secret's delivery needs its value again; an untouched one writes nothing", async () => {
+  test("changing an existing secret's delivery sends a metadata-only entry; an untouched one writes nothing", async () => {
     const { store, writes } = fake({ list: async () => [delivered()] });
     await store.open();
     const draft = store.getSnapshot().draft!;
@@ -465,20 +466,102 @@ describe("secret delivery hosts and header", () => {
       ),
     });
     await store.save();
-    expect(store.getSnapshot().error).toBe("retype");
-    expect(writes).toEqual([]);
-    store.edit({
-      secrets: store
-        .getSnapshot()
-        .draft!.secrets.map((row) => (row.name === "GITHUB_TOKEN" ? { ...row, value: "ghp-new" } : row)),
-    });
-    await store.save();
     expect(writes[0]?.patch).toEqual({
-      set_secrets: [{ name: "GITHUB_TOKEN", value: "ghp-new", hosts: ["api.github.com", "uploads.github.com"] }],
+      set_secrets: [{ name: "GITHUB_TOKEN", hosts: ["api.github.com", "uploads.github.com"] }],
     });
   });
 
-  test("retyping only the value keeps the stored hosts and header", () => {
+  test("a custom header switched back to the default omits header; clearing hosts makes a plain env var", () => {
+    const original = delivered();
+    const draft = environmentDraft(original);
+    draft.secrets = draft.secrets.map((row) =>
+      row.name === "SEARCH_KEY"
+        ? { ...row, header: { name: "Authorization", format: "Bearer {value}" } }
+        : row.name === "GITHUB_TOKEN"
+          ? { ...row, hosts: "  " }
+          : row,
+    );
+    expect(environmentPatch(original, draft)).toEqual({
+      set_secrets: [{ name: "GITHUB_TOKEN" }, { name: "SEARCH_KEY", hosts: ["search.example.com"] }],
+    });
+  });
+
+  test("a new secret without a value is blocked, and the platform's value_required maps to the same error", async () => {
+    const { store, writes } = fake();
+    await store.open();
+    store.edit({
+      secrets: [
+        { name: "PACKAGE_TOKEN", value: "" },
+        { name: "NEW_TOKEN", value: "", hosts: "api.example.com" },
+      ],
+    });
+    await store.save();
+    expect(store.getSnapshot().error).toBe("secret");
+    expect(writes).toEqual([]);
+
+    // The stored secret was removed elsewhere after the sheet opened: its value-less entry is refused.
+    const raced = fake({
+      list: async () => [delivered()],
+      update: async () => {
+        throw Object.assign(new Error("refused"), { code: "cloud_environment.secret_value_required" });
+      },
+    });
+    await raced.store.open();
+    raced.store.edit({
+      secrets: raced.store
+        .getSnapshot()
+        .draft!.secrets.map((row) => (row.name === "GITHUB_TOKEN" ? { ...row, hosts: "uploads.github.com" } : row)),
+    });
+    await raced.store.save();
+    expect(raced.store.getSnapshot()).toMatchObject({ open: true, error: "secret" });
+  });
+
+  test("headers follow the platform's rules: lowercase token, no framing header, {value} in at most 256", () => {
+    expect(headerIssue(undefined)).toBeUndefined();
+    expect(headerIssue({ name: "X-Api-Key", format: "{value}" })).toBeUndefined();
+    for (const name of ["host", "Content-Length", "transfer-encoding", "connection", "upgrade"])
+      expect(headerIssue({ name, format: "{value}" })).toBe("route");
+    expect(headerIssue({ name: "bad header", format: "{value}" })).toBe("header");
+    expect(headerIssue({ name: "x".repeat(65), format: "{value}" })).toBe("header");
+    expect(headerIssue({ name: "x-key", format: "Bearer" })).toBe("header");
+    expect(headerIssue({ name: "x-key", format: `${"a".repeat(250)}{value}` })).toBe("header");
+    expect(hostsValid("api.example.com:8443")).toBe(false);
+  });
+
+  test("a header with no hosts is never sent; a framing header blocks Save inline", async () => {
+    const original = delivered();
+    const draft = environmentDraft(original);
+    draft.secrets = [{ name: "PACKAGE_TOKEN", value: "v", header: { name: "x-key", format: "{value}" } }];
+    expect(environmentPatch(original, draft).set_secrets).toEqual([{ name: "PACKAGE_TOKEN", value: "v" }]);
+    const { store, writes } = fake();
+    await store.open();
+    store.edit({
+      secrets: [
+        { name: "PACKAGE_TOKEN", value: "v", hosts: "api.example.com", header: { name: "host", format: "{value}" } },
+      ],
+    });
+    await store.save();
+    expect(store.getSnapshot().error).toBe("route");
+    expect(writes).toEqual([]);
+  });
+
+  test("the platform's invalid_secret_route maps to the framing-header error; other refusals stay a save error", async () => {
+    let code = "cloud_environment.invalid_secret_route";
+    const { store } = fake({
+      update: async () => {
+        throw Object.assign(new Error("refused"), { code });
+      },
+    });
+    await store.open();
+    store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "v", hosts: "api.example.com" }] });
+    await store.save();
+    expect(store.getSnapshot().error).toBe("route");
+    code = "cloud_environment.something_else";
+    await store.save();
+    expect(store.getSnapshot().error).toBe("save");
+  });
+
+  test("a value-only change still states the stored hosts and header in full", () => {
     const original = delivered();
     const draft = environmentDraft(original);
     draft.secrets = draft.secrets.map((row) => (row.name === "SEARCH_KEY" ? { ...row, value: "rotated" } : row));

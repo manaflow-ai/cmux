@@ -27325,134 +27325,134 @@
         }
       }
     },
-    "environment.secretRetype": {
+    "environment.reservedHeader": {
       "comment": "Cloud environment editor: a secret's delivery hosts and header",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اكتب القيمة مرة أخرى لتغيير وجهة إرسال هذا السر."
+            "value": "هذه الترويسة تحمل الطلب نفسه (مثل host أو content-length). استخدم ترويسة أخرى، مثل authorization."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ponovo upišite vrijednost da promijenite kamo se ova tajna šalje."
+            "value": "To zaglavlje nosi sam zahtjev (poput host ili content-length). Koristite drugo, npr. authorization."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skriv værdien igen for at ændre, hvor hemmeligheden sendes hen."
+            "value": "Den header bærer selve anmodningen (som host eller content-length). Brug en anden, f.eks. authorization."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gib den Wert erneut ein, um zu ändern, wohin dieses Geheimnis gesendet wird."
+            "value": "Dieser Header trägt die Anfrage selbst (wie host oder content-length). Verwende einen anderen, etwa authorization."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Type the value again to change where this secret is sent."
+            "value": "That header carries the request itself (like host or content-length). Use another, such as authorization."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vuelve a escribir el valor para cambiar adónde se envía este secreto."
+            "value": "Ese encabezado forma parte de la propia solicitud (como host o content-length). Usa otro, como authorization."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saisissez de nouveau la valeur pour changer la destination de ce secret."
+            "value": "Cet en-tête porte la requête elle-même (comme host ou content-length). Utilisez-en un autre, comme authorization."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Digita di nuovo il valore per cambiare dove viene inviato questo segreto."
+            "value": "Questa intestazione regge la richiesta stessa (come host o content-length). Usane un'altra, come authorization."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このシークレットの送信先を変更するには、値をもう一度入力してください。"
+            "value": "このヘッダーはリクエスト自体を構成します（host や content-length など）。authorization など別のヘッダーを使ってください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "វាយតម្លៃម្ដងទៀត ដើម្បីប្ដូរកន្លែងដែលសម្ងាត់នេះត្រូវបានផ្ញើ។"
+            "value": "ក្បាលនេះផ្ទុកសំណើខ្លួនឯង (ដូចជា host ឬ content-length)។ ប្រើក្បាលផ្សេង ដូចជា authorization។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 시크릿을 보낼 곳을 바꾸려면 값을 다시 입력하세요."
+            "value": "이 헤더는 요청 자체를 구성합니다(host, content-length 등). authorization 같은 다른 헤더를 사용하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skriv inn verdien på nytt for å endre hvor hemmeligheten sendes."
+            "value": "Den headeren bærer selve forespørselen (som host eller content-length). Bruk en annen, for eksempel authorization."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wpisz wartość ponownie, aby zmienić, dokąd jest wysyłany ten sekret."
+            "value": "Ten nagłówek przenosi samo żądanie (np. host lub content-length). Użyj innego, np. authorization."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Digite o valor de novo para mudar para onde este segredo é enviado."
+            "value": "Esse cabeçalho faz parte da própria requisição (como host ou content-length). Use outro, como authorization."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Введите значение ещё раз, чтобы изменить, куда отправляется этот секрет."
+            "value": "Этот заголовок несёт сам запрос (например, host или content-length). Используйте другой, например authorization."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "พิมพ์ค่าอีกครั้งเพื่อเปลี่ยนปลายทางที่ส่งความลับนี้"
+            "value": "ส่วนหัวนี้เป็นส่วนของคำขอเอง (เช่น host หรือ content-length) ใช้ส่วนหัวอื่น เช่น authorization"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu gizli bilginin gönderildiği yeri değiştirmek için değeri yeniden yazın."
+            "value": "Bu başlık isteğin kendisini taşır (host veya content-length gibi). authorization gibi başka bir başlık kullanın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Введіть значення ще раз, щоб змінити, куди надсилається цей секрет."
+            "value": "Цей заголовок несе сам запит (як-от host або content-length). Використайте інший, наприклад authorization."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nhập lại giá trị để thay đổi nơi gửi bí mật này."
+            "value": "Tiêu đề này mang chính yêu cầu (như host hoặc content-length). Hãy dùng tiêu đề khác, như authorization."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "要更改此密钥的发送位置，请重新输入其值。"
+            "value": "该请求头承载请求本身（如 host 或 content-length）。请改用其他请求头，例如 authorization。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "要變更此密鑰的傳送位置，請重新輸入其值。"
+            "value": "此請求標頭承載請求本身（如 host 或 content-length）。請改用其他請求標頭，例如 authorization。"
           }
         }
       }

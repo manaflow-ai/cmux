@@ -56,7 +56,7 @@ export const L = {
   envSecretHeaderHint: "environment.secretHeaderHint",
   envInvalidHosts: "environment.invalidHosts",
   envInvalidHeader: "environment.invalidHeader",
-  envSecretRetype: "environment.secretRetype",
+  envReservedHeader: "environment.reservedHeader",
 
   title: "page.title",
   disconnected: "page.disconnected",

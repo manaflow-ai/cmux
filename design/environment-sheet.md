@@ -33,7 +33,7 @@ A secret goes one of two ways (the vault's edge grants):
 Anatomy, top to bottom, inside one `.env-secret` block (8 px between lines, 16 px between secrets):
 
 1. Name, value, remove: the row every value list has. An existing secret's name is read-only; its
-   value field is empty and means "keep".
+   value field is empty and means "keep". A new secret needs a value.
 2. **Sent to:** a label and one text field, inset to end under the value (the remove button's column
    stays clear). Hosts are typed as a comma or space separated list; the placeholder says what empty
    means ("No hosts: an environment variable"). Case is folded and repeats are dropped on save.
@@ -54,8 +54,9 @@ Anatomy, top to bottom, inside one `.env-secret` block (8 px between lines, 16 p
 | Editing hosts | Typing the first host unfolds the header line; clearing the last one folds it. |
 | Header open | The disclosure mark turns 90 degrees and the two fields unfold under it. |
 | Invalid host | On blur, or on Save: Sent to is `aria-invalid`, the message line reads "Use up to 8 host names like api.example.com, with no scheme, port, path or wildcard." in the danger text color, and Save stops with the same sentence at the foot. |
-| Invalid header | A header name that is not a token, or a format without `{value}`: both header fields are `aria-invalid`, the message reads "Name the header and include {value} in its format.", Save stops. |
-| Delivery changed, value empty | An existing secret whose hosts or header differ from the stored ones, with no new value: the message (secondary text, not an error) reads "Type the value again to change where this secret is sent."; Save stops with the same sentence until the value is typed. The platform's `set_secrets` writes a value with its delivery and has no metadata-only form. |
+| Invalid header | A header name that is not a lowercase token of up to 64 characters (typing folds case), or a format without `{value}` or over 256 characters: both header fields are `aria-invalid`, the message reads "Name the header and include {value} in its format.", Save stops. |
+| Framing header | `host`, `content-length`, `transfer-encoding`, `connection` or `upgrade`: the message reads "That header carries the request itself (like host or content-length). Use another, such as authorization.", Save stops. The platform's `cloud_environment.invalid_secret_route` shows the same sentence. |
+| Delivery changed, value empty | An existing secret whose hosts or header changed with its value left empty: no message. Save sends where it goes and keeps the sealed value. |
 | Saved | The sheet closes, as for every other change. Reopening shows the stored hosts and header and an empty value. |
 
 ### Motion
@@ -68,10 +69,24 @@ Reduced or off motion opens and closes at once.
 
 ### What goes over the wire
 
-A secret with a value goes in `set_secrets` as `{ name, value, hosts?, header? }`: `hosts` when it
-has any, `header` only when it differs from the default. A value retyped on a secret that has hosts
-carries its current hosts and header, so rotating a value never drops its delivery. A secret left
-empty is not sent.
+`set_secrets` gets one entry per secret whose value, hosts or header changed, and none for the
+others. Each entry states where the secret goes in full; only `value` may be left out:
+
+- `{ name, value?, hosts?, header? }`. No `value` keeps the stored sealed value and changes only
+  where it goes; the platform answers 400 `cloud_environment.secret_value_required` when no secret
+  by that name exists (one removed elsewhere since the sheet opened), shown as "a new secret needs a
+  value".
+- No `hosts` means a plain environment variable, never "unchanged": clearing every host sends the
+  entry without `hosts`. A value-only change on a host-pinned secret still sends its hosts.
+- No `header` means `authorization: Bearer {value}`, never "unchanged": a custom header switched
+  back to the default is sent without `header`, and the platform answers a default header as absent.
+- A header goes only with hosts: the header line exists only once there is a host, and a row without
+  hosts never sends one.
+
+The rules match the platform's (cmux-platform#1008): hosts as above, a lowercase header name, the
+reserved framing headers, `{value}` in a format of at most 256 characters. Its refusals
+`secret_value_required` and `invalid_secret_route` map to the editor's own sentences; a schema 400
+the editor's checks already stop never reaches it.
 
 ## Variants considered for the secret row
 
@@ -86,11 +101,11 @@ empty is not sent.
 
 The gallery (`cloud.environment-sheet`) shows the picked design in its states: `secrets` (no hosts),
 `secret-hosts` (default and custom header), `secret-header-open`, `secret-invalid-host` and
-`secret-retype`. Gallery variants are states of the real component, never copies of it
+`secret-delivery-edit` (a host added to a stored secret, value left empty). Gallery variants are states of the real component, never copies of it
 (`webviews/src/gallery/ENTRIES.md`), so B and C live only in this section.
 
 ## Never
 
 - A secret value read from the server, kept in state, or drawn.
-- A delivery change saved without its value.
+- A `set_secrets` entry that leaves out hosts or header to mean "unchanged".
 - A header line that appears or a message that appears without its fold.

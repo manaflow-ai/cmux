@@ -18,8 +18,10 @@ export type SecretHeader = { name: string; format: string };
 /** A stored secret as GET answers it: never a value. `hosts` and `header` are its delivery targets (the
  *  vault's edge grants); a secret without `hosts` is a plain environment variable. Older platforms omit both. */
 export type EnvironmentSecret = { name: string; updated_at: string; hosts?: string[]; header?: SecretHeader };
-/** A `set_secrets` entry: the value, and where it goes. */
-export type SecretWrite = EnvironmentVariable & { hosts?: string[]; header?: SecretHeader };
+/** A `set_secrets` entry. It always states where the secret goes in full: no `hosts` is a plain environment
+ *  variable and no `header` is the default, never "unchanged". Only `value` may be left out, which keeps
+ *  an existing secret's sealed value and changes where it goes. */
+export type SecretWrite = { name: string; value?: string; hosts?: string[]; header?: SecretHeader };
 /** A secret row being edited. `hosts` is the field's text as typed; `header` absent means the default. */
 export type SecretDraft = EnvironmentVariable & { hosts?: string; header?: SecretHeader };
 export type EnvironmentPatch = Partial<Pick<CloudEnvironment, "name" | "setup_script" | "env_vars" | "network">> & {
@@ -42,8 +44,17 @@ export const SECRET_HOSTS_MAX = 8;
 export const DEFAULT_SECRET_HEADER: SecretHeader = { name: "authorization", format: "Bearer {value}" };
 // An exact host name: lowercase labels with at least one dot; no scheme, port, path or wildcard.
 const HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
-// An HTTP header name (RFC 9110 token).
-const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/;
+// The platform's rules (cmux-platform#1008, src/api/CloudEnvironments.ts): a lowercase header name (an RFC 9110
+// token; the editor folds case before checking), a format of at most 256 characters holding {value}, and never
+// a header that frames or routes the request itself.
+const HEADER_NAME = /^[a-z0-9!#$%&'*+.^_`|~-]{1,64}$/;
+export const RESERVED_SECRET_HEADERS = new Set([
+  "host",
+  "content-length",
+  "transfer-encoding",
+  "connection",
+  "upgrade",
+]);
 
 /** The host field's names: split on commas and spaces, lowercased (host names ignore case), deduplicated. */
 export function secretHosts(text: string | undefined): string[] {
@@ -60,9 +71,13 @@ export function hostsValid(text: string | undefined): boolean {
   const hosts = secretHosts(text);
   return hosts.length <= SECRET_HOSTS_MAX && hosts.every((host) => HOST.test(host));
 }
-export function headerValid(header: SecretHeader | undefined): boolean {
-  if (!header) return true;
-  return HEADER_NAME.test(header.name) && header.format.includes("{value}") && !/[\r\n]/.test(header.format);
+/** Why a header can't be used: `header` for a bad name or format, `route` for a header the request itself needs. */
+export function headerIssue(header: SecretHeader | undefined): "header" | "route" | undefined {
+  if (!header) return;
+  const name = header.name.toLowerCase();
+  if (!HEADER_NAME.test(name)) return "header";
+  if (RESERVED_SECRET_HEADERS.has(name)) return "route";
+  if (header.format.length > 256 || !header.format.includes("{value}") || /[\r\n]/.test(header.format)) return "header";
 }
 /** Where a secret row goes, as the platform stores it: no hosts is an environment variable. */
 export function secretDelivery(row: Pick<SecretDraft, "hosts" | "header">): Pick<SecretWrite, "hosts" | "header"> {
@@ -73,8 +88,8 @@ export function secretDelivery(row: Pick<SecretDraft, "hosts" | "header">): Pick
     header && (header.name !== DEFAULT_SECRET_HEADER.name || header.format !== DEFAULT_SECRET_HEADER.format);
   return custom ? { hosts, header } : { hosts };
 }
-/** True when an existing secret's hosts or header differ from what the platform has: saving that needs the
- *  value again, because `set_secrets` writes a value with its delivery and has no metadata-only form. */
+/** True when an existing secret's hosts or header differ from what the platform has: saving sends a
+ *  `set_secrets` entry without a value, which keeps the sealed value and changes only where it goes. */
 export function secretDeliveryChanged(row: SecretDraft, stored: EnvironmentSecret): boolean {
   return (
     JSON.stringify(secretDelivery(row)) !==
@@ -114,7 +129,7 @@ export function environmentDraft(environment: CloudEnvironment): EnvironmentDraf
 
 export function validateEnvironment(
   draft: EnvironmentDraft,
-): "name" | "names" | "script" | "hosts" | "header" | undefined {
+): "name" | "names" | "script" | "hosts" | "header" | "route" | undefined {
   if (!draft.name.trim()) return "name";
   if (draft.script !== null && !scriptFits(draft.script)) return "script";
   for (const rows of [draft.variables, draft.secrets]) {
@@ -123,7 +138,10 @@ export function validateEnvironment(
       return "names";
   }
   if (draft.secrets.some((row) => !hostsValid(row.hosts))) return "hosts";
-  if (draft.secrets.some((row) => secretHosts(row.hosts).length && !headerValid(row.header))) return "header";
+  for (const row of draft.secrets) {
+    const issue = secretHosts(row.hosts).length ? headerIssue(row.header) : undefined;
+    if (issue) return issue;
+  }
 }
 
 /** Send only changed fields, so viewing an auto-derived script does not pin it as a custom script. */
@@ -137,9 +155,18 @@ export function environmentPatch(original: CloudEnvironment, draft: EnvironmentD
     domains: [...new Set(draft.network.domains.map((domain) => domain.trim()).filter(Boolean))],
   };
   if (JSON.stringify(network) !== JSON.stringify(original.network)) patch.network = network;
+  // An entry only for a secret whose value, hosts or header changed; each states its delivery in full.
   const set = draft.secrets
-    .filter((row) => row.value !== "")
-    .map((row): SecretWrite => ({ name: row.name, value: row.value, ...secretDelivery(row) }));
+    .filter((row) => {
+      if (row.value !== "") return true;
+      const stored = original.secrets.find((secret) => secret.name === row.name);
+      return stored !== undefined && secretDeliveryChanged(row, stored);
+    })
+    .map((row): SecretWrite => ({
+      name: row.name,
+      ...(row.value ? { value: row.value } : {}),
+      ...secretDelivery(row),
+    }));
   const remove = original.secrets.filter((row) => !draft.secrets.some((secret) => secret.name === row.name));
   if (set.length) patch.set_secrets = set;
   if (remove.length) patch.remove_secrets = remove.map((row) => row.name);

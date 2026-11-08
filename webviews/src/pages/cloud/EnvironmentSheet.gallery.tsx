@@ -20,11 +20,14 @@ const invalidHost: Play = async (ctx) => {
   await ctx.click({ selector: ".env-primary" });
   await ctx.waitFor(() => ctx.document.querySelector(".env-secret .env-error"));
 };
-const retype: Play = async (ctx) => {
+const deliveryEdit: Play = async (ctx) => {
   await ready(ctx);
   await ctx.type(", uploads.github.com", hostsField(1));
-  await ctx.click({ selector: ".env-primary" });
-  await ctx.waitFor(() => ctx.document.querySelector(".env-body > .env-error"));
+  await ctx.waitFor(() =>
+    Array.from(ctx.document.querySelectorAll<HTMLInputElement>(".env-secret-hosts input")).some((input) =>
+      input.value.includes("uploads.github.com"),
+    ),
+  );
 };
 const saveFailure: Play = async (ctx) => {
   await ready(ctx);
@@ -163,10 +166,10 @@ export default componentEntry<Props>({
       props: { section: "secrets", delivery: true },
       play: invalidHost,
     },
-    "secret-retype": {
-      note: "An existing secret's hosts changed without its value: the row asks for the value again.",
+    "secret-delivery-edit": {
+      note: "A host added to a stored secret with its value left empty: Save sends only where it goes.",
       props: { section: "secrets", delivery: true },
-      play: retype,
+      play: deliveryEdit,
     },
     variables: {
       note: "Environment variable names and editable values.",

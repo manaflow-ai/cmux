@@ -20,7 +20,7 @@ const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   secret: L.envSecretRequired,
   hosts: L.envInvalidHosts,
   header: L.envInvalidHeader,
-  retype: L.envSecretRetype,
+  route: L.envReservedHeader,
 };
 const sections = {
   overview: L.envTitle,
