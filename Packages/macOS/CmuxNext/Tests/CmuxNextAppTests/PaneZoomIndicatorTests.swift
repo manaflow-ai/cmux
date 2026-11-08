@@ -55,12 +55,12 @@ import Testing
 
         var zooms: [TabID] { intents.compactMap { if case .toggleZoom(let id) = $0 { id } else { nil } } }
 
-        func tearDown() { window.closeAfterTest() }
+        func closeWindow() { window.closeAfterTest() }
     }
 
     @Test func noIndicatorWhileThePaneIsNotZoomed() {
         let harness = Harness()
-        defer { harness.tearDown() }
+        defer { harness.closeWindow() }
         #expect(harness.indicator == nil)
     }
 
@@ -68,7 +68,7 @@ import Testing
     /// its toolbar, and small enough to cover only the corner.
     @Test func theIndicatorSitsAtThePanesTopRightUnderTheTabBar() throws {
         let harness = Harness()
-        defer { harness.tearDown() }
+        defer { harness.closeWindow() }
         harness.setZoomed(true)
         let indicator = try #require(harness.indicator, "a zoomed pane shows the Exit Zoom indicator")
         let pane = harness.pane
@@ -90,7 +90,7 @@ import Testing
     /// A press restores the layout through Toggle Pane Zoom's one path (`TabStripIntent.toggleZoom`).
     @Test func pressingTheIndicatorRestoresTheLayout() throws {
         let harness = Harness()
-        defer { harness.tearDown() }
+        defer { harness.closeWindow() }
         harness.setZoomed(true)
         let indicator = try #require(harness.indicator)
         #expect(indicator.accessibilityPerformPress())
@@ -102,7 +102,7 @@ import Testing
     /// The tab itself draws nothing for a zoom: no badge layer joins the selected tab, and no tab moves.
     @Test func theSelectedTabDrawsNoZoomBadge() throws {
         let harness = Harness()
-        defer { harness.tearDown() }
+        defer { harness.closeWindow() }
         let cell = try #require(harness.pane.stripView.cells[TabID("tab0")])
         let layers = cell.layer.sublayers?.count ?? 0
         let frames = harness.pane.stripView.cells.mapValues(\.frame)
