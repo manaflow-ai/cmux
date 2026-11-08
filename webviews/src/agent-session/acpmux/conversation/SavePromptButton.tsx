@@ -62,67 +62,69 @@ export function SavePromptButton({ text }: { text: string }) {
       >
         <Icon name="action.save" size={ROW_ICON} />
       </button>
-      <Popover
-        open={open}
-        onOpenChange={setOpen}
-        anchor={button.current}
-        label={label}
-        className="cv-save-prompt-popover"
-        side="top"
-        initialFocus={input}
-        finalFocus={button}
-      >
-        <form
-          className="cv-save-prompt-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            save();
-          }}
+      {open && (
+        <Popover
+          open
+          onOpenChange={setOpen}
+          anchor={button.current}
+          label={label}
+          className="cv-save-prompt-popover"
+          side="top"
+          initialFocus={input}
+          finalFocus={button}
         >
-          <label className="cv-save-prompt-label">
-            <span>{t("message.savePromptName")}</span>
-            <input
-              ref={input}
-              className="cv-save-prompt-input"
-              value={name}
-              aria-label={t("message.savePromptName")}
-              // The name the save went with is the one the note names: no edit while it is out.
-              readOnly={state.kind === "saving" || state.kind === "saved"}
-              maxLength={PROMPT_NAME_MAX}
-              spellCheck={false}
-              aria-invalid={state.kind === "failed" || undefined}
-              aria-describedby={state.kind === "failed" ? errorId : undefined}
-              onChange={(event) => {
-                setName(event.currentTarget.value);
-                if (state.kind !== "saving") setState({ kind: "idle" });
-              }}
-              onFocus={(event) => event.currentTarget.select()}
-            />
-          </label>
-          <p className="cv-save-prompt-note" id={errorId} data-tone={state.kind === "failed" ? "error" : undefined}>
-            {state.kind === "failed"
-              ? state.message
-              : state.kind === "saved"
-                ? t("message.savePromptSaved", { name: slug })
-                : slug
-                  ? t("message.savePromptHint", { name: slug })
-                  : " "}
-          </p>
-          <div className="cv-save-prompt-actions">
-            <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
-              {t("message.savePromptCancel")}
-            </Button>
-            <Button
-              type="submit"
-              variant="solid"
-              size="sm"
-              disabled={!slug || state.kind === "saving" || state.kind === "saved"}
-            >
-              {t("message.savePromptSave")}
-            </Button>
-          </div>
-        </form>
-      </Popover>
+          <form
+            className="cv-save-prompt-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              save();
+            }}
+          >
+            <label className="cv-save-prompt-label">
+              <span>{t("message.savePromptName")}</span>
+              <input
+                ref={input}
+                className="cv-save-prompt-input"
+                value={name}
+                aria-label={t("message.savePromptName")}
+                // The name the save went with is the one the note names: no edit while it is out.
+                readOnly={state.kind === "saving" || state.kind === "saved"}
+                maxLength={PROMPT_NAME_MAX}
+                spellCheck={false}
+                aria-invalid={state.kind === "failed" || undefined}
+                aria-describedby={state.kind === "failed" ? errorId : undefined}
+                onChange={(event) => {
+                  setName(event.currentTarget.value);
+                  if (state.kind !== "saving") setState({ kind: "idle" });
+                }}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            </label>
+            <p className="cv-save-prompt-note" id={errorId} data-tone={state.kind === "failed" ? "error" : undefined}>
+              {state.kind === "failed"
+                ? state.message
+                : state.kind === "saved"
+                  ? t("message.savePromptSaved", { name: slug })
+                  : slug
+                    ? t("message.savePromptHint", { name: slug })
+                    : " "}
+            </p>
+            <div className="cv-save-prompt-actions">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                {t("message.savePromptCancel")}
+              </Button>
+              <Button
+                type="submit"
+                variant="solid"
+                size="sm"
+                disabled={!slug || state.kind === "saving" || state.kind === "saved"}
+              >
+                {t("message.savePromptSave")}
+              </Button>
+            </div>
+          </form>
+        </Popover>
+      )}
     </>
   );
 }

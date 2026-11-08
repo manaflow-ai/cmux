@@ -1,7 +1,7 @@
 /* The Stashed chip (StashedChip.tsx) in the composer's quiet row. It takes the row's free middle
    after the mode chip, as the machine link does (machineLinkStatus.css), so the model chip and the
-   ring keep their place. Always drawn: with nothing stashed its fold has no width and takes no
-   pointer, so the first stash opens it in place and nothing else in the row moves. The motion
+   ring keep their place. With nothing stashed it is not laid out, and the first stash opens its
+   fold from no width in place. The motion
    variables follow the page's motion gate; with motion off the fold opens in one frame. */
 .acpmux-composer-foot.acpmux-composer-foot > .acpmux-stash {
   order: -1;
@@ -30,6 +30,17 @@
   opacity: 1;
   visibility: visible;
   transition-delay: 0s;
+}
+/* With nothing stashed the chip takes no part in the row's layout at all, so the row lays out as it
+   would without it; the first stash opens the fold from no width (`@starting-style`). */
+.acpmux-stash:not([data-shown]) {
+  display: none;
+}
+@starting-style {
+  .acpmux-stash[data-shown] .acpmux-stash-fold {
+    grid-template-columns: 0fr;
+    opacity: 0;
+  }
 }
 .acpmux-stash-fold > * {
   min-width: 0;
