@@ -58,18 +58,6 @@ pub fn socket_path(home: &Path) -> PathBuf {
     home.join("run").join("carrier.sock")
 }
 
-/// The carrier socket of this user's acpmux: `ACPMUX_HOME`, else
-/// `~/.acpmux`, as acpmux resolves its home. `None` without either.
-pub fn default_socket_path() -> Option<PathBuf> {
-    let home = match std::env::var_os("ACPMUX_HOME") {
-        Some(home) if !home.is_empty() => PathBuf::from(home),
-        _ => {
-            PathBuf::from(std::env::var_os("HOME").filter(|home| !home.is_empty())?).join(".acpmux")
-        }
-    };
-    Some(socket_path(&home))
-}
-
 /// The [`HEADER`] value for the session `grant` admitted, or the stable
 /// reason the bridge refuses it. Every field comes from the grant.
 pub fn header(grant: Option<&CarrierGrant>) -> Result<String, &'static str> {
