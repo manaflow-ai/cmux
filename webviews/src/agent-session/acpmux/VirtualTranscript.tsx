@@ -78,6 +78,7 @@ import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll } from "./summary/heldWhileScrolling";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
+import { leaveOnScreenRef } from "../../ui/tabReach";
 import {
   transcriptRepositoriesFrom,
   type RepositoryCache,
@@ -835,7 +836,7 @@ const JUMP_LATEST_SIZE = 32;
 /// transcript under it (Leo 2026-10-21: "I want more fisheye!"). While the agent works it stays a static arrow;
 /// the working state is already represented by the shared transcript spinner. It stays mounted while
 /// hidden (inert) so it fades out as it fades in (conversation.css).
-function JumpToLatest({
+export function JumpToLatest({
   shown,
   working,
   onJump,
@@ -859,8 +860,12 @@ function JumpToLatest({
       <FisheyeFilters size={JUMP_LATEST_SIZE} />
       <button
         type="button"
+        ref={leaveOnScreenRef}
         className="ui-glass ui-glass-fisheye acpmux-jump-latest"
         data-shown={shown ? "" : undefined}
+        // Its keyboard focus is its own wash over the glass (conversation.css), not the shared one,
+        // whose `box-shadow: none` took the glass's rim and shadow away while it was focused.
+        data-focus-ring="none"
         style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
         aria-label={label}
         // The arrow says nothing by itself; working state is carried by the shared spinner in the transcript.
