@@ -54,7 +54,8 @@ final class TerminalSurfacePrediction {
     /// What the overlay draws now, nil while hidden (tests and benchmarks).
     var drawnLayout: PredictionLayout? { overlay.isHidden ? nil : overlay.layout }
 
-    /// One write Ghostty encoded for the remote (`io_write_cb`), before it goes out.
+    /// One write of the person's input Ghostty encoded for the remote
+    /// (`io_write_cb`), once the session took it to go out.
     func sent(_ bytes: Data) {
         if engine.sent(bytes: bytes, nowUs: Self.now()) || !overlay.isHidden { refresh() }
     }
@@ -74,6 +75,20 @@ final class TerminalSurfacePrediction {
     func gridChanged() {
         _ = engine.missedOutput(nowUs: Self.now())
         refresh()
+    }
+
+    /// Input the session refused or dropped (a disconnect, a reattach that
+    /// gave up), or the link went down with keys on it: their echoes may
+    /// never come, so nothing in flight can stand.
+    ///
+    /// The overlay goes without asking Ghostty where the cursor is: a refusal
+    /// can arrive inside `io_write_cb`, and Ghostty writes a mouse report
+    /// while it holds the renderer lock that its grid metrics take too.
+    func inputDropped() {
+        _ = engine.missedOutput(nowUs: Self.now())
+        expiry?.invalidate()
+        expiry = nil
+        overlay.hide()
     }
 
     /// Settings → Terminal → Predictive echo.

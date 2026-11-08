@@ -96,6 +96,12 @@ fn resolve_preparation(
             Ok(EffectPreparation::Complete(result))
         }
         ResourceEffectPreparation::Indeterminate => {
+            report_indeterminate_cause(
+                mux,
+                idempotency_key,
+                &operation,
+                "an earlier attempt with this key has an indeterminate outcome",
+            );
             Ok(EffectPreparation::Complete(Err(indeterminate_error(idempotency_key, &operation))))
         }
         ResourceEffectPreparation::Execute { .. } => {
@@ -120,6 +126,12 @@ fn start_execution(
     if sensitive_input_operation(&operation)
         && restore_runtime_fields(&mut intent, &operation, request_fields).is_err()
     {
+        report_indeterminate_cause(
+            mux,
+            idempotency_key,
+            &operation,
+            "the stored input could not be restored",
+        );
         let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
         return Ok(EffectPreparation::Complete(Err(indeterminate_error(
             idempotency_key,
@@ -170,9 +182,12 @@ fn commit_success_inner(
         changes.as_ref(),
     ) {
         Ok(revision) => revision,
-        Err(_) => {
-            let _ = mux.mark_resource_effect_indeterminate(&prepared.idempotency_key);
-            return Err(indeterminate_error(&prepared.idempotency_key, &prepared.operation));
+        Err(error) => {
+            return Err(mark_indeterminate(
+                mux,
+                prepared,
+                &format!("the outcome commit failed: {error:#}"),
+            ));
         }
     };
     mutation_result_for_operation(mux, &prepared.operation, value, revision, false)
@@ -184,25 +199,48 @@ pub(super) fn commit_known_failure(
     error: ResourceError,
 ) -> Result<Value, ResourceError> {
     let outcome = ResourceEffectOutcome::Failure(error.clone());
-    if mux
-        .commit_resource_effect(
-            &prepared.idempotency_key,
-            &prepared.operation,
-            &prepared.fingerprint,
-            &outcome,
-            None,
-        )
-        .is_err()
-    {
-        let _ = mux.mark_resource_effect_indeterminate(&prepared.idempotency_key);
-        return Err(indeterminate_error(&prepared.idempotency_key, &prepared.operation));
+    if let Err(commit_error) = mux.commit_resource_effect(
+        &prepared.idempotency_key,
+        &prepared.operation,
+        &prepared.fingerprint,
+        &outcome,
+        None,
+    ) {
+        return Err(mark_indeterminate(
+            mux,
+            prepared,
+            &format!("the failure outcome commit failed: {commit_error:#}"),
+        ));
     }
     Err(error)
 }
 
-pub(super) fn mark_indeterminate(mux: &Arc<Mux>, prepared: PreparedEffect) -> ResourceError {
+/// Marks an executing effect indeterminate and returns the public error.
+///
+/// `cause` goes only to the daemon diagnostic log: the API error stays
+/// generic, and a caller must not pass raw transport text that can name
+/// private sockets or credentials.
+pub(super) fn mark_indeterminate(
+    mux: &Arc<Mux>,
+    prepared: PreparedEffect,
+    cause: &str,
+) -> ResourceError {
+    report_indeterminate_cause(mux, &prepared.idempotency_key, &prepared.operation, cause);
     let _ = mux.mark_resource_effect_indeterminate(&prepared.idempotency_key);
     indeterminate_error(&prepared.idempotency_key, &prepared.operation)
+}
+
+/// Records why an effect's outcome is unknown. A `mutation.indeterminate`
+/// response carries no cause, so this log line is the only evidence of it.
+pub(super) fn report_indeterminate_cause(
+    mux: &Mux,
+    idempotency_key: &str,
+    operation: &str,
+    cause: &str,
+) {
+    mux.report_internal_diagnostic(format!(
+        "resource effect {operation} (idempotency key {idempotency_key}) is indeterminate: {cause}"
+    ));
 }
 
 pub(super) fn indeterminate_error(idempotency_key: &str, operation: &str) -> ResourceError {

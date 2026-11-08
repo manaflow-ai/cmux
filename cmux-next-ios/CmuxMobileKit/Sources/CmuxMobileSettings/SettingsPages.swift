@@ -478,6 +478,14 @@ struct TransportPage: View {
                     Text("Switching reconnects to your Macs.")
                 }
             }
+            Section {
+                Toggle(isOn: $settings.ultraOnCellular) {
+                    Text("Ultra mode on cellular")
+                }
+                .accessibilityIdentifier("settings.transport.ultraOnCellular")
+            } footer: {
+                Text("On cellular, WireGuard sends repair data so a network that drops packets stays fast. Uses about 2 to 3 times the cellular data. Applies at the next connection.")
+            }
             #if !DEBUG
             Section {
                 TransportDetails(store: store)

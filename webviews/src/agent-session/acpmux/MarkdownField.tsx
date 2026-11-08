@@ -29,7 +29,11 @@ import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
-import { composerDeeplinkLook } from "./composer/deeplinkLook.experiment";
+import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
+import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
+import { iconMaskUrl } from "./icons/iconMask";
+import { subscribeIconFamily } from "./icons/iconPack";
+import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
 import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
@@ -58,6 +62,28 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
+
+/// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
+/// look (chips/cmuxLinkLook.experiment.ts); none in its `link` arm.
+function draftLinkTitles(): DeeplinkTitles | undefined {
+  const look = experimentArm(cmuxLinkLook);
+  if (look === "link") return undefined;
+  return {
+    known: knownCmuxLink,
+    // The page's icon family too: a pooled page learns it when claimed, and the icon follows it.
+    subscribe: (listener) => {
+      const offLinks = subscribeCmuxLinks(listener);
+      const offFamily = subscribeIconFamily(listener);
+      return () => {
+        offLinks();
+        offFamily();
+      };
+    },
+    label: (info) => (look === "icon-title-host" && info.host ? `${info.title} · ${info.host}` : info.title),
+    // The sent chip's kind icon (chips/CmuxLinkChip.tsx), in the looks that draw one.
+    icon: (info) => (look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind])),
+  };
+}
 
 /// What the composer drives the field with, in place of a textarea's DOM API.
 export type MarkdownFieldHandle = {
@@ -1368,8 +1394,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(clipboard)
         .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
         .use($prose(() => slashTokensPlugin(() => slashNamesNow.current ?? NO_SLASH_NAMES)))
-        // A cmux deeplink draws as a link, its text kept (composer/deeplinkTokens.ts).
-        .use($prose(() => deeplinkTokensPlugin(experimentArm(composerDeeplinkLook))))
+        // Finds each cmux deeplink, drawn as plain text (composer/deeplinkTokens.ts).
+        .use($prose(() => deeplinkTokensPlugin()))
+        // One it knows draws as what it names, its text still the link (composer/deeplinkTitles.ts).
+        .use($prose(() => deeplinkTitlesPlugin(draftLinkTitles())))
         .create()
         .then((made) => {
           if (disposed) {

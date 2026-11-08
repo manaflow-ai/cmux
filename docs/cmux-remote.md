@@ -126,4 +126,5 @@ Every control exists in the command palette, the CLI and MCP:
 | Share This Mac | Mac Screen: Share This Mac / Stop Sharing This Mac | `cmux remote share on\|off` | `remote_share` |
 | A viewer's access | Mac Screen: Set Device Access… | `cmux remote access <device> none\|ask\|view\|full` | `remote_set_access` |
 | End sharing when cmux quits (`remote.endSharingOnQuit`, default off) | Settings | `cmux settings set remote.endSharingOnQuit` | `settings_set` (refused: user-only) |
+| Ultra Connection Mode (`remote.ultraMode`, default off: cmux-wg tunnels this Mac starts send Reed-Solomon repair data, about 2-3x the bytes; `CMUX_WG_ULTRA` overrides it) | Settings | `cmux settings set remote.ultraMode true` | `settings_set` (refused: user-only) |
 | Computer Use driver (`computerUse.driver`, default `upstream`: Computer Use runs in cmux Remote; `legacy` keeps the cmux-cua 0.8.12 helper) | Settings | `cmux settings set computerUse.driver` | `settings_set` (refused: user-only) |
