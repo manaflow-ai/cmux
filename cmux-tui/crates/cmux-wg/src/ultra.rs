@@ -749,9 +749,8 @@ impl UltraUnderlay {
     /// group is whole or rebuilt, and wait otherwise.
     fn retry_rs_group(&mut self, key: GroupKey, new: Option<(Vec<u8>, Origin)>) {
         let is_sibling = |datagram: &[u8]| {
-            parse_parity(datagram).is_some_and(|parity| {
-                parity.code == Code::ReedSolomon && parity.group_key() == key
-            })
+            parse_parity(datagram)
+                .is_some_and(|parity| parity.code == Code::ReedSolomon && parity.group_key() == key)
         };
         let (mut siblings, others): (VecDeque<_>, VecDeque<_>) =
             std::mem::take(&mut self.pending).into_iter().partition(|(d, _)| is_sibling(d));
@@ -1318,7 +1317,12 @@ mod tests {
         assert_eq!(UltraMode::rs_parities_for(2, 3, 1), 2, "not capped at the members");
     }
 
-    fn rs_group(index: [u8; 4], first: u64, lengths: &[usize], m: u8) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+    fn rs_group(
+        index: [u8; 4],
+        first: u64,
+        lengths: &[usize],
+        m: u8,
+    ) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
         let sent: Vec<Vec<u8>> = lengths
             .iter()
             .enumerate()

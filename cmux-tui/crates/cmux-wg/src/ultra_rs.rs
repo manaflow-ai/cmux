@@ -134,7 +134,10 @@ pub(crate) fn decode(
     if parities.len() != missing.len()
         || missing.is_empty()
         || parities.iter().any(|shard| shard.parity >= MAX_PARITIES)
-        || missing.iter().chain(received.iter().map(|(member, _)| member)).any(|m| *m >= MAX_MEMBERS)
+        || missing
+            .iter()
+            .chain(received.iter().map(|(member, _)| member))
+            .any(|m| *m >= MAX_MEMBERS)
     {
         return None;
     }
@@ -146,7 +149,9 @@ pub(crate) fn decode(
         values.len() == len
     };
     if !distinct(parities.iter().map(|shard| shard.parity).collect())
-        || !distinct(missing.iter().chain(received.iter().map(|(member, _)| member)).copied().collect())
+        || !distinct(
+            missing.iter().chain(received.iter().map(|(member, _)| member)).copied().collect(),
+        )
     {
         return None;
     }
@@ -228,17 +233,14 @@ mod tests {
     #[test]
     fn any_n_parities_rebuild_any_n_lost_members() {
         let sent = members(&[40, 1400, 16, 77, 1200, 300, 17, 999]);
-        let parities: Vec<([u8; 2], Vec<u8>)> =
-            (0..4).map(|j| encode(j, &sent).unwrap()).collect();
+        let parities: Vec<([u8; 2], Vec<u8>)> = (0..4).map(|j| encode(j, &sent).unwrap()).collect();
         for lost in 1u32..(1 << 8) {
             let missing: Vec<usize> = (0..8).filter(|i| lost & (1 << i) != 0).collect();
             if missing.len() > 4 {
                 continue;
             }
-            let received: Vec<(usize, &[u8])> = (0..8)
-                .filter(|i| lost & (1 << i) == 0)
-                .map(|i| (i, sent[i].as_slice()))
-                .collect();
+            let received: Vec<(usize, &[u8])> =
+                (0..8).filter(|i| lost & (1 << i) == 0).map(|i| (i, sent[i].as_slice())).collect();
             for chosen in 0u32..16 {
                 if chosen.count_ones() as usize != missing.len() {
                     continue;
