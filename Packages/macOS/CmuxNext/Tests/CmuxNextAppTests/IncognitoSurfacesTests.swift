@@ -65,6 +65,45 @@ struct IncognitoSurfacesTests {
         #expect(posted.subtitle == nil && posted.attachment == nil && !posted.approval)
     }
 
+    /// An agent chat's permission ask in an incognito window: its banner has no answer buttons (not even
+    /// Always allow, where the prompt offers it), and no button path answers it.
+    @Test func anIncognitoApprovalBannerOffersAndAnswersNothing() async throws {
+        let services = Self.services()
+        let window = services.windows.newIncognitoWindow()
+        let key = WorkspaceKey(rawValue: try #require(services.windows.claims.pending.first { $0.value == window }?.key))
+        var tab = TabSnapshot(surface: 1, kind: .conversation)
+        tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: ApprovalBannerTests.thisMac, session: "sess-1"))
+        let store = DaemonStore()
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: key, name: "secret-project", screens: [screen])]))
+        let workspace = try #require(store.workspaces.first)
+        let paneModel = try #require(workspace.screens.first?.panes.first)
+        let located = LocatedTab(tab: try #require(paneModel.tabs.first), pane: paneModel, workspace: workspace)
+        let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(ApprovalBannerTests.needsInput.utf8))
+        let answerer = ApprovalBannerTests.Answerer()
+        var offering = ApprovalBannerTests.bash
+        offering.alwaysOffered = true
+        answerer.pending["sess-1"] = offering
+        let service = NotificationCenterService()
+        service.services = services
+        service.screenLocked = { false }
+        service.approvals.answerer = answerer
+        service.localAgentHost = { ApprovalBannerTests.thisMac }
+        var decision = NotificationPolicy.Decision()
+        decision.desktop = true
+        service.deliver(notification, source: .agent, located: located, decision: decision, program: nil)
+        for _ in 0..<200 where service.desktop.posted.isEmpty { await Task.yield() }
+        let posted = try #require(service.desktop.posted.last)
+        #expect(!posted.approval)
+        #expect(posted.category == DesktopNotifier.defaultCategory, "an incognito banner offered answer buttons")
+        service.answerApproval(banner: posted.id, surface: SurfaceID(rawValue: 1), allow: true, always: true)
+        service.answerApproval(banner: posted.id, surface: SurfaceID(rawValue: 1), allow: true)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(answerer.always.isEmpty && answerer.answered.isEmpty, "an incognito banner answered its ask")
+        // The service holds its services weakly and posts after the approval read: as the app does, keep them alive.
+        withExtendedLifetime(services) {}
+    }
+
     @Test func aNormalBannerIsUnchanged() throws {
         let posted = try #require(try banner(incognito: false))
         #expect(posted.title.hasPrefix("secret-project"))

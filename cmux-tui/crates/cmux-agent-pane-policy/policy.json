@@ -3,7 +3,7 @@
   "pane_origin": "cmux-agent://pane",
   "initialize": "initialize",
   "requests": [
-    "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
+    "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option", "chat.fix_from_link", "chat.fix_from_link.prepare",
     "_acpmux/watch", "_acpmux/sessions", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
     "_acpmux/peer_snapshot", "_acpmux/peer_reconnect", "_acpmux/retry",
     "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
@@ -50,6 +50,7 @@
   ],
   "gesture_rules": {
     "session/prompt": "always",
+    "chat.fix_from_link": "always",
     "_acpmux/queue_approve": "always",
     "_acpmux/btw": "always",
     "_acpmux/context_override": "always",
@@ -74,6 +75,8 @@
   "known_params": {
     "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities"], "acpmux": []},
     "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model"]},
+    "chat.fix_from_link": {"params": ["url", "cwd", "harness", "model", "_meta"], "acpmux": []},
+    "chat.fix_from_link.prepare": {"params": ["url", "cwd", "harness", "model"], "acpmux": []},
     "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]},
     "session/set_model": {"params": ["sessionId", "modelId"], "acpmux": []},
     "session/cancel": {"params": ["sessionId"], "acpmux": []},

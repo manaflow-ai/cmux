@@ -468,6 +468,22 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 symbol: "stop.circle.fill", surfaces: [.palette, .menu], mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // Start now on an agent the Chief queued behind its cap (user 2026-11-08): the agent
+            // pill's context menu, the palette, `cmux home start-agent --agent <name>` and MCP ask the
+            // Chief of the Chief Home showing `conversation` (the key window's without one) to start it
+            // past the cap. The pill's menu is MessagesLab's own, with no ContextMenuCatalog placement:
+            // the Home takes this row from `makeContextMenuItem` (HomeChiefTurnActions.swift), and
+            // HomeChiefHomes binds the handler.
+            ActionDescriptor(
+                id: "home.startQueuedAgent", title: t("action.home.startQueuedAgent", "Start Queued Agent Now"),
+                keywords: ["chief", "home", "agent", "subagent", "queue", "queued", "waiting", "start", "now", "cap"],
+                category: .agents, symbol: "play.circle", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "agent", title: String(localized: "argument.newTab.agent", defaultValue: "Agent",
+                                                                        table: "NewTabActions", bundle: .module), kind: .string),
+                            Self.conversation],
+                cliName: "home start-agent",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             // DEV and NIGHTLY: MessagesLab's flight recorder writes the last ~10 s of the
             // Home transcript to ~/Library/Logs/<app>/blink-<time>/ (Debug menu, palette).
             ActionDescriptor(
