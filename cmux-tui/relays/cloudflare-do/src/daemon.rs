@@ -90,6 +90,32 @@ pub(crate) fn current_registration(
         })
 }
 
+/// What a registered daemon's Ping hands it: the slot's unjoined circuits
+/// (`CircuitLedger::unjoined`) and its parked Connects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PingHandover {
+    pub unjoined: bool,
+    pub parked: bool,
+}
+
+/// Records on `attachment` a Ping its daemon sent at `now_ms`, and says what
+/// the Ping hands over. `current` is `current_registration` for the socket.
+/// A daemon silent past the window resumed: circuits sent to it meanwhile
+/// may never have arrived, so it is handed the unjoined ones. A Ping from a
+/// registration that isn't current hands over nothing.
+pub(crate) fn record_ping(
+    attachment: &mut SlotAttachment,
+    current: bool,
+    now_ms: u64,
+) -> PingHandover {
+    let resumed = !heard_within_window(attachment, now_ms);
+    attachment.last_seen_ms = now_ms;
+    if !current {
+        return PingHandover { unjoined: false, parked: false };
+    }
+    PingHandover { unjoined: resumed, parked: true }
+}
+
 #[cfg(test)]
 mod tests {
     use cmux_remote_protocol::{LaneToken, RelaySocketAttachment};
@@ -306,5 +332,36 @@ mod tests {
         );
         // A numbered Register replaces every legacy registration.
         assert!(current_registration(&registration(1, T + 3_000), OPEN, [older_after_ping, newer]));
+    }
+
+    /// A legacy registration that resumed while another one was on the slot
+    /// is not current, so its Ping hands over nothing. When the other one
+    /// closes before its next heartbeat, that heartbeat makes it current and
+    /// must still hand it the circuits it missed while silent: otherwise those
+    /// clients never get a replacement Incoming and time out.
+    #[test]
+    fn suppressed_resumed_ping_hands_over_on_the_first_current_ping() {
+        let mut survivor = registration(0, T);
+        let resumed_ms = T + DAEMON_LIVENESS_WINDOW_MS + 5_000;
+        let other = registration(0, T + 1_000);
+        let current = current_registration(&survivor, OPEN, [other]);
+        assert!(!current, "another legacy registration is on the slot");
+        let suppressed = record_ping(&mut survivor, current, resumed_ms);
+        assert_eq!(suppressed, PingHandover { unjoined: false, parked: false });
+
+        // The other registration closed; the next heartbeat is current.
+        let heartbeat_ms = resumed_ms + 10_000;
+        let current = current_registration(&survivor, OPEN, []);
+        assert!(current);
+        let first = record_ping(&mut survivor, current, heartbeat_ms);
+        assert_eq!(
+            first,
+            PingHandover { unjoined: true, parked: true },
+            "the circuits missed while silent were never handed over"
+        );
+
+        // Handed over once: the heartbeat after that is a plain heartbeat.
+        let next = record_ping(&mut survivor, true, heartbeat_ms + 10_000);
+        assert_eq!(next, PingHandover { unjoined: false, parked: true });
     }
 }
