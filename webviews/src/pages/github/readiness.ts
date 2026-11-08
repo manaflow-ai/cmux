@@ -109,7 +109,11 @@ function independent(receipt: Receipt, author: Family | "mixed" | null): boolean
 
 function holdOf(pr: LinkedPullRequest, body: string): Blocker | null {
   const label = (pr.labels ?? []).find((name) => HOLD_LABELS.has(name.toLowerCase())) ?? null;
-  const line = body.split("\n").find((each) => BODY_HOLD.test(each))?.trim() ?? null;
+  const line =
+    body
+      .split("\n")
+      .find((each) => BODY_HOLD.test(each))
+      ?.trim() ?? null;
   return label || line ? { kind: "hold", label, line } : null;
 }
 
@@ -118,13 +122,13 @@ function redOf(pr: LinkedPullRequest, checks: DashboardChecks | null): Blocker |
     const red = checks.jobs.filter((job) => job.state === "failed" && !job.onBase);
     return red.length ? { kind: "red", checks: red.map((job) => ({ name: job.name, url: job.url, job })) } : null;
   }
-  const red = pr.checkList.filter((check) => check.state === "failed" && !check.onBase);
+  const red = (pr.checkList ?? []).filter((check) => check.state === "failed" && !check.onBase);
   return red.length ? { kind: "red", checks: red.map((check) => ({ name: check.name, url: check.url })) } : null;
 }
 
 function runningOf(pr: LinkedPullRequest, checks: DashboardChecks | null): number {
   if (checks?.jobs.length) return checks.jobs.filter((job) => job.state === "running" || job.state === "queued").length;
-  return pr.checkList.filter((check) => check.state === "pending").length;
+  return (pr.checkList ?? []).filter((check) => check.state === "pending").length;
 }
 
 /** What stands between `pr` at `details.headCommit` and a merge. */
