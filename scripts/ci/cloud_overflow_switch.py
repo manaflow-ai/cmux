@@ -11,7 +11,7 @@ variables at the owned pools and GitHub-hosted Linux by hand.
 ci-cloud-overflow-probe.yml runs this every 10 minutes. Its `probe` jobs ask
 for each Blacksmith Linux size in PROBE_LABELS (4 and 16 vCPU), one job per
 label, and only print a line. This script, in the `watch` job on Blacksmith
-macOS, waits for them:
+Linux (its own bounded CI_TRUSTED_RUNNER selector, 2 or 8 vCPU, never a probe size), waits for them:
 
 - Every probe starts within PROBE_MINUTES of being queued: Blacksmith serves.
   If this switch turned overflow off (the CI_CLOUD_OVERFLOW_SAVED record
@@ -523,27 +523,51 @@ def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int,
     return min(stuck, key=lambda item: item[0])[1] if stuck else None
 
 
+REFUSED_CODES = frozenset({401, 403, 429})
+
+
 class GitHub:
-    def __init__(self, token: str, repo: str) -> None:
+    """REST client. With `fallback_token`, reads go out on `token` (the watch's cmux-bot installation token,
+    whose pool is its own) and a refused read is asked once more on the fallback (the workflow token, which
+    shares the repository's 1,000/h pool with every workflow); writes always use the fallback, so who
+    cancels and re-runs a run is unchanged. Without it, everything uses `token`, as before."""
+
+    def __init__(self, token: str, repo: str, fallback_token: str | None = None) -> None:
         self.repo = repo
-        self.headers = {
+        self.token = token
+        self.fallback_token = (fallback_token or "").strip() or None
+
+    def _headers(self, token: str) -> dict[str, str]:
+        return {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "cmux-ci-cloud-overflow-switch",
         }
 
-    def request(self, method: str, path: str, body: Any | None = None) -> Any:
-        data = json.dumps(body).encode() if body is not None else None
-        headers = dict(self.headers)
+    def _send(self, method: str, path: str, data: bytes | None, token: str) -> Any:
+        headers = self._headers(token)
         if data is not None:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", data=data, headers=headers,
                                          method=method)
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read()
+            return json.loads(raw) if raw else {}
+
+    def request(self, method: str, path: str, body: Any | None = None) -> Any:
+        data = json.dumps(body).encode() if body is not None else None
+        read = method == "GET"
+        token = self.token if read or self.fallback_token is None else self.fallback_token
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                raw = response.read()
-                return json.loads(raw) if raw else {}
+            try:
+                return self._send(method, path, data, token)
+            except urllib.error.HTTPError as error:
+                if not (read and self.fallback_token and token != self.fallback_token
+                        and error.code in REFUSED_CODES):
+                    raise
+                # A refused GET did nothing: ask the workflow token once.
+                return self._send(method, path, data, self.fallback_token)
         except urllib.error.HTTPError as error:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
@@ -739,7 +763,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         if not token or not repo or not run_id:
             print("cloud-overflow-switch: GH_TOKEN, GH_REPO and GITHUB_RUN_ID are required", file=sys.stderr)
             return 2
-        api = GitHub(token, repo)
+        api = GitHub(token, repo, env.get("GH_FALLBACK_TOKEN"))
     if switch is None and (env.get("SWITCH_TOKEN") or "").strip():
         switch = GitHub(str(env["SWITCH_TOKEN"]).strip(), repo)
     minutes = probe_minutes(env.get("PROBE_MINUTES"))
