@@ -21,6 +21,81 @@
 /// Names the sender of every `acpmux send` run with it set and no `--from`.
 pub const FROM_ENV: &str = "ACPMUX_FROM";
 
+/// Set by acpmux's Bash hook (`bg_hook.rs` [`crate::bg_hook::subagent_mark`]) on an `acpmux`
+/// command a Claude Code subagent runs: `TYPE:ID`, from the hook input's `agent_type` and
+/// `agent_id`. A subagent runs in its lead's process and inherits the lead's whole environment
+/// (`ACPMUX_SESSION_*`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION` too: read on a real
+/// Claude Code 2.1.319, 2026-11-08), so nothing else tells its send from its lead's. A label
+/// within the session its caller token proves, never a proof of its own.
+pub const SUBAGENT_ENV: &str = "ACPMUX_CALLER_SUBAGENT";
+
+/// A Claude Code subagent that runs an `acpmux` command inside its lead's session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Subagent {
+    /// Its type (`general-purpose`, `Explore`, a custom agent's name).
+    pub kind: String,
+    /// Claude Code's agent id (`a0a68e7af3df5967e`).
+    pub id: String,
+}
+
+impl Subagent {
+    /// `_meta.acpmux.callerSubagent`, which the daemon stamps on the provenance it binds.
+    pub fn to_value(&self) -> serde_json::Value {
+        serde_json::json!({"id": self.id, "type": self.kind})
+    }
+
+    /// "general-purpose subagent a0a68e7a".
+    pub fn label(&self) -> String {
+        format!("{} subagent {}", self.kind, self.id.chars().take(8).collect::<String>())
+    }
+}
+
+/// A word the hook may put in a shell command unquoted, and the daemon in a provenance: 1 to 64
+/// of `A-Za-z0-9._-`.
+pub fn subagent_word(word: &str) -> bool {
+    !word.is_empty()
+        && word.len() <= 64
+        && word.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// The subagent this process runs in, when it runs in an acpmux session and the hook marked it.
+pub fn subagent_of_this_process() -> Option<Subagent> {
+    subagent_in(|key| std::env::var(key).ok())
+}
+
+fn subagent_in(env: impl Fn(&str) -> Option<String>) -> Option<Subagent> {
+    if !in_session(&env) {
+        return None;
+    }
+    let raw = env(SUBAGENT_ENV)?;
+    let (kind, id) = raw.trim().split_once(':')?;
+    (subagent_word(kind) && subagent_word(id))
+        .then(|| Subagent { kind: kind.to_owned(), id: id.to_owned() })
+}
+
+/// What `acpmux send` prints as `sending as …` for an agent's send: the session its caller token
+/// proves (and the subagent in it), or the name it gave, which proves nothing. `None` for the
+/// person's own send.
+pub fn sending_as_this_process(named: Option<&str>) -> Option<String> {
+    sending_as(|key| std::env::var(key).ok(), named)
+}
+
+fn sending_as(env: impl Fn(&str) -> Option<String>, named: Option<&str>) -> Option<String> {
+    let set = |key: &str| env(key).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    if in_session(&env) {
+        let id = set("ACPMUX_SESSION_ID").unwrap_or_default();
+        let name = set("ACPMUX_SESSION_NAME").unwrap_or_else(|| id.chars().take(8).collect());
+        return Some(match subagent_in(&env) {
+            Some(sub) => format!(
+                "{name}'s {} (only a reply to this send reaches it; `acpmux send {name}` reaches its lead)",
+                sub.label()
+            ),
+            None => name,
+        });
+    }
+    named.map(|name| format!("{name} (a name it gave, not proven)"))
+}
+
 /// The sender this process names, from its environment.
 pub fn of_this_process() -> Option<String> {
     implicit(|key| std::env::var(key).ok(), crate::host_pressure::host_name)
@@ -198,6 +273,49 @@ mod tests {
         assert!(agent_in(false, env(&inside)), "an agent in an acpmux session");
         assert!(!agent_in(false, env(&[("ACPMUX_SESSION_ID", "s1")])), "no token proves it");
         assert!(!agent_in(false, env(&[])), "the person's terminal");
+    }
+
+    mod agent_messaging {
+        use super::*;
+
+        /// A Claude Code subagent inherits its lead's whole environment, so only the hook's mark
+        /// tells its send apart, and only inside the session its token proves.
+        #[test]
+        fn a_subagent_is_named_by_the_hooks_mark_inside_its_leads_session() {
+            let lead = [
+                ("ACPMUX_SESSION_ID", "07f8556f-1bd9"),
+                ("ACPMUX_SESSION_NAME", "claude-17"),
+                ("ACPMUX_SESSION_TOKEN", "t"),
+                ("CLAUDECODE", "1"),
+                ("CLAUDE_CODE_CHILD_SESSION", "1"),
+            ];
+            assert_eq!(subagent_in(env(&lead)), None, "the lead's own shell has the same env");
+            assert_eq!(sending_as(env(&lead), None).as_deref(), Some("claude-17"));
+            let mut sub = lead.to_vec();
+            sub.push((SUBAGENT_ENV, "general-purpose:a0a68e7af3df5967e"));
+            let found = subagent_in(env(&sub)).expect("marked");
+            assert_eq!(found.kind, "general-purpose");
+            assert_eq!(found.id, "a0a68e7af3df5967e");
+            assert_eq!(
+                found.to_value(),
+                serde_json::json!({"id": "a0a68e7af3df5967e", "type": "general-purpose"})
+            );
+            let shown = sending_as(env(&sub), None).unwrap();
+            assert!(shown.starts_with("claude-17's general-purpose subagent a0a68e7a"), "{shown}");
+            // No token: no session to be a subagent of. A mark that is no TYPE:ID word pair: none.
+            let unproven = [("ACPMUX_SESSION_ID", "s1"), (SUBAGENT_ENV, "general-purpose:a1")];
+            assert_eq!(subagent_in(env(&unproven)), None);
+            for bad in ["general-purpose", ":a1", "x y:a1", "t:a1;rm", ""] {
+                let mut odd = lead.to_vec();
+                odd.push((SUBAGENT_ENV, bad));
+                assert_eq!(subagent_in(env(&odd)), None, "{bad:?}");
+            }
+            assert_eq!(
+                sending_as(env(&[]), Some("reach-lane")).as_deref(),
+                Some("reach-lane (a name it gave, not proven)")
+            );
+            assert_eq!(sending_as(env(&[]), None), None, "the person's own send");
+        }
     }
 
     #[test]

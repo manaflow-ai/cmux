@@ -473,6 +473,7 @@ impl Hub {
                     opts.thread.as_deref(),
                     opts.provenance.as_ref(),
                     opts.human_authenticated,
+                    opts.wake_or_fail,
                     &mut accept,
                 ))
                 .await;

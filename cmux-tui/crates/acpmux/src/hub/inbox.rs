@@ -564,6 +564,14 @@ fn shown_sender(sender: &Value, fallback: &str) -> String {
 /// A sender's display name keeps a self-declared label visibly separate from a real session.
 /// This is the agent's text (the notice, `inbox_read`); the transcript draws [`shown_sender`].
 fn display_sender(sender: &Value, fallback: &str) -> String {
+    let shown = display_sender_name(sender, fallback);
+    match subagent_label(sender) {
+        Some(sub) => format!("{shown}'s {sub}"),
+        None => shown,
+    }
+}
+
+fn display_sender_name(sender: &Value, fallback: &str) -> String {
     if let Some(name) = relayed_name(sender) {
         return name;
     }
@@ -838,17 +846,138 @@ fn body(text: &str) -> &str {
 
 /// Whether `item` may wake the idle chat of `meta`.
 fn wakes(meta: &SessionMeta, item: &Item) -> bool {
-    match item.class {
+    wakes_as(meta, item.class, item.report, item.from_session.as_deref())
+}
+
+/// [`wakes`] for a message of `class` from session `from` (a report or not) not in the inbox yet.
+fn wakes_as(meta: &SessionMeta, class: PromptClass, report: bool, from: Option<&str>) -> bool {
+    match class {
         PromptClass::Block | PromptClass::Question => true,
         PromptClass::Fyi => false,
-        PromptClass::Result => {
-            let parent = meta.lineage.as_ref().map(|l| l.parent.as_str());
-            let from = item.from_session.as_deref();
-            meta.turn_count == 0
-                || item.report
-                || (from.is_some() && (from == parent || from == meta.delegator.as_deref()))
+        PromptClass::Result => meta.turn_count == 0 || report || controls(meta, from),
+    }
+}
+
+/// Whether session `from` started the chat of `meta` (its lineage parent) or first gave it work
+/// (its delegator): its message is the next step of that work.
+fn controls(meta: &SessionMeta, from: Option<&str>) -> bool {
+    let parent = meta.lineage.as_ref().map(|l| l.parent.as_str());
+    from.is_some() && (from == parent || from == meta.delegator.as_deref())
+}
+
+/// Whether a message no class or sender of its own wakes would sit in the inbox until a flush
+/// ([`FLUSH_MS`]): the chat is idle (or runs a turn that takes no notice and is not the person's,
+/// whose end would bring it) and nothing new there wakes it or is due now.
+fn would_strand(session: &Session, inbox: &Inbox, meta: &SessionMeta) -> bool {
+    if inbox.held_by_person || inbox.due_now || inbox.first.is_some() {
+        return false;
+    }
+    if inbox.items.iter().any(|i| !i.noticed && wakes(meta, i)) {
+        return false;
+    }
+    match session.turn() {
+        None => true,
+        Some(turn) => !turn.persons && !session.steering.load(Ordering::SeqCst),
+    }
+}
+
+/// The refusal of a waiting send whose message the receiver's inbox would hold without waking it
+/// (`PromptOptions::wake_or_fail`). Nothing was delivered. Exit 1 at the CLI, never a hang: the
+/// round-2 eval's `send --wait --timeout 300` waited all 300 s for an idle receiver.
+pub(super) fn not_woken(receiver: &str, sender: &str, class: PromptClass) -> RpcError {
+    let class = match class {
+        PromptClass::Fyi => "an fyi",
+        _ => "a result or action",
+    };
+    RpcError::new(
+        -32000,
+        format!(
+            "send.not_woken: {receiver} is idle, and {class} from {sender} does not wake it (only a \
+             question or blocker does, or a message from the session that started it or first gave \
+             it work). Nothing was delivered. Send it again with --class question to wake it, or \
+             with --no-wait to leave it in its inbox for its next turn."
+        ),
+    )
+    .with_data(json!({"reason": "send.not_woken", "retryable": false, "receiver": receiver}))
+}
+
+/// Whether a turn comes for the idle chat without anyone sending more: its inbox holds a message
+/// that wakes it, a notice of its own goes in now, or a first work holds it. A waiter for the
+/// chat's turn end does not take it for done meanwhile (`server/wait.rs`): a `wait` right after a
+/// `send --no-wait` read the old idle state (round-2 eval, A4).
+pub(super) fn turn_coming(session: &Session) -> bool {
+    if session.turn().is_some() || session.stop_hold.load(Ordering::SeqCst) != 0 {
+        return false;
+    }
+    let meta = session.meta();
+    if meta.status == SessionStatus::Closed {
+        return false;
+    }
+    let inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+    inbox.in_flight.is_some()
+        || inbox.first.is_some()
+        || ((inbox.held_by_person || inbox.due_now) && inbox.items.iter().any(|i| !i.noticed))
+        || inbox.items.iter().any(|i| !i.noticed && wakes(&meta, i))
+}
+
+/// A sending subagent as a notice names it, "general-purpose subagent a0a68e7a"
+/// (`prompt_provenance::FROM_SUBAGENT`, kept on the sender record as `subagent`).
+fn subagent_label(sender: &Value) -> Option<String> {
+    let sub = sender.get("subagent")?;
+    let id = sub.get("id").and_then(Value::as_str)?;
+    let kind = sub.get("type").and_then(Value::as_str).unwrap_or("subagent");
+    Some(format!("{kind} subagent {}", id.chars().take(8).collect::<String>()))
+}
+
+/// The line a notice ends with that says how its senders get an answer, or None when none can:
+/// a sender that waits gets this turn's reply; another session, `inbox_reply` or `acpmux send`;
+/// a subagent only the reply to its own send. Without it the round-2 eval's receiver tried its
+/// harness's own SendMessage, failed, and answered with apologies.
+fn reply_hint(items: &[&Item]) -> Option<String> {
+    let mut waiting: Vec<String> = Vec::new();
+    let mut later: Vec<String> = Vec::new();
+    let mut leads: Vec<String> = Vec::new();
+    fn add(list: &mut Vec<String>, name: String) {
+        if !list.contains(&name) {
+            list.push(name);
         }
     }
+    for item in items {
+        let session = item.from_session.is_some() && !item.from.is_empty();
+        let sub = subagent_label(&item.sender);
+        let waits = item.answer.as_ref().is_some_and(|tx| tx.receiver_count() > 0);
+        if waits {
+            let shown = match &sub {
+                Some(sub) => format!("{}'s {sub}", item.from),
+                None => display_sender(&item.sender, &item.from),
+            };
+            add(&mut waiting, shown);
+        } else if session && sub.is_none() {
+            add(&mut later, item.from.clone());
+        }
+        if session && sub.is_some() {
+            add(&mut leads, item.from.clone());
+        }
+    }
+    let mut parts = Vec::new();
+    if !waiting.is_empty() {
+        parts.push(format!(
+            "your reply to this turn goes back to {}, waiting for it.",
+            waiting.join(", ")
+        ));
+    }
+    for name in &later {
+        parts.push(format!("to answer {name}, inbox_reply or `acpmux send {name} \"…\"`."));
+    }
+    for lead in &leads {
+        parts.push(format!(
+            "a subagent reads only the reply to its own send; `acpmux send {lead}` reaches {lead} \
+             itself."
+        ));
+    }
+    (!parts.is_empty()).then(|| {
+        format!("Reply with acpmux, not your harness's own messaging: {}", parts.join(" "))
+    })
 }
 
 /// Whether the person's (or any) prompt waits in the queue: no notice steers into the running
@@ -968,6 +1097,13 @@ impl Hub {
         if let Some(first) = first_work(session, prompt_id) {
             return Route::First(first);
         }
+        // The session that started the chat or first gave it work sends its next step as a
+        // prompt, as its first one went: the send that waits prints that turn's reply. In the
+        // inbox, every send after the first became a notice the receiver answered with apologies
+        // (round-2 orchestration eval, A3). Everyone else's message still goes to the inbox.
+        if controls(&session.meta(), sender_session(provenance).as_deref()) {
+            return Route::Plain;
+        }
         let class = crate::prompt_class::of_message(class, true).unwrap_or(PromptClass::Result);
         Route::Inbox(agent, class)
     }
@@ -986,10 +1122,20 @@ impl Hub {
         explicit: Option<&str>,
         provenance: Option<&Value>,
         human_authenticated: bool,
+        wake_or_fail: bool,
         accept: &mut impl FnMut(Value),
     ) -> Result<Value, RpcError> {
         let text = prompt_text(blocks);
         let sender_session = sender_session(provenance);
+        // Read before the inbox's lock, as `inbox_review` reads them.
+        let meta_now = session.meta();
+        let wakes_now =
+            wakes_as(&meta_now, class, is_report(provenance), sender_session.as_deref());
+        let continuing = self.continuation_pending(session);
+        // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
+        // sender that waits for it is refused at once (`not_woken`).
+        let mut held = false;
+        let mut refused = false;
         let stamped_session =
             provenance.and_then(|p| crate::prompt_provenance::sender_of(Some(p)).0);
         let sender_meta = stamped_session
@@ -1013,6 +1159,7 @@ impl Hub {
             if session.meta().status == SessionStatus::Closed {
                 return Err(super::queue::closing_error());
             }
+            let strands = !wakes_now && !continuing && would_strand(session, &inbox, &meta_now);
             let carry = inbox.carrying.iter_mut().find(|c| c.ids.iter().any(|id| id == prompt_id));
             if let Some(carry) = carry {
                 // A resend of one a notice carries now: answered with that notice.
@@ -1043,7 +1190,12 @@ impl Hub {
                         resent = Some(item.answered.clone());
                         false
                     }
+                    None if wake_or_fail && strands => {
+                        refused = true;
+                        false
+                    }
                     None => {
+                        held = strands;
                         inbox.items.push(Item {
                             prompt_id: prompt_id.to_owned(),
                             notice: None,
@@ -1068,6 +1220,9 @@ impl Hub {
                 }
             }
         };
+        if refused {
+            return Err(not_woken(&meta_now.name, sender, class));
+        }
         if from_log {
             let answer = self.logged_inbox_answer(session, prompt_id);
             accept(
@@ -1103,9 +1258,11 @@ impl Hub {
             self.append(session, "mux", "inbox", msg);
             self.note_delegator(session, provenance);
         }
-        accept(
-            json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "inbox": true, "threadId": thread}),
-        );
+        let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "inbox": true, "threadId": thread});
+        if held {
+            accepted.set(crate::cli::output::HELD_IN_INBOX, json!(true));
+        }
+        accept(accepted);
         self.inbox_review(session);
         let answer = match rx.wait_for(Option::is_some).await {
             Ok(answer) => answer.clone().unwrap_or_else(|| Err(RpcError::internal("no answer"))),
@@ -1224,6 +1381,23 @@ impl Hub {
         if set {
             self.save_meta(session);
         }
+    }
+
+    /// Whether a turn is still coming for session `id` with nothing more sent: a message this
+    /// daemon's outbox has not delivered to it yet, or its inbox's ([`turn_coming`]). A wait for
+    /// its turn's end does not answer with the idle state from before (`server/wait.rs`).
+    pub(crate) fn work_coming(&self, id: &str) -> bool {
+        let Ok(session) = self.resolve(id) else { return false };
+        if session.id != id {
+            return false;
+        }
+        let name = session.meta().name;
+        let named = |target: &str| {
+            target == id
+                || (!name.is_empty() && target == name)
+                || (target.len() >= 8 && id.starts_with(target))
+        };
+        turn_coming(&session) || self.outbox.pending_to(named)
     }
 
     /// Delivers the inbox when it may (module docs), else arms the wake timer.
@@ -1371,8 +1545,14 @@ impl Hub {
             inbox.held_by_person = false;
             inbox.due_now = false;
             let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
-            let (text, parts) = render(&new);
-            let whole = team_page::whole_notice(&new);
+            let (mut text, parts) = render(&new);
+            let mut whole = team_page::whole_notice(&new);
+            if let Some(hint) = reply_hint(&new) {
+                for notice in [&mut text, &mut whole] {
+                    notice.push('\n');
+                    notice.push_str(&hint);
+                }
+            }
             let ids: Vec<String> = new.iter().map(|i| i.prompt_id.clone()).collect();
             let mut waiters = Vec::new();
             for item in inbox.items.iter_mut().filter(|i| !i.noticed) {

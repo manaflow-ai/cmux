@@ -266,6 +266,15 @@ impl Outbox {
         self.running.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
     }
 
+    /// Whether a delivery not settled yet goes to a target `named` matches (a session's id, name
+    /// or an id prefix the sender gave): a turn may still come for that session
+    /// (`Hub::work_coming`).
+    pub fn pending_to(&self, named: impl Fn(&str) -> bool) -> bool {
+        self.book().deliveries.values().any(|d| {
+            !d.settled() && !d.projection_only() && !d.is_team_receipt() && named(&d.target)
+        })
+    }
+
     /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
     /// journal counts).
     pub fn unsettled(&self) -> usize {
