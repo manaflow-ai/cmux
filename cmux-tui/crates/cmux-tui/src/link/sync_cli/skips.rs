@@ -162,7 +162,7 @@ impl Skips {
 
 /// Why the machine cannot hold a file named `relative` (its name has a
 /// control character, else it is too long).
-fn unholdable(relative: &str) -> Why {
+pub(super) fn unholdable(relative: &str) -> Why {
     if relative.chars().any(char::is_control) { Why::NameControl } else { Why::NameTooLong }
 }
 

@@ -41,7 +41,7 @@ use anyhow::{Context as _, bail};
 use super::place;
 use super::skips::{self, Skips, Why};
 
-pub(super) use super::listed::open_listed;
+pub(super) use super::listed::{entry_in, open_listed};
 
 /// Where one file to push comes from.
 #[derive(Clone, Debug)]
@@ -479,36 +479,6 @@ fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> 
     Ok(())
 }
 
-/// [`add`] for the regular file `name` of the folder `handle` holds open: its
-/// identity comes from a descriptor opened there, never through `path`, so a
-/// folder above it swapped since the walk opened it lends no other file's.
-fn add_in(
-    set: &mut LocalSet,
-    relative: String,
-    path: &Path,
-    handle: &place::Dir,
-    name: &str,
-) -> anyhow::Result<()> {
-    if !holdable(&relative) {
-        return add(set, relative, path);
-    }
-    match handle.open_file(name) {
-        Ok(file) => {
-            let meta = file.metadata()?;
-            if meta.is_file() {
-                set.files.insert(relative, LocalFile::listed(path, &meta));
-            } else {
-                set.skips.note_entry(&relative, path, &meta);
-            }
-        }
-        // A symlink there since it was listed: as any entry.
-        Err(error) if swapped(&error) => add(set, relative, path)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
-    }
-    Ok(())
-}
-
 /// Whether the machine's file owner can hold a file at `relative`: no name
 /// over 255 bytes or with a control character, no path over 4000 bytes.
 pub(super) fn holdable(relative: &str) -> bool {
@@ -555,7 +525,7 @@ fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyho
 
 /// Whether opening a folder failed because something else is at its name
 /// now (a symlink, a file).
-fn swapped(error: &std::io::Error) -> bool {
+pub(super) fn swapped(error: &std::io::Error) -> bool {
     matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR))
 }
 
@@ -595,7 +565,12 @@ fn walk_plain_in(
                         Ok(Some(child)) => walk_plain_in(set, rules, top, &path, &child)?,
                         Ok(None) => {}
                         // A symlink or file there since it was listed: as any entry.
-                        Err(error) if swapped(&error) => add(set, relative.to_string(), &path)?,
+                        Err(error) if swapped(&error) => {
+                            let now = handle.entry(name)?;
+                            if !matches!(now, place::Entry::Dir) {
+                                entry_in(set, rules, relative, &path, handle, name, now)?;
+                            }
+                        }
                         Err(error) => {
                             return Err(error)
                                 .with_context(|| format!("cannot list {}", path.display()));
@@ -603,18 +578,7 @@ fn walk_plain_in(
                     }
                 }
             }
-            other => {
-                if let Some(why) = skips::secret(name)
-                    .or_else(|| skips::credential(relative, false))
-                    .filter(|_| rules == Rules::Copy)
-                {
-                    set.skips.note(relative, why);
-                } else if matches!(other, place::Entry::File { .. }) {
-                    add_in(set, relative.to_string(), &path, handle, name)?;
-                } else {
-                    add(set, relative.to_string(), &path)?;
-                }
-            }
+            other => entry_in(set, rules, relative, &path, handle, name, other)?,
         }
     }
     Ok(())
@@ -766,8 +730,8 @@ mod tests {
     use std::process::Command;
 
     use super::{
-        LocalFile, LocalSet, Rules, Skips, borrowed_object, borrowed_skipped, collect, open_listed,
-        unquote, walk_plain,
+        LocalFile, LocalSet, Rules, Skips, borrowed_object, borrowed_skipped, collect, entry_in,
+        open_listed, place, unquote, walk_plain,
     };
 
     fn write(top: &Path, relative: &str) {
@@ -874,6 +838,33 @@ mod tests {
                 set.files.keys()
             );
         }
+    }
+
+    /// An entry of a folder the walk holds open is read through that folder's descriptor, never its
+    /// path: with the folder swapped for a symlink to elsewhere after it was opened, its symlink
+    /// entry never becomes the regular file found at the same name outside.
+    #[test]
+    fn an_entry_of_an_open_folder_swapped_away_is_read_through_its_descriptor() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let (top, outside) = (root.join("top"), root.join("outside"));
+        write(&top, "a/kept.txt");
+        write(&outside, "link");
+        std::os::unix::fs::symlink("kept.txt", top.join("a/link")).unwrap();
+        let handle = place::Dir::open(&top.join("a")).unwrap();
+        std::fs::rename(top.join("a"), top.join("a-old")).unwrap();
+        std::os::unix::fs::symlink(&outside, top.join("a")).unwrap();
+        let mut set = LocalSet {
+            files: Default::default(),
+            links: Default::default(),
+            skipped: 0,
+            skips: Skips::new(&top),
+            git: false,
+        };
+        let path = top.join("a/link");
+        entry_in(&mut set, Rules::Copy, "a/link", &path, &handle, "link", place::Entry::Link)
+            .unwrap();
+        assert!(set.files.is_empty(), "took a file from outside: {:?}", set.files.keys());
     }
 
     #[test]

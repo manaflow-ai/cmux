@@ -37,6 +37,17 @@ pub(super) enum Local {
 pub(super) fn local(top: &Path, relative: &str, path: &Path) -> std::io::Result<Local> {
     let text = std::fs::read_link(path)?;
     let Some(text) = text.to_str() else { return Ok(Local::Skip(Why::NameNotUtf8)) };
+    local_with(top, relative, path, text)
+}
+
+/// [`local`] for the symlink whose text `text` was read already (through the
+/// descriptor of the folder holding it).
+pub(super) fn local_with(
+    top: &Path,
+    relative: &str,
+    path: &Path,
+    text: &str,
+) -> std::io::Result<Local> {
     let Ok(canonical) = std::fs::canonicalize(path) else {
         return Ok(Local::Skip(Why::SymlinkBroken));
     };

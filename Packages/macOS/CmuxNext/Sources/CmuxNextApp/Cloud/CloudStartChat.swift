@@ -281,12 +281,12 @@ extension CloudStartSession {
         return try await copied(local, to: session, request, account: account)
     }
 
-    /// A copy of a folder this Mac trusts is trusted there too, as the composer's start trusts it.
-    static func trust(_ copy: (chat: String, trusted: Bool)?, started: AgentTabRemoteStart.Started, on session: CloudMachineSession) async {
+    /// A copy of a folder this Mac trusts is trusted there too, on the new chat tab's `surface` before its session
+    /// starts, as the composer's start trusts it (the machine's agent refuses a folder it does not trust).
+    static func trust(_ copy: (chat: String, trusted: Bool)?, surface: UInt64, on session: CloudMachineSession) async {
         guard let copy else { return }
-        await AgentSessionAttachClient.trustCopiedFolder(copy.chat, sourceTrusted: copy.trusted, surface: started.surface,
-                                                         ownerLink: CloudMachineLinks(appLink: session.appLink).ownerLink,
-                                                         endpoint: AgentTabRemoteHost.endpoint(on: session.daemon))
+        await AgentSessionAttachClient.trustCopiedFolder(copy.chat, sourceTrusted: copy.trusted, surface: surface, ownerLink: CloudMachineLinks(
+            appLink: session.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: session.daemon))
     }
 
     /// `--from-folder`, checked before anything starts: absolute, no `--cwd`, never home or a credential folder. Any origin, as `cloudFileWrite` (which writes any file there) takes any.
