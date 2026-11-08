@@ -944,6 +944,15 @@ impl AgentRoster {
                             }))
             });
             return if owned_by_event || screen_ended_hook_row {
+                // The screen proved the hook session's agent gone, which no
+                // `SessionEnd` will say (a killed harness): its fence ends as
+                // that hook would end it, so the next session's hooks take
+                // the terminal instead of being refused as another session's.
+                if screen_ended_hook_row && let Some(fence) = self.hook_fences.get_mut(terminal_id)
+                {
+                    fence.ended = true;
+                    fence.ended_at_ms = Some(updated_at_ms);
+                }
                 self.entries.remove(terminal_id);
                 vec![RosterDelta::Remove { terminal_id: terminal_id.to_string(), source }]
             } else {

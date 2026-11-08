@@ -36,14 +36,20 @@ impl Rig {
         self.sequence
     }
 
-    /// One hook event, built by the same ingress a real hook uses.
+    /// One hook event of the first session, built by the same ingress a
+    /// real hook uses.
     fn hook(&mut self, at_ms: u64, native_event: &str) {
+        let session = format!("{}-session-1", self.adapter);
+        self.session_hook(at_ms, &session, native_event);
+    }
+
+    fn session_hook(&mut self, at_ms: u64, session: &str, native_event: &str) {
         let sequence = self.next();
         let ingress = crate::agent_hook_journal_ingress(
             self.adapter,
             native_event,
             Some(TERMINAL),
-            json!({"tool_name": "Bash", "session_id": format!("{}-session-1", self.adapter)}),
+            json!({"tool_name": "Bash", "session_id": session}),
         )
         .unwrap();
         self.roster.apply(&RosterEvent {
@@ -320,32 +326,37 @@ fn a_retired_terminal_forgets_its_turn_start() {
     assert!(rig.roster.hook_turn_started_at.is_empty());
 }
 
-/// The person kills Claude Code and starts it again in the same tab. The new
+/// The person quits Claude Code and starts it again in the same tab. The new
 /// session's hook row lands before the detector confirms the old process's
 /// exit (six scans): that late exit must not remove the new row (third
 /// review of #38417, F1).
 #[test]
 fn a_late_exit_of_the_previous_agent_does_not_remove_the_next_ones_row() {
     let mut rig = Rig::running_turn("claude");
-    let sequence = rig.next();
-    let ingress = crate::agent_hook_journal_ingress(
-        "claude",
-        "SessionStart",
-        Some(TERMINAL),
-        json!({"session_id": "claude-session-2"}),
-    )
-    .unwrap();
-    rig.roster.apply(&RosterEvent {
-        producer_id: &ingress.producer_id,
-        kind: &ingress.kind,
-        subjects: &ingress.subjects,
-        payload: &ingress.payload,
-        sequence,
-        committed_at_ms: 14_200,
-    });
+    rig.hook(14_000, "Stop");
+    rig.hook(14_100, "SessionEnd");
+    rig.session_hook(14_200, "claude-session-2", "SessionStart");
     assert_eq!(rig.shown(), "idle");
     rig.screen(14_600, "done");
     assert_eq!(rig.shown(), "idle", "the new session's row stays");
+    assert_eq!(rig.roster.entries[TERMINAL].source, "hook");
+}
+
+/// A killed harness sends no `SessionEnd`, so its hook session never ended.
+/// The screen's proof of the exit ends it, and the next session in the same
+/// tab owns the row again instead of having its hooks refused.
+#[test]
+fn the_next_session_after_a_killed_harness_owns_the_row() {
+    let mut rig = Rig::running_turn("claude");
+    rig.screen(14_600, "done");
+    assert_eq!(rig.shown(), "done");
+    rig.session_hook(16_000, "claude-session-2", "SessionStart");
+    assert_eq!(rig.shown(), "idle");
+    rig.session_hook(16_500, "claude-session-2", "UserPromptSubmit");
+    assert_eq!(rig.shown(), "working");
+    // A late hook of the killed session changes nothing.
+    rig.hook(16_600, "Stop");
+    assert_eq!(rig.shown(), "working");
 }
 
 /// An exit of another process than the one the plugin saw ends nothing.
