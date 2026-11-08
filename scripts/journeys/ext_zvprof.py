@@ -84,5 +84,42 @@ def step_zv_xctrace_zooms(j, step):
     return result
 
 
-STEPS = {"zv_xctrace_zooms": step_zv_xctrace_zooms}
+def _budget_seq(j):
+    reply = j.app.rpc("debug.action_budget", {"limit": 1}) or {}
+    recent = reply.get("recent") or []
+    return recent[-1].get("sequence") if recent else None
+
+
+def _pct(v, p):
+    v = sorted(v)
+    return round(v[min(len(v) - 1, int(round((len(v) - 1) * p)))], 2) if v else None
+
+
+def step_zv_turn_zooms(j, step):
+    """ZOOM VARIANTS 3: RUNS real Cmd-Shift-Enter presses with NO profiler; each press's key turn to its commit
+    (debug.action_budget commit_ms, ActionBudgetMonitor), p50/p95/max, in and out apart. Writes diag-zoomturn-<label>.json."""
+    label = step.get("label", "z4")
+    runs, gap = int(step.get("runs", 12)), float(step.get("gap", 1.0))
+    seq0 = _budget_seq(j)
+    for i in range(runs):
+        V.step_hid_key(j, {"key": "return", "modifiers": ["cmd", "shift"], "mark": f"zoomturn.{label}.{i}"})
+        time.sleep(gap)
+    if runs % 2:
+        V.step_hid_key(j, {"key": "return", "modifiers": ["cmd", "shift"], "mark": f"zoomturn.{label}.back"})
+        time.sleep(gap)
+    reply = j.app.rpc("debug.action_budget", {"limit": 256}) or {}
+    rows = [r for r in reply.get("recent") or [] if seq0 is None or (r.get("sequence") or 0) > seq0]
+    zoom = [r for r in rows if "zoom" in str(r.get("id") or r.get("action") or "").lower()] or rows
+    ms = [float(r.get("commit_ms")) for r in zoom if r.get("commit_ms") is not None]
+    ins, outs = ms[0::2], ms[1::2]
+    result = {"bench": "zoom-turn", "label": label, "n": len(ms), "ids": sorted({str(r.get("id")) for r in zoom}),
+              "commit_ms": ms, "p50": _pct(ms, .5), "p95": _pct(ms, .95), "max": max(ms) if ms else None,
+              "in_p50": _pct(ins, .5), "in_p95": _pct(ins, .95), "out_p50": _pct(outs, .5), "out_p95": _pct(outs, .95),
+              "rows": zoom}
+    (j.out / f"diag-zoomturn-{label}.json").write_text(json.dumps(result, default=str))
+    result.pop("rows", None)
+    return result
+
+
+STEPS = {"zv_xctrace_zooms": step_zv_xctrace_zooms, "zv_turn_zooms": step_zv_turn_zooms}
 CONDITIONS = {}
