@@ -340,7 +340,7 @@ impl LineAdmission for RemoteAdmission {
             // A Cloud team member's signed dial: its chat verbs only (agent_session_member.rs).
             || (self.native_vm_kind == Some(Some(cmux_link::token::VmKind::Team))
                 && self.gate.admit_native_owner(line)
-                && super::agent_session_attach::member::admits(&self.peer, line))
+                && agent_session_attach::member::admits(&self.peer, line))
         {
             return None;
         }
