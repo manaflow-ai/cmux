@@ -37,11 +37,12 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// journal head so fences exist for every retained lifecycle. Version 7 keeps
 /// each terminal's last screen observation, so a hook `blocked` row clears
 /// when the screen shows its dialog gone; the re-fold clears rows that stayed
-/// blocked after a dialog was dismissed with Esc. Version 8 lets the screen end
-/// a hook `working` row whose turn ended with no hook (Esc, a lost `Stop`) and
-/// remove a hook row whose agent exited; the re-fold clears rows that stayed
-/// working after either.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 8;
+/// blocked after a dialog was dismissed with Esc. Version 8 ties that record
+/// to the plugin child that saw it, so a restarted plugin cannot clear a block.
+/// Version 9 lets the screen end a hook `working` row whose turn ended with no
+/// hook (Esc, a lost `Stop`) and end a hook session whose agent exited; the
+/// re-fold clears rows that stayed working after either.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 9;
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -644,6 +645,7 @@ impl AgentRoster {
                 return Vec::new();
             }
             self.record_plugin_exit_fence(plugin_id, generation_number, cutoff);
+            self.forget_screen_evidence_of(plugin_id, generation_number);
             let retired = self
                 .entries
                 .iter()
@@ -705,10 +707,9 @@ impl AgentRoster {
                 return Vec::new();
             }
             let updated_at_ms = event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
-            let producer_generation = event
-                .normalized("plugin_generation")
-                .and_then(|value| value.parse::<u64>().ok())
-                .map(|value| value.to_string());
+            let generation =
+                event.normalized("plugin_generation").and_then(|value| value.parse::<u64>().ok());
+            let producer_generation = generation.map(|value| value.to_string());
             let session = event.normalized("source_session").map(str::to_string);
             let agent = event.adapter_id().map(str::to_string);
             let state = if event_name == "session.ended" { AgentState::Done } else { state };
@@ -716,6 +717,7 @@ impl AgentRoster {
             screen_note = self.note_screen_evidence(
                 terminal_id,
                 event.producer_id,
+                generation,
                 session.as_deref(),
                 state,
                 visible_idle,
