@@ -34,7 +34,7 @@ pub(crate) fn early_unix_scope(raw_args: &[String]) -> Option<fn(&[String]) -> i
         Some(run_github)
     } else if gitlab_requested(raw_args, Surface::current()) {
         Some(run_gitlab)
-    } else if repo_requested(raw_args, Surface::current()) {
+    } else if repo_requested(raw_args) {
         Some(super::repo_hold::run)
     } else {
         None
@@ -71,10 +71,12 @@ fn run_gitlab(rest: &[String]) -> i32 {
     i32::from(cmux_host::gitlab_cli::run(rest))
 }
 
-/// `cmux repo hold DIR -- CMD` (`repo_hold.rs`): the repository sync barrier held around
-/// the rest of a checkout the repo pick cloned head first, on the `cmux` surface only.
-fn repo_requested(raw_args: &[String], surface: Surface) -> bool {
-    surface == Surface::Cmux && raw_args.first().is_some_and(|first| first == "repo")
+/// `cmux repo hold DIR -- CMD` and `cmux repo wait DIR SECONDS` (`repo_hold.rs`): the
+/// repository sync barrier around the rest of a checkout the repo pick cloned head first. On
+/// both surfaces: a machine's `cmux` may be an adapter that runs `cmux-tui` for what it does not
+/// know, and the repo step calls `cmux-tui` by name where it has one.
+fn repo_requested(raw_args: &[String]) -> bool {
+    raw_args.first().is_some_and(|first| first == "repo")
 }
 
 /// The program that runs this `cmux` again with its surface: argv[0] when it is an absolute
@@ -146,6 +148,8 @@ mod tests {
         assert!(github_requested(&args(&["github", "credential", "get"]), Surface::Cmux));
         assert!(!github_requested(&args(&["github", "gh"]), Surface::CmuxTui));
         assert!(!github_requested(&args(&["git", "status"]), Surface::Cmux));
+        assert!(repo_requested(&args(&["repo", "hold", "/w", "--", "true"])));
+        assert!(!repo_requested(&args(&["cloud", "repo", "add"])));
         assert!(gitlab_requested(&args(&["gitlab", "credential", "get"]), Surface::Cmux));
         assert!(!gitlab_requested(&args(&["gitlab", "credential"]), Surface::CmuxTui));
     }

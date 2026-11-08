@@ -336,10 +336,22 @@ impl Machine {
             let cmux = "#!/bin/sh\n[ \"$1 $2\" = \"repo hold\" ] || exit 2\n\
                         [ \"$3\" = --help ] && exit 0\n\
                         echo \"$3\" > \"$HOME/held\"; shift 4; \"$@\"\n";
-            std::fs::write(root.join("bin/cmux"), cmux).ok()?;
-            sh("chmod +x bin/cmux").ok()?;
+            let machine = Self(root);
+            machine.cmux(cmux);
+            return Some(machine);
         }
         Some(Self(root))
+    }
+
+    /// The machine's `cmux` and `cmux-tui` (the step asks `cmux-tui` first): both run `script`,
+    /// so a real one on the PATH of the host running the test is never reached.
+    fn cmux(&self, script: &str) {
+        use std::os::unix::fs::PermissionsExt as _;
+        for name in ["bin/cmux", "bin/cmux-tui"] {
+            let file = self.0.join(name);
+            std::fs::write(&file, script).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
     }
 
     /// Runs the step for this machine's source repository; its exit code and repo-status.json.
@@ -424,8 +436,7 @@ fn a_default_branch_is_cloned_head_first_and_filled_under_the_hold() {
 fn without_a_hold_the_whole_repository_is_cloned() {
     let Some(machine) = Machine::new(false) else { return };
     // No `cmux` shim: the PATH's own may exist on this host, so hide it behind one that refuses.
-    std::fs::write(machine.0.join("bin/cmux"), "#!/bin/sh\nexit 2\n").unwrap();
-    let _ = std::process::Command::new("chmod").arg("+x").arg(machine.0.join("bin/cmux")).status();
+    machine.cmux("#!/bin/sh\nexit 2\n");
     let (code, record) = machine.run();
     assert_eq!(code, 0, "{record}");
     assert_eq!(record["fill"].as_str(), Some("none"));
@@ -478,13 +489,12 @@ fn a_start_with_a_bootstrap_script_clones_the_whole_repository() {
 #[test]
 fn a_head_first_checkout_filled_without_a_hold_gets_its_history() {
     let Some(machine) = Machine::new(true) else { return };
-    let cmux = machine.0.join("bin/cmux");
     // A hold that takes the folder and never runs its fill.
-    std::fs::write(&cmux, "#!/bin/sh\n[ \"$3\" = --help ] && exit 0\nexit 0\n").unwrap();
+    machine.cmux("#!/bin/sh\n[ \"$3\" = --help ] && exit 0\nexit 0\n");
     let (code, record) = machine.run();
     assert_eq!((code, record["fill"].as_str()), (0, Some("background")), "{record}");
     assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "true");
-    std::fs::write(&cmux, "#!/bin/sh\nexit 2\n").unwrap();
+    machine.cmux("#!/bin/sh\nexit 2\n");
     let (code, record) = machine.run();
     assert_eq!(code, 0, "{record}");
     assert!(machine.checkout().join("lib/y.rs").is_file());

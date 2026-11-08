@@ -87,7 +87,8 @@ root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }
 head_dirs=".claude .codex .cursor .gemini .github .vscode .devcontainer"
 holder() {
   printf '#!/bin/sh\nexit 0\n' | cmp -s - "$d/script" &&
-    hx=$(command -v cmux) && "$hx" repo hold --help >/dev/null 2>&1 && command -v systemd-run >/dev/null 2>&1
+    { hx=$(command -v cmux-tui) || hx=$(command -v cmux); } && "$hx" repo hold --help >/dev/null 2>&1 &&
+    command -v systemd-run >/dev/null 2>&1
 }
 # The fill, in its own scope: the bootstrap's unit ends with this runner, and the hold outlives it.
 # The hold is taken before this returns, so no chat starts on the folder before it.

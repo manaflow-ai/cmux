@@ -578,7 +578,7 @@ def wait_for_repository():
     repo = checkout() if fill == "background" else None
     if repo is None:
         return
-    cmux = shutil.which("cmux")
+    cmux = shutil.which("cmux-tui") or shutil.which("cmux")
     if cmux is None:
         raise Refused(f"{repo} is still being checked out and this machine has no cmux to wait on it")
     status("waiting", waiting_for="repository")

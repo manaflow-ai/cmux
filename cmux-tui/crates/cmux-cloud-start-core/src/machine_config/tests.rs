@@ -188,10 +188,13 @@ fn an_apply_waits_for_a_checkout_still_filling() {
     let applier_path = root.path().join("conf/apply");
     std::fs::write(&applier_path, applier()).unwrap();
     // A stand-in cmux: records its arguments, exits with $CODE.
-    let cmux = root.path().join("bin/cmux");
-    std::fs::write(&cmux, "#!/bin/sh\necho \"$@\" > \"$HOME/waited\"\nexit \"$CODE\"\n").unwrap();
+    // Under both names: the applier asks for `cmux-tui` first.
     use std::os::unix::fs::PermissionsExt as _;
-    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    for name in ["bin/cmux", "bin/cmux-tui"] {
+        let cmux = root.path().join(name);
+        std::fs::write(&cmux, "#!/bin/sh\necho \"$@\" > \"$HOME/waited\"\nexit \"$CODE\"\n").unwrap();
+        std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let call = "import importlib.util, sys\n\
                 s = importlib.util.spec_from_file_location('applier', sys.argv[1])\n\
                 m = importlib.util.module_from_spec(s); s.loader.exec_module(m)\n\
