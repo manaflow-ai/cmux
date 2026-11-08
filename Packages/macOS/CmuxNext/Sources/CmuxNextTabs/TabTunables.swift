@@ -161,6 +161,13 @@ public nonisolated enum TabTunables {
         "tabs.hoverPreviews", .tabs, "Tab hover previews",
         help: "Full shows a thumbnail on a tab's hover card; Compact shows only its facts.",
         default: .full, code: "TabTunables.hoverPreviews")
+    // @intent Leo 2026-11-07 asked whether the card should "morph together with the tab" ("goo ...
+    // that water surface tension thing"): the three entrances side by side in the tab bar
+    // playground's Hover Card page; the card grows out of its tab by default.
+    public static let hoverCardEntrance = Tunable<HoverCardEntrance>.choice(
+        "tabs.hoverCardEntrance", .tabs, "Tab hover card entrance",
+        help: "How a tab's hover card first shows: a fade, a fade and slide, or growing out of its tab.",
+        default: .morph, code: "TabTunables.hoverCardEntrance")
     /// Debug-only loading transition prototypes. Instant is the production
     /// default until one of the variants is selected for dogfood.
     public static let loadingAnimation = Tunable<TabLoadingAnimation>.choice(
@@ -173,6 +180,6 @@ public nonisolated enum TabTunables {
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, loadingAnimation.descriptor] + VerticalTabTunables.all
+               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor] + VerticalTabTunables.all
     }
 }

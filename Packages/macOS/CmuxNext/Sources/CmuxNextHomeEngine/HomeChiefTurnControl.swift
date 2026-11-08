@@ -1,5 +1,5 @@
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 import os
 
 /// One captured Chief control route. The brain owns turn eligibility and reply bookkeeping.
@@ -8,12 +8,15 @@ public struct HomeChiefTurnControl {
     public let connection: DaemonConnection?
     public let named: String?
     public let isHosted: Bool
+    /// The Chief's home (`$MUX_HOME`) when its host runs on this Mac; nil for a hosted or paired-server Chief.
+    public let brainHome: URL?
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
-    public init(connection: DaemonConnection?, named: String?, isHosted: Bool) {
+    public init(connection: DaemonConnection?, named: String?, isHosted: Bool, brainHome: URL? = nil) {
         self.connection = connection
         self.named = named
         self.isHosted = isHosted
+        self.brainHome = brainHome
     }
 
     /// `chief.stop` on this Chief's brain; nil when it stopped (or had no

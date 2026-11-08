@@ -52,6 +52,8 @@ These defaults come from `Keys::default`.
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
 | `Ctrl-b ?` | Open the keyboard shortcut modal |
+| `Ctrl-b a` | Go to the next tab that needs you (see below) |
+| `Ctrl-b A` | List the tabs that need you; Enter goes to the selected one |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
 | `Ctrl-b l` or `Ctrl-b Right` | Focus right |
@@ -219,6 +221,8 @@ browser-forward
 browser-reload
 browser-edit-url
 show-shortcuts
+next-attention
+attention-list
 detach
 dock-workspace-left
 dock-workspace-right

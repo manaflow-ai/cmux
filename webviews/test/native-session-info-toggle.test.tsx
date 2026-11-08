@@ -13,7 +13,7 @@ import { JSDOM } from "jsdom";
 import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import {
   runNativeSessionInfoAction,
   setNativeSessionInfoHost,

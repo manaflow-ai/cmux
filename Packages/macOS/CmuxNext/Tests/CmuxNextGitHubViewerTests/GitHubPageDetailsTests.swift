@@ -91,6 +91,30 @@ struct GitHubPageDetailsTests {
         #expect(first["html"]?.stringValue == "<p><sup>c</sup></p>")
     }
 
+    /// The conversation's filters: "Mine" needs the signed-in login, "Unresolved" each review comment's thread.
+    @Test func theReadCarriesTheViewerAndEachThreadsState() throws {
+        #expect(GitHubPullRequestDetails.query.contains("viewer { login }"))
+        #expect(GitHubPullRequestDetails.query.contains("reviewThreads(last: 100) { nodes { isResolved"))
+        let open = "https://github.com/manaflow-ai/cmux/pull/1#discussion_r1"
+        let done = "https://github.com/manaflow-ai/cmux/pull/1#discussion_r2"
+        let answer = #"""
+            {"data": {"viewer": {"login": "teamleaderleo"}, "repository": {"pullRequest": {"body": "", "headRefOid": "",
+              "reviews": {"totalCount": 1, "nodes": [{"author": {"login": "rabbit"}, "state": "COMMENTED", "body": "",
+                "submittedAt": "2026-11-07T02:00:00Z", "comments": {"nodes": [
+                  {"path": "a.yml", "line": 3, "body": "open", "url": "\#(open)"},
+                  {"path": "a.yml", "line": 9, "body": "done", "url": "\#(done)"},
+                  {"path": "b.yml", "line": 1, "body": "unknown", "url": null}]}}]},
+              "reviewThreads": {"nodes": [
+                {"isResolved": false, "comments": {"nodes": [{"url": "\#(open)"}]}},
+                {"isResolved": true, "comments": {"nodes": [{"url": "\#(done)"}]}}]}
+            }}}}
+            """#
+        let details = try #require(GitHubPullRequestDetails.parse(Data(answer.utf8)))
+        #expect(details.viewer == "teamleaderleo")
+        #expect(details.conversation.first?.comments.map(\.resolved) == [false, true, nil])
+        #expect(details.json["viewer"]?.stringValue == "teamleaderleo")
+    }
+
     @Test func oneReadSendsAtMostItsHTMLBudgetTheDescriptionAndNewestFirst() throws {
         // Each body fits its own cap; together they pass the read's budget.
         let size = GitHubPullRequestDetails.maximumHTML - 10

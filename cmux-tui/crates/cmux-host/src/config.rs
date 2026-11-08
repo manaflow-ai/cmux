@@ -101,8 +101,6 @@ pub struct Config {
     pub metadata_attempts: u32,
     pub metadata_timeout: Duration,
     pub daemon: DaemonOverride,
-    /// Opt in only on fresh Native-backed Cloud images. Requires root.
-    pub native_receiver: bool,
     /// Send the gratuitous ARP announce (off only in tests).
     pub announce: bool,
     /// `announce_interval_seconds`: repeat the announce this often while
@@ -130,7 +128,6 @@ impl Config {
             metadata_attempts: crate::metadata::DEFAULT_ATTEMPTS,
             metadata_timeout: crate::metadata::ATTEMPT_TIMEOUT,
             daemon: DaemonOverride::default(),
-            native_receiver: false,
             announce: true,
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             rearm_delay: HOUSEKEEPING_DELAY,

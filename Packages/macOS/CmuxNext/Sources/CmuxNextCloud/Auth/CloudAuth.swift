@@ -27,6 +27,11 @@ public final class CloudAuth {
     public var isSignedIn: Bool { coordinator.isAuthenticated }
     public var isRestoring: Bool { coordinator.isRestoringSession }
     public var user: CMUXAuthUser? { coordinator.currentUser }
+    /// The signed-in account's platform user id (`user_…`, the API's `userIdFor`): the id a cmux-next
+    /// machine record names its `creator` by, never the Stack id in ``user``.
+    public var platformUserID: String? {
+        user.map { CloudAccessToken.backendUserID(stackProjectID: configuration.stackProjectID, stackUserID: $0.id) }
+    }
     /// The team cmux works in; every team-scoped feature reads it (``ActiveTeam``).
     @ObservationIgnored public let activeTeam: ActiveTeam
     /// The device's managed team (``ActiveTeam/managedTeamID``).

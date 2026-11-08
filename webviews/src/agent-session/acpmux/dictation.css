@@ -9,12 +9,13 @@
 .acpmux-shell,
 .ui-positioner {
   --acpmux-dictation-accent: var(--cmux-accent, var(--agent-accent, var(--agent-text)));
-  /* The waveform's pill (Leo 2026-11-08): solid, from the theme. In a dark theme it sits a step
-     darker than the composer, toward the page; in a light theme it is the light counterpart, one
-     step of the theme's ink over the composer. The bars take the theme's ink on it. */
+  /* The waveform's pill (Leo 2026-11-08): solid, from the theme. In a dark theme it is the theme's
+     opaque surface a step darker, from opaque tokens only, so it stays solid over New Tab and
+     see-through or art panes, whose page color is clear; in a light theme it is the light
+     counterpart, one step of the theme's ink over the composer. The bars take the theme's ink. */
   --acpmux-dictation-pill: light-dark(
     color-mix(in srgb, var(--agent-text) 9%, var(--acpmux-composer-solid, var(--acpmux-base))),
-    color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 45%, var(--agent-page-bg, var(--acpmux-base)))
+    oklch(from var(--cmux-surface-solid, var(--acpmux-base)) calc(l * 0.7) c h)
   );
   --acpmux-dictation-pill-ink: var(--agent-text);
 }
