@@ -7,7 +7,7 @@
       Stops the recording, exports the time-profile table and cuts it per close with ext_cmdn.xctrace_press_profiles:
       each close's main-thread samples on its own clock (0 = the first sample in the close handler, TabLifecycle /
       prepareClose / showPaneClose), 5 ms bins with the deepest frames of ours, the heaviest inclusive and self
-      frames. video/cvprof-<tag>.json keeps the raw samples; it also keeps the app's input journal (the last 400
+      frames. video/cvprof-<tag>.trace.json (a name run.py fetches) keeps the raw samples; it also keeps the app's input journal (the last 400
       entries: show / reveal / conceal / attach per close).
 """
 import json
@@ -95,7 +95,7 @@ def step_cp_xctrace_stop(j, step):
     xml.unlink(missing_ok=True)
     shutil.rmtree(trace, ignore_errors=True)
     import ext_video  # the video folder is fetched whole (run.py fetches only diag-<letters>.json from out/)
-    (ext_video._vdir(j) / f"cvprof-{prof['tag']}.json").write_text(json.dumps(dict(result, journal=journal), default=str))
+    (ext_video._vdir(j) / f"cvprof-{prof['tag']}.trace.json").write_text(json.dumps(dict(result, journal=journal), default=str))
     for row in result.get("rows") or []:
         row.pop("raw", None)
     return {"tag": prof["tag"], "presses_found": result.get("presses_found"), "main_samples": result.get("main_samples"),
