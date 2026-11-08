@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "build": "4248002805401",
+  "notes": "notes/4248002805401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 38481,
+      "title": "Composer hat: finished lines stay longer, never go right after a look, and the hat folds away",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38362,
+      "title": "acpmux: a chat's media reader opens its stored uploads; upload tests read #38190's store",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38438,
+      "title": "ci: the GhosttyKit release check retries a 504 or stalled download three times",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38373,
+      "title": "carrier: the session host logs each relay Register; a dial parked 20 s connects on its first attempt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38432,
+      "title": "ci(cmux-tui): the PR panic ratchet lints the base only when HEAD is over the baseline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38450,
+      "title": "cmux-next: scrollbar guard takes the updated card's list thumb",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38360,
+      "title": "cmux-remote: one budgeted redialer with caller deadlines, network-change redial and 6 s death",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38325,
+      "title": "cloud journey: without --cmux, check the carrier ticket, grant and daemon key by the dial's own rules",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38333,
+      "title": "cmux NEXT spaces: keep window marks during dot drags; own the marks' observation task",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37772,
+      "title": "composer: Remote, and Cloud's Environment chip with a drop-up (behind CLOUD_ENVIRONMENTS_ENABLED)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38370,
+      "title": "cmux-tui test: a seeded folder keeps its sync barrier's head and owner locks beside it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38434,
+      "title": "ci(base-red): refuse a webview replay with no final charged-test verdict",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38402,
+      "title": "Composer: the bottom-toolbar look is shorter, ring before the model, more room at the bottom, no thumb flash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38320,
+      "title": "feat(next): transcript menu copies Markdown, attaches a selection and pins a chapter",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38369,
+      "title": "cmux-tui test: the Codex shim's SessionStart hook prints the agent's cmux context",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38368,
+      "title": "cmux-agent-pane-policy: _acpmux/kill and acp.session.fork take Fork Conversation's cancel params, as the macOS host does",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38397,
+      "title": "cmux-host: report the running session host's build, not the bake's, after a restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38380,
+      "title": "ci(base-red): judge a red webview replay per test against the base's webview runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38352,
+      "title": "machine list: online follows the platform's mesh TTL (30 s); acpmux heartbeat pinned to a third of it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37729,
+      "title": "sidebar: a Pictorial group palette colors groups from the desktop picture",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38328,
+      "title": "fix(tabs): every app tab close selects the tab before it (FFI repin, one shared rule)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38334,
+      "title": "Remote view: report why an rd session ended (end_reason)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38273,
+      "title": "cmux-tui: show agent state by default (sidebar rollup, tab chips, agents section, done-until-seen)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38405,
+      "title": "base red (cmux-next checks, Web bundle key inputs): route the cloud catalog types the Cloud page imports",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
