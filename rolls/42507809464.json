@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42507809464",
+  "recorded_at": "2026-11-08T18:07:32Z",
+  "reason": "cmux-tui d5baf30a28d7 changes the image's cmux-tui (pinned fcf8221ebbc2)",
+  "dry_run": false,
+  "cmux_tui": "d5baf30a28d75f2407f60702b2aff49d9ca28714",
+  "fixes": [
+    {
+      "sha": "d5baf30a28d75f2407f60702b2aff49d9ca28714",
+      "mergedAt": "2026-11-08T09:45:34-08:00",
+      "subject": "cmux-tui tests: unique /tmp dirs for parallel fake apps and restart fixtures (#38727)"
+    },
+    {
+      "sha": "90aad63f4005de4d4d2b4f4419bfdf405e8f5256",
+      "mergedAt": "2026-11-08T09:41:18-08:00",
+      "subject": "acpmux race: follow automatic continuations, read the whole child log, finish cancels of absent children (#38735)"
+    },
+    {
+      "sha": "ccdebf5d01c48ec3f3f0a6ba89df75690569d529",
+      "mergedAt": "2026-11-08T17:41:05Z",
+      "subject": "chore(next): base autofix at 87d09e3bf03b"
+    },
+    {
+      "sha": "87d09e3bf03b4c0f558a89470e521d59882e1a2a",
+      "mergedAt": "2026-11-08T09:39:36-08:00",
+      "subject": "acpmux: a peer that answers late but answers keeps its link (adaptive silence budget) (#38734)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T18:07:32Z",
+    "snapshot_id": "sh-c7ae5424863346bbbbcc71f8d9a43b66",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42507809464): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d5387baac8f57fb8f6fd3126bc525174f649d18c",
+    "image": "cloud-native-auto-d5baf30a-42507809464-1",
+    "revision": "ci-42507809464-1",
+    "at": "2026-11-08T18:07:32Z"
+  },
+  "rolled_back": false
+}
