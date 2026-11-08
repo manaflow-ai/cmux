@@ -109,7 +109,7 @@ impl Driver {
         let now = Instant::now();
         self.probe_deadline = if self.schedule.is_active(now) {
             let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
-            probing::send_due(tunn, &mut *self.underlay, scratch, self.probe_route, now)
+            probing::send_due(tunn, &mut self.underlay, scratch, self.probe_route, now)
         } else {
             None
         };
