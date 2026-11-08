@@ -29,14 +29,19 @@ export function revealedSaid(value: string): SaidReveal | undefined {
 }
 
 /// The newest row of `rows` (oldest first) that is the match's kind (the person's prompt, or the
-/// agent's reply text) and holds every word; empty when none does (history not loaded yet).
+/// agent's reply text) and holds every word. A tool call splits a reply into several rows while
+/// acpmux matched the whole answer, so when no one row holds every word, the newest row holding
+/// most of them stands in. Empty when none holds any (history not loaded yet).
 export function saidRows(rows: readonly AcpmuxRow[], said: SaidReveal): string[] {
-  const kind = said.answer ? "message" : "user";
+  const kind = said.answer ? "assistant" : "user";
+  let best: { id: string; held: number } | undefined;
   for (let at = rows.length - 1; at >= 0; at--) {
     const row = rows[at]!;
     if (row.kind !== kind || !row.text) continue;
     const text = row.text.toLowerCase();
-    if (said.words.every((word) => text.includes(word))) return [row.id];
+    const held = said.words.filter((word) => text.includes(word)).length;
+    if (held === said.words.length) return [row.id];
+    if (held > (best?.held ?? 0)) best = { id: row.id, held };
   }
-  return [];
+  return best ? [best.id] : [];
 }
