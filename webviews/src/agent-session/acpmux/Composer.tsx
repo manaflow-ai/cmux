@@ -1504,6 +1504,8 @@ function ComposerFrame({
     }
     // `/run-on <prompt>`: the prompt stays in the composer and the Run on N agents panel opens for it.
     if (owned?.action === "runOn" && runOnAgents) {
+      // A run's prompt is text alone (sendMenuModel.ts): staged files stay here for a send.
+      if (attachments.length > 0 || pending.length > 0) return false;
       const rest = ownedArgs?.trim() ?? "";
       edit(rest, rest.length);
       setRunningOn(true);
@@ -1809,9 +1811,9 @@ function ComposerFrame({
     // sent from the composer stops the turn: only Stop and Esc do (Leo 2026-10-20). (The Quick
     // Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
-    // ⌘⌥Return opens Run on N agents for the prompt (its panel's Return runs it), as Send's menu
-    // draws it (sendMenuModel.ts).
-    if (runOnAgents && sendChoiceForKey(event) === "runOn" && !shell && typedWords().trim()) {
+    // ⌘⌥Return opens Run on N agents for the prompt (its panel's Return runs it) where Send's menu
+    // offers it (sendMenuModel.ts): never with files staged, which a run would not carry.
+    if (sendChoiceForKey(event) === "runOn" && sendChoices.includes("runOn") && typedWords().trim()) {
       event.preventDefault();
       setRunningOn(true);
       return;
@@ -2781,7 +2783,8 @@ function ComposerFrame({
                   extensions: plusExtensions,
                   canCapture: Boolean(capture && allowImages),
                   canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
-                  canRunOnAgents: Boolean(runOnAgents) && !shell,
+                  canRunOnAgents:
+                    Boolean(runOnAgents) && !shell && attachments.length === 0 && pending.length === 0,
                   ...(planChoice && plan
                     ? { planMode: { id: plan.id, name: planChoice.name, description: t("picker.planHint") } }
                     : {}),

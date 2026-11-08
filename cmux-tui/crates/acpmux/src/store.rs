@@ -596,6 +596,10 @@ pub struct MadeWorktree {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub born: Option<u128>,
     pub branch: String,
+    /// The commit it was made from, the base its change is read against (`_acpmux/plan/compare`):
+    /// recorded here, where no request writes it, not in the `planBuildBase` tag an agent can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
 }
 
 impl MadeWorktree {
@@ -610,7 +614,9 @@ impl MadeWorktree {
         }
         Ok(Option::<Saved>::deserialize(d)?.map(|saved| match saved {
             Saved::Made(made) => made,
-            Saved::Path(root) => Self { root, pin: None, born: None, branch: String::new() },
+            Saved::Path(root) => {
+                Self { root, pin: None, born: None, branch: String::new(), base: None }
+            }
         }))
     }
 

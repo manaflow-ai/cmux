@@ -426,17 +426,19 @@ impl Hub {
             if m.subsession.as_ref().is_some_and(|l| l.plan_build_kept) {
                 kept = json!(s.id);
             }
-            // The daemon's record of the worktree it made first; the tag for builds from before it.
-            let tagged_root = m
-                .subsession
-                .as_ref()
-                .and_then(|l| l.worktree.as_ref().map(|w| w.root.clone()))
-                .or_else(|| m.tags.get(ROOT_TAG).map(|t| PathBuf::from(&t.value)));
-            let (root, branch) = match &m.worktree {
-                Some(w) => (tagged_root.unwrap_or_else(|| w.root.clone()), w.branch.clone()),
-                None => (tagged_root.unwrap_or_else(|| m.cwd.clone()), None),
-            };
-            let base = m.tags.get(BASE_TAG).map(|t| t.value.clone());
+            // The daemon's record of the worktree it made, in the run's lineage: never the
+            // `planBuildRoot` or `planBuildBase` tags, which `_acpmux/tag` lets an agent rewrite
+            // to point the comparison at another folder or commit.
+            let made = m.subsession.as_ref().and_then(|l| l.worktree.as_ref());
+            let root = made
+                .map(|w| w.root.clone())
+                .or_else(|| m.worktree.as_ref().map(|w| w.root.clone()))
+                .unwrap_or_else(|| m.cwd.clone());
+            let branch = made
+                .map(|w| w.branch.clone())
+                .filter(|b| !b.is_empty())
+                .or_else(|| m.worktree.as_ref().and_then(|w| w.branch.clone()));
+            let base = made.and_then(|w| w.base.clone());
             let mut row = json!({
                 "sessionId": s.id,
                 "name": m.name,

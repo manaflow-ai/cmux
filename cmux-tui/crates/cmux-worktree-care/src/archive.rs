@@ -163,7 +163,11 @@ pub fn reclaim(
     match still {
         None => remove(&worktree.path)?,
         Some(still) => {
-            if let Err(why) = remove_aside(&worktree.path, &id, still, &main, remove) {
+            let repair = |at: &Path| {
+                let args: [&OsStr; 3] = ["worktree".as_ref(), "repair".as_ref(), at.as_os_str()];
+                git::write(&main, None, &args, Bound::Unbounded).map(|_| ())
+            };
+            if let Err(why) = remove_aside(&worktree.path, &id, still, repair, remove) {
                 // Its archive's ref is the repository's, dropped from the main checkout: the
                 // folder at the worktree's path may not be the worktree now.
                 discard(&main, store, &manifest);
@@ -185,7 +189,7 @@ fn remove_aside(
     path: &Path,
     id: &str,
     still: &procs::Still,
-    main: &WriteGit<'_>,
+    repair: impl Fn(&Path) -> Result<(), String>,
     remove: impl Fn(&Path) -> Result<(), String>,
 ) -> Result<(), String> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -205,23 +209,22 @@ fn remove_aside(
     if let Err(why) = still(path, &aside) {
         return Err(back(why));
     }
-    let repair: [&OsStr; 3] = ["worktree".as_ref(), "repair".as_ref(), aside.as_os_str()];
-    if let Err(error) = git::write(main, None, &repair, Bound::Unbounded) {
+    if let Err(error) = repair(&aside) {
         return Err(back(format!("git could not follow it aside ({error})")));
     }
     // git could not remove it: it goes back where it was, and git follows it there, so a worktree
     // that stays is never left under a hidden name.
     remove(&aside).map_err(|error| {
-        let returned =
-            path.symlink_metadata().is_err() && std::fs::rename(&aside, path).is_ok() && {
-                let repair: [&OsStr; 3] =
-                    ["worktree".as_ref(), "repair".as_ref(), path.as_os_str()];
-                git::write(main, None, &repair, Bound::Unbounded).is_ok()
-            };
-        if returned {
-            format!("{error}; it stays")
-        } else {
-            format!("{error}; it stays at {}", aside.display())
+        if path.symlink_metadata().is_ok() || std::fs::rename(&aside, path).is_err() {
+            return format!("{error}; it stays at {}", aside.display());
+        }
+        match repair(path) {
+            Ok(()) => format!("{error}; it stays"),
+            // Back at its path, but git still names the aside folder for it: say both.
+            Err(repair) => format!(
+                "{error}; it is back at {}, but git could not follow it there ({repair})",
+                path.display()
+            ),
         }
     })
 }
@@ -435,6 +438,30 @@ impl Drop for Remove {
 #[cfg(test)]
 mod care_tests {
     use super::*;
+
+    #[test]
+    fn a_folder_back_at_its_path_that_git_could_not_follow_says_so() {
+        let dir = std::env::temp_dir()
+            .join(format!("care-aside-back-{}", new_id(now_ms(), Path::new("x"))));
+        let path = dir.join("wt");
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(path.join("notes.txt"), "work\n").unwrap();
+        let still: Box<procs::Still> = Box::new(|_, _| Ok(()));
+        // git follows it aside, cannot remove it there, and cannot follow it back.
+        let repairs = std::cell::Cell::new(0);
+        let repair = |_: &Path| {
+            repairs.set(repairs.get() + 1);
+            if repairs.get() == 1 { Ok(()) } else { Err("gitdir is not writable".to_owned()) }
+        };
+        let error =
+            remove_aside(&path, "1-wt", &*still, repair, |_| Err("it is locked".to_owned()))
+                .unwrap_err();
+        assert!(error.contains(&format!("back at {}", path.display())), "{error}");
+        assert!(error.contains("gitdir is not writable"), "{error}");
+        assert!(!error.contains("cmux-discard"), "names no folder that is gone: {error}");
+        assert_eq!(std::fs::read_to_string(path.join("notes.txt")).unwrap(), "work\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn long_path_lists_split_inside_the_argument_limit() {

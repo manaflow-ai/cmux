@@ -694,6 +694,7 @@ impl Hub {
                 pin: kept.made.root_pin,
                 born: kept.made.root_held.as_deref().and_then(crate::store::MadeWorktree::born_of),
                 branch: kept.made.branch.clone(),
+                base: Some(kept.made.base.clone()),
             }),
             plan_build: None,
             plan_build_kept: false,

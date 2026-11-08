@@ -351,6 +351,17 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     app.ok("_acpmux/tag", json!({"sessionId": run2, "set": forged_root})).await;
     let earlier = builds[0]["sessionId"].clone();
     app.ok("_acpmux/tag", json!({"sessionId": earlier, "set": {"planBuild": run_id}})).await;
+    // Nor do the base and root tags steer a comparison: a run's change is read from the worktree
+    // and commit its lineage recorded, whatever the tags say.
+    let run0 = runs[0]["sessionId"].clone();
+    let forged =
+        json!({"planBuildBase": "0000000000000000000000000000000000000000", "planBuildRoot": repo});
+    app.ok("_acpmux/tag", json!({"sessionId": run0, "set": forged})).await;
+    let again = app.ok("_acpmux/plan/compare", json!({"sessionId": chat, "buildId": run_id})).await;
+    let row0 = again["builds"].as_array().unwrap().iter().find(|b| b["sessionId"] == run0).unwrap();
+    assert_eq!(row0["added"].as_u64(), Some(1), "{again}");
+    assert_eq!(row0["root"], json!(run_roots[0]), "{again}");
+    assert!(row0.get("error").is_none_or(Value::is_null), "{again}");
     // And the chat's agent starts an ordinary sub-session in a worktree, tagged into the runs.
     let mut agent = Client::agent(&hub, &chat).await;
     let plain = agent

@@ -99,6 +99,7 @@ fn a_worktree_is_still_made_only_with_its_folder_and_branch() {
         pin: crate::cwd_pin::CwdPin::of(&root),
         born: crate::store::MadeWorktree::born_of(&std::fs::File::open(&root).unwrap()),
         branch: "cmux/run-1".to_owned(),
+        base: None,
     };
     assert_eq!(still_made(&made), Ok(()));
     // Its agent moved it to another branch: no longer the worktree made for the run.
