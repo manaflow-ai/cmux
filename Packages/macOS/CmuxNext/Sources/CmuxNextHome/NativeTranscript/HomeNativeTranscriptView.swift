@@ -77,6 +77,13 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
+    /// Start now on a queued agent's pill (its card or its menu): the host asks this chat's Chief to start it past
+    /// the cap; true when it did. Nil: no Start now.
+    public var onStartAgent: ((String) async -> Bool)?
+    /// The card a click on a pill with no workspace showed (``openAgent(_:at:)``).
+    var agentCard: HomeAgentPillCard?
+    /// The last Start now request (its card's or its menu's), while it runs and after.
+    var pendingAgentStart: Task<Void, Never>?
     /// Forward… on a bubble: the host routes its text to another chat (nil: no Forward…).
     public var onForward: ((String) -> Void)? {
         get { transcript.onForward }
@@ -215,7 +222,11 @@ public final class HomeNativeTranscriptView: NSView {
             self?.onHideSwitchKeys()
         }
         firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
-        transcript.onAgentPill = { [weak self] peer in self?.openAgent(peer) }
+        transcript.onAgentPill = { [weak self] peer, pill in
+            guard let self else { return }
+            self.openAgent(peer, at: self.convert(pill, from: nil))
+        }
+        transcript.agentPillMenu = { [weak self] peer in self?.agentPillMenuItems(peer) ?? [] }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         // A long draft grows the field with no size change: refit the panel and the notice above it.
@@ -253,6 +264,7 @@ public final class HomeNativeTranscriptView: NSView {
         stopped = true
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
+        closeAgentCard()
         voice.close()
         transcript.stop()
         binding.stop()

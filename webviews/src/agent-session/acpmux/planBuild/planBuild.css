@@ -93,8 +93,8 @@
   min-width: 0;
   padding: 12px var(--ds-space-3);
   transition:
-    opacity var(--cmux-motion-quick, 120ms) var(--cmux-ease-out, ease-out),
-    background-color var(--cmux-motion-quick, 120ms) var(--cmux-ease-out, ease-out);
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out),
+    background-color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
 }
 .acpmux-plan-builds-column + .acpmux-plan-builds-column {
   border-top: 1px solid var(--plan-build-line);

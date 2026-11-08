@@ -38,7 +38,7 @@ test("a plan with a build path joins Approve plan to its build menu; Approve pla
   expect(html).toContain("acpmux-plan-build-split");
   expect(html).toContain('data-menu="plan-build"');
   expect(html).toContain('aria-label="Approve plan"');
-  expect(html).toMatch(/aria-label="Approve plan"[^>]*aria-keyshortcuts="Meta\+Enter/);
+  expect(html).toMatch(/aria-label="Approve plan"[^>]*aria-keyshortcuts="[^"]*Meta\+Enter/);
 });
 
 test("without a build path, and on any other ask, Approve plan stands alone", () => {

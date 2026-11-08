@@ -120,6 +120,15 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      # cmux-tui runs are dispatch-only: save-on-dispatch lets a run save what it
+      # fetched, so the next run on this branch needs no package host (502s at
+      # deps.files.ghostty.org failed every Linux job on 2026-11-08). An owned mini
+      # keeps ~/.cache/zig and never saves to the shared store.
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+
       - name: Install Rust 1.91
         run: rustup toolchain install 1.91.0 --profile minimal
 
@@ -326,6 +335,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -497,6 +511,11 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -728,6 +747,8 @@ jobs:
 
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -956,6 +977,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+
       - name: Build the cmux-tui daemon and CLI
         working-directory: cmux-tui
         run: cargo build --locked -p cmux-tui --bin cmux-tui
@@ -1028,6 +1054,11 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
 
       - name: Ghostty VT cursor replay checks
         if: inputs.mode == 'full'
@@ -1531,6 +1562,11 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
