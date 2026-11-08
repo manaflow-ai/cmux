@@ -593,6 +593,9 @@ struct HybridUnderlay {
     /// (`wireguard_paths.rs`): once one answers, the selector picks the
     /// route and sprays around a quiet one; until then the rules above do.
     paths: paths::Paths,
+    /// The selector held a route at the last send: when it lets go (every
+    /// path died), the route it chose is no longer trusted.
+    selector_held: bool,
     /// Where the latest plain UDP and TURN datagrams came from: a probe's
     /// answer goes back the way the probe came.
     last_udp_source: Option<SocketAddr>,
@@ -668,6 +671,7 @@ impl HybridUnderlay {
             recv_waker: None,
             handshake_repeat: None,
             paths: paths::Paths::new(),
+            selector_held: false,
             last_udp_source: None,
             last_turn_source: None,
             delayed: std::collections::VecDeque::new(),
@@ -1246,6 +1250,11 @@ impl HybridUnderlay {
     /// nothing, and the route rules below decide.
     fn transmit_selected(&mut self, datagram: &[u8], class: SendClass) -> bool {
         let now = Instant::now();
+        let held = std::mem::replace(&mut self.selector_held, self.paths.drives());
+        if held && !self.selector_held {
+            // Every path died: the route it held may be dead too.
+            self.demote("the path selector lost every route");
+        }
         if let Some(route) = self.paths.current() {
             if self.direct != Some(route) {
                 tracing::debug!(?route, from = ?self.direct, "the path selector moves the route");
