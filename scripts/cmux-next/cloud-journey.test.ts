@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, guestTimeline, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
@@ -54,6 +54,14 @@ describe("cloud journey", () => {
     expect(md.startsWith("FAIL")).toBe(true);
     expect(md).toContain("| **FAIL** | reply | 5 | x |");
     expect(md).toContain("a\\|b");
+  });
+
+  test("a carrier dial's detail keeps its phases in the summary, up to 1000 characters", () => {
+    const phases = Array.from({ length: 8 }, (_, i) => `reconnect relay: ticket 300, relay ${15_000 + i}, parked 0, handshake 0, mux 0 ms, lanes 0, ${15_300 + i} ms`);
+    const detail = dialDetail({ connectMs: 640, replyMs: 900, retries: 5, failed: [], phases, reply: "{}" });
+    expect(detail.length).toBeGreaterThan(600);
+    const md = summaryMarkdown(resolveBackend("staging"), [{ step: "connect (carrier dial)", status: "pass", ms: 900, detail }]);
+    expect(md).toContain(phases[7]);
   });
 
   test("newReds: only steps the deploy turned red", () => {
@@ -221,6 +229,51 @@ exit 1`);
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("each attempt's phases come from the dial's own connect log, and the state dir goes with the dial", async () => {
+    const { dir, bin } = fakeCmux(`mkdir -p "$CMUX_TUI_STATE_DIR/carrier"; echo "$CMUX_TUI_STATE_DIR" > "${"$"}{0%/*}/state"
+log="$CMUX_TUI_STATE_DIR/carrier/connect.log"
+echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=relay ms=3001' >&2
+echo 'carrier.phases machine=vm_x phase=connect carrier=relay:0 outcome=relay ticket_ms=410 relay_ms=2591 parked_ms=0 handshake_ms=0 mux_ms=0 lanes=0 ms=3001' >> "$log"
+echo 'cloud.connect route=carrier machine=vm_x phase=reconnect outcome=ok ms=640' >&2
+echo 'carrier.phases machine=vm_x phase=reconnect carrier=relay:0 outcome=ok ticket_ms=300 relay_ms=40 parked_ms=120 handshake_ms=150 mux_ms=30 lanes=3 ms=640' >> "$log"
+read -r line; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui"}}'; cat >/dev/null`);
+    const d = await carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000);
+    expect(d.phases).toEqual(["connect relay: ticket 410, relay 2591, parked 0, handshake 0, mux 0 ms, lanes 0, 3001 ms",
+      "reconnect ok: ticket 300, relay 40, parked 120, handshake 150, mux 30 ms, lanes 3, 640 ms"]);
+    expect(dialDetail(d)).toContain("1 retried attempts (relay 3001 ms); phases: connect relay: ticket 410");
+    expect(dialDetail(d)).not.toContain("vm_x");
+    expect(existsSync(readFileSync(join(dir, "state"), "utf8").trim())).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a dial that gives up shows each attempt's phases too", async () => {
+    const { dir, bin } = fakeCmux(`mkdir -p "$CMUX_TUI_STATE_DIR/carrier"
+echo 'carrier.phases machine=vm_x phase=connect carrier=relay:0 outcome=parked_timeout ticket_ms=200 relay_ms=30 parked_ms=1700 handshake_ms=0 mux_ms=0 lanes=1 ms=1930' >> "$CMUX_TUI_STATE_DIR/carrier/connect.log"
+echo '{"ok":false,"error_code":"parked_timeout"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=parked_timeout ms=1930' >&2
+exit 1`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow(
+      "(failed attempts: parked_timeout 1930 ms) (phases: connect parked_timeout: ticket 200, relay 30, parked 1700, handshake 0, mux 0 ms, lanes 1, 1930 ms)");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a refused identify shows the attempts' phases too", async () => {
+    const { dir, bin } = fakeCmux(`mkdir -p "$CMUX_TUI_STATE_DIR/carrier"
+echo 'carrier.phases machine=vm_x phase=connect carrier=relay:0 outcome=ok ticket_ms=200 relay_ms=30 parked_ms=90 handshake_ms=110 mux_ms=20 lanes=3 ms=450' >> "$CMUX_TUI_STATE_DIR/carrier/connect.log"
+echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=450' >&2
+read -r line; echo '{"id":1,"ok":false,"error":"denied"}'; cat >/dev/null`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow(
+      /identify answered .* \(phases: connect ok: ticket 200, relay 30, parked 90, handshake 110, mux 20 ms, lanes 3, 450 ms\)/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("dialPhases keeps a field it does not know, and nothing but phases lines", () => {
+    expect(dialPhases("noise\ncarrier.phases machine=vm_x phase=connect outcome=relay ticket_ms=1 ms=2 detail=4003\n")).toEqual(
+      ["connect relay: ticket 1 ms, detail 4003, 2 ms"]);
+  });
+
   test("a route line before the status line is out of contract", async () => {
     const { dir, bin } = fakeCmux(`echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&2
 echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
@@ -295,19 +348,37 @@ describe("opRetryable", () => {
 });
 
 describe("guest carrier timeline", () => {
-  test("each guest time is ms after create's answer, corrected by the guest's clock offset", () => {
-    // The guest's clock runs 1000 ms ahead: guest_now 21_500 against the exec's midpoint 20_500.
-    const out = ["guest_now 21500", "bound.json 11000", "carrier.json 12500", "session_host_start 27000",
-      "journal 26900 cmux-host[7]: cmux-host: session host 40 exited after 900 ms", "noise line"].join("\n");
+  test("each guest time is ms after create's answer on the guest's boot clock, whatever its wall clock reads", () => {
+    // The guest's wall clock runs 1000 ms ahead: guest_now 21_500 at uptime 10_500, the exec's midpoint 20_500, so
+    // the guest booted at 10_000 here, the moment create answered.
+    const out = ["guest_now 21500 10500", "clock 11200 11000", "wall bound.json 12500", "mono session_host_start 6000",
+      "journal 5900 cmux-host[7]: cmux-host: session host 40 exited after 900 ms", "noise line"].join("\n");
     expect(guestTimeline(out, 10_000, 20_000, 21_000)).toBe(
-      'after create\'s answer (guest clock +1000 ms, ±500 ms): bound.json +0 ms; carrier.json +1500 ms; session_host_start +16000 ms; '
-      + 'journal "cmux-host[7]: cmux-host: session host 40 exited after 900 ms" +15900 ms');
+      'after create\'s answer (±500 ms): guest boot +0 ms; bound.json +1500 ms; session_host_start +6000 ms; '
+      + 'journal "cmux-host[7]: cmux-host: session host 40 exited after 900 ms" +5900 ms');
+  });
+
+  test("a file written before the guest's wall clock stepped is read in the clock it was written in", () => {
+    // Booted with its wall clock 96 s behind (resumed from a snapshot), synced at 30 s after boot. bound.json was
+    // written 4319 ms after boot under the old clock, carrier.json 40 s after boot under the new one.
+    const out = ["guest_now 200100 100100", "clock 4500 4000", "clock 130000 100000", "wall bound.json 8319",
+      "wall carrier.json 140000"].join("\n");
+    expect(guestTimeline(out, 100_000, 200_000, 200_200)).toBe(
+      "after create's answer (±100 ms; the guest's wall clock stepped +96000 ms after boot): guest boot +0 ms; "
+      + "bound.json +4319 ms; carrier.json +40000 ms");
   });
 
   test("says so when the guest showed nothing", () => {
-    expect(guestTimeline("", 10_000, 20_000, 20_100)).toBe("after create's answer (guest clock +0 ms, ±50 ms): nothing read");
+    expect(guestTimeline("", 10_000, 20_000, 20_100)).toBe("after create's answer (±50 ms): no guest clock read");
+  });
+
+  test("the journal field reader reads a message past its escaped quotes", () => {
+    const line = '{"__MONOTONIC_TIMESTAMP":"5900000","MESSAGE":"carrier \\"relay:0\\" registered","X":"y"}';
+    const r = spawnSync("awk", [`${JOURNAL_FIELD} { print field("MESSAGE") "|" field("__MONOTONIC_TIMESTAMP") "|" field("missing") }`], { input: `${line}\n`, encoding: "utf8" });
+    expect(r.stdout).toBe('carrier "relay:0" registered|5900000|\n');
   });
 });
+
 
 describe("cloud journey: carrier ticket without a cmux binary", () => {
   const key = Buffer.alloc(32, 7).toString("base64url");
