@@ -23,7 +23,8 @@ struct FilmZoomZ4CurveTests {
             return [Double(transform.m41), Double(transform.m42)]
         }
         let object = value as AnyObject
-        guard CFGetTypeID(object) == CGPath.typeID, let path = value as? CGPath else { return [] }
+        guard CFGetTypeID(object) == CGPath.typeID else { return [] }
+        let path = unsafeDowncast(object, to: CGPath.self) // its type ID is CGPath's: the cast cannot fail
         let box = path.boundingBox
         return [box.minX, box.minY, box.maxX, box.maxY].map(Double.init)
     }
