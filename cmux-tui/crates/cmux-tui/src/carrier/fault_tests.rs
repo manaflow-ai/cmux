@@ -28,9 +28,12 @@ struct Carrier {
     killed: Arc<AtomicBool>,
 }
 
+/// Every open the drill asked for: the carrier's index, its route and `afterSeq`.
+type Opens = Arc<Mutex<Vec<(usize, Route, Option<u64>)>>>;
+
 struct Routes {
     carriers: Vec<Carrier>,
-    opens: Arc<Mutex<Vec<(usize, Route, Option<u64>)>>>,
+    opens: Opens,
 }
 
 struct Stream {
@@ -80,7 +83,7 @@ impl EventRoutes for Routes {
     }
 }
 
-fn routes_of(carriers: Vec<Carrier>) -> (Routes, Arc<Mutex<Vec<(usize, Route, Option<u64>)>>>) {
+fn routes_of(carriers: Vec<Carrier>) -> (Routes, Opens) {
     let opens = Arc::new(Mutex::new(Vec::new()));
     (Routes { carriers, opens: opens.clone() }, opens)
 }
@@ -176,7 +179,10 @@ fn only_probe_accounts_pass_the_gate() {
     for probe in [
         "cmux-cloud-capture-prod@manaflow.dev",
         " CMUX-Cloud-Capture-Prod@manaflow.dev ",
-        "cmux-cloud-capture-staging@manaflow.dev",
+        "cmux-cloud-capture@manaflow.dev",
+        "cmux-cloud-capture-journey@manaflow.dev",
+        "cmux-cloud-capture-guest@manaflow.dev",
+        "cmux-cloud-capture-journey-prod@manaflow.dev",
         "cmux-prod-smoke+run1@manaflow.dev",
         "cmux-staging-bench+x@manaflow.dev",
     ] {
@@ -192,6 +198,8 @@ fn only_probe_accounts_pass_the_gate() {
         "cmux-prod-smoke+@manaflow.dev",
         "cmux-prod-other+a@manaflow.dev",
         "cmux-cloud-capture-prod+a@manaflow.dev",
+        "cmux-cloud-capture-staging@manaflow.dev",
+        "cmux-cloud-capture-other@manaflow.dev",
         "",
     ] {
         assert!(!probe_account(person), "{person}");
@@ -311,4 +319,27 @@ fn capabilities_takes_only_its_json_flag() {
     assert!(!super::super::parse_capabilities(&words("capabilities --json --json")));
     assert!(!super::super::parse_capabilities(&words("capabilities --machine vm_x")));
     assert!(!super::super::parse_capabilities(&words("capability")));
+}
+
+/// The accepted test accounts are exactly the ones the provisioner makes
+/// (`Target("…@manaflow.dev"` in scripts/ci/cloud_capture_provision.py), so a
+/// renamed or added account fails here rather than refusing its probe.
+#[test]
+fn the_probe_accounts_are_the_provisioners_accounts() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../scripts/ci/cloud_capture_provision.py");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let mut provisioned: Vec<&str> = text
+        .split("Target(\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .filter(|email| email.ends_with("@manaflow.dev"))
+        .collect();
+    provisioned.sort_unstable();
+    let mut accepted = super::PROBE_ACCOUNTS.to_vec();
+    accepted.sort_unstable();
+    assert!(provisioned.len() >= 5, "the provisioner lost its targets: {provisioned:?}");
+    assert_eq!(accepted, provisioned);
+    assert!(provisioned.iter().all(|email| probe_account(email)));
 }

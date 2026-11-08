@@ -28,6 +28,8 @@ use crate::carrier::fault::{
 
 /// The flag.
 pub(super) const FLAG: &str = "--carrier-fault";
+/// The prompt `--prompt -` stands for until the drill reads stdin.
+const STDIN_PROMPT: &str = "(the prompt on stdin, read when the drill runs)";
 const NOT_PROBE: &str = "--carrier-fault is for cmux's probe accounts only";
 
 /// `cloud start-chat …` with `--carrier-fault` (`rest`: the words after the verb), run as the
@@ -46,11 +48,10 @@ pub(super) fn run_if_requested(global: &GlobalArgs, rest: &[String]) -> Option<i
         Ok((words, Some(spec))) => (words, spec),
         Err(error) => return Some(usage(error, global.output)),
     };
-    let parsed = parse(&words, || {
-        use std::io::Read as _;
-        let mut text = String::new();
-        std::io::stdin().read_to_string(&mut text).map(|_| text).map_err(|e| e.to_string())
-    });
+    // `--prompt -` is never read here: every run of this build is refused before its turn, and
+    // reading stdin first would block a refused run with stdin open. The drill reads it once it
+    // has a turn to send it to (plan slice S1), after the gates.
+    let parsed = parse(&words, || Ok(STDIN_PROMPT.to_owned()));
     let request = match parsed {
         Ok(Parsed::Run(request)) => request,
         Ok(Parsed::Help) => {

@@ -165,17 +165,29 @@ pub(crate) fn parse_spec(text: &str) -> Result<FaultSpec, String> {
     }
 }
 
-/// Whether `email` is one of cmux's probe accounts: the production and
-/// staging test accounts the synthetic probes sign in as
-/// (`cmux-cloud-capture-prod@manaflow.dev`), and the canary's throwaway
-/// users (`cmux-prod-smoke+…@manaflow.dev`, web's `syntheticAccounts.ts`).
-/// Only the team controls the manaflow.dev mailbox.
+/// The test accounts `scripts/ci/cloud_capture_provision.py` provisions
+/// (its `TARGETS`: capture, journey, journey-guest, production,
+/// journey-production). The production probe (cmuxterm-hq synthetic-probes.yml
+/// app-chat-production) signs in as `cmux-cloud-capture-prod`. A test pins
+/// this list to the provisioner's, so the two can't drift.
+pub(crate) const PROBE_ACCOUNTS: &[&str] = &[
+    "cmux-cloud-capture@manaflow.dev",
+    "cmux-cloud-capture-journey@manaflow.dev",
+    "cmux-cloud-capture-guest@manaflow.dev",
+    "cmux-cloud-capture-prod@manaflow.dev",
+    "cmux-cloud-capture-journey-prod@manaflow.dev",
+];
+
+/// Whether `email` is one of cmux's probe accounts: a provisioned test
+/// account ([`PROBE_ACCOUNTS`]), or one of the canary's throwaway users
+/// (`cmux-prod-smoke+…@manaflow.dev`, web's `syntheticAccounts.ts`). Only
+/// the team controls the manaflow.dev mailbox.
 pub(crate) fn probe_account(email: &str) -> bool {
     let email = email.trim().to_ascii_lowercase();
-    let Some(local) = email.strip_suffix("@manaflow.dev") else { return false };
-    if matches!(local, "cmux-cloud-capture-prod" | "cmux-cloud-capture-staging") {
+    if PROBE_ACCOUNTS.contains(&email.as_str()) {
         return true;
     }
+    let Some(local) = email.strip_suffix("@manaflow.dev") else { return false };
     let Some((head, tag)) = local.split_once('+') else { return false };
     let canary = ["prod", "staging"].iter().any(|stage| {
         ["smoke", "stress", "bench"].iter().any(|kind| head == format!("cmux-{stage}-{kind}"))

@@ -142,3 +142,13 @@ fn killing_the_only_relay_is_a_typed_error_with_the_judges_record_not_a_hang() {
     assert_eq!((details["events"].clone(), details["resumes"].clone()), (json!([]), json!([])));
     assert_eq!(fake.asked.len(), 1, "no machine was made: {:?}", fake.asked);
 }
+
+#[test]
+fn a_prompt_on_stdin_is_not_read_before_the_gates() {
+    // `run_if_requested` parses with a stand-in for stdin: a refused run never blocks on it.
+    let global = crate::cli::GlobalArgs::default();
+    let rest = strings(&["--carrier-fault", "kill-route=relay,after-events=3", "--prompt", "-"]);
+    // No CMUX_CARRIER_PROBE_FAULTS in the test environment: refused (exit 2) without reading
+    // stdin, which the test harness leaves open.
+    assert_eq!(super::run_if_requested(&global, &rest), Some(2));
+}
