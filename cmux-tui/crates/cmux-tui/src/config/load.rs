@@ -132,6 +132,9 @@ pub fn load() -> Config {
             );
         }
     }
+    if let Some(agents) = raw.sidebar.agents {
+        config.sidebar.agents = agents;
+    }
     if let Some(template) = raw.sidebar.workspace_label {
         let template = template.trim().to_string();
         if !template.is_empty() {
