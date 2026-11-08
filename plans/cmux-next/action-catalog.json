@@ -72867,6 +72867,16 @@
           "name" : "discard",
           "suggestions" : null,
           "title" : "Discard Unsaved Work"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "confirm",
+          "suggestions" : null,
+          "title" : "Confirm"
         }
       ],
       "category" : "tab",
@@ -72890,7 +72900,7 @@
       "hint" : null,
       "id" : "git.worktree.remove",
       "isDebugOnly" : false,
-      "isDestructive" : false,
+      "isDestructive" : true,
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [

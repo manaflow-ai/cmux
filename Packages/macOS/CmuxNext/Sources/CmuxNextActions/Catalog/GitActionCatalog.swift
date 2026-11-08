@@ -28,12 +28,15 @@ nonisolated enum GitActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan
             ),
             // Refused with work found nowhere else unless `discard` (`cmux git worktree remove --discard`).
+            // Destructive: it deletes the worktree's folder, and with `discard` its unsaved work, so
+            // the palette asks first and a script must pass `confirm`.
             ActionDescriptor(
                 id: "git.worktree.remove", title: t("action.git.worktree.remove", "Remove Git Worktree"),
                 keywords: ["git", "worktree", "remove", "delete", "clean up", "branch"],
                 category: .tab, symbol: "trash",
                 arguments: [ActionArgument(name: "discard", title: t("argument.git.worktree.discard", "Discard Unsaved Work"), kind: .bool, isRequired: false)],
                 targets: [.tab],
+                destructive: true,
                 surfacePlan: plan
             ),
             // A headless capture (`cmux git checkpoint create`); an agent chat's Create Checkpoint

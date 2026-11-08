@@ -42,9 +42,10 @@ pub static ACTIONS: &[Action] = &[
         category: "tab",
         symbol: "trash",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::WORKTREE_DISCARD.optional()],
+        arguments: &[args::WORKTREE_DISCARD.optional(), args::CONFIRM.optional()],
         targets: &["tab"],
         cli_name: "action git-worktree-remove",
+        is_destructive: true,
         ..Action::DEFAULT
     },
     Action {

@@ -36,6 +36,12 @@ struct GitAndHarnessPaletteActionsTests {
         #expect(GitRepositoryActions.Request.make("git.worktree.create", arguments: ["name": .string("  ")])?.params.isEmpty == true)
     }
 
+    @Test func removeAsksFirstBecauseItDeletesTheWorktree() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "git.worktree.remove" })
+        #expect(descriptor.isDestructive, "the palette asks first; a script must pass confirm, discard or not")
+        #expect(descriptor.arguments.map(\.name) == ["discard", ActionArgument.confirmName])
+    }
+
     @Test func removeDiscardsOnlyWhenAsked() {
         #expect(GitRepositoryActions.Request.make("git.worktree.remove", arguments: [:])?.params.isEmpty == true)
         #expect(GitRepositoryActions.Request.make("git.worktree.remove", arguments: ["discard": .bool(true)])?.params == ["discard": .bool(true)])
