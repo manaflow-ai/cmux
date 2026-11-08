@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42472720806",
+  "recorded_at": "2026-11-08T10:51:50Z",
+  "reason": "cmux-tui d1feb8bcefa8 changes the image's cmux-tui (pinned d2c8d7c3a364)",
+  "dry_run": false,
+  "cmux_tui": "d1feb8bcefa889bf3c1d9e715117ecdd71c9d8ec",
+  "fixes": [
+    {
+      "sha": "d1feb8bcefa889bf3c1d9e715117ecdd71c9d8ec",
+      "mergedAt": "2026-11-08T02:28:52-08:00",
+      "subject": "cmux-tui: keyboard copy mode and scrollback search (#38285)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T10:51:50Z",
+    "snapshot_id": "sh-aa1bdec150c44faeb88f4e41f63f2752",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42472720806): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1fd1fba9f9134aed0304267d29a982a64198f484",
+    "image": "cloud-native-auto-d1feb8bc-42472720806-1",
+    "revision": "ci-42472720806-1",
+    "at": "2026-11-08T10:51:50Z"
+  },
+  "rolled_back": false
+}
