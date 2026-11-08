@@ -10,7 +10,7 @@
   height: 22px;
   color: var(--agent-muted);
 }
-.nt-project-name__slash { flex: none; padding-inline-end: 2px; }
+.nt-project-name__slash { flex: none; }
 .nt-project-name__field {
   appearance: none;
   -webkit-appearance: none;
@@ -18,7 +18,7 @@
   max-width: 220px;
   height: 22px;
   margin: 0;
-  padding: 0 6px;
+  padding: 0 4px;
   box-sizing: border-box;
   border: 0;
   border-radius: 6px;
