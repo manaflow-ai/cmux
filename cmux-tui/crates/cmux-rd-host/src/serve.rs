@@ -346,9 +346,12 @@ fn serve_session(
             return Ok(format!("refused: {reason:?}"));
         }
     };
+    let display = setup.display.clone().unwrap_or_else(|| opts.str_or("display", "main"));
+    // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
+    let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
     let cfg = SessionCfg {
-        display: setup.display.clone().unwrap_or_else(|| opts.str_or("display", "main")),
-        max_fps: setup.max_fps.unwrap_or(60),
+        display,
+        max_fps,
         start_kbps: opts.num_or("start-kbps", 8000)?,
         max_kbps: opts.num_or("max-kbps", 50_000)?,
         preset: String::new(),
@@ -368,7 +371,7 @@ fn serve_session(
         frames_in_flight: carrier
             .link
             .rtt_us
-            .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, setup.max_fps.unwrap_or(60)))
+            .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, max_fps))
             .max(2),
     };
     let mut media = MediaSession::open(&cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
