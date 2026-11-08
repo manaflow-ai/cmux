@@ -773,3 +773,27 @@ fn a_start_that_skips_the_copy_never_waits_on_a_warm_copy() {
     let installs = decide(&cached(owner()));
     assert!(installs.step == Step::Install && installs.warm_copy_conflict);
 }
+
+#[test]
+fn only_an_install_conflicts_and_the_warm_installs_on_exactly_those_steps() {
+    // One case per step kind, each a Claude start that reads its machine.
+    let cases = [
+        (cached(owner()), Step::Install),
+        (owner(), Step::ConfirmThenInstall),
+        (Inputs { consent: None, ..release() }, Step::AskConsent),
+        (Inputs { machine_login: Some(MachineLogin::Working), ..cached(owner()) }, Step::Skip),
+        (Inputs { headless: true, ..owner() }, Step::Refuse),
+    ];
+    for (inputs, step) in cases {
+        let d = decide(&inputs);
+        assert_eq!(d.step, step);
+        assert!(d.reads_machine, "{step:?}");
+        // The warm installs only where no prompt is needed; a confirm or consent start never waits on it.
+        assert_eq!(d.warm_installs, warm_installs(step), "{step:?}");
+        assert_eq!(d.warm_copy_conflict, step == Step::Install, "{step:?}");
+        assert_eq!(
+            d.warm_copy_conflict, d.warm_installs,
+            "{step:?}: the warm and the conflict agree"
+        );
+    }
+}
