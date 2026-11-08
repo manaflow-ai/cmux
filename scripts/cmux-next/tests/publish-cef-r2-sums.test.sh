@@ -72,4 +72,14 @@ if run; then fail "the fake upload did not fail"; fi
 [[ "$(uploads)" -ge 1 ]] || fail "a fully checked release was not uploaded: $(cat "$work/err")"
 grep -q 'upload of cef/' "$work/err" || fail "stopped before the upload: $(cat "$work/err")"
 
+# A name with spaces, listed in binary mode (`<sha> *<name>`), passes; a line whose
+# name only starts the same way does not vouch for it.
+release; mv "$work/release/a-x86_64.tar.xz" "$work/release/a x86 64.tar.xz"
+(cd "$work/release" && { shasum -a 256 a-arm64.tar.xz; shasum -a 256 -b "a x86 64.tar.xz"; } > SHA256SUMS)
+if run; then fail "the fake upload did not fail"; fi
+grep -q 'upload of cef/' "$work/err" || fail "a binary-mode line with spaces was refused: $(cat "$work/err")"
+(cd "$work/release" && { shasum -a 256 a-arm64.tar.xz; shasum -a 256 "a x86 64.tar.xz" | sed 's/ 64.tar.xz$//'; } > SHA256SUMS)
+if run; then fail "a truncated name was published"; fi
+[[ "$(uploads)" == 0 ]] || fail "uploaded an archive whose name SHA256SUMS lists only a prefix of"
+
 echo "publish-cef-r2 SHA256SUMS checks: ok"
