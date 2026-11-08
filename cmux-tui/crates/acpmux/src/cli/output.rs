@@ -85,6 +85,17 @@ fn daemon_restarting_error(error: &anyhow::Error) -> bool {
     })
 }
 
+/// The daemon's shutdown refusal of a create it refused before making anything
+/// (`hub::shutting_down_before_create`): sent again to the next daemon, it can never
+/// make a second session, named or not.
+pub(crate) fn refused_before_create(error: &anyhow::Error) -> bool {
+    daemon_restarting_error(error)
+        && error.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| {
+            d.0.data.as_ref().and_then(|v| v.get(crate::hub::REFUSED_CREATED))
+                == Some(&serde_json::Value::Bool(false))
+        })
+}
+
 /// The turn's failure as `agent_error`. ACP internal (-32603) or parse (-32700) errors with
 /// nothing produced are the only retryable failures.
 fn agent_error(e: &anyhow::Error, id: &str, produced: bool) -> crate::cli::errors::AppError {
@@ -1604,6 +1615,22 @@ fn a_restarting_daemons_answer_is_a_restart_not_an_agent_error() {
     // `daemon_closed_error`: the shutdown's answer is a daemon going away there too.
     assert!(daemon_closed_error(&restarting));
     assert!(!daemon_closed_error(&agent));
+}
+
+/// A create the shutting-down daemon refused before making anything is sent again to the next
+/// daemon (an unnamed `new` too); one it may have made is not.
+#[test]
+fn a_create_refused_before_anything_was_made_is_sent_again() {
+    let mut before = crate::hub::shutting_down_before_create();
+    crate::recovery::annotate(&mut before, None);
+    let before: anyhow::Error = crate::client::DaemonError(before).into();
+    assert!(refused_before_create(&before));
+    let mut after = crate::rpc::RpcError::internal(crate::hub::SHUTTING_DOWN);
+    crate::recovery::annotate(&mut after, None);
+    let after: anyhow::Error = crate::client::DaemonError(after).into();
+    assert!(daemon_restarting_error(&after));
+    assert!(!refused_before_create(&after), "a refusal after the insert may have made the session");
+    assert!(!refused_before_create(&crate::client::closed_error("test EOF", None)));
 }
 
 /// Cloud chaos fault `token-rejected` (run 42346668793): the turn failed typed `auth.signed_out`
