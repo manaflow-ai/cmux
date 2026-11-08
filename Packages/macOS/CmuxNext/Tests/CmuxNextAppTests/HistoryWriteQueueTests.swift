@@ -351,6 +351,58 @@ import Testing
         #expect(read.commands.map(\.id) == [later.id], "the refresh brought the cleared row back, or the clear took a later one")
     }
 
+    /// cmux#38186 review: a queued read (the omnibox seed) neither counts toward the capacity nor makes room, so it
+    /// never evicts a waiting visit.
+    @Test func aReadNeitherCountsTowardTheCapacityNorEvictsAVisit() async {
+        let daemon = Daemon()
+        let queue = HistoryWriteQueue<Daemon>(capacity: 2, retryable: DaemonHistoryClient.isLinkDrop) { await daemon.connected() }
+        queue.enqueue(visit: true) { client, _ in try await client.send { $0.append("a") } }
+        queue.enqueue(visit: true) { client, _ in try await client.send { $0.append("b") } }
+        let seeded: [String] = await withCheckedContinuation { seeded in
+            queue.read({ await $0.list() }, use: { seeded.resume(returning: $0) })
+            #expect(queue.count == 3)
+            daemon.reconnect()
+        }
+        #expect(seeded == ["a", "b"], "the read evicted a waiting visit")
+    }
+
+    /// The direct deletes a remote daemon got.
+    @MainActor final class DirectDeletes {
+        var selections: [DeleteTerminalCommandsRequest.Selection] = []
+        var sent: CheckedContinuation<Void, Never>?
+
+        func record(_ selection: DeleteTerminalCommandsRequest.Selection) {
+            selections.append(selection)
+            sent?.resume()
+            sent = nil
+        }
+    }
+
+    /// cmux#38186 review: a remote daemon that serves only `terminal-command-history-v1` (no history module) gets the
+    /// direct `delete-terminal-commands`, and the deletion settles instead of waiting for `history-v1` forever.
+    @Test func aRemoteWithOnlyCommandHistoryGetsTheDirectDelete() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let remote = "ssh-box"
+        let row = TerminalCommand(id: 3, machine: remote, terminal: "term_1", command: "ls", cwd: nil, exitCode: 0,
+                                  startedAt: Date().addingTimeInterval(-60), duration: 1)
+        var mirror = TerminalCommandMirror(machine: remote)
+        let applied = mirror.apply([row], version: "v1", truncated: false, after: nil)
+        #expect(applied)
+        services.history.commands.mirrors[remote] = mirror
+        let deletes = DirectDeletes()
+        services.history.commands.route = { machine in machine == remote ? .direct { await deletes.record($0) } : nil }
+        await withCheckedContinuation { sent in
+            deletes.sent = sent
+            services.history.commands.delete(since: nil, until: Date())
+        }
+        #expect(deletes.selections == [.all])
+        for _ in 0..<100 where services.history.commands.mirrors[remote]?.pending.isEmpty == false { await Task.yield() }
+        let after = try #require(services.history.commands.mirrors[remote])
+        #expect(after.pending.isEmpty, "the deletion still waits on a capability the daemon does not serve")
+        #expect(after.commands.isEmpty)
+    }
+
     /// The app's own wiring: the omnibox seed's read, an omnibox visit and a Clear History wait in the same
     /// queue while the local daemon is away (no daemon in this test).
     @Test func visitsAndClearsShareTheAppsQueue() throws {

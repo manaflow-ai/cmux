@@ -27,6 +27,8 @@ public final class HistoryWriteQueue<Client: Sendable> {
         let id: UInt64
         let key: String
         let isVisit: Bool
+        /// A ``read(_:use:)``: it neither counts toward `capacity` nor makes room.
+        let isRead: Bool
         let write: Write
         let done: (@MainActor () -> Void)?
     }
@@ -34,6 +36,8 @@ public final class HistoryWriteQueue<Client: Sendable> {
     public let capacity: Int
     private var items: [Item] = []
     private var nextID: UInt64 = 0
+    /// Queued reads, which `capacity` does not count.
+    private var reads = 0
     /// The write being sent (its client is up): never dropped for room, never passed by an `ahead` write.
     private var sending: UInt64?
     private var draining: Task<Void, Never>?
@@ -67,7 +71,7 @@ public final class HistoryWriteQueue<Client: Sendable> {
     /// being sent); `done` runs once it was sent (or refused). A visit refused for room never runs `done`.
     public func enqueue(visit: Bool = false, ahead: Bool = false, _ write: @escaping Write, done: (@MainActor () -> Void)? = nil) {
         if !visit { changes &+= 1 }
-        insert(visit: visit, ahead: ahead, write, done: done)
+        insert(visit: visit, read: false, ahead: ahead, write, done: done)
     }
 
     /// Queues `read` behind every earlier write and hands its answer to `use`, unless a clear or remove was
@@ -76,7 +80,7 @@ public final class HistoryWriteQueue<Client: Sendable> {
     public func read<Value: Sendable>(_ read: @escaping @Sendable (Client) async throws -> Value,
                                       use: @escaping @MainActor @Sendable (Value) -> Void) {
         let started = changes
-        insert(visit: false, ahead: false, { [weak self] client, _ in
+        insert(visit: false, read: true, ahead: false, { [weak self] client, _ in
             let value = try await read(client)
             await self?.deliver(value, started: started, read: read, use: use)
         }, done: nil)
@@ -87,8 +91,8 @@ public final class HistoryWriteQueue<Client: Sendable> {
         if changes == started { use(value) } else { self.read(read, use: use) }
     }
 
-    private func insert(visit: Bool, ahead: Bool, _ write: @escaping Write, done: (@MainActor () -> Void)?) {
-        if items.count >= capacity {
+    private func insert(visit: Bool, read: Bool, ahead: Bool, _ write: @escaping Write, done: (@MainActor () -> Void)?) {
+        if !read, items.count - reads >= capacity {
             if let index = items.indices.first(where: { items[$0].isVisit && items[$0].id != sending }) {
                 items.remove(at: index)
             } else if visit {
@@ -96,7 +100,8 @@ public final class HistoryWriteQueue<Client: Sendable> {
             }
         }
         nextID += 1
-        let item = Item(id: nextID, key: DaemonHistoryClient.key(), isVisit: visit, write: write, done: done)
+        if read { reads += 1 }
+        let item = Item(id: nextID, key: DaemonHistoryClient.key(), isVisit: visit, isRead: read, write: write, done: done)
         if ahead {
             items.insert(item, at: items.firstIndex { $0.id != sending } ?? items.endIndex)
         } else {
@@ -143,6 +148,7 @@ public final class HistoryWriteQueue<Client: Sendable> {
             backoff.reset()
             sending = nil
             items.removeAll { $0.id == item.id }
+            if item.isRead { reads -= 1 }
             item.done?()
         }
     }
