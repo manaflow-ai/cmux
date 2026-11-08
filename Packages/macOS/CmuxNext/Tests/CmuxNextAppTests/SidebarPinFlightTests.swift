@@ -95,9 +95,13 @@ struct SidebarPinFlightTests {
         let rest: CGRect
         let size: MotionPath
         let nodes: [Node]
+        /// The view's fill inset (a pinned item's pill is narrower than its bounds; a row's bounds are its fill): the
+        /// probe reports the fill a person sees.
+        let inset: CGFloat
 
         init(_ view: NSView, in list: NSView, now: CFTimeInterval) {
             self.view = view
+            inset = SidebarPinFlightTests.fillInset(of: view)
             attached = view.window != nil && !view.isHiddenOrHasHiddenAncestor
             rest = list.convert(view.bounds, from: view)
             size = MotionPath(view.layer ?? CALayer(), "bounds.size", now: now)
@@ -169,7 +173,7 @@ struct SidebarPinFlightTests {
             }
             offset = offsets.first ?? .zero
             let size = self.size.value(at: time)
-            var frame = CGRect(x: rest.minX + offset.x, y: rest.minY + offset.y, width: size.x, height: size.y)
+            var frame = CGRect(x: rest.minX + offset.x, y: rest.minY + offset.y, width: size.x, height: size.y).insetBy(dx: inset, dy: 0)
             guard frame.width > 0.5, frame.height > 0.5, opacity > 0.02 else { return nil }
             if let clip {
                 let visible = frame.intersection(clip)
@@ -178,6 +182,19 @@ struct SidebarPinFlightTests {
             }
             return (frame, opacity)
         }
+    }
+
+    /// How far `view`'s fill is inset from its sides, as the item lays out its pill: a list-look pinned item's pill is
+    /// `horizontalInset` in from each side; a row's bounds are its fill.
+    static func fillInset(of view: NSView) -> CGFloat {
+        guard let item = view as? SidebarItemRowView, !item.style.isIconOnly, item.style != .chip, item.style != .favorite else { return 0 }
+        return SidebarStyle.horizontalInset
+    }
+
+    /// The fill `view` draws, in the list at rest: a person sees the fill move, not the bounds (a pinned item's pill is
+    /// inset from its bounds, a row's bounds are its fill).
+    static func fill(_ view: NSView, in list: NSView) -> CGRect {
+        list.convert(view.bounds, from: view).insetBy(dx: SidebarPinFlightTests.fillInset(of: view), dy: 0)
     }
 
     /// Every view in the list that draws workspace `id`: its list row and any block item.
@@ -318,12 +335,29 @@ struct SidebarPinFlightTests {
         }
     }
 
+    /// The pin glyph (the arriving item's own on a pin, the item's copy on an unpin's row) and the title move as one line
+    /// while the glyph shows: their gap never changes (PIN7 films: at an unpin's start the title slid onto the fading pin,
+    /// "the pin icon touches the e").
+    static func checkGlyphRidesTitle(_ name: String, _ view: NSView, in list: NSView, now: CFTimeInterval, failures: inout [String]) {
+        let glyph = (view as? SidebarItemRowView)?.pinGlyph ?? view.subviews.first { $0 is NSImageView && !$0.isHidden && ($0.layer?.opacity ?? 1) < 0.001 }
+        guard let glyph, let title = SidebarListView.flightTitle(of: view) else { return failures.append("\(name): no pin glyph or title") }
+        let glyphProbe = Probe(glyph, in: list, now: now), titleProbe = Probe(title, in: list, now: now)
+        var gaps: [CGFloat] = []
+        for tick in 0..<ticks {
+            let time = now + Double(tick) / 120
+            guard let shown = glyphProbe.shown(at: time), let text = titleProbe.shown(at: time) else { continue }
+            gaps.append(text.frame.minX - shown.frame.maxX)
+        }
+        guard let low = gaps.min(), let high = gaps.max() else { return failures.append("\(name): the pin glyph never shows") }
+        if high - low > 0.5 { failures.append("\(name): the gap from the pin glyph to the title goes \(low)...\(high) pt over the move") }
+    }
+
     /// Where each workspace other than `moved` is drawn at rest (row or item).
     static func rest(_ list: SidebarListView) -> [WorkspaceID: CGRect] {
         var frames: [WorkspaceID: CGRect] = [:]
         for id in listed + [anchor] where id != moved {
             if let view = copies(of: id, in: list).first(where: { !$0.isHiddenOrHasHiddenAncestor }) {
-                frames[id] = list.convert(view.bounds, from: view)
+                frames[id] = Self.fill(view, in: list)
             }
         }
         return frames
@@ -337,7 +371,7 @@ struct SidebarPinFlightTests {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
-        let startFrame = list.convert(start.bounds, from: start)
+        let startFrame = Self.fill(start, in: list)
         let before = Self.rest(list)
         Self.show(pin ? [Self.moved] : [], anchored: anchored, on: list)
         list.reload(animated: true)
@@ -350,8 +384,9 @@ struct SidebarPinFlightTests {
         Self.checkBegin(pin ? "pinned d" : "unpinned d", of: arrived, turnEnd: now, failures: &failures)
         Self.checkOpaque(pin ? "pinned d" : "unpinned d", arrived, failures: &failures)
         if pin { Self.checkGlyph("pinned d", arrived, failures: &failures) } else { Self.checkLeavingGlyph("unpinned d", arrived, failures: &failures) }
+        Self.checkGlyphRidesTitle(pin ? "pinned d" : "unpinned d", arrived, in: list, now: now, failures: &failures)
         Self.checkPath(pin ? "pinned d" : "unpinned d", probes: probes, now: now, start: startFrame,
-                       end: list.convert(arrived.bounds, from: arrived), failures: &failures)
+                       end: Self.fill(arrived, in: list), failures: &failures)
         // It translates, never fades: the one copy shown is opaque at every tick (a new block must not fade it in).
         for tick in 0..<Self.ticks {
             let shown = probes.compactMap { $0.shown(at: now + Double(tick) / 120) }
@@ -381,12 +416,12 @@ struct SidebarPinFlightTests {
         list.frameClock = MotionFrameClock(now: { grid + 1.3 * refresh }, vsync: { (grid, refresh) }, refresh: { refresh })
         let firstFrame = grid + 2 * refresh
         let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
-        let startFrame = list.convert(start.bounds, from: start)
+        let startFrame = Self.fill(start, in: list)
         Self.show([Self.moved], on: list)
         list.reload(animated: true)
         let probes = Self.probes(Self.moved, list, now: grid)
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
-        let end = list.convert(arrived.bounds, from: arrived)
+        let end = Self.fill(arrived, in: list)
         var failures: [String] = []
         let begin = try #require(Self.moveBegin(of: arrived), "the pin did not animate")
         if abs(begin - firstFrame) > 0.0001 {
@@ -475,7 +510,7 @@ struct SidebarPinFlightTests {
         }
         let probes = Self.probes(Self.moved, list, now: now)
         Self.checkPath("pinned d (rows first)", probes: probes, now: now, start: drawnStart,
-                       end: list.convert(arrived.bounds, from: arrived), failures: &failures)
+                       end: Self.fill(arrived, in: list), failures: &failures)
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
     }
 
@@ -488,7 +523,7 @@ struct SidebarPinFlightTests {
         defer { Motion.reduceMotionOverride = nil }
         list.model.workspacePin = (isPinned: { $0 == Self.moved }, toggle: { _ in })
         let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
-        let startFrame = list.convert(start.bounds, from: start)
+        let startFrame = Self.fill(start, in: list)
         let (sections, blocks) = Self.state([])
         list.model.sections = sections
         list.reload(animated: true)
@@ -497,7 +532,7 @@ struct SidebarPinFlightTests {
         let arrived = try #require(list.rowViews[.workspace(Self.moved)])
         var failures: [String] = []
         Self.checkPath("unpinned d (rows first)", probes: probes, now: now, start: startFrame,
-                       end: list.convert(arrived.bounds, from: arrived), failures: &failures)
+                       end: Self.fill(arrived, in: list), failures: &failures)
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
         list.blocks = blocks
         list.reload(animated: true)
@@ -534,7 +569,7 @@ struct SidebarPinFlightTests {
         }
         let probes = Self.probes(Self.moved, list, now: now)
         Self.checkPath("unpin over a pin", probes: probes, now: now, start: drawn,
-                       end: list.convert(arrived.bounds, from: arrived), failures: &failures)
+                       end: Self.fill(arrived, in: list), failures: &failures)
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
     }
 
@@ -574,7 +609,7 @@ struct SidebarPinFlightTests {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
-        let startFrame = list.convert(start.bounds, from: start)
+        let startFrame = Self.fill(start, in: list)
         Self.show([], listed: Self.long, on: list)
         list.reload(animated: true)
         let now = CACurrentMediaTime()
@@ -593,7 +628,7 @@ struct SidebarPinFlightTests {
         var frames: [WorkspaceID: CGRect] = [:]
         for (key, view) in list.rowViews where !view.isHiddenOrHasHiddenAncestor {
             guard case let .workspace(id) = key, id != moved else { continue }
-            let frame = list.convert(view.bounds, from: view)
+            let frame = Self.fill(view, in: list)
             if frame.intersects(clip) { frames[id] = frame }
         }
         return frames
@@ -618,7 +653,7 @@ struct SidebarPinFlightTests {
         list.layoutSubtreeIfNeeded()
         let clipBefore = scroll.contentView.bounds
         let start = try #require(list.rowViews[.workspace(Self.moved)], "d's row has no view after the scroll")
-        let startFrame = list.convert(start.bounds, from: start)
+        let startFrame = Self.fill(start, in: list)
         #expect(startFrame.intersects(clipBefore), "the fixture's d \(startFrame) is out of view \(clipBefore)")
         let blockRow = try #require(list.displayed.row(for: .block(SidebarLayoutDocument.pinnedSectionID.rawValue)))
         #expect(!list.frame(for: blockRow).intersects(clipBefore), "the fixture's Pinned block is in view")
@@ -633,14 +668,14 @@ struct SidebarPinFlightTests {
         let probes = Self.probes(Self.moved, list, now: now)
         let others = Dictionary(uniqueKeysWithValues: before.keys.map { ($0, Self.probes($0, list, now: now)) })
         let after = Dictionary(uniqueKeysWithValues: before.keys.compactMap { id in
-            list.rowViews[.workspace(id)].map { (id, list.convert($0.bounds, from: $0)) }
+            list.rowViews[.workspace(id)].map { (id, Self.fill($0, in: list)) }
         })
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { $0 is SidebarItemRowView && !$0.isHiddenOrHasHiddenAncestor },
                                    "the pinned item has no view: the row vanished")
         var failures: [String] = []
         Self.checkOpaque("pinned d (\(name))", arrived, failures: &failures)
         Self.checkPath("pinned d (\(name))", probes: probes, now: now, start: startFrame.offsetBy(dx: 0, dy: dy),
-                       end: list.convert(arrived.bounds, from: arrived), failures: &failures)
+                       end: Self.fill(arrived, in: list), failures: &failures)
         var moved: [WorkspaceID: CGFloat] = [:]
         for (id, from) in before {
             guard let to = after[id], let probes = others[id] else { failures.append("\(id.rawValue) (\(name)) is gone"); continue }
@@ -707,7 +742,7 @@ struct SidebarPinFlightTests {
         let now = CACurrentMediaTime()
         let probes = Self.probes(Self.moved, list, now: now)
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
-        let end = list.convert(arrived.bounds, from: arrived)
+        let end = Self.fill(arrived, in: list)
         switch Self.one(probes, at: now) {
         case let .success(frame): #expect(frame.equalTo(end), "first frame \(frame), the slot \(end)")
         case let .failure(failure): Issue.record("first frame: \(failure.text)")
