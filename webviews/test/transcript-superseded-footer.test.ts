@@ -8,6 +8,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { SUPERSEDED, footerLabel, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { waterfall } from "../src/agent-session/acpmux/conversation/waterfallSpans";
 
 const START = Date.UTC(2026, 10, 3, 20, 0, 0);
 let at = START;
@@ -59,6 +60,47 @@ for (const family of ["claude", "codex"])
     expect(footer!.durationMs).toBe(40_000);
     expect(footerLabel(translate, footer!)).toBe(translate("turn.worked", { time: "40s" }));
   });
+
+test("a stretch's Timeline starts at its prompt, with each call at its real offset", () => {
+  // The prompt at 0 s, a command from 10 s to 30 s, the reply at 30 s, the steer at 40 s: the stretch
+  // worked 40 s, and its Timeline's axis runs from the prompt to the steer, so the command sits at
+  // 10-30 s, never shifted by the 10 s between the reply and the steer.
+  const at0 = START + 1_000_000;
+  const rows: AcpmuxRow[] = [
+    { id: "u", kind: "user", version: 1, at: at0, text: "Plan the transfer work" },
+    {
+      id: "a-b0",
+      kind: "activity",
+      version: 1,
+      at: at0 + 10_000,
+      items: [
+        {
+          kind: "tool",
+          text: "",
+          tool: {
+            id: "b0",
+            title: "Run b0",
+            kind: "execute",
+            status: "completed",
+            startedAt: at0 + 10_000,
+            endedAt: at0 + 30_000,
+          },
+        },
+      ],
+    },
+    { id: "r1", kind: "assistant", version: 1, at: at0 + 30_000, text: "All three are contained Rust changes." },
+    { id: "s1", kind: "user", version: 1, at: at0 + 40_000, text: "ofc", steer: "landed" },
+  ];
+  const view = turnView(rows, new Set(), { working: true, agentFamily: "claude", now: at0 + 60_000 });
+  const footer = view.find((each) => each.id === `${SUPERSEDED}-s1`)!;
+  expect(footer.durationMs).toBe(40_000);
+  // Its time is still its reply's.
+  expect(footer.at).toBe(at0 + 30_000);
+  const chart = waterfall(footer, footer.turnWork!);
+  expect(chart.start).toBe(at0);
+  expect(chart.total).toBe(40_000);
+  expect(chart.spans.map(({ from, to }) => [from, to])).toEqual([[10_000, 30_000]]);
+});
 
 test("an ended turn keeps its own footer and adds one over the steer", () => {
   const rows = [

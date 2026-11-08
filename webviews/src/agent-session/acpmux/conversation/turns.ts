@@ -1893,9 +1893,11 @@ function supersededFooters(
 
 /// A stretch's worked time, from `began` to `ended`; none when either clock is missing or they run
 /// backwards (another computer's clock), so its tooltip never says a wrong time.
-function workedSpan(began: number, ended: number): Pick<AcpmuxRow, "durationMs"> {
+/// It carries where it ended, so its Timeline's axis starts where the stretch did, not that much
+/// before its last reply (waterfallSpans.ts `waterfall`).
+function workedSpan(began: number, ended: number): Pick<AcpmuxRow, "durationMs" | "workEndedAt"> {
   if (!hasTimestamp(began) || !hasTimestamp(ended) || ended <= began) return {};
-  return { durationMs: ended - began };
+  return { durationMs: ended - began, workEndedAt: ended };
 }
 
 /// An activity row without the calls it has nothing to show for yet (toolGroups.ts `isDraftCall`),

@@ -478,6 +478,10 @@ export type AcpmuxRow = {
   tasks?: StartedTask[];
   toolCount?: number;
   durationMs?: number;
+  /// When a footer's `durationMs` ended, if not at its own `at`: a stretch the person came in on
+  /// (turns.ts `supersededFooters`) worked until his steer, while its time is its last reply's. Its
+  /// Timeline (conversation/waterfallSpans.ts `waterfall`) starts at this less `durationMs`.
+  workEndedAt?: number;
   /// A turn summary's tokens, when its harness reported them on the `turn_result` (Claude Code:
   /// its main loop's, acpmux hub/turn_usage.rs).
   tokens?: TurnTokenSplit;
