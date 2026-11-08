@@ -2,6 +2,7 @@ import { Plugin } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { FIELD_GROWTH_EVENT, type FieldGrowthDetail } from "./fieldGrowthEvent";
 import { experimentArm } from "../../../experiments/experiment";
+import { SETTLING_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { MOTION_SPRINGS, springCurve, type SpringParameters } from "../../../files-panel-motion";
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
@@ -21,6 +22,11 @@ import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment
 // rises (no line moves faster than the edge, motion.md target 3). A growth of more than a line (a
 // paste, dictation pasted in) or one that reaches the field's cap keeps the caret in view on every
 // frame instead (caretInView.ts), the paste's end staying put at the bottom as the top edge rises.
+//
+// A move to a height the text fits draws no scrollbar thumb (scrollers.ts SETTLING_SCROLLER_ATTRIBUTE):
+// mid-move the text is taller than the field, which would show the always-on composer thumb for the
+// motion's length although nothing is left to scroll once it lands (Leo 2026-11-08: "stop showing a
+// flash of the thumb scrollbar"). A move to the field's cap keeps its thumb: the text overflows.
 //
 // An edit that lands while the field moves retargets from the height drawn, keeping the motion's
 // end. A value set from outside (a send clearing the prompt, a chat's draft), Reduce Motion and
@@ -107,6 +113,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         const motion = moving.get(field);
         if (!motion) return;
         moving.delete(field);
+        field.removeAttribute(SETTLING_SCROLLER_ATTRIBUTE);
         motion.observer?.disconnect();
         motion.animation.cancel();
       };
@@ -116,6 +123,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         const done = () => {
           if (moving.get(field) !== motion || motion.animation !== animation) return;
           moving.delete(field);
+          field.removeAttribute(SETTLING_SCROLLER_ATTRIBUTE);
           motion.observer?.disconnect();
         };
         animation.addEventListener("finish", done, { once: true });
@@ -181,6 +189,8 @@ export function fieldGrowth(external: () => boolean): Plugin {
             : undefined;
         const motion: Motion = { animation, keyframes, timing, to, end: now + duration, reveal, observer };
         moving.set(field, motion);
+        // Read at the end height above: the text fits the field it lands on, so no thumb meanwhile.
+        field.toggleAttribute(SETTLING_SCROLLER_ATTRIBUTE, !capped);
         run(field, motion, animation);
         observer?.observe(view.dom);
         // The transcript takes the end height into its room now and moves its rows on this curve.

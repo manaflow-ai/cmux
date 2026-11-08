@@ -12,6 +12,9 @@ use std::time::{Duration, Instant};
 
 const TERMINAL_ONE: &str = "term_00000000000000000000000000000001";
 const TERMINAL_TWO: &str = "term_00000000000000000000000000000002";
+/// The reads of the Codex shim's SessionStart hook for the context it gives the agent.
+const PLACE_READS: [&str; 6] =
+    ["session.get", "terminal.get", "tab.get", "pane.get", "screen.get", "workspace.get"];
 
 #[cfg(target_os = "linux")]
 struct RouteOwner(std::process::Child);
@@ -97,6 +100,12 @@ impl Launch {
                 continue;
             }
             let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            // A SessionStart hook reads its terminal's place for the agent's context
+            // (session_context.rs) after its journal event. run_hook waits for the hook first,
+            // so those reads went unanswered and are left queued: skip them.
+            if PLACE_READS.contains(&request["operation"].as_str().unwrap_or_default()) {
+                continue;
+            }
             if request["operation"] == "agent.message.list" {
                 let response = serde_json::json!({
                     "protocol":"cmux.protocol/2", "type":"response", "id":request["id"],
@@ -179,7 +188,10 @@ fn hook_command(config: &toml::Value, event: &str) -> String {
         .to_owned()
 }
 
-fn run_hook(command: &str, stale_socket: Option<&Path>, session: &str) {
+/// Runs the hook for `event` of `terminal`'s Codex. Its output is the empty object, except the
+/// shim's SessionStart: the context that tells the agent it runs in cmux and names its terminal
+/// (#38290). Nothing answers the hook's place reads while it runs, so only the terminal is known.
+fn run_hook(command: &str, stale_socket: Option<&Path>, event: &str, terminal: &str) {
     let mut process = Command::new("/bin/sh");
     process.args(["-c", command]).env_clear();
     if let Some(socket) = stale_socket {
@@ -194,10 +206,21 @@ fn run_hook(command: &str, stale_socket: Option<&Path>, session: &str) {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    writeln!(child.stdin.take().unwrap(), "{{\"session_id\":\"{session}\"}}").unwrap();
+    writeln!(child.stdin.take().unwrap(), "{{\"session_id\":\"{terminal}\"}}").unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(output.stdout, b"{}\n");
+    if event != "SessionStart" {
+        assert_eq!(output.stdout, b"{}\n", "{event}");
+        return;
+    }
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("{error}: {}", String::from_utf8_lossy(&output.stdout)));
+    let context = &printed["hookSpecificOutput"];
+    assert_eq!(context["hookEventName"], "SessionStart", "{printed}");
+    let text = context["additionalContext"].as_str().unwrap_or_else(|| panic!("{printed}"));
+    assert!(text.starts_with("cmux: you run in a cmux terminal"), "{text}");
+    assert!(text.contains(&format!("terminal {terminal}.")), "{text}");
+    assert!(text.contains("`cmux skill show`"), "{text}");
 }
 
 #[test]
@@ -212,7 +235,7 @@ fn codex_wrapper_remote_hooks_keep_each_terminal_under_a_shared_daemon_environme
         let config = settings(&argv);
         assert!(!argv.iter().any(|arg| arg == "--dangerously-bypass-hook-trust"));
         for event in ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"] {
-            run_hook(&hook_command(&config, event), stale_socket, terminal);
+            run_hook(&hook_command(&config, event), stale_socket, event, terminal);
             let received = launch.event();
             assert_eq!(received["payload"]["native_event"], event);
             assert!(
@@ -277,7 +300,7 @@ fn codex_wrapper_resolves_the_attached_tmux_terminal_when_launch_environment_is_
     let argv = launch.argv(&mut command);
     let config = settings(&argv);
     let hook = hook_command(&config, "SessionStart");
-    run_hook(&hook, None, TERMINAL_TWO);
+    run_hook(&hook, None, "SessionStart", TERMINAL_TWO);
     let received = launch.event();
     assert_eq!(received["payload"]["native_event"], "SessionStart");
     assert!(

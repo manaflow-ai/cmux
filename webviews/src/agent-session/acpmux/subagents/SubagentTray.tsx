@@ -128,6 +128,7 @@ import { hatChevronLook, hatDoneLook, hatRowMotionLook } from "./hatParts.experi
 import { DoneMark } from "./DoneMark";
 import { Tick } from "./trayMotion";
 import { useTrayMotion } from "./trayMotionModel";
+import { useTraySeen } from "./traySeen";
 import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
@@ -178,6 +179,7 @@ export const SubagentTray = memo(function SubagentTray({
   onTuck,
   tuckSide = "middle",
   onHold,
+  onSeen,
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -234,6 +236,10 @@ export const SubagentTray = memo(function SubagentTray({
   /// (trayLinger.ts) expires no finished line while it is, and resumes when it lets go. Reported on
   /// a change only (never per pointer move), and false when the hat unmounts.
   onHold?: (held: boolean) => void;
+  /// The hat could be seen: on screen, in a page that shows, in a focused window (traySeen.ts).
+  /// App.tsx's linger counts a finished line's grace only while it could. Reported on a change only,
+  /// and false when the hat stops drawing.
+  onSeen?: (seen: boolean) => void;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -381,6 +387,7 @@ export const SubagentTray = memo(function SubagentTray({
     },
     [],
   );
+  useTraySeen(trayNode, headed, onSeen);
   // A line that joins the open list grows in from 0 height and a line that leaves keeps its node and
   // folds to 0 height (`TrayRow`, on the shared fold), so the lines around it move with it, never a
   // pop or a jump (Leo, 2026-11-07: "the things coming, they shouldn't just, like, pop in, burst in,
