@@ -133,7 +133,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserProfiles.xcstrings": {
       "needs_review": 128
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/CLIInstall.xcstrings": {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall/Resources/CLIInstall.xcstrings": {
       "identical": 5,
       "needs_review": 72
     },

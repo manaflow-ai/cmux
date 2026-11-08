@@ -152,6 +152,7 @@ public nonisolated struct CLIPathInstaller: Sendable {
     /// Gatekeeper's translocated copy, which goes away when the app quits.
     public static func runsFromImage(_ url: URL) -> Bool {
         if url.path.contains("/AppTranslocation/") { return true }
+        // blocking-allow: called only from @concurrent install and CLIPathCheck.current, never on the main actor; this target has no CmuxNextCompat seam
         return (try? url.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly == true
     }
 

@@ -1944,6 +1944,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (moved out of CmuxNextApp to keep it under its size cap).
         .target(
             name: "CmuxNextCLIInstall",
+            resources: [.process("Resources")],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
