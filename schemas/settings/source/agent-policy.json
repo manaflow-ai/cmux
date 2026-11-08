@@ -470,10 +470,18 @@
     },
     {
       "agent": "settable",
-      "why": "Where the docked Chief sits and where its links open (layout choices, like pane placement).",
+      "why": "Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
       "keys": [
         "home.chiefDock.edge",
+        "home.chiefPanel.style",
         "home.chiefDock.openBeside"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
+      "keys": [
+        "home.chiefPanel.seesScreen"
       ]
     },
     {
