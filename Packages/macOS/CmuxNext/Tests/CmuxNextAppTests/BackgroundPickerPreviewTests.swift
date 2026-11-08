@@ -11,7 +11,7 @@ import Testing
 
 /// Change Background… (cx-t2x.4): the picker previews a work in the window as the pointer rests on
 /// it, writes nothing until a click, and leaving the picker restores the plain glass default.
-@MainActor @Suite(.serialized, .closesItsWindows) struct BackgroundPickerPreviewTests {
+@MainActor @Suite(.serialized, .closesItsWindows, .ghosttyOverrides) struct BackgroundPickerPreviewTests {
     static let gesture = PageCallContext(page: "cmux.settings", userGesture: true)
     static let backgroundKey = "appearance.background"
     static let work = "van-gogh-starry-night"

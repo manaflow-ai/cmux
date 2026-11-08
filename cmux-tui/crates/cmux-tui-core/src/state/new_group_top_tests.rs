@@ -1,8 +1,9 @@
 //! A group made with no place (`cmux workspace group create`, MCP, iOS, the
 //! Chief's subagent groups) forms where `workspaces.newPlacement` puts a new
-//! workspace: under `top` (the default) first, right below Home, so the new
-//! workspace it holds shows at the top of the sidebar, not after every older
-//! group. An explicit `index` and the `bottom` setting keep the old place.
+//! workspace: under `top` and `afterCurrent` (the default) first, right below
+//! Home, so the new workspace it holds shows at the top of the sidebar, not
+//! after every older group. An explicit `index` and the `bottom` setting keep
+//! the old place.
 
 use serde_json::json;
 
@@ -80,6 +81,20 @@ fn a_group_made_with_no_place_forms_first_below_home_under_top() {
         [home.as_str(), m.as_str(), n.as_str(), b.as_str(), a.as_str()],
         "a newer workspace does not list above the newer group"
     );
+    mux.shutdown();
+}
+
+/// `afterCurrent`, the default, never makes a group with no place last: the
+/// workspace it holds would go to the sidebar's end (Leo 2026-11-06).
+#[test]
+fn a_group_made_with_no_place_forms_first_under_after_current() {
+    let _after = NewWorkspacePlacement::AfterCurrent.set_for_test();
+    let session = Session::new("new-group-after-current");
+    let mux = session.open();
+    let _home = home(&mux);
+    let old = group(&mux, json!({"name": "Old", "index": 0}), "group-old");
+    let new = group(&mux, json!({"name": "New"}), "group-new");
+    assert_eq!(group_order(&mux), [new, old], "the new group is not the first group");
     mux.shutdown();
 }
 

@@ -116,6 +116,11 @@ path = "tests/test_cleanup_stale_runs.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cli_swap.py"
+lane = "manual"
+reason = "Run by the lane that changes cli-swap.py (no new CI tests): python3 tests/test_cli_swap.py; needs only python3."
+
+[[test]]
 path = "tests/test_compile_string_catalogs.py"
 lane = "linux-guard"
 
@@ -289,17 +294,43 @@ path = "tests/test_layout_grid.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_leo_bans.py"
+path = "tests/test_list_macho_candidates.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_list_macho_candidates.py"
-lane = "linux-guard"
+path = "tests/test_live_code_cost.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/measure/live-code-cost.* (no new CI tests): python3 tests/test_live_code_cost.py; needs only python3."
+
+[[test]]
+path = "tests/test_live_code_hot_optimize.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/live-code/patch.py (no new CI tests): python3 tests/test_live_code_hot_optimize.py; needs only python3."
+
+[[test]]
+path = "tests/test_live_code_ldflags_quoting.py"
+lane = "manual"
+reason = "Run by the lane that changes the live code xcodebuild args (scripts/live-code/lib/xcodebuild-args.sh; no new CI tests): python3 tests/test_live_code_ldflags_quoting.py; needs only bash and python3."
+
+[[test]]
+path = "tests/test_live_code_patch_tree.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/live-code/patch.py's --tree mapping (no new CI tests): python3 tests/test_live_code_patch_tree.py; needs only python3 and git."
 
 [[test]]
 path = "tests/test_live_code_switch.py"
 lane = "manual"
 reason = "Run by the lane that changes scripts/live-code/switch.sh (no new CI tests): python3 tests/test_live_code_switch.py; needs only bash and python3."
+
+[[test]]
+path = "tests/test_live_code_two_pass.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/live-code/lib/two-pass.sh (no new CI tests): python3 tests/test_live_code_two_pass.py; needs only python3 and bash."
+
+[[test]]
+path = "tests/test_live_mode.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/live-code/live-mode.py (no new CI tests): python3 tests/test_live_mode.py; needs only python3 (a fake control socket stands in for the app)."
 
 [[test]]
 path = "tests/test_local_build_cache_policy.py"
@@ -400,6 +431,11 @@ path = "tests/test_notarize_computer_use_helper.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_notary_submit_retry.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Drives notary_submit_retry in scripts/ci/lib/notary-wait-recover.sh with a fake xcrun; run python3 tests/test_notary_submit_retry.py yourself after changing it (under 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_notary_wait_recover.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Drives scripts/ci/lib/notary-wait-recover.sh with a fake xcrun; run python3 tests/test_notary_wait_recover.py yourself after changing it (under 1 s, no Mac)."
@@ -411,6 +447,10 @@ lane = "macos-cli-no-socket"
 [[test]]
 path = "tests/test_nushell_shim_path_refront.py"
 lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_outbound_hosts.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_package_resolved_policy_remote_inputs.py"
@@ -569,6 +609,11 @@ path = "tests/test_runs_on_labels.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_rust_live_app_handoff.py"
+lane = "manual"
+reason = "Run by the lane that changes rust-live.py (no new CI tests): python3 tests/test_rust_live_app_handoff.py; needs only python3 and sleep."
+
+[[test]]
 path = "tests/test_scroll_measurement_metrics.py"
 lane = "manual"
 reason = "Run through cmux-ci after changing native scroll receipt validation; isolated Python checks launch no app. No new CI gate."
@@ -598,11 +643,6 @@ lane = "linux-guard"
 path = "tests/test_shortcut_alternates_documented.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Reads the schema, the two docs pages, en.json and the three skill references; run python3 tests/test_shortcut_alternates_documented.py yourself after changing the accepted shortcuts.bindings forms or the prose that lists them (under 1 s, no build)."
-
-[[test]]
-path = "tests/test_rust_live_app_handoff.py"
-lane = "manual"
-reason = "Run by the lane that changes rust-live.py (no new CI tests): python3 tests/test_rust_live_app_handoff.py; needs only python3 and sleep."
 
 [[test]]
 path = "tests/test_side_instance_protected_root.py"
@@ -665,6 +705,14 @@ path = "tests/test_swiftpm_test_product.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tailnet_build_delivery.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_tailnet_go.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tap_test_health.py"
 lane = "linux-guard"
 
@@ -697,24 +745,9 @@ path = "tests/test_triage_rules.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_live_code_cost.py"
+path = "tests/test_try_pr_daemon.py"
 lane = "manual"
-reason = "Run by the lane that changes scripts/measure/live-code-cost.* (no new CI tests): python3 tests/test_live_code_cost.py; needs only python3."
-
-[[test]]
-path = "tests/test_live_code_patch_tree.py"
-lane = "manual"
-reason = "Run by the lane that changes scripts/live-code/patch.py's --tree mapping (no new CI tests): python3 tests/test_live_code_patch_tree.py; needs only python3 and git."
-
-[[test]]
-path = "tests/test_live_code_two_pass.py"
-lane = "manual"
-reason = "Run by the lane that changes scripts/live-code/lib/two-pass.sh (no new CI tests): python3 tests/test_live_code_two_pass.py; needs only python3 and bash."
-
-[[test]]
-path = "tests/test_live_code_ldflags_quoting.py"
-lane = "manual"
-reason = "Run by the lane that changes the live code xcodebuild args (scripts/live-code/lib/xcodebuild-args.sh; no new CI tests): python3 tests/test_live_code_ldflags_quoting.py; needs only bash and python3."
+reason = "Run by the lane that changes try-pr.sh's daemon path or hot-apply.py --branch (no new CI tests): python3 tests/test_try_pr_daemon.py; needs only bash, git and python3."
 
 [[test]]
 path = "tests/test_try_pr_live_code.py"
@@ -722,9 +755,8 @@ lane = "manual"
 reason = "Run by the lane that changes try-pr.sh or scripts/live-code/patch.py (no new CI tests): python3 tests/test_try_pr_live_code.py; needs only bash, git and python3."
 
 [[test]]
-path = "tests/test_live_code_hot_optimize.py"
-lane = "manual"
-reason = "Run by the lane that changes scripts/live-code/patch.py (no new CI tests): python3 tests/test_live_code_hot_optimize.py; needs only python3."
+path = "tests/test_ui_font.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ui_review_advisory.py"
@@ -744,6 +776,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_verify_app_libintl.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verify_cmux_tui_hosted.py"
 lane = "linux-guard"
 
 [[test]]
@@ -777,6 +813,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_xcode_build_timeline.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_xcstrings_symbol_collisions.py"
+lane = "manual"
+reason = "No new CI tests: run python3 tests/test_xcstrings_symbol_collisions.py after adding string catalog keys (under 1 s, no build); two keys with one generated symbol fail the Release build (#37724)."
 
 [[test]]
 path = "tests/test_zig_fetch_all.py"

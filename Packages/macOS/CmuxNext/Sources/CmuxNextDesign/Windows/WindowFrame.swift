@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CoreGraphics
+import CmuxNextCompat
 import Darwin
 import Foundation
 import ImageIO
@@ -19,21 +20,72 @@ public nonisolated struct WindowFrame: Sendable {
     public nonisolated struct Measure: Sendable {
         public var outsideBefore: Double, outsideFinal: Double, insideBefore: Double, insideFinal: Double
         public var stripBefore: Double, stripFinal: Double, flatness: Double
+        /// Each of `measure`'s `panes`, in its order.
+        public var panes: [PaneMeasure] = []
+    }
+
+    /// One pane's content area in one frame: how flat it is and, when flat, how far it is from the same rect in the
+    /// frame before the key and in the last frame (0 for a rect that is not flat: it cannot be blank, so it is not compared).
+    public nonisolated struct PaneMeasure: Sendable, Equatable {
+        public var flatness: Double, vsBefore: Double, vsFinal: Double
+
+        public init(flatness: Double, vsBefore: Double, vsFinal: Double) {
+            (self.flatness, self.vsBefore, self.vsFinal) = (flatness, vsBefore, vsFinal)
+        }
+
+        /// The flatness past which a content area counts as one color: an empty terminal is flat too, so a blank
+        /// frame must also differ from both the frame before the key and the last one.
+        public static let flatShare = 0.995
+
+        /// Blank: one flat color that is neither what the rect showed before the key nor what it settles on.
+        public func isBlank(tolerance: Double) -> Bool {
+            Self.isBlank(flatness: flatness, vsBefore: vsBefore, vsFinal: vsFinal, tolerance: tolerance)
+        }
+
+        public static func isBlank(flatness: Double, vsBefore: Double, vsFinal: Double, tolerance: Double) -> Bool {
+            flatness > flatShare && vsBefore > tolerance && vsFinal > tolerance
+        }
+    }
+
+    /// The pane rects a frame strip judges for blank frames: `before` (at the key) then `final` (at the report), as
+    /// whole pixels, empty and repeated rects dropped, at most `cap` (the panes on screen; a cap bounds the work).
+    public static func paneRects(before: [CGRect], final: [CGRect], cap: Int = 16) -> [CGRect] {
+        var rects: [CGRect] = []
+        for rect in before + final {
+            let whole = rect.integral
+            guard rects.count < cap, !whole.isNull, whole.width >= 1, whole.height >= 1, !rects.contains(whole) else { continue }
+            rects.append(whole)
+        }
+        return rects
     }
 
     @concurrent public static func measure(_ frames: [WindowFrame], before: WindowFrame, last: WindowFrame,
-                                          content: CGRect?, strip: CGRect?) async -> [Measure] {
+                                          content: CGRect?, strip: CGRect?, panes: [CGRect] = []) async -> [Measure] {
         let outside = content.map { content in strip.map { content.union($0) } ?? content }
         return frames.map { frame in
-            // Outside: the window beyond the content and the strip, whose tabs slide on their own.
-            Measure(outsideBefore: frame.difference(from: before, excluding: outside),
-                    outsideFinal: frame.difference(from: last, excluding: outside),
-                    insideBefore: content.map { frame.difference(from: before, excluding: strip, within: $0) } ?? 0,
-                    insideFinal: content.map { frame.difference(from: last, excluding: strip, within: $0) } ?? 0,
-                    stripBefore: strip.map { frame.difference(from: before, within: $0) } ?? 0,
-                    stripFinal: strip.map { frame.difference(from: last, within: $0) } ?? 0,
-                    flatness: content.map { frame.flatness(in: $0) } ?? 0)
+            var measure = measured(frame, before: before, last: last, content: content, strip: strip, outside: outside)
+            measure.panes = panes.map { frame.paneMeasure(in: $0, before: before, last: last) }
+            return measure
         }
+    }
+
+    /// One pane rect of this frame against `before` and `last`; the two comparisons only when the rect is flat.
+    func paneMeasure(in rect: CGRect, before: WindowFrame, last: WindowFrame) -> PaneMeasure {
+        let flat = flatness(in: rect)
+        guard flat > PaneMeasure.flatShare else { return PaneMeasure(flatness: flat, vsBefore: 0, vsFinal: 0) }
+        return PaneMeasure(flatness: flat, vsBefore: difference(from: before, within: rect), vsFinal: difference(from: last, within: rect))
+    }
+
+    private static func measured(_ frame: WindowFrame, before: WindowFrame, last: WindowFrame, content: CGRect?, strip: CGRect?,
+                                 outside: CGRect?) -> Measure {
+        // Outside: the window beyond the content and the strip, whose tabs slide on their own.
+        Measure(outsideBefore: frame.difference(from: before, excluding: outside),
+                outsideFinal: frame.difference(from: last, excluding: outside),
+                insideBefore: content.map { frame.difference(from: before, excluding: strip, within: $0) } ?? 0,
+                insideFinal: content.map { frame.difference(from: last, excluding: strip, within: $0) } ?? 0,
+                stripBefore: strip.map { frame.difference(from: before, within: $0) } ?? 0,
+                stripFinal: strip.map { frame.difference(from: last, within: $0) } ?? 0,
+                flatness: content.map { frame.flatness(in: $0) } ?? 0)
     }
 
     /// Reads the window's composited image back to back until `until` ms after `start`. `crop`: the
@@ -57,6 +109,11 @@ public nonisolated struct WindowFrame: Sendable {
             if let kept, let frame = WindowFrame(kept, scale: scale, at: at) { frames.append(frame) }
         }
         return frames
+    }
+
+    /// A frame of these RGBA pixels (top row first), for tests.
+    init(milliseconds: Double, width: Int, height: Int, pixels: [UInt8]) {
+        (self.milliseconds, self.width, self.height, self.pixels) = (milliseconds, width, height, pixels)
     }
 
     init?(_ image: CGImage, scale: Double, at milliseconds: Double) {
@@ -84,8 +141,9 @@ public nonisolated struct WindowFrame: Sendable {
     func difference(from b: WindowFrame, excluding excluded: CGRect? = nil, within: CGRect? = nil) -> Double {
         guard width == b.width, height == b.height else { return 1 }
         var differing = 0, counted = 0
-        for y in 0..<height {
-            for x in 0..<width {
+        let (rows, columns) = within.map { span(of: $0) } ?? (rows: 0..<height, columns: 0..<width)
+        for y in rows {
+            for x in columns {
                 // The bitmap holds its top row first, as the rects count from the top left.
                 let point = CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)
                 if let excluded, excluded.contains(point) { continue }
@@ -103,8 +161,9 @@ public nonisolated struct WindowFrame: Sendable {
     func flatness(in rect: CGRect) -> Double {
         var counts: [UInt32: Int] = [:], total = 0
         var samples: [(Int, Int, Int)] = []
-        for y in 0..<height {
-            for x in 0..<width where rect.contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) {
+        let (rows, columns) = span(of: rect)
+        for y in rows {
+            for x in columns where rect.contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) {
                 let i = (y * width + x) * 4
                 let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
                 counts[UInt32(r >> 3) << 10 | UInt32(g >> 3) << 5 | UInt32(b >> 3), default: 0] += 1
@@ -116,6 +175,16 @@ public nonisolated struct WindowFrame: Sendable {
         let r = Int(mode >> 10) << 3, g = Int((mode >> 5) & 31) << 3, b = Int(mode & 31) << 3
         let near = samples.filter { abs($0.0 - r) <= 12 && abs($0.1 - g) <= 12 && abs($0.2 - b) <= 12 }.count
         return Double(near) / Double(total)
+    }
+
+    /// The rows and columns that can hold a pixel center inside `rect`: a pane's rect is read alone, not the whole frame.
+    func span(of rect: CGRect) -> (rows: Range<Int>, columns: Range<Int>) {
+        guard !rect.isNull, rect.minX.isFinite, rect.maxX.isFinite, rect.minY.isFinite, rect.maxY.isFinite else { return (0..<0, 0..<0) }
+        func range(_ low: CGFloat, _ high: CGFloat, _ limit: Int) -> Range<Int> {
+            let start = min(limit, max(0, Int(low.rounded(.down)))), end = max(start, min(limit, Int(high.rounded(.up))))
+            return start..<end
+        }
+        return (range(rect.minY, rect.maxY, height), range(rect.minX, rect.maxX, width))
     }
 
     static func elapsed(since start: ContinuousClock.Instant) -> Double {
@@ -153,6 +222,15 @@ public nonisolated struct WindowFrame: Sendable {
             context.draw(image, in: CGRect(x: Double(index) * cell, y: 0, width: Double(frame.width) * factor, height: Double(frame.height) * factor))
         }
         if let strip = context.makeImage() { writePNG(strip, to: path) }
+    }
+
+    /// Makes `dir`, then writes each frame to its path and the strip of `strip` to `stripPath`, off the main actor: PNG
+    /// encoding and file writes held it for seconds a frame strip under load, which the frame and hang probes counted.
+    @concurrent public static func writeAll(_ frames: [(frame: WindowFrame, path: String)], strip: [WindowFrame], stripPath: String,
+                                           in dir: String) async {
+        try? FileManager.checked.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        for (frame, path) in frames { if let image = frame.image { writePNG(image, to: path) } }
+        writeStrip(strip, to: stripPath)
     }
 
     static func writePNG(_ image: CGImage, to path: String) {

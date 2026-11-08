@@ -493,10 +493,11 @@ impl Hub {
 
     /// This daemon's own sessions at work: a turn or anything one waits on, a background task
     /// running, a background process the harness started (a Claude background shell) still
-    /// running, or a background subagent or sub-session at work. A Cloud machine counts them as
-    /// open sessions in its activity report (`daemon/cloud_activity.rs`), so it is never paused
-    /// for idleness mid-turn or under a command a turn left running. Reads each chat's
-    /// background-task and process records, so call it off the async workers.
+    /// running, a background subagent or sub-session at work, or a move off this machine under
+    /// way. A Cloud machine counts them as open sessions in its activity report
+    /// (`daemon/cloud_activity.rs`), so it is never paused for idleness mid-turn, mid-move or
+    /// under a command a turn left running. Reads each chat's background-task and process
+    /// records, so call it off the async workers.
     #[cfg(test)]
     pub(crate) fn sessions_at_work(&self) -> usize {
         self.sessions().iter().filter(|s| self.at_work(s).is_some()).count()
@@ -516,7 +517,10 @@ impl Hub {
             session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running();
         let below = session.work_below_since.lock().map_or(true, |v| *v != 0);
         let processes = self.running_processes(session) + self.bg_running_count(session);
-        if !(turn || subagents > 0 || below || processes > 0) {
+        // A move off this machine not yet committed or aborted: the chat stays frozen here until
+        // its watch settles it, so a pause now would strand it mid-move.
+        let moving = session.moving().is_some() && session.meta().moved_to.is_none();
+        if !(turn || subagents > 0 || below || processes > 0 || moving) {
             return None;
         }
         Some(SessionAtWork {
@@ -558,3 +562,6 @@ fn on_loopback(listen: &str) -> bool {
 #[cfg(test)]
 #[path = "idle_tests.rs"]
 mod idle_tests;
+// Compact an idle Claude chat before its prompt cache expires.
+#[path = "cache_compact.rs"]
+pub(super) mod cache_compact;

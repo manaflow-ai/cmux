@@ -7,6 +7,7 @@ use crate::hub::{EventFilter, Hub, HubEvent, VERSION};
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
+use crate::sender_harness::SocketPeer;
 use crate::session_identity::SessionReceipt;
 use anyhow::{Context, Result};
 use cmux_local_auth::{ListenerPolicy, Refusal};
@@ -193,6 +194,10 @@ pub struct Conn {
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
     peer: Option<cmux_link::app_caller::PeerToken>,
+    /// The unix socket peer's pid, read at accept (`SO_PEERCRED`, `LOCAL_PEERPID`), or the daemon's
+    /// own outbox: where a send's process chain is walked from and whose check is carried
+    /// (`sender_harness::check_trust`), provenance only, never a proof.
+    pub(super) socket_peer: crate::sender_harness::SocketPeer,
     /// A unix socket peer that is root while this daemon is not (Linux, `daemon/provision.rs`):
     /// the VM provisioning exec, the one caller besides the signed app that may give the person key.
     /// Only a Cloud machine's daemon, not dumpable since its start, has one.
@@ -790,7 +795,13 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
             };
             // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
             let provisioner = crate::daemon::provision::accept_provisioner(&stream);
-            stream::serve_stream(hub, stream, peer, provisioner).await;
+            let socket_peer = stream
+                .peer_cred()
+                .ok()
+                .and_then(|c| c.pid())
+                .and_then(|p| u32::try_from(p).ok())
+                .map_or(SocketPeer::Unknown, SocketPeer::Pid);
+            stream::serve_stream(hub, stream, peer, provisioner, socket_peer).await;
         });
     }
 }
@@ -1034,13 +1045,32 @@ pub async fn serve_ws_until(
             let mut stream = stream;
             // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
             // as it reads, tungstenite as it parses it again for the callback.
-            let (head, read) = match ws_peek::request(&mut stream, peer).await {
-                ws_peek::Request::Head { head, read } => (head, read),
-                ws_peek::Request::TooLarge => {
-                    refuse_http(stream, Refusal::MissingHost).await;
+            let mut probed = false;
+            let (head, read) = loop {
+                let (head, read) = match ws_peek::request(&mut stream, peer).await {
+                    ws_peek::Request::Head { head, read } => (head, read),
+                    ws_peek::Request::TooLarge => {
+                        refuse_http(stream, Refusal::MissingHost).await;
+                        return;
+                    }
+                    ws_peek::Request::Gone => return,
+                };
+                // The cmux link proves this is the listener `listener.json` names before it
+                // sends a paired peer's bytes (`listener_record.rs`): it answers the link's
+                // challenge under the record's key, for the probe alone, once.
+                let Some(answer) = crate::listener_record::probe_answer(&read) else {
+                    break (head, read);
+                };
+                if probed {
                     return;
                 }
-                ws_peek::Request::Gone => return,
+                probed = true;
+                if tokio::io::AsyncWriteExt::write_all(&mut stream, answer.as_bytes())
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
             };
             if !head.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &head, &policy, peer).await;
@@ -1263,7 +1293,7 @@ pub async fn serve_ws_until(
                 }
                 None => (origin, proof, None),
             };
-            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, device, Some(wire))
+            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, SocketPeer::Unknown, device, Some(wire))
                 .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
@@ -1427,6 +1457,31 @@ pub async fn serve_connection_with(
     serve_connection_authed(hub, inbound, out, origin, ConnAuth::proven_for(origin)).await
 }
 
+/// The daemon's own outbox delivering a send it kept (`outbox.rs` `attempt_once`): served as
+/// `origin` with its proof, and the one local connection whose `senderHarnessChecked` is the
+/// daemon's own (`sender_harness::check_trust`).
+pub(super) async fn serve_outbox_connection(
+    hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    origin: Origin,
+) {
+    let auth = ConnAuth::proven_for(origin);
+    serve_connection_from(
+        hub,
+        inbound,
+        out,
+        origin,
+        auth,
+        None,
+        false,
+        SocketPeer::Outbox,
+        None,
+        None,
+    )
+    .await
+}
+
 /// A connection with the proof its transport checked. `ConnAuth::None`
 /// gets no sessions and no data: its first request is refused and the
 /// connection ends (`conn_auth.rs`).
@@ -1437,7 +1492,19 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None, false, None, None).await
+    serve_connection_from(
+        hub,
+        inbound,
+        out,
+        origin,
+        auth,
+        None,
+        false,
+        SocketPeer::Unknown,
+        None,
+        None,
+    )
+    .await
 }
 
 /// A paired machine's connection, served as its role says
@@ -1450,7 +1517,19 @@ pub async fn serve_connection_device(
     device: crate::pairing::DeviceAuth,
 ) {
     let (origin, auth) = pairing::origin_of(&device);
-    serve_connection_from(hub, inbound, out, origin, auth, None, false, Some(device.id), None).await
+    serve_connection_from(
+        hub,
+        inbound,
+        out,
+        origin,
+        auth,
+        None,
+        false,
+        SocketPeer::Unknown,
+        Some(device.id),
+        None,
+    )
+    .await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -1462,6 +1541,7 @@ async fn serve_connection_from(
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
     provisioner: bool,
+    socket_peer: SocketPeer,
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
 ) {
@@ -1496,6 +1576,7 @@ async fn serve_connection_from(
         notices: Arc::new(AtomicU64::new(0)),
         watch_inventory: StdMutex::new(false),
         peer,
+        socket_peer,
         provisioner,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
@@ -1602,6 +1683,9 @@ async fn serve_connection_from(
                     }
                 }
                 conn.bind_person(&hub, &m, &mut params);
+                if m == method::INITIALIZE {
+                    requests::note_initialize(&conn, params.as_ref().unwrap_or(&Value::Null));
+                }
                 // Before its reply is built: the reply says whether large messages go compressed.
                 if m == method::INITIALIZE
                     && let Some(wire) = &conn.wire
@@ -1783,6 +1867,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // Attached peer updates retain the raw wire id, but also identify its owner so
     // clients can key live transcripts by the same route as their session rows.
     let routed = |mut params: Value| {
+        if conn.origin != Origin::Peer
+            && let Some(remote) = &ev.remote
+        {
+            races::peer::qualify_event(&remote.peer, &mut params);
+        }
         if let Some(obj) = params.as_object_mut() {
             obj.remove("peer");
             if let Some(remote) = &ev.remote {
@@ -1960,6 +2049,7 @@ pub mod conn_auth;
 mod durable_gate;
 mod ephemeral;
 mod fanout;
+mod fix_from_link;
 mod forum;
 mod media_forward;
 mod mesh_control_send;
@@ -1981,9 +2071,11 @@ mod bg_tasks;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_health;
+mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+mod review_queue;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
     report_outbound_loss_locked,
@@ -1992,7 +2084,7 @@ pub(crate) mod outbox;
 mod pairing;
 pub mod peer_auth;
 mod peer_forward;
-mod peer_status;
+pub(crate) mod peer_status;
 pub mod peer_text;
 mod pending;
 mod place;
@@ -2017,6 +2109,7 @@ mod routes;
 mod secrets;
 mod vault;
 pub(crate) use vault::reply as vault_reply;
+mod races;
 mod session_auth;
 mod session_files;
 mod stream;
@@ -2199,6 +2292,10 @@ mod list_fit_tests;
 #[cfg(test)]
 #[path = "list_pending_tests.rs"]
 mod list_pending_tests;
+
+#[cfg(test)]
+#[path = "list_web_page_tests.rs"]
+mod list_web_page_tests;
 
 #[cfg(test)]
 #[path = "session_list_pages_tests.rs"]

@@ -59,7 +59,7 @@ final class ChiefPetMascotGrid: NSStackView {
     /// Checks the character `id` (an unknown id: the default, orb, by id and not by its place in the
     /// grid, as the Settings page shows it), so reordering the characters never moves the check.
     func select(_ id: String, enabled: Bool) {
-        let shown = cells.contains { $0.id == id } ? id : HomeChiefPetSetting.defaultMascot
+        let shown = cells.contains { $0.id == id } ? id : HomeChiefPetSetting.mascotDefault
         for cell in cells {
             cell.isSelected = cell.id == shown
             cell.isEnabled = enabled

@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
+import CmuxSpinner
 import SwiftUI
 
 /// Opens the diff viewer (`fileID` nil = the file list).
@@ -96,7 +97,7 @@ struct ToolRowView: View {
             }
             Spacer(minLength: 4)
             if call.isRunning {
-                ProgressView().controlSize(.mini)
+                CmuxSpinner().controlSize(.mini)
             } else {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 11, weight: .semibold))
@@ -311,7 +312,7 @@ struct DiffSnippet: View {
             Text(added ? "Created" : "Edited").font(.footnote.weight(.medium))
             Text((path as NSString).lastPathComponent).font(.footnote.monospaced().weight(.medium)).foregroundStyle(.primary).lineLimit(1)
             Spacer(minLength: 4)
-            ProgressView().controlSize(.mini)
+            CmuxSpinner().controlSize(.mini)
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
@@ -373,7 +374,7 @@ struct DiffSnippet: View {
             .trailingOverflowFade()
             if preview.remaining > 0 {
                 Button(preview.remaining == 1 ? "Show 1 more line" : "Show \(preview.remaining) more lines") {
-                    withAnimation(.cmuxMobileSmooth) {
+                    withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
                         if let disclosures { disclosures.set("diff-\(call.id)", true) } else { localShowAll = true }
                     }
                 }

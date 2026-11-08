@@ -1,6 +1,6 @@
 ---
 name: cmux-chat
-description: "How a cmux chat shows your work: the plan list it draws, side sessions and offered sessions, links to other sessions, the closing recap, and editing cmux itself live. Read it at the start of a task with more than one step, before starting or suggesting another session, and before ending a turn that changed files."
+description: "How a cmux chat shows your work: the plan list it draws, side sessions and offered sessions, links to other sessions, the closing recap, and editing cmux itself live. Load it once per chat, with your first reads, when a task has more than one step, may start or suggest another session, or will change files."
 ---
 
 # Working in a cmux chat
@@ -66,6 +66,8 @@ short recap, the last thing you write:
 - the one decision the person must make next, if any, as a single question.
 
 Skip it for a short answer or plain conversation. Do not restate the plan or the diff.
+When the cmux tools list `acpmux_wrap_up`, pass the recap to it (it draws the box under
+your answer) instead of also writing it in prose.
 
 ## Editing cmux live
 

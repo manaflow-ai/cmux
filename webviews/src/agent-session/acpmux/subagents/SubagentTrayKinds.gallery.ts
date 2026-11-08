@@ -16,7 +16,7 @@
 // Compare the header's arms (trayHeadKinds.experiment.ts) with the entry's experiment.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, chat, row, SESSION_ID, session, tool, user } from "../../../gallery/fixtures/acpmux";
-import { minutesAgo } from "../../../gallery/clock";
+import { minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxSnapshot } from "../model";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
@@ -31,8 +31,9 @@ function agent(task: string, minutes: number, state: Subagent["state"], fields: 
     kind: "general-purpose",
     state,
     background: true,
-    startedAt: minutesAgo(minutes),
-    ...(state !== "running" && { endedAt: minutesAgo(Math.max(0, minutes - 29.35)) }),
+    // What ended lingers in the hat only for its grace (trayLinger.ts): it ran up to 29m 21s and
+    // ended just now.
+    ...(state === "running" ? { startedAt: minutesAgo(minutes) } : recentRun(minutes, Math.min(minutes, 29.35))),
     ...fields,
   };
 }
@@ -113,6 +114,15 @@ async function open(ctx: PlayContext, lines?: number): Promise<void> {
     const count = ctx.document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length;
     return lines === undefined ? count > 0 : count === lines;
   });
+  // The lines are drawn at once, but the list's box opens on the shared fold (settle curve), whose
+  // tail is still a pixel short of the list at about 250 ms: the columns are measured once it is open.
+  await ctx.waitFor(
+    () =>
+      !ctx.document
+        .querySelector(".acpmux-running-tray__fold")
+        ?.getAnimations()
+        .some((animation) => animation.playState === "running"),
+  );
 }
 
 const box = (node: Element | null | undefined) => node?.getBoundingClientRect();

@@ -15,14 +15,21 @@ mod agent_browser_provider;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
+mod agent_session_context;
+#[cfg(unix)]
 mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
+mod attention;
 mod browser_input;
 #[cfg(unix)]
 mod build_adopt;
+#[cfg(unix)]
+mod carrier;
 mod classic_hooks;
+#[cfg(unix)]
+mod claude_plugin;
 #[cfg(unix)]
 mod claude_wrapper;
 mod cli;
@@ -41,12 +48,19 @@ mod headless;
 #[cfg(unix)]
 mod host_orphan_policy;
 mod local_actor;
+#[cfg(unix)]
+mod machine_secrets;
+#[cfg(unix)]
+mod own_build_helpers;
 mod page_listener;
 mod private_mode;
+mod screen_detection_status;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
 mod signal_sender;
+#[cfg(unix)]
+mod terminal_paste;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[cfg(unix)]
@@ -55,6 +69,7 @@ mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
+mod host_notify;
 mod keys;
 mod layout_undo;
 // Decided on every Unix so its tests run off the Mac; used on macOS only.
@@ -109,6 +124,21 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod sidebar_status;
+#[cfg(unix)]
+mod staged_update;
+// The staged swap probes builds through cmux-remote, a unix-only dependency:
+// elsewhere nothing is ever staged and no notice waits.
+#[cfg(not(unix))]
+mod staged_update {
+    pub(crate) fn promote_own_binary() -> Option<std::path::PathBuf> {
+        None
+    }
+
+    pub(crate) fn startup_notice() -> Option<&'static str> {
+        None
+    }
+}
 mod startup_env;
 #[cfg(all(test, unix))]
 mod test_exec;
@@ -576,9 +606,13 @@ struct Args {
     remote_link_socket: Option<PathBuf>,
     remote_admin_socket: Option<PathBuf>,
     remote_resume_lease_seconds: u64,
+    /// `--remote-local-socket PATH`, repeatable: the remote daemon's
+    /// `local-socket` allowlist (absolute paths).
+    remote_local_sockets: Vec<PathBuf>,
     relay_endpoints: Vec<String>,
     relay_slots: Vec<String>,
     relay_credentials: Vec<RelayCredentialArg>,
+    carrier_grant_config: Option<PathBuf>,
     iroh: bool,
     advertised_routes: Vec<String>,
     term: Option<String>,
@@ -688,9 +722,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         remote_link_socket: None,
         remote_admin_socket: None,
         remote_resume_lease_seconds: 120,
+        remote_local_sockets: Vec::new(),
         relay_endpoints: Vec::new(),
         relay_slots: Vec::new(),
         relay_credentials: Vec::new(),
+        carrier_grant_config: None,
         iroh: false,
         advertised_routes: Vec::new(),
         term: None,
@@ -878,6 +914,24 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     usage_exit("--remote-resume-lease-seconds must be between 1 and 86400");
                 }
                 out.remote = true;
+            }
+            "--carrier-grant-config" => {
+                out.carrier_grant_config = Some(
+                    args.next()
+                        .unwrap_or_else(|| usage_exit("--carrier-grant-config needs a value"))
+                        .into(),
+                );
+                out.remote = true;
+            }
+            "--remote-local-socket" => {
+                let path = PathBuf::from(
+                    args.next()
+                        .unwrap_or_else(|| usage_exit("--remote-local-socket needs a value")),
+                );
+                if !path.is_absolute() {
+                    usage_exit("--remote-local-socket must be an absolute path");
+                }
+                out.remote_local_sockets.push(path);
             }
             "--relay" => {
                 out.relay_endpoints
@@ -1501,6 +1555,7 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-link-socket",
     "--remote-admin-socket",
     "--remote-resume-lease-seconds",
+    "--remote-local-socket",
     "--terminal-reap-grace-seconds",
     "--relay",
     "--relay-slot",
@@ -1508,6 +1563,7 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--relay-ticket-file",
     "--relay-ticket-command",
     "--relay-ticket-command-arg",
+    "--carrier-grant-config",
     "--advertise",
     "--term",
     "--owner-host-fg",
@@ -1691,7 +1747,7 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
             raw_args.drain(..2);
             raw_args.insert(0, "remote-stop".to_string());
         }
-        Some("connect" | "ssh" | "forward" | "rpc" | "enroll" | "known-daemons") => {
+        Some("connect" | "ssh" | "forward" | "dial-tcp" | "rpc" | "enroll" | "known-daemons") => {
             raw_args.remove(0);
         }
         Some("-h" | "--help") | None => {}
@@ -1843,6 +1899,9 @@ fn run_main() {
         }
         if let Some(wrapper_args) = codex_wrapper::invocation(&args) {
             client_log::exit(codex_wrapper::run(wrapper_args));
+        }
+        if agent_session_context::invocation(&args) {
+            client_log::exit(agent_session_context::run());
         }
     }
     // Pin the launch directory before any subsystem can move the process:
@@ -2105,6 +2164,7 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
     };
     run_connected_session_client(
         socket_path,
+        socket_is_derived,
         args.session,
         config,
         Session::Remote(remote),
@@ -2137,8 +2197,9 @@ fn relay_daemon_options(
                 RelayCredentialArg::File(path) => {
                     cmux_remote::provider::RelayCredentialSource::file(path)
                 }
+                // The daemon's own Register: the ticket command's answer may take up to its 30 s read.
                 RelayCredentialArg::Command { program, args } => {
-                    cmux_remote::provider::RelayCredentialSource::command(program, args)
+                    cmux_remote::provider::RelayCredentialSource::daemon_command(program, args)
                 }
             };
             Ok(remote_runtime::RelayDaemonOptions {
@@ -2379,6 +2440,7 @@ fn run_server(
     {
         return run_connected_session_client(
             socket_path,
+            socket_is_derived,
             args.session,
             config,
             Session::Remote(remote),
@@ -2439,31 +2501,14 @@ fn run_server(
     if args.agent_browser_provider {
         agent_browser_provider::configure_surface_options(&mut surface_options)?;
     }
-    if let Some(helper) = agent_hook_install::runtime_helper_path() {
-        surface_options
-            .extra_env
-            .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
-    }
-    // `claude` resolves to a shim that adds the session's agent hooks, even
-    // under launchers with their own settings and config directory.
+    // `claude` and `codex` resolve to shims that add the session's agent
+    // hooks (even under launchers with their own settings and config
+    // directory), and the hooks run this build's helper. Codex runs its hooks
+    // in a shared daemon that cannot see the terminal's environment, so only
+    // its shim routes them. All three are this build's own, never the copies
+    // another install on this machine wrote.
     #[cfg(unix)]
-    claude_wrapper::configure_pane_path(&mut surface_options);
-    // The Codex shim lives in the same shim directory, so its PATH entry is
-    // usually the one the Claude shim already added.
-    #[cfg(unix)]
-    if let Some(path) = codex_wrapper::pane_path() {
-        if !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path) {
-            surface_options.extra_env.push(("PATH".into(), path));
-        }
-        // Integrated shells keep this directory first after startup files
-        // reorder PATH: Codex runs its hooks in a shared daemon that cannot
-        // see the terminal's environment, so only the shim routes them.
-        if let Some(dir) =
-            codex_wrapper::shim_directory().and_then(|dir| dir.into_os_string().into_string().ok())
-        {
-            surface_options.extra_env.push((cmux_tui_core::AGENT_SHIMS_ENV.into(), dir));
-        }
-    }
+    own_build_helpers::configure_pane(&mut surface_options);
     // The app's bundled `cmux` (the app starts the daemon with it) stays
     // first after the shim on a caller PATH (`terminal_spawn_options`).
     surface_options.bundled_cli = cmux_tui_core::daemon_env::bundled_cli_from_process_env();
@@ -2626,10 +2671,12 @@ fn run_server(
                 trusted_carrier_websocket: trusted_carrier,
                 workspace_http: remote_workspace_http,
                 relays: remote_relays,
+                carrier_grant_config: args.carrier_grant_config,
                 iroh: args.iroh,
                 advertised_routes: args.advertised_routes,
                 resume_lease: std::time::Duration::from_secs(args.remote_resume_lease_seconds),
                 replaceable_sidecar: false,
+                local_sockets: args.remote_local_sockets,
             },
         ) {
             Ok(runtime) => runtime,
@@ -2728,6 +2775,8 @@ fn run_server(
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
+    #[cfg(unix)]
+    cmux_tui_core::server::set_link_share_app_scheme(&mux, share_room::app_scheme().as_deref());
     #[cfg(unix)]
     cmux_tui_core::server::start_link_share_bridge(&mux, share_room::url().as_deref());
     // Ends terminals that have had no tab placement for the reap grace
@@ -2964,6 +3013,7 @@ fn reject_unsupported_remote_options(args: &Args) -> anyhow::Result<()> {
         || args.remote_state_dir.is_some()
         || args.remote_link_socket.is_some()
         || args.remote_admin_socket.is_some()
+        || !args.remote_local_sockets.is_empty()
         || !args.relay_endpoints.is_empty()
         || !args.relay_slots.is_empty()
         || !args.relay_credentials.is_empty()
@@ -3001,6 +3051,7 @@ fn run_tui_with_owner(
         owner_mux,
         config,
         None,
+        None,
     )
 }
 
@@ -3011,6 +3062,7 @@ fn run_tui_with_owner_and_host_colors(
     owner_mux: Option<Arc<Mux>>,
     config: config::StartupConfigSnapshot,
     host_color_override: Option<cmux_tui_core::DefaultColors>,
+    session_reconnector: Option<app::SessionReconnector>,
 ) -> anyhow::Result<()> {
     match run_tui_once(
         session,
@@ -3021,6 +3073,7 @@ fn run_tui_with_owner_and_host_colors(
         None,
         config,
         host_color_override,
+        session_reconnector,
     )? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
@@ -3104,6 +3157,7 @@ fn start_detached_owner_session(
         chief_tools_socket: None,
         chief_brains: None,
         websocket: None,
+        carried_env: Vec::new(),
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     // A restore can take minutes on a loaded machine: say so once instead of
@@ -3118,10 +3172,26 @@ fn start_detached_owner_session(
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline, &progress) {
         anyhow::bail!("{}", messages.ensure_failed(&error));
     }
+    // The owner was started from a staged build this call installed: this
+    // client still runs the old image, so the new file attaches instead.
+    #[cfg(unix)]
+    if let Some(binary) = staged_update::promoted() {
+        match staged_update::run_installed(binary) {
+            Ok(code) => client_log::exit(code),
+            Err(error) => {
+                client_log::warn("staged-update", &format!("run the installed build: {error}"));
+            }
+        }
+    }
+    #[cfg(unix)]
+    if let Some(notice) = staged_update::notice_for_owner(&socket_path) {
+        staged_update::set_startup_notice(notice);
+    }
     let remote = RemoteSession::connect_session(&socket_path, spec.socket_is_derived)
         .context("connect the interactive client to its detached session owner")?;
     run_connected_session_client(
         socket_path,
+        spec.socket_is_derived,
         args.session,
         config,
         Session::Remote(remote),
@@ -3130,8 +3200,18 @@ fn start_detached_owner_session(
     )
 }
 
+/// Connects to the session socket again after its daemon was replaced
+/// (`cmux daemon restart`): the TUI keeps its view and reattaches.
+fn session_reconnector(socket_path: PathBuf, socket_is_derived: bool) -> app::SessionReconnector {
+    Arc::new(move || {
+        RemoteSession::connect_session(&socket_path, socket_is_derived).map(Session::Remote)
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_connected_session_client(
     socket_path: PathBuf,
+    socket_is_derived: bool,
     session_label: String,
     config: config::StartupConfigSnapshot,
     session: Session,
@@ -3146,6 +3226,7 @@ fn run_connected_session_client(
             None,
             config,
             host_colors,
+            None,
         );
     }
     match session_client_mode(&config) {
@@ -3156,6 +3237,7 @@ fn run_connected_session_client(
             None,
             config,
             host_colors,
+            Some(session_reconnector(socket_path, socket_is_derived)),
         ),
         SessionClientMode::Machines => {
             let runtime = MachineRuntime::with_creation_sources(
@@ -3217,6 +3299,7 @@ fn run_machine_client_with_hub(
         Some(controller),
         config,
         host_colors,
+        None,
     )? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
@@ -3369,6 +3452,7 @@ fn run_provider_machine_client(
         Some(controller),
         config,
         None,
+        None,
     )? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
@@ -3451,6 +3535,7 @@ fn run_tui_once(
     machine_controller: Option<Box<dyn MachineController>>,
     config: config::StartupConfigSnapshot,
     host_color_override: Option<cmux_tui_core::DefaultColors>,
+    session_reconnector: Option<app::SessionReconnector>,
 ) -> anyhow::Result<app::RunOutcome> {
     crossterm::terminal::enable_raw_mode()?;
     let FrontendSessionPreparation { session, colors } =
@@ -3467,6 +3552,7 @@ fn run_tui_once(
         machine_ui,
         machine_controller,
         startup_config: config,
+        session_reconnector,
     })
 }
 

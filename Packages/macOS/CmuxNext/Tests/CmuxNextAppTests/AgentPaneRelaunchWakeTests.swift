@@ -142,7 +142,7 @@ struct AgentPaneRelaunchWakeTests {
         tabs.firstPageNewTab = { _, _ in (AgentPaneNewTab(kind: .agent), handler) }
         tabs.blankChatHandler = { _ in handler }
         let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))
-        tabs.takeSpare = { spare }
+        tabs.takeSpare = { _ in spare }
         let key = try #require(store.tab(surface: 1)?.id)
         tabs.wakeStates[key] = AgentPaneWakeState(shell: true, shellText: "npm run dev")
 
@@ -394,7 +394,7 @@ struct AgentPaneRelaunchWakeTests {
         let steps = QuitSaveSteps(remoteSnapshots: {}, agentComposers: {}, agentImages: {}, terminalFrames: {}, browserRecords: {},
                                   windows: {}, stopSavingWindows: {}, sidebar: {}, homeCache: {}, cloud: {})
         let before = try #require(steps.steps.firstIndex { $0.name == "agent_composers" })
-        let startsBy = steps.steps[..<before].reduce(QuitDeadline.quitMarkLimit + QuitSaveSteps.rememberLimit) { $0 + $1.limit }
+        let startsBy = steps.steps[..<before].reduce(QuitDeadline.quitMarkLimit) { $0 + $1.limit }
         let write: Duration = .milliseconds(300)
         #expect(startsBy + AgentPaneRelaunchWake.askLimit + write + QuitDeadline.replyMargin <= QuitDeadline.keepQuitLimit,
                 "the composer step starts by \(startsBy) and asks for \(AgentPaneRelaunchWake.askLimit): past the deadline")

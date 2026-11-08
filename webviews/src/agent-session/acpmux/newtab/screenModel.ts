@@ -2,7 +2,7 @@
 // rows under the field for the typed text, the `!` conversion and the chat cards. No React, no
 // host: NewTabScreen renders what these return.
 import type { AcpmuxSnapshot } from "../model";
-import { ageLabel, recentSessions } from "../NewTabPage";
+import { ageLabel, recentSessions } from "../newTabModel";
 import {
   EMPTY_OMNIBAR,
   matchScore,

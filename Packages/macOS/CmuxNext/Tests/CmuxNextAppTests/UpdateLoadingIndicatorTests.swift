@@ -38,7 +38,7 @@ import Testing
 
     @Test func attemptUpdateShowsOneLoadingCardFromCheckToRelaunch() throws {
         var flow = UpdateFlow()
-        _ = flow.handle(.checkRequested, preferences: .defaults)
+        _ = flow.handle(.attemptRequested, preferences: .defaults)
         var titles: [String] = []
         for phase in Self.attemptPhases {
             _ = flow.handle(.sparkle(phase), preferences: .defaults)

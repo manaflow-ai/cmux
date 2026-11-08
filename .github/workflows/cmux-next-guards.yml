@@ -142,7 +142,7 @@ jobs:
           done
           [ "$bad" = 0 ] || exit 1
 
-  # The CI guard group's, the tooling tests' and the release-notary guards' runner.
+  # The tooling tests' and the release-notary guards' runner (the CI guard group runs on Linux only, below).
   # Jobs that need neither Linux nor Blacksmith take fleet Linux (vars.LINUX_RUNNER when it names our
   # own Linux runner), else a mini idle now with no nightly job waiting on its pool, else their
   # Blacksmith label (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things
@@ -211,7 +211,7 @@ jobs:
         timeout-minutes: 2
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          JOBS: ci-guard-group tooling-tests release-notary
+          JOBS: tooling-tests release-notary
           # Fork branch first: a fork never reads the runner variables (and its job is skipped); ubuntu-24.04 places nothing.
           FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
           SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
@@ -241,11 +241,11 @@ jobs:
     # and push (175-359 s on 4 vCPU with 8 workers). vars.LINUX_RUNNER names the 4 vCPU size, so it is read only
     # when it names a non-Blacksmith runner; in a Blacksmith outage CI_CLOUD_OVERFLOW_SAVED moves it to 16 vCPU
     # (tests/test_feat_ci_guard_group.py, tests/test_ci_blacksmith_linux_failover.py).
-    # Fleet Linux, then a free mini (portable-placement: the guards are Python, bash and bun, and the head and
-    # base run on the same machine, so a red of the machine's own is a base red), then Blacksmith.
-    needs: [portable-placement]
+    # Linux only: fleet Linux (vars.LINUX_RUNNER when it names our own runner), then Blacksmith. Not a portable
+    # job: on a mini 24 of its steps red (no python3.9 or node, temp-cwd scripts),
+    # so portable-placement does not place it.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.mini_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -322,8 +322,8 @@ jobs:
         with:
           bun-version: "1.4.4"
 
-      # setup-python has no macOS arm64 build of 3.9, so a mini (portable-placement) takes the one uv installs
-      # instead. The head and the base run on the same machine, so either way they compare like for like.
+      # setup-python installs 3.9 on Linux; a runner without it takes the one uv installs, if any.
+      # The head and the base run on the same machine, so either way they compare like for like.
       - name: Set up Python 3.9 for nightly prune compatibility
         id: python39
         if: runner.os == 'Linux'
@@ -728,6 +728,9 @@ jobs:
       - name: A rebuilt cmux-tui commit reuses its earlier publication
         run: python3 tests/test_cmux_tui_republish_same_commit.py
 
+      - name: verify-cmux-tui-hosted.sh leaves its hosted run alone when the wait ends
+        run: python3 tests/test_verify_cmux_tui_hosted.py
+
       - name: The crash ratchet is judged against the base
         run: python3 tests/test_crash_ratchet_compare.py
 
@@ -871,6 +874,17 @@ jobs:
         run: |
           python3 tests/test_ci_macos_stubs.py
           python3 tests/test_ci_macho_parity.py
+
+      - name: Set up Rust for the tailnet build-script fixture
+        if: ${{ !cancelled() }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: The tailnet target selection and job-local Go installer
+        if: ${{ !cancelled() }}
+        run: |
+          python3 tests/test_tailnet_build_delivery.py
+          python3 tests/test_tailnet_go.py
+          bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
 
       - name: The cmux-browser-host release package
         if: ${{ !cancelled() }}

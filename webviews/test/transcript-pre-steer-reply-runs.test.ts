@@ -43,7 +43,7 @@ const notesIn = (rows: AcpmuxRow[]) =>
   rows.flatMap((each) => (each.items ?? []).filter((item) => item.kind === "note").map((item) => item.text));
 
 test("a running turn's Codex-style runs keep the reply before a steer; other chatter folds", () => {
-  const view = turnView(running, new Set(), { working: true, liveRuns: true, now: START + 200_000 });
+  const view = turnView(running, new Set(), { working: true, now: START + 200_000 });
   expect(view.some((each) => each.id === "r1")).toBe(true);
   expect(notesIn(view)).not.toContain("The minis are healthy.");
   expect(view.some((each) => each.id === "n1")).toBe(false);
@@ -51,7 +51,7 @@ test("a running turn's Codex-style runs keep the reply before a steer; other cha
 });
 
 test("an ended Codex turn keeps the reply before a steer in sight, closed or opened", () => {
-  const options = { liveRuns: true, agentFamily: "codex", now: START + 400_000 };
+  const options = { agentFamily: "codex", now: START + 400_000 };
   const closed = turnView(ended, new Set(), options).map((each) => each.id);
   expect(closed).toContain("r1");
   expect(closed).toContain("s1");

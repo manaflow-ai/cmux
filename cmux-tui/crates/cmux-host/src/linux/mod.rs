@@ -52,6 +52,9 @@ struct Daemon {
     /// `None` when adopted from a previous agent run (not our child).
     child: Option<Arc<cmux_link::caller::RootOwnedDaemon>>,
     started: Instant,
+    /// The relay carrier flags it runs with (`carrier_entry.rs`), empty
+    /// without a carrier.
+    carrier: Vec<String>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -77,6 +80,8 @@ pub struct LinuxPlatform {
     inotify: Inotify,
     wd_run: i32,
     wd_etc: i32,
+    /// The Cloud state directory (`carrier.json`), when it exists.
+    wd_state: Option<i32>,
     /// `server.json`'s directory watch and file name, when it exists.
     config_watch: Option<(i32, std::ffi::OsString)>,
     signals: SignalFd,
@@ -111,6 +116,12 @@ impl LinuxPlatform {
         let inotify = Inotify::new()?;
         let wd_run = inotify.watch_dir(&paths.at(RUN_DIR))?;
         let wd_etc = inotify.watch_dir(&paths.at(ETC_DIR))?;
+        // The Cloud role writes carrier.json at its bind, which can come
+        // after this start: make its dir (0700, as the role does) so the
+        // watch is there first. Its removal is watched too: a session host
+        // started with the route must lose it when the file goes.
+        let wd_state =
+            carrier_dir(paths).and_then(|dir| inotify.watch_dir_with_removals(&dir).ok());
         let config_watch =
             match cfg.server_config.as_deref().map(|p| paths.at(&p.to_string_lossy())) {
                 Some(file) => match file.parent().filter(|dir| dir.is_dir()) {
@@ -142,6 +153,7 @@ impl LinuxPlatform {
             inotify,
             wd_run,
             wd_etc,
+            wd_state,
             config_watch,
             signals,
             rearm: TimerFd::new(Clock::Boottime)?,
@@ -232,6 +244,10 @@ impl LinuxPlatform {
                 out.push(Wake::DriverFile);
             } else if event.wd == self.wd_etc && event.name == BAKE_FILE_NAME {
                 out.push(Wake::BakeFile);
+            } else if Some(event.wd) == self.wd_state
+                && event.name == crate::carrier_entry::CARRIER_FILE_NAME
+            {
+                out.push(Wake::CarrierFile);
             } else if self
                 .config_watch
                 .as_ref()
@@ -255,6 +271,8 @@ impl LinuxPlatform {
         let version =
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
         let mut spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        let carrier = carrier_args(&paths, &host_entry(&self.cfg)?);
+        spec.args.extend(carrier.iter().cloned());
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
         let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
@@ -269,7 +287,8 @@ impl LinuxPlatform {
         {
             eprintln!("cmux-host: epoll add for session host {pid}: {e}");
         }
-        self.daemon = Some(Daemon { pid, pidfd, child: Some(child), started: Instant::now() });
+        self.daemon =
+            Some(Daemon { pid, pidfd, child: Some(child), started: Instant::now(), carrier });
         let written = ensure_agent_dir(&paths).and_then(|()| {
             identity::write_atomic(&paths.at(DAEMON_PID_FILE), format!("{pid}\n").as_bytes(), 0o600)
         });
@@ -322,10 +341,7 @@ impl LinuxPlatform {
     }
 
     fn rekey(&mut self, id: &str) -> io::Result<Option<Input>> {
-        let mut argv = self.cfg.self_argv.clone();
-        if argv.is_empty() {
-            argv.push(std::env::current_exe()?.display().to_string());
-        }
+        let mut argv = host_entry(&self.cfg)?;
         let program = argv.remove(0);
         argv.extend([
             "rekey".to_owned(),
@@ -498,7 +514,7 @@ fn interface_addresses() -> Vec<(String, IpAddr)> {
 /// `CLOCK_REALTIME - CLOCK_BOOTTIME` in nanoseconds. A snapshot restore
 /// stops the boot clock while the machine is stopped, so this grows by the
 /// stopped time once realtime is set again; a sync moves it only by drift.
-fn realtime_minus_boottime_ns() -> i128 {
+pub(crate) fn realtime_minus_boottime_ns() -> i128 {
     fn read(clock: libc::clockid_t) -> i128 {
         let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
         // SAFETY: `ts` is a valid, writable timespec for the call.
@@ -652,9 +668,23 @@ impl Platform for LinuxPlatform {
         let (pid, pidfd) =
             procs::find_session_host(&self.cfg.paths.at(DAEMON_PID_FILE), &layout.bin, layout.uid)?;
         self.epoll.add(pidfd.raw(), T_DAEMON).ok()?;
+        let carrier = crate::carrier_entry::args_in(&procs::cmdline(pid).unwrap_or_default());
         self.daemon =
-            Some(Daemon { pid, pidfd: Some(pidfd), child: None, started: Instant::now() });
+            Some(Daemon { pid, pidfd: Some(pidfd), child: None, started: Instant::now(), carrier });
         Some(pid)
+    }
+
+    /// Whether the running session host's route differs from carrier.json's.
+    /// Called on every carrier.json write and removal: it also rewrites the
+    /// grant config ([`carrier_args`]), so a rotated keyset reaches the
+    /// running host's verifier without a respawn, and a removed file
+    /// respawns the host without the carrier flags.
+    fn carrier_changed(&mut self) -> bool {
+        let Ok(host) = host_entry(&self.cfg) else {
+            return false;
+        };
+        let want = carrier_args(&self.cfg.paths, &host);
+        self.daemon.as_ref().is_some_and(|daemon| daemon.carrier != want)
     }
 
     fn run(&mut self, action: &Action) -> io::Result<Option<Input>> {
@@ -754,20 +784,218 @@ fn remote_entry(paths: &crate::config::Paths) -> crate::remote_entry::RemoteEntr
     entry
 }
 
+/// The session host's relay carrier flags from `carrier.json`
+/// (`carrier_entry.rs`), read only when root owns it and neither group nor
+/// others may write it. Empty without the file; a refused file is logged
+/// and gives no carrier. With it, the session host's grant config
+/// ([`crate::carrier_entry::GRANT_CONFIG_FILE`], 0644, public fields only)
+/// is written first (temp file, then rename), so a session host started
+/// with these flags finds it. Each carrier.json change writes it again, and
+/// the running host's verifier re-reads it at the first grant signed by a
+/// kid it does not hold (a rotated keyset, `cloud/carrier_keyset.rs`).
+/// The command that runs this supervisor's verbs, the program first: the
+/// `cmux host` it was started as (`[<current>/bin/cmux, host]`), else this
+/// executable (the standalone `cmux-host`, whose verbs need no noun).
+fn host_entry(cfg: &Config) -> io::Result<Vec<String>> {
+    if cfg.self_argv.is_empty() {
+        Ok(vec![std::env::current_exe()?.display().to_string()])
+    } else {
+        Ok(cfg.self_argv.clone())
+    }
+}
+
+/// The session host's carrier flags; `host` is [`host_entry`], whose
+/// `cloud carrier-ticket` is the ticket command.
+fn carrier_args(paths: &crate::config::Paths, host: &[String]) -> Vec<String> {
+    use crate::carrier_entry::GRANT_CONFIG_FILE;
+    let Some(file) = carrier_file(paths) else { return Vec::new() };
+    let grant_config = paths.at(GRANT_CONFIG_FILE);
+    let text = format!("{}\n", file.grant_config());
+    if let Err(e) = identity::write_atomic(&grant_config, text.as_bytes(), 0o644) {
+        eprintln!("cmux-host: {}: {e}; carrier off", grant_config.display());
+        return Vec::new();
+    }
+    file.route.args(host, &grant_config)
+}
+
+fn carrier_file(paths: &crate::config::Paths) -> Option<crate::carrier_entry::CarrierFile> {
+    use crate::carrier_entry::{CARRIER_FILE, parse_file};
+    // SAFETY: geteuid has no preconditions.
+    let euid = unsafe { libc::geteuid() };
+    trusted_text(&paths.at(CARRIER_FILE), "carrier.json", euid)
+        .and_then(|text| parse_file(text.as_deref()))
+        .inspect_err(|why| eprintln!("cmux-host: carrier.json refused ({why}); carrier off"))
+        .ok()
+        .flatten()
+}
+
+/// The directory of `carrier.json`, made (0700) when missing; `None` when
+/// it cannot be.
+fn carrier_dir(paths: &crate::config::Paths) -> Option<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+    let file = paths.at(crate::carrier_entry::CARRIER_FILE);
+    let dir = file.parent()?;
+    if !dir.is_dir() {
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)
+            .map_err(|e| eprintln!("cmux-host: {}: {e}; no carrier.json watch", dir.display()))
+            .ok()?;
+    }
+    Some(dir.to_path_buf())
+}
+
 /// The host config's text: `None` when absent, an error when the file may
 /// not be trusted or cannot be read.
 fn host_config_text(file: &std::path::Path) -> Result<Option<String>, String> {
+    // SAFETY: geteuid has no preconditions.
+    trusted_text(file, "host.json", unsafe { libc::geteuid() })
+}
+
+/// A root-written config's text: `None` when absent, an error unless it is
+/// a regular file owned by `euid` (root in production) that neither group
+/// nor others may write (`remote_entry::file_is_trusted`).
+pub(crate) fn trusted_text(
+    file: &std::path::Path,
+    name: &str,
+    euid: u32,
+) -> Result<Option<String>, String> {
     use std::os::unix::fs::MetadataExt;
     let meta = match fs::symlink_metadata(file) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("cannot stat host.json: {e}")),
+        Err(e) => return Err(format!("cannot stat {name}: {e}")),
         Ok(meta) => meta,
     };
     if !meta.file_type().is_file() {
-        return Err("host.json is not a regular file".to_owned());
+        return Err(format!("{name} is not a regular file"));
     }
-    // SAFETY: geteuid has no preconditions.
-    let euid = unsafe { libc::geteuid() };
-    crate::remote_entry::file_is_trusted(meta.uid(), meta.mode(), euid)?;
-    fs::read_to_string(file).map(Some).map_err(|e| format!("cannot read host.json: {e}"))
+    crate::remote_entry::file_is_trusted(meta.uid(), meta.mode(), euid)
+        .map_err(|why| why.replacen("host.json", name, 1))?;
+    fs::read_to_string(file).map(Some).map_err(|e| format!("cannot read {name}: {e}"))
+}
+
+#[cfg(test)]
+mod carrier_file_tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::{carrier_args, trusted_text};
+    use crate::carrier_entry::{CARRIER_FILE, GRANT_CONFIG_FILE};
+    use crate::config::Paths;
+
+    /// With carrier.json, the session host's flags name its grant config,
+    /// written first with only the public fields (0644); without it, no
+    /// flags and no file.
+    fn carrier(kid: &str) -> serde_json::Value {
+        serde_json::json!({
+            "relay": "relay+do://relay.cmux.dev",
+            "machine": "vm_0123456789abcdefghij",
+            "slot": "AAAAAAAAAAAAAAAAAAAAAA",
+            "team": "team_0123456789abcdefghij",
+            "issuer": "cmux:cloud:production",
+            "keyset": {"version": "0123456789abcdef", "keys": {kid: {
+                "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": kid,
+                "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            }}},
+        })
+    }
+
+    fn write_carrier(paths: &Paths, carrier: &serde_json::Value) {
+        let file = paths.at(CARRIER_FILE);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, carrier.to_string()).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn grant_config(paths: &Paths) -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(paths.at(GRANT_CONFIG_FILE)).unwrap())
+            .unwrap()
+    }
+
+    #[test]
+    fn the_carrier_flags_come_with_a_public_grant_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
+        assert!(carrier_args(&paths, bin).is_empty());
+        assert!(!paths.at(GRANT_CONFIG_FILE).exists());
+        let carrier = carrier("k1");
+        write_carrier(&paths, &carrier);
+        let args = carrier_args(&paths, bin);
+        let grant = paths.at(GRANT_CONFIG_FILE);
+        let at = args.iter().position(|arg| arg == "--carrier-grant-config").unwrap();
+        assert_eq!(args[at + 1], grant.display().to_string());
+        assert_eq!(
+            grant_config(&paths),
+            serde_json::json!({
+                "issuer": carrier["issuer"], "machine": carrier["machine"],
+                "team": carrier["team"], "keyset": carrier["keyset"],
+            })
+        );
+        assert_eq!(std::fs::metadata(&grant).unwrap().permissions().mode() & 0o777, 0o644);
+    }
+
+    /// A rotated keyset in carrier.json rewrites the grant config the running
+    /// host's verifier re-reads, with the same flags: no respawn.
+    #[test]
+    fn a_rotated_keyset_rewrites_the_grant_config_with_the_same_flags() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
+        write_carrier(&paths, &carrier("k1"));
+        let before = carrier_args(&paths, bin);
+        let rotated = carrier("k2");
+        write_carrier(&paths, &rotated);
+        assert_eq!(carrier_args(&paths, bin), before);
+        assert_eq!(grant_config(&paths)["keyset"], rotated["keyset"]);
+    }
+
+    /// Removing carrier.json wakes the supervisor's watch (it is a change
+    /// of route, to none) and leaves no carrier flags for the respawn.
+    #[test]
+    fn a_removed_carrier_json_wakes_the_watch_and_drops_the_flags() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
+        write_carrier(&paths, &carrier("k1"));
+        assert!(!carrier_args(&paths, bin).is_empty());
+        let inotify = crate::linux::fds::Inotify::new().unwrap();
+        let state = paths.at(CARRIER_FILE).parent().unwrap().to_path_buf();
+        let wd = inotify.watch_dir_with_removals(&state).unwrap();
+        std::fs::remove_file(paths.at(CARRIER_FILE)).unwrap();
+        let events = inotify.read_events().unwrap();
+        assert!(
+            events.iter().any(|e| e.wd == wd
+                && e.name == crate::carrier_entry::CARRIER_FILE_NAME
+                && e.mask & libc::IN_DELETE != 0),
+            "no removal event"
+        );
+        assert!(carrier_args(&paths, bin).is_empty());
+    }
+
+    /// carrier.json counts only as a regular file owned by the agent's uid
+    /// that neither group nor others may write.
+    #[test]
+    fn carrier_json_is_refused_unless_owner_only_writable() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("carrier.json");
+        // SAFETY: geteuid has no preconditions.
+        let euid = unsafe { libc::geteuid() };
+        assert_eq!(trusted_text(&file, "carrier.json", euid), Ok(None));
+        std::fs::write(&file, "{}").unwrap();
+        for (mode, ok) in [(0o600, true), (0o644, true), (0o620, false), (0o602, false)] {
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
+            let read = trusted_text(&file, "carrier.json", euid);
+            assert_eq!(read.is_ok(), ok, "{mode:o}: {read:?}");
+            if let Err(why) = read {
+                assert!(why.starts_with("carrier.json mode"), "{why}");
+            }
+        }
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let other = trusted_text(&file, "carrier.json", euid.wrapping_add(1)).unwrap_err();
+        assert!(other.starts_with("carrier.json is owned by uid"), "{other}");
+        let link = dir.path().join("link.json");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        assert!(trusted_text(&link, "carrier.json", euid).is_err());
+    }
 }

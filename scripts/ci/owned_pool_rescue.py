@@ -310,6 +310,10 @@ _POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#
                   "on a live Linux member; the queue janitor re-runs a job queued on a dead one, and no owned Mac is "
                   "involved for the rescue to move")
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/gateway-e2e.yml":
+        "a manual proof (the inference gateway on an owned Mac on the tailnet): its mac job holds the dev stack pair "
+        "and must stay on an owned Mac to reach the subscription router, so a Blacksmith rescue could only fail it; "
+        "its 45-minute timeout clears a stuck run and the person re-dispatches",
     ".github/workflows/backend.yml":
         "migrations-push-guard reads vars.RUNNER_POOLS.linux (cmux#30685, kept by #30761), which runner_pools.py "
         "keeps on a live Linux member, and it holds no secret; its job timeout or a person's cancel clears a stuck "

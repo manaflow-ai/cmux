@@ -150,6 +150,14 @@ public import Foundation
             case .unreadable: "cached login unreadable (the Keychain did not answer): the chat's Sign in to Claude card"
             }
         }
+
+        /// `check`'s ``startOutcome``. A check cancelled with its start throws ``CancellationError``: the Keychain
+        /// read the cancellation cut short is not a Keychain that did not answer.
+        public static func startOutcome(_ check: () async -> Self) async throws -> String? {
+            let cached = await check()
+            try Task.checkCancellation()
+            return cached.startOutcome
+        }
     }
 
     /// Whether cmux already holds this account's login for `provider` (Claude only: a Codex login is

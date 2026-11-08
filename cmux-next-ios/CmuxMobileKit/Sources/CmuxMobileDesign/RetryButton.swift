@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import SwiftUI
 
 /// The shared recovery action. Its work belongs to the visible control and is
@@ -41,7 +42,7 @@ public struct RetryButton: View {
             isRetrying = true
         } label: {
             HStack(spacing: 8) {
-                if isRetrying { ProgressView().controlSize(.small) }
+                if isRetrying { CmuxSpinner().controlSize(.small) }
                 title ?? Text(verbatim: Self.defaultTitle)
             }
         })

@@ -66,7 +66,7 @@ final class NewTabSparePool {
     /// Main-thread time of the last move of the parked spare to another window.
     private(set) var lastRetargetMilliseconds: Double?
 
-    /// The native New Tab page's spare (`tabs.nativeNewTabPage`): one SwiftUI page, made and laid out
+    /// The native New Tab page's spare (`tabs.nativeNewTabPage`): one AppKit page, made and laid out
     /// in the parking view at the target pane's size at a quiet moment, so Cmd-T shows it with no
     /// build or layout (cmux19-perf: a cold native page showed on the 4th frame, 51 ms p50).
     private(set) var nativeSpare: NativeNewTabHostingView?
@@ -127,11 +127,11 @@ final class NewTabSparePool {
         services.agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }
         // The first page of a new workspace (Cmd-N, an empty window's New Tab page) adopts the
         // spare too, so a cold Cmd-N shows a page that already loaded (cx-ec99).
-        services.agentTabs.takeSpare = { [weak self] in
+        services.agentTabs.takeSpare = { [weak self] refill in
             guard let self, let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else { return nil }
             let start = ContinuousClock.now
-            let spare = self.take(for: window, size: nil)
-            self.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true, milliseconds: Self.milliseconds(since: start)))
+            let spare = self.take(for: window, size: nil, refill: refill)
+            if refill != .idle { self.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true, milliseconds: Self.milliseconds(since: start))) } // idle work opens nothing
             return spare?.view
         }
         // A tab opening an existing chat of this Mac adopts it only once its client is connected
@@ -278,7 +278,7 @@ final class NewTabSparePool {
     /// `refit` is true when the spare waited at another size than `size`, the one it shows at
     /// (nil: not known yet, Cmd-N): its adoption resizes it.
     func take(for window: NSWindow?, size: NSSize?, refill: AgentPaneSpareRefill = .now, still: AgentPaneSpareRefiller.Still? = nil) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
-        usedThisSession = true
+        if refill != .idle { usedThisSession = true } // idle work (Cmd-N's reservation) served no open: a launch keeps one page
         observeWindows()
         if target == nil, let window { retarget(window) }
         guard let view = slot.take() else { return nil }
@@ -286,7 +286,7 @@ final class NewTabSparePool {
         // as the backstop. The next spare already has its own cover: the key's turn captures nothing.
         defer {
             scheduleWarm()
-            if refill == .now { refills.afterOpen(shown: view, still: still) }
+            if refill != .whenQuiet { refills.afterOpen(shown: refill == .now ? view : nil, still: still) } // .idle: its page draws no frame yet
         }
         covers.forget(view)
         view.isHidden = false

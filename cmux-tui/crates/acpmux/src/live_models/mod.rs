@@ -59,6 +59,10 @@ pub struct LiveModel {
     /// The CLI's default model.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_default: bool,
+    /// The model the CLI's own catalog moves this one to (Codex's `upgrade`): set, the model is
+    /// a legacy one, listed but not among the harness's current models (`topModels`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upgrade: Option<String>,
 }
 
 /// Which CLI a harness's live list comes from.
@@ -131,6 +135,11 @@ impl Probe {
         }
         crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
         crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
+        // Never another harness's login (`agent/foreign_login.rs`).
+        let runs = crate::agent::foreign_login::Runs::Agent(family.to_owned());
+        crate::agent::foreign_login::remove_foreign(&runs, |key| {
+            cmd.env_remove(key);
+        });
         cmd.args(rest)
             .args(match cli {
                 Cli::Claude => claude::args(),

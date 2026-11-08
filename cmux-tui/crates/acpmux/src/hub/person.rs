@@ -121,7 +121,8 @@
 //!   `ACPMUX_SESSION_TOKEN_SOCKET`, this daemon's socket, and the CLI sends
 //!   the token only to that socket ([`caller_env`], `client.rs`). A
 //!   profile's, preset's or request's env never sets either variable: the
-//!   spawn drops them from every env it layers after `caller_env`; adoption: `adopted_callers`.
+//!   spawn drops them from every env it layers after `caller_env`; adoption: `adopted_callers`;
+//!   earlier runs' tokens: `caller_registry.rs`.
 //! - No start mode that does not ask applies to an adopt without the
 //!   person: an adopt may find a session already running
 //!   (`hub/adoption.rs`, `ifLive: "open"`), and only the person widens a
@@ -154,6 +155,18 @@
 //!   Without the person, `approveMode: true` and a preset `mode` that does
 //!   not ask are refused; `approveMode: false` and an asking mode narrow and
 //!   stay open.
+//! - (e) The start level (cmux#37392): a plain start (no preset, no adopt, no
+//!   folder profile, no profile that pins its mode) that names exactly the
+//!   full-access mode its harness offers and a start with no mode gets there
+//!   now (the person's start level for that profile is full access:
+//!   `agents.defaultPermissionMode`, the default, with
+//!   `sessions.allowFullAccess` on) asks for nothing more. Checked on the
+//!   request and again on the started session (`Hub::plain_start_is`,
+//!   `Hub::plain_session_is`). A proven caller session must itself run full
+//!   access, and the child keeps cmux's mark only when the caller's is cmux's.
+//!   Before this a Chief's `cmux chat new --mode bypassPermissions` (on the
+//!   app's daemon, where the Chief's caller token proves nothing) was refused
+//!   while the same start without `--mode` ran in bypass.
 //! - (d) The refusal ([`mode_person_required`]) is one sentence that names
 //!   where to approve: cmux NEXT on this host ([`host_label`]), or the
 //!   preset to approve there once; `error.data` carries `host`, `mode` and
@@ -238,10 +251,14 @@
 //!   process still has to run somewhere: an agent of a session that asks
 //!   needs an allowed command or read to get there. Binding the token to the
 //!   connecting process's ancestry (peer pid) is a later hardening.
-//! - A token dies with its daemon run: a harness that outlives a restart
-//!   (an agent host) inherits nothing until the next spawn.
+//! - A token outlives its daemon run while the session's host does: the next
+//!   run knows it by the host's record and by `caller-tokens.json`, which keeps
+//!   only digests of the tokens each session still accepts
+//!   (`caller_registry.rs`); a new host of the session ends the earlier ones.
 //! - `session/new` with a `policy` other than ask or deny-all is open to the
-//!   unix socket (it predates this check); a mode is not.
+//!   unix socket (it predates this check); a mode is not. A proven caller
+//!   session below full access names none wider than its own
+//!   (`full_access_children.rs`).
 //! - Open question (cx-wx93i): while the person's start mode is full
 //!   access (the default), a unix socket client that is no proven session,
 //!   such as `acpmux new` from a script, or an agent of a session that asks
@@ -896,13 +913,13 @@ pub(crate) fn asks(policy: PermissionPolicy) -> bool {
     matches!(policy, PermissionPolicy::Ask | PermissionPolicy::DenyAll)
 }
 
-/// How much a policy runs without asking: deny-all 0, ask 1, approve-reads 2,
+/// How much a policy runs without asking: deny-all 0, ask 1, approve-reads and review 2,
 /// approve-edits 3, approve-all 4. A higher number is wider.
 pub(crate) fn breadth(policy: PermissionPolicy) -> u8 {
     match policy {
         PermissionPolicy::DenyAll => 0,
         PermissionPolicy::Ask => 1,
-        PermissionPolicy::ApproveReads => 2,
+        PermissionPolicy::ApproveReads | PermissionPolicy::Review => 2,
         PermissionPolicy::ApproveEdits => 3,
         PermissionPolicy::ApproveAll => 4,
     }
@@ -976,7 +993,10 @@ impl Hub {
         params: &Value,
     ) -> Result<(), RpcError> {
         match m {
-            method::SESSION_NEW if starts_modes => self.session_new_check(caller, params).await,
+            method::SESSION_NEW if starts_modes => {
+                self.named_policy_check(caller, params).await?;
+                self.session_new_check(caller, params).await
+            }
             // Who may sign an allow is the person's own choice (`approvers.rs`).
             method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
                 Err(person_required("changing or reading trusted approvers"))
@@ -1131,8 +1151,18 @@ impl Hub {
                     Ok(())
                 } else if let (None | Some("mode"), Some(mode)) = (id, value) {
                     // The full-access mode new chats start in, which the person chose for every
-                    // chat (`start_mode.rs`); never for a Web or peer connection.
-                    if starts_modes && self.is_start_full_access(&s.meta(), mode).await {
+                    // chat, or Claude's own Auto under it (`start_mode.rs`); never for a Web or
+                    // peer connection.
+                    // Or the mode the session runs now, when that one asks at all (Claude Code's
+                    // Auto): a set that changes nothing widens nothing (cmux#37392: a Chief in
+                    // Auto under an `ask` start level was refused each turn). Never a full-access
+                    // mode: cmux's set would mark one the harness claimed as cmux's own
+                    // (`trust_wait.rs` `full_access_by_cmux`).
+                    let unchanged = crate::web_modes::mode_of(&s.meta()).as_deref() == Some(mode)
+                        && !super::start_mode::is_full_access(mode);
+                    if starts_modes
+                        && (unchanged || self.may_move_without_person(&s.meta(), mode).await)
+                    {
                         Ok(())
                     } else {
                         Err(mode_person_required(mode, None, false, starts_modes))

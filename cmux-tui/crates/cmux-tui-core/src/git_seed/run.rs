@@ -20,6 +20,10 @@ const SEED_REFSPEC: &str = "+refs/cmux-seed/*:refs/cmux-seed-incoming/*";
 
 /// Refuses a folder that holds something other than this repository: a
 /// non-empty folder without `.git`, or a clone of another remote.
+/// The checkout's github.com helper (`cmux github setup`'s key, local).
+const HELPER_KEY: &str = "credential.https://github.com.helper";
+const USE_HTTP_PATH_KEY: &str = "credential.https://github.com.useHttpPath";
+
 pub fn check_folder(git: &Git, folder: &Path, url: &str) -> Result<(), SeedRefusal> {
     let not_empty =
         |message: &str| SeedRefusal { code: "seed.folder_not_empty", message: message.into() };
@@ -66,6 +70,10 @@ pub struct Seed {
     credentials: Vec<Credential>,
     /// The path that worked last (the first one until one has).
     chosen: Credential,
+    /// The path the last step on the repository's own remote succeeded
+    /// with (never a submodule's or LFS's); None when none reached it (a
+    /// delta seed, a fetch that failed).
+    reached: Option<Credential>,
 }
 
 impl Seed {
@@ -79,13 +87,40 @@ impl Seed {
         credentials: Vec<Credential>,
     ) -> Self {
         let chosen = credentials.first().cloned().unwrap_or(Credential::Anonymous);
-        Self { job, params, folder, bundle, roots, git, credentials, chosen }
+        Self { job, params, folder, bundle, roots, git, credentials, chosen, reached: None }
     }
 
     pub fn run(mut self) -> Result<(), Failed> {
         self.steps()?;
+        self.keep_credential();
         self.report_head();
         Ok(())
+    }
+
+    /// The checkout keeps the GitHub path its clone or fetch used, so the
+    /// agent's own `git push` and `git pull` there work too: the checkout's
+    /// config asks `cmux github credential` (a token minted per git
+    /// process, never stored). Only when a network step of this seed went
+    /// through that path (a delta seed reaches no remote, so it keeps
+    /// nothing): the
+    /// lane helper is global already, and anonymous needs none. A checkout
+    /// with a github.com helper of its own keeps it. A failure is not the
+    /// seed's: the clone is there, its status says
+    /// `push_credential_not_kept`, and `cmux github setup` still wires git.
+    fn keep_credential(&self) {
+        let Some(Credential::CmuxGithub(helper)) = &self.reached else { return };
+        if self.git(&["config", "--local", "--get-all", HELPER_KEY]).is_ok() {
+            return;
+        }
+        // The empty value first drops a helper from the person's global
+        // config (a stored gh login) for github.com in this checkout only.
+        let kept = self
+            .git(&["config", "--local", "--add", HELPER_KEY, ""])
+            .and_then(|_| self.git(&["config", "--local", "--add", HELPER_KEY, helper]))
+            .and_then(|_| self.git(&["config", "--local", USE_HTTP_PATH_KEY, "true"]));
+        if kept.is_err() {
+            self.job.note("push_credential_not_kept");
+        }
     }
 
     fn steps(&mut self) -> Result<(), Failed> {
@@ -181,7 +216,11 @@ impl Seed {
         if !self.has_ref(&commit) && git_ref.len() >= 40 {
             let folder = self.folder.clone();
             let sha = git_ref.to_owned();
-            let _ = self.net(Some(&folder), &["fetch", "--progress", "origin", &sha], &mut || {});
+            let _ = self.net_origin(
+                Some(&folder),
+                &["fetch", "--progress", "origin", &sha],
+                &mut || {},
+            );
         }
         if !self.has_ref(&commit) {
             return Err(failed(
@@ -204,6 +243,22 @@ impl Seed {
 
     /// `git ARGS` (in `cwd`) with each GitHub path until one works.
     /// `between` runs after each failed try.
+    /// [`Self::net`] for the seeded repository's own remote (not a
+    /// submodule's or LFS's): the path that worked is the one the checkout
+    /// keeps for push ([`Self::keep_credential`]).
+    fn net_origin(
+        &mut self,
+        cwd: Option<&Path>,
+        args: &[&str],
+        between: &mut dyn FnMut(),
+    ) -> Result<(), Vec<Failure>> {
+        let result = self.net(cwd, args, between);
+        if result.is_ok() {
+            self.reached = Some(self.chosen.clone());
+        }
+        result
+    }
+
     fn net(
         &mut self,
         cwd: Option<&Path>,
@@ -240,7 +295,7 @@ impl Seed {
             self.job.enter(Phase::Fetch);
             // A fetch that fails is not the end: the base may be here already.
             if let Err(failures) =
-                self.net(Some(&folder), &["fetch", "--progress", "origin"], &mut || {})
+                self.net_origin(Some(&folder), &["fetch", "--progress", "origin"], &mut || {})
                 && failures.iter().any(Failure::disk_full)
             {
                 return Err(classify(&failures, "seed.clone_failed"));
@@ -263,14 +318,15 @@ impl Seed {
             ["clone", "--progress", "--filter=blob:none", "--no-checkout", "--", &url, &target];
         // A clone cut short is removed before the next path tries.
         let mut clean = || clean_folder(&folder, existed);
-        self.net(None, &args, &mut clean)
+        self.net_origin(None, &args, &mut clean)
             .map_err(|failures| classify(&failures, "seed.clone_failed"))
     }
 
     /// A delta seed builds on this folder's last seed or last export
     /// ([`super::export`], which the Mac merged back): same remote, its WORK
-    /// is `since`, and nothing changed on the machine since (HEAD, the index
-    /// and the working tree with untracked files are still that record's).
+    /// is `since`, and nothing changed on the machine since (HEAD, the stash,
+    /// the index and the working tree with untracked files are still that
+    /// record's).
     fn check_delta(&self, since: &str) -> Result<(), Failed> {
         self.recheck()?;
         let mismatch = |error: &str| failed("seed.since_mismatch", error);
@@ -300,6 +356,10 @@ impl Seed {
         let changed = |error: &str| failed("seed.machine_changed", error);
         if read("HEAD^{commit}").as_deref() != Some(head.as_str()) {
             return Err(changed("HEAD moved on the machine since the last seed"));
+        }
+        // The delta sets refs/stash to the Mac's, so a stash made here would be lost.
+        if read("refs/stash^{commit}") != read(&format!("{record}/stash^{{commit}}")) {
+            return Err(changed("the stash changed on the machine since the last seed"));
         }
         let work = read(&format!("{since}^{{tree}}")).unwrap_or_default();
         let snapshot = Snapshot::take(&self.git, &self.chosen, &self.folder)
@@ -336,7 +396,7 @@ impl Seed {
         let folder = self.folder.clone();
         let base = self.params.base.clone();
         let fetched =
-            self.net(Some(&folder), &["fetch", "--progress", "origin", &base], &mut || {});
+            self.net_origin(Some(&folder), &["fetch", "--progress", "origin", &base], &mut || {});
         if self.has_commit(&base) {
             return Ok(());
         }
@@ -429,6 +489,12 @@ impl Seed {
             if self.git(&["rev-parse", "--verify", "--quiet", &incoming]).is_ok() {
                 self.git(&["update-ref", "-d", &incoming])?;
             }
+        }
+        // The optional deletion marker carries a stash-only delta through Git's
+        // bundle format. It has no semantic ref in the seeded working copy.
+        let marker = "refs/cmux-seed-incoming/stash-cleared";
+        if self.git(&["rev-parse", "--verify", "--quiet", marker]).is_ok() {
+            self.git(&["update-ref", "-d", marker])?;
         }
         Ok(())
     }

@@ -2,6 +2,7 @@
 import CmuxAgentQuestion
 import CmuxMobileAgentChat
 import CmuxMobileDesign
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -44,11 +45,11 @@ struct ChiefQuestionBar: View {
                     // Room first, then the bar fades in.
                     resized()
                     fading(false, Self.fadeDuration)
-                    withAnimation(.easeOut(duration: Self.fadeDuration)) { visible = true }
+                    withAnimation(.easeOut(duration: Self.fadeDuration).unlessReduceMotion) { visible = true }
                 } else if shown != nil {
                     // The bar fades out first; then the room closes.
                     fading(true, Self.fadeDuration)
-                    withAnimation(.easeIn(duration: Self.fadeDuration)) {
+                    withAnimation(.easeIn(duration: Self.fadeDuration).unlessReduceMotion) {
                         visible = false
                     } completion: {
                         shown = nil
@@ -139,7 +140,7 @@ struct ChiefQuestionBar: View {
         Button { session.retryConnecting() } label: {
             HStack(spacing: 10) {
                 if retrying {
-                    ProgressView().controlSize(.small)
+                    CmuxSpinner().controlSize(.small)
                 } else {
                     Image(systemName: "exclamationmark.triangle.fill").font(.body).foregroundStyle(.orange)
                 }
@@ -203,7 +204,7 @@ struct ChiefQuestionBar: View {
     @ViewBuilder private func label(_ question: AgentQuestion, flow: ChiefAnswerFlow) -> some View {
         let icon = Group {
             if flow.isBusy {
-                ProgressView().controlSize(.small)
+                CmuxSpinner().controlSize(.small)
             } else {
                 Image(systemName: "questionmark.bubble.fill").font(.body)
             }
@@ -460,7 +461,7 @@ struct ChiefQuestionSheet: View {
     private func statusRow(_ text: String) -> some View {
         HStack(spacing: 8) {
             if flow.isBusy {
-                ProgressView().controlSize(.small)
+                CmuxSpinner().controlSize(.small)
             } else if flow.state == .sent {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
             } else if flow.state == .unconfirmed {

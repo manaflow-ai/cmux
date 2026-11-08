@@ -7,8 +7,9 @@
 //! - A folder in a git checkout on a branch becomes a fresh worktree of the same branch on the
 //!   target (`Folder::Worktree`), its subfolder kept. The branch is pushed first, so the target
 //!   checks out what this machine has. A detached HEAD or a checkout with no `origin` is refused;
-//!   so are uncommitted changes, unless `--leave-dirty` (they then stay on this machine and the
-//!   move's record says so).
+//!   so are uncommitted changes, unless `--carry-changes` (they go with the chat,
+//!   `session_move_carry.rs`) or `--leave-dirty` (they then stay on this machine and the move's
+//!   record says so). `leave_dirty` below is either: the folder may be dirty.
 //! - Any other folder under this machine's home maps to the same path under the target's home
 //!   (`~/Projects/x` stays `~/Projects/x`), made there if missing (`Folder::Plain`). Its files do
 //!   not move. A folder outside the home is refused: pass `--cwd`.
@@ -154,7 +155,7 @@ pub(crate) fn plan_folder(
             .ok_or_else(|| format!("origin of {} is not an owner/name remote", c.top.display()))?;
         if c.dirty && !leave_dirty {
             return Err(format!(
-                "{} has uncommitted changes: commit them, or pass --leave-dirty to move without them",
+                "{} has uncommitted changes: commit them, pass --carry-changes to bring them, or --leave-dirty to move without them",
                 c.top.display()
             ));
         }

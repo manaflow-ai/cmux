@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import SwiftUI
 
 /// Chief info's Computer card, in Messages' Find My slot: "<name>'s Computer" as the section
@@ -58,14 +59,14 @@ private struct ChiefComputerScreen: View {
                         .accessibilityLabel(String(localized: "Screen of \(title)"))
                         .accessibilityIdentifier("chief.settings.computer.screen")
                 } else {
-                    ProgressView().tint(.white)
+                    CmuxSpinner(tint: .white)
                 }
             case .asleep:
                 message(String(localized: "Computer is asleep"), symbol: "moon.zzz.fill")
                     .accessibilityIdentifier("chief.settings.computer.asleep")
             case .waking:
                 VStack(spacing: 8) {
-                    ProgressView().tint(.white)
+                    CmuxSpinner(tint: .white)
                     Text(String(localized: "Waking up…"))
                         .font(.footnote)
                         .foregroundStyle(.white.opacity(0.8))

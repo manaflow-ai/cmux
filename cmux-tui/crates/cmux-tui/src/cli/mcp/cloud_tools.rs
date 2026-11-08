@@ -349,10 +349,6 @@ impl<B: Backend> Runner for AppRunner<'_, B> {
     fn fresh_name(&mut self) -> String {
         chat::fresh_machine_name()
     }
-
-    fn prompt_id(&mut self) -> String {
-        chat::new_prompt_id()
-    }
 }
 
 /// A finished chain as its tool result: the answer, or its error (`details` keep the chat's ids).

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { artifactKind } from "../src/agent-session/acpmux/conversation/artifactPreview";
-import { outputArtifacts } from "../src/agent-session/acpmux/session-info/OutputsSection";
+import { outputArtifacts } from "../src/agent-session/acpmux/session-info/outputsSectionModel";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
   artifactCanRender,
@@ -9,7 +9,7 @@ import {
   artifactNeedsRun,
 } from "../src/agent-session/acpmux/conversation/artifactSandbox";
 import { uniqueArtifacts } from "../src/agent-session/acpmux/conversation/artifactDedupe";
-import { writtenArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifacts";
+import { writtenArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifactsModel";
 
 const page = '<title>Counter</title><button onclick="this.textContent++">0</button>';
 const rows = (tool: NonNullable<AcpmuxActivity["tool"]>): AcpmuxRow[] => [

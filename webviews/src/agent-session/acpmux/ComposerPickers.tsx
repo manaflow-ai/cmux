@@ -1,5 +1,5 @@
 import { composerPickerEntries } from "./composerPickerEntries";
-import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -20,11 +20,23 @@ import type { SpeedSection } from "./EffortPicker";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
-import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
+import { ModelPicker } from "./ModelPicker";
+import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
 import { extraConfigOptions } from "./agentOptions";
-import type { CatalogRefreshState, ModelCombo } from "./modelPickerLayout";
+import type { CatalogRefreshState, ModelCombo, ModelPickerProps, SetupRequest } from "./modelPickerLayout";
+import type { QuickSetup } from "./quickModelMenuModel";
+import {
+  clearHarnessSetup,
+  retryHarnessSetup,
+  signInHarnessSetup,
+  startHarnessSetup,
+  useHarnessSetup,
+  type HarnessSetup,
+} from "./harnessSetup";
+import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
+import { postNative } from "./native";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
@@ -47,6 +59,7 @@ import {
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { continueTargets } from "./cmuxCommands";
+import { clearHeldFork, holdFork, useHeldFork } from "./forkHold";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
@@ -54,7 +67,7 @@ import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
 import { PlanUsageCardBody } from "./PlanUsageCard";
 import { planUsedFraction } from "./usageLimits";
-import { contextBreakdown } from "./session-info/ContextSection";
+import { contextBreakdown } from "./session-info/contextSectionModel";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { compactingUsage } from "./usageStats";
@@ -72,6 +85,8 @@ import { cx } from "../../ui/cx";
 import { registerPicker } from "./pickerOpeners";
 import { experimentArm } from "../../experiments/experiment";
 import { contextRingLook } from "./contextRingLook.experiment";
+import { contextRingMotion } from "./contextRingMotion.experiment";
+import "./contextRingMotion.css";
 import {
   type ModeIconName,
   RECOMMENDED_BADGE,
@@ -81,79 +96,21 @@ import {
   highestMode,
   shownModes,
 } from "./harnessModes";
-
-/// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
-export const PICKER_LABELS = {
-  model: "picker.model",
-  mode: "picker.mode",
-  /// The access chip's tooltip: what the control is (a tester asked what the shield chip does).
-  modeHelp: "picker.modeHelp",
-  /// A mode the agent or the organization's managed settings refused.
-  modeRefused: "picker.modeRefused",
-  effort: "picker.effort",
-  plan: "picker.plan",
-  build: "picker.build",
-  fullAccessWarning: "picker.fullAccessWarning",
-  /// A full-access row while MDM or a team policy keeps full access off (#23322).
-  fullAccessManaged: "picker.fullAccessManaged",
-  /// The chip of a chat whose acpmux policy answers every prompt (approve-all) in a mode that asks.
-  approvesAll: "picker.approvesAll",
-  approvesAllDetail: "picker.approvesAllDetail",
-  /// `{percent}` is the share of the context window used.
-  context: "picker.context",
-} as const satisfies Record<string, StringKey>;
-
-/// A model and effort the viewer used, kept per viewer so the menu can offer it as one click.
-export type Combo = { harness: string; model: string; effort?: string; effortName?: string };
-/// A combo counts as used once it has held this long: model and effort land in separate updates.
-export const RECENT_SETTLE_MS = 1500;
-const RECENTS_KEY = "cmux.acpmux.recentModels";
-
-/// The viewer's recent combos, newest first. Storage can be missing or blocked; then there are none.
-export function loadRecents(): Combo[] {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]");
-    return Array.isArray(value)
-      ? value.filter(
-          (combo): combo is Combo =>
-            typeof combo?.harness === "string" &&
-            typeof combo.model === "string" &&
-            (combo.effort === undefined || typeof combo.effort === "string") &&
-            (combo.effortName === undefined || typeof combo.effortName === "string"),
-        )
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-/// Puts `combo` first, once, and keeps the list short. Saving is best effort.
-/// It builds on what is stored now, so another pane's newer combos aren't written over.
-export function rememberCombo(recents: Combo[], combo: Combo): Combo[] {
-  const key = (other: Combo) => `${other.harness}\u0000${other.model}\u0000${other.effort ?? ""}`;
-  const same = (other: Combo) => key(other) === key(combo);
-  const known = new Set<string>();
-  const merged = [...loadRecents(), ...recents].filter((other) => !known.has(key(other)) && known.add(key(other)));
-  if (merged[0] && same(merged[0])) return merged;
-  const next = [combo, ...merged.filter((other) => !same(other))].slice(0, 12);
-  try {
-    localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
-  } catch {
-    // Private windows and blocked storage keep the list for this page only.
-  }
-  return next;
-}
-
-export type Choice = {
-  id: string;
-  name: string;
-  description?: string;
-  icon?: React.ReactNode;
-  hint?: string;
-  /// The level the model recommends (its catalog default): the effort slider marks it.
-  recommended?: boolean;
-};
-
+import {
+  PICKER_LABELS,
+  RECENT_SETTLE_MS,
+  loadRecents,
+  rememberCombo,
+  type Choice,
+  isPlan,
+  unrestricted,
+  RETURN_GLYPH_PATH,
+  LEVEL_KEYS,
+  shortModelName,
+  aliasNamedAsRelease,
+  modelFamily,
+  reasoningChoices,
+} from "./composerPickerModel";
 /// A permission mode row: a choice with the harness's own badge and icon (harnessModes.ts).
 type ModeChoice = Omit<Choice, "icon"> & Pick<ShownMode, "recommended" | "icon">;
 
@@ -175,15 +132,19 @@ type Props = {
   settleMs?: number;
   /// Schedules the settle check and returns its cancel; tests run it by hand.
   settleTimer?: SettleTimer;
+  /// How often a sign-in a model pick started is checked (harnessSetup.ts); tests shorten it.
+  setupPollMs?: number;
   /// Starts a new chat in another harness (the model picker offers it), on `model` when a model
   /// row of that harness was picked: the switch carries it, so the new chat starts on that model
   /// and draws it at once, also before it opens (a New Tab's deferred switch). `options`: a typed
   /// combo's effort and Fast, held under their kind's id (heldOptions.ts); the switch applies them
   /// to the new session before its first prompt.
   onHarness?(harness: string, model?: string, options?: Readonly<Record<string, string>>): void;
-  /// Forks a started chat into a new chat on another harness (see ModelPickerProps.fork): with it,
-  /// a started chat's model menu keeps the whole harness rail, each other harness a Fork to row.
-  fork?: { to(harness: string): void; ready: boolean };
+  /// A started chat can fork into a new chat on another harness (see ModelPickerProps.fork): with
+  /// it, its model menus list the models of every harness Continue In… can take (continueTargets),
+  /// and a pick of another harness's model is held as the next message's target (forkHold.ts),
+  /// which the composer's send forks to.
+  fork?: boolean;
   /// The folder a pick is remembered for (lastPick.ts), when the chat has none yet (a New Tab's).
   folder?: string;
   /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
@@ -236,6 +197,7 @@ export function ComposerPickers({
   folder,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
+  setupPollMs,
   showPlan = true,
   catalogRefresh,
   pickerCatalog,
@@ -259,10 +221,12 @@ export function ComposerPickers({
   // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
   // harness's models only, with no harness rail and no Add harness… (Leo 2026-10-19: a rail of one
   // harness, then Add harness…, read as an offer to switch), and another harness is Continue In…,
-  // never a pick. Where the chat can fork (`fork`), the compact menu keeps the whole rail again
-  // (Leo 2026-10-22: "why did you guys even remove the fucking harness model picker"), its other
-  // harnesses Fork to rows. Debug Settings' "Allow switching harness in a started chat"
-  // (`harnessSwitch`) keeps the whole rail and its switch.
+  // never a pick. Where the chat can fork (`fork`), the menus keep the rail again (Leo 2026-10-22:
+  // "why did you guys even remove the fucking harness model picker"), every harness Continue In…
+  // can take listing its models; a pick of another harness's is held for the next message, which
+  // forks (Leo 2026-11-06: "it should only need to necessarily fork when you enter a message on
+  // that new model"). Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
+  // keeps the whole rail and its switch.
   // A message, not the session's start row: the deferred chat a New Tab pick or typed prompt starts
   // behind the page draws its start row before any prompt (Leo 2026-10-31: "IM SAYING I CANT
   // FUCKING SEE ANY HARNESS"), and a New Tab never fixes the harness.
@@ -273,8 +237,8 @@ export function ComposerPickers({
     ((summary.turnCount ?? 0) > 0 || snapshot.rows.some((row) => row.kind !== "sessionStart"));
   const allEntries = composerPickerEntries(snapshot, pickerCatalog);
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
-  // than an empty picker. A chat that can fork keeps every harness: the picker offers the others as
-  // Fork to, never as a switch in place (Leo 2026-10-22: "can expose as fork").
+  // than an empty picker. A chat that can fork keeps every harness: a pick of another's model is
+  // held for the next message's fork, never a switch in place (Leo 2026-10-22: "can expose as fork").
   const ownEntries = locked && !fork ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
   const pickerEntries = ownEntries.length > 0 ? ownEntries : allEntries;
   // Installed launch configurations are separate from route-backed accounts in the model menu.
@@ -506,12 +470,37 @@ export function ComposerPickers({
         rememberPick({ harness: picked, ...(pickedModel ? { model: pickedModel } : {}) }, folder ?? summary?.cwd);
       switchHarness(picked, pickedModel, options);
     });
-  // A fork onto another harness (a started chat's account pick) is that harness's pick too.
-  const forkTo = (picked: string) => {
-    if (remembers) rememberPick({ harness: picked }, folder ?? summary?.cwd);
-    fork?.to(picked);
+  // A started chat that can fork holds a pick of another harness's model as its next message's
+  // target (forkHold.ts; Leo 2026-11-06: "it should only need to necessarily fork when you enter a
+  // message on that new model"). Leaving the chat, the composer closing, or the chat losing its
+  // fork drops its held pick, so none comes back when the chat shows again (review of #37196, F2).
+  const sessionId = summary?.sessionId;
+  const forks = locked && fork === true && !!sessionId;
+  const forkTargets = forks ? continueTargets(snapshot.catalog, summary?.harness, summary?.family) : [];
+  // One set per list of targets, so the menus' lists are not rebuilt on every render.
+  const targetsKey = forkTargets.map((target) => target.id).join("\u0000");
+  const targetSet = useMemo(() => new Set(targetsKey ? targetsKey.split("\u0000") : []), [targetsKey]);
+  const held = useHeldFork(forks ? sessionId : undefined);
+  useEffect(() => {
+    if (!forks || !sessionId) return;
+    return () => clearHeldFork(sessionId);
+  }, [forks, sessionId]);
+  // A harness Continue In… can't take is never held.
+  const hold = (picked: { harness: string; model?: string; effort?: string; fast?: boolean; name?: string }) => {
+    if (!forks || !sessionId || !forkTargets.some((target) => target.id === picked.harness)) return;
+    holdFork({
+      sessionId,
+      harness: picked.harness,
+      ...(picked.model ? { model: picked.model } : {}),
+      ...(picked.effort ? { effort: picked.effort } : {}),
+      ...(picked.fast ? { fast: true } : {}),
+      ...(picked.name ? { name: picked.name } : {}),
+    });
   };
   const land = (pickedModel: string, pickedEffort?: string) => {
+    // A pick of the chat's own harness drops another harness's held pick: the next message stays
+    // in this chat.
+    if (forks) clearHeldFork(sessionId);
     // Any new pick replaces a combo still waiting on its effort, but a second pick of the model that
     // combo waits for (its Fast, its level, from a menu that stays open) keeps waiting with it.
     const waiting =
@@ -555,6 +544,11 @@ export function ComposerPickers({
     crossing.current = undefined;
     fastWanted.current = undefined;
     if (picked.harness !== harness) {
+      // A started chat that can fork holds the pick for its next message: nothing forks yet.
+      if (forks) {
+        hold(picked);
+        return;
+      }
       if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
@@ -583,6 +577,72 @@ export function ComposerPickers({
       onEffort(comboFast?.configId ?? fastOption?.id ?? HELD_FAST_ID, comboFast?.value ?? HELD_FAST_ON);
     else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
   };
+  // A pick of a model whose harness this Mac cannot run yet (Lawrence 2026-11-07: "search for any
+  // model ... it needs to 'just work' aka download the relevant harness"): its CLI installs in
+  // place, it signs in when it needs to, and then the chat starts on the model (harnessSetup.ts).
+  const setup = useHarnessSetup();
+  const setupCwd = folder ?? summary?.cwd;
+  const setUpPick = (pick: SetupRequest) => {
+    const { notInstalled, login, ...picked } = pick;
+    const install = notInstalled ? INSTALL_COMMANDS[pick.harness] : undefined;
+    // No command installs it here: the Harnesses page offers its setup page.
+    if (notInstalled && !install) {
+      onAddAgent?.();
+      return;
+    }
+    const entry = pickerCatalog?.harnesses.find(
+      (candidate) => (candidate.acpmuxHarness ?? candidate.id) === pick.harness,
+    );
+    startHarnessSetup(picked, {
+      native: postNative,
+      ...(setupCwd ? { cwd: setupCwd } : {}),
+      ...(install ? { install } : {}),
+      ...(login ? { login } : {}),
+      ...(entry?.docsUrl ? { docsUrl: entry.docsUrl } : {}),
+      ...(catalogRefresh ? { refreshCatalog: async () => await catalogRefresh.refresh() } : {}),
+      // The pane's own Log In (a terminal tab running the login); a page with none opens the same tab.
+      logIn: async (command) => {
+        if (signIn?.openLogIn) return signIn.openLogIn(pick.harness, command);
+        if (signIn) {
+          signIn.logIn(pick.harness, command);
+          return true;
+        }
+        await postNative("tab.open", {
+          kind: "terminal",
+          text: command,
+          ...(setupCwd ? { cwd: setupCwd } : {}),
+          run: true,
+        });
+        return true;
+      },
+      ...(setupPollMs ? { pollMs: setupPollMs } : {}),
+    });
+  };
+  useEffect(() => {
+    if (setup?.phase.kind !== "ready") return;
+    const { pick } = setup;
+    // Once acpmux lists the harness (its rescan found the new CLI), the pick starts there as any
+    // pick of another harness's model does; until then the setup waits (harnessSetup.ts bounds it).
+    const entry = pickerCatalog?.harnesses.find(
+      (candidate) => candidate.id === pick.harness || candidate.acpmuxHarness === pick.harness,
+    );
+    const target = entry
+      ? entry.installed
+        ? entry.acpmuxHarness
+        : undefined
+      : snapshot.catalog.some((candidate) => candidate.id === pick.harness)
+        ? pick.harness
+        : undefined;
+    if (!target) return;
+    clearHarnessSetup();
+    combo({
+      harness: target,
+      model: pick.model,
+      ...(pick.effort ? { effort: pick.effort } : {}),
+      ...(pick.fast ? { fast: true } : {}),
+    });
+  });
+  const setupStrip = setup ? setupView(setup, t) : undefined;
   const switchFailed = snapshot.switching?.phase === "failed";
   useEffect(() => {
     const wanted = crossing.current;
@@ -1029,6 +1089,39 @@ export function ComposerPickers({
       ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
       : undefined;
 
+  // A held pick of another harness's model: the chip names it, with its effort (the typed one, else
+  // the model's own default level) and a fork mark (ModelPicker), as the next message runs it.
+  const heldEntry = held ? allEntries.find((entry) => entry.id === held.harness) : undefined;
+  const heldCatalog = held
+    ? pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === held.harness)
+    : undefined;
+  const heldRow = held?.model ? catalogRow(heldCatalog?.models, held.model) : undefined;
+  const heldListed = held?.model ? heldEntry?.models.find((choice) => choice.id === held.model) : undefined;
+  const heldName = held
+    ? held.model
+      ? (heldRow?.name ?? heldListed?.name ?? modelIdName(held.model, t))
+      : (held.name ?? heldEntry?.name ?? held.harness)
+    : undefined;
+  const heldEffort = held?.effort ?? (held?.model ? heldRow?.defaultEffort : undefined);
+  const heldEffortKey = heldEffort ? LEVEL_KEYS[heldEffort] : undefined;
+  const heldDetail = heldEffortKey ? t(heldEffortKey) : undefined;
+  const pickerFork: ModelPickerProps["fork"] = forks
+    ? {
+        targets: targetSet,
+        hold: (target, name) => hold({ harness: target, ...(name ? { name } : {}) }),
+        ...(held
+          ? {
+              held: {
+                harness: held.harness,
+                ...(held.model ? { model: held.model } : {}),
+                ...(held.effort ? { effort: held.effort } : {}),
+                ...(held.fast ? { fast: true } : {}),
+                name: held.name ?? heldEntry?.name ?? heldCatalog?.name ?? held.harness,
+              },
+            }
+          : {}),
+      }
+    : undefined;
   const picksModel =
     snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
   const chips = (
@@ -1039,12 +1132,19 @@ export function ComposerPickers({
           harness={harness}
           model={shown}
           {...(predictedModel ? { predictedModel } : {})}
-          label={modelName ?? t(PICKER_LABELS.model)}
+          label={heldName ?? modelName ?? t(PICKER_LABELS.model)}
           sessionAuth={signIn?.sessionAuth}
           onSessionLogin={signIn?.loginSession}
           onSessionAuthRefresh={signIn?.recheckSession}
-          {...(modelChip ? { chip: modelChip } : {})}
-          switching={snapshot.switching?.phase === "failed" ? undefined : snapshot.switching}
+          {...(modelChip && !held ? { chip: modelChip } : {})}
+          switching={
+            setup && setupStrip
+              ? { harness: setup.pick.harness, name: setupStrip.chip }
+              : snapshot.switching?.phase === "failed"
+                ? undefined
+                : snapshot.switching
+          }
+          {...(setupStrip ? { setup: setupStrip.strip } : {})}
           efforts={efforts}
           effort={currentEffort}
           recents={recents}
@@ -1054,22 +1154,13 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={pickHarness}
-          {...(locked && fork
-            ? {
-                fork: {
-                  ready: fork.ready,
-                  to: forkTo,
-                  targets: new Set(
-                    continueTargets(snapshot.catalog, summary?.harness, summary?.family).map((target) => target.id),
-                  ),
-                },
-              }
-            : {})}
+          {...(pickerFork ? { fork: pickerFork } : {})}
           {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
           onAddAgent={onAddAgent}
+          onSetUpPick={setUpPick}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
@@ -1081,8 +1172,14 @@ export function ComposerPickers({
           }
           usage={usageNote}
           quick={quick}
-          {...(quickDetail ? { detail: quickDetail } : {})}
-          {...(quickShort && quickShort !== quickDetail ? { detailShort: quickShort } : {})}
+          {...(held
+            ? heldDetail
+              ? { detail: heldDetail }
+              : {}
+            : {
+                ...(quickDetail ? { detail: quickDetail } : {}),
+                ...(quickShort && quickShort !== quickDetail ? { detailShort: quickShort } : {}),
+              })}
         />
       ) : (
         // No harness installed (Leo 2026-10-14): the chip itself adds one, a plain button styled as
@@ -1398,11 +1495,6 @@ function AccessMenu({
   );
 }
 
-/// Plan modes (an id ending in "plan") read and propose without editing; the toggle sits apart from the permission chip.
-export function isPlan(modeId: string): boolean {
-  return /(^|[-_])plan$/i.test(modeId);
-}
-
 /// What the keyboard tabs to, for leaving the context card forward.
 const TABBABLE =
   'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
@@ -1435,7 +1527,9 @@ const CONTEXT_RING_LOOKS: Record<
 /// (contextCard.css). With `plan` (`agentPane.composerRing` is "planUsage") and a limit the harness
 /// reported, the ring draws the plan window closest to its cap instead and its card is the plan
 /// usage popover (PlanUsageCard.tsx); with none reported it stays on the context, never a 0%.
+/// A new reading eases the arc to it (useRingMotion); opening or switching to a chat shows its own.
 export function ContextRing({
+  chat,
   used,
   size,
   setup,
@@ -1445,6 +1539,8 @@ export function ContextRing({
   onOpenDetails,
   plan,
 }: {
+  /// The chat the reading is of: a new chat's ring shows its value at once, with no ease from the last.
+  chat?: string;
   used?: number;
   size?: number;
   /// Tokens the agent took before the conversation; the card splits it out when known.
@@ -1492,11 +1588,13 @@ export function ContextRing({
   // As Claude desktop's: a small ring with the share used drawn over its track as an arc from
   // twelve o'clock; never a pie and never a spinner. Leo (2026-11-03) read the faint-track arc at 68%
   // as a loading spinner, so the shipped look (`track`) draws the remaining share as a clearly visible
-  // track with flat arc ends: the whole circle reads as one gauge with no gap. The ring never animates.
+  // track with flat arc ends: the whole circle reads as one gauge with no gap. At rest the ring is
+  // still; a new reading in the same chat eases the arc to it (useRingMotion).
   const look = experimentArm(contextRingLook);
   const ring = CONTEXT_RING_LOOKS[look];
   const arcRadius = ring.radius;
-  const arcCircumference = 2 * Math.PI * arcRadius;
+  const meter = useRingMotion(chat, planShown ? "plan" : contextKnown ? "context" : undefined, fraction);
+  const counts = meter.motion !== "ease-number-jumps" && meter.motion !== "instant";
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
     // intentionally inert, so opening it by label must not reveal an empty 0% card.
@@ -1607,7 +1705,17 @@ export function ContextRing({
           first.focus();
         }}
       >
-        <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
+        <svg
+          key={meter.key}
+          className="acpmux-context-meter"
+          data-ring-motion={meter.motion}
+          style={meter.style}
+          width={14}
+          height={14}
+          viewBox="0 0 14 14"
+          aria-hidden="true"
+          focusable="false"
+        >
           <circle
             className="acpmux-context-track"
             cx="7"
@@ -1629,15 +1737,25 @@ export function ContextRing({
               strokeOpacity={ring.usedOpacity}
               strokeWidth={ring.width}
               strokeLinecap={fraction >= 1 || !ring.roundEnds ? "butt" : "round"}
-              strokeDasharray={`${arcCircumference * fraction} ${arcCircumference}`}
+              // Its dash is the share used, from the eased --acpmux-ring-used (contextRingMotion.css).
+              pathLength={1}
               transform="rotate(-90 7 7)"
             />
           )}
         </svg>
       </button>
       {look === "percent" && known && (
-        <span className="acpmux-context-caption" aria-hidden="true">
-          {percent}%
+        // The percent counts with the arc (the ::before reads the same eased number), except in the
+        // arms that compare it jumping.
+        <span
+          key={meter.key}
+          className="acpmux-context-caption"
+          aria-hidden="true"
+          data-ring-motion={meter.motion}
+          data-ring-counts={counts ? "" : undefined}
+          style={meter.style}
+        >
+          {counts ? null : `${percent}%`}
         </span>
       )}
       <AnchoredCard
@@ -1682,14 +1800,25 @@ export function ContextRing({
   );
 }
 
-// The markers of cmux-tui/spec/full-access-modes.json, the rule acpmux and the app enforce.
-const FULL_ACCESS_MARKERS = ["bypass", "fullaccess", "yolo", "dangerous", "autoapprove", "skippermissions"];
-
-/// Modes that skip approvals (such as "Full access") draw in the theme's warning color: lowercased,
-/// without `-`, `_` or spaces, the id contains a full-access marker.
-export function unrestricted(modeId: string): boolean {
-  const folded = modeId.toLowerCase().replace(/[-_ ]/g, "");
-  return FULL_ACCESS_MARKERS.some((marker) => folded.includes(marker));
+/// The context ring's eased reading (Leo, 2026-11-07, of a compaction: "I feel like that should,
+/// like, play a cute little, like, eased animation that goes down"). The share is one registered
+/// number, --acpmux-ring-used, on the ring and its caption; a CSS transition eases it, so a reading
+/// mid-way starts from what is drawn (contextRingMotion.css). The two are keyed by the chat and what the ring reads, and the
+/// key turns to that pair only once it has a reading: opening a chat, switching to one, the first
+/// report, or switching between context and plan usage mounts them at the value, with nothing to
+/// ease from. A reading that goes away (a session reset) holds the last drawn share, so the next
+/// one eases from there.
+function useRingMotion(chat: string | undefined, source: "context" | "plan" | undefined, fraction: number) {
+  const motion = experimentArm(contextRingMotion);
+  const reading = source && `${chat ?? ""}:${source}`;
+  const held = useRef<{ key: string; fraction: number } | undefined>(undefined);
+  // During render, so the first render with a reading already carries its key and value.
+  if (reading) held.current = { key: reading, fraction };
+  else if (held.current && !held.current.key.startsWith(`${chat ?? ""}:`)) held.current = undefined;
+  const key = held.current?.key ?? "none";
+  const shown = held.current?.fraction ?? 0;
+  const style = { "--acpmux-ring-used": shown } as React.CSSProperties;
+  return { key, motion, style };
 }
 
 /// A pick that returns "keep" leaves the menu open (e.g. a row that expands the menu).
@@ -1972,11 +2101,6 @@ export const ArrowUpIcon = () => (
     <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
   </Icon>
 );
-/** Send's return glyph (↵) in Claude's look, drawn in Claude Code desktop's proportions: a wider
- *  bar, a taller stem and a fuller arrowhead with a tight corner (Leo 2026-11-02: "our send button i
- *  think can be nicer lokoing ... compared to claude code"). At the composer's 18 px trailing glyph
- *  its ink is about 13 × 12 px, Claude Code's. */
-export const RETURN_GLYPH_PATH = "M13.1 3.45v4.1a1.2 1.2 0 0 1-1.2 1.2H2.9M6.7 4.95 2.9 8.75l3.8 3.8";
 export const ReturnIcon = () => (
   <Icon>
     <path d={RETURN_GLYPH_PATH} />
@@ -2038,16 +2162,6 @@ function pickableSignedOut(
   return rest;
 }
 
-const LEVEL_KEYS: Record<string, StringKey> = {
-  low: "effort.level.low",
-  medium: "effort.level.medium",
-  high: "effort.level.high",
-  xhigh: "effort.level.xhigh",
-  max: "effort.level.max",
-  ultra: "effort.level.ultra",
-  // A new chat that starts on Ultracode (its saved pick); never a level row (reasoningChoices).
-  ultracode: "effort.level.ultracode",
-};
 /// A level's short name in a narrow controls row: "Med" for Medium.
 const SHORT_LEVEL_KEYS: Record<string, StringKey> = {
   low: "effort.short.low",
@@ -2086,67 +2200,66 @@ function shortLevel(choice: Choice, t: (key: StringKey) => string): string | und
   return shortLevelName(first, t);
 }
 
-/// A model's name without its vendor, for the controls row: `short`, the catalog's own short
-/// name, when the name ends with it ("Claude Opus 5.5" -> "Opus 5.5"), else the name less a first
-/// word its harness's name starts with ("Claude" of "Claude Code", "Gemini" of "Gemini CLI").
-/// Undefined when there is nothing to drop.
-export function shortModelName(name: string, short?: string, harnessName?: string): string | undefined {
-  const trimmed = short?.trim();
-  if (trimmed && trimmed.length < name.length && name.endsWith(` ${trimmed}`)) return trimmed;
-  const vendor = harnessName?.trim().split(/\s+/)[0];
-  const space = name.indexOf(" ");
-  if (!vendor || space <= 0) return undefined;
-  const rest = name.slice(space + 1).trim();
-  return rest && name.slice(0, space).toLowerCase() === vendor.toLowerCase() ? rest : undefined;
-}
-
-/// The name an alias draws once the release it runs is known: the release's (`release`, "Opus 5.5")
-/// when the alias's own name (`name`) is only that release's family ("Opus"), or the family and a
-/// variant ("Opus · 1M context" while it runs "Opus 5.5 · 1M context"). The alias's variant stays when
-/// the release's name has none ("Opus · 1M context" running "Opus 5.5" is "Opus 5.5 · 1M context").
-/// Any other name stays: it says more than the family ("Opus plan · Sonnet execute").
-export function aliasNamedAsRelease(name: string, release: string): string {
-  const family = modelFamily(release.replace(/^claude\s+/i, ""))?.toLowerCase();
-  const head = name
-    .split("·")[0]!
-    .trim()
-    .toLowerCase()
-    .replace(/^claude\s+/, "");
-  if (!family || head !== family) return name;
-  const variant = name.indexOf("·");
-  return variant > 0 && !release.includes("·") ? `${release} ${name.slice(variant).trim()}` : release;
-}
-
-/// A model's family for a narrow controls row: its name's first word ("Opus" of "Opus 5.5") when
-/// that word is a name of at least 3 letters and not the whole name. Undefined otherwise.
-export function modelFamily(name: string): string | undefined {
-  const first = name.trim().split(/\s+/)[0] ?? "";
-  return first !== name.trim() && /\p{L}{3,}/u.test(first) ? first : undefined;
-}
-
-/// The plain levels a catalog row can list (`PickerModel.efforts`).
-const PLAIN_LEVELS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
-
-/// The Reasoning section's rows: the agent's levels, named by the pane, narrowed to what the
-/// running model supports when its catalog row says. The agent-owned default sentinel is omitted,
-/// and so are an older acpmux's Ultracode (now its own switch) and Ultrathink (a prompt keyword,
-/// not a level).
-export function reasoningChoices(
-  options: { value: string; name?: string; description?: string }[],
-  model: { efforts?: readonly string[]; defaultEffort?: string; own?: { efforts?: true }; noEffort?: true } | undefined,
-  t: (key: StringKey) => string,
-): Choice[] {
-  if (model?.noEffort || (model?.own?.efforts && (model.efforts ?? []).length === 0)) return [];
-  const levels = model?.efforts && model.efforts.length > 0 ? new Set<string>(model.efforts) : undefined;
-  const offered = options.filter((option) => {
-    if (["default", "ultracode", "ultrathink"].includes(option.value)) return false;
-    if (!levels) return true;
-    return !PLAIN_LEVELS.has(option.value) || levels.has(option.value);
-  });
-  return offered.map((option) => {
-    const key = LEVEL_KEYS[option.value];
-    const base: Choice = { id: option.value, name: key ? t(key) : option.name || option.value };
-    if (option.value === model?.defaultEffort) base.recommended = true;
-    return base;
-  });
+/// A setup's strip in the model menu and the name its chip draws while it runs.
+function setupView(setup: HarnessSetup, t: ReturnType<typeof useT>): { strip: QuickSetup; chip: string } {
+  const harness = setup.pick.name;
+  const cancel = { label: t("picker.setup.cancel"), run: clearHarnessSetup };
+  const { phase } = setup;
+  switch (phase.kind) {
+    case "installing": {
+      const text = t("picker.setup.installing", { harness });
+      return {
+        strip: { text, ...(phase.line ? { detail: phase.line } : {}), busy: true, actions: [cancel] },
+        chip: text,
+      };
+    }
+    case "checking": {
+      const text = t("picker.setup.checking", { harness });
+      return { strip: { text, busy: true, actions: [cancel] }, chip: text };
+    }
+    case "signIn":
+      return {
+        strip: {
+          text: t("picker.setup.signIn", { harness }),
+          busy: false,
+          actions: [{ label: t("harnesses.signIn"), run: signInHarnessSetup }, cancel],
+        },
+        chip: t("picker.setup.signInChip", { harness }),
+      };
+    case "signingIn": {
+      const text = t("picker.setup.signingIn", { harness });
+      return { strip: { text, busy: true, actions: [cancel] }, chip: text };
+    }
+    case "ready": {
+      const text = t("picker.setup.starting", { harness });
+      return { strip: { text, busy: true, actions: [] }, chip: text };
+    }
+    case "failed": {
+      const text = t("picker.setup.failed", { harness });
+      const docsUrl = setup.docsUrl;
+      return {
+        strip: {
+          text,
+          detail: phase.reason ?? t(phase.reasonKey ?? "harnesses.commandFailed"),
+          busy: false,
+          actions: [
+            { label: t("picker.tryAgain"), run: retryHarnessSetup },
+            ...(docsUrl
+              ? [
+                  {
+                    label: t("harnesses.setupGuide"),
+                    run: () =>
+                      void postNative("tab.open", { kind: "browser", text: docsUrl, keep: true }).catch(
+                        () => undefined,
+                      ),
+                  },
+                ]
+              : []),
+            { label: t("picker.setup.dismiss"), run: clearHarnessSetup },
+          ],
+        },
+        chip: text,
+      };
+    }
+  }
 }

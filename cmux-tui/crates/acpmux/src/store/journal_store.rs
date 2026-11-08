@@ -1,4 +1,4 @@
-//! The event log through one append-only journal (`store.journal`, R-DURABILITY S2;
+//! The event log through one append-only journal (R-DURABILITY S2;
 //! `handoff/rewrites/R-DURABILITY/DESIGN.md` 3.3b and 3.3c).
 //!
 //! Without it, no event-log append is synced: a line a client was told about reaches the disk at
@@ -31,7 +31,7 @@
 //!   takes over, so the first checkpoint after it syncs bytes this process wrote (a killed
 //!   daemon's writes may be in the page cache only, and a failed sync's dropped pages still read
 //!   back). A chat whose folder is gone is not written again. A log that moved on
-//!   without the journal (a run with the switch off, or an older build, after a crash) is left as
+//!   without the journal (an older build, after a crash) is left as
 //!   it is, and the journal's lines for it go to `<home>/journal-unapplied/`. A chat whose log
 //!   cannot be read or written now keeps its lines there in a repair file
 //!   (`<id>.<lsn>.repair.ndjson`), which the next open journals again and repairs the chat with;
@@ -40,13 +40,16 @@
 //! - Delete: a `forget` record (the replay then drops the chat's earlier journaled lines, so a
 //!   chat made again under the same id gets only its own), then the folder's removal, off the
 //!   appends' lock and without waiting for the record, then the chat's repair file.
-//! - With the switch off, [`catch_up`] runs this recovery once on a journal left by a run with it
-//!   on, so every acknowledged line is in the logs before they are written alone.
+//! - Without a daemon (the build adoption moves a home's chat folders), [`catch_up`] runs this
+//!   recovery once, so every acknowledged line is in the logs before they move.
 //!
 //! - Durability (S2c): [`Store::durability`] gives the last acknowledged LSN and the journal's
 //!   durable LSN, for which each connection's outbound gate waits (`server/durable_gate.rs`). A
-//!   writer that ends while the store is not dropped (a panic on its thread) closes that watch
-//!   and asks the daemon to stop (DESIGN.md decision 9.8).
+//!   writer that ends while the store is neither sealed nor dropped (a panic on its thread)
+//!   closes that watch and asks the daemon to stop (DESIGN.md decision 9.8).
+//! - Seal (a shutdown, [`Store::seal`]): the last checkpoint, then the journal fully synced and
+//!   handed over (its writer ends, its lock goes), so the next daemon opens the home at once
+//!   while this process still exits; the sealed store writes nothing there after.
 //!
 //! - Chat metadata (S3a, [`meta`]): a change is a `meta` record with the chat's whole metadata
 //!   image, not a `session.json` write: reads see the newest image in an overlay, the checkpoint
@@ -66,6 +69,8 @@ mod fenced;
 mod meta;
 mod new_folders;
 mod repair;
+#[cfg(all(test, unix))]
+mod seal_tests;
 
 use checkpoint::{frozen_marker, read_checkpoint, remove_checkpoint_temporaries};
 pub(super) use fenced::FencedStorage;
@@ -255,14 +260,19 @@ struct Inner {
     stop: tokio::sync::watch::Sender<Option<String>>,
     /// The LSN of the last `Ack` record appended (`Store::durability`).
     acked: Arc<AtomicU64>,
+    /// The LSN of the last record of a kept change appended (`ShowAfter::Written`,
+    /// `Store::durability`).
+    kept: Arc<AtomicU64>,
+    /// The journal's written LSN, fed by its writer; closed when the writer ends.
+    written: tokio::sync::watch::Receiver<u64>,
     /// The durable LSN the outbound gate waits for: the journal's, fed by its writer, held below
     /// a new chat's record until its folder is synced ([`new_folders`]); closed when the writer
     /// ends.
     durable: tokio::sync::watch::Receiver<u64>,
     /// New chats' folders not synced yet, and the syncer's state ([`new_folders`]).
     new_folders: Arc<new_folders::NewFolders>,
-    /// The store is being dropped: its writer's end is not a failure.
-    dropping: Arc<AtomicBool>,
+    /// The store ends (sealed, or being dropped): its writer's end is not a failure.
+    ending: Arc<AtomicBool>,
     /// Syncs of the store's files under way that freeze it when they fail
     /// (`Inner::counted_sync`): a checkpoint waits for those under way before it writes its LSN.
     syncs: checkpoint::SyncsUnderWay,
@@ -278,12 +288,12 @@ struct Inner {
 /// (DESIGN.md decision 9.8), and the durable watch it fed closes.
 struct WriterEnded {
     stop: tokio::sync::watch::Sender<Option<String>>,
-    dropping: Arc<AtomicBool>,
+    ending: Arc<AtomicBool>,
 }
 
 impl Drop for WriterEnded {
     fn drop(&mut self) {
-        if self.dropping.load(std::sync::atomic::Ordering::SeqCst) {
+        if self.ending.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
         tracing::error!("the event journal's writer ended: no change can be acknowledged");
@@ -344,6 +354,9 @@ struct Order {
     /// the open started from: a retention rewrite of a chat at or below the checkpoint needs no
     /// checkpoint of its own (`Store::commit_compaction`).
     log_lsn: HashMap<String, Lsn>,
+    /// The shutdown's last checkpoint ran (`Inner::last_checkpoint`): the home is the next
+    /// daemon's, so no checkpoint, metadata image or retirement is written from here on.
+    sealed: bool,
 }
 
 impl Order {
@@ -388,7 +401,7 @@ impl JournalStore {
             }
         }
         let (stop, _) = tokio::sync::watch::channel(None);
-        let dropping = Arc::new(AtomicBool::new(false));
+        let ending = Arc::new(AtomicBool::new(false));
         let (durable_tx, durable) = tokio::sync::watch::channel(journal.durable_lsn());
         // The listener owns the only strong handle: the watch closes when the writer ends.
         let durable_tx = Arc::new(durable_tx);
@@ -396,11 +409,22 @@ impl JournalStore {
             Arc::downgrade(&durable_tx),
             journal.durable_lsn(),
         ));
-        let ended = WriterEnded { stop: stop.clone(), dropping: Arc::clone(&dropping) };
+        let ended = WriterEnded { stop: stop.clone(), ending: Arc::clone(&ending) };
         let reported = Arc::clone(&new_folders);
         journal.on_durable(move |lsn| {
             let _owned = &ended;
             reported.journal_durable(lsn, &durable_tx);
+        });
+        // Owned by the listener too: the watch closes when the writer ends.
+        let (written_tx, written) = tokio::sync::watch::channel(journal.stats().written_lsn);
+        journal.on_written(move |lsn| {
+            written_tx.send_if_modified(|was| {
+                let moved = lsn > *was;
+                if moved {
+                    *was = lsn;
+                }
+                moved
+            });
         });
         let inner = Arc::new(Inner {
             local,
@@ -419,9 +443,11 @@ impl JournalStore {
             wake: Condvar::new(),
             stop,
             acked: Arc::new(AtomicU64::new(0)),
+            kept: Arc::new(AtomicU64::new(0)),
+            written,
             durable,
             new_folders,
-            dropping,
+            ending,
             syncs: checkpoint::SyncsUnderWay::default(),
             folders: Mutex::new(()),
             idle: AtomicBool::new(false),
@@ -486,7 +512,7 @@ impl JournalStore {
 }
 
 /// [`super::open`] with the journal on `storage` (a simulated file system in the crash tests) and
-/// its own limits, for `store.journal`.
+/// its own limits.
 #[cfg(test)]
 pub(crate) fn open_with_journal(
     config: &StoreConfig,
@@ -524,10 +550,9 @@ fn open_journal(
     }
 }
 
-/// With `store.journal` off: a journal that a run with it on left behind is replayed into the logs,
-/// checkpointed and retired first, so a crash with the switch on and a start with it off keep
-/// every acknowledged line, and turning it on again replays nothing old (DESIGN.md 3.3c, the
-/// catch-up of 3.6). Nothing to do when there is no journal.
+/// A journal a run left behind is replayed into the logs, checkpointed and retired, so the home's
+/// `sessions/` hold every acknowledged change on their own (`store::catch_up_journal`; DESIGN.md
+/// 3.3c, the catch-up of 3.6). Nothing to do when there is no journal.
 pub(super) fn catch_up(config: &StoreConfig, home: &Path) -> Result<()> {
     if std::fs::symlink_metadata(home.join(JOURNAL_DIR)).is_err() {
         return Ok(());
@@ -588,6 +613,9 @@ impl Store for JournalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         self.inner.list_metas()
     }
+    fn unlisted(&self) -> Vec<String> {
+        Store::unlisted(&self.inner.local)
+    }
     /// The overlay's image first ([`meta`]), then `session.json`: a checkpoint drops an image
     /// only after its file holds it.
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
@@ -604,13 +632,19 @@ impl Store for JournalStore {
     }
     /// A `meta` record and the overlay; the checkpoint writes `session.json` ([`meta`]).
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        self.inner.save_meta(meta)
+        self.inner.save_meta(meta, ShowAfter::Durable)
+    }
+    /// A `Stream` `meta` record: written in the journal's next batch, synced after
+    /// ([`super::durability`]).
+    fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
+        self.inner.save_meta(meta, ShowAfter::Written)
     }
     /// The line to the log first, then its record ([module docs](self)).
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
-        let class = if streamed(record) { Class::Stream } else { Class::Ack };
+        let kind = record_class(record);
+        let class = if kind == RecordClass::Acked { Class::Ack } else { Class::Stream };
         let payload = encode_log(id, line.as_bytes());
         let inner = &self.inner;
         let mut order = inner.order.lock_or_recover();
@@ -626,10 +660,17 @@ impl Store for JournalStore {
         }
         // Refused only if the writer stopped since the check: the line is in the log without its
         // record, as after a crash between the two.
-        let lsn =
-            inner.journal.append(KIND_LOG, class, &payload).map_err(JournalStore::journal_error)?;
-        if class == Class::Ack {
-            inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
+        // A kept change's line is synced in the journal's idle time (`cmux_journal` crate docs).
+        let lsn = if kind == RecordClass::Kept {
+            inner.journal.append_kept(KIND_LOG, &payload)
+        } else {
+            inner.journal.append(KIND_LOG, class, &payload)
+        }
+        .map_err(JournalStore::journal_error)?;
+        match kind {
+            RecordClass::Acked => inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst),
+            RecordClass::Kept => inner.kept.store(lsn, std::sync::atomic::Ordering::SeqCst),
+            RecordClass::Stream => {}
         }
         order.applied = lsn;
         // A chat's first line in this process allocates its entry; every later one reuses it.
@@ -731,27 +772,54 @@ impl Store for JournalStore {
         Some(Durability {
             acked: Arc::clone(&self.inner.acked),
             durable: self.inner.durable.clone(),
-            stalled: Arc::new(move |why: String| {
-                if let Some(inner) = inner.upgrade() {
-                    inner.ask_to_stop(why);
+            kept: Arc::clone(&self.inner.kept),
+            written: self.inner.written.clone(),
+            stalled: Arc::new(move |waited: Duration| {
+                let Some(inner) = inner.upgrade() else { return false };
+                let stats = inner.journal.stats();
+                match stats.failing {
+                    Some(failing) => {
+                        inner.ask_to_stop(format!(
+                            "a reply waited {waited:.0?} for the event journal, whose writer is failing ({failing})"
+                        ));
+                        true
+                    }
+                    None => {
+                        tracing::warn!(
+                            waited = ?waited,
+                            durable_lsn = stats.durable_lsn,
+                            "a reply waits for the event journal on a slow disk; it keeps waiting (no restart)"
+                        );
+                        false
+                    }
                 }
             }),
         })
     }
     /// No write lands after this returns; then the shutdown's last checkpoint, while the journal is
-    /// still open; then the journal closes, every record fully synced. The last checkpoint runs
-    /// here and not after (delta review of #35866, D1): a log sync that fails in it, or in a sync
-    /// under way that it waits for, freezes the store, and its `frozen` record must reach the
-    /// journal. A checkpoint after this (`Hub::seal`'s flush) finds no work.
+    /// still open, and the store sealed (`Inner::last_checkpoint`): every later checkpoint, image
+    /// write or retirement does nothing; then the journal closes, every record fully synced, and
+    /// hands the home over: its writer ends and its lock goes. So the next daemon opens the store
+    /// at once while this process still exits: its hub, which owns this store, lives until then
+    /// (a restart in one process, as the tests run, too). The last checkpoint runs here and not
+    /// after (delta review of #35866, D1): a log sync that fails in it, or in a sync under way that
+    /// it waits for, freezes the store, and its `frozen` record must reach the journal. A sync that
+    /// fails after the handover (a request's `flush_session`) still leaves its fallback marker:
+    /// fail closed, a later open writes the logs again.
     fn seal(&self) {
         {
             // Under the appends' lock: an append lands in the log and the journal, or in neither.
             let _order = self.inner.order.lock_or_recover();
             Store::seal(&self.inner.local);
         }
-        if let Err(error) = self.inner.checkpoint() {
-            tracing::warn!("the event journal's last checkpoint: {error:#}");
-        }
+        self.inner.last_checkpoint();
+        // Its threads end on their own (the drop joins them): the checkpointer and the folder
+        // syncer have nothing left to do once the last checkpoint synced the logs and folders.
+        self.inner.timer.lock_or_recover().stop = true;
+        self.inner.wake.notify_all();
+        self.inner.new_folders.stop();
+        // The writer's end at the handover is the seal's, not a failure (`WriterEnded`).
+        self.inner.ending.store(true, std::sync::atomic::Ordering::SeqCst);
         let order = self.inner.order.lock_or_recover();
         if let Err(error) = self.inner.journal.seal(SEAL_WAIT) {
             tracing::error!("seal the event journal: {error}");
@@ -862,6 +930,17 @@ impl Store for JournalStore {
     fn session_path(&self, id: &str) -> Option<PathBuf> {
         Store::session_dir(&self.inner.local, id)
     }
+    /// The log's own segment `000000` (`LocalStore::history_writer`): synced and renamed in whole
+    /// at its commit, so it needs no record of its own. Its lines are all below the fork's first
+    /// own `seq`, where a replay's repair of the fork's log starts (`journal_store/repair.rs`
+    /// `read_from`). Without it every fork on this store, the only disk store since #37118,
+    /// copied its history again (review of #37020, F2).
+    fn writes_history(&self) -> bool {
+        Store::writes_history(&self.inner.local)
+    }
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        Store::history_writer(&self.inner.local, id)
+    }
     fn handoff_dir(&self) -> Option<PathBuf> {
         Store::handoff_dir(&self.inner.local)
     }
@@ -871,13 +950,16 @@ impl Store for JournalStore {
     fn briefs_path(&self) -> Option<PathBuf> {
         Store::briefs_path(&self.inner.local)
     }
+    fn audit_dir(&self) -> Option<PathBuf> {
+        Store::audit_dir(&self.inner.local)
+    }
 }
 
 impl Drop for JournalStore {
     /// Stops the checkpointer and the folder syncer. No checkpoint here: a drop is not a shutdown
     /// (`flush` is).
     fn drop(&mut self) {
-        self.inner.dropping.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.inner.ending.store(true, std::sync::atomic::Ordering::SeqCst);
         self.inner.timer.lock_or_recover().stop = true;
         self.inner.wake.notify_all();
         self.inner.new_folders.stop();

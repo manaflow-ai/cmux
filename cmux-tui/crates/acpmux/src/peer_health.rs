@@ -63,7 +63,18 @@ impl Peer {
 /// already has or nobody reads.
 fn trim(v: Value) -> Value {
     let mut out = serde_json::Map::new();
-    for key in ["os", "arch", "cpus", "load", "ram", "swap", "disk", "liveSessions", "pressure"] {
+    for key in [
+        "os",
+        "arch",
+        "cpus",
+        "load",
+        "ram",
+        "swap",
+        "disk",
+        "liveSessions",
+        "pressure",
+        "pressureAgeMs",
+    ] {
         if let Some(x) = v.get(key).filter(|x| !x.is_null()) {
             out.insert(key.to_owned(), x.clone());
         }

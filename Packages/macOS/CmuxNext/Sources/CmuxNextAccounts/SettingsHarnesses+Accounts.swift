@@ -109,12 +109,13 @@ extension SettingsHarnesses {
     }
 
     /// Reads `_acpmux/accounts`; an older daemon (method not found) clears the list, another failure
-    /// keeps what is shown. Only the newest refresh writes.
+    /// keeps what is shown. Only the newest refresh writes; `accountsRead` counts the reads that did.
     func readAccounts(_ environment: AcpmuxEnvironment, generation mine: Int) async {
         do {
             let data = try await callAccounts(environment, .accounts, [:])
             guard mine == generation else { return }
             accounts = SettingsProviderAccount.list(data)
+            accountsRead += 1
         } catch let error as AcpmuxRPCError where error.isMethodMissing {
             guard mine == generation else { return }
             accounts = nil
@@ -181,18 +182,22 @@ extension SettingsHarnesses {
                 if family == "codex" { route["shadow"] = true }
                 _ = try await callAccounts(environment, .routeAdd, route)
                 try await signIn(family: family, home: home, environment: environment)
+                pendingLogins.insert(made.id)
             }
         case "accountSignIn":
             let account = try listed(params, action)
             // An API-key account has no login to open.
             guard !account.key else { throw PageError.invalidParams("accountSignIn needs an account with a login") }
             try await signIn(family: account.family, home: account.home, environment: environment)
+            pendingLogins.insert(account.id)
         case "accountSignOut":
             let account = try listed(params, action)
             guard !account.key, let line = Self.signOutLine(family: account.family, home: account.home) else {
                 throw PageError.invalidParams("accountSignOut needs an account with a login")
             }
             try await typeLine(line)
+            // The logout runs once the tab opens, after the refresh below: Settings coming forward reads it.
+            pendingLogins.insert(account.id)
         case "accountRename":
             let account = try listed(params, action)
             let name = params["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -202,6 +207,8 @@ extension SettingsHarnesses {
             _ = try await callAccounts(environment, .accountSet, ["id": account.id, "name": name])
         case "accountDefault":
             let account = try listed(params, action)
+            // New chats would keep running on an account the person turned off.
+            guard account.enabled else { throw PageError.invalidParams("accountDefault needs an enabled account") }
             // The CLI's own login is the family's default with no binding.
             var bind: [String: any Sendable] = ["scope": "family:\(account.family)"]
             if !account.builtin { bind["routeId"] = account.id }
@@ -215,6 +222,19 @@ extension SettingsHarnesses {
         }
         await refresh()
         return .object([:])
+    }
+
+    /// Settings came forward (`focus`): reads the accounts again when a sign-in or sign-out was typed into a
+    /// terminal tab since the last time, else nothing, so coming back costs no daemon call.
+    /// Only the account list: no health check, plan or usage process. The marks stay until a read of the
+    /// accounts answers, so a failed read tries again next time; a sign-in marked during the read stays
+    /// for the next one.
+    func refocused() async {
+        guard !pendingLogins.isEmpty, let environment = environment() else { return }
+        let marked = pendingLogins
+        let before = accountsRead
+        await readAccounts(environment, generation: generation)
+        if accountsRead > before { pendingLogins.subtract(marked) }
     }
 
     /// The CLI's own logout, in an added account's folder: `codex logout`, `claude auth logout`. Nil for a

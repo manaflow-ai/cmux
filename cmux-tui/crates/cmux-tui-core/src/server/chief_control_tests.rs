@@ -273,6 +273,23 @@ fn engine_speed_and_a_named_stop_reach_the_brain() {
     );
 }
 
+/// Start now on a queued agent in Home (user 2026-11-07, msg 23835): chief.stop
+/// forwards `start` to the brain, and its result keeps the brain's `started` and note.
+#[test]
+fn start_now_reaches_the_brain() {
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefStop, &fields(json!({"start":"a7"}))),
+        json!({"tool":"stop","start":"a7"})
+    );
+    let mux = Mux::new_for_test("chief-control", crate::SurfaceOptions::default());
+    let brain_answer = json!({"started":true,"note":"Started by the user: a7."});
+    let start = result(&mux, ResourceOperation::ChiefStop, Ok(brain_answer)).unwrap();
+    assert_eq!(
+        start["value"],
+        json!({"stopped":false,"started":true,"note":"Started by the user: a7."})
+    );
+}
+
 /// "Stop all agents" and its toast's Restart (coordinator 2026-10-20):
 /// chief.stop forwards all and restart, and its result keeps the brain's
 /// subagents, restarted and errors.

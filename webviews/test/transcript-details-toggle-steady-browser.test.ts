@@ -1,17 +1,16 @@
 // l10n-allow-file: test fixture prompts, answers and agent names, not shipped UI.
 // Opening and closing a row at the very bottom of a running turn never jitters (Leo, 2026-11-05:
-// "simply STOP JITTERING IT", then "the bottom pin is literally the point ... it pushes text up AND
-// DOESN'T MOVE ANYTHING BELOW BEFORE OR AFTER", and "when you get >like 50-70% up the screen from the
-// bottom then it starts doing it normally expanding down").
+// "simply STOP JITTERING IT").
 //
 // The view sits at the latest row of a running turn with the composer over its foot. Every painted
 // frame of each toggle is read: where each row is drawn, and when the frame painted.
-// - Near the bottom (the line clicked is under BOTTOM_PIN_SHARE of the view up from its foot): every
-//   row under the toggled one stays on its pixel in every frame, the bottom with it, and the rows
-//   above move one way only, the clicked line with them.
-// - Further up: the clicked line and every row above it stay on their pixels, and the rows under it
-//   move one way only.
-// Each toggle's close puts every row back where it was before the open.
+// - An open, near the bottom or further up, grows down, as Codex opens a call at the end of a chat
+//   (Lucas, 2026-11-06, Codex parity; it replaces the bottom pin on open): the clicked line and
+//   every row above it stay on their pixels, the rows under it move down one way only, and the view
+//   stops following.
+// - A close at the latest row pins the bottom, wherever its line is: every row under the toggled one stays on its pixel in every frame, and the rows above
+//   move one way only, the clicked line with them (Leo, 2026-11-03).
+// A close away from the bottom puts every row back where it was before the open.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -316,8 +315,15 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
       live,
     );
     await settle(page);
-    // The message opens to its text first (its line is the click), as in the recording.
-    await page.click('[data-row-id="msg"] .cv-disclosure__toggle');
+    // The message opens to its text first (its line is the click), as in the recording. Opened at
+    // the end it grows down (Codex parity), so the view goes back to the latest row after it.
+    await page.click('[data-row-id="msg"] .cv-agentmsg__toggle');
+    await settle(page);
+    await page.locator(".acpmux-scroll").evaluate((node) => {
+      node.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
+      node.scrollTop = node.scrollHeight;
+      node.dispatchEvent(new Event("scroll"));
+    });
     await settle(page);
     return page;
   };
@@ -342,18 +348,27 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
       selector,
     );
 
-  /// Two clicks on one toggle near the bottom, an open and a close in whichever order its state gives:
-  /// the rows under the toggled one never move, the rows above move one way, and the clicked line
-  /// rises as its row opens and comes down as it closes.
-  const pinnedToggle = async (page: Page, label: string, selector: string, toggled: string) => {
+  /// Puts the view back at the latest row, as the reader's wheel does after an open left it: the
+  /// wheel lets go of the line the last click held (VirtualTranscript `release`).
+  const toLatest = async (page: Page) => {
+    await page.locator(".acpmux-scroll").evaluate((node) => {
+      node.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
+      node.scrollTop = node.scrollHeight;
+      node.dispatchEvent(new Event("scroll"));
+    });
+    await settle(page);
+  };
+
+  /// Two clicks on one toggle near the bottom, an open and a close in whichever order its state gives.
+  /// The open grows down: the clicked line and the rows above it stay, the rows under it move down one
+  /// way, and the view leaves the latest row. The close, back at the latest row, pins the bottom: the
+  /// rows under the toggled one never move, the rows above move one way, and the clicked line comes down.
+  const bottomToggle = async (page: Page, label: string, selector: string, toggled: string) => {
     const failures: string[] = [];
     for (let click = 0; click < 2; click += 1) {
       const phase = (await expanded(page, selector)) ? "close" : "open";
-      if (phase === "open") {
-        const share = await upShare(page, selector);
-        if (!(share < BOTTOM_PIN_SHARE))
-          failures.push(`${label}: the line is ${(share * 100).toFixed(0)}% up, not near the bottom`);
-      }
+      // A close at the latest row pins the bottom wherever its line is.
+      if (phase === "close" && !(await atLatest(page))) await toLatest(page);
       if (!(await atLatest(page))) failures.push(`${label} ${phase}: the view is not at the latest row`);
       const { frames, rest } = await clickAndWatch(page, selector);
       const ids = order(frames[0]!);
@@ -361,6 +376,21 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
       const below = ids.slice(at + 1);
       const above = ids.slice(0, at + 1);
       trace(`${label} ${phase}`, frames, [...above.slice(-2), ...below]);
+      if (phase === "open") {
+        for (const each of moved(frames, above)) failures.push(`${label} open: over the line, ${each}`);
+        const lineMoved = Math.max(...frames.map((frame) => Math.abs(frame.line - frames[0]!.line)));
+        if (lineMoved > 0.5) failures.push(`${label} open: the clicked line moved ${lineMoved.toFixed(1)}px`);
+        for (const id of below) {
+          const values = frames.map((frame) => frame.rows[id]).filter((top): top is number => top !== undefined);
+          const turns = reversals(values);
+          if (turns.length) failures.push(`${label} open: ${id} turned back at ${turns.join(", ")}`);
+        }
+        const next = below[0];
+        if (next && !((rest.rows[next] ?? 0) > (frames[0]!.rows[next] ?? 0) + 1))
+          failures.push(`${label} open: ${next} under the line did not move down`);
+        if (await atLatest(page)) failures.push(`${label} open: the view still follows the latest row`);
+        continue;
+      }
       for (const each of moved(frames, below)) failures.push(`${label} ${phase}: under the row, ${each}`);
       const lineTurns = reversals(frames.map((frame) => frame.line));
       if (lineTurns.length) failures.push(`${label} ${phase}: the clicked line turned back at ${lineTurns.join(", ")}`);
@@ -374,23 +404,20 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
       }
       if (!(await atLatest(page))) failures.push(`${label} ${phase}: the view left the latest row`);
       const travel = rest.line - frames[0]!.line;
-      if (phase === "open" && !(travel < -1))
-        failures.push(`${label} open: the clicked line did not rise (${travel.toFixed(1)}px)`);
-      if (phase === "close" && !(travel > 1))
-        failures.push(`${label} close: the clicked line did not come down (${travel.toFixed(1)}px)`);
+      if (!(travel > 1)) failures.push(`${label} close: the clicked line did not come down (${travel.toFixed(1)}px)`);
     }
     return failures;
   };
 
   for (const name of Object.keys(engines) as (keyof typeof engines)[]) {
-    test(`${name}: near the bottom: Details and a run of commands open and close with nothing under them moving`, async () => {
+    test(`${name}: near the bottom: Details and a run of commands open down and close with nothing under them moving`, async () => {
       browser = browsers[name];
       const page = await open();
       const failures = [
-        ...(await pinnedToggle(page, "Details", DETAILS, "msg")),
-        ...(await pinnedToggle(page, "run of commands", RUN_B, "run-b")),
+        ...(await bottomToggle(page, "Details", DETAILS, "msg")),
+        ...(await bottomToggle(page, "run of commands", RUN_B, "run-b")),
         // Again, the message's Details after the run's fold, as Leo toggled it back and forth.
-        ...(await pinnedToggle(page, "Details again", DETAILS, "msg")),
+        ...(await bottomToggle(page, "Details again", DETAILS, "msg")),
       ];
       expect(failures).toEqual([]);
       await page.close();

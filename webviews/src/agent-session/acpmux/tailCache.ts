@@ -26,6 +26,9 @@ export type KeptTail = {
   queue: QueuedPrompt[];
   configSeq: number;
   usageFromSeq: number;
+  /// A fork's tail drawn from the chat it forked (forkTail.ts): the seq it branched at, through
+  /// which its attach checks these rows against acpmux's own page of the fork.
+  forkedThrough?: number;
 };
 
 /// Chats whose tail is kept, and the events kept of each: the newest ones, as many as an attach
@@ -141,6 +144,20 @@ export function readHostTail(sessionId: string): Promise<KeptTail | undefined> {
   ]);
 }
 
+/// Keeps the tail the app host handed this page with an adopt event (AgentPaneView+SessionAdopt.swift):
+/// the tail `chat.tail.get` would answer, read the same way, without its round trip, so the adopted
+/// page draws the chat in the event's own turn. A page that read the chat itself keeps its own, newer
+/// tail. True when it kept the handed one.
+export function keepHandedTail(sessionId: string, value: unknown): boolean {
+  if (keptTails.has(sessionId)) return false;
+  const tail = tailFromHost(value);
+  if (!tail) return false;
+  readAheadTails.delete(sessionId);
+  keptTails.set(sessionId, tail);
+  while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
+  return true;
+}
+
 function startHostRead(sessionId: string): Promise<KeptTail | undefined> {
   const already = reading.get(sessionId);
   if (already) return already;
@@ -251,6 +268,7 @@ function tailFromHost(value: unknown): KeptTail | undefined {
     queue: Array.isArray(tail.queue) ? (tail.queue as QueuedPrompt[]) : [],
     configSeq: typeof tail.configSeq === "number" ? tail.configSeq : 0,
     usageFromSeq: typeof tail.usageFromSeq === "number" ? tail.usageFromSeq : 0,
+    ...(typeof tail.forkedThrough === "number" ? { forkedThrough: tail.forkedThrough } : {}),
   };
 }
 

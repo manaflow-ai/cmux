@@ -1,5 +1,7 @@
-// A completed turn keeps its final answer in sight and folds every earlier reply and step
-// into one disclosure. While running, intermediate dialogue remains visible.
+// A completed turn folds its work into one disclosure and keeps every reply to the person in sight,
+// the final answer and each earlier one, with the work around each folded into its own line (Leo,
+// 2026-11-06: "your intermediate message got lost. that can never happen"; turn-fold-keeps-replies.test.ts).
+// Short narration between steps folds with them. While running, intermediate dialogue remains visible.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { isTakeaway, turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
@@ -44,8 +46,16 @@ const leosTurn = () => [
   summary(),
 ];
 
-test("the final answer stays in sight and every earlier answer folds with the work", () => {
-  expect(drawn(leosTurn())).toEqual(["user:u", "worked:worked-u", "assistant:second", "turnSummary:end"]);
+test("the final answer and every earlier answer stay in sight; the work around each folds", () => {
+  expect(drawn(leosTurn())).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "activity:ran-1",
+    "assistant:first",
+    "activity:ran-5",
+    "assistant:second",
+    "turnSummary:end",
+  ]);
 });
 
 test("the one fold opens every intermediate answer and command in order", () => {
@@ -101,12 +111,23 @@ test("short narration between tools folds with them", () => {
     summary(),
   ];
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:final", "turnSummary:end"]);
-  expect(drawn(rows, new Set(["worked-u"]))).toContain("assistant:check");
+  // Opened, each short note joins the runs around it, as in a running turn (turns.ts mergeShortNotes).
+  const open = turnView(rows, new Set(["worked-u"]));
+  expect(open.map((shaped) => shaped.id)).not.toContain("check");
+  expect(open.find((shaped) => shaped.id === "read")?.joined).toEqual(["read", "check", "grep", "running", "test"]);
 });
 
-test("long reply, then a tool, then 'Pushed.': only the final reply stays in sight", () => {
+test("long reply, then a tool, then 'Pushed.': both replies stay in sight, each tool on its own line", () => {
   const rows = [row("u", "user"), ran("read"), answer("reply"), ran("git push"), say("pushed", "Pushed."), summary()];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:pushed", "turnSummary:end"]);
+  expect(drawn(rows)).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "activity:read",
+    "assistant:reply",
+    "activity:git push",
+    "assistant:pushed",
+    "turnSummary:end",
+  ]);
 });
 
 test("completed compactions and subagent reports fold, while a refusal stays available", () => {

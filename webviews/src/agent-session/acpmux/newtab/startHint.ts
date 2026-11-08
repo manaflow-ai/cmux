@@ -4,7 +4,7 @@
 // folder, the pane's chosen folder, the workspace's roots, else none with Choose Folder…), so the
 // page names the project, or Do not work in a project, before acpmux answers the handshake. The
 // handshake's answer from the store reconciles it: the same answer changes nothing.
-import type { NewTabStart } from "../NewTabPage";
+import type { NewTabStart } from "../newTabModel";
 
 /// The pane's start state: a new chat, its project folder (none: agent-home), Choose Folder… offered.
 export type StartState = { newSession: boolean; projectDraft?: string; chooseFolder: boolean };

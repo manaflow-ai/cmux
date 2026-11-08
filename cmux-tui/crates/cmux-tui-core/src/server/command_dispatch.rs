@@ -79,6 +79,7 @@ fn dispatch_command(
             upload_id,
             op,
             mime,
+            filename,
             size,
             offset,
             data,
@@ -91,6 +92,7 @@ fn dispatch_command(
             upload_id,
             op,
             mime,
+            filename,
             size,
             offset,
             data,
@@ -115,7 +117,7 @@ fn dispatch_command(
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
+        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout, restart } => {
             cmd_server::shutdown_daemon(
                 mux,
                 client,
@@ -124,6 +126,7 @@ fn dispatch_command(
                 force,
                 end_terminals,
                 keep_layout,
+                restart,
             )
         }
         Command::Ping => cmd_server::ping(),
@@ -316,6 +319,9 @@ fn dispatch_command(
         }
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
+        }
+        Command::TerminalLastCommand { surface, terminal_id } => {
+            cmd_terminals::terminal_last_command(mux, surface, terminal_id)
         }
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)

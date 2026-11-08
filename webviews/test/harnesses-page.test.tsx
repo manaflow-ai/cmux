@@ -11,7 +11,7 @@ import { HarnessesScreen } from "../src/agent-session/acpmux/harnesses/Harnesses
 import { INSTALL_COMMANDS } from "../src/agent-session/acpmux/harnesses/harnessRows";
 import { buildPickerCatalog, BUNDLED_MODEL_CATALOG } from "../src/agent-session/acpmux/modelCatalogData";
 import { NewTabScreen } from "../src/agent-session/acpmux/newtab/NewTabScreen";
-import type { HarnessHealth } from "../src/agent-session/acpmux/HarnessHealthNotice";
+import type { HarnessHealth } from "../src/agent-session/acpmux/harnessHealthNoticeModel";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 

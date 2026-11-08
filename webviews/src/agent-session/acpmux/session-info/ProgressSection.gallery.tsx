@@ -61,7 +61,8 @@ const meta = (doc: Document) =>
   doc.querySelector('[data-section="progress"] .acpmux-session-info-section__value')?.textContent ?? "";
 
 /// The steps draw with their states, the count in the head, and each mark centred on its step's first
-/// line in the icon column, the words on the panel's text column.
+/// line in the icon column, where the section's title starts (heads have no icon), and the words on one
+/// text column right of the marks.
 const drawsPlan =
   (expected: readonly Status[], count: string): Play =>
   async (ctx) => {
@@ -69,9 +70,12 @@ const drawsPlan =
     if (states(ctx.document).join() !== expected.join()) throw new Error(`states: ${states(ctx.document).join()}`);
     if (meta(ctx.document) !== count) throw new Error(`head reads "${meta(ctx.document)}", not "${count}"`);
     const title = ctx.find({ selector: '[data-section="progress"] .acpmux-session-info-section__title' });
+    const column = steps(ctx.document)[0]!
+      .querySelector(".acpmux-session-info-progress__text")!
+      .getBoundingClientRect().left;
     for (const step of steps(ctx.document)) {
       const text = step.querySelector(".acpmux-session-info-progress__text")!.getBoundingClientRect();
-      if (Math.abs(text.left - title.getBoundingClientRect().left) > 0.5)
+      if (Math.abs(text.left - column) > 0.5 || text.left <= title.getBoundingClientRect().left)
         throw new Error("a step's words are off the section's text column");
       const mark = step.querySelector(".acpmux-session-info-progress__mark")!.getBoundingClientRect();
       if (Math.abs(mark.top + mark.height / 2 - (text.top + 8)) > 1)

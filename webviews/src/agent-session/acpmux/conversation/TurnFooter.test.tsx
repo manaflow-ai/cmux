@@ -12,6 +12,7 @@ import { footerLabel, isEmptyFooter, turnView } from "./turns";
 import {
   MARK_FOOTER_ROW,
   MARK_STEP,
+  MARK_WORKED,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_FOOTER_GAP,
   rowMark,
@@ -50,7 +51,12 @@ test("a 5 s turn says Worked for 5s in its time's tooltip, never in front of the
   const markup = renderToStaticMarkup(<TurnFooter row={row} />);
   expect(markup).not.toContain("cv-turn-summary");
   expect(markup).toMatch(/<span class="cv-message-footer-row cv-turn-footer-row"><span class="cv-turn-action-group">/);
-  expect(markup).toMatch(/<time class="cv-turn-time"[^>]*title="Worked for 5s · ↓ 359 out ↑ 328.8K in"/);
+  // The time's tooltip is its exact date and time, as a prompt's is; Worked for and the token rows
+  // under it (turnTokensModel.ts `replyTimeDetail`).
+  expect(markup).toMatch(/<time class="cv-turn-time"[^>]*title="[A-Z][a-z]{2} \d{1,2}, \d{4}, /);
+  expect(markup).toMatch(
+    /<time class="cv-turn-time"[^>]*data-tooltip-detail="Worked for 5s\nOutput 359\nInput across calls 1K\u00a0uncached · 327.8K\u00a0cached"/,
+  );
 });
 
 // Leo, 2026-11-02, on "Worked for" drawn in front of Copy: "this should not be placed in front of
@@ -60,7 +66,7 @@ test("the buttons lead the footer row; Worked for comes after them, in the time'
   const group = markup.indexOf("cv-turn-action-group");
   expect(group).toBeGreaterThan(-1);
   expect(markup.indexOf("Copy")).toBeGreaterThan(group);
-  expect(markup.indexOf('title="Worked for 5s"')).toBeGreaterThan(markup.indexOf("Copy"));
+  expect(markup.indexOf('data-tooltip-detail="Worked for 5s"')).toBeGreaterThan(markup.indexOf("Copy"));
 });
 
 test("a turn stopped within a second still says it stopped", () => {
@@ -126,7 +132,11 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
   const layout = layoutConversation(drawn, 720);
   expect(layout.heights[at]).toBe(TRANSCRIPT_FOOTER_CONTROL);
   const above = at - 1;
-  expect(layout.tops[at]! - (layout.tops[above]! + layout.heights[above]!)).toBe(TRANSCRIPT_FOOTER_GAP);
+  // The run folds under "Worked for": its own 12 under its rule stands in for the 8, as over a reply
+  // (transcriptGrid.ts MARK_WORKED), so the stack adds no gap; under an open run's last line, the 8.
+  expect(drawn[above]!.kind).toBe("worked");
+  expect(layout.tops[at]! - (layout.tops[above]! + layout.heights[above]!)).toBe(0);
+  expect(transcriptGap(MARK_WORKED, MARK_FOOTER_ROW)).toBe(0);
   expect(transcriptGap(MARK_STEP, MARK_FOOTER_ROW)).toBe(TRANSCRIPT_FOOTER_GAP);
   // Once a prompt follows, that turn is no longer the last: its footer is hover-only again.
   const later = turnView(

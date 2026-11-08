@@ -348,10 +348,7 @@ fn chat_start_runs_the_start_chat_chain_through_the_apps_actions() {
         (content["machine_id"].as_str(), content["session_id"].as_str()),
         (Some("vm-1"), Some("sess-1"))
     );
-    assert_eq!(
-        content["follow_up"]["status"],
-        "cmux cloud chat status --target machine:vm-1 --session sess-1 --wait 20"
-    );
+    assert_eq!(content["follow_up"]["send"], "cmux chat send sess-1 'PROMPT' --wait");
     let runs = app_runs(&server);
     assert_eq!(
         runs.iter().map(|run| run["action"].as_str().unwrap()).collect::<Vec<_>>(),

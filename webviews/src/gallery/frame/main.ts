@@ -18,7 +18,6 @@ import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
-import { installUiFont } from "./uiFont";
 import { startGalleryLoad } from "./load";
 import { setLastingGrace } from "../../ui/lasting";
 import "./frame.css";
@@ -130,7 +129,6 @@ if (!appHosted) {
   document.head.append(bootstrap);
   bootstrap.remove();
 }
-installUiFont();
 if (!appHosted)
   (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
     webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),
@@ -334,6 +332,9 @@ function markReadyWhenStill(): void {
 }
 
 async function mount(): Promise<void> {
+  // A font study pairing (`fontStudy`) applies to every page host, the chat and Settings alike; its
+  // faces load before the page mounts, so the first frame draws in them.
+  if (env.fontStudy) await import("../fontStudy/apply").then((study) => study.applyFontStudy(env.fontStudy));
   switch (entry.host) {
     case "agent-pane":
       return (await import("./agentPane")).mountAgentPane(entry.variants[variantName]!, context);

@@ -21,6 +21,8 @@ and a divider drag in 2, 8 and 30 pane layouts; the controller allowlists this e
 With --suite=app-perf it runs scripts/cmux-next/app-perf.py the same way (app gestures at 10 and 50 workspaces).
 With --suite=anim-perf it runs scripts/cmux-next/anim-perf-terminal.py (tab, workspace, sidebar, group, Home
 and palette animations at a 120 Hz frame budget).
+With --suite=split-scale it runs scripts/cmux-next/split-scale-bench.py (split, close, bottom pane, divider drag and
+side pane across 1/4/9 splits, four pane contents and 1/10/30 workspaces).
 
 Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5] [--interval 100]
        [--directions right,down] [--scrollback 20000] [--stream] [--json PATH] [--out DIR] [--gate]
@@ -80,6 +82,13 @@ if "--suite=split-resize" in sys.argv:
 if "--suite=cef-tab" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-tab-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-tab"])
+# `--suite=split-scale`: split and pane transitions across splits x pane content x workspaces, first frame, settled,
+# frame times, blank frames and retargets per cell (scripts/cmux-next/split-scale-bench.py; the instant-splits goal).
+# Launched directly: a fleet step has no LaunchServices session (bench_memory.launch).
+if "--suite=split-scale" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-scale-bench.py")
+    os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=split-scale"])
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).

@@ -15,14 +15,14 @@ mod layout_columns;
 mod layout_rows;
 mod split_around;
 
-#[cfg(test)]
-pub(crate) use layout_columns::normalize_dock_columns;
 pub use layout_columns::{ColumnDock, DockEdge, DockMode, DockRole, ViewportColumn};
 pub(crate) use layout_columns::{
-    ColumnProjection, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
+    ColumnProjection, LONE_DOCK_NEIGHBOR_WIDTH, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
     dock_columns_are_consistent, dock_flags_are_consistent, flags_are_lone_pinned,
     project_layout_columns,
 };
+#[cfg(test)]
+pub(crate) use layout_columns::{LONE_DOCK_WIDTH, normalize_dock_columns};
 pub(crate) use layout_rows::{LayoutRow, ROW_HEIGHT_PERMILLE};
 
 #[derive(Debug, Clone)]

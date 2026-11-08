@@ -43,6 +43,18 @@ pub static VERBS: &[VerbSpec] = &[
         help: "stop and remove the service, shim and store; keep state unless --purge",
     },
     VerbSpec {
+        path: &["up"],
+        positionals: &[],
+        flags: &[],
+        help: "start the installed service and keep it started across logins",
+    },
+    VerbSpec {
+        path: &["down"],
+        positionals: &[],
+        flags: &[],
+        help: "stop the service and keep it stopped across logins; keep the install",
+    },
+    VerbSpec {
         path: &["status"],
         positionals: &[],
         flags: &[PG_BIN, ("binary-only", false)],

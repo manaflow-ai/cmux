@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 @testable import CmuxNextBrowserHost
+import CmuxNextTestSupport
 import Testing
 
 /// Background browser use (user 2026-11-05: an agent drives tabs that are not visible or in focus).
@@ -8,7 +9,7 @@ import Testing
 /// page ran no animation frame and fired timers once a second, so an agent's `click` (a timed
 /// pointer walk) ran past its deadline: the render window took only a chrome with no window or
 /// one hidden itself. Real AppKit views and windows; no app, no page.
-@MainActor @Suite struct AgentRenderWindowsHiddenTabTests {
+@MainActor @Suite(.closesItsWindows) struct AgentRenderWindowsHiddenTabTests {
     /// A window whose workspace container holds `chrome`, as a pane holds a tab's chrome.
     private func windowHolding(_ chrome: NSView) -> (window: NSWindow, workspace: NSView) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: true)

@@ -2,7 +2,7 @@
 import { chatImages, type ChatImage } from "../conversation/chatImages";
 import { renderCall, type RenderCall } from "../conversation/renderCall";
 import { toolImages } from "../toolImages";
-import { loadedImageSrc } from "../chips/ReplyImage";
+import { loadedImageSrc } from "../chips/replyImageModel";
 import { mediaKind } from "../chips/mediaKind";
 import type { AcpmuxRow } from "../model";
 

@@ -71,78 +71,19 @@ public struct CloudAPIClient: Sendable {
         sendsStackSession = false
     }
 
-    // MARK: Machines
-
-    /// `POST /api/vm/{id}/resize`: cpu 1-32, memory 4096-65536 MiB in whole GiB, storage in 4 GiB
-    /// steps up to 256 GiB (grow-only). Only the given dimensions are sent; the server checks them.
-    public func resize(_ id: String, cpu: Int? = nil, memoryMb: Int? = nil, storageMb: Int? = nil) async throws {
-        var body: [String: any Sendable] = [:]
-        if let cpu { body["cpu"] = cpu }
-        if let memoryMb { body["memoryMb"] = memoryMb }
-        if let storageMb { body["storageMb"] = storageMb }
-        _ = try await send("POST", "/api/vm/\(id)/resize", body: body, timeout: .seconds(120), as: Ignored.self)
-    }
-
-    public func snapshot(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudSnapshot {
-        var body: [String: any Sendable] = [:]
-        if let name { body["name"] = name }
-        return try await send("POST", "/api/vm/\(id)/snapshot", body: body, idempotencyKey: idempotencyKey,
-                              timeout: .seconds(300), as: CloudSnapshot.self)
-    }
-
-    public func snapshots(_ id: String) async throws -> [CloudSnapshot] {
-        struct List: Decodable { var snapshots: [CloudSnapshot] }
-        return try await send("GET", "/api/vm/\(id)/snapshots", as: List.self).snapshots
-    }
-
-    /// Deletes a snapshot scoped to the machine that owns it.
-    public func deleteSnapshot(_ id: String, snapshotID: String) async throws {
-        _ = try await send("DELETE", "/api/vm/\(id)/snapshots/\(snapshotID)", timeout: .seconds(960), as: Ignored.self)
-    }
-
-    public func restore(snapshotID: String, idempotencyKey: String = UUID().uuidString) async throws -> CloudMachine {
-        try await send("POST", "/api/vm/restore", body: ["snapshotId": snapshotID], idempotencyKey: idempotencyKey,
-                       timeout: .seconds(620), as: CloudMachine.self)
-    }
-
-    public func fork(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudMachine {
-        var body: [String: any Sendable] = [:]
-        if let name { body["name"] = name }
-        return try await send("POST", "/api/vm/\(id)/fork", body: body, idempotencyKey: idempotencyKey, timeout: .seconds(620),
-                              as: CloudMachine.self)
-    }
-
-    public func openPort(_ id: String, port: Int) async throws -> CloudPortLink {
-        try await send("POST", "/api/vm/\(id)/open-port", body: ["port": port], timeout: .seconds(30), as: CloudPortLink.self)
-    }
-
     // MARK: Files and SCP
 
-    /// Mints a short-lived private SCP route. The public key is the only key
-    /// material sent to the backend; the caller owns the corresponding secret.
+    /// Mints a short-lived private SCP route: cmux-platform's `POST /v1/cloud/machines/{id}/ssh-endpoint` on a
+    /// Worker machines client (``workerMachines(baseURL:accessToken:teamID:session:appVersion:machineIO:)``). The
+    /// public key is the only key material sent; the caller owns the secret.
     public func prepareSCP(_ id: String, publicKey: String) async throws -> CloudSCPEndpoint {
-        let endpoint = try await send("POST", "/api/vm/\(id)/scp-endpoint", body: ["publicKey": publicKey],
-                                      timeout: .seconds(100), as: CloudSCPEndpoint.self)
-        guard endpoint.port == 22, endpoint.username == "cmux",
-              endpoint.hostPublicKey.hasPrefix("ssh-ed25519 "),
-              endpoint.expiresAtUnix > Int64(Date().timeIntervalSince1970) else {
-            throw CloudAPIError.decoding("/api/vm/\(id)/scp-endpoint returned an unsafe endpoint")
-        }
-        return endpoint
+        // cmux-cloud-machine reads only a safe route (port 22, user cmux, an ed25519 host key, not
+        // expired); any other answer throws ``CloudAPIError/decoding(_:)``.
+        try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
+                       timeout: .seconds(100), as: CloudSCPEndpoint.self)
     }
 
     // MARK: Tunnel
-
-    /// `POST /api/vm/tunnel`: enrolls this Mac's WireGuard public key. The
-    /// private key never leaves the Mac.
-    public func enrollTunnel(_ request: CloudTunnelEnrollment.Request) async throws -> CloudTunnelEnrollment {
-        try await send("POST", "/api/vm/tunnel", body: request.body, timeout: .seconds(60), as: CloudTunnelEnrollment.self)
-    }
-
-    /// `DELETE /api/vm/tunnel?deviceId=…`: revokes this Mac's peer.
-    public func revokeTunnel(deviceID: String) async throws {
-        _ = try await send("DELETE", "/api/vm/tunnel?deviceId=\(deviceID)", as: Ignored.self)
-    }
 
     public func attachTunnelNetwork(deviceFingerprint: String, networkID: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
         try await send("POST", "/api/vm/tunnel/network/attach", body: ["deviceFingerprint": deviceFingerprint, "networkId": networkID, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
@@ -398,11 +339,7 @@ public struct CloudAPIClient: Sendable {
         }
         if T.self == Ignored.self, let ignored = Ignored() as? T { return ignored }
         if T.self == RawBody.self, let raw = RawBody(data: data) as? T { return raw }
-        do {
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch {
-            throw CloudAPIError.decoding("\(path): \(error)")
-        }
+        return try CloudMachineRules().answer(data, as: T.self, context: path)
     }
 }
 

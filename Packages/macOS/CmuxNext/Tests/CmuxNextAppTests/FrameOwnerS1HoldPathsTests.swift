@@ -205,30 +205,30 @@ struct FrameOwnerS1HoldPathsTests {
         }
     }
 
-    /// With content the provider holds (an agent chat), each spring lays p2's content out once, at that spring's rest size
-    /// on its first frame (Leo 2026-11-05: "the main pane waits for the right pane to shift before it shifts. Like, why
-    /// are you waiting?"). Ctrl-Shift-L on p2 lays it out at the key spring's rest; the split taking that spring over lays
-    /// it out once more, at the split's rest, as its spring starts; no later frame of that spring and not its landing
-    /// resizes it.
+    /// With content the provider holds (an agent chat), the key spring lays nothing out (RESIZE KEYS K3: the content keeps
+    /// its start size), and the split taking that spring over lays p2's content out once, at the split's rest, on its
+    /// first frame (Leo 2026-11-05: "the main pane waits for the right pane to shift before it shifts. Like, why are you
+    /// waiting?"); no later frame of that spring and not its landing resizes it.
     @Test func aSplitTakingOverWithHoldContentLaysTheContentOutOncePerSpringAtItsStart() throws {
         let rig = Rig(Self.pair, holdsContent: true)
         defer { rig.window.closeAfterTest() }
         let content = try #require(rig.provider.contents["p2"]), view = try #require(rig.provider.views["p2"])
         content.sizes.removeAll()
-        let start = content.frame.size
         #expect(PaneResize.press("p2", .right, model: rig.model, view: rig.root))
         try #require(rig.frames(3) == 3 && view.contentHost.isHolding, "p2's area does not hold")
+        let duringKey = content.sizes
         rig.model.apply(screens: [Rig.screen(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"),
                                                      b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))))])
         rig.root.syncWithModel()
-        let atTakeover = content.sizes
+        try #require(rig.frames(1) == 1, "the split did not spring")
+        let atSplitStart = content.sizes
         let frames = rig.frames()
-        try #require(frames > 3, "the split did not spring (\(frames) frames)")
+        try #require(frames > 2, "the split did not spring (\(frames) more frames)")
         rig.release()
-        #expect(atTakeover.count == 1 && atTakeover.first != start,
-                "p2's content did not take the key spring's rest once, at its start: \(atTakeover) (start \(start))")
-        #expect(content.frame == view.contentHost.bounds && content.sizes.count == 2 && content.sizes.first == atTakeover.first,
-                "p2's content did not take the split's rest once more and then hold it to the landing: \(content.sizes) (\(content.frame) in \(view.contentHost.bounds))")
+        #expect(duringKey.isEmpty, "p2's content laid out during the key hold: \(duringKey)")
+        #expect(atSplitStart.count == 1, "p2's content did not take the split's rest once, on its first frame: \(atSplitStart)")
+        #expect(content.frame == view.contentHost.bounds && content.sizes == atSplitStart,
+                "p2's content did not hold the split's rest to the landing: \(content.sizes) (\(content.frame) in \(view.contentHost.bounds))")
     }
 
     // MARK: Content shown during the hold

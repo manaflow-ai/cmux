@@ -174,8 +174,6 @@ public final class TerminalSession {
     /// Local-history READYs restored with the surface's own reflowed history
     /// (proves the local path ran in dogfood).
     private(set) var localSnapshots = 0
-    /// Kitty images the owner left out of its image replays (its cap).
-    private(set) var skippedImages = 0
 
     /// Reports a pane that still shows nothing after a reveal (``TerminalBlankWatch``).
     let blankWatch: TerminalBlankWatch
@@ -201,11 +199,17 @@ public final class TerminalSession {
         find.target = self
         view.attachFind(find)
 
-        writerTask = Task.detached(priority: .userInitiated) { [io] in
+        writerTask = Task.detached(priority: .userInitiated) { [io, weak self] in
             for await item in outgoing {
                 switch item {
                 case .bytes(let data):
                     await io.write(data)
+                case .filePaste(let pasteboard):
+                    do { try await io.pasteFiles(pasteboard) }
+                    catch {
+                        if Task.isCancelled { return }
+                        await self?.filePasteFailed()
+                    }
                 case .resize(let grid, let width, let height):
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
@@ -334,6 +338,10 @@ public final class TerminalSession {
         }
     }
 
+    func enqueueFilePaste(_ pasteboard: TerminalFilePaste) {
+        input.pasteFiles(pasteboard)
+    }
+
     /// Downscaled image of the last presented frame, for static previews.
     public func snapshot(maxPixelSize: CGFloat = 480) -> CGImage? {
         surfaceView.snapshot(maxPixelSize: maxPixelSize)
@@ -432,6 +440,7 @@ public final class TerminalSession {
         view.onClose = nil
         onClose?()
         surfaceView.clipboardRequests.cancelPendingWrite()
+        surfaceView.cancelGridReport()
         eventsTask?.cancel()
         eventsTask = nil
         closeCancels.forEach { $0.cancel() }
@@ -564,6 +573,7 @@ public final class TerminalSession {
     private func swapSurface() {
         let old = surfaceView
         old.clipboardRequests.cancelPendingWrite()
+        old.cancelGridReport() // detached: its waiting grid is not this session's any more
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
         swappedSurfaces += 1
@@ -610,10 +620,6 @@ public final class TerminalSession {
 
     // MARK: From the surface view
 
-    func noteSkippedImages(_ count: Int) {
-        skippedImages += max(0, count)
-    }
-
     func noteLocalSnapshot() {
         localSnapshots += 1
     }
@@ -627,13 +633,12 @@ public final class TerminalSession {
         input.focusGained()
     }
 
-    /// The surface reports its grid to the PTY owner. `final`: the grid its pane's layout spring will
-    /// land at (``TerminalIO/resizeOnMain(cols:rows:final:window:)``).
-    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int, final: Bool = false) {
+    /// The surface reports its grid to the PTY owner (``TerminalIO/resizeOnMain(cols:rows:window:)``).
+    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
         guard ownsGeometry else { return }
         // An IO with a main-actor path takes every grid there, so a final grid never overtakes, or
         // is overtaken by, an older grid still in the ordered input stream.
-        if io.resizeOnMain(cols: grid.columns, rows: grid.rows, final: final, window: surfaceView.window) { return }
+        if io.resizeOnMain(cols: grid.columns, rows: grid.rows, window: surfaceView.window) { return }
         input.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
     }
 }

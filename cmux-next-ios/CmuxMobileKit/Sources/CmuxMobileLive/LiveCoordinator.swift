@@ -211,6 +211,8 @@ public final class LiveCoordinator {
         // The Feed as this phone last saw it; the Mac's history merges in on connect.
         let archive = FeedArchive.forAccount(userID)
         feedStore.useReadMarks(readMarks ?? .forAccount(userID))
+        // Events past the Feed's window wait on disk while the app runs, not in memory.
+        feedStore.useSpill(.inCaches("feed", scope: userID))
         feedStore.replaceAll(archive.load())
         feedStore.onItemsChange = { [weak self] items in
             self?.scheduleFeedSave(archive)

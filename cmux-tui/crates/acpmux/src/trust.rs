@@ -157,8 +157,14 @@ fn ancestors(cwd: &str) -> impl Iterator<Item = &str> {
 
 /// Claude Code's level: trusted once its trust dialog was accepted for the folder.
 pub fn claude_level(claude_json: &str, cwd: &str) -> Level {
-    let Ok(value) = serde_json::from_str::<Value>(claude_json) else { return Level::Unknown };
-    let Some(projects) = value.get("projects") else { return Level::Unknown };
+    claude_level_of(serde_json::from_str::<Value>(claude_json).ok().as_ref(), cwd)
+}
+
+/// `claude_level` from the parsed file (None: absent or never whole).
+fn claude_level_of(claude_json: Option<&Value>, cwd: &str) -> Level {
+    let Some(projects) = claude_json.and_then(|value| value.get("projects")) else {
+        return Level::Unknown;
+    };
     let accepted = |path: &str| {
         projects
             .get(path)
@@ -167,6 +173,40 @@ pub fn claude_level(claude_json: &str, cwd: &str) -> Level {
             == Some(true)
     };
     if ancestors(cwd).any(accepted) { Level::Trusted } else { Level::Unknown }
+}
+
+/// Waits between reads of a file that did not parse: a bounded 150 ms in all, then the torn
+/// read stands.
+const SETTLE_WAITS_MS: [u64; 4] = [10, 20, 40, 80];
+
+/// Claude Code's `~/.claude.json`, parsed. Claude Code rewrites it in place on its start and
+/// exit, so a read can land between the truncate and the write (an empty or truncated file);
+/// one that does not parse is read again (`read_settled`) rather than taken as "no answer".
+fn read_claude_json(path: &Path) -> Option<Value> {
+    read_settled(
+        || std::fs::read_to_string(path),
+        |text| serde_json::from_str::<Value>(text).ok(),
+        std::thread::sleep,
+    )
+}
+
+/// The file `read` returns, once `parse` takes it; a file that does not parse is read again
+/// after each of `SETTLE_WAITS_MS`, then given up on (None). A read error (no file) is None at
+/// once, with no wait.
+fn read_settled<T>(
+    mut read: impl FnMut() -> std::io::Result<String>,
+    parse: impl Fn(&str) -> Option<T>,
+    mut wait: impl FnMut(std::time::Duration),
+) -> Option<T> {
+    let mut text = read().ok()?;
+    for ms in SETTLE_WAITS_MS {
+        if let Some(parsed) = parse(&text) {
+            return Some(parsed);
+        }
+        wait(std::time::Duration::from_millis(ms));
+        text = read().ok()?;
+    }
+    parse(&text)
 }
 
 /// Codex's level from `[projects."<path>"] trust_level = "…"` in its config.toml,
@@ -296,8 +336,7 @@ pub fn get(paths: &Paths, cwd: &str) -> Result<Value, Failure> {
 /// `get` with the home folder named (tests use their own).
 fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failure> {
     let cwd = normalize_cwd(cwd).map_err(Failure::Invalid)?;
-    let claude =
-        claude_level(&std::fs::read_to_string(&paths.claude_json).unwrap_or_default(), &cwd);
+    let claude = claude_level_of(read_claude_json(&paths.claude_json).as_ref(), &cwd);
     let codex =
         codex_level(&std::fs::read_to_string(&paths.codex_config).unwrap_or_default(), &cwd);
     let repo = repository(Path::new(&cwd));
@@ -384,7 +423,7 @@ pub const WORKTREE: &str = "worktree";
 fn agents_level(paths: &Paths, folder: &Path) -> Level {
     let folder = folder.to_string_lossy();
     let read = |path: &Path| std::fs::read_to_string(path).unwrap_or_default();
-    claude_level(&read(&paths.claude_json), &folder)
+    claude_level_of(read_claude_json(&paths.claude_json).as_ref(), &folder)
         .stricter(codex_level(&read(&paths.codex_config), &folder))
 }
 
@@ -828,3 +867,7 @@ mod scope_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "trust_torn_tests.rs"]
+mod torn_tests;

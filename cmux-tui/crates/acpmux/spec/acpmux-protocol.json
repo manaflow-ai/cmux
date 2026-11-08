@@ -247,6 +247,18 @@
     },
     {
       "kind": "request",
+      "name": "chat.fix_from_link.prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "chat.fix_from_link",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/sessions",
       "params": {
         "$ref": "#/types/SessionsParams"
@@ -387,6 +399,36 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/race/cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/stats",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/forum/ack",
       "params": true,
       "result": true
@@ -473,7 +515,31 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/ledger",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/workspace_purge",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/review_queue",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/review_verdict",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/audit",
       "params": true,
       "result": true
     },
@@ -502,6 +568,14 @@
       "name": "_acpmux/bookmark_set",
       "params": {
         "$ref": "#/types/BookmarkSetParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/memory_resolve",
+      "params": {
+        "$ref": "#/types/MemoryResolveParams"
       },
       "result": true
     },
@@ -749,6 +823,12 @@
     {
       "kind": "request",
       "name": "_acpmux/info",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_info",
       "params": true,
       "result": true
     },
@@ -1042,6 +1122,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/uploads_keep",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/dispatch",
       "params": true,
       "result": true
@@ -1268,6 +1354,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/elevation_request",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mcp_connect_request",
       "params": true,
       "result": true
@@ -1293,6 +1385,12 @@
     {
       "kind": "request",
       "name": "_acpmux/chat_open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_resolve",
       "params": true,
       "result": true
     },
@@ -1988,11 +2086,17 @@
         "author": true,
         "beforePromptId": true,
         "callerSession": true,
+        "cancelToken": true,
+        "class": true,
         "cliHost": true,
+        "compression": true,
         "context": true,
+        "createdBy": true,
         "cwd": true,
         "decisionNonce": true,
+        "disallowedTools": true,
         "dispatchSource": true,
+        "effort": true,
         "env": true,
         "ephemeral": true,
         "forceAdmit": true,
@@ -2033,6 +2137,8 @@
         "requireFullAccess": true,
         "resend": true,
         "route": true,
+        "senderHarness": true,
+        "senderHarnessChecked": true,
         "spawnToolCallId": true,
         "startLater": true,
         "steer": true,
@@ -2040,13 +2146,16 @@
         "steerOnly": true,
         "supersede": true,
         "surface": true,
+        "tags": true,
         "teamMessage": true,
         "throughSeq": true,
+        "topic": true,
         "via": true,
         "vmBoundary": true,
         "waitStart": true,
         "workflowAllowedTools": true,
-        "workspaceId": true
+        "workspaceId": true,
+        "worktree": true
       },
       "type": "object"
     },
@@ -2524,6 +2633,31 @@
       },
       "type": "object"
     },
+    "Carrier": {
+      "description": "The carrier a live link runs over (`carrier`); null while no link is open.",
+      "oneOf": [
+        {
+          "const": "direct",
+          "description": "Straight to the peer: its WebSocket URL, or the paired machines' WireGuard link.",
+          "type": "string"
+        },
+        {
+          "const": "ssh",
+          "description": "An `ssh -W` tunnel to the peer's daemon.",
+          "type": "string"
+        },
+        {
+          "const": "hub",
+          "description": "Relayed by the team hub. Not sent by acpmux yet (carrier slice 3).",
+          "type": "string"
+        },
+        {
+          "const": "cloud",
+          "description": "cmux Cloud's relay. Not sent by acpmux yet (carrier slice 3).",
+          "type": "string"
+        }
+      ]
+    },
     "ChangedSession": {
       "anyOf": [
         {
@@ -2567,6 +2701,51 @@
       ],
       "type": "string"
     },
+    "CreatedBy": {
+      "description": "Who created a session (`hub/created_by.rs`), the shape cmux-tui's\n`workspace.create {created_by}` takes.",
+      "properties": {
+        "kind": {
+          "$ref": "#/types/CreatorKind"
+        },
+        "session": {
+          "description": "The acpmux session whose agent created it; only for `agent`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "workspace": {
+          "description": "The cmux workspace it was created from (lowercase UUID): the agent session's\nworkspace for an agent, else the one the create named.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "CreatorKind": {
+      "oneOf": [
+        {
+          "const": "person",
+          "description": "This host's app, or a connection that proved it is the person.",
+          "type": "string"
+        },
+        {
+          "const": "agent",
+          "description": "An agent session: its shell's `acpmux new` (a proven caller token) or its\n`start_session` tool.",
+          "type": "string"
+        },
+        {
+          "const": "script",
+          "description": "Any other client: a script or the CLI outside a chat.",
+          "type": "string"
+        }
+      ]
+    },
     "DeliveryReceipt": {
       "properties": {
         "messageId": {
@@ -2602,6 +2781,31 @@
     "Done": {
       "description": "An acknowledgement with nothing in it.",
       "type": "object"
+    },
+    "DownCause": {
+      "description": "Why a link is down (`cause`), so a surface can tell this Mac's network apart from the\nmachine. Null while the link is up or on its way the first time.",
+      "oneOf": [
+        {
+          "const": "localNetwork",
+          "description": "This machine's own network is down: the last attempt failed before it left this host\n(no route, no DNS).",
+          "type": "string"
+        },
+        {
+          "const": "hubDown",
+          "description": "The team hub does not answer, so a relayed link cannot be made. Not sent yet: it needs\nthe hub carrier's probe (carrier slice 3).",
+          "type": "string"
+        },
+        {
+          "const": "peerDown",
+          "description": "This machine's network works, and the peer (or its daemon) does not answer.",
+          "type": "string"
+        },
+        {
+          "const": "auth",
+          "description": "The peer refused this daemon's token.",
+          "type": "string"
+        }
+      ]
     },
     "DraftGetParams": {
       "additionalProperties": false,
@@ -2805,6 +3009,13 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "subagent": {
+          "description": "Only this subagent's own records: the updates acpmux tagged with it and those that start\nor change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -2857,6 +3068,13 @@
         "_meta": true,
         "beforePromptId": {
           "description": "Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cancelToken": {
+          "description": "The caller's name for this fork while it is made, at most 128 bytes: `_acpmux/kill` with\n`cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).",
           "type": [
             "string",
             "null"
@@ -3073,6 +3291,8 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "cancelFork": true,
+        "cancelToken": true,
         "purge": true,
         "sessionId": true
       },
@@ -3267,6 +3487,90 @@
         "state"
       ],
       "type": "object"
+    },
+    "LoopEpisodeSummary": {
+      "description": "The bounded diagnosis shown beside a looping chat. The daemon emits one event when this\nbecomes active and another when progress clears it; the summary lets a newly attached client\nrender the current state without replaying the transcript.",
+      "properties": {
+        "count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "diagnosis": {
+          "type": "string"
+        },
+        "episodeId": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hint": {
+          "type": "string"
+        },
+        "since": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "episodeId",
+        "since",
+        "count",
+        "diagnosis",
+        "hint"
+      ],
+      "type": "object"
+    },
+    "MachineLink": {
+      "description": "A machine link's whole state (`link`): what every surface draws, from acpmux alone.",
+      "oneOf": [
+        {
+          "const": "connected",
+          "description": "The handshake finished and the peer answers.",
+          "type": "string"
+        },
+        {
+          "const": "connecting",
+          "description": "Not reached yet, this run or a saved one; the first attempt runs.",
+          "type": "string"
+        },
+        {
+          "const": "reconnecting",
+          "description": "Down after it was reached; its last-known sessions stay listed. Attempts go on\n(`nextRetryAt`).",
+          "type": "string"
+        },
+        {
+          "const": "restarting",
+          "description": "The peer's daemon announced a restart (an update); it is dialed again at once.",
+          "type": "string"
+        },
+        {
+          "const": "degraded",
+          "description": "The WebSocket is open and the handshake runs, or a ping went unanswered: slow, not gone.",
+          "type": "string"
+        },
+        {
+          "const": "offline",
+          "description": "Never reached and attempts failed, or removed. Attempts go on (`nextRetryAt`).",
+          "type": "string"
+        },
+        {
+          "const": "authFailed",
+          "description": "The peer refused this daemon's token (HTTP 401 or 403): a person must sign in again.",
+          "type": "string"
+        },
+        {
+          "const": "updateRequired",
+          "description": "The peer is too old to link with: a person must update it. Not sent by acpmux yet; a\nrenderer draws it when a carrier reports it.",
+          "type": "string"
+        },
+        {
+          "const": "paused",
+          "description": "A Cloud machine that is paused; it resumes on use. Not sent by acpmux yet (the Cloud\ncarrier does not carry acpmux until carrier slice 3); a renderer draws it when sent.",
+          "type": "string"
+        }
+      ]
     },
     "MailAckParams": {
       "additionalProperties": false,
@@ -3559,6 +3863,20 @@
       ],
       "type": "object"
     },
+    "MemoryResolveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "accept": true,
+        "dismiss": true,
+        "file": true,
+        "offerId": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
     "MessageEvent": {
       "description": "The sender and receiver projection of a persisted session-to-session message.",
       "properties": {
@@ -3685,7 +4003,7 @@
       "type": "object"
     },
     "PeerLinkState": {
-      "description": "A peer link's state (`peer_link.rs` `PeerState`; `state` in `_acpmux/peers`).",
+      "description": "A peer link's state, folded for older apps (`state`): read `link` for the whole of it.",
       "oneOf": [
         {
           "const": "connecting",
@@ -3704,12 +4022,12 @@
         },
         {
           "const": "reconnecting",
-          "description": "Down after it was reached; its last-known sessions stay listed. Attempts go on.",
+          "description": "Down after it was reached (or restarting); its last-known sessions stay listed.",
           "type": "string"
         },
         {
           "const": "offline",
-          "description": "Never reached and attempts failed, or removed (`error: \"removed\"`, its last note).",
+          "description": "Never reached and attempts failed, the peer refused this daemon's token, or removed\n(`error: \"removed\"`, its last note).",
           "type": "string"
         }
       ]
@@ -3740,13 +4058,35 @@
       "type": "object"
     },
     "PeerStateChanged": {
-      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nstate changes, never twice for the same state: a peer that is added sends its first state,\nand one that is removed a last `offline` with `error: \"removed\"`. Listed as the\n`peerStateEvents` feature.",
+      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
       "properties": {
         "at": {
-          "description": "When the state changed, ms since the epoch.",
+          "description": "When the note was made, ms since the epoch.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "carrier": {
+          "anyOf": [
+            {
+              "$ref": "#/types/Carrier"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The carrier the open link runs over; null while none is open."
+        },
+        "cause": {
+          "anyOf": [
+            {
+              "$ref": "#/types/DownCause"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the link is down; null while it is up or on its way the first time."
         },
         "error": {
           "description": "Why the link is down, when it is.",
@@ -3764,19 +4104,44 @@
             "null"
           ]
         },
+        "link": {
+          "$ref": "#/types/MachineLink",
+          "description": "The link's whole state: what a surface draws."
+        },
+        "nextRetryAt": {
+          "description": "When acpmux dials again on its own, ms since the epoch; null while it is not waiting.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "peer": {
           "description": "The peer's name, as in `_acpmux/peers`.",
           "type": "string"
         },
+        "since": {
+          "description": "When `link` took its value, ms since the epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "state": {
-          "$ref": "#/types/PeerLinkState"
+          "$ref": "#/types/PeerLinkState",
+          "description": "`link` folded to the older five words, for an app that predates `link`."
         }
       },
       "required": [
         "at",
+        "carrier",
+        "cause",
         "error",
         "lastSeen",
+        "link",
+        "nextRetryAt",
         "peer",
+        "since",
         "state"
       ],
       "type": "object"
@@ -4394,8 +4759,15 @@
     "QueuedAuthor": {
       "description": "The person who queued a prompt in a shared chat.",
       "properties": {
+        "avatar": {
+          "description": "Their profile picture (`_meta.provenance` `fromAvatar`, an `https://` URL), left out when\nthey have none (and from an older acpmux).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
-          "description": "`tailnet:<login>` or `user_…`.",
+          "description": "`tailnet:<login>`, `user_…` or `guest:<share>.<guest>`.",
           "type": "string"
         },
         "name": {
@@ -4508,11 +4880,19 @@
           },
           "type": "array"
         },
+        "inboxNotice": {
+          "default": null,
+          "description": "acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,\n`hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the\nmessages it carries and never as the person's queued prompt, also when it has not read\nits `queued` record (a chat reopened on a recent page). Null for any other prompt, and\nonce edited (an edit drops the provenance)."
+        },
         "prompt": {
           "type": "string"
         },
         "promptId": {
           "type": "string"
+        },
+        "provenance": {
+          "default": null,
+          "description": "Its `_meta.provenance` when it names a sender that is no agent's to act on: another agent's\nmessage the person edited (`editedBy`, still that agent's words to read) or a prompt no\nproof attributes (`unverified`). An app draws its card from it while `fromAgent` is null.\nNull otherwise. Display only, never authority."
         },
         "queuedAt": {
           "format": "uint64",
@@ -4553,8 +4933,10 @@
         "held",
         "heldByStop",
         "images",
+        "inboxNotice",
         "prompt",
         "promptId",
+        "provenance",
         "queuedAt",
         "revision",
         "subagentRetry",
@@ -4664,11 +5046,12 @@
       "type": "object"
     },
     "RetryReason": {
-      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the\nagent process died mid-turn.",
+      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the\nagent process died mid-turn, or the chat outgrew its model's context window (`context`: it\nis compacted, then continued at once).",
       "enum": [
         "capacity",
         "transport",
-        "agent_exited"
+        "agent_exited",
+        "context"
       ],
       "type": "string"
     },
@@ -5018,6 +5401,18 @@
           "minimum": 0,
           "type": "integer"
         },
+        "createdBy": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CreatedBy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
+        },
         "currentModeId": {
           "type": [
             "string",
@@ -5140,6 +5535,18 @@
             }
           ],
           "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
+        },
+        "loopEpisode": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LoopEpisodeSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.\nAdditive so older clients and peers can omit it."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
@@ -5310,6 +5717,11 @@
             "string",
             "null"
           ]
+        },
+        "starting": {
+          "default": false,
+          "description": "Its agent is being started (a start, a wake or a mode change holds the session's spawn\nlease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update\nwaits on it as on a turn. Always sent, so a row without it is from an older acpmux,\nwhich an update reads by its row's age instead.",
+          "type": "boolean"
         },
         "state": {
           "default": "",
@@ -5634,6 +6046,18 @@
           "minimum": 0,
           "type": "integer"
         },
+        "createdBy": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CreatedBy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
+        },
         "currentModeId": {
           "type": [
             "string",
@@ -5756,6 +6180,18 @@
             }
           ],
           "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
+        },
+        "loopEpisode": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LoopEpisodeSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.\nAdditive so older clients and peers can omit it."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
@@ -5914,6 +6350,11 @@
             "string",
             "null"
           ]
+        },
+        "starting": {
+          "default": false,
+          "description": "Its agent is being started (a start, a wake or a mode change holds the session's spawn\nlease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update\nwaits on it as on a turn. Always sent, so a row without it is from an older acpmux,\nwhich an update reads by its row's age instead.",
+          "type": "boolean"
         },
         "state": {
           "default": "",

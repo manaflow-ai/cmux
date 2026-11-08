@@ -134,6 +134,8 @@ pub(super) async fn handle(
         target,
         request,
         caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
+        // A token it could not prove keeps the replay off the owner too (#38260 F1).
+        unproven_caller: conn.unproven_caller.get().filter(|_| !conn.is_person()).cloned(),
         state: State::Queued,
         attempts: 0,
         never_sent: true,
@@ -227,6 +229,7 @@ pub(super) async fn remember_forward(
         target,
         request,
         caller: Some(caller.to_owned()),
+        unproven_caller: None,
         // Held is terminal to older daemons: rollback never sends this lookup
         // record as a prompt. New code recognizes the forwardProjection marker.
         state: State::Held,
@@ -587,8 +590,8 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 Err((why, Next::Retry))
             })
         } else {
-            let outcome =
-                attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await;
+            let caller = Caller::of(&delivery);
+            let outcome = attempt_once(hub, caller, request, Origin::Local).await;
             link_unsent = matches!(outcome, Err((_, Next::Unsent)));
             match outcome {
                 // Nothing has reached the target: the mesh relay carries it when it can.
@@ -755,12 +758,30 @@ async fn forget_attachments(path: std::path::PathBuf) {
     let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
 }
 
+/// The session a kept send is delivered as (`Delivery::caller`, `Delivery::unproven_caller`): one
+/// the sender's connection proved, or one it named with a token this daemon could not prove.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Caller<'a> {
+    Proven(&'a str),
+    Unproven(&'a str),
+}
+
+impl<'a> Caller<'a> {
+    fn of(delivery: &'a Delivery) -> Option<Self> {
+        delivery
+            .caller
+            .as_deref()
+            .map(Caller::Proven)
+            .or_else(|| delivery.unproven_caller.as_deref().map(Caller::Unproven))
+    }
+}
+
 /// One attempt: the target's acceptance, or the error and whether to try again. It runs on a
 /// connection of `origin`: the unix socket's for a send here, a peer's for a message the mesh
 /// relay delivers (`mesh_relay.rs`), so each is held to its origin's rules.
 pub(super) async fn attempt_once(
     hub: &Arc<Hub>,
-    caller: Option<&str>,
+    caller: Option<Caller<'_>>,
     request: Value,
     origin: Origin,
 ) -> Result<Value, (String, Next)> {
@@ -785,17 +806,23 @@ pub(super) async fn attempt_once(
         .to_owned();
     let (in_tx, in_rx) = mpsc::channel(16);
     let (out_tx, mut out_rx) = mpsc::channel(1024);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+    tokio::spawn(super::serve_outbox_connection(hub.clone(), in_rx, out_tx, origin));
     let mut hello = json!({
         "protocolVersion": 1,
         "clientCapabilities": {},
         "clientInfo": {"name": "acpmux-outbox", "version": crate::hub::VERSION},
     });
-    if let Some(id) = caller {
+    if let Some(caller) = caller {
+        // An unproven one goes with no token, which proves nothing: the fresh connection binds it
+        // unproven, as the sender's own did (`Conn::bind_person`).
+        let (id, token) = match caller {
+            Caller::Proven(id) => (id, crate::hub::person::caller_token(id)),
+            Caller::Unproven(id) => (id, String::new()),
+        };
         let mut mux = serde_json::Map::new();
         mux.insert(
             crate::hub::person::CALLER_FIELD.to_owned(),
-            json!({"sessionId": id, "token": crate::hub::person::caller_token(id)}),
+            json!({"sessionId": id, "token": token}),
         );
         hello.set("_meta", json!({"acpmux": mux}));
     }
@@ -909,6 +936,7 @@ mod retry_delay_tests {
             target: "gone/lane".into(),
             request,
             caller: None,
+            unproven_caller: None,
             state: State::Queued,
             attempts: 0,
             never_sent: true,
@@ -1177,6 +1205,8 @@ mod forward_projection_tests {
         let before = receiver.meta().event_count;
         original.detach_child(&sender).await;
         original.store.flush().unwrap();
+        // The first daemon's shutdown seal: the journal's lock passes to the restarted one.
+        original.seal();
         // Reopen the source state as daemon startup does: the outbox resumes before the saved
         // sessions load (`daemon.rs`). No original callback survives.
         let restarted = Hub::new_loading(

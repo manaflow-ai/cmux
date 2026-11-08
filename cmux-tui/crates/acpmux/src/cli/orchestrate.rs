@@ -292,6 +292,7 @@ fn failure_lines(r: &Value, now: u64) -> Vec<String> {
             "capacity" => "capacity: the provider or the gateway is full",
             "transport" => "a dropped connection",
             "agent_exited" => "the agent process's exit",
+            "context" => "a chat past its context window (it compacts first)",
             other => other,
         };
         lines.push(format!(
@@ -540,6 +541,7 @@ pub(crate) async fn ensure(
     effort: Option<String>,
     tags: Vec<String>,
     harness_from: Option<String>,
+    full_record: bool,
     json_out: bool,
 ) -> Result<()> {
     let (agent, model) = match &target {
@@ -638,7 +640,7 @@ pub(crate) async fn ensure(
     if json_out {
         let mut out = v.clone();
         out["created"] = json!(created);
-        print_json(&out);
+        print_json(&crate::cli::output::session_record(out, full_record));
     } else {
         println!(
             "{} {name} ({})",

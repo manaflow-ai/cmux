@@ -27,6 +27,8 @@ fn friendly_verbs_map_to_the_cmux_vm_cli() {
         args(&["delete", "vm_1", "--yes"])
     );
     assert_eq!(planned(&["vm", "pause", "vm_1"]).unwrap(), args(&["pause", "vm_1"]));
+    // `shutdown` is `pause` (vm_short.rs); `stop` is the VM API's own verb.
+    assert_eq!(planned(&["vm", "shutdown", "vm_1"]).unwrap(), args(&["pause", "vm_1"]));
     assert_eq!(planned(&["vm", "resume", "vm_1"]).unwrap(), args(&["resume", "vm_1"]));
 }
 
@@ -69,7 +71,7 @@ fn a_vm_with_no_verb_or_an_unknown_verb_lists_the_wrapper_verbs() {
 #[test]
 fn resize_points_at_the_cloud_action() {
     let error = planned(&["vm", "resize"]).unwrap_err();
-    assert!(error.0.contains("cmux cloud resize-machine"), "{}", error.0);
+    assert!(error.0.contains("cmux vm resize-machine"), "{}", error.0);
 }
 
 #[test]
@@ -88,7 +90,7 @@ fn snapshot_subcommands_and_help_pass_through() {
 #[test]
 fn workspace_new_points_at_the_app_action() {
     let error = planned(&["vm", "workspace", "new", "vm_1"]).unwrap_err();
-    assert!(error.0.contains("cmux cloud new-workspace"), "{}", error.0);
+    assert!(error.0.contains("cmux vm new-workspace"), "{}", error.0);
 }
 
 #[test]
@@ -541,26 +543,29 @@ fn machine_help_names_every_new_verb_and_the_old_spellings() {
     assert!(text.contains("cmux vm"), "{text}");
 }
 
-fn route(words: &[&str], credential: bool, app: bool) -> NewRoute {
+fn route(words: &[&str], app: bool) -> NewRoute {
     let all = args(words);
-    let (scope, rest) = split(&all).expect("a machine command");
-    new_route(scope, &rest[1..], || credential, app)
+    let (_, rest) = split(&all).expect("a vm command");
+    new_route(&rest[1..], app)
 }
 
-/// `cmux machine new` makes the app's Cloud machine when the app is here
-/// and the caller has no VM API key; a key, a VM-API-only flag, no app, or
-/// the old `vm new` keeps the VM API, as it ran before.
+/// `cmux machine new` makes the app's Cloud machine when the app is here, a
+/// stored VM API key or not: Leo's nightly died on an expired one (2026-11-06,
+/// "`cmux machine new` ignores the signed-in app"). A VM-API-only flag or no app keeps the VM
+/// API. `vm new` is the one noun that makes VMs now (CMUX-43), so it routes the same.
 #[test]
 fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
-    assert_eq!(route(&["machine", "new"], false, true), NewRoute::App);
-    assert_eq!(route(&["machine", "create", "--name", "a"], false, true), NewRoute::App);
-    assert_eq!(route(&["machine", "new", "--size=medium"], true, false), NewRoute::App);
-    assert_eq!(route(&["machine", "new", "--persistent"], true, true), NewRoute::App);
-    assert_eq!(route(&["machine", "new"], true, true), NewRoute::VmApi);
-    assert_eq!(route(&["machine", "new"], false, false), NewRoute::VmApi);
-    assert_eq!(route(&["machine", "new", "--snapshot", "snap_1"], false, true), NewRoute::VmApi);
-    assert_eq!(route(&["machine", "new", "--team=t"], false, true), NewRoute::VmApi);
-    assert_eq!(route(&["vm", "new", "--size", "small"], false, true), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new"], true), NewRoute::App);
+    assert_eq!(route(&["machine", "create", "--name", "a"], true), NewRoute::App);
+    assert_eq!(route(&["machine", "new", "--size=medium"], false), NewRoute::App);
+    assert_eq!(route(&["machine", "new", "--persistent"], true), NewRoute::App);
+    assert_eq!(route(&["machine", "new"], false), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new", "--snapshot", "snap_1"], true), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new", "--team=t"], true), NewRoute::VmApi);
+    assert_eq!(route(&["vm", "new", "--size", "small"], true), NewRoute::App);
+    assert_eq!(route(&["vm", "new"], true), NewRoute::App);
+    assert_eq!(route(&["vm", "new"], false), NewRoute::VmApi);
+    assert_eq!(route(&["vm", "new", "--image", "img_1"], true), NewRoute::VmApi);
 }
 
 #[test]
@@ -572,9 +577,9 @@ fn a_created_cloud_machine_prints_its_target_and_next_steps() {
     let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
     assert!(text.starts_with("Created Cloud machine api-dev (vm-abc): running."), "{text}");
     for next in [
-        "cmux cloud ssh --target machine:vm-abc",
-        "cmux cloud start-session --target machine:vm-abc",
-        "cmux cloud exec --target machine:vm-abc",
+        "cmux vm ssh --target machine:vm-abc",
+        "cmux vm start-session --target machine:vm-abc",
+        "cmux vm exec --target machine:vm-abc",
     ] {
         assert!(text.contains(next), "{next} missing: {text}");
     }
@@ -582,7 +587,7 @@ fn a_created_cloud_machine_prints_its_target_and_next_steps() {
     assert!(
         created_line(&params, &pending, &GlobalArgs::default())
             .unwrap()
-            .contains("cmux machine list")
+            .contains("cmux vm list-machines")
     );
     assert!(
         created_line(&json!({ "action": "share chat" }), &created, &GlobalArgs::default())
@@ -627,27 +632,29 @@ fn the_next_steps_keep_the_socket_the_create_used() {
     };
     let text = created_line(&params, &created, &global).unwrap();
     let cmux = "cmux --socket=/tmp/d.sock '--app-socket=/tmp/my app.sock'";
-    for verb in ["cloud ssh", "cloud start-session", "cloud exec"] {
+    for verb in ["vm ssh", "vm start-session", "vm exec"] {
         assert!(text.contains(&format!("{cmux} {verb} --target machine:vm-abc")), "{verb}: {text}");
     }
     let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
-    assert!(text.contains("  cmux cloud ssh --target machine:vm-abc"), "{text}");
+    assert!(text.contains("  cmux vm ssh --target machine:vm-abc"), "{text}");
     let pending = json!({ "result": { "pending": true, "status": "creating" } });
     let text = created_line(&params, &pending, &global).unwrap();
-    assert!(text.contains(&format!("`{cmux} machine list`")), "{text}");
+    assert!(text.contains(&format!("`{cmux} vm list-machines`")), "{text}");
 }
 
 /// #32227 (3): `--help` with other options prints help, never asks the app.
 #[test]
 fn machine_new_help_with_other_options_prints_help() {
     let tail = |words: &[&str]| args(words);
-    assert!(new_wants_help(Scope::Machine, &tail(&["--help"])));
-    assert!(new_wants_help(Scope::Machine, &tail(&["--name", "demo", "--help"])));
-    assert!(new_wants_help(Scope::Machine, &tail(&["-h", "--size", "small"])));
-    assert!(!new_wants_help(Scope::Machine, &tail(&["--name", "demo"])));
-    assert!(!new_wants_help(Scope::Machine, &tail(&["--", "--help"])));
-    // `vm new --help` stays cmux-vm's own help.
-    assert!(!new_wants_help(Scope::Vm, &tail(&["--help"])));
+    assert!(new_wants_help(&tail(&["--help"])));
+    assert!(new_wants_help(&tail(&["--name", "demo", "--help"])));
+    assert!(new_wants_help(&tail(&["-h", "--size", "small"])));
+    assert!(!new_wants_help(&tail(&["--name", "demo"])));
+    assert!(!new_wants_help(&tail(&["--", "--help"])));
+    // `vm new --help` and its old spelling `machine new --help` print the same help, which
+    // teaches `cmux vm new`.
+    assert!(NEW_HELP.starts_with("usage: cmux vm new"), "{NEW_HELP}");
+    assert!(!NEW_HELP.contains("cmux machine new ["), "{NEW_HELP}");
 }
 
 /// #32227 (4): a machine made with no flags does not pause when idle (the
@@ -656,4 +663,194 @@ fn machine_new_help_with_other_options_prints_help() {
 fn machine_new_help_does_not_say_a_default_machine_pauses() {
     assert!(!NEW_HELP.contains("pauses when idle"), "{NEW_HELP}");
     assert!(NEW_HELP.contains("keeps running when idle"), "{NEW_HELP}");
+}
+
+/// A `--socket` that is a daemon's, not the app's, is no app for `machine new`: it takes the VM API
+/// instead of failing on the app action (review of #37024).
+#[test]
+fn a_daemon_socket_is_no_app_for_machine_new() {
+    assert!(app_present(true, false, || false, || false));
+    assert!(app_present(false, true, || true, || false));
+    assert!(!app_present(false, true, || false, || true), "a daemon socket, though the app runs");
+    assert!(app_present(false, false, || false, || true));
+    assert!(!app_present(false, false, || false, || false));
+}
+
+/// `cmux cloud` is now `cmux vm`: a Cloud verb under `vm` runs as `cloud VERB`, and every verb
+/// `vm` had as `machine`'s old name stays its own.
+#[test]
+fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
+    for (typed, expected) in [
+        (&["vm", "list-machines", "--json"][..], &["cloud", "list-machines", "--json"][..]),
+        (&["--json", "vm", "sign-in"], &["--json", "cloud", "sign-in"]),
+        (
+            &["vm", "kill-machine", "--target", "machine:m", "--confirm"],
+            &["cloud", "kill-machine", "--target", "machine:m", "--confirm"],
+        ),
+        (&["vm", "secret", "ls"], &["cloud", "secret", "ls"]),
+        (&["vm", "env", "get"], &["cloud", "env", "get"]),
+        // The Cloud forms of `exec` and `client-session` name a target.
+        (
+            &["vm", "exec", "--target", "machine:m", "--command", "uname"],
+            &["cloud", "exec", "--target", "machine:m", "--command", "uname"],
+        ),
+        (
+            &["vm", "client-session", "create", "--target=machine:m"],
+            &["cloud", "client-session", "create", "--target=machine:m"],
+        ),
+    ] {
+        assert_eq!(cloud_alias(&args(typed)), Some(args(expected)), "{typed:?}");
+    }
+    for typed in [
+        &["vm", "ls"][..],
+        &["vm", "list"],
+        &["vm", "new", "--size", "small"],
+        &["vm", "exec", "vm_1", "--", "uname"],
+        &["vm", "add", "box"],
+        &["vm", "--help"],
+        &["vm"],
+        &["cloud", "list-machines"],
+        &["machine", "list-machines"],
+    ] {
+        assert_eq!(cloud_alias(&args(typed)), None, "{typed:?}");
+    }
+}
+
+/// No `vm chat`: a Cloud chat is `cmux chat --on vm:…`.
+#[test]
+fn vm_has_no_chat_verb() {
+    for verb in ["start-chat", "chat"] {
+        assert_eq!(cloud_alias(&args(&["vm", verb, "--prompt", "hi"])), None);
+        let error = planned(&["vm", verb, "--prompt", "hi"]).unwrap_err();
+        assert!(error.0.contains("cmux chat --on vm:"), "{}", error.0);
+    }
+}
+
+#[test]
+fn cloud_names_its_new_spelling() {
+    assert!(rename_note(Some("list-machines"), false).contains("`cmux vm list-machines`"));
+    assert!(rename_note(Some("start-chat"), false).contains("cmux chat --on vm:"));
+    assert!(rename_note(None, false).contains("`cmux vm`"));
+    assert!(rename_note(Some("list-machines"), true).contains("cmux vm"));
+}
+
+/// The rewritten words parse as `machine …` with the output each flag asks for.
+#[test]
+fn device_output_flags_reach_the_global_options() {
+    for (flag, mode) in [
+        ("--json", OutputMode::Json),
+        ("--jsonl", OutputMode::JsonLines),
+        ("--quiet", OutputMode::Quiet),
+        ("-q", OutputMode::Quiet),
+    ] {
+        let Some(DeviceRoute::Machine(rewritten)) =
+            device_alias(&args(&["device", flag, "m", "show"]))
+        else {
+            panic!("{flag}");
+        };
+        let (global, command) = super::super::parse_globals(&rewritten).ok().unwrap();
+        assert_eq!((global.output, command), (mode, args(&["machine", "m", "show"])), "{flag}");
+    }
+}
+
+/// cmuxterm-hq#7487 item 6: `device` is the noun for devices, `machine` its old name. Every device
+/// verb `machine` has runs as `machine …` under `device`; the verbs devices/mod.rs owns
+/// (`list`, `remove`, `add`, …) and `device add` (the app's Add Device) are not rewritten.
+#[test]
+fn device_runs_what_machine_runs_for_each_device_verb() {
+    let machine = |words: &[&str]| Some(DeviceRoute::Machine(args(words)));
+    for (typed, expected) in [
+        (&["device", "mac-mini", "show"][..], &["machine", "mac-mini", "show"][..]),
+        (
+            &["device", "mac-mini", "show", "--catalog"],
+            &["machine", "mac-mini", "show", "--catalog"],
+        ),
+        (&["device", "mac-mini", "session", "list"], &["machine", "mac-mini", "session", "list"]),
+        (&["device", "studio", "doctor"], &["machine", "studio", "doctor"]),
+        (&["device", "revoke", "m_1", "--yes"], &["machine", "revoke", "m_1", "--yes"]),
+        (&["device", "rotate", "m_1"], &["machine", "rotate", "m_1"]),
+        (&["device", "doctor"], &["machine", "doctor"]),
+        (&["device", "doctor", "box", "--fix"], &["machine", "doctor", "box", "--fix"]),
+        (&["device", "vault", "ls"], &["machine", "vault", "ls"]),
+        (&["--json", "device", "rotate", "m_1"], &["--json", "machine", "rotate", "m_1"]),
+        (&["device", "--json", "m", "show"], &["--json", "machine", "m", "show"]),
+        (&["device", "--jsonl", "doctor"], &["--jsonl", "machine", "doctor"]),
+        (&["device", "--quiet", "revoke", "m_1"], &["--quiet", "machine", "revoke", "m_1"]),
+        (&["device", "-q", "m", "show"], &["--quiet", "machine", "m", "show"]),
+        (&["device", "m", "show", "--jsonl"], &["--jsonl", "machine", "m", "show"]),
+        (&["device", "m", "show", "--", "-q"], &["machine", "m", "show", "--", "-q"]),
+        (&["--session", "s", "device", "m", "show"], &["--session", "s", "machine", "m", "show"]),
+    ] {
+        assert_eq!(device_alias(&args(typed)), machine(expected), "{typed:?}");
+    }
+    for typed in [
+        &["device", "add"][..],
+        &["device", "add", "studio.local"],
+        &["device", "list"],
+        &["device", "ls", "--json"],
+        &["device", "remove", "peer:box"],
+        &["device", "invite"],
+        &["device", "help"],
+        &["device", "--help"],
+        &["device"],
+        &["machine", "mac-mini", "show"],
+        &["workspace", "new", "--name", "device"],
+    ] {
+        assert_eq!(device_alias(&args(typed)), None, "{typed:?}");
+    }
+}
+
+/// `vm` is the only noun that makes VMs: a VM verb under `device` names `cmux vm VERB`.
+#[test]
+fn a_vm_verb_under_device_points_at_vm() {
+    for verb in ["new", "pause", "resume", "run", "exec", "key"] {
+        assert_eq!(
+            device_alias(&args(&["device", verb, "x"])),
+            Some(DeviceRoute::Vm(verb.to_owned())),
+            "{verb}"
+        );
+    }
+    assert!(device_vm_refusal("new").contains("`cmux vm new`"));
+    // A device named like a VM verb is still reached by its selector verb.
+    assert_eq!(
+        device_alias(&args(&["device", "new", "show"])),
+        Some(DeviceRoute::Machine(args(&["machine", "new", "show"])))
+    );
+}
+
+/// `machine new|pause|…` still run the VM path (the old spelling), and say the new one only at
+/// a terminal.
+#[test]
+fn machine_vm_verbs_still_run_and_name_vm_only_at_a_terminal() {
+    for verb in ["new", "pause", "resume", "rm", "run", "exec", "key", "access", "show"] {
+        let (_, scope, rest) = prepared(&args(&["machine", verb, "x"])).expect(verb);
+        assert_eq!(scope, Scope::Machine, "{verb}");
+        assert_eq!(rest.first().map(String::as_str), Some(verb));
+    }
+    assert_eq!(route(&["machine", "new"], true), NewRoute::App);
+    assert_eq!(
+        machine_note(Some("new"), true, false).as_deref(),
+        Some("cmux: `cmux machine new` is now `cmux vm new`; both work.")
+    );
+    assert!(machine_note(Some("pause"), true, true).unwrap().contains("`cmux vm pause`"));
+    assert_eq!(machine_note(Some("new"), false, false), None, "a script reads nothing new");
+    assert_eq!(machine_note(Some("new"), false, true), None);
+}
+
+/// `cmux vm --help` teaches the VM verbs and points devices to `cmux device`; `cmux machine
+/// --help` points VMs to `cmux vm`.
+#[test]
+fn vm_help_teaches_vm_and_machine_help_points_at_it() {
+    for japanese in [false, true] {
+        let text = vm_help(japanese);
+        for verb in ["\n  new ", "\n  pause ", "\n  resume ", "\n  rm ", "\n  run "] {
+            assert!(text.contains(verb), "{verb:?} missing:\n{text}");
+        }
+        assert!(text.contains("cmux device --help"), "{text}");
+    }
+    let usage = help();
+    assert!(usage.starts_with("usage: cmux vm "), "{usage}");
+    assert!(!super::super::surface::VM_VERBS_HELP.contains("cmux machine new ("));
+    assert!(super::super::surface::VM_POINTER.contains("cmux vm --help"));
+    assert!(super::super::surface::MACHINE_CATALOG_HELP.contains("cmux device"));
 }

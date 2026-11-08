@@ -23,6 +23,8 @@ nonisolated extension ActionSurfaceCatalog {
         .noObject: [
             "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop", "window.toggleDockBottom",
             "window.toggleDockOrientation",
+            "home.openChiefDock", "home.undockChief", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
+            "window.dockEdgeLeft", "window.dockEdgeRight", "window.dockEdgeTop", "window.dockEdgeBottom",
             "palette.openFilesPane", "palette.openFindPane",
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
@@ -34,7 +36,7 @@ nonisolated extension ActionSurfaceCatalog {
             "workspace.importClassic", "session.moveFromBuild", "fileEditor.importEditorSettings", "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
             "switchRightSidebarToFind", "switchRightSidebarToSessions", "switchRightSidebarToFeed",
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
-            "showNotifications", "feed.show", "markAllNotificationsRead",
+            "showNotifications", "markAllNotificationsRead",
             "clearAllNotifications", "notifications.toggleBanners", "notifications.dismissal.keystroke",
             "notifications.setAgentSound", "notifications.setEventSound", "notifications.importSound",
             "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
@@ -45,7 +47,7 @@ nonisolated extension ActionSurfaceCatalog {
             "newCloudMachine", "cloudDiagnostics", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",
             "palette.mobileConnect", "accounts.show", "accounts.refresh", "accounts.reauthenticate",
             "accounts.connect", "accounts.remove", "accounts.githubConnect", "reloadConfiguration", "palette.openCmuxSettingsFile",
-            "liveWeb.start", "liveWeb.stop", "palette.openGhosttySettings", "settings.customizeMenus", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
+            "liveWeb.start", "liveWeb.stop", "liveSwift.start", "liveSwift.stop", "palette.openGhosttySettings", "settings.customizeMenus", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.restartServer", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
             "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "updates.rollback", "updates.installEarlierBuild", "palette.pro.upgrade",
@@ -158,7 +160,7 @@ nonisolated extension ActionSurfaceCatalog {
             // Docked workspaces are a default-off prototype (`window.dockedWorkspaces`): palette, CLI and MCP only,
             // so the workspace row's Move menu does not grow six rows nobody can use yet.
             "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
-            "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
+            "workspace.toggleDockFloating", "window.movePaneToDock", "workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
             "palette.copyWorkspaceIDAndRef", "workspace.showResources", "palette.openWorkspacePullRequests",
             "workspace.setRemoteLocalhost",
             // The tab menu's Move folder already holds Move Tab to Workspace…; a space list there would bloat it.

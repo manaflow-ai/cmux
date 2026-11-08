@@ -7,7 +7,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { RevealedMarkdown, revealFrames } from "./RevealedMarkdown";
+import { RevealedMarkdown } from "./RevealedMarkdown";
+import { revealFrames } from "./revealedMarkdownModel";
 import { StreamReveal, wordEdge } from "../streamReveal";
 
 let dom: JSDOM | undefined;

@@ -24,12 +24,6 @@
       "reason": "debt: the sandboxed-run notice's timeout label names the classic /api/runs route it follows"
     },
     {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient+ChatGrants.swift",
-      "pattern": "route:/api/vm",
-      "count": 1,
-      "reason": "debt: machine chat grants still go through classic /api/vm/{id}/chat-grants until cmux-platform serves them"
-    },
-    {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/runs",
       "count": 10,
@@ -38,8 +32,26 @@
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/vm",
-      "count": 25,
+      "count": 14,
       "reason": "debt: the NEXT Cloud REST client's machine calls still use classic /api/vm until cmux-platform's machine API replaces them"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-api/src/classic.rs",
+      "pattern": "route:/api/vm",
+      "count": 7,
+      "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's classic /api/vm machine calls, which the app moves onto through the daemon's cloud.vm.* operations (#37350); goes when cmux-platform's machine API replaces them"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-api/src/runs.rs",
+      "pattern": "route:/api/runs",
+      "count": 4,
+      "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's sandboxed-run calls on classic /api/runs, behind the daemon's cloud.runs.* operations (#37350); goes when they move to cmux-platform hand-offs"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-tasks/src/follower.rs",
+      "pattern": "route:/api/runs",
+      "count": 1,
+      "reason": "keep: moved from SandboxRunFollower.swift (#37291, step A); the sandboxed-run follower's path label names the classic /api/runs wait the app still follows until Runs move to cmux-platform; step B keeps one Swift label"
     },
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/SandboxRunFollower.swift",
@@ -48,28 +60,10 @@
       "reason": "debt: the sandboxed-run follower's path label names classic /api/runs"
     },
     {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Tunnel/CloudTunnelHub.swift",
-      "pattern": "route:/api/vm",
-      "count": 1,
-      "reason": "debt: the WireGuard hub's timeout label names classic /api/vm/tunnel enrollment"
-    },
-    {
       "file": "cmux-tui/bindings/typescript/code-mode/cloud-relay.mjs",
       "pattern": "route:/api/vm",
       "count": 19,
       "reason": "debt: code mode's cloud relay maps vm.* operations onto classic /api/vm routes until it calls cmux-platform"
-    },
-    {
-      "file": "cmux-tui/crates/cmux-cloud-config/src/config.rs",
-      "pattern": "base:cmux-staging",
-      "count": 1,
-      "reason": "keep: moved from CloudConfiguration.swift (#34982, step A); the staging web app still serves sign-in, teams and billing for development builds, and its Cloud API base is now the development Worker; step B deletes the Swift copy"
-    },
-    {
-      "file": "cmux-tui/crates/cmux-cloud-config/src/config.rs",
-      "pattern": "base:cmux.com",
-      "count": 1,
-      "reason": "keep: moved from CloudConfiguration.swift (#34982, step A); production NEXT customers still sign in and reach their team on cmux.com until cmux-platform serves those routes; step B deletes the Swift copy"
     },
     {
       "file": "cmux-tui/crates/cmux-cloud-environment/src/client_config.rs",

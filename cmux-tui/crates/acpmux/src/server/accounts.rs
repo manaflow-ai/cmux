@@ -73,7 +73,7 @@ pub(super) async fn handle(
                 .to_owned();
             let enabled = params.get("enabled").and_then(Value::as_bool);
             let name = params.get("name").and_then(Value::as_str).map(str::to_owned);
-            tokio::task::spawn_blocking(move || set(dir.as_deref(), &id, enabled, name))
+            tokio::task::spawn_blocking(move || set(dir.as_deref(), &state, &id, enabled, name))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
@@ -175,6 +175,7 @@ fn view(
 /// written as a route file of its id, which replaces the built-in one.
 fn set(
     dir: Option<&Path>,
+    state: &Path,
     id: &str,
     enabled: Option<bool>,
     name: Option<String>,
@@ -196,6 +197,19 @@ fn set(
         file.name = Some(name.trim().to_owned());
     }
     let written = routes::add(dir, id, &file, true).map_err(error)?;
+    // An account turned off is no longer a workspace's, a family's or the global default: new chats
+    // fall back to the CLI's own login instead of moving onto it by themselves (as a removed route's
+    // defaults are cleared). A chat bound to it keeps running on it (`RouteFile::disabled`).
+    if file.disabled {
+        routes::update_bindings(state, |b| {
+            b.workspaces.retain(|_, r| r != id);
+            b.families.retain(|_, r| r != id);
+            if b.global.as_deref() == Some(id) {
+                b.global = None;
+            }
+        })
+        .map_err(error)?;
+    }
     let family = file.families.first().cloned().unwrap_or_else(|| "codex".into());
     if key {
         return Ok(key_view(&written, &family));
@@ -280,6 +294,8 @@ fn claude_login(folder: Option<&Path>) -> Login {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::routes::RouteFile;
+    use std::collections::BTreeMap;
 
     #[test]
     fn the_default_is_the_family_binding_then_the_global_one_then_the_cli_login() {
@@ -292,6 +308,64 @@ mod tests {
         b.families.insert("claude".into(), "claude-3".into());
         assert!(is_default(&b, "claude", "claude-3", false));
         assert!(!is_default(&b, "claude", "claude-2", false));
+    }
+
+    #[test]
+    fn turning_off_the_default_account_clears_its_defaults_but_not_a_chats_binding() {
+        let root = std::env::temp_dir().join(format!("acpmux-accounts-off-{}", std::process::id()));
+        let (dir, state) = (root.join("routes"), root.join("state"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = RouteFile {
+            name: Some("Work key".into()),
+            kind: RouteKind::DirectApiKey,
+            families: vec!["claude".into()],
+            anthropic_base_url: None,
+            openai_base_url: None,
+            auth: None,
+            secret: Some("env:ANTHROPIC_WORK_KEY".into()),
+            headers: BTreeMap::new(),
+            health_url: None,
+            fallback: vec![],
+            auto_fallback: false,
+            notes: None,
+            account_home: None,
+            shadow_of: None,
+            disabled: false,
+        };
+        routes::add(Some(&dir), "claude-key", &file, false).unwrap();
+        routes::update_bindings(&state, |b| {
+            b.families.insert("claude".into(), "claude-key".into());
+            b.families.insert("codex".into(), "codex-2".into());
+            b.global = Some("claude-key".into());
+            b.workspaces.insert("ws-1".into(), "claude-key".into());
+            b.chats.insert("chat-1".into(), "claude-key".into());
+        })
+        .unwrap();
+        set(Some(&dir), &state, "claude-key", Some(true), None).unwrap();
+        assert_eq!(
+            routes::bindings(&state).families.get("claude").map(String::as_str),
+            Some("claude-key")
+        );
+        set(Some(&dir), &state, "claude-key", Some(false), None).unwrap();
+        let b = routes::bindings(&state);
+        assert_eq!(b.families.get("claude"), None, "a turned-off account still picks new chats");
+        assert_eq!(b.global, None);
+        assert_eq!(
+            b.workspaces.get("ws-1"),
+            None,
+            "a workspace default moves new chats onto it too"
+        );
+        assert_eq!(
+            b.chats.get("chat-1").map(String::as_str),
+            Some("claude-key"),
+            "a bound chat keeps it"
+        );
+        assert_eq!(
+            b.families.get("codex").map(String::as_str),
+            Some("codex-2"),
+            "another family's default stays"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

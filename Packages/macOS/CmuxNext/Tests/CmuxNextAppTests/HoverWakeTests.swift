@@ -74,7 +74,7 @@ import Testing
     @Test func aRestingPointerOnAWorkspaceRowWakesItsPagesAndTheGraceSendsThemBack() async throws {
         let rig = try Rig(freezes: false)
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false, wakesOnHover: true))
         let keys = try await rig.pages(["a", "b", "c"])
         for key in keys { #expect(rig.hibernation.hibernateForWorkspace(key) == nil) }
         try await rig.until("the workspace's pages hibernate") { keys.allSatisfy { rig.services.cache.phase(of: $0) == .hibernated } }
@@ -104,7 +104,7 @@ import Testing
     @Test func aWorkspaceHoverLeavesThePersonsHibernatedPageAlone() async throws {
         let rig = try Rig(freezes: false)
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, wakesOnHover: true))
         let keys = try await rig.pages(["a"])
         #expect(rig.hibernation.hibernateNow(keys[0]) == nil)
         try await rig.until("the page hibernates") { rig.services.cache.phase(of: keys[0]) == .hibernated }
@@ -124,7 +124,7 @@ import Testing
     @Test func aWorkspaceThePersonHibernatedDoesNotWakeOnHover() async throws {
         let rig = try Rig(freezes: false)
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false, wakesOnHover: true))
         let keys = try await rig.pages(["a", "b"])
         for key in keys { #expect(rig.hibernation.hibernateForWorkspace(key, byPerson: true) == nil) }
         try await rig.until("the workspace's pages hibernate") { keys.allSatisfy { rig.services.cache.phase(of: $0) == .hibernated } }
@@ -144,7 +144,7 @@ import Testing
     @Test func aNewerWorkspaceIntentSendsTheOlderOnesPagesBack() async throws {
         let rig = try Rig(freezes: false)
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false, wakesOnHover: true))
         let keys = try await rig.pages(["a", "b", "c", "d"])
         for key in keys { #expect(rig.hibernation.hibernateForWorkspace(key) == nil) }
         try await rig.until("the pages hibernate") { keys.allSatisfy { rig.services.cache.phase(of: $0) == .hibernated } }
@@ -161,12 +161,34 @@ import Testing
         #expect(rig.hibernation.hoverRestores.pages == Array(keys.suffix(2)))
     }
 
+    /// cmux-ad m44: hover preload ships off. With the default settings a rest on a workspace row past the dwell wakes
+    /// none of its hibernated pages (run 08e33948 at 120 Hz: cold click p50 18.6-31 ms worse with it on).
+    @Test func hoverPreloadIsOffByDefault() async throws {
+        let rig = try Rig(freezes: false)
+        defer { rig.close() }
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false))
+        let keys = try await rig.pages(["a", "b"])
+        for key in keys { #expect(rig.hibernation.hibernateForWorkspace(key) == nil) }
+        try await rig.until("the workspace's pages hibernate") { keys.allSatisfy { rig.services.cache.phase(of: $0) == .hibernated } }
+        var asked = 0
+        rig.hibernation.workspaceTabs = { _, _ in
+            asked += 1
+            return keys
+        }
+        #expect(rig.hibernation.hoverBudget.pages == 0, "the default settings let a hover wake pages")
+        rig.hibernation.noteWorkspaceHover("w", window: "win")
+        try await Task.sleep(for: BrowserHibernation.hoverDwellDelay * 4)
+        #expect(asked == 0, "a hover asked a workspace for its pages with hover preload off")
+        for key in keys { #expect(rig.services.cache.phase(of: key) == .hibernated, "a hover woke a page with hover preload off") }
+    }
+
     /// `browser.keepNeighborTabsAwake` 0: the person asked that no hidden page be kept awake early, so a
     /// hover wakes nothing either.
     @Test func keepNoNeighborTabsAwakeTurnsHoverWakesOff() async throws {
         let rig = try Rig()
         defer { rig.close() }
         var setting = rig.hibernation.setting
+        setting.wakesOnHover = true
         setting.neighborRadius = 0
         rig.hibernation.apply(setting)
         let keys = try await rig.pages(["a", "b", "c"])
@@ -182,7 +204,7 @@ import Testing
     @Test func turningHibernationOffEndsTheGraceDiscardWithoutAProbeLoop() async throws {
         let rig = try Rig(freezes: false)
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, wakesOnHover: true))
         let keys = try await rig.pages(["a"])
         #expect(rig.hibernation.hibernateForWorkspace(keys[0]) == nil)
         try await rig.until("the page hibernates") { rig.services.cache.phase(of: keys[0]) == .hibernated }
@@ -195,7 +217,7 @@ import Testing
 
         let later = ContinuousClock.now + .seconds(BrowserHibernation.hoverGrace + 1)
         rig.hibernation.now = { later }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: nil))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: nil, wakesOnHover: true))
         #expect(!rig.hibernation.hoverRestores.contains(keys[0]), "a kept page is still a hover restore to send back")
         #expect(!rig.hibernation.probing.contains(keys[0]), "the grace discard probed a page no discard can take")
         try await Task.sleep(for: .milliseconds(300))

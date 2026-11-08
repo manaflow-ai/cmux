@@ -146,38 +146,14 @@ struct CloudStartChatMachineTests {
         #expect(away["connected"] as? Bool == false && away["chats"] == nil && away["slug"] == nil && away["pause_reason"] == nil)
     }
 
-    @Test func thePlanRequestCarriesTheSendItsAccountWorkspaceAndTheListedMachines() throws {
-        let text = CloudStartCore().planRequest(key: "K", account: [Self.me, "team-a"], workspace: "ws-1", user: Self.me, machines: [],
-                                              stored: ["vm-new"])
-        let object = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
-        #expect(object["key"] as? String == "K")
-        #expect(object["account"] as? String == "user-leo/team-a")
-        #expect(object["workspace"] as? String == "ws-1")
-        #expect(object["user"] as? String == Self.me)
-        #expect(object["loaded"] as? Bool == true)
-        #expect((object["machines"] as? [Any])?.isEmpty == true)
-        #expect(object["stored"] as? [String] == ["vm-new"])
-        let signedOut = CloudStartCore().planRequest(key: "K", account: [nil, nil], workspace: nil, user: nil, machines: [], stored: [])
-        let unsigned = try #require(try JSONSerialization.jsonObject(with: Data(signedOut.utf8)) as? [String: Any])
-        #expect(unsigned["user"] == nil)
-        #expect(unsigned["workspace"] == nil)
-        #expect(unsigned["credential_on_stdin"] as? Bool == false)
-        // Zero-setup hot start: the folder, the chosen environment and that the token is on stdin.
-        let hot = CloudStartCore().planRequest(key: "K", account: [Self.me, nil], workspace: nil, user: Self.me, machines: [],
-                                             local: "/Users/me/src/paint", stored: [], environment: "env_0123456789abcdef01234567", access: true)
-        let ensure = try #require(try JSONSerialization.jsonObject(with: Data(hot.utf8)) as? [String: Any])
-        #expect(ensure["local"] as? String == "/Users/me/src/paint")
-        #expect(ensure["environment"] as? String == "env_0123456789abcdef01234567")
-        #expect(ensure["credential_on_stdin"] as? Bool == true)
-        let reservation = UUID().uuidString
-        let warm = CloudStartCore().planRequest(key: "K", account: [Self.me, "team-a"], workspace: nil, user: Self.me, machines: [],
-                                              stored: [], access: true, reservationKey: reservation,
-                                              platform: "https://cmux-platform.debussy.workers.dev", team: "team_0123456789abcdef0123", ensureProject: false)
-        let reserved = try #require(try JSONSerialization.jsonObject(with: Data(warm.utf8)) as? [String: Any])
-        #expect(reserved["reservation_key"] as? String == reservation)
-        #expect(reserved["platform"] as? String == "https://cmux-platform.debussy.workers.dev")
-        #expect(reserved["team"] as? String == "team_0123456789abcdef0123")
-        #expect(reserved["ensure_project"] as? Bool == false)
+    /// Leo, 2026-11-06: the default flow, with no environment step, keeps a project's dependencies warm on
+    /// production too: a personal send there asks the platform it signed in to, never the CLI's development default.
+    @Test func aPersonalSendGetsTheSetUpProjectMachineOnProductionWhenItsPlatformIsKnown() {
+        let production = URL(string: "https://cmux-platform.debussy.workers.dev")
+        #expect(CloudStartCore().ensuresProject(account: [Self.me, nil], platform: production, production: true))
+        #expect(!CloudStartCore().ensuresProject(account: [Self.me, nil], platform: nil, production: true))
+        #expect(CloudStartCore().ensuresProject(account: [Self.me, nil], platform: nil, production: false))
+        #expect(!CloudStartCore().ensuresProject(account: [Self.me, "team-a"], platform: production, production: true))
     }
 
     /// Router review at 6beb0f2: with no `cwd` the tab's own folder is copied, and its `.git` file

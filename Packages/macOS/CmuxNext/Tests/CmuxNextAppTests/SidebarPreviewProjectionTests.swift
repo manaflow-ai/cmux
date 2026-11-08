@@ -27,7 +27,7 @@ struct SidebarPreviewProjectionTests {
             SidebarDocRow(key: "group-store", kind: "item", section: machine, parent: "machine-group", depth: 1, item: "group-store"),
             SidebarDocRow(key: "docs", kind: "item", section: machine, item: "docs"),
         ], records: records, revision: 1)
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         store.shown = projection
         let model = SidebarModel()
         model.docDrag = SidebarDocDrag(document: store, item: { _ in nil }, section: { _ in machine }, begin: { _ in [:] }, drop: { _, _ in })

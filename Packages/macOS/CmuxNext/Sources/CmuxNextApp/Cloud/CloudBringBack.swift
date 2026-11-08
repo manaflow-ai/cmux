@@ -212,7 +212,7 @@ struct CloudBringBack {
         let daemon = services.daemon, tabs = services.agentTabs
         guard let connection = daemon.connection, let host = tabs.localHost else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: host, hostName: tabs.localHostName, session: shown.session, harness: shown.harness)
-        let workspace = WorkspaceKey.generate()
+        let workspace = NewWorkspacePlacements.placedKey(in: services.windows) // placed like Cmd-N, not at the daemon's slot
         let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: shown.name, on: connection, repair: services.emptyWorkspaces) { result in
             try await connection.createTerminal(in: result.key, cwd: shown.folder)
             return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,

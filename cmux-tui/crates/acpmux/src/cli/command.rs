@@ -22,6 +22,9 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Run a task on several models in separate worktrees and compare the reviewer's winner.
+    #[command(subcommand)]
+    Race(crate::cli::race::RaceCmd),
     /// Own one dedicated Codex sign-in over private stdin/stdout pipes.
     #[cfg(unix)]
     #[command(hide = true)]
@@ -60,6 +63,10 @@ pub enum Command {
     /// files, what the session this shell runs in edited lately.
     #[command(name = "who-else", alias = "whoelse", alias = "overlap")]
     WhoElse(crate::cli::who_else::WhoElseArgs),
+    /// What turns on this machine cost, whatever harness ran them: totals, then one line per
+    /// repository, pull request, day, person, workspace, vendor, model or account.
+    #[command(alias = "cost", alias = "spend")]
+    Ledger(crate::cli::ledger::LedgerArgs),
     /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
     #[command(subcommand)]
     Bead(crate::cli::beads::BeadCmd),
@@ -104,7 +111,7 @@ pub enum Command {
     Ensure {
         name: String,
         /// HARNESS[/MODEL]: a family or profile, optionally with a model (`claude/opus`, `opencode/zai/glm-5.1`).
-        #[arg(long, short)]
+        #[arg(long, short, visible_alias = "harness")]
         model: Option<String>,
         /// A preset from `acpmux preset`: harness plus model, effort, policy, env.
         #[arg(long, short)]
@@ -124,6 +131,10 @@ pub enum Command {
         /// Create it on exactly the harness SESSION ran (profile, preset, model, effort).
         #[arg(long, value_name = "SESSION", conflicts_with_all = ["model", "preset", "effort"])]
         harness_from: Option<String>,
+        /// With --json, print the whole record, with the command, tool and option catalogs that
+        /// `--json` leaves out.
+        #[arg(long)]
+        full: bool,
     },
     /// Continue a session's work on another harness: prepare a reviewed
     /// first message for a new session there, then start or discard it.
@@ -139,7 +150,7 @@ pub enum Command {
     /// Run one prompt on several harnesses, one after another, and compare.
     Compare {
         /// HARNESS[/MODEL] per run: -m claude -m codex/gpt-5.5 …
-        #[arg(long = "model", short = 'm', required = true)]
+        #[arg(long = "model", short = 'm', visible_alias = "harness", required = true)]
         harnesses: Vec<String>,
         /// The prompt.
         prompt: Vec<String>,
@@ -268,14 +279,19 @@ pub enum Command {
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
         /// What your message asks of the receiver: block or blocker (you cannot go on until it
-        /// acts), question (you wait for its answer), result or action (work you finished, or
-        /// work for it; the default for an agent's message) or fyi. Another agent's message goes
-        /// into the receiver's inbox, never a turn of its own: blockers wake an idle receiver,
-        /// actions only from the session that started it or gave it its first work, FYIs never.
+        /// acts), question (you wait for its answer; the default for an agent's send that
+        /// waits), result or action (work you finished, or work for it; the default for one that
+        /// does not wait) or fyi. The session that started the receiver or gave it its first
+        /// work sends a prompt, its own turn. Anyone else's message goes into the receiver's
+        /// inbox: blockers and questions wake an idle receiver, actions only from that session,
+        /// FYIs never. A send that waits and would not wake the idle receiver fails at once
+        /// (exit 1, send.not_woken), and nothing is delivered.
         #[arg(long, value_name = "CLASS", value_parser = ["block", "question", "result", "fyi", "blocker", "action"])]
         class: Option<String>,
         #[command(flatten)]
         inbox: SendThread,
+        #[command(flatten)]
+        relay: SendRelay,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
@@ -318,14 +334,14 @@ pub enum Command {
     /// the flags are defaults for each new session the editor creates.
     Stdio {
         /// HARNESS[/MODEL] for new sessions (`claude`, `codex/gpt-5.5`).
-        #[arg(long, short)]
+        #[arg(long, short, visible_alias = "harness")]
         model: Option<String>,
         /// A preset from `acpmux preset`.
         #[arg(long, short)]
         preset: Option<String>,
         #[arg(long, short)]
         effort: Option<String>,
-        /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
+        /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all, review.
         #[arg(long)]
         policy: Option<String>,
     },
@@ -395,6 +411,9 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
+    /// Wake a session with one message when others are done or blocked: add, ls, rm.
+    #[command(subcommand)]
+    Watch(crate::cli::watch::WatchCmd),
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
@@ -556,6 +575,7 @@ pub enum Command {
         all_idle: bool,
         interrupt: bool,
         leave_dirty: bool,
+        carry_changes: bool,
         cwd: Option<String>,
         dry_run: bool,
         from: Option<String>,
@@ -684,7 +704,7 @@ pub struct DispatchArgs {
     #[arg(long)]
     pub stop_condition: Option<String>,
     /// HARNESS[/MODEL] or profile; any ACP harness is accepted.
-    #[arg(long, short)]
+    #[arg(long, short, visible_alias = "harness")]
     pub model: Option<String>,
     #[arg(long)]
     pub preset: Option<String>,
@@ -696,6 +716,13 @@ pub struct DispatchArgs {
 
 #[derive(Subcommand)]
 pub enum HarnessCmd {
+    /// Install a coding agent's CLI through its vendor's own installer (claude: Claude Code's
+    /// official installer; codex: the pinned official Codex release), then reload the daemon.
+    /// Runs only when asked; with --json each step is a JSON line, the last one the result.
+    Install {
+        /// claude or codex.
+        id: String,
+    },
     /// Install or inspect cmux's opt-in managed Codex runtime.
     CodexRuntime {
         #[command(subcommand)]
@@ -975,6 +1002,11 @@ pub enum SessionCmd {
         /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
         #[arg(long)]
         leave_dirty: bool,
+        /// Carry a chat's uncommitted changes with it: tracked edits, deletions and untracked files
+        /// that are not ignored arrive uncommitted in its worktree there. Likely secrets (`.env`,
+        /// keys) stay on this machine.
+        #[arg(long, conflicts_with = "leave_dirty")]
+        carry_changes: bool,
         /// Run the moved chats in this folder on the machine, as it is there: no worktree is made
         /// and no branch pushed. For a folder outside this machine's home.
         #[arg(long, value_name = "PATH")]
@@ -1127,6 +1159,23 @@ pub struct SendThread {
     /// named (default: your messages about the PR its first line names, else all yours).
     #[arg(long, value_name = "THREAD", conflicts_with = "pr")]
     pub thread: Option<String>,
+}
+
+/// `acpmux send --relay NAME --relayed-from MACHINE[/SESSION]`: a relay's word on where the
+/// message it carries came from (`_meta.acpmux.fromRelay`, `prompt_provenance::FROM_RELAY`). The
+/// daemon takes it only from a send run outside any acpmux session on its own machine (the
+/// lane-gh broker's); an agent's send drops it, and its sender reads as self-declared.
+#[derive(Args, Default)]
+pub struct SendRelay {
+    /// The relay carrying the message, as it names itself (`lane-gh`).
+    #[arg(long, value_name = "NAME", requires = "relayed_from")]
+    pub relay: Option<String>,
+    /// The machine the relay took the message from, and its session there.
+    #[arg(long, value_name = "MACHINE[/SESSION]", requires = "relay")]
+    pub relayed_from: Option<String>,
+    /// That session's harness family (`claude`, `codex`, `gemini`, ...), in the machine's word.
+    #[arg(long, value_name = "FAMILY", requires = "relay")]
+    pub relayed_harness: Option<String>,
 }
 
 /// `acpmux session inbox NAME`'s flags.
@@ -1375,6 +1424,7 @@ pub fn flatten(c: Command) -> Command {
                 all_idle,
                 interrupt,
                 leave_dirty,
+                carry_changes,
                 cwd,
                 dry_run,
                 from,
@@ -1384,6 +1434,7 @@ pub fn flatten(c: Command) -> Command {
                 all_idle,
                 interrupt,
                 leave_dirty,
+                carry_changes,
                 cwd,
                 dry_run,
                 from,
@@ -1768,6 +1819,21 @@ mod help_contract_tests {
         assert!(
             Cli::try_parse_from(["acpmux", "send", "coord", "x", "--class", "urgent"]).is_err()
         );
+    }
+
+    /// `--harness` is `-m` wherever a HARNESS[/MODEL] is asked for: `run --harness codex` starts
+    /// Codex instead of clap's guess `--harness-from`.
+    #[test]
+    fn harness_is_an_alias_of_model() {
+        use super::{Command, flatten};
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+        let run = parse(&["acpmux", "run", "lane", "--harness", "codex", "hi"]);
+        assert!(matches!(run, Ok(Command::New(ref a)) if a.model.as_deref() == Some("codex")));
+        let ensure = parse(&["acpmux", "ensure", "lane", "--harness", "claude/opus"]);
+        assert!(matches!(
+            ensure,
+            Ok(Command::Ensure { ref model, .. }) if model.as_deref() == Some("claude/opus")
+        ));
     }
 
     /// `session inbox`: --thread [--mark-read] reads the inbox's threads, --digest [--dry-run]

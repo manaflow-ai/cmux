@@ -336,12 +336,17 @@ public final class SidebarModel {
     @ObservationIgnored private var arrangedSorts: [String: SidebarGroupSort] = [:]
     /// The document's archived items the last `setSections` marked its rows by.
     @ObservationIgnored private var arrangedArchived: Set<String> = []
-    /// Whether the document lists each group in the sort, and marks the rows archived, as the sections were arranged:
-    /// a sort-only or archive-only change (Archive Workspaces Below archives the last rows) leaves the App's live rows
-    /// as they were, so a pass that would skip them sets them again when this is false.
+    /// The document's sections the last `setSections` arranged by: one added with no rows of its own (an app section
+    /// the daemon placed) changes no live row, so it makes the arrangement stale by itself.
+    @ObservationIgnored private var arrangedSectionIDs: [LayoutSectionID] = []
+    /// Whether the document lists the same sections, each group in the sort, and marks the rows archived, as the
+    /// sections were arranged: a section-only, sort-only or archive-only change (an app section placed, Archive
+    /// Workspaces Below archives the last rows) leaves the App's live rows as they were, so a pass that would skip
+    /// them sets them again when this is false.
     public var arrangementIsCurrent: Bool {
         let shown = docDrag?.document?.shown
         return (shown?.groupSorts ?? [:]) == arrangedSorts && (shown?.archived ?? []) == arrangedArchived
+            && (shown?.layout.sections.map(\.id) ?? []) == arrangedSectionIDs
     }
     /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it. Set by
     /// the App's bridge from its own favicon store.
@@ -450,7 +455,36 @@ public final class SidebarModel {
         let shown = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
-        sections = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections) // the setter skips an unchanged list
+        arrangedSectionIDs = docDrag?.document?.shown?.layout.sections.map(\.id) ?? []
+        let next = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() }
+        if writesRowsInPlace(next) { return }
+        // A set that only adds one loose workspace row (Cmd-N's stand-in, a scripted create): the list splices that row
+        // into the layout it shows (`rowInsertion`, SIDEBAR INSERT 2), no layout of every row.
+        let from = sectionsRevision
+        let added = filterText.isEmpty ? SidebarSection.looseInsertion(from: storedSections, to: next) : nil
+        sections = next // the setter skips an unchanged list
+        rowInsertion = added.map { SidebarRowInsertion(from: from, to: sectionsRevision, content: contentRevision, section: storedSections[$0.section], node: $0.node) }
+    }
+
+    /// The last structural set when it only added one loose workspace row (`setSections`); the list reads it at the
+    /// reload that shows that set (its `to` is the current `sectionsRevision`).
+    @ObservationIgnored public private(set) var rowInsertion: SidebarRowInsertion?
+
+    /// Writes `next` when it changes only listed rows' content, every row in its place (a create's stand-in row
+    /// becoming its workspace's row, SIDEBAR INSERT): in place and told to `onRowsPatched`, as `patchWorkspaces` does,
+    /// so the list lays out no row and the cost is the changed rows', never every row's. False, writing nothing, for a
+    /// structural change, a filter, a row that moves (`movesRows`) or a workspace listed twice.
+    private func writesRowsInPlace(_ next: [SidebarSection]) -> Bool {
+        guard filterText.isEmpty, let changes = SidebarSection.rowContentChanges(from: storedSections, to: next) else { return false }
+        guard !changes.isEmpty else { return true } // nothing changed
+        for change in changes {
+            guard listedPaths(of: change.new.id).count == 1, !movesRows(from: change.old, to: change.new),
+                  change.path.member == nil || !renamesSoleMember(at: change.path, to: change.new.title) else { return false }
+        }
+        storedSections = next // the same rows in the same places: `rowIndex` and `groupPaths` hold
+        onRowsPatched?(changes.map(\.new))
+        if onRowsPatchedWithPrevious != nil { onRowsPatchedWithPrevious?(changes.map { (before: $0.old, after: $0.new) }) }
+        return true
     }
 
     /// Row content of listed workspaces (status, title, unread, progress, icon), written in place with no structural
@@ -588,7 +622,8 @@ public final class SidebarModel {
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
-                                                unreadCount: preferences.groupHeaderUnreadCount)
+                                                unreadCount: preferences.groupHeaderUnreadCount,
+                                                background: preferences.groupHeaderBackground)
         hidesWorkspaces = !preferences.showProjects
         grouping.by = preferences.groupBy
         groupsByComputer = preferences.groupsByComputer
@@ -600,6 +635,8 @@ public final class SidebarModel {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
         (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, true, SidebarTunables.rowLimit)
+        // Projects and Recents lists a group's first rows and "Show N more", as ChatGPT lists a project's chats.
+        if grouping.groupsByRecents && o.rowLimit == 0 { o.rowLimit = SidebarLayout.projectLimit }
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }

@@ -295,6 +295,25 @@ enum TabMoves {
         for surface in tabs.map(\.surface) { _ = await daemon.request("move-tab-to-workspace") { connection -> Void in _ = try await connection.moveTab(surface, toWorkspace: handle) } }
     }
 
+    /// `WorkspaceModel.id` of the workspace that holds `pane` (Move Pane to Dock); nil with no pane.
+    static func paneWorkspace(_ pane: PaneModel?, services: AppServices) -> String? {
+        pane.flatMap { services.daemon(for: $0).store.workspace(containing: $0.handle)?.id }
+    }
+
+    /// Move Pane to Dock: every tab of `pane`, in order, into workspace `id`; false when either is gone.
+    static func pane(_ pane: PaneModel?, toWorkspace id: String, services: AppServices) -> Bool {
+        guard let tabs = pane?.tabs, !tabs.isEmpty, let target = services.workspace(id: id) else { return false }
+        for tab in tabs { toWorkspace(tab, workspace: target, services: services) }
+        return true
+    }
+
+    /// Move Pane to Dock with no dock: every tab of `pane`, in order, into a new workspace; its id, nil on failure.
+    static func paneToNewWorkspace(_ pane: PaneModel?, services: AppServices) async -> String? {
+        guard let tabs = pane?.tabs, let first = tabs.first, let key = await toNewWorkspace(first, services: services) else { return nil }
+        await join(tabs.dropFirst(), workspace: key, services: services)
+        return key.rawValue
+    }
+
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)

@@ -10,7 +10,7 @@ import {
   PLUS_SEARCH_ACTIONS,
   runComposerPlusAction,
 } from "./composerPlusRegistry";
-import { composerPlusMenuSections } from "./ComposerPlusMenu";
+import { composerPlusMenuSections } from "./composerPlusMenuModel";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { loadRecentCommandNames, PLUS_RECENT_COMMANDS, recentCommands, rememberRecentCommand } from "./recentCommands";
 
@@ -38,7 +38,7 @@ test("the plus registry puts attach first, then the composer's actions, then the
     "Attach Window…",
     "Plan mode",
     "Goal",
-    "Choose project",
+    "Choose folder",
     "Mention a file or folder",
     "Commands and skills…",
     "Search files",

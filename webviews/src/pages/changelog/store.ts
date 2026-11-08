@@ -10,6 +10,8 @@ import {
   type ListResult,
   type NewsLayout,
   type SheetLayout,
+  type SheetLinks,
+  type CompareMode,
   type ReleaseNotes,
 } from "./types";
 
@@ -53,6 +55,26 @@ export function parseSpan(hash: string): UpdateSpan | undefined {
   return from ? { from, to } : { to };
 }
 
+/** The change a click on the sidebar Updated card's list asks for (Leo 2026-11-08: "maybe just
+    bring them to the section in what's new aka bringing that tab up"): `entry`, its title, and
+    `area`, its app area (areas.ts), from the host's route `#/?…&area=<a>&entry=<t>&n=<nonce>`.
+    `n` differs per click, so the same row clicked again scrolls again. Undefined without either. */
+export interface ChangelogFocus {
+  area?: string;
+  entry?: string;
+  n?: string;
+}
+
+export function parseFocus(hash: string): ChangelogFocus | undefined {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const params = new URLSearchParams(query);
+  const area = params.get("area")?.trim();
+  const entry = params.get("entry")?.trim();
+  if (!area && !entry) return undefined;
+  const n = params.get("n")?.trim();
+  return { ...(area ? { area } : {}), ...(entry ? { entry } : {}), ...(n ? { n } : {}) };
+}
+
 /** The design the route names (`design=ledger|journal|rail|digest`, Debug Settings `whatsNew.design`); the sheet by default. */
 export function parseDesign(hash: string): ChangelogDesign {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
@@ -72,6 +94,19 @@ export function parseSheetLayout(hash: string): SheetLayout {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const sheet = new URLSearchParams(query).get("sheet");
   return sheet === "stack" || sheet === "grid" ? sheet : "inline";
+}
+
+/** How a before/after pair shows (`compare=side|toggle`); the dragged split by default. */
+export function parseCompareMode(hash: string): CompareMode {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const compare = new URLSearchParams(query).get("compare");
+  return compare === "side" || compare === "toggle" ? compare : "slider";
+}
+
+export function parseSheetLinks(hash: string): SheetLinks {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const prs = new URLSearchParams(query).get("prs");
+  return prs === "end" || prs === "row" ? prs : "hover";
 }
 
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */

@@ -403,7 +403,7 @@ test("the + menu uses the current pane language for existing actions", async () 
       "Dateien oder Bilder anhängen",
     );
     expect(menuDocument().querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe(
-      "Projekt auswählen",
+      "Ordner auswählen",
     );
     expect(menuDocument().querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
     expect(menuDocument().querySelector('[data-value="add.project"] .acpmux-menu-description')).toBeNull();

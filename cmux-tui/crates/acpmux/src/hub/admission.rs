@@ -359,9 +359,11 @@ impl Hub {
             // Running agent hosts: after a restart a session reads Idle until a
             // prompt reattaches its host, but the host runs all the same.
             let hosted = Hub::live_host_sessions();
-            (flag, registry, unreadable, source, machine, hosted)
+            // This machine's readings for the shadow verdict: none of them waits.
+            let here = crate::shadow_admission::local_candidate();
+            (flag, registry, unreadable, source, machine, hosted, here)
         });
-        let (flag, registry, unreadable, source, machine, hosted) =
+        let (flag, registry, unreadable, source, machine, hosted, here) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
         // Count and reserve under one lock, then render warnings after releasing it.
         let (verdict, mut admitted) = {
@@ -379,6 +381,8 @@ impl Hub {
             admitting.push(made.clone());
             (verdict, Admitted { admitting: &self.admitting, made, warning: None })
         };
+        // Logged beside the admission it never changes (`shadow_admission.rs`).
+        crate::shadow_admission::record("admit", Some(&here.name), std::slice::from_ref(&here));
         match verdict.uncapped {
             Some(why) if why == NO_REGISTRY => {
                 tracing::debug!("session admitted with no lane cap: {why}")
@@ -425,15 +429,10 @@ impl Hub {
                 .peers()
                 .into_iter()
                 .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
-                .filter_map(|p| {
-                    Some(Candidate {
-                        name: p.get("name")?.as_str()?.to_owned(),
-                        local: false,
-                        health: p.get("health").cloned().unwrap_or(Value::Null),
-                    })
-                })
+                .filter_map(|p| Candidate::peer(&p))
                 .collect();
-            crate::placement::place(&peers, registry, Work::Agent)
+            let verdict = crate::placement::place(&peers, registry, Work::Agent);
+            crate::shadow_admission::with_shadow("over-cap", verdict, &peers)
         });
         // A pick that has no room either (`overloaded`) is no better a place: no suggestion.
         let verdict =

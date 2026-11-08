@@ -323,6 +323,8 @@ pub(super) fn tool_line(
                 "reactions_can_wake",
                 // The Cloud machine the Chief does computer use on (optchat-chief engine.rs, cmux issue 36047).
                 "computer",
+                // The Chief turns' permission mode (optchat-chief engine.rs, cmux#37392).
+                "permission_mode",
             ] {
                 if let Some(value) = fields.get(key) {
                     line.insert(key, value.clone());
@@ -340,7 +342,8 @@ pub(super) fn tool_line(
         }
         _ => {
             let mut line = json!({"tool": "stop"});
-            for key in ["name", "all", "restart"] {
+            // `start`: Start now on a queued agent in Home (the brain's chief.stop {start}).
+            for key in ["name", "all", "restart", "start"] {
                 if let Some(value) = fields.get(key) {
                     line.insert(key, value.clone());
                 }
@@ -373,7 +376,7 @@ pub(super) fn result(
                 json!({"stopped": answer.get("stopped").and_then(Value::as_bool).unwrap_or(false)});
             // A named or stop-all stop's subagents and note, a restart's
             // restarted and errors (the brain's own words).
-            for key in ["subagents", "note", "restarted", "errors"] {
+            for key in ["subagents", "note", "restarted", "errors", "started"] {
                 if let Some(v) = answer.get(key).filter(|v| !v.is_null()) {
                     value.insert(key, v.clone());
                 }

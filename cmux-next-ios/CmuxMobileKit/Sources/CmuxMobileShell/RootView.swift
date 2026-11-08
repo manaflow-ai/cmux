@@ -151,8 +151,8 @@ public struct RootView: View {
                 // transaction); every other swap crossfades, Welcome's exit
                 // after sign-in included.
                 .transition(welcomeCut && destination == .welcome
-                    ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation))
-                    : .opacity.animation(theme.motion.gentle.animation))
+                    ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                    : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
             } else {
                 // Welcome redraws this mark on its first frame and animates it
                 // from there, so on that path the swap is a true cut: an
@@ -163,10 +163,10 @@ public struct RootView: View {
                     .ignoresSafeArea()
                     .transition(destination == .welcome
                         ? .identity
-                        : .opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation))
+                        : .opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation.unlessReduceMotion))
             }
         }
-        .animation(theme.motion.gentle.animation, value: destination)
+        .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
@@ -193,7 +193,7 @@ public struct RootView: View {
                     launchFinished = true
                 }
             } else {
-                withAnimation(theme.motion.gentle.animation) { launchFinished = true }
+                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { launchFinished = true }
             }
             #if DEBUG
             // Test-only (compiled out of Release): a launch is handed a URL as the system opens one
@@ -770,8 +770,8 @@ private struct LiveCallHost: ViewModifier {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .animation(theme.motion.snappy.animation, value: call.isMinimized)
-            .animation(theme.motion.snappy.animation, value: voice.session?.id)
+            .animation(theme.motion.snappy.animation.unlessReduceMotion, value: call.isMinimized)
+            .animation(theme.motion.snappy.animation.unlessReduceMotion, value: voice.session?.id)
             .fullScreenCover(isPresented: Binding(
                 get: { call.showsScreen },
                 set: { if !$0 { call.isMinimized = true } }
@@ -784,7 +784,7 @@ private struct LiveCallHost: ViewModifier {
                 let user = shell.auth.isSignedIn ? shell.auth.user : nil
                 call.configure(store: shell.store, accountID: user?.id,
                                userName: user?.name.split(separator: " ").first.map(String.init))
-                ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
+                ChiefCallLauncher.shared.handler = { [shell] chief in shell.callChief(chief) }
                 voice.install(accountID: user?.id)
                 voice.openKeySettings = { [shell] in shell.openChiefCallSettings() }
                 // One audio line at a time: voice mode ends a Chief call, a Chief call ends voice mode.

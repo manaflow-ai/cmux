@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextDaemonService
 import CmuxNextOnboarding
 import CmuxNextSettings
 
@@ -105,7 +106,7 @@ final class ExternalOpenController {
         // shows a workspace so the tab shows, as a shown internal page does.
         // Without this the open waited until the user left Home.
         controller.leaveTopPage()
-        // Chief's Home workspace keeps its layout (#27897): its focused pane is the chat's pinned
+        // A Home (the store's or a window's own) keeps its layout (#27897, #38063): its focused pane is the chat's pinned
         // dock, which moves a tab made there into a new column beside it. A tab from another app
         // opens in a workspace of the person's instead, as from the Home page. A link in this
         // build's scheme runs `link.open`, which places what it shows itself (a Chief session on Home).
@@ -181,28 +182,9 @@ final class ExternalOpenController {
             }
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
+        case .shareLink(let url): AgentShareLinks(host: services).open(url) { [weak pane] in pane?.newBrowserTab(url: $0) }
         case .deepLink, .unsupported: return
         }
-    }
-}
-
-/// Where `AppDelegate` sends a URL macOS hands cmux: the sign-in callback
-/// goes to Cloud auth first (`<scheme>://auth-callback` and the path forms
-/// auth accepts), so it never reaches `link.open`; everything else goes to
-/// `ExternalOpenController`, which refuses what it does not open.
-enum OpenedURLRouting {
-    enum Destination: Equatable {
-        /// Cloud auth's `handleCallback`.
-        case auth
-        /// `ExternalOpenController` opened it (a tab, or `link.open`).
-        case opened
-        /// Nothing cmux opens.
-        case ignored
-    }
-
-    static func route(_ url: URL, isAuthCallback: (URL) -> Bool, open: (URL) -> Bool) -> Destination {
-        if isAuthCallback(url) { return .auth }
-        return open(url) ? .opened : .ignored
     }
 }
 
@@ -242,10 +224,10 @@ final class CmuxServicesProvider: NSObject {
 }
 
 extension WindowController {
-    /// Whether the window shows Chief's Home workspace (`kind == "home"`) as a workspace.
-    var showsHomeWorkspace: Bool { content?.workspace.kind == "home" }
+    /// Whether the window shows a Home as a workspace: the store's (`kind == "home"`) or its own (cmux#27880, #38063).
+    var showsHomeWorkspace: Bool { content?.workspace.isAnyHome == true }
 
-    /// Shows this window's most recently used workspace that is not Home,
+    /// Shows this window's most recently used workspace that is not a Home (`isAnyHome`),
     /// for something opened from another app while Home is shown. False when
     /// the window lists no other workspace. A workspace whose content is not
     /// installed yet runs the queue when it is (`ExternalOpenController.flush`).
@@ -254,7 +236,7 @@ extension WindowController {
         let members = services.windows.registry.members(of: state.id)
         let openable = { (id: String) -> Bool in
             guard let (workspace, _) = machines.workspace(id: id) else { return false }
-            return workspace.kind != "home"
+            return !workspace.isAnyHome
         }
         guard let id = (state.workspaceRecency + members).first(where: openable) else { return false }
         state.showWorkspace(id)

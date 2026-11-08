@@ -38,6 +38,9 @@ final class AgentPageChats {
     var cloudReservation: (@MainActor (AgentPaneCloudReservationRequest) async -> [String: Any])?
     /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
     var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
+    /// The app's Cloud account sign-in, awaited by an inline first-send recovery card, and whether it is signed in now.
+    var cloudSignIn: (@MainActor () async -> Bool)?
+    var cloudSignedIn: (@MainActor () -> Bool)?
     /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
     var cloudRepick: (@MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any])?
     /// The chats Cloud starts opened, by their tab's key, for this run of the App: a repick moves only one
@@ -122,6 +125,8 @@ final class AgentPageChats {
         } else {
             view.model.onCloudStartChat = nil
         }
+        view.model.onCloudSignIn = cloudSignIn
+        view.model.onCloudSignedIn = cloudSignedIn
         if let run = cloudRepick {
             view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
                 await run(view, repick)
@@ -140,12 +145,15 @@ final class AgentPageChats {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
+        tabs.pageChats.cloudSignIn = { [weak services] in await services?.cloud.auth.signInEndedOnCancel() ?? false }
+        tabs.pageChats.cloudSignedIn = { [weak services] in services?.cloud.auth.isSignedIn ?? false }
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            if !request.release { CloudStartChat.warmSpare(services) } // never awaited: Send's gesture ticket waits only on the reserve
             return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
                                      binary: services.cloud.move.cli, configuration: services.cloud.configuration, auth: services.cloud.auth,
-                                     team: { try await services.cloud.reservationTeam() })
+                                     install: { try await services.cloud.installIdentity.installToken() })
         }
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }

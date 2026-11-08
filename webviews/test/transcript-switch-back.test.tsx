@@ -51,7 +51,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
-const { RevealedMarkdown, revealFrames } = await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
+const { RevealedMarkdown } = await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
+const { revealFrames } = await import("../src/agent-session/acpmux/conversation/revealedMarkdownModel");
 const page = pageSwitch(dom.window);
 
 afterAll(() => {

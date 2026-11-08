@@ -14,7 +14,8 @@ import { backgroundRunLabel } from "./backgroundRuns";
 import { backgroundTurnLabel, foldsBackground } from "./backgroundTurns";
 import { Clock, Spinner } from "./icons";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
-import { isSubagentReport, SubagentReportLine, useReportRowLook } from "../subagents/SubagentReportLine";
+import { SubagentReportLine } from "../subagents/SubagentReportLine";
+import { isSubagentReport, useReportRowLook } from "../subagents/subagentReportLineModel";
 
 export function BackgroundTurnLine({
   row,

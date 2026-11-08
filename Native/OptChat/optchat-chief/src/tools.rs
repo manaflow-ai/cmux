@@ -938,6 +938,28 @@ impl Call {
                     .map(str::trim)
                     .filter(|m| !m.is_empty())
                     .map(str::to_owned);
+                // The Chief's sidebar choice (a1018) rides on each task as its
+                // `Sidebar:` line; a task that has its own keeps it.
+                let tasks = match args.get("sidebar").and_then(Value::as_str).map(str::trim) {
+                    None | Some("") => tasks,
+                    Some(v) => {
+                        let Some(choice) = crate::sidebar_choice::Requested::parse(v) else {
+                            return Err(format!(
+                                "spawn: no sidebar {v}; one of auto, shown, hidden"
+                            ));
+                        };
+                        tasks
+                            .into_iter()
+                            .map(|t| {
+                                if crate::workspaces::header(&t, "sidebar").is_some() {
+                                    t
+                                } else {
+                                    format!("Sidebar: {}\n{t}", choice.as_str())
+                                }
+                            })
+                            .collect()
+                    }
+                };
                 Ok(Call::Spawn {
                     tasks,
                     cwd,
@@ -1250,6 +1272,9 @@ pub enum ControlRequest {
     Retry(String),
     /// chief.stop {name}: stops that one subagent.
     StopSubagent(String),
+    /// chief.stop {start: name}: that queued subagent starts now, past the
+    /// live cap (Start now in Home).
+    StartSubagent(String),
     /// chief.stop {all: true}: the turn and every subagent ("Stop all
     /// agents").
     StopAll,
@@ -1281,6 +1306,9 @@ pub struct Served {
     /// The Chiefs on other machines (peer_chiefs.rs): `tell("chief:<name>")`
     /// posts to them through the agent hub and `chiefs` lists them. None: off.
     pub peers: Option<Arc<crate::peer_chiefs::PeerChiefs>>,
+    /// This Chief's fork in the cloud (migrate_fork.rs): `tell("chief:fork")`
+    /// reaches it and its reply comes back as a note. None: off.
+    pub fork: Option<Arc<crate::migrate_fork::ForkPeer>>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -1305,6 +1333,7 @@ pub fn serve_with(
             chief: None,
             turn: None,
             peers: None,
+            fork: None,
         },
     )
 }
@@ -1463,17 +1492,25 @@ fn connection(conn: UnixStream, served: &Served) {
                                     .collect::<Vec<_>>()
                             });
                             let all = req.get("all").and_then(Value::as_bool) == Some(true);
-                            Some(
-                                match (restart, all, field("name").filter(|n| !n.trim().is_empty()))
-                                {
-                                    (Some(ids), _, _) => ControlRequest::Restart(ids),
-                                    (None, true, _) => ControlRequest::StopAll,
-                                    (None, false, Some(name)) => {
-                                        ControlRequest::StopSubagent(name.trim().to_owned())
-                                    }
-                                    (None, false, None) => ControlRequest::Stop,
-                                },
-                            )
+                            // Start now (a queued agent's tab in Home): no stop at all.
+                            if let Some(name) = field("start").filter(|n| !n.trim().is_empty()) {
+                                Some(ControlRequest::StartSubagent(name.trim().to_owned()))
+                            } else {
+                                Some(
+                                    match (
+                                        restart,
+                                        all,
+                                        field("name").filter(|n| !n.trim().is_empty()),
+                                    ) {
+                                        (Some(ids), _, _) => ControlRequest::Restart(ids),
+                                        (None, true, _) => ControlRequest::StopAll,
+                                        (None, false, Some(name)) => {
+                                            ControlRequest::StopSubagent(name.trim().to_owned())
+                                        }
+                                        (None, false, None) => ControlRequest::Stop,
+                                    },
+                                )
+                            }
                         }
                         (_, Some("show") | None) => {
                             Some(ControlRequest::Engine(crate::brain::EngineRequest::Show))
@@ -1494,6 +1531,7 @@ fn connection(conn: UnixStream, served: &Served) {
                                     classifier_model: field("classifier_model"),
                                     classifier_prompt: field("classifier_prompt"),
                                     reactions_can_wake: field("reactions_can_wake"),
+                                    permission_mode: field("permission_mode"),
                                 }),
                             }))
                         }
@@ -1645,6 +1683,15 @@ fn connection(conn: UnixStream, served: &Served) {
                     {
                         Err(crate::chief_profile::Grant::refusal("tell"))
                     }
+                    // This Chief's own fork in the cloud (migrate_fork.rs).
+                    Ok(Call::Tell {
+                        ref id,
+                        ref message,
+                        ..
+                    }) if served.fork.as_ref().is_some_and(|f| f.names(id)) => served
+                        .fork
+                        .as_ref()
+                        .map_or_else(|| Err("tell: no fork".to_owned()), |f| f.tell(message)),
                     // A Chief on another machine (peer_chiefs.rs), through the agent hub.
                     Ok(Call::Tell {
                         ref id,

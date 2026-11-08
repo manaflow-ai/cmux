@@ -26,7 +26,7 @@ enum DebugWorkspaceSwitch {
         if timer.isRecording { timer.setKind(ObjectIdentifier(owner), kind) }
     }
 
-    static func shown(_ owner: AnyObject, in window: NSWindow?) {
-        if timer.isRecording { timer.shown(ObjectIdentifier(owner), in: window) }
+    static func shown(_ owner: AnyObject, in window: NSWindow?, pages: @autoclosure () -> [String: Double] = [:]) { // pages: read only while recording
+        if timer.isRecording { timer.shown(ObjectIdentifier(owner), in: window, extra: pages()) }
     }
 }

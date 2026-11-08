@@ -9,23 +9,23 @@ nonisolated enum WorkspaceBulkArchiveActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "workspace.archiveOtherWorkspaces", title: t("action.workspace.archiveOtherWorkspaces", "Archive Other Workspaces"),
-                keywords: ["archive", "others", "tidy", "declutter", "hide"], category: .workspace, symbol: "archivebox",
+                keywords: ["archive", "others", "tidy", "declutter", "hide"], category: .workspace, symbol: "archivebox.circle",
                 surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace archive-other"
             ),
             ActionDescriptor(
                 id: "workspace.archiveOthersInGroup",
                 title: t("action.workspace.archiveOthersInGroup", "Archive Other Workspaces in Group"),
-                keywords: ["archive", "others", "group", "tidy", "declutter"], category: .workspace, symbol: "archivebox",
+                keywords: ["archive", "others", "group", "tidy", "declutter"], category: .workspace, symbol: "square.stack.3d.down.right",
                 surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace archive-others-in-group"
             ),
             ActionDescriptor(
                 id: "workspace.archiveWorkspacesBelow", title: t("action.workspace.archiveWorkspacesBelow", "Archive Workspaces Below"),
-                keywords: ["archive", "below", "under", "after", "tidy", "declutter"], category: .workspace, symbol: "arrow.down.to.line",
+                keywords: ["archive", "below", "under", "after", "tidy", "declutter"], category: .workspace, symbol: "arrowshape.down",
                 surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace archive-below"
             ),
             ActionDescriptor(
                 id: "workspace.archiveWorkspacesAbove", title: t("action.workspace.archiveWorkspacesAbove", "Archive Workspaces Above"),
-                keywords: ["archive", "above", "over", "before", "tidy", "declutter"], category: .workspace, symbol: "arrow.up.to.line",
+                keywords: ["archive", "above", "over", "before", "tidy", "declutter"], category: .workspace, symbol: "arrowshape.up",
                 surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace archive-above"
             ),
         ]

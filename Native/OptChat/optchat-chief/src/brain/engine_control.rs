@@ -7,7 +7,7 @@
 //! for a silent fallback at the next turn.
 //!
 //! Answer: `{"engine": {harness, model, effort, compactor_harness,
-//! compactor_model}, "choice": <engine.json>, "last_turn": <turn.end>|null,
+//! compactor_model, permission_mode, permission_mode_source, ...}, "choice": <engine.json>, "last_turn": <turn.end>|null,
 //! "recent": [<turn.end>...], "offered": {"models": [{id, name, family?,
 //! efforts?, fast?, aliases?, ...}...], "efforts": [...], "speeds": [...],
 //! "harnesses": [{id, displayName, family, chiefFamily, kind, capabilities,
@@ -93,6 +93,12 @@ impl Brain {
             if let Some(value) = computer {
                 match crate::engine::parse_computer(&value) {
                     Ok(value) => choice.computer = value,
+                    Err(reason) => return error("invalid_value", reason),
+                }
+            }
+            if let Some(value) = reactions.permission_mode.clone() {
+                match crate::engine::parse_mode_flag(&value) {
+                    Ok(value) => choice.permission_mode = value,
                     Err(reason) => return error("invalid_value", reason),
                 }
             }
@@ -192,6 +198,7 @@ impl Brain {
         // The reaction classifier this Chief runs now (its engine.json over
         // the user's cmux.json, reaction_wake.rs).
         let reactions = self.reaction_config_for(choice);
+        let permission = self.chief_permission_mode(choice);
         let s = &self.settings;
         let engine = resolve(choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
         let ends: Vec<Value> = s
@@ -250,6 +257,9 @@ impl Brain {
                 },
                 "reactions_can_wake": reactions.can_wake,
                 "turn_routing": choice.turn_routing.as_deref().unwrap_or("off"),
+                // What the next Claude turn runs in, and what chose it (cmux#37392).
+                "permission_mode": permission.0,
+                "permission_mode_source": permission.1,
             },
             "choice": choice,
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),

@@ -181,17 +181,6 @@ struct ChiefComputerControlTests {
                 #expect(work.isEmpty, "\(id) from \(origin) started work")
             }
         }
-        // The relay chat from the CLI answers undelivered with the same words, and sends nothing.
-        let relay = try #require(services.registry.action(for: "cloudRelayChat")?.invoke)
-        let answered = services.registry.capturingRun {
-            relay(ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), arguments: ["agent": .string("claude"), "prompt": .string("hi")], origin: .cli))
-        }
-        let task = try #require(answered.results.first)
-        guard case .success(let fields) = await task.value else { Issue.record("the relay chat failed"); return }
-        #expect(fields["delivered"] == .bool(false))
-        guard case .string(let message)? = fields["error_message"] else { Issue.record("no error_message"); return }
-        #expect(message.hasPrefix("computer.human_has_control"))
-
         // The person's own gesture passes the lease; once given back, automation passes it too.
         let store = services.cloud.computerControl
         #expect(throws: Never.self) { try store.checkNotHeld(machine: machine, byPerson: true) }

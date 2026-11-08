@@ -53,7 +53,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
     scope[key] = (dom.window as unknown as Record<string, unknown>)[key];
 
-const { saveSnapshot } = await import("../../src/agent-session/acpmux/App");
+const { saveSnapshot } = await import("../../src/agent-session/acpmux/snapshotCache");
 const { nextFrame } = await import("../../src/agent-session/acpmux/direct");
 
 const id = (n: number) => `0190a000-0000-7000-8000-${n.toString(16).padStart(12, "0")}`;

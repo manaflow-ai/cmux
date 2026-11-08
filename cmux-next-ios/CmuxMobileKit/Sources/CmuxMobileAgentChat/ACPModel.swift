@@ -184,6 +184,8 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id = "toolCallId", title, kind, status, content, locations, rawInput, rawOutput
+        /// Client-side only (never on the wire): kept when a transcript spills to disk (`RowSpill`).
+        case startedAt, endedAt
     }
 
     public init(
@@ -210,6 +212,8 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
         locations = try container.decodeIfPresent([Location].self, forKey: .locations) ?? []
         rawInput = try container.decodeIfPresent(JSONValue.self, forKey: .rawInput)
         rawOutput = try container.decodeIfPresent(JSONValue.self, forKey: .rawOutput)
+        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
+        endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
     }
 
     /// Applies a `tool_call_update`: only present fields change; `content` replaces.
@@ -334,7 +338,7 @@ public struct ACPPermissionOption: Hashable, Sendable, Codable, Identifiable {
 }
 
 /// `session/request_permission` as acpmux relays it (`_acpmux/permission_pending`).
-public struct ACPPermissionRequest: Hashable, Sendable, Identifiable {
+public struct ACPPermissionRequest: Hashable, Sendable, Codable, Identifiable {
     public var id: String
     public var toolCall: ACPToolCall
     public var options: [ACPPermissionOption]

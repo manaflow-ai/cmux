@@ -936,13 +936,22 @@ pub async fn deliver(
         }},
     });
     // The sending session's id, which its daemon set from the caller it proved
-    // (`mesh_send.rs`), for display (`prompt_provenance::FROM_SESSION_ID`). The hub's sender
-    // record carries no harness yet, so a relayed message names none.
+    // (`mesh_send.rs`), for display (`prompt_provenance::FROM_SESSION_ID`). The sender's harness
+    // claim comes separately below, never as a bound harness.
     let sender = crate::prompt_provenance::BoundSender {
         session_id: message.from.session_id.clone(),
         harness: None,
+        relay: None,
     };
     crate::hub::merge_mux_meta(&mut request, sender.mux_fields());
+    // The harness the sender says it came from, for the chat's sender chip: the claim only, so
+    // the record says self-reported; what the sending daemon checked never crosses the hub.
+    if let Some(claim) = message.from.claim.as_ref().and_then(crate::sender_harness::sanitized)
+        && let Some(mux) =
+            request.pointer_mut("/_meta/acpmux").and_then(serde_json::Value::as_object_mut)
+    {
+        mux.insert(crate::sender_harness::META_KEY.into(), claim);
+    }
     use super::outbox::Next;
     match super::outbox::attempt_once(hub, None, request, Origin::Peer).await {
         Ok(_) => Some(Ack::delivered(prompt_id, None)),

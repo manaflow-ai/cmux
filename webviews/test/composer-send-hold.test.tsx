@@ -7,7 +7,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { useSendWhenAttached } from "../src/agent-session/acpmux/composer/attachmentIntake";
+import { useSendWhenAttached } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;

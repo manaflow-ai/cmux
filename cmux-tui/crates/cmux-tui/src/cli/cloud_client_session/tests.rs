@@ -3,6 +3,7 @@ use std::net::TcpListener;
 use std::sync::mpsc;
 
 use super::*;
+use cmux_cloud_api::session::checked_session;
 
 const VM: &str = "vm_abcdefghij0123456789";
 const TOKEN: &str = "fs-identity-token-0123456789";

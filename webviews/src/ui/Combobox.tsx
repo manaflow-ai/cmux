@@ -30,8 +30,10 @@ export interface ComboboxProps {
   /** The field's text when it opens. */
   defaultValue?: string;
   suggestions: readonly string[];
-  /** Leading actions remain below the field while the remaining suggestions scroll. */
+  /** Actions that stay put while the remaining suggestions scroll: below the field, or with
+   * `pinnedPlacement: "bottom"` under the list (the arrows reach them after the last row either way). */
   pinnedSuggestions?: readonly string[];
+  pinnedPlacement?: "top" | "bottom";
   /** The text changed (typing, completion): compute new suggestions. */
   onQuery(value: string): void;
   /** Return: the highlighted suggestion, else the text. */
@@ -92,6 +94,7 @@ export function Combobox({
   defaultValue = "",
   suggestions,
   pinnedSuggestions,
+  pinnedPlacement = "top",
   onQuery,
   onSubmit,
   onCancel,
@@ -414,6 +417,11 @@ export function Combobox({
       {renderItemContent(item)}
     </Autocomplete.Item>
   );
+  const pinnedRows = (
+    <div ref={pinnedEdges} className="ui-combobox-pinned ui-scroll-edge-fade" data-placement={pinnedPlacement}>
+      {pinnedSuggestions?.map((item) => renderOption(item, enabledSuggestions.indexOf(item)))}
+    </div>
+  );
   const list = (
     <Autocomplete.List
       ref={attachList}
@@ -427,11 +435,7 @@ export function Combobox({
       aria-hidden={held && suggestions.length === 0 ? true : undefined}
       style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
-      {hasPinned && (
-        <div ref={pinnedEdges} className="ui-combobox-pinned ui-scroll-edge-fade">
-          {pinnedSuggestions!.map((item) => renderOption(item, enabledSuggestions.indexOf(item)))}
-        </div>
-      )}
+      {hasPinned && pinnedPlacement === "top" && pinnedRows}
       {hasPinned ? (
         <ScrollArea fade className={cx("ui-combobox-scroll", listClassName)} viewportClassName="ui-combobox-viewport">
           {virtualized && virtualRows ? (
@@ -451,6 +455,7 @@ export function Combobox({
       ) : (
         <Autocomplete.Collection>{(item: string, index: number) => renderOption(item, index)}</Autocomplete.Collection>
       )}
+      {hasPinned && pinnedPlacement === "bottom" && pinnedRows}
       {disabledSuggestions.map((item) => (
         <li
           key={item}
@@ -514,7 +519,12 @@ export function Combobox({
         ) : (
           <Autocomplete.Portal container={container}>
             <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
-              <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-glass ui-combobox-popup">
+              <Autocomplete.Popup
+                ref={host ? setPopup : undefined}
+                className="ui-popup ui-glass ui-combobox-popup"
+                data-host-glass="menu"
+                data-host-glass-cover=""
+              >
                 {list}
               </Autocomplete.Popup>
             </Autocomplete.Positioner>

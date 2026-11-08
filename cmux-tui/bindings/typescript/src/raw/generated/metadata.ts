@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b. */
+/* cmux-tui mux protocol 12, IR e7af6076daff4eb4abb7391170e60058b9981e9e9de358d6bb23d5c14eb08d37. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b" as const;
+export const SDK_IR_SHA256 = "e7af6076daff4eb4abb7391170e60058b9981e9e9de358d6bb23d5c14eb08d37" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2278,10 +2278,15 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "terminal-image-paste-v1",
-    "fields": {},
+    "fields": {
+      "filename": {
+        "since": null,
+        "capability": "terminal-file-paste-v1"
+      }
+    },
     "stream": null,
     "constraints": [
-      "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
+      "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. With terminal-file-paste-v1, begin(filename,size) accepts a regular file, including an empty file, instead of an image MIME. Filename is a validated basename, never a path; the daemon chooses the private temporary directory. 48 KiB chunks; committed temporary files expire after 600 seconds."
     ]
   },
   "pin-workspace": {
@@ -3170,6 +3175,10 @@ export const COMMAND_METADATA = {
       "keep_layout": {
         "since": 12,
         "capability": "end-terminals-keep-layout-v1"
+      },
+      "restart": {
+        "since": 12,
+        "capability": null
       }
     },
     "stream": null,
@@ -3179,7 +3188,8 @@ export const COMMAND_METADATA = {
       "Clients must require daemon-handoff-force-v1 before sending force:true.",
       "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
       "keep_layout:true (with end_terminals:true) ends every terminal but keeps the tabs of placed terminals, so the next owner shows the same screens, splits and tabs, each dead until a frontend starts a new shell in it; keep_layout without end_terminals is refused. Clients must require end-terminals-keep-layout-v1 before sending keep_layout:true.",
-      "The daemon exits only after the success response is queued."
+      "The daemon exits only after the success response is queued.",
+      "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop."
     ]
   },
   "sidebar-plugin": {
@@ -3416,6 +3426,17 @@ export const COMMAND_METADATA = {
       "max_bytes defaults to 1048576 and must be 1..=8388608; at least one page is returned when any exists.",
       "A before marker of another marker_epoch or one that left scrollback is range_evicted.",
       "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
+    ]
+  },
+  "terminal-last-command": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-last-command-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Kept in memory only while terminal command history or workspace freeing is on; never for an incognito terminal.",
+      "Null for a terminal without a live runtime and before its shell finished a command."
     ]
   },
   "terminal-ports": {
@@ -4258,6 +4279,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "stash-changed": {
+    "since": 12,
+    "capability": "stash-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "status": {
     "since": 5,
     "capability": null,
@@ -4598,6 +4627,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "state": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentState"
+        }
+      },
+      "status": {
+        "description": "What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "ref",
           "name": "AgentState"
@@ -13438,6 +13477,66 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "max_length": 4096
           }
         ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalLastCommand": {
+    "additional_properties": false,
+    "fields": {
+      "command": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "ended_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "exit_code": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "started_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalLastCommandResult": {
+    "additional_properties": false,
+    "fields": {
+      "last_command": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalLastCommand"
+        }
+      },
+      "terminal_id": {
         "nullable": false,
         "presence": "required",
         "type": {
@@ -23825,6 +23924,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "filename": {
+          "capability": "terminal-file-paste-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "lease": {
           "nullable": false,
           "presence": "required",
@@ -27159,6 +27268,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "uint32"
           }
+        },
+        "restart": {
+          "constraints": [
+            "true when a replacement daemon follows (`server restart`), false when the session stops (`server stop`). The daemon repeats it as `restart` on the daemon-shutdown event; omit it (or send null) when unknown."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -27652,6 +27773,45 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TerminalHistoryPagesResult"
+    }
+  },
+  "terminal-last-command": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of surface or terminal_id is present."
+      ],
+      "fields": {
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "terminal_id": {
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id",
+              "pattern": "^(term_)?[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalLastCommandResult"
     }
   },
   "terminal-ports": {
@@ -30326,6 +30486,19 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "literal",
           "value": "daemon-shutdown"
         }
+      },
+      "restart": {
+        "capability": "daemon-shutdown-restart-v1",
+        "constraints": [
+          "The restart the shutdown-daemon requester sent: true when a replacement daemon follows, false when the session stops. Sent only to a client that negotiated daemon-shutdown-restart-v1 in set-client-info, and absent when the requester did not say (session.shutdown, an older CLI)."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
       }
     },
     "kind": "object"
@@ -31821,6 +31994,28 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "stash-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "stash-changed"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },

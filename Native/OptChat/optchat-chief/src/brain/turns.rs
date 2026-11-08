@@ -514,7 +514,15 @@ impl Brain {
         self.turn_denied.clear();
         self.repeat_denials = 0;
         self.interrupt.set_gate(self.turn_ask);
-        let policy = if self.turn_ask {
+        // The Chief's permission mode for an owner turn (cmux#37392). A
+        // Claude turn in Manual (Claude Code's `default`) asks before each
+        // change, and under approve-all acpmux would answer every ask with
+        // allow: it runs under `ask`, so each ask comes to `turn_permission`
+        // and is refused (nobody answers a turn session's request).
+        let permission_mode =
+            (!self.turn_ask).then(|| self.chief_permission_mode(&self.next_engine().2).0);
+        let manual = permission_mode == Some("default") && family == crate::acpmux::Family::Claude;
+        let policy = if self.turn_ask || manual {
             crate::approval::ASK.to_owned()
         } else {
             self.settings.policy.clone()
@@ -643,7 +651,9 @@ impl Brain {
         // The kept session, when this turn has the same session shape and
         // keeps the frozen view: only what it has not read goes to it. The
         // policy is part of the shape: an approve-all session never serves a
-        // turn another person started, and an `ask` one never an owner turn.
+        // turn another person started. An `ask` one serves only `ask` turns:
+        // one that carries another person's text, or a Manual owner turn,
+        // which sets `default` on it again before its prompt (turn.rs).
         let sig = keep.then(|| {
             keep_sig(
                 &engine,
@@ -799,6 +809,7 @@ impl Brain {
             reuse,
             keep,
             retire,
+            permission_mode: permission_mode.map(str::to_owned),
         })
     }
 
@@ -1316,7 +1327,8 @@ impl Brain {
             return;
         }
         self.cuts = 0;
-        if std::mem::take(&mut self.cut_ran) {
+        let ran_before = std::mem::take(&mut self.cut_ran);
+        if ran_before {
             outcome.unstarted = false;
         }
         self.steer_due.take_if(|(_, turn)| turn == key);
@@ -1385,6 +1397,16 @@ impl Brain {
             .is_some_and(|t| t.answers.iter().all(awaited))
             && !self.unanswered_in_turn().is_empty();
         let unstarted = stalled && held;
+        // A cut try of this turn reached a harness and its resume's start
+        // hung (`turn::is_hung_start`, never cut): it may have done work, so
+        // it is no unstarted rerun, but the person hears plain words, never
+        // the start's diagnostics, and no failure note closes its messages.
+        let hung_after_run = ran_before
+            && outcome.reply.is_none()
+            && outcome
+                .error
+                .as_deref()
+                .is_some_and(crate::turn::is_hung_start);
         if stalled
             && !quiet
             && let Some(error) = &outcome.error
@@ -1411,6 +1433,7 @@ impl Brain {
             Some(error)
                 if !(quiet
                     || stalled
+                    || hung_after_run
                     || tool_stopped
                     || outcome.orphan.is_some()
                     || steered_waits) =>
@@ -1427,7 +1450,7 @@ impl Brain {
                 "turn {key} ended by the Chief's stop: nothing more posted"
             ));
         }
-        let text = if stalled && !held && !(quiet || tool_stopped) {
+        let text = if ((stalled && !held) || hung_after_run) && !(quiet || tool_stopped) {
             UNSTARTED_TEXT.to_owned()
         } else {
             ended_turn_text(
@@ -1697,9 +1720,10 @@ const UPSTREAM_TRANSIENT: [&str; 8] = [
 /// its messages: never the start's diagnostics.
 const UNSTARTED_TEXT: &str = "I could not start an agent just now; the machine may be busy. I will pick this up with the next message.";
 
-/// A turn whose prompt never reached a harness because its start stalled or
-/// broke off: rerun, and past its cuts never posted (its message waits in the
-/// reply ledger). A usage limit is not cured by a retry and stays a failure.
+/// A turn whose prompt never reached a harness because its start stalled, broke
+/// off or hung (acpmux ended a harness that did no work): rerun, and past its
+/// cuts never posted (its message waits in the reply ledger). A usage limit is
+/// not cured by a retry and stays a failure.
 fn unstarted_stall(outcome: &TurnOutcome) -> bool {
     let Some(error) = outcome.error.as_deref().map(crate::turn::error_head) else {
         return false;
@@ -1707,7 +1731,7 @@ fn unstarted_stall(outcome: &TurnOutcome) -> bool {
     outcome.unstarted
         && !outcome.refused
         && outcome.reply.is_none()
-        && crate::turn::is_start_stall(error)
+        && (crate::turn::is_start_stall(error) || crate::turn::is_hung_start(error))
         && !matches!(
             crate::auto_resume::classify_error(error),
             crate::auto_resume::StopKind::UsageLimit(_)
@@ -1732,8 +1756,10 @@ pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
     // posted as the Chief's reply three times, because only Chief's own "no
     // answer within" wording was matched here. A start refused for a reason
     // (a setup error) still fails at once and shows.
+    // A hung start (`turn::is_hung_start`) is no cut: its harness took minutes
+    // to be called hung, so only the reply ledger's few tries run it again.
     if unstarted_stall(outcome) {
-        return Some(Cut::Upstream);
+        return (!crate::turn::is_hung_start(error)).then_some(Cut::Upstream);
     }
     if outcome.reply.is_none()
         && [

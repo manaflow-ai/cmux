@@ -1,4 +1,4 @@
-public import CmuxNextActions
+import CmuxNextActions
 public import CmuxNextDesign
 public import CoreGraphics
 
@@ -11,35 +11,25 @@ public nonisolated enum SettingsSchema {
     /// Built once per run: each descriptor looks its texts up in the strings bundle, and launch
     /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
     public static let all: [SettingDescriptor] = {
-        let next = general + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
-            + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor, SSHLinkHostsSetting.descriptor] + CloudNewWorkspaceSetting.descriptors + CloudLoginCopyConsentSetting.descriptors + CloudCodexSignInConsentSetting.descriptors + CloudAgentStartSetting.descriptors + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
-            + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
+        let next = GeneralSettingsSchema.history + GeneralSettingsSchema.window + TabSettingsSchema.descriptors + GeneralSettingsSchema.quitting + GeneralSettingsSchema.columns
+            + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
+            + MachineSettingsSchema.computerUse + MachineSettingsSchema.freeModel + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + MachineColorsSettingsSchema.descriptors + MachineSettingsSchema.sshLinks + MachineSettingsSchema.cloud + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + AgentCacheSettingsSchema.descriptors + TrustSettingsSchema.descriptors + MachineSettingsSchema.mobile + GeneralSettingsSchema.layout
+            + GeneralSettingsSchema.workspaceList + GeneralSettingsSchema.palette
             + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors
-            + NotificationSettingsSchema.descriptors + NotificationSoundSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
+            + SidebarSettingsSchema.sidebar + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefPermissionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
+            + NotificationSettingsSchema.dismissalDescriptors + NotificationSettingsSchema.bannerDescriptors + NotificationSettingsSchema.feedMirrorDescriptors
+            + NotificationSettingsSchema.attentionDescriptors + NotificationSettingsSchema.mutedWorkspacesDescriptors + NotificationSettingsSchema.soundDescriptors
+            + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
-            + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
-            + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors + RemoteSettingsSchema.descriptors
-            + DeviceHubSettingsSchema.descriptors + [ContextMenusSetting.showCustomizeItemDescriptor] + CmuxConfigSnapshot.imessageDescriptors
+            + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors + DeveloperToolsSettingsSchema.descriptors
+            + MachineSettingsSchema.macScreen + MachineSettingsSchema.macScreenDebug + MachineSettingsSchema.remote
+            + MachineSettingsSchema.deviceHub + GeneralSettingsSchema.menus + MachineSettingsSchema.imessage
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }()
 
-    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
-    /// `appearance.metrics.*` rows say so themselves.
-    static let sharedWithBrowser: Set<String> = [
-        "appearance.theme", "appearance.backgroundBlur", "ui.animationSpeed",
-        "focusRing.enabled", "focusRing.width", "focusRing.color",
-        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
-        "appearance.surfaces.tabBar.color", "appearance.surfaces.browserChrome.color", "appearance.surfaces.sidebar.color",
-    ]
-
-    /// Keys Reset All Settings leaves alone: the look picked at onboarding
-    /// (the app theme and the terminal font), which each row still resets.
-    public static let keptOnResetAll: Set<[String]> = [
-        AppThemeSetting().configPath, ChromeThemeSetting().configPath, TerminalFontSetting().familyPath,
-        TerminalFontSetting().sizePath,
-    ]
+    // `sharedWithBrowser`, `keptOnResetAll`: schemas/settings/source/row-facts.json
+    // (SettingsSchema+RowFacts.generated.swift).
 
     /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads and
     /// page-hidden keys stay out).
@@ -52,234 +42,12 @@ public nonisolated enum SettingsSchema {
         all.first { $0.path == path }
     }
 
-    /// Actions shown as buttons at the end of a section (their titles and
-    /// availability come from the action registry).
-    public static func actions(in section: SettingsSection) -> [ActionID] {
-        switch section {
-        case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates", "liveWeb.start", "liveWeb.stop"]
-        case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
-        case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
-        case .editor: ["fileEditor.importEditorSettings"]
-        case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .home: ["chief.importMemories", "diagnostics.viewHangReport"]
-        case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
-        case .notifications: []
-        case .accounts: ["accounts.refresh", "palette.mobileConnect"]
-        case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
-        case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
-        // The page draws Open <settings file> itself, named from the loaded path.
-        case .advanced: ["reloadConfiguration"]
-        case .development: []
-        }
-    }
-
-    // MARK: General
-
-    static var general: [SettingDescriptor] {
-        let window = SettingsText.keyed("settings.group.window", "Window")
-        let columns = SettingsText.keyed("settings.group.columns", "Columns")
-        let quitting = SettingsText.keyed("settings.group.quit", "Quitting")
-        let history = SettingsText.keyed("settings.group.history", "History")
-        let tabs = SettingsText.keyed("settings.group.tabs", "Tabs")
-        return [
-            SettingDescriptor(
-                TerminalCommandHistorySetting.configPath, section: .general, group: history,
-                title: SettingsText.keyed("settings.history.terminalCommands", "Record Terminal Commands"),
-                help: SettingsText.keyed("settings.history.terminalCommands.help",
-                                        "Lists finished shell commands in History. Command lines can contain secrets."),
-                summary: SettingsText.keyed("settings.history.terminalCommands.summary", "Shows finished commands in History"),
-                kind: .toggle, default: .bool(TerminalCommandHistorySetting.fallback),
-                keywords: ["history", "commands", "shell", "privacy", "osc 133"]
-            ),
-            SettingDescriptor(
-                NavigationHistoryScopeSetting.configPath, section: .general, group: history,
-                title: SettingsText.keyed("settings.navigation.historyScope", "Back and Forward"),
-                help: SettingsText.keyed("settings.navigation.historyScope.help",
-                                        "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."),
-                kind: .choice([
-                    SettingChoice("workspace", SettingsText.keyed("settings.navigation.historyScope.workspace", "Workspace")),
-                    SettingChoice("window", SettingsText.keyed("settings.navigation.historyScope.window", "Window")),
-                    SettingChoice("surface", SettingsText.keyed("settings.navigation.historyScope.surface", "Focused Page")),
-                ]),
-                default: .string(NavigationHistoryScopeSetting.fallback),
-                keywords: ["history", "back", "forward", "navigation", "location", "scope"]
-            ),
-            SettingDescriptor(
-                NavigationHistoryStepSetting.configPath, section: .general, group: history,
-                title: SettingsText.keyed("settings.navigation.historySteps", "Back and Forward Steps"),
-                help: SettingsText.keyed("settings.navigation.historySteps.help",
-                                        "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."),
-                summary: SettingsText.keyed("settings.navigation.historySteps.summary", "What Go Back and Go Forward step through"),
-                kind: .choice([
-                    SettingChoice("workspaces", SettingsText.keyed("settings.navigation.historySteps.workspaces", "Workspaces")),
-                    SettingChoice("everything", SettingsText.keyed("settings.navigation.historySteps.everything", "Everything")),
-                ]),
-                default: .string(NavigationHistoryStepSetting.fallback),
-                keywords: ["history", "back", "forward", "navigation", "workspace", "tab", "pane"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.commandRetentionConfigPath, section: .general, group: history,
-                title: SettingsText.keyed("settings.history.commandRetentionDays", "Keep Terminal Commands For"),
-                help: SettingsText.keyed("settings.history.commandRetentionDays.help",
-                                        "Each machine deletes recorded commands that are older."),
-                kind: .number(SettingNumber(Double(CmuxConfigSnapshot.commandRetentionRange.lowerBound)...Double(CmuxConfigSnapshot.commandRetentionRange.upperBound),
-                                            step: 1, unit: .days)),
-                default: .number(Double(CmuxConfigSnapshot.commandRetentionFallback)),
-                keywords: ["history", "commands", "retention", "delete", "privacy", "days"]
-            ),
-            SettingDescriptor(
-                ClosedHistoryRetentionSetting.maxGroupsPath, section: .general, group: history,
-                title: SettingsText.keyed("settings.history.closed.maxGroups", "Recently Closed Items to Keep"),
-                help: SettingsText.keyed("settings.history.closed.maxGroups.help",
-                                        "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."),
-                kind: .number(SettingNumber(Double(ClosedHistoryRetentionSetting.groupRange.lowerBound)...Double(ClosedHistoryRetentionSetting.groupRange.upperBound),
-                                            step: 1, unit: .count)),
-                default: .number(0),
-                keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy"]
-            ),
-            SettingDescriptor(
-                ClosedHistoryRetentionSetting.maxAgeDaysPath, section: .general, group: history,
-                title: SettingsText.keyed("settings.history.closed.maxAgeDays", "Keep Recently Closed Items For"),
-                help: SettingsText.keyed("settings.history.closed.maxAgeDays.help",
-                                        "Each machine deletes closed items that are older. 0 keeps them however old they are."),
-                kind: .number(SettingNumber(Double(ClosedHistoryRetentionSetting.dayRange.lowerBound)...Double(ClosedHistoryRetentionSetting.dayRange.upperBound),
-                                            step: 1, unit: .days)),
-                default: .number(0),
-                keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy", "days"]
-            ),
-            SettingDescriptor(
-                WindowTitlebarSetting.configPath, section: .general, group: window,
-                title: SettingsText.keyed("settings.window.titlebar", "Titlebar"),
-                help: SettingsText.keyed("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),
-                kind: .choice([
-                    SettingChoice(TitlebarStyle.minimal.rawValue, SettingsText.keyed("settings.choice.minimal", "Minimal")),
-                    SettingChoice(TitlebarStyle.standard.rawValue, SettingsText.keyed("settings.choice.standard", "Standard")),
-                ]),
-                default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
-            ),
-            SettingDescriptor(
-                TitlebarButtonsSetting.configPath, section: .general, group: window,
-                title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
-                help: SettingsText.keyed("settings.window.titlebarButtons.help",
-                                        "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."),
-                kind: .choice([
-                    SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
-                    SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
-                ]),
-                default: .string(TitlebarButtonsSetting.fallback.rawValue),
-                keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.globalHotKeyPath, section: .general, group: window,
-                title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
-                help: SettingsText.keyed("settings.app.globalHotKey.help",
-                                        "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
-                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows from any app"),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.globalHotKeyFallback),
-                keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.startAgentGlobalHotKeyPath, section: .general, group: window,
-                title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
-                help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help",
-                                        "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyFallback),
-                keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.hideDockIconWithoutWindowsPath, section: .general, group: window,
-                title: SettingsText.keyed("settings.app.hideDockIconWithoutWindows", "Hide Dock Icon When No Windows Are Open"),
-                help: SettingsText.keyed("settings.app.hideDockIconWithoutWindows.help",
-                                        "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback),
-                keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.showMenuBarIconPath, section: .general, group: window,
-                title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
-                help: SettingsText.keyed("settings.app.showMenuBarIcon.help",
-                                        "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.showMenuBarIconFallback),
-                keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
-            ),
-            TabSettingsSchema.newTabTemplate(group: tabs),
-            TabSettingsSchema.nativeNewTabPage(group: tabs),
-            TabSettingsSchema.newTabPosition(group: tabs),
-            TabSettingsSchema.plusButton(group: tabs),
-        ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [
-            TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
-            TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
-        ] + TabSettingsSchema.verticalTabs(group: tabs) + [
-            TabSettingsSchema.hideLoneChatTab(group: tabs),
-            TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
-        ] + TabSettingsSchema.closeWarnings(group: tabs) + [
-            SettingDescriptor(
-                QuitBehaviorSetting.configPath, section: .general, group: quitting,
-                title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
-                help: SettingsText.keyed("settings.app.quitBehavior.help",
-                                        "Terminals run in cmux-tui and keep running after cmux quits unless you end them."),
-                kind: .choice([
-                    SettingChoice(QuitBehavior.ask.rawValue, SettingsText.keyed("settings.choice.quitAsk", "Ask")),
-                    SettingChoice(QuitBehavior.keep.rawValue, SettingsText.keyed("settings.choice.quitKeep", "Keep Sessions Running")),
-                    SettingChoice(QuitBehavior.endKeepLayout.rawValue,
-                                  SettingsText.keyed("settings.choice.quitEndKeepLayout", "End Sessions, Keep Layout")),
-                    SettingChoice(QuitBehavior.endEverything.rawValue, SettingsText.keyed("settings.choice.quitEndEverything", "End Everything")),
-                ]),
-                default: .string(QuitBehaviorSetting.fallback.rawValue),
-                keywords: ["quit", "exit", "sessions", "terminals", "cmux-tui", "daemon", "background"]
-            ),
-            SettingDescriptor(
-                DefaultColumnWidthSetting.configPath, section: .general, group: columns,
-                title: SettingsText.keyed("settings.layout.fixedColumnWidth", "Fixed Column Width"),
-                help: SettingsText.keyed("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
-                summary: SettingsText.keyed("settings.layout.fixedColumnWidth.summary", "Share of the window width"),
-                kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
-                default: .number(DefaultColumnWidthSetting.fallback), keywords: ["width"]
-            ),
-            SettingDescriptor(
-                CenterFocusedColumnSetting.configPath, section: .general, group: columns,
-                title: SettingsText.keyed("settings.layout.centerFocusedColumn", "Center Focused Column"),
-                kind: .choice([
-                    SettingChoice(CenterFocusedColumn.never.rawValue, SettingsText.keyed("settings.choice.never", "Never")),
-                    SettingChoice(CenterFocusedColumn.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
-                    SettingChoice(CenterFocusedColumn.onOverflow.rawValue, SettingsText.keyed("settings.choice.onOverflow", "When It Does Not Fit")),
-                ]),
-                default: .string(CenterFocusedColumnSetting.fallback.rawValue), keywords: ["scroll"]
-            ),
-            SettingDescriptor(
-                StripScrollbarSetting.configPath, section: .general, group: columns,
-                title: SettingsText.keyed("settings.layout.stripScrollbar", "Column Scroll Bar"),
-                help: SettingsText.keyed("settings.layout.stripScrollbar.help", "A thin bar under the columns that shows and moves the visible range."),
-                kind: .choice([
-                    SettingChoice(StripScrollbarMode.system.rawValue, SettingsText.keyed("settings.choice.stripScrollbarSystem", "Follow System")),
-                    SettingChoice(StripScrollbarMode.auto.rawValue, SettingsText.keyed("settings.choice.stripScrollbarAuto", "While Scrolling")),
-                    SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
-                    SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
-                ]),
-                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "column", "visible range", "overview"]
-            ),
-            SettingDescriptor(
-                CloseFocusSetting.configPath, section: .general, group: columns,
-                title: SettingsText.keyed("settings.layout.closeFocus", "Focus After Closing a Pane"),
-                help: SettingsText.keyed("settings.layout.closeFocus.help", "Which pane gets focus when the focused pane closes."),
-                kind: .choice([
-                    SettingChoice(CloseFocusPolicy.previousNeighbor.rawValue, SettingsText.keyed("settings.choice.closeFocusPreviousNeighbor", "Previous Neighbor")),
-                    SettingChoice(CloseFocusPolicy.mostRecent.rawValue, SettingsText.keyed("settings.choice.closeFocusMostRecent", "Most Recently Focused")),
-                ]),
-                default: .string(CloseFocusSetting.fallback.rawValue), keywords: ["close", "focus", "neighbor", "recent"]
-            ),
-        ]
-    }
-
-
     // MARK: Appearance
 
     static var appearance: [SettingDescriptor] {
-        AppearanceSettingsSchema.descriptors + MotionSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
+        AppearanceSettingsSchema.iconTheme + AppearanceSettingsSchema.appTheme + AppearanceSettingsSchema.windowBackground + AppearanceSettingsSchema.tuning
+            + AppearanceSettingsSchema.look + AppearanceSettingsSchema.chromeStyle + AppearanceSettingsSchema.lookMotion
+            + AppearanceSettingsSchema.panes + AppearanceSettingsSchema.focusRing + MotionSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
             + DiffViewerSettingsSchema.descriptors + MarkdownViewerSettingsSchema.descriptors + AgentPaneDisplaySettingsSchema.descriptors
     }
 

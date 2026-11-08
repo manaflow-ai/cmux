@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Live code in the app, end to end on a fleet Mac (Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode):
 # builds the bench configuration as a live code build (scripts/live-code/build.sh), launches it with
-# a live folder (it opens on Home), then edits HomeHostView.updateLayer: Home's background red,
-# then blue, then red again as a bad patch, which a dropped `*.rollback` file undoes (blue again).
+# a live folder (it opens on Home), then edits HomeHostView.updateLayer: Home's background red (the
+# first patch also insets Home's transcript in HomeHostView.layout, which otherwise covers it), then
+# blue, then red again as a bad patch, which a dropped `*.rollback` file undoes (blue again).
 # Each edit is compiled into a patch (scripts/live-code/patch.py) and timed from the edit to the
 # redraw, the rollback from the drop to the redraw; each generation's window snapshot is counted
 # for red and blue pixels (cmuxterm-hq#7149 L3 and L4).

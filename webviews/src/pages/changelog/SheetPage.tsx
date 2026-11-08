@@ -15,36 +15,65 @@
 // New, a check for Fixed, a shield for Security, nothing for Improved, so a day is not one run of
 // the same mark (Leo 2026-11-02). Model.ts readableItem joins a line that is the rest of its title
 // back into the title, and a line that repeats it becomes the title.
+// A row from a public manaflow-ai/cmux pull request opens it (Leo 2026-11-07: "this could maybe
+// still be better with linking to prs... or not necessarily actually since we have some in
+// private? hm."): its title is the link, and its `#N` shows quietly at the row's end (`links`, the
+// route's `prs=`). A change from a private repository has no link, name or number
+// (ChangePullRequest publicPullNumber). Rows wrap to show their whole line, never cut with "…"
+// (Leo 2026-11-07: "i just still think it might be a bit too narrow in the full screen").
 // Each day's header has "Versions" (Leo 2026-11-05: "Like literally with a click to a past nightly
 // ... through the What's New page, you can just get back to a prior version if you wanted to"): its
 // builds, each with its commit, its changes since the build before, and Install, which asks once,
 // then has the app download that build, check its signature and team, and restart into it.
-import { useState, type CSSProperties, type ReactNode } from "react";
+// A click on a row of the sidebar Updated card's list opens this page at that change (Leo
+// 2026-11-08: "maybe just bring them to the section in what's new aka bringing that tab up"):
+// `focus` (the route's `entry=` and `area=`) scrolls to the row with that title, else to the area's
+// section, unfolds the area that hides it, and marks it for a moment (useFocusScroll).
+// A curated change whose highlight carries a before/after pair shows it under its line
+// (MediaCompare.tsx); the sheet shows no other pictures.
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Button } from "../../ui/Button";
 import type { Strings } from "../shared/i18n";
 import { areaOf, byArea, type AreaKey } from "./areas";
-import { dayLabel, groupByDay, isFiller, mergedView, rowKind, type ReleaseView } from "./model";
+import {
+  dayLabel,
+  groupByDay,
+  isFiller,
+  mergedView,
+  rowKind,
+  titleKey,
+  type MediaRef,
+  type ReleaseView,
+} from "./model";
 import { withoutWorkCodes } from "./readableChange";
 import { journalKeys, loadNear } from "./JournalPage";
-import { Maintenance } from "./ReleaseParts";
-import type { ChangelogSnapshot, ChangelogStore } from "./store";
-import type { IndexEntry, ReleaseNotes, SheetLayout, WhatsNewCategory } from "./types";
+import { Maintenance, Media } from "./ReleaseParts";
+import { publicPullNumber, pullURL } from "./ChangePullRequest";
+import type { ChangelogFocus, ChangelogSnapshot, ChangelogStore } from "./store";
+import type { IndexEntry, ReleaseNotes, SheetLayout, SheetLinks, WhatsNewCategory } from "./types";
 
 export function SheetPage({
   store,
   strings,
   s,
   layout = "inline",
+  links = "hover",
+  focus,
 }: {
   store: ChangelogStore;
   strings: Strings;
   s: ChangelogSnapshot;
   layout?: SheetLayout;
+  links?: SheetLinks;
+  /** The change to bring into view (the route's `entry=` and `area=`). */
+  focus?: ChangelogFocus;
 }) {
+  const main = useFocusScroll(focus, focusReady(s));
+  const entry = focus?.entry ? titleKey(focus.entry) : undefined;
   return (
-    <KeyboardScope className={`cls cls-${layout}`} handleKeyDown={journalKeys}>
-      <main aria-labelledby="cls-title">
+    <KeyboardScope className={`cls cls-${layout} cls-prs-${links}`} handleKeyDown={journalKeys}>
+      <main aria-labelledby="cls-title" ref={main}>
         <h1 className="cls-title" id="cls-title">
           {strings.t("changelog.page.title")}
         </h1>
@@ -58,6 +87,7 @@ export function SheetPage({
             s={s}
             store={store}
             strings={strings}
+            entry={entry}
           />
         ))}
       </main>
@@ -71,12 +101,15 @@ function SheetDay({
   s,
   store,
   strings,
+  entry,
 }: {
   day: string;
   builds: IndexEntry[];
   s: ChangelogSnapshot;
   store: ChangelogStore;
   strings: Strings;
+  /** The focused change's title key: its area shows all its rows. */
+  entry?: string;
 }) {
   const loaded = builds.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
@@ -119,7 +152,7 @@ function SheetDay({
         <Maintenance strings={strings} />
       ) : (
         byArea(rows).map((group) => (
-          <SheetArea key={group.area ?? ""} area={group.area} rows={group.items} strings={strings} />
+          <SheetArea key={group.area ?? ""} area={group.area} rows={group.items} strings={strings} entry={entry} />
         ))
       )}
     </section>
@@ -191,11 +224,23 @@ export function SheetBuilds({
 /** An area shows this many changes, then "Show more" (and how many it hides) for the rest. */
 export const AREA_ROWS = 6;
 
-function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; strings: Strings }) {
+function SheetArea({
+  area,
+  rows,
+  strings,
+  entry,
+}: {
+  area?: AreaKey;
+  rows: SheetRow[];
+  strings: Strings;
+  entry?: string;
+}) {
   const [open, setOpen] = useState(false);
   const label = area ? strings.t(`updates.area.${area}`) : strings.t("changelog.page.otherArea");
+  // The focused change is never folded away: its area shows every row.
+  const focused = entry !== undefined && rows.some((row) => titleKey(row.title) === entry);
   // A fold that would hide one row hides none: the button would take that row's line.
-  const shown = open || rows.length <= AREA_ROWS + 1 ? rows : rows.slice(0, AREA_ROWS);
+  const shown = open || focused || rows.length <= AREA_ROWS + 1 ? rows : rows.slice(0, AREA_ROWS);
   return (
     <section className="cls-area" aria-label={label} data-area={area ?? "other"}>
       <h3 className="cls-area-head">
@@ -207,7 +252,7 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
       </h3>
       <ul className="cls-rows">
         {shown.map((row) => (
-          <li className="cls-row" key={row.key} data-category={row.category}>
+          <li className="cls-row" key={row.key} data-category={row.category} data-entry={titleKey(row.title)}>
             {KIND_GLYPHS[row.category] && (
               <span className="cls-icon cls-kind" aria-hidden="true">
                 <svg viewBox="0 0 20 20" width="14" height="14">
@@ -215,8 +260,20 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
                 </svg>
               </span>
             )}
-            <span className="cls-row-title">{row.title}</span>
+            {row.pr === undefined ? (
+              <span className="cls-row-title">{row.title}</span>
+            ) : (
+              <a className="cls-row-title cls-row-link" href={pullURL(row.pr)} rel="noreferrer">
+                {row.title}
+              </a>
+            )}
             {row.line && <span className="cls-row-line">{row.line}</span>}
+            {row.pr !== undefined && (
+              <span className="cls-row-pr" aria-hidden="true">
+                #{row.pr}
+              </span>
+            )}
+            {row.media && <Media media={row.media} className="cls-row-media" strings={strings} />}
           </li>
         ))}
       </ul>
@@ -228,6 +285,59 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
       )}
     </section>
   );
+}
+
+/** How long the focused row or area stays marked (styles.css .cls-row[data-focus]). */
+export const FOCUS_MARK_MS = 1600;
+
+/** Whether the rows a focus may name are on the page: the update's span builds, else the newest
+    day's first build, loaded (or known unavailable). */
+export function focusReady(s: ChangelogSnapshot): boolean {
+  const needed = s.inSpan.length > 0 ? s.inSpan : s.builds.slice(0, 1).map((b) => b.build);
+  return needed.length > 0 && needed.every((build) => !!s.loaded[build] || !!s.unavailable[build]);
+}
+
+/** Scrolls `focus` into view once per click (its `n`), when `ready`: the first row titled
+    `entry` (centered), else the first `area` section (the newest day's, at the top), and marks
+    it with `data-focus` for FOCUS_MARK_MS. Smooth unless the page's motion gate or the system
+    asks for less motion. Other renders scroll nothing. */
+function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean) {
+  const main = useRef<HTMLElement>(null);
+  const handled = useRef<string>(undefined);
+  const mark = useRef<{ el: HTMLElement; timer: ReturnType<typeof setTimeout> }>(undefined);
+  const key = focus ? `${focus.area ?? ""}\n${focus.entry ?? ""}\n${focus.n ?? ""}` : undefined;
+  useEffect(() => {
+    const root = main.current;
+    if (!focus || !key || !ready || !root || handled.current === key) return;
+    handled.current = key;
+    const entry = focus.entry ? titleKey(focus.entry) : undefined;
+    const row = entry
+      ? [...root.querySelectorAll<HTMLElement>(".cls-row[data-entry]")].find((el) => el.dataset.entry === entry)
+      : undefined;
+    const area = row
+      ? undefined
+      : [...root.querySelectorAll<HTMLElement>(".cls-area[data-area]")].find((el) => el.dataset.area === focus.area);
+    const target = row ?? area;
+    if (!target) return;
+    target.scrollIntoView?.({ block: row ? "center" : "start", behavior: lessMotion() ? "auto" : "smooth" });
+    if (mark.current) {
+      clearTimeout(mark.current.timer);
+      mark.current.el.removeAttribute("data-focus");
+    }
+    target.setAttribute("data-focus", "");
+    const timer = setTimeout(() => {
+      target.removeAttribute("data-focus");
+      mark.current = undefined;
+    }, FOCUS_MARK_MS);
+    mark.current = { el: target, timer };
+  }, [focus, key, ready]);
+  useEffect(() => () => clearTimeout(mark.current?.timer), []);
+  return main;
+}
+
+function lessMotion(): boolean {
+  const gate = document.documentElement.dataset.cmuxMotion;
+  return gate === "off" || gate === "reduced" || !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 }
 
 /** About how many rows a loading day will have: its highlights as the index counts them, else
@@ -260,30 +370,45 @@ export interface SheetRow {
   line?: string;
   /** The app area the change is in (areas.ts), none for Other. */
   area?: AreaKey;
+  /** Its public manaflow-ai/cmux pull request; none for a change from a private repository. */
+  pr?: number;
+  /** A curated change's before/after pair, shown under its line; a lone picture stays off the
+      sheet, which is one tight line per change. */
+  media?: MediaRef;
 }
 
 /** A day's rows: its curated changes (hero first, then New, Improved, Fixed, Security), each with
-    what its summary's first sentence adds to the title; with none curated, its readable changes,
-    each with its description. Each knows its app area. */
+    what its summary's first paragraph adds to the title; with none curated, its readable changes,
+    each with its description. Each knows its app area and, when it has a public one, its pull
+    request: a curated change's own, else the day's change with the same title. */
 export function sheetRows(view: ReleaseView, _strings?: Strings): SheetRow[] {
   const curated = [...(view.hero ? [view.hero] : []), ...view.groups.flatMap((g) => g.items)];
-  if (curated.length > 0)
+  if (curated.length > 0) {
+    const pulls = new Map<string, number>();
+    for (const change of view.changes) {
+      const pr = publicPullNumber(change.pr);
+      if (pr !== undefined && !pulls.has(words(change.title))) pulls.set(words(change.title), pr);
+    }
     return curated.map((item) => {
-      const line = addedLine(item.title, firstSentence(item.summary));
+      const line = addedLine(item.title, firstParagraph(item.summary));
       return {
         key: item.id,
         category: item.category,
         title: item.title,
         line,
-        area: areaOf(item.title) ?? (line ? areaOf(line) : undefined),
+        area: curatedArea(item.title, item.summary),
+        pr: publicPullNumber(item.pr) ?? pulls.get(words(item.title)),
+        ...(item.media?.before ? { media: item.media } : {}),
       };
     });
+  }
   return view.changes.map((change, index) => ({
     key: `${change.pr ?? ""}:${index}`,
     category: rowKind(change.title),
     title: change.title,
     line: addedLine(change.title, fallbackLine(change.description)),
     area: change.area,
+    pr: publicPullNumber(change.pr),
   }));
 }
 
@@ -295,6 +420,13 @@ function words(text: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^(?:the|a|an) /, "");
+}
+
+/** A curated change's app area as What's New files it: what its title names, else what its
+    summary's first paragraph adds (the Updated card's list groups by the same rule). */
+export function curatedArea(title: string, summary: string | undefined): AreaKey | undefined {
+  const line = addedLine(title, summary ? firstParagraph(summary) : undefined);
+  return areaOf(title) ?? (line ? areaOf(line) : undefined);
 }
 
 /** What `line` says beyond `title`: undefined when it only repeats it ("Host pressure warning is
@@ -318,19 +450,24 @@ export function addedLine(title: string, line: string | undefined): string | und
 }
 
 /** A raw change's description as its row's line: no work-stream codes, no filler ("This build brings
-    fixes and improvements."), its first sentence. */
+    fixes and improvements."), its first paragraph. */
 function fallbackLine(description: string | undefined): string | undefined {
-  const plain = description ? withoutWorkCodes(description) : "";
-  return plain && !isFiller(plain) ? firstSentence(plain) : undefined;
+  // The paragraph first: withoutWorkCodes folds line breaks, which would join every paragraph.
+  const paragraph = description ? firstParagraph(description) : undefined;
+  const plain = paragraph ? withoutWorkCodes(paragraph) : "";
+  return plain && !isFiller(plain) ? plain : undefined;
 }
 
-/** "A link opens in the pane. Unread dots wait." reads "A link opens in the pane."; the whole text
-    when it has one sentence; undefined when empty. */
-function firstSentence(text: string): string | undefined {
-  const trimmed = text.trim();
-  if (!trimmed) return undefined;
-  const end = /[.!?。！？](?=\s|$)/.exec(trimmed);
-  return end ? trimmed.slice(0, end.index + 1) : trimmed;
+/** A description in full as one line: its first paragraph, its line breaks as spaces ("A link
+    opens in the pane. Unread dots wait." stays whole; a list under it is left out); undefined when
+    empty. The row wraps it rather than cutting it (styles.css .cls-row). */
+function firstParagraph(text: string): string | undefined {
+  const paragraph = text
+    .trim()
+    .split(/\n\s*\n|\n\s*[-*•]\s/u)[0]!
+    .replace(/\s+/g, " ")
+    .trim();
+  return paragraph || undefined;
 }
 
 /** A 16 pt stroke glyph per app area, in the theme's accent (styles.css .cls-icon): the sidebar's

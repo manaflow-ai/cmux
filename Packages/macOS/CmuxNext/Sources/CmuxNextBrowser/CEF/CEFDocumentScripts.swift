@@ -37,7 +37,7 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
         }
     }
 
-    /// The media hub: observer (media world), page actions recorder, page busy recorder and the
+    /// The media hub: observer (media world), page actions recorder, hidden sound recorder, page busy recorder and the
     /// protected media probe (page world), protected media relay (media world).
     var media: [Script]
     /// The email verification detector (its own world, main frame).
@@ -57,6 +57,7 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
                    source: BrowserMediaState.observerScript(post: post.send(mediaChannel, "JSON.stringify(message)"), ready: post.ready(mediaChannel)),
                    allFrames: true),
             Script(world: "", source: BrowserMediaState.actionsScript, allFrames: true),
+            Script(world: "", source: BrowserMediaState.hiddenSoundScript, allFrames: true),
             Script(world: "", source: BrowserPageBusy.recorderScript, allFrames: true),
             // A refused Widevine request reopens the tab in WebKit (BrowserProtectedMedia).
             Script(world: "", source: BrowserProtectedMedia.probeScript, allFrames: true),

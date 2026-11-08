@@ -6,10 +6,14 @@
 // the order they were sent, each once acpmux took the one before. A refused one comes back to the
 // composer with every prompt behind it, so nothing is lost and nothing goes out of order.
 import type { ComposerAttachment } from "./attachments";
+import type { SendGesture } from "./heldPrompt";
 
 export type StartingSend = { id: string; text: string; attachments: ComposerAttachment[] };
 /// `lost`: an edit saved while the prompt was going, which comes back only once it went.
-type Item = StartingSend & { going: boolean; lost?: string };
+/// `gesture`: the Enter or click the composer bound to it while it held it for its files.
+type Item = StartingSend & { going: boolean; lost?: string; gesture?: SendGesture };
+/// Sends a queued prompt, with the gesture its send bound, if any.
+type Go = (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) => Promise<unknown>;
 
 export class StartingSends {
   private items: Item[] = [];
@@ -51,13 +55,19 @@ export class StartingSends {
     else this.giveBack(text, []);
   }
 
-  /** Adds a prompt; `go` sends it and settles once acpmux took it, or rejects when it was refused. */
-  add(
-    text: string,
-    attachments: ComposerAttachment[],
-    go: (text: string, attachments: ComposerAttachment[]) => Promise<unknown>,
-  ) {
-    const item: Item = { id: `starting-${crypto.randomUUID()}`, text, attachments, going: false };
+  /**
+   * Adds a prompt; `go` sends it and settles once acpmux took it, or rejects when it was refused.
+   * `gesture`: the Enter or click the composer bound to a send it held for its files (a pasted
+   * image's upload may have spent the host's grant since); `go` gets it with the prompt.
+   */
+  add(text: string, attachments: ComposerAttachment[], go: Go, gesture?: SendGesture) {
+    const item: Item = {
+      id: `starting-${crypto.randomUUID()}`,
+      text,
+      attachments,
+      going: false,
+      ...(gesture ? { gesture } : {}),
+    };
     this.items.push(item);
     this.emit();
     this.tail = this.tail.then(() => this.run(item, go));
@@ -81,12 +91,12 @@ export class StartingSends {
     return true;
   }
 
-  private async run(item: Item, go: (text: string, attachments: ComposerAttachment[]) => Promise<unknown>) {
+  private async run(item: Item, go: Go) {
     // Removed, or given back with a refused prompt before it.
     if (!this.items.includes(item)) return;
     item.going = true;
     try {
-      await go(item.text, item.attachments);
+      await go(item.text, item.attachments, item.gesture);
     } catch (error) {
       // This prompt and every one behind it come back; the composer puts each before what it
       // holds, so the last goes back first and they read in the order they were sent.
