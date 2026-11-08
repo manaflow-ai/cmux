@@ -247,6 +247,12 @@
     },
     {
       "kind": "request",
+      "name": "chat.fix_from_link",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/sessions",
       "params": {
         "$ref": "#/types/SessionsParams"

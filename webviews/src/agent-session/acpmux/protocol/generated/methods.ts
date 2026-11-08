@@ -34,6 +34,7 @@ export interface AcpmuxRequests {
   "trigger/chat.ensure": { params: unknown; result: unknown };
   "trigger/chat.send": { params: unknown; result: unknown };
   "trigger/chat.status": { params: unknown; result: unknown };
+  "chat.fix_from_link": { params: unknown; result: unknown };
   "_acpmux/sessions": { params: SessionsParams; result: SessionsResult };
   "_acpmux/attach": { params: AttachParams; result: AttachResult };
   "_acpmux/detach": { params: SessionRef; result: Done };
@@ -358,6 +359,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "trigger/chat.ensure", kind: "request", acp: false, typed: false },
   { name: "trigger/chat.send", kind: "request", acp: false, typed: false },
   { name: "trigger/chat.status", kind: "request", acp: false, typed: false },
+  { name: "chat.fix_from_link", kind: "request", acp: false, typed: false },
   { name: "_acpmux/sessions", kind: "request", acp: false, typed: true },
   { name: "_acpmux/attach", kind: "request", acp: false, typed: true },
   { name: "_acpmux/detach", kind: "request", acp: false, typed: true },
