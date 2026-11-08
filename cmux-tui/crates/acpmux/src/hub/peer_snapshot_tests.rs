@@ -2098,8 +2098,8 @@ fn a_copy_goes_back_from_where_the_peers_own_recovery_began() {
     let proofs = od::proofs_past(&outbox, PEER, &rows, &since);
     let (back, held) = restore::with_proofs(ahead, proofs, &rows);
     assert_eq!(back.len(), 1, "only the copy past the recovery's start goes back");
-    let seqs: Vec<u64> = back[0].3.iter().filter_map(seq_of).collect();
-    assert_eq!((back[0].0.as_str(), back[0].2, seqs), ("m1", 9, vec![10, 11, 12]));
+    let given: Vec<u64> = back[0].3.iter().filter_map(seq_of).collect();
+    assert_eq!((back[0].0.as_str(), back[0].2, given), ("m1", 9, vec![10, 11, 12]));
     assert!(held.is_empty(), "a copy within the recovery held its session");
     // A row with no recovery, or one at its end, is compared with `lastSeq`.
     let plain = json!({"createdAt": 7, "lastSeq": 12, "recoveredAfter": 40});
