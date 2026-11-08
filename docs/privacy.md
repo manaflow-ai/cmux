@@ -18,8 +18,8 @@ you turn it off, and the `DisableTelemetry` managed policy turns it off for ever
 - A `cmux` CLI installed on its own (Linux, npm or PyPI; the copy inside the app sends nothing) sends its daemon's
   panic and memory reports. It reads `app.sendAnonymousTelemetry: false` from `~/.config/cmux/cmux-next.json` (or the
   file `CMUX_NEXT_CONFIG_FILE` names), and also stays off with `DO_NOT_TRACK=1`, `CMUX_TUI_TELEMETRY=off` or `CI` set.
-  Before sending it replaces your home directory with `~`; it does not yet run the scrubber above on the panic
-  message.
+  Before sending, `crash_scrub` runs the same rules as the scrubber above on the panic message, location and
+  backtrace, and `seeded_secrets_never_leave_in_a_panic_event` seeds them the same way.
 
 Hang reports go to cmux.com only after you agree to send them, and the app never asks while telemetry is off.
 
