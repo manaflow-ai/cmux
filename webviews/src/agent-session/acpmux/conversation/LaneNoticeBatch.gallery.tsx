@@ -9,7 +9,8 @@ import { LaneNoticeBatch } from "./LaneNoticeBatch";
 import { inboxMany, report } from "./laneNotice.gallery-fixtures";
 import { batchLaneNotices, flattenInboxRows } from "./laneNoticeBatches";
 import { setMessageOpened } from "./incomingOpened";
-import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = { kind: "reports" | "inbox" | "single"; expanded: boolean };
 

@@ -20,7 +20,7 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ChevronRight, TerminalSquare } from "./icons";
 import { ShellBlock } from "./ShellBlock";
 import { shortCommand } from "./shortCommand";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { SubagentNavContext } from "../subagents/subagentGroupModel";
 import { spanDuration } from "./turns";
