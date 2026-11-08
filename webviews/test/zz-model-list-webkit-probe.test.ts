@@ -55,23 +55,24 @@ for (const engine of ["webkit", "chromium"])
       await chip.waitFor();
       await page.evaluate(() => document.fonts.ready);
       const box = (await chip.boundingBox())!;
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-      await page.waitForSelector(".acpmux-cols-list [role^=menuitem]");
-      await page.waitForTimeout(600);
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.up();
+      await page.waitForFunction(() => document.querySelector('button[aria-haspopup][aria-label="Model"]')?.getAttribute("aria-expanded") === "true");
+      await page.waitForTimeout(800);
+      console.log(`PROBE-DOM ${engine} ${variant} ${await page.evaluate(() => [...new Set([...document.querySelectorAll('[role^="menuitem"], [role="option"]')].map((r) => `${r.getAttribute("role")}<${r.parentElement?.className}>`))].join(" | "))}`);
       if (variant === "noMinWidth")
         await page.evaluate(() => {
           for (const el of document.querySelectorAll<HTMLElement>("[style*=min-width]")) el.style.minWidth = "";
         });
       const report = await page.evaluate(() => {
-        const list = [...document.querySelectorAll<HTMLElement>(".acpmux-cols-list")].find((l) =>
-          l.querySelector("[role^=menuitem]"),
-        );
+        const list = ([...document.querySelectorAll<HTMLElement>('[role^="menuitem"], [role="option"]')].map((r) => { let e = r.parentElement; while (e && e !== document.body && !/(auto|scroll)/.test(getComputedStyle(e).overflowY)) e = e.parentElement; return e; }).find((e) => e && e !== document.body) as HTMLElement | undefined);
         if (!list) return { error: "no list" };
         const lb = list.getBoundingClientRect();
         const cs = getComputedStyle(list);
-        const rows = [...list.querySelectorAll<HTMLElement>("[role^=menuitem]")];
+        const rows = [...list.querySelectorAll<HTMLElement>('[role^="menuitem"], [role="option"]')];
         const out: any = {
-          list: { x: lb.x, w: lb.width, offsetW: list.offsetWidth, clientW: list.clientWidth, scrollW: list.scrollWidth, scrollLeft: list.scrollLeft, padL: cs.paddingLeft, padR: cs.paddingRight, borderR: cs.borderRightWidth, attrs: [...list.attributes].map((a) => a.name).join(" ") },
+          list: { x: lb.x, w: lb.width, offsetW: list.offsetWidth, clientW: list.clientWidth, scrollW: list.scrollWidth, scrollLeft: list.scrollLeft, padL: cs.paddingLeft, padR: cs.paddingRight, borderR: cs.borderRightWidth, attrs: [...list.attributes].map((a) => a.name).join(" "), cls: list.className, scroller: getComputedStyle(list, "::-webkit-scrollbar").width },
           rows: [] as any[],
         };
         for (const row of rows.slice(0, 14)) {
