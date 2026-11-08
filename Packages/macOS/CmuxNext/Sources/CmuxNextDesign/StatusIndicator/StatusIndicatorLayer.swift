@@ -171,6 +171,8 @@ public final class StatusIndicatorLayer {
         }
         let configChanged = config != self.config
         let glyphChanged = plan.glyph != self.plan.glyph || configChanged
+        // The next status, static ones too, never shows under the last one's settle.
+        cancelSettle()
         self.plan = plan
         self.config = config
         layer.isHidden = plan.glyph == .none
@@ -386,7 +388,7 @@ public final class StatusIndicatorLayer {
 
     private func removeAllAnimations() {
         // A settle still playing (StatusIndicatorLayer+Settle) must not scale the glyph that replaces it.
-        layer.removeAnimation(forKey: Self.settleScaleKey)
+        cancelSettle()
         glyphLayer?.removeAllAnimations()
         markLayer?.removeAllAnimations()
         nativeLayer?.removeAllAnimations()

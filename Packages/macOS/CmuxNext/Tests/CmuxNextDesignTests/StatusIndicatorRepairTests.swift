@@ -28,6 +28,19 @@ import Testing
         #expect(indicator.runningAnimation == .spin)
     }
 
+    /// A settle on finished work ends when the row's next status comes, a still one too: the next
+    /// status never shows at the settle's scale.
+    @Test func theNextStatusEndsASettle() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let indicator = Self.indicator()
+        indicator.apply(StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .success), config: StatusIndicatorConfig())
+        indicator.playSettle()
+        #expect(indicator.layer.animation(forKey: StatusIndicatorLayer.settleScaleKey) != nil)
+        indicator.apply(StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .attention), config: StatusIndicatorConfig())
+        #expect(indicator.layer.animation(forKey: StatusIndicatorLayer.settleScaleKey) == nil)
+    }
+
     @Test func aSpinTheMotionGateRefusedStartsWhenLoopsReturn() {
         let indicator = Self.indicator()
         Motion.reduceMotionOverride = true

@@ -74,7 +74,7 @@ import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./useTurnWaterfall";
 import { FinishCheck } from "../finish/FinishCheck";
-import { useFinishedTurn } from "../finish/finishMoments";
+import { UNFINISHED_TURN, useFinishedTurn } from "../finish/finishMoments";
 import { groupDisclosureKey, runDisclosureKey, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
@@ -100,8 +100,6 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   );
 }
 
-/// The turn ends that are no success: stopped (`turns.ts` isStopped) or failed.
-const UNFINISHED = new Set(["cancelled", "interrupted", "failed", "error"]);
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,
 /// as Codex does (Lucas, 2026-11-06): the turn's tokens stay on the running line (WorkingFor.tsx).
@@ -119,7 +117,7 @@ export function WorkedFor({
   // A long turn that just ended shows its short done state here (finish/finishMoments.ts); a turn
   // that was stopped or failed did not succeed, so it gets none.
   const ended = useFinishedTurn(row.at, row.durationMs === undefined ? undefined : row.at + row.durationMs);
-  const finished = ended && !UNFINISHED.has(row.status ?? "");
+  const finished = ended && !UNFINISHED_TURN.has(row.status ?? "");
   return (
     <button
       type="button"

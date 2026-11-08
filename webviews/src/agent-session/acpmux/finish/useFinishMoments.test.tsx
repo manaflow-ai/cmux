@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { setChatDisplay } from "../chatDisplay";
 import type { HeaderPullRequest } from "../header/headerState";
+import type { AcpmuxRow } from "../model";
 import { endFinishMoment, finishMoment } from "./finishMoments";
 import { FINISH_SOUND_KEY, useFinishMoments } from "./useFinishMoments";
 
@@ -46,9 +47,10 @@ function Probe(props: Props) {
   useFinishMoments(props);
   return null;
 }
+// The header's pull request is the chat's own read unless a test says it is still the last chat's.
 const render = (props: Props) => {
   root ??= createRoot(dom.window.document.getElementById("root")!);
-  act(() => root!.render(<Probe {...props} />));
+  act(() => root!.render(<Probe pullRequestSession={props.session} {...props} />));
 };
 
 const pr = (state: string, checks: string): HeaderPullRequest => ({
@@ -116,6 +118,38 @@ test("another chat on the same pull request starts from its own first read", () 
   render({ session: "s", working: false, pullRequest: pr("open", "pending") });
   render({ session: "t", working: false, pullRequest: pr("merged", "passing") });
   expect(finishMoment()).toBeUndefined();
+});
+
+test("the last chat's pull request, still in the header after a switch, is no baseline (review 4 F1)", () => {
+  setChatDisplay({ [FINISH_SOUND_KEY]: true });
+  render({ session: "s", working: false, pullRequest: pr("open", "pending") });
+  // Switched to t: the header shows s's read until t's tab state lands.
+  render({ session: "t", working: false, pullRequest: pr("open", "pending"), pullRequestSession: "s" });
+  // t's own read of the same pull request, merged: its first read, no transition.
+  render({ session: "t", working: false, pullRequest: pr("merged", "passing") });
+  expect(finishMoment()).toBeUndefined();
+  expect(sounds).toEqual([]);
+  // From there t's reads compare with its own.
+  render({ session: "t", working: false, pullRequest: { ...pr("open", "passing"), url: "https://github.com/o/r/pull/8" } });
+  render({ session: "t", working: false, pullRequest: { ...pr("merged", "passing"), url: "https://github.com/o/r/pull/8" } });
+  expect(finishMoment()?.kind).toBe("merged");
+});
+
+test("a long turn that failed ends with no moment and no sound (review 4 F2)", () => {
+  setChatDisplay({ [FINISH_SOUND_KEY]: true });
+  const start = Date.now() - 60_000;
+  const summary = (at: number, status: string) =>
+    ({ id: `summary-${at}`, version: 1, at, kind: "turnSummary", status }) as unknown as AcpmuxRow;
+  // An older turn's success is not this turn's end.
+  const rows = [summary(start - 90_000, "completed"), summary(start + 59_000, "failed")];
+  render({ session: "s", working: true, turnStartedAtMs: start, rows: rows.slice(0, 1) });
+  render({ session: "s", working: false, rows });
+  expect(finishMoment()).toBeUndefined();
+  expect(sounds).toEqual([]);
+  // No summary row of its own yet reads as a success.
+  render({ session: "s", working: true, turnStartedAtMs: Date.now() - 40_000, rows: rows.slice(0, 1) });
+  render({ session: "s", working: false, rows: rows.slice(0, 1) });
+  expect(finishMoment()?.kind).toBe("turn");
 });
 
 test("a turn's end under a merge still showing leaves the sound to the merge", () => {

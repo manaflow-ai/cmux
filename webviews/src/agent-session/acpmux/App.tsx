@@ -8867,9 +8867,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     window.setTimeout(refreshTabState, 400);
     return reply?.ran === true;
   };
-  // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
+  // The label starts from the chat's layout; Quick Chat's panel has no tab to read. Until the chat's
+  // read lands, the header's pull request is the last chat's (useFinishMoments `pullRequestSession`).
+  const [tabStateSession, setTabStateSession] = useState<string>();
   useEffect(() => {
-    if (!quick) void readTabState().catch(() => undefined);
+    if (quick) return;
+    const session = snapshot.sessionId;
+    void readTabState()
+      .then(() => setTabStateSession(session))
+      .catch(() => undefined);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
   }, [quick, snapshot.sessionId]);
   // A turn's end asks the App for the chat's pull request again (cx-ncc.77.1): the agent may have
@@ -8896,7 +8902,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     turnStartedAtMs: snapshot.turnStartedAtMs,
     clockOffsetMs: snapshot.clockOffsetMs,
     stopping: snapshot.stopping === true,
+    rows: snapshot.rows,
     pullRequest: headerPullRequest,
+    pullRequestSession: quick ? snapshot.sessionId : tabStateSession,
   });
   // A floating chat's panel that held this chat before the page loaded (a tab moved there, a reload)
   // says so once; later changes are pushed, and a reread per chat could land after a newer push.

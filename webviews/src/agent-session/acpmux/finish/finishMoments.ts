@@ -27,6 +27,8 @@ export interface FinishMoment {
 
 /// A turn shorter than this ends quietly: a quick answer is no event (the brief's "more than about 30 s").
 export const LONG_TURN_MS = 30_000;
+/// The turn ends that are no success: stopped (`turns.ts` isStopped) or failed. No check, no sound.
+export const UNFINISHED_TURN: ReadonlySet<string> = new Set(["cancelled", "interrupted", "failed", "error"]);
 
 /// How long each moment holds (ms), under the delight rules' 1 s. A merge is the bigger moment.
 export const FINISH_MS: Readonly<Record<FinishKind, number>> = { turn: 700, ci: 700, merged: 950 };
