@@ -1607,6 +1607,20 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - Commits: the "(red)" test commit (`PinnedSummaryDensityTests`, `AAPinnedDensityGalleryTests`, fleet step
   b756692bcd72c93601f38a3e), then the fix. Before|After sheets: ~/fun/cmux-galleries/pinned-density/.
 
+## A collapsed group never reorders: held slots and fixed anchors (2026-11-07)
+
+- Leo 2026-11-07: "this is also just insanely weird sidebar group behaviour. see i selected you and then i collapse
+  the group you're in then i click elsewhere and then all sorts of wack nonsense occurs".
+- Running members of a collapsed group the document stopped placing for a moment (an item or ref in flight) listed
+  as new rows below the current workspace (`SidebarDocSections.sections`, `newRowsPlace` `afterCurrent`), so every
+  click elsewhere moved them out of the group, under the clicked row; opened again, the group listed without them
+  until the document placed them back.
+- Now a row that listed keeps its slot (its group, under the same row) until the document places it again
+  (`holdSlots`, `noteSlots`), and a new row keeps the place it first took (`anchors`). A fold repaints the selection
+  on every row it keeps (no stuck highlight). The peek rule is unchanged: a collapsed group draws its active member
+  and the members selected while it was collapsed (`shown(inCollapsed:)`), so a click elsewhere moves no row.
+- Tests: `SidebarDocHeldSlotTests`, red commit first.
+
 ## A relaunch's first frame has the live rows' heights (2026-11-07)
 
 - Leo 2026-11-07: "Like, it was already loaded, and then it flickered."
