@@ -183,7 +183,7 @@
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: 20px;
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -233,7 +233,7 @@
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text);
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -1241,7 +1241,7 @@
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text);
   -webkit-font-smoothing: antialiased;
 }
@@ -2069,7 +2069,7 @@ pre.cv-math-source {
   scroll-padding-bottom: var(--acpmux-dock-space, 0px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
   /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
      each streamed token compete with that correction and produces the one-pixel shake at rest. */
@@ -2372,7 +2372,7 @@ pre.cv-math-source {
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: 20px;
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-activity-text);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
@@ -2864,7 +2864,7 @@ pre.cv-math-source {
   margin: 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
 /* Tool work ends closer to the following reply than a full message does. The row's own min-height
@@ -4238,7 +4238,7 @@ button.cv-video-frames__frame:focus-visible {
 .cv-received {
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
   /* The transcript's text tone, as every message row between agents (AgentMessageRow.css "One line,
      inline"; Leo, 2026-11-03: "idk why everything is grey other than the recieving message bubble"). */

@@ -927,12 +927,14 @@ BUILD_GATE="needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && 
 # A run whose build a newer published build is above spends no notarization (#33109): the macOS
 # signer adds it as one more top-level conjunct, after the build gate.
 NOT_OVERTAKEN="needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
+# A pipelined nightly-next push builds only; its sign run prepares the variant (one more conjunct).
+NOT_PIPELINED="needs.decide.outputs.pipeline != 'true'"
 # The macOS signer is the fallback when the signer jobs did not produce the DMG (#26335); its
 # prefix only adds conjuncts, so the build_only exclusion still holds.
 SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success'"
 if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
-  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $BUILD_GATE" ] \
+  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $BUILD_GATE && $NOT_PIPELINED" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE && $NOT_OVERTAKEN\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
   || [ "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
