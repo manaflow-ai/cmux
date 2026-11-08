@@ -7,6 +7,7 @@ import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { GitHubPage, type ChecksPlacement, type GitHubLayout, type PageWidth } from "./GitHubPage";
+import { mockBotDetails, mockBotDetailsBefore } from "./mockBotComments";
 import { MockGitHubProvider, mockChecksPassed, mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
 import { GitHubStore } from "./store";
 import type { DashboardChecks, PullRequestDetails, PullRequestReply } from "./types";
@@ -117,6 +118,14 @@ export default componentEntry<Props>({
     "width-column": {
       note: "Before: What's New's width, 84% of the pane up to 1560px, centered; a wide pane gives up its sides.",
       props: { details: checkTable, width: "column" },
+    },
+    "bot-comments": {
+      note: "cmux#37993's bot comments from GitHub's own rendering: a badge is its picture (the scheme picks light or dark), the <sup> line is small, a review's Prompt for AI Agents folds in <details>, the check table is a table. A script and an image off GitHub's proxy are dropped.",
+      props: { details: mockBotDetails },
+    },
+    "bot-comments-before": {
+      note: "Before: the Markdown alone, so the same comments' HTML showed as text.",
+      props: { details: mockBotDetailsBefore },
     },
     "ci-failed-running": {
       note: "Shipped CI dashboard (top): tally, share done and ETA; failures with their step and log end; a matrix's shards as one row of pips; running with elapsed time; passed folded.",

@@ -108,6 +108,10 @@ final class BrowserCookieImportCard: NSView {
             "revision": revision, "language": language,
         ]
         if let never = offer.neverTitle { state["neverTitle"] = never }
+        if let keep = offer.keepInSyncTitle {
+            state["keepInSyncTitle"] = keep
+            state["keepInSync"] = offer.keepInSync
+        }
         if let icon = offer.icons.first.flatMap({ iconDataURL($0, pixels: iconPixels) }) { state["icon"] = icon }
         return state
     }
@@ -139,6 +143,8 @@ final class BrowserCookieImportCard: NSView {
         switch kind {
         case "command":
             guard !isDismissing, let choice = (params["type"] as? String).flatMap(BrowserCookieImportChoice.init(wire:)) else { return }
+            // Keep in sync goes with Import only, and only from a card that showed it.
+            if choice == .importCookies, offer.keepInSyncTitle != nil, let keep = params["keepInSync"] as? Bool { offer.onKeepInSync?(keep) }
             onChoice?(choice)
         case "size":
             guard let reported = (params["height"] as? NSNumber)?.doubleValue, reported > 0,

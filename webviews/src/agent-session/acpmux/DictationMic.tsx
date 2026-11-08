@@ -10,7 +10,7 @@
 import React, { useMemo } from "react";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { HideableChrome } from "../../ui/HideableChrome";
-import { useComposerChrome } from "./composerChrome";
+import { useComposerChrome } from "./composerChromeModel";
 import { setDictationSource, useComposerSettings, type DictationSource } from "./composerSettings";
 import { isActive, type Dictation } from "./dictation";
 import { DictationButton } from "./DictationButton";

@@ -53,7 +53,8 @@ const { AcpmuxSendLine } = await import("../src/agent-session/acpmux/conversatio
 const { configureSentLook } = await import("../src/agent-session/acpmux/conversation/sentMessageLineModel");
 const { acpmuxSendCall } = await import("../src/agent-session/acpmux/conversation/acpmuxSends");
 const { FindReveal, activityText, foldFind } = await import("../src/agent-session/acpmux/conversation/chatFind");
-const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+const { resetTranscriptDisclosure } =
+  await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
 
 beforeEach(() => resetTranscriptDisclosure());

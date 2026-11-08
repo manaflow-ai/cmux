@@ -11,7 +11,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { dispatchCall } from "./dispatchCalls";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { ToolRow } from "./ToolRow";
 
 let dom: JSDOM | undefined;

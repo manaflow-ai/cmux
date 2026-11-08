@@ -69,6 +69,8 @@ export interface ReviewComment {
   path: string;
   line: number | null;
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   url: string | null;
 }
 
@@ -77,6 +79,8 @@ export interface ConversationEntry {
   kind: "comment" | "review";
   author: string;
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   /** ISO 8601. */
   at: string;
   url: string | null;
@@ -88,6 +92,8 @@ export interface ConversationEntry {
 /** The host's `pr.details` answer (GitHubPullRequestDetails.swift). */
 export interface PullRequestDetails {
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   /** The head commit the page shows: Merge is pinned to it. */
   headCommit: string;
   /** GitHub's merge state, lowercased: `clean`, `unstable`, `blocked`, `behind`, `dirty`, `unknown`. */

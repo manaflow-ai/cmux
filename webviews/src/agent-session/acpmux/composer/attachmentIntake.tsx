@@ -18,8 +18,7 @@ import { useStripReorder } from "./stripReorder";
 
 import { SourceBadge } from "./SourceBadge";
 import { useSourceLabel, withSourceLabel } from "./sourceBadgeModel";
-
-import { FADE_BAND_PX } from "../MarkdownField";
+import { FADE_BAND_PX } from "../markdownFieldModel";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { isVideoAttachment, useVideoReading } from "./videoAttachments";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";

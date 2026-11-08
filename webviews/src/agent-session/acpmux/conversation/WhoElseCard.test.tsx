@@ -7,7 +7,7 @@ import type { AcpmuxActivity } from "../model";
 import { translatorFor } from "../i18n";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import { staysInSight, toolGroups } from "./toolGroups";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { WhoElseCard } from "./WhoElseCard";
 import { whatText } from "./whoElseCardModel";
 import { whoElseCall, WHO_ELSE_SCHEMA } from "./whoElseCalls";

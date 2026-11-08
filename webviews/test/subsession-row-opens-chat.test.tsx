@@ -12,7 +12,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { setPaneLanguage, translatorFor } from "../src/agent-session/acpmux/i18n";
 import { AgentCard } from "../src/agent-session/acpmux/subagents/AgentCard";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 const t = translatorFor("en");
 const scope = globalThis as Record<string, unknown>;

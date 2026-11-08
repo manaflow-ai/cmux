@@ -13,12 +13,9 @@ import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ContextCardBody } from "../src/agent-session/acpmux/ContextCard";
-import {
-  WorkingCountsContext,
-  WorkingFor,
-  workingTokens,
-  type WorkingCounts,
-} from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
+import { workingTokens } from "../src/agent-session/acpmux/conversation/turnTokensModel";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000e7";
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
