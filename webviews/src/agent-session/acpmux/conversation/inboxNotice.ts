@@ -132,8 +132,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
     const record = senderRecord(p.sender);
     const sender = senderRef(record);
     const harness = text(p.fromHarness) || record?.harness || held?.at(-1)?.harness;
-    const unverified =
-      senderUnverified(record, senders.at(-1)?.declared ?? false) || held?.at(-1)?.unverified === true;
+    const unverified = senderUnverified(record, senders.at(-1)?.declared ?? false) || held?.at(-1)?.unverified === true;
     // The thread's flag is its newest sender's (its record, or an older acpmux's suffix on its
     // `from`), which acpmux may say only on the thread: that message is marked too, so its row and
     // the group's hover show it (laneNoticeBatches.ts, MessageGroupHover.tsx).
@@ -214,6 +213,9 @@ export function inboxCounts(notice: InboxNotice): { messages: number; senders: s
   return { messages, senders };
 }
 
+/// A thread's newest sender: its newest message's, else its last named.
+const newestFrom = (thread: InboxThread): string => thread.messages?.at(-1)?.from ?? thread.from.at(-1) ?? "";
+
 /// Two notices as one: a thread in both once, with the later one's newest message.
 export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice {
   const threads = first.threads.map((thread) => ({ ...thread }));
@@ -232,6 +234,14 @@ export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice
       blocker: held.blocker || next.blocker,
       promptIds: [...held.promptIds, ...next.promptIds],
     };
+    // The later notice names the newest sender; when it is the earlier one's and says less of it,
+    // the earlier one's record, session, family and unverified mark still hold.
+    if (newestFrom(held) === newestFrom(next)) {
+      if (!next.sender && held.sender) joined.sender = held.sender;
+      if (!next.fromSession && held.fromSession) joined.fromSession = held.fromSession;
+      if (!next.fromHarness && held.fromHarness) joined.fromHarness = held.fromHarness;
+      if (!next.unverified && held.unverified && !next.sender) joined.unverified = held.unverified;
+    }
     if (held.sentFrom || next.sentFrom) joined.sentFrom = { ...held.sentFrom, ...next.sentFrom };
     // Whole only when both notices held their messages whole.
     delete joined.messages;
