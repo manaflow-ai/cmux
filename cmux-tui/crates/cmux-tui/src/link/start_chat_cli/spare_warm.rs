@@ -168,19 +168,21 @@ pub(super) fn run(
     }
     let copy =
         |machine: &str| json!({"machine": machine, "account": request.account, "team": team});
-    let live = file.warms.iter().position(|last| {
+    let live = file.warms.iter_mut().find(|last| {
         pair(&last.account, last.team.as_deref())
             && now_ms < last.at.saturating_add(WARM_GAP_MS)
             && last.warm_until > now_ms.saturating_add(WARM_GAP_MS)
     });
-    if let Some(index) = live {
-        let last = &file.warms[index];
+    if let Some(last) = live {
         let mut answer = json!({"ok": true, "machine": last.machine, "warm_until": last.warm_until, "team": team, "fresh": false});
         // A copy abandoned since is answered again from the record: the machine is still warm.
-        if last.owner && !last.copy_given {
+        let regiven = last.owner && !last.copy_given;
+        if regiven {
             answer.set("fresh", json!(true));
             answer.set("copy", copy(&last.machine));
-            file.warms[index].copy_given = true;
+            last.copy_given = true;
+        }
+        if regiven {
             write(&path, &file);
         }
         return Some(answer);
