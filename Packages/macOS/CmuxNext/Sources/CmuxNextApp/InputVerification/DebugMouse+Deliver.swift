@@ -35,9 +35,10 @@ extension DebugMouse {
             default: break
             }
         }
+        let views: [JSONValue] = names.map { JSONValue.string($0) }
         return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                         "delivered": .number(Double(events.count)),
-                        "delivered_to": .array(names.map { .string($0) })])
+                        "delivered_to": .array(views)])
     }
 }
 #endif
