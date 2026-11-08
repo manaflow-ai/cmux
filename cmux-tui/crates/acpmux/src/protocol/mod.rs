@@ -236,6 +236,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKFLOWS, Request),
         keyed::<params::AppReplyParams>(method::MUX_APP_REPLY, Request),
         untyped(method::MUX_STATS, Request),
+        untyped(method::MUX_LEDGER, Request),
         untyped(method::MUX_WORKSPACE_PURGE, Request),
         untyped(method::MUX_GITHUB_ACTION, Request),
         untyped(method::MUX_GITHUB_APP_LEASE, Request),

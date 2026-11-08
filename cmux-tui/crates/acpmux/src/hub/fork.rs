@@ -545,6 +545,9 @@ impl Hub {
         let mut running_turn_seq: Option<u64> = None;
         // Cancel stops the copy where it is; the fork is then discarded whole (`fork_cancel.rs`).
         let mut cancelled = false;
+        // The copies are the parent's turns: they count in the parent's cost, not here, until
+        // the fork's own `forked` record below.
+        self.ledger.suppress(&new.id);
         {
             let order = new.append_lock.lock().unwrap_or_else(|e| e.into_inner());
             self.catch_up_locked(&new);
@@ -613,11 +616,14 @@ impl Hub {
             });
             drop(order);
             if cancelled {
+                self.ledger.unsuppress(&new.id);
                 return Err(super::fork_cancel::cancelled_refusal());
             }
-            if before.is_some() {
-                copied
-                    .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
+            if before.is_some()
+                && let Err(e) = copied
+            {
+                self.ledger.unsuppress(&new.id);
+                return Err(super::fork_before::refused("fork.incomplete", &e.to_string()));
             }
         }
         for output in held_output {
@@ -655,6 +661,7 @@ impl Hub {
             forked.set("from", json!("transcript"));
             forked.set("harness", json!(parent_meta.harness));
         }
+        self.ledger.unsuppress(&new.id);
         self.append(&new, "mux", "forked", forked);
         if before.is_none() {
             self.append(session, "mux", "fork_child", json!({"childId": id}));

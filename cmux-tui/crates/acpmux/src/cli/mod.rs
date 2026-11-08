@@ -41,6 +41,7 @@ pub mod host_steps;
 pub mod host_vault;
 pub mod hosts;
 pub mod join_input;
+pub mod ledger;
 pub mod ls_table;
 pub(crate) mod machine_consent;
 pub mod machine_deps;

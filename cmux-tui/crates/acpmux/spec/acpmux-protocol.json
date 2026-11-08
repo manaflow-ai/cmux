@@ -473,6 +473,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/ledger",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/workspace_purge",
       "params": true,
       "result": true

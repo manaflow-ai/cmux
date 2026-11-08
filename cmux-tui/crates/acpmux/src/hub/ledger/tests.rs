@@ -1,0 +1,361 @@
+use super::query::{Dim, LedgerQuery};
+use super::*;
+use serde_json::json;
+
+const DAY: u64 = DAY_MS;
+/// 2026-11-08T00:00:00Z.
+const D0: u64 = 20_765 * DAY;
+
+fn rec(dir: &str, kind: &str, at: u64, msg: Value) -> EventRecord {
+    EventRecord { seq: 0, at, dir: dir.into(), kind: kind.into(), msg, host_seq: None }
+}
+
+fn ctx(harness: &str, family: &str) -> TurnContext {
+    TurnContext {
+        model: None,
+        info: SessionInfo {
+            title: Some(format!("{harness} chat")),
+            harness: harness.into(),
+            family: Some(family.into()),
+            workspace_id: Some("ws-1".into()),
+            branch: Some("main".into()),
+            account: Some("work".into()),
+            created_at: D0,
+            ..Default::default()
+        },
+    }
+}
+
+/// One turn of `id`: a prompt at `at`, the agent starting a second later, `tools` tool calls,
+/// and a result ten seconds after the start carrying `result`.
+fn turn(l: &Ledger, id: &str, at: u64, tools: u64, result: Value, harness: &str, family: &str) {
+    l.record(id, &rec("out", "user_message", at, json!({"text": "go"})), || ctx(harness, family));
+    l.record(id, &rec("mux", "turn_started", at + 1_000, json!({})), || ctx(harness, family));
+    for _ in 0..tools {
+        l.record(id, &rec("in", "tool_call", at + 2_000, json!({})), || ctx(harness, family));
+    }
+    l.record(id, &rec("mux", "turn_result", at + 11_000, result), || ctx(harness, family));
+}
+
+fn mem() -> Ledger {
+    Ledger::open_with(None, COMPACT_BYTES, "leo@test".into())
+}
+
+fn all(since: u64, until: u64) -> LedgerQuery {
+    LedgerQuery { since, until, limit: 200, dims: Dim::ALL.to_vec() }
+}
+
+fn rollup<'a>(reply: &'a LedgerReply, dim: &str) -> &'a Vec<Value> {
+    match reply.rollups.get(dim) {
+        Some(Value::Array(v)) => v,
+        other => panic!("rollup {dim}: {other:?}"),
+    }
+}
+
+#[test]
+fn a_turn_is_priced_by_its_harness_else_the_table_else_counts_unpriced() {
+    let l = mem();
+    // The harness's own cost wins over the table.
+    turn(
+        &l,
+        "a",
+        D0 + 1_000,
+        3,
+        json!({"status": "completed", "model": "claude-opus-5-5", "costUsd": 0.5, "inputTokens": 1_000_000}),
+        "claude",
+        "claude",
+    );
+    // No harness cost: tokens at the table's price (1M input at $1.25 + 1M output at $10).
+    turn(
+        &l,
+        "b",
+        D0 + 2_000,
+        0,
+        json!({"model": "gpt-5", "inputTokens": 1_000_000, "outputTokens": 1_000_000}),
+        "codex",
+        "codex",
+    );
+    // A model the table does not list.
+    turn(&l, "c", D0 + 3_000, 1, json!({"model": "mystery-1", "inputTokens": 10}), "omp", "omp");
+    let reply = l.query(&all(D0, D0 + DAY - 1));
+    let t = &reply.totals;
+    assert_eq!(t.turns, 3);
+    assert_eq!(t.sessions, 3);
+    assert_eq!(t.tool_calls, 4);
+    assert_eq!(t.unpriced_turns, 1);
+    assert!((t.harness_cost_usd - 0.5).abs() < 1e-9);
+    assert!((t.table_cost_usd - 11.25).abs() < 1e-9, "{}", t.table_cost_usd);
+    assert!((t.cost_usd - 11.75).abs() < 1e-9);
+    // Wall time runs from the agent's start to the result: 10 s a turn.
+    assert_eq!(t.wall_ms, 30_000);
+    let a = reply.rows.iter().find(|r| r.session_id == "a").unwrap();
+    assert_eq!(a.vendor, "anthropic");
+    assert_eq!(a.models, vec!["claude-opus-5-5".to_string()]);
+    assert_eq!(a.totals.tool_calls, 3);
+    let vendors = rollup(&reply, "vendor");
+    let keys: Vec<&str> = vendors.iter().map(|v| v["key"].as_str().unwrap()).collect();
+    assert_eq!(keys, vec!["openai", "anthropic", "omp"]);
+    assert_eq!(reply.price_table.version, crate::pricing::table().version);
+}
+
+#[test]
+fn pull_requests_roll_up_with_the_repository_they_name() {
+    let l = mem();
+    let pr = "https://github.com/acme/widgets/pull/7";
+    turn(&l, "a", D0, 0, json!({"model": "claude-opus-5-5", "costUsd": 1.0}), "claude", "claude");
+    l.note_pull_request("a", pr);
+    turn(
+        &l,
+        "a",
+        D0 + 60_000,
+        0,
+        json!({"model": "claude-opus-5-5", "costUsd": 2.0}),
+        "claude",
+        "claude",
+    );
+    turn(&l, "b", D0, 0, json!({"model": "claude-opus-5-5", "costUsd": 4.0}), "claude", "claude");
+    let reply = l.query(&all(D0, D0 + DAY - 1));
+    let prs = rollup(&reply, "pr");
+    assert_eq!(prs.len(), 1);
+    assert_eq!(prs[0]["key"], pr);
+    assert_eq!(prs[0]["label"], "acme/widgets#7");
+    // The session's spend that day, before and after it opened the pull request.
+    assert_eq!(prs[0]["costUsd"], 3.0);
+    assert_eq!(prs[0]["sessions"], 1);
+    let repos = rollup(&reply, "repo");
+    let acme = repos.iter().find(|r| r["key"] == "acme/widgets").unwrap();
+    assert_eq!(acme["costUsd"], 3.0);
+    let none = repos.iter().find(|r| r["key"] == "none").unwrap();
+    assert_eq!(none["costUsd"], 4.0);
+    let a = reply.rows.iter().find(|r| r.session_id == "a").unwrap();
+    assert_eq!(a.repo.as_deref(), Some("acme/widgets"));
+    assert_eq!(a.pull_requests, vec![pr.to_string()]);
+}
+
+#[test]
+fn days_are_utc_and_a_range_takes_whole_days() {
+    let l = mem();
+    let cost = |c: f64| json!({"model": "claude-opus-5-5", "costUsd": c});
+    // Prompted at 23:59:55 on day 0, its result written at 00:00:06 on day 1.
+    turn(&l, "a", D0 + DAY - 5_000, 0, cost(1.0), "claude", "claude");
+    turn(&l, "a", D0 + DAY + 5_000, 0, cost(2.0), "claude", "claude");
+    // The day before day 0.
+    turn(&l, "a", D0 - 60_000, 0, cost(4.0), "claude", "claude");
+    // A turn is on the day its result was written.
+    let day1 = l.query(&all(D0 + DAY, D0 + 2 * DAY - 1));
+    assert_eq!(day1.totals.cost_usd, 3.0);
+    let day0 = l.query(&all(D0, D0 + DAY - 1));
+    assert_eq!(day0.totals.cost_usd, 0.0);
+    // Any instant of a day takes the whole day.
+    let noon = l.query(&all(D0 + DAY + DAY / 2, D0 + DAY + DAY / 2));
+    assert_eq!(noon.totals.cost_usd, 3.0);
+    let both = l.query(&all(D0 - DAY, D0 + 2 * DAY));
+    let days = rollup(&both, "day");
+    let keys: Vec<&str> = days.iter().map(|d| d["key"].as_str().unwrap()).collect();
+    assert_eq!(keys, vec!["2026-11-07", "2026-11-09"]);
+}
+
+#[test]
+fn a_fork_copy_counts_nothing() {
+    let l = mem();
+    l.suppress("fork");
+    turn(
+        &l,
+        "fork",
+        D0,
+        2,
+        json!({"model": "claude-opus-5-5", "costUsd": 9.0}),
+        "claude",
+        "claude",
+    );
+    l.unsuppress("fork");
+    turn(
+        &l,
+        "fork",
+        D0 + 1_000,
+        0,
+        json!({"model": "claude-opus-5-5", "costUsd": 1.0}),
+        "claude",
+        "claude",
+    );
+    let reply = l.query(&all(D0, D0 + DAY));
+    assert_eq!(reply.totals.cost_usd, 1.0);
+    assert_eq!(reply.totals.tool_calls, 0);
+}
+
+#[test]
+fn group_by_names_the_rollups_and_rejects_unknown_ones() {
+    let q =
+        LedgerQuery::from_params(&json!({"groupBy": ["repo", "day", "repo"], "limit": 3}), 1_000)
+            .unwrap();
+    assert_eq!(q.dims, vec![Dim::Repo, Dim::Day]);
+    assert_eq!(q.limit, 3);
+    assert_eq!(q.until, 1_000);
+    assert!(LedgerQuery::from_params(&json!({"groupBy": ["colour"]}), 0).is_err());
+    assert!(LedgerQuery::from_params(&json!({"since": 5, "until": 4}), 0).is_err());
+    let l = mem();
+    turn(&l, "a", D0, 0, json!({"costUsd": 1.0}), "claude", "claude");
+    let reply = l.query(&LedgerQuery { dims: vec![Dim::Repo], ..all(D0, D0) });
+    assert_eq!(reply.rollups.keys().collect::<Vec<_>>(), vec!["repo"]);
+    // The reply's names are the contract's.
+    let v = serde_json::to_value(&reply).unwrap();
+    for key in ["priceTable", "range", "totals", "rows", "rollups"] {
+        assert!(v.get(key).is_some(), "{key}");
+    }
+    let row = &v["rows"][0];
+    for key in [
+        "sessionId",
+        "title",
+        "harness",
+        "vendor",
+        "models",
+        "workspaceId",
+        "pullRequests",
+        "person",
+        "account",
+        "createdAt",
+        "lastAt",
+        "costUsd",
+        "harnessCostUsd",
+        "tableCostUsd",
+        "unpricedTurns",
+        "inputTokens",
+        "outputTokens",
+        "cacheReadTokens",
+        "cacheWriteTokens",
+        "turns",
+        "toolCalls",
+        "wallMs",
+        "sessions",
+    ] {
+        assert!(row.get(key).is_some(), "row {key}: {row}");
+    }
+    assert_eq!(row["person"], "leo@test");
+}
+
+fn scratch(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("acpmux-ledger-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+#[test]
+fn the_file_folds_back_to_the_same_ledger() {
+    let dir = scratch("roundtrip");
+    let pr = "https://github.com/acme/widgets/pull/9";
+    let before = {
+        let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+        turn(
+            &l,
+            "a",
+            D0,
+            2,
+            json!({"model": "claude-opus-5-5", "costUsd": 1.5}),
+            "claude",
+            "claude",
+        );
+        turn(
+            &l,
+            "b",
+            D0 + DAY,
+            0,
+            json!({"model": "gpt-5", "inputTokens": 1000}),
+            "codex",
+            "codex",
+        );
+        l.note_pull_request("a", pr);
+        l.flush();
+        l.query(&all(0, D0 + 3 * DAY))
+    };
+    let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(after.lock().existed);
+    assert_eq!(after.query(&all(0, D0 + 3 * DAY)), before);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_large_file_is_compacted_to_its_buckets() {
+    let dir = scratch("compact");
+    let path = dir.join(store::FILE);
+    let before = {
+        // A tiny bound: every flush past it rewrites the file.
+        let l = Ledger::open_with(Some(dir.clone()), 2_000, "leo@test".into());
+        for i in 0..200 {
+            let at = D0 + (i % 4) * DAY + i;
+            turn(
+                &l,
+                "a",
+                at,
+                1,
+                json!({"model": "claude-opus-5-5", "costUsd": 0.25}),
+                "claude",
+                "claude",
+            );
+        }
+        l.flush();
+        l.query(&all(0, D0 + 5 * DAY))
+    };
+    let text = std::fs::read_to_string(&path).unwrap();
+    // One session line and one line per (day, session, model) bucket: four days.
+    let spend = text.lines().filter(|l| l.contains("\"t\":\"u\"")).count();
+    assert!(spend <= 4 + 200 / 2, "{spend} spend lines");
+    let after = Ledger::open_with(Some(dir.clone()), 2_000, "leo@test".into());
+    let folded = after.query(&all(0, D0 + 5 * DAY));
+    assert_eq!(folded, before);
+    assert_eq!(folded.totals.turns, 200);
+    assert!((folded.totals.cost_usd - 50.0).abs() < 1e-9);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_first_start_seeds_each_session_once() {
+    let dir = scratch("seed");
+    let seed = |id: &str, cost: Option<f64>| Seed {
+        id: id.into(),
+        at: D0 + 5,
+        turns: 4,
+        totals: TurnUsage { cost_usd: cost, input_tokens: Some(1_000_000), ..Default::default() },
+        ctx: TurnContext { model: Some("claude-opus-5-5".into()), ..ctx("claude", "claude") },
+    };
+    {
+        let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+        l.seed(vec![seed("a", Some(2.0)), seed("b", None)]);
+        // Once only.
+        l.seed(vec![seed("c", Some(5.0))]);
+        let reply = l.query(&all(D0, D0));
+        assert_eq!(reply.totals.turns, 8);
+        // a: the harness's 2.0; b: 1M input at $4.
+        assert!((reply.totals.cost_usd - 6.0).abs() < 1e-9);
+        l.flush();
+    }
+    // The file exists now: a restart seeds nothing more.
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    l.seed(vec![seed("d", Some(7.0))]);
+    assert!((l.query(&all(D0, D0)).totals.cost_usd - 6.0).abs() < 1e-9);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A read visits the buckets of its days only: a year of other days, and thousands of other
+/// sessions on them, add nothing to it.
+#[test]
+fn a_read_touches_only_the_buckets_in_its_range() {
+    let l = mem();
+    let cost = json!({"model": "claude-opus-5-5", "costUsd": 0.01});
+    // 365 earlier days with 20 sessions each.
+    for day in 1..=365u64 {
+        for s in 0..20 {
+            let id = format!("old-{s}");
+            turn(&l, &id, D0 - day * DAY, 0, cost.clone(), "claude", "claude");
+        }
+    }
+    // Today: three sessions.
+    for s in 0..3 {
+        turn(&l, &format!("new-{s}"), D0 + 10, 0, cost.clone(), "claude", "claude");
+    }
+    let state = l.lock();
+    let (reply, visited) = query::fold(&state, &all(D0, D0 + DAY - 1), "leo@test");
+    assert_eq!(visited, 3);
+    assert_eq!(reply.rows.len(), 3);
+    let (_, visited_week) = query::fold(&state, &all(D0 - 7 * DAY, D0 - DAY), "leo@test");
+    assert_eq!(visited_week, 7 * 20);
+}
