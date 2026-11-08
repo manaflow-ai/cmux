@@ -245,8 +245,6 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         await openTurn(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-group__head"));
-        await ctx.click({ selector: ".cv-sent-group__head" });
         await ctx.waitFor(() => ctx.document.querySelector('[data-send-page="next"]'));
         await ctx.click({ selector: '[data-send-page="next"]' });
         await ctx.waitFor(() =>
