@@ -299,7 +299,14 @@ final class ScreenContentView: NSView {
         closingPanes.carry(drift: drift, viewShift: carried ? baseGeometry.viewShift(offset: offset) : nil)
         // A release seeds only the layout it made (`releasedDivider` from this gesture, not a stale one).
         if let released = releasedDivider, CACurrentMediaTime() - released.time > 0.5 { releasedDivider = nil }
-        let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // CLOSE VARIANTS film selector (never ships): V1, V3, V4 and V5 put the survivors at their final frames now.
+        let film = departing ? filmCloseVariant : nil
+        let filmSnaps = film != nil
+        #else
+        let filmSnaps = false
+        #endif
+        let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits) && !filmSnaps
         // A structural change that snaps may show at the next tick, its terminals drawn ahead (CLOSE MOTION 3).
         let holdsSnap = snapWaitsForFrame && structural && !animateFrames
         if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
@@ -350,6 +357,12 @@ final class ScreenContentView: NSView {
         }
         // Out of a zoom: the covered panes it kept that this layout did not take back (closed while zoomed) go now.
         if structural, !zoomed { context.releaseRetired(of: screenID, until: .zoom) }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let film {
+            playFilmClose(paneFrames.keys.filter { baseGeometry.panes[$0] == nil && !context.livePanes.contains($0) }, variant: film,
+                          before: before, after: baseGeometry)
+        }
+        #endif
         var closing: [(pane: PaneID, frame: AnimatedFrame?)] = []
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             let frame = paneFrames.removeValue(forKey: pane)
