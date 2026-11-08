@@ -6,7 +6,8 @@
 //! (needsYou/asks.ts), `HANDOFF_OPS` (handoff/protocol.ts),
 //! `PERMISSION_GROUP_OPS` (permissions/protocol.ts), `FORK_OP`
 //! (operations.ts), `PREWARM_METHOD` and `MCP_RECONNECT_METHOD` (direct.ts), `this.send("...")` in
-//! multiplayer/presenceClient.ts, `RETRY_METHOD` (subagents/retryState.ts), and the raw
+//! multiplayer/presenceClient.ts, `RETRY_METHOD` (subagents/retryState.ts),
+//! `TEST_TAMPERING_RESTORE_METHOD` (testTamperingRestore.ts), and the raw
 //! `session/cancel` notification. `file.search` (and the git reads, sent by a
 //! variable) go to the socket only in mock mode and stay off the list. Folder
 //! trust levels (folderTrust.ts `LEVELS`) give the gesture rule's
@@ -97,6 +98,9 @@ fn the_allowlist_is_what_the_page_sends() {
     // turn's Retry (subagents/retryState.ts `RETRY_METHOD`, sent through direct.ts `retry`).
     sent.extend(quoted_after(&read(&dir, "multiplayer/presenceClient.ts"), "this.send("));
     sent.insert(constant(&read(&dir, "subagents/retryState.ts"), "RETRY_METHOD"));
+    let restore = read(&dir, "testTamperingRestore.ts");
+    assert!(restore.contains("request(TEST_TAMPERING_RESTORE_METHOD,"));
+    sent.insert(constant(&restore, "TEST_TAMPERING_RESTORE_METHOD"));
     let p = policy();
     assert!(sent.remove(&p.initialize), "the page sends initialize");
     assert!(sent.remove("file.search"), "file.search is a mock-mode literal");
