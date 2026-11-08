@@ -62,7 +62,7 @@ export default componentEntry<{ state: State }>({
       props: { state: "before" },
       note: "Before: a prompt sent with acpmux send from Claude desktop reads as the person's, via CLI on the host.",
     },
-    selfReported: {
+    "self-reported": {
       props: { state: "selfReported" },
       note: "After: the sender chip names Claude desktop, marked self-reported because acpmux did not find the app.",
     },
