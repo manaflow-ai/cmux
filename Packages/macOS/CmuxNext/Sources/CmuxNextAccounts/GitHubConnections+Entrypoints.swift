@@ -24,6 +24,11 @@ extension GitHubConnections {
         return .object(state)
     }
 
+    /// The Accounts part's state and gesture runner as the Settings page host binds them.
+    public func accountsPage(_ accounts: AccountsModel, agentKeys: TeamAgentKeys) -> (state: (@MainActor () -> JSONValue)?, run: (@MainActor (JSONValue) async throws -> JSONValue)?) {
+        ({ self.accountsPageState(accounts, agentKeys: agentKeys) }, { params in try await self.runAccountsPage(params, accounts: accounts, agentKeys: agentKeys) })
+    }
+
     /// One gesture of the Accounts part of the Settings page: a GitHub or team agent key gesture here,
     /// any other through ACCOUNTS. Refresh, focus and a team switch also reload the GitHub list and the
     /// team's agent keys. `agentKeySave` takes the agent as `provider`, the kind as `name` and the pasted

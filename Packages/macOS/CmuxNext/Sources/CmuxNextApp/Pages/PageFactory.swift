@@ -148,11 +148,7 @@ struct PageFactory {
             guard let services else { return nil }
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)
         }
-        let accounts = services.accounts.model
-        let github = services.accounts.github
-        let agentKeys = services.accounts.agentKeys
-        provider.accountsState = { github.accountsPageState(accounts, agentKeys: agentKeys) }
-        provider.accountsRun = { params in try await github.runAccountsPage(params, accounts: accounts, agentKeys: agentKeys) }
+        (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys)
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
