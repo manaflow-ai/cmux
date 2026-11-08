@@ -69,4 +69,10 @@ extension Duration {
         let (whole, attos) = components
         return Double(whole) + Double(attos) / 1e18
     }
+
+    /// This duration in milliseconds, as a Double.
+    public var inMilliseconds: Double {
+        let (whole, attos) = components
+        return Double(whole) * 1_000 + Double(attos) / 1e15
+    }
 }

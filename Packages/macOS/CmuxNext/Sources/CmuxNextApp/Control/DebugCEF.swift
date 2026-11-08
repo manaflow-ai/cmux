@@ -168,9 +168,7 @@ enum DebugCEF {
         return .object(["code": .string(reason.code), "detail": reason.detail.map { .string($0) } ?? .null])
     }
 
-    private static func milliseconds(_ duration: Duration) -> Double {
-        Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
-    }
+    private static func milliseconds(_ duration: Duration) -> Double { duration.inMilliseconds }
 
     /// `phys_footprint` (Activity Monitor's "Memory"), in MiB.
     nonisolated static func footprintMegabytes() -> Double {
