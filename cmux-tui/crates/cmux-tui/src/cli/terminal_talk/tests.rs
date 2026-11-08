@@ -275,6 +275,8 @@ struct FakeDaemon {
     snapshot: Value,
     screens: RefCell<Vec<(u64, String)>>,
     sent: RefCell<Vec<(String, Value)>>,
+    /// What `agent list --terminal` answers while the send waits.
+    agents: Value,
 }
 
 impl FakeDaemon {
@@ -285,6 +287,7 @@ impl FakeDaemon {
                 screens.iter().map(|(revision, text)| (*revision, (*text).to_owned())).collect(),
             ),
             sent: RefCell::new(Vec::new()),
+            agents: json!([]),
         }
     }
 
@@ -315,7 +318,7 @@ impl Daemon for FakeDaemon {
             "terminal.get" => {
                 json!({"id": "term_c1a0de00000000000000000000000001", "lifecycle": "running", "extra": {}})
             }
-            "agent.list" => json!([]),
+            "agent.list" => self.agents.clone(),
             "terminal.screen.read" => {
                 let mut screens = self.screens.borrow_mut();
                 let (revision, text) =
@@ -486,6 +489,53 @@ fn send_pastes_presses_enter_waits_and_answers_only_the_reply() {
     assert_eq!(receipt["anchored"], true);
     assert_eq!(receipt["harness"], "claude");
     assert_eq!(receipt["terminal"], "term_c1a0de00000000000000000000000001");
+}
+
+/// Claude Code's screen when a turn stops at a permission dialog: the
+/// earlier turns, the message's echo and the dialog. Claude Code renders
+/// the message's inline code without its backticks.
+const DIALOG_SCREEN: &str = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n\
+❯ Run the shell command touch /tmp/w4i-perm now.\n\n⏺ Bash(touch /tmp/w4i-perm)\n\n\
+ Bash command\n   touch /tmp/w4i-perm\n Do you want to proceed?\n ❯ 1. Yes\n   2. No";
+
+/// A daemon whose agent waits on a dialog once the message is in.
+fn dialog_daemon(screens: &[(u64, &str)]) -> FakeDaemon {
+    let mut daemon = FakeDaemon::new(snapshot(), screens);
+    daemon.agents = json!([{"terminal_id": "term_c1a0de00000000000000000000000001",
+                            "state": "blocked", "source": "hook",
+                            "updated_at_ms": u64::MAX.to_string()}]);
+    daemon
+}
+
+#[test]
+fn send_stopped_at_a_dialog_anchors_a_message_with_inline_code() {
+    let before = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n❯ ";
+    let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
+    let message = "Run the shell command `touch /tmp/w4i-perm` now.";
+    let receipt = send::run(&daemon, None, &quick(message)).expect("sent");
+    assert_eq!(receipt["state"], "waiting-for-input");
+    assert_eq!(receipt["anchored"], true, "{receipt}");
+    let output = receipt["output"].as_str().unwrap_or_default();
+    assert!(output.starts_with("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");
+    assert!(output.contains("Do you want to proceed?"), "{output}");
+    assert!(!output.contains("ALPHA_OK"), "earlier turns are not the reply: {output}");
+}
+
+#[test]
+fn send_stopped_at_a_dialog_without_an_echo_answers_only_what_came_after_the_send() {
+    // The echo is not on the screen at all (a harness that shows a pasted
+    // message as a placeholder this CLI does not know): the earlier turns
+    // that were on the screen before the send are still not the reply.
+    let before = "⏺ OLD_ANSWER_ONE\n\n⏺ ALPHA_OK\n\n❯ ";
+    let after = "⏺ OLD_ANSWER_ONE\n\n⏺ ALPHA_OK\n\n❯ «message 1»\n\n⏺ Bash(touch /tmp/w4i-perm)\n\n\
+ Do you want to proceed?\n ❯ 1. Yes\n   2. No";
+    let daemon = dialog_daemon(&[(1, before), (2, after)]);
+    let receipt = send::run(&daemon, None, &quick("never echoed as typed")).expect("sent");
+    assert_eq!(receipt["state"], "waiting-for-input");
+    assert_eq!(receipt["anchored"], false, "{receipt}");
+    let output = receipt["output"].as_str().unwrap_or_default();
+    assert!(output.contains("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");
+    assert!(!output.contains("OLD_ANSWER_ONE") && !output.contains("ALPHA_OK"), "{output}");
 }
 
 #[test]
