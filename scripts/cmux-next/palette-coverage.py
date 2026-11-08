@@ -278,11 +278,16 @@ def command_list_verbs(scope: str, text: str) -> list[str]:
     return out
 
 
-def indented_verbs(scope: str, text: str) -> list[str]:
+def indented_verbs(scope: str, text: str, strict: bool = False) -> list[str]:
     """A hand-written verb table, two spaces in (cmux link, cmux server)."""
     out = []
+    # Beside usage lines (`strict`), a row is its verb's words, then two or more spaces and a description, or a
+    # first word the scope's usage names (`cmux link <init|show|peer|...>`, then `  peer add --install ID`):
+    # prose there has neither. A page with no usage line (`cmux server --help`) is all table.
+    named = {w for group in re.findall(rf"cmux {re.escape(scope)} <([a-z0-9|-]+)>", text) for w in group.split("|")}
     for line in text.splitlines():
-        if re.match(r"  [a-z]", line) and not line.startswith("  cmux"):
+        row = not strict or re.match(r"  [a-z][^ ]*(?: [^ ]+)*?\s{2,}\S", line) or line[2:].split(" ", 1)[0] in named
+        if row and re.match(r"  [a-z]", line) and not line.startswith("  cmux"):
             head = _strip_groups(_protect(re.split(r"\s{2,}", line.strip())[0]), "[", "]")
             out += segment_verbs(scope, head.split())[0]
     return out
@@ -291,11 +296,13 @@ def indented_verbs(scope: str, text: str) -> list[str]:
 def scope_verbs(scope: str, text: str) -> list[str]:
     usage = usage_verbs(scope, text)
     got = [v for v, _ in usage] + command_list_verbs(scope, text)
-    if not got or any(index for _, index in usage):
-        got += indented_verbs(scope, text)
+    # A verb table counts beside usage lines too: `cmux vm --help` has both, and its VM API table (run, show,
+    # start, stop, snapshot, access, key, creation) is in no usage line (#38553 review F1).
+    got += indented_verbs(scope, text, strict=bool(got) and not any(index for _, index in usage))
     # An index word with deeper verbs (`agents <chat|...>`, `agents chat send`) is no verb of its own.
     from_index = {v for v, index in usage if index} - {v for v, index in usage if not index}
-    got = [v for v in dict.fromkeys(got) if not (v in from_index and any(w.startswith(v + " ") for w in got))]
+    got = [v for v in dict.fromkeys(got) if not (v in from_index and any(w.startswith(v + " ") for w in got))
+           and v != f"{scope} help"]
     return got
 
 
@@ -309,10 +316,22 @@ def root_scopes(text: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+SCOPE_ALIASES = {"vm": "cloud"}
+
+
 def read_cli(binary: str) -> list[str]:
     def run(*args: str) -> tuple[int, str]:
         p = subprocess.run([binary, *args], capture_output=True, text=True, timeout=60)
         return p.returncode, p.stdout + p.stderr
+
+    # A verb that is an app action's CLI name is the action list's, not a grammar verb (`vm rename-machine` is
+    # the app action `cloud rename-machine`; `vm` is `cloud`'s name).
+    # Only an action offered on the CLI: an exempt one (ownerVerb, liveInput) leaves the verb to the grammar.
+    actions = {a["cli_name"] for a in json.loads(SURFACES.read_text()).get("actions", [])
+               if a.get("cli_name") and a.get("cli") == "offered"}
+    def is_action(verb: str) -> bool:
+        words = verb.split(" ", 1)
+        return verb in actions or (words[0] in SCOPE_ALIASES and f"{SCOPE_ALIASES[words[0]]} {words[-1]}" in actions)
 
     verbs: list[str] = []
     for scope in root_scopes(run("help")[1]):
@@ -320,7 +339,7 @@ def read_cli(binary: str) -> list[str]:
         if code or "unknown resource scope" in text:
             text = run(scope, "--help")[1]
         verbs += scope_verbs(scope, text)
-    return sorted(set(verbs))
+    return sorted(v for v in set(verbs) if not is_action(v))
 
 
 def merge_cli(keep: dict, verbs: list[str]) -> tuple[dict, list[str], list[str]]:
@@ -454,6 +473,10 @@ Prose: cmux workspace close --all closes them.
         self.assertEqual(scope_verbs("link", link), ["link init", "link peer add"])
         clap = "Usage: cmux chats [OPTIONS] <COMMAND>\n\nCommands:\n  list    Chats\n  help    Print\n\nOptions:\n"
         self.assertEqual(scope_verbs("chats", clap), ["chats list"])
+        # Usage lines and a verb table on one page (`cmux vm --help`): both count, prose does not (#38553 F1).
+        mixed = ("USAGE\n  cmux vm <action> [--x <v>]\n  cmux vm ls [NAME]\n\n  run       Run a command on a fresh VM\n"
+                 "  stop      Stop a VM; its disk stays\n  caller is the object this command runs\n")
+        self.assertEqual(sorted(scope_verbs("vm", mixed)), ["vm ls", "vm run", "vm stop"])
         root = "USAGE\n  cmux attach\n\nAGENT\n  workspace     Create\n  tab           Tabs\nGLOBAL\n  --json  x\n"
         self.assertEqual(root_scopes(root), ["workspace", "tab"])
 

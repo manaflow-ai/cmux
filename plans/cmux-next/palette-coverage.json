@@ -57,7 +57,7 @@
       "reason": "keep: Debug-only icon choices; the same tunable is a Debug setting row in the palette (DebugSettingsService)"
     }
   ],
-  "cli_source": "cmux-tui 1752445e71d1ab6d426b6865f5b0bdba7c268ce7",
+  "cli_source": "cmux-tui d08e584a0c68a9aa960b6b1ad42e9d7233bc1964",
   "cli_verbs": [
     {
       "verb": "accounts list",
@@ -274,14 +274,6 @@
     {
       "verb": "agent message unsend",
       "reason": "keep: agent-to-agent messaging that agents and scripts send; a person writes in the chat pane"
-    },
-    {
-      "verb": "agent open",
-      "palette": "history.resumeAgentSession"
-    },
-    {
-      "verb": "agent open-tab",
-      "palette": "history.resumeAgentSession"
     },
     {
       "verb": "agent plugin install"
@@ -720,10 +712,6 @@
       "reason": "keep: the local session daemon's lifecycle and stats, run by the app and scripts"
     },
     {
-      "verb": "device add",
-      "palette": "device.add"
-    },
-    {
       "verb": "device audit",
       "reason": "keep: a read for scripts and agents (pairing audit log); the app shows the same state on screen"
     },
@@ -773,6 +761,10 @@
       "reason": "keep: an app event stream for scripts"
     },
     {
+      "verb": "git branch",
+      "reason": "keep: a `git diff --scope` value in the help's scope table, not a verb"
+    },
+    {
       "verb": "git branches",
       "reason": "keep: a read for scripts and agents (branches); the app shows the same state on screen"
     },
@@ -800,8 +792,28 @@
       "reason": "keep: retention pins agents put on checkpoints they still need"
     },
     {
+      "verb": "git comments delete",
+      "reason": "keep: an agent deletes review comments by id; a person deletes them in the diff viewer itself"
+    },
+    {
+      "verb": "git comments list",
+      "reason": "keep: the diff viewer's review comments as JSON for an agent; a person reads them in the diff viewer (openDiffViewer)"
+    },
+    {
+      "verb": "git comments save",
+      "reason": "keep: an agent writes a review comment as a JSON object; a person comments in the diff viewer itself"
+    },
+    {
       "verb": "git commit",
       "palette": "agentPane.git.commit"
+    },
+    {
+      "verb": "git commits",
+      "reason": "keep: a `git diff --scope` value in the help's scope table, not a verb"
+    },
+    {
+      "verb": "git committed",
+      "reason": "keep: a `git diff --scope` value in the help's scope table, not a verb"
     },
     {
       "verb": "git diff",
@@ -820,8 +832,20 @@
       "palette": "agentPane.git.push"
     },
     {
+      "verb": "git staged",
+      "reason": "keep: a `git diff --scope` value in the help's scope table, not a verb"
+    },
+    {
       "verb": "git status",
       "reason": "keep: a read for scripts and agents (repository status); the app shows the same state on screen"
+    },
+    {
+      "verb": "git uncommitted",
+      "reason": "keep: a `git diff --scope` value in the help's scope table, not a verb"
+    },
+    {
+      "verb": "git unstaged",
+      "reason": "keep: a `git diff --scope` value in the help's scope table, not a verb"
     },
     {
       "verb": "git worktree apply"
@@ -1079,14 +1103,6 @@
       "reason": "keep: the overlay link's lifecycle (key, peers, serve, dial) that pairing and the server run, not a person action"
     },
     {
-      "verb": "machine add",
-      "palette": "machine.add"
-    },
-    {
-      "verb": "machine doctor",
-      "palette": "machine.doctor"
-    },
-    {
       "verb": "machine ls",
       "reason": "keep: a read for scripts and agents (the machine catalog); the app shows the same state on screen"
     },
@@ -1157,10 +1173,6 @@
       "reason": "keep: a read for scripts and agents (the pane beside one); the app shows the same state on screen"
     },
     {
-      "verb": "pane rename",
-      "palette": "renamePane"
-    },
-    {
       "verb": "pane run",
       "reason": "keep: runs a command in a new terminal for scripts; a person types it in a terminal"
     },
@@ -1187,10 +1199,6 @@
     {
       "verb": "pane zoom",
       "palette": "toggleSplitZoom"
-    },
-    {
-      "verb": "remote connect",
-      "palette": "remote.connect"
     },
     {
       "verb": "remote enroll",
@@ -1360,10 +1368,6 @@
     {
       "verb": "screen pin",
       "palette": "screen.togglePin"
-    },
-    {
-      "verb": "screen rename",
-      "palette": "screen.rename"
     },
     {
       "verb": "screen show",
@@ -1646,14 +1650,6 @@
       "palette": "space.new"
     },
     {
-      "verb": "space rename",
-      "palette": "space.rename"
-    },
-    {
-      "verb": "space switch",
-      "palette": "space.switch"
-    },
-    {
       "verb": "status clear",
       "reason": "keep: a script's status, progress and log pills on a workspace; scripts set and clear them, a person only reads them"
     },
@@ -1768,14 +1764,6 @@
     {
       "verb": "tab pin",
       "palette": "palette.toggleTabPin"
-    },
-    {
-      "verb": "tab rename",
-      "palette": "renameTab"
-    },
-    {
-      "verb": "tab restart",
-      "palette": "tab.restart"
     },
     {
       "verb": "tab show",
@@ -1897,12 +1885,20 @@
       "reason": "keep: synthetic input (keys, text, mouse, wheel, write) for scripts and agents; a person types into the pane"
     },
     {
+      "verb": "vm access",
+      "reason": "keep: short-lived VM API access tokens for a process, no app; nothing for a person to pick"
+    },
+    {
       "verb": "vm client-session create",
       "reason": "keep: a VM client session token for scripts"
     },
     {
       "verb": "vm client-session exec",
       "reason": "keep: a VM client session token for scripts"
+    },
+    {
+      "verb": "vm creation",
+      "reason": "keep: recovers a VM API create whose answer a script lost; the app tracks its own creates"
     },
     {
       "verb": "vm env get",
@@ -1913,12 +1909,12 @@
       "reason": "keep: picks which cmux platform environment (local, staging, prod) the CLI talks to, for developers"
     },
     {
-      "verb": "vm exec",
-      "palette": "cloudExec"
-    },
-    {
       "verb": "vm fork",
       "palette": "palette.cloud.fork"
+    },
+    {
+      "verb": "vm key",
+      "reason": "keep: a VM-only agent key for a process, no app; nothing for a person to pick"
     },
     {
       "verb": "vm ls",
@@ -1949,6 +1945,10 @@
       "palette": "cloudKillMachine"
     },
     {
+      "verb": "vm run",
+      "reason": "keep: a headless one-shot run on a throwaway VM through the VM API (CI, scripts); the palette's Cloud workspace is the person's way"
+    },
+    {
       "verb": "vm secret ls",
       "reason": "keep: a read for scripts and agents (VM secrets); the app shows the same state on screen"
     },
@@ -1959,8 +1959,24 @@
       "verb": "vm secret set"
     },
     {
+      "verb": "vm show",
+      "palette": "palette.cloud.status"
+    },
+    {
+      "verb": "vm snapshot",
+      "palette": "palette.cloud.snapshot"
+    },
+    {
+      "verb": "vm start",
+      "palette": "cloudResumeMachine"
+    },
+    {
       "verb": "vm status",
       "palette": "palette.cloud.status"
+    },
+    {
+      "verb": "vm stop",
+      "palette": "cloudPauseMachine"
     },
     {
       "verb": "window list",
@@ -2077,10 +2093,6 @@
     {
       "verb": "workspace progress set",
       "reason": "keep: a script's status, progress and log pills on a workspace; scripts set and clear them, a person only reads them"
-    },
-    {
-      "verb": "workspace rename",
-      "palette": "renameWorkspace"
     },
     {
       "verb": "workspace run",
