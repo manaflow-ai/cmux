@@ -51,7 +51,8 @@ fn projection_detail<'a>(row: &'a crate::sidebar_projection::ProjectionRow) -> C
 
 /// The color of a workspace's unread indicator, or `None` when nothing is
 /// unread. Mirrors the tab-bar severity cue (`error` > `warning` > `info`)
-/// so the sidebar dot carries the same meaning as the per-tab marker.
+/// so the sidebar dot carries the same meaning as the per-tab marker. An
+/// agent's attention mark outranks every notification: the person must act.
 fn workspace_unread_color(
     theme: &crate::config::Theme,
     ws: &crate::session::WorkspaceView,
@@ -60,14 +61,31 @@ fn workspace_unread_color(
         .iter()
         .flat_map(|screen| screen.panes.iter())
         .flat_map(|pane| pane.tabs.iter())
-        .filter_map(|tab| tab.notification.filter(|notification| notification.unread))
-        .map(|notification| match notification.level {
-            "error" => (2u8, theme.notification_error),
-            "warning" => (1, theme.notification_warning),
-            _ => (0, theme.notification_info),
+        .filter_map(|tab| {
+            if tab.attention.is_some() {
+                return Some((3u8, theme.notification_warning));
+            }
+            let notification = tab.notification.filter(|notification| notification.unread)?;
+            Some(match notification.level {
+                "error" => (2, theme.notification_error),
+                "warning" => (1, theme.notification_warning),
+                _ => (0, theme.notification_info),
+            })
         })
         .max_by_key(|(rank, _)| *rank)
         .map(|(_, color)| color)
+}
+
+/// The oldest attention mark's reason in a workspace (`cmux attention
+/// request`), shown as the row's subtitle so the person reads why.
+fn workspace_attention_reason(ws: &crate::session::WorkspaceView) -> Option<&str> {
+    ws.screens
+        .iter()
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .filter_map(|tab| tab.attention.as_ref())
+        .min_by_key(|attention| attention.at_ms)
+        .map(|attention| attention.reason.as_ref())
 }
 
 pub fn draw(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
@@ -593,7 +611,9 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         let pane = screen.and_then(|s| s.pane(s.active_pane));
         let title = pane.map(|p| p.display_name()).unwrap_or("shell");
         let screen_count = ws.screens.len();
-        let subtitle = if screen_count > 1 {
+        let subtitle = if let Some(reason) = workspace_attention_reason(ws) {
+            format!("! {reason}")
+        } else if screen_count > 1 {
             format!("{title} ({screen_count} screens)")
         } else {
             title.to_string()

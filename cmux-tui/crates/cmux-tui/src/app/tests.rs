@@ -195,6 +195,7 @@ fn browser_completion_tree(created_surface: SurfaceId, active_surface: SurfaceId
         supports_clear_history_key_fallback: false,
         notification: None,
         program_status: None,
+        attention: None,
     };
     let mut tabs = vec![tab(created_surface)];
     if active_surface != created_surface {
@@ -691,6 +692,15 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         shortcut_help: None,
         omnibar: None,
         toast: None,
+        // Tests never read the developer's environment for the host.
+        host_notify: crate::host_notify::HostNotifyGate::new(
+            crate::host_notify::HostTerminalInfo {
+                terminal: crate::host_notify::HostTerminal::Ghostty,
+                multiplexed: false,
+                cmux_terminal: None,
+            },
+        ),
+        host_focused: true,
         shake_frames: 0,
         selection: None,
         selection_generation: 0,
@@ -785,9 +795,13 @@ fn notify_tree(surface: u64, unread: bool) -> TreeView {
                         browser_source: None,
                         browser_frames_stalled: false,
                         supports_clear_history_key_fallback: false,
-                        notification: unread
-                            .then_some(TabNotificationView { unread: true, level: "warning" }),
+                        notification: unread.then_some(TabNotificationView {
+                            unread: true,
+                            level: "warning",
+                            sequence: 1,
+                        }),
                         program_status: None,
+                        attention: None,
                     }],
                 }],
             }],
