@@ -507,10 +507,10 @@ test("a native copy reply arriving after a text-only copy cannot restore its old
   expect(dom.window.localStorage.getItem("cmux.composer.copy.v1")).toBeNull();
 });
 
-test("composerCopy leaves out an image past what the host writes, never the copy's other attachments", () => {
+test("composerCopy retains a large image with its other attachments for staged copying", () => {
   const huge = { ...IMAGE, id: "huge", data: "A".repeat(Math.ceil((32 << 20) / 3) * 4 + 4) };
   const copy = composerCopy([{ id: "huge" }, { id: LINK.id }], false, [huge, LINK])!;
-  expect(copy.items.map((item) => item.name)).toEqual(["notes.md"]);
+  expect(copy.items.map((item) => item.name)).toEqual([huge.name, "notes.md"]);
 });
 
 test("composerCopy: a whole selection carries the strip's attachments before the text's", () => {

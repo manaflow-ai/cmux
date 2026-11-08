@@ -121,6 +121,37 @@ package final class AgentPaneStagedUploads<Target> {
         return stage.received
     }
 
+    /// A bounded append on the file lane. The stage retains the write until cancellation settles,
+    /// so cancellation and expiry cannot unlink a file that a write still owns.
+    package func append(_ token: String, offset: Int, data: Data, owns: (Target) -> Bool, work: BackgroundWork) async -> Int? {
+        guard let stage = stages[token], stage.idle, owns(stage.staged.target), stage.received == offset,
+              data.count <= Self.chunkBytes, data.count <= stage.size - offset else { return nil }
+        let file = stage.staged.file
+        // task-owner: this stage's bounded write; cancel waits for it before removing its file.
+        let task = Task { @MainActor [self] () -> Int? in
+            do {
+                try await work.run(.userBlocking, mayBlock: .files) {
+                    let handle = try FileHandle(forWritingTo: file)
+                    defer { try? handle.close() }
+                    try handle.seekToEnd()
+                    try handle.write(contentsOf: data)
+                }
+                try Task.checkCancellation()
+                stages[token]?.received += data.count
+                stages[token]?.expires = Date().addingTimeInterval(Self.lifetime)
+                stages[token]?.transfer = nil
+                arm(work)
+                return stages[token]?.received
+            } catch {
+                await remove(token, work: work)
+                return nil
+            }
+        }
+        stages[token]?.transfer = Transfer(cancel: { task.cancel() }, settled: { _ = await task.value })
+        arm(work)
+        return await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+    }
+
     /// Runs `transfer` once on stage `token`'s complete file, when `owns` its target, then removes the
     /// stage: what `transfer` answered, or nil when the stage is not there, not complete or not idle.
     /// Cancelling the caller cancels the transfer. `undo` names how to take back what an answer
