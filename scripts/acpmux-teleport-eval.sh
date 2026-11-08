@@ -71,8 +71,12 @@ for p in peers:
         break
 ' "$where")"
     [[ -n "$ssh" ]] || { echo "no ssh address for $where" >&2; return 1; }
-    # Arguments are this script's own literals and the generated chat name and code word.
-    ssh -o BatchMode=yes "$ssh" "PATH=\$HOME/.local/bin:\$PATH acpmux $(printf '%q ' "$@")"
+    # The chat as HOST/NAME there: that machine also lists the closed copy the move left on the
+    # one before it, under the same name. Arguments are this script's own literals and the
+    # generated chat name and code word.
+    local args=() a
+    for a in "$@"; do [[ "$a" == "$name" ]] && a="$where/$name"; args+=("$a"); done
+    ssh -o BatchMode=yes "$ssh" "PATH=\$HOME/.local/bin:\$PATH acpmux $(printf '%q ' "${args[@]}")"
   fi
 }
 
@@ -142,7 +146,7 @@ text = sys.stdin.read()
 d = json.loads(text[text.find("{"):])
 c = (d.get("moves") or [{}])[0].get("carried") or {}
 left = ",".join(l.get("path", "") for l in c.get("leftOut") or [])
-print(f"{c.get(\"files\", 0)} files" + (f", left behind: {left}" if left else "") if c else "nothing")
+print(("%s files" % c.get("files", 0) + (", left behind: " + left if left else "")) if c else "nothing")
 ' 2>/dev/null || echo "?")"
   continued=true
   if [[ -n "$running" ]]; then
