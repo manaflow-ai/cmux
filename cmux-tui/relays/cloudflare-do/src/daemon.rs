@@ -71,7 +71,12 @@ pub(crate) fn replaced_by_register(attachment: &SlotAttachment, slot: &str) -> b
 /// Whether `own`, a daemon registration whose socket is in `ready_state`,
 /// is still its slot's current one: open, registered, and not replaced by a
 /// newer Register on the slot (`others`: the slot's other control sockets).
-/// A registration number of 0 is one written before numbers existed.
+///
+/// A registration number of 0 is one written before numbers existed. Two of
+/// those carry no order, so a legacy registration is current only while it
+/// is the slot's only registration: with another one on the slot, its Ping
+/// takes over nothing until that socket closes or a numbered Register
+/// replaces both.
 pub(crate) fn current_registration(
     own: &SlotAttachment,
     ready_state: u16,
@@ -80,7 +85,8 @@ pub(crate) fn current_registration(
     websocket_is_open(ready_state)
         && own.phase == SlotPhase::Registered
         && !others.into_iter().any(|other| {
-            replaced_by_register(&other, &own.relay.slot) && other.generation > own.generation
+            replaced_by_register(&other, &own.relay.slot)
+                && (other.generation > own.generation || own.generation == 0)
         })
 }
 
