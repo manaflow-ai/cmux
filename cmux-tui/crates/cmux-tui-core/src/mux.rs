@@ -20427,15 +20427,24 @@ mod tests {
         let root = std::env::temp_dir()
             .join(format!("cmux-journal-diagnostic-{}", crate::workspace_registry::new_uuid_v4()));
         let mux = open_persistent_test_mux("maintenance-diagnostic", &root);
-        let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 43)).unwrap());
-        for _ in 0..4_100 {
+        // The ingress writer merges adjacent output of one terminal into one
+        // record when it falls behind (slow fsync on macOS runners), so
+        // alternate two terminals to keep every write its own record.
+        let terminal_ids = [43, 44]
+            .map(|id| Arc::new(TerminalPublicId::parse(format!("term_{id:032x}")).unwrap()));
+        for index in 0..4_100 {
             mux.journal_terminal_output(
-                terminal_id.clone(),
+                terminal_ids[index % 2].clone(),
                 Arc::from("diagnostic-generation"),
                 b"journal record".to_vec(),
             );
         }
         mux.flush_terminal_journal().unwrap();
+        assert!(
+            mux.workspace_registry.lock().unwrap().session_journal_head().unwrap()
+                >= JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS,
+            "the fixture must reach the maintenance checkpoint threshold"
+        );
         let database =
             mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
         let injector = rusqlite::Connection::open(database).unwrap();
