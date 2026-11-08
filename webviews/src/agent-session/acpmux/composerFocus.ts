@@ -50,6 +50,26 @@ function blurActiveComposer(): void {
   if (active?.closest(".acpmux-composer-box")) (active as HTMLElement).blur();
 }
 
+/// Whether `active` gives up the page's focus when the pane loses the keyboard: a pressable control
+/// (a header tool, a transcript chip) that a click left focused. Kept focused, the browser hands focus
+/// back to it each time the pane gets the keyboard again (the workspace shown again, the window
+/// raised), its `:focus-visible` ring draws around the pane's top-right tools, and the composer's
+/// activation claim sees a focused page and stands down (https://github.com/manaflow-ai/cmux/issues/38193).
+/// Released, the return finds the page idle and the keyboard lands in the prompt. A control that owns
+/// its keys (a field, a menu, a dialog) and one whose own popup is open keep their focus.
+function releasesFocusOnLeave(active: Element | null): boolean {
+  if (!active || active === active.ownerDocument?.body) return false;
+  if (!active.matches(PRESSABLE) || active.closest(OWNS_KEYS)) return false;
+  return !active.matches('[aria-expanded="true"], [data-popup-open]');
+}
+
+/// The pane lost the keyboard: the composer and a click-focused control give up the page's focus.
+function releaseFocusOnLeave(): void {
+  blurActiveComposer();
+  const active = document.activeElement;
+  if (releasesFocusOnLeave(active)) (active as HTMLElement).blur();
+}
+
 export type KeyLike = {
   key: string;
   metaKey: boolean;
@@ -134,9 +154,10 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
     };
     // A live transcript preview is a nested browsing context: its pointer press does not bubble
     // to this document. The browser blurs the editor when that frame takes focus; keep the same
-    // boundary explicit for hosts that only report the outer window blur.
+    // boundary explicit for hosts that only report the outer window blur. A header tool a click
+    // left focused lets go too (`releasesFocusOnLeave`), so no ring greets the return.
     const onWindowBlur = () => {
-      blurActiveComposer();
+      releaseFocusOnLeave();
       clearTimeout(settling);
       settling = undefined;
     };

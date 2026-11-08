@@ -180,7 +180,11 @@ describe("composer click-away focus", () => {
         "div",
         { className: "acpmux-header-tools" },
         React.createElement("button", { className: "acpmux-header-tool", id: "tool" }, "list"),
-        React.createElement("button", { className: "acpmux-header-tool", id: "open-tool", "aria-expanded": "true" }, "menu"),
+        React.createElement(
+          "button",
+          { className: "acpmux-header-tool", id: "open-tool", "aria-expanded": "true" },
+          "menu",
+        ),
       ),
       React.createElement("input", { id: "field" }),
       React.createElement(
