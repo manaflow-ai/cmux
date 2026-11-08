@@ -472,7 +472,7 @@ test, fmt and clippy on rbx.
 | Mac action (wording) | Phone | State | Notes |
 | --- | --- | --- | --- |
 | "Allow once" | Feed **Allow once** (Face ID), chat bar **Allow once** | works (fixed wording) | Signed `approverDecision` after Face ID. Was "Allow" / acpmux's option name. code-checked; live pending |
-| "Allow for this chat" | — | not from a phone (fixed) | acpmux refuses every lasting grant from a paired device (`remote.lasting_grant_refused`). The phone offered "Always" / "Allow for this session", which cost a Face ID and then failed; it now offers only Allow once and Deny. Answering it from the phone is a #13742 decision. |
+| "Allow for this chat" | — | not from a phone (fixed) | acpmux refuses every lasting grant from a paired device (`remote.lasting_grant_refused`). The phone offered "Always" / "Allow for this session", which cost a Face ID and then failed; it now offers only Allow once and Deny. Answering it from the phone is a #13742 decision. The Mac's approval banner offers Always allow when the prompt does (the Mac is the person's own device, unlocked to answer); the phone's push stays Allow once and Deny for the same reason. |
 | "Deny" | **Deny**, full swipe | works | Unsigned, at once. code-checked; live pending |
 | Question "Submit" / "Skip" | QuestionCard **Answer**; **Decline** after an error | partial | Same `permissionId` from the Feed and the chat. Wording differs; the answer shows before Face ID (rolled back on failure). |
 | Answered on the Mac first | card closes "Already answered on your Mac" | works (fixed) | Was: the card reopened with "no pending permission perm_…". With two open asks, one answered on the Mac still shows live until tapped (the session's change notice carries no permission id). |
