@@ -288,6 +288,8 @@ pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
 mod goal_tools;
+#[cfg(test)]
+mod history_detail_tests;
 #[cfg(feature = "sim")]
 mod sim_startup;
 #[cfg(all(test, unix))]
@@ -2326,6 +2328,10 @@ impl Hub {
                         t.insert("wallMs".into(), json!(e.at.saturating_sub(started)));
                         if let Some(err) = e.msg.get("error") {
                             t.insert("error".into(), err.clone());
+                        }
+                        // Why a failed turn ended: a restart's cut is `outcome_unknown`.
+                        if let Some(detail) = e.msg.get("detail") {
+                            t.insert("detail".into(), detail.clone());
                         }
                     }
                 }
