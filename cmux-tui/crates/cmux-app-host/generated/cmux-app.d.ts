@@ -326,6 +326,7 @@ declare namespace Cmux {
   type PaletteUsageRecordResult = { revision: string }
   type PaletteUsageRow = { key: string; score: number; last_used_ms: string }
   type PaletteUsageSnapshot = { revision: string; half_life_ms: string; pick_half_life_ms: string; entries: Array<Cmux.PaletteUsageRow>; picks: Array<Cmux.PaletteUsagePick>; imported: Array<string>; hidden: Array<string> }
+  type PaneMoveResult = { pane_id: string /* pane_… */; moved_pane_id: string /* pane_… */; pane_kept: boolean; workspace_id: string /* workspace_… */; screen_id: string /* screen_… */; tab_ids: Array<string /* tab_… */>; index: number; created_screen_id?: string /* screen_… */; closed_screen_id?: string /* screen_… */; focused_pane_id?: string /* pane_… */ }
   type PaneNeighborResult = { pane?: Cmux.PaneSnapshot | null }
   type PaneSnapshot = { id: string /* pane_… */; screen_id: string /* screen_… */; name: string | null; focused: boolean; zoomed: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ParticipantAvatarImage = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number; data: string }
@@ -551,7 +552,7 @@ interface CmuxAppContext { readonly [key: string]: unknown }
 interface CmuxGlobal {
   agent: {
     /** `agent.list` (read, scope `agent:read`) */
-    list: CmuxOp<{ machine?: string; session?: string; terminal_id?: string /* terminal_… */; state?: Cmux.AgentState }, Array<Cmux.AgentSnapshot>>
+    list: CmuxOp<{ machine?: string; session?: string; terminal_id?: string /* terminal_… */; terminal?: unknown; state?: Cmux.AgentState }, Array<Cmux.AgentSnapshot>>
     /** `agent.report` (mutation, scope `agent:write`) */
     report: CmuxOp<{ machine?: string; session?: string; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket"; source_session?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.AgentSnapshot>>
   }
@@ -1239,6 +1240,8 @@ interface CmuxGlobal {
     get: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string }, Cmux.PaneSnapshot>
     /** `pane.list` (read, scope `workspace:read`) */
     list: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string }, Array<Cmux.PaneSnapshot>>
+    /** `pane.move` (mutation, scope `workspace:write`) */
+    move: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; destination_pane?: unknown; destination_tab?: unknown; destination_workspace?: unknown; destination_screen?: unknown; split?: "left" | "right" | "up" | "down"; new_screen?: boolean; name?: string; index?: number; focus?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneMoveResult>>
     neighbor: {
       /** `pane.neighbor.get` (read, scope `workspace:read`) */
       get: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; direction: "left" | "right" | "up" | "down" }, Cmux.PaneNeighborResult>

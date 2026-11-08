@@ -45,6 +45,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::PaneFocusDirection
             | ResourceOperation::PaneNeighborGet
             | ResourceOperation::PaneSwap
+            | ResourceOperation::PaneMove
             | ResourceOperation::PaneZoom
             | ResourceOperation::PaneSplitRatioSet
             | ResourceOperation::PaneViewportWidthSet
@@ -411,6 +412,7 @@ fn dispatch_exact_topology_mutation(
         | ResourceOperation::PaneCreate
         | ResourceOperation::PaneSplit
         | ResourceOperation::PaneRun
+        | ResourceOperation::PaneMove
         | ResourceOperation::TabCreateTerminal
         | ResourceOperation::TabCreateBrowser => {
             mutation_result(mux, commit.result, commit.revision, commit.replayed)
@@ -705,6 +707,7 @@ mod tests {
             ResourceOperation::PaneFocusDirection,
             ResourceOperation::PaneNeighborGet,
             ResourceOperation::PaneSwap,
+            ResourceOperation::PaneMove,
             ResourceOperation::PaneZoom,
             ResourceOperation::PaneSplitRatioSet,
             ResourceOperation::PaneViewportWidthSet,

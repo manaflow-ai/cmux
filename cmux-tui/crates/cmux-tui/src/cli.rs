@@ -149,8 +149,6 @@ mod older_daemon;
 mod pane_context;
 #[cfg(unix)]
 mod pane_identify;
-#[cfg(unix)]
-mod pane_move;
 mod raw;
 #[cfg(unix)]
 mod remote_host;
@@ -1513,7 +1511,7 @@ USAGE
   cmux agent message unsend <message-id> [--recipient <agent>]
   cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
   cmux agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended]
-                  [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+                  [--terminal <selector>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
                   (done: idle with an unread notification; ended: the session
                   ended, which --state done selected before)
   cmux agent <agent> focus

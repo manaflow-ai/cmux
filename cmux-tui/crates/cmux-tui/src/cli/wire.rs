@@ -970,8 +970,29 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
                 .collect(),
         )),
         Some(rows) if is_closed_list(plan) => std::borrow::Cow::Owned(closed_view::summarize(rows)),
+        // A screen's `layout` is its whole split tree as JSON: one cell of it
+        // made every row wider than the terminal (W5-P). `--json` keeps it,
+        // and `screen <s> layout export` prints it.
+        Some(rows) if is_screen_list(plan) => std::borrow::Cow::Owned(Value::Array(
+            rows.iter()
+                .map(|row| {
+                    let mut row = row.clone();
+                    if let Some(object) = row.as_object_mut() {
+                        object.remove("layout");
+                    }
+                    row
+                })
+                .collect(),
+        )),
         _ => std::borrow::Cow::Borrowed(result),
     }
+}
+
+fn is_screen_list(plan: &RequestPlan) -> bool {
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::ScreenList)
+    )
 }
 
 fn is_closed_list(plan: &RequestPlan) -> bool {

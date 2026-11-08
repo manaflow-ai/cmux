@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8";
+pub const ir_sha256 = "37b889c6029a32b5c190cb864ed186d24ecc2dc7d858ac1eacab2d0e7e74e7df";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1453,15 +1453,28 @@ pub const MoveTerminalResult = struct {
     generation: []const u8,
     lifecycle: TerminalLifecycle,
     pane: wire.Nullable(Id),
+    pane_id: ?[]const u8 = null,
     registry_id: []const u8,
     replayed: bool,
     screen: wire.Nullable(Id),
+    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
+    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
+    terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
+    workspace_id: ?[]const u8 = null,
     workspace_key: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane_id",
+        "screen_id",
+        "tab_id",
+        "terminal_resource_id",
+        "workspace_id",
+    };
 };
 
 pub const NameSource = enum {
@@ -1485,16 +1498,22 @@ pub const NameSource = enum {
 pub const NewRowResult = struct {
     pane: Id,
     pane_id: ?[]const u8 = null,
+    screen_id: ?[]const u8 = null,
     surface: Id,
     tab_id: ?[]const u8 = null,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
+    terminal_resource_id: ?[]const u8 = null,
     transaction: ?[]const u8 = null,
+    workspace_id: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "pane_id",
+        "screen_id",
         "tab_id",
+        "terminal_resource_id",
         "transaction",
+        "workspace_id",
     };
 };
 
@@ -1636,10 +1655,19 @@ pub const PaneRef = wire.Value;
 pub const PaneSurfaceResult = struct {
     pane_id: wire.Field([]const u8) = .absent,
     replayed: wire.Field(bool) = .absent,
+    screen_id: ?[]const u8 = null,
     surface: Id,
     tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
+    terminal_resource_id: ?[]const u8 = null,
+    workspace_id: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "screen_id",
+        "terminal_resource_id",
+        "workspace_id",
+    };
 };
 
 pub const PingResult = struct {
@@ -1865,12 +1893,25 @@ pub const ResolveTerminalResult = struct {
     generation: []const u8,
     launch_spec: JsonValue,
     lifecycle: TerminalLifecycle,
+    pane_id: ?[]const u8 = null,
     registry_id: []const u8,
+    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
+    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
+    terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
+    workspace_id: ?[]const u8 = null,
     workspace_key: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane_id",
+        "screen_id",
+        "tab_id",
+        "terminal_resource_id",
+        "workspace_id",
+    };
 };
 
 pub const ResourceSelectors = struct {
@@ -1907,12 +1948,25 @@ pub const RunResult = struct {
     exit: wire.Nullable(TerminalExit),
     lifecycle: TerminalLifecycle,
     pane: wire.Nullable(Id),
+    pane_id: ?[]const u8 = null,
     screen: wire.Nullable(Id),
+    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
+    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
+    terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
+    workspace_id: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane_id",
+        "screen_id",
+        "tab_id",
+        "terminal_resource_id",
+        "workspace_id",
+    };
 };
 
 pub const SavedTabGroupMember = struct {
@@ -2422,9 +2476,20 @@ pub const SplitRespawn = struct {
 };
 
 pub const SurfaceResult = struct {
+    pane_id: wire.Field([]const u8) = .absent,
+    screen_id: ?[]const u8 = null,
     surface: Id,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
+    terminal_resource_id: ?[]const u8 = null,
+    workspace_id: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "screen_id",
+        "terminal_resource_id",
+        "workspace_id",
+    };
 };
 
 pub const TabBrowserSource = enum {
@@ -3185,18 +3250,26 @@ pub const TerminalPlacement = struct {
     key: []const u8,
     lifecycle: TerminalLifecycle,
     pane: wire.Nullable(Id),
+    pane_id: ?[]const u8 = null,
     registry_id: []const u8,
     replayed: bool,
     screen: wire.Nullable(Id),
+    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
+    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
     terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
+    workspace_id: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane_id",
+        "screen_id",
+        "tab_id",
         "terminal_resource_id",
+        "workspace_id",
     };
 };
 

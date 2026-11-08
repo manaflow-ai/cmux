@@ -2627,7 +2627,8 @@ object{
   exit:TerminalExit|null,
   already_exited:bool,terminal_revision:uint64,replayed:bool,
   registry_id:string,generation:string,
-  terminal_resource_id?:string
+  terminal_resource_id?:string,tab_id?:string,pane_id?:string,
+  screen_id?:string,workspace_id?:string
 }
 ```
 
@@ -8923,9 +8924,21 @@ object{
   surface:Id|null,terminal_id:string,terminal_incarnation:string|null,
   pane:Id|null,screen:Id|null,workspace:Id|null,
   lifecycle:"running"|"exited",exit:TerminalExit|null,
-  terminal_revision:uint64,already_exited:bool
+  terminal_revision:uint64,already_exited:bool,
+  terminal_resource_id?:string,tab_id?:string,pane_id?:string,
+  screen_id?:string,workspace_id?:string
 }
 ```
+
+`terminal_resource_id` is the terminal's public `term_` id, the id resource
+API v2 selectors, the `cmux` CLI and the agent roster take; `tab_id`,
+`pane_id`, `screen_id` and `workspace_id` are the public ids of its view.
+`terminal_id` stays the host id. A client therefore names the new terminal
+in later commands with no second request. Each field is absent when the
+daemon has no such object (a terminal that exited before the reply has no
+view). The other creating replies (`create-terminal`, `new-tab`, `split`,
+`new-pane`, `new-row`, `move-terminal`, `resolve-terminal`) carry the same
+optional fields.
 
 If the child exits before `run` returns, the request succeeds with
 `already_exited:true`, exact durable `exit` metadata, and null live-placement

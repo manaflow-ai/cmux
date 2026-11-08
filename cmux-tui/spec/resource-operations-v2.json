@@ -5172,6 +5172,93 @@
       },
       "extra": false
     },
+    "PaneMoveResult": {
+      "kind": "object",
+      "fields": {
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "pane"
+          },
+          "description": "The pane that holds the moved tabs: the moved pane itself after a split or new_screen, else the destination pane."
+        },
+        "moved_pane_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "pane"
+          },
+          "description": "The pane the call moved."
+        },
+        "pane_kept": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "True when the moved pane still exists with its id (split, new_screen); false when its tabs joined another pane and it closed."
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "workspace"
+          }
+        },
+        "screen_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "screen"
+          }
+        },
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "The moved tabs, in order. Each keeps its id."
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The position of the first moved tab in pane_id."
+        },
+        "created_screen_id": {
+          "required": false,
+          "type": {
+            "kind": "resource_id",
+            "resource": "screen"
+          },
+          "description": "The screen new_screen made."
+        },
+        "closed_screen_id": {
+          "required": false,
+          "type": {
+            "kind": "resource_id",
+            "resource": "screen"
+          },
+          "description": "The screen the move emptied and closed."
+        },
+        "focused_pane_id": {
+          "required": false,
+          "type": {
+            "kind": "resource_id",
+            "resource": "pane"
+          },
+          "description": "The focused pane after the move."
+        }
+      },
+      "extra": false
+    },
     "TerminalScreenResult": {
       "kind": "object",
       "fields": {
@@ -15583,6 +15670,14 @@
               "kind": "resource_id",
               "resource": "terminal"
             }
+          },
+          "terminal": {
+            "required": false,
+            "type": {
+              "kind": "selector",
+              "resource": "terminal"
+            },
+            "description": "The terminal as any terminal selector names it: an id, a unique id prefix, a bare or host id, a tab or pane id, a name, or current. Not with terminal_id."
           },
           "state": {
             "required": false,
@@ -28852,6 +28947,143 @@
       "errors": [
         "operation.failed",
         "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "pane.move": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "pane",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "required"
+        },
+        "fields": {
+          "destination_pane": {
+            "required": false,
+            "type": {
+              "kind": "selector",
+              "resource": "pane"
+            },
+            "description": "The pane the moved pane goes beside (with split) or into (without split: its tabs join that pane and the moved pane closes)."
+          },
+          "destination_tab": {
+            "required": false,
+            "type": {
+              "kind": "selector",
+              "resource": "tab"
+            },
+            "description": "The tabs go into the pane that shows this tab, after it (or at index); the moved pane closes."
+          },
+          "destination_workspace": {
+            "required": false,
+            "type": {
+              "kind": "selector",
+              "resource": "workspace"
+            },
+            "description": "With new_screen: the workspace of the new screen (default: the moved pane's own). With destination_pane or destination_tab: that selector's workspace."
+          },
+          "destination_screen": {
+            "required": false,
+            "type": {
+              "kind": "selector",
+              "resource": "screen"
+            },
+            "description": "The screen of destination_pane or destination_tab."
+          },
+          "split": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "left",
+                "right",
+                "up",
+                "down"
+              ]
+            },
+            "description": "With destination_pane: the side of that pane the moved pane goes to. The moved pane keeps its id."
+          },
+          "new_screen": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The moved pane becomes the only pane of a new screen. The moved pane keeps its id."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "With new_screen: the new screen's name."
+          },
+          "index": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Without split or new_screen: the position of the first moved tab in the destination pane. Default: after destination_tab, or the end of destination_pane."
+          },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Focus the pane that holds the moved tabs. Default false: the focus stays, unless the moved pane had it (then it follows the tabs)."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Exactly one of destination_pane, destination_tab, or new_screen true is present.",
+          "split requires destination_pane; name requires new_screen; index is absent with split or new_screen; destination_screen is absent with new_screen.",
+          "The destination is outside the moved pane.",
+          "One journaled commit: a crash leaves the session before or after the move, and a retry with the same idempotency key replays the result.",
+          "A screen that the move empties closes; a workspace that it empties stays."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PaneMoveResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

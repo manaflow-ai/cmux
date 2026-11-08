@@ -470,9 +470,19 @@ screen inside the selected session's workspace.
 An instance selector accepts:
 
 - a typed opaque ID such as `ws_…`, `pane_…`, or `term_…`;
+- a unique prefix of such an ID (`pane_3f0a`): two or more objects with that
+  prefix return `selector.ambiguous` with every candidate id;
+- a bare ID, the 32 hex digits without the prefix; for a terminal also its
+  host id (the raw protocol's `terminal_id`, as `run` and `create-terminal`
+  return it), and a tab or pane id (the terminal that tab shows, or the
+  pane's selected tab's terminal);
 - `caller`, for a workspace, screen, pane, tab or terminal;
-- `current`;
+- `current`, and `focused` (the session's focused object);
 - an exact name.
+
+The daemon resolves every form (one resolver for the CLI, MCP, the SDKs and
+the app), so one selector selects one object in every command. JSON replies
+name objects by their full public ids.
 
 `caller` is the object the command runs in: the caller's terminal
 (`CMUX_TUI_TERMINAL_ID`) and the tab, pane, screen and workspace that hold it,
@@ -498,22 +508,24 @@ use `focused` for the object the person looks at, and do not take `caller`.
 An agent name (`cmux agent start NAME`) and any tab name that is unique in the
 session select that tab's terminal, tab or pane wherever such a selector goes:
 the word after `terminal`, `tab` or `pane`, and the `--terminal`, `--tab` and
-`--pane` values of those scopes and of `agent` and `notification`. Before it
-parses the command, the CLI reads one `session.snapshot` and puts the id in
-place of the name: a tab with that name whose terminal runs (with an agent or
-not), else one whose terminal exited (so `terminal NAME resume` finds it). Two
-tabs at the first step that has any return `selector.ambiguous` with their tab
-ids, also an agent tab and a shell tab with one name (the daemon's tab-name
-scope does not prefer the agent tab either). A name only fills a gap: when a name
-matches, the CLI first asks the daemon to resolve the word with the rules below
-(the current scope, terminal titles, names under a parent), and a word that
-resolves stays as it is, so a selector that worked before selects the same
-object. A word that matches no tab, an id, `current`, `caller`, `focused`,
-command words and the parser's subcommand words (such as `group` in
-`tab group list`, which no agent can take as its name) are left to the rules
-below. A terminal title, and a pane's own name for a pane selector, win over a
-tab name. The scan reads flag values as the parser does: every flag that is not
-a boolean flag takes the next word.
+`--pane` values of those scopes and of `agent` and `notification`. The daemon
+looks a name under `current` parents up where it always did first (a screen
+name in the current workspace, a pane name in the current screen, a tab name in
+the current pane, the current tab's terminal title). A name it does not find
+there is looked up in the whole session: a screen or pane name, or a terminal
+title, then a tab name, a tab whose terminal runs (with an agent or not) before
+one whose terminal exited (so `terminal NAME resume` finds it). Two at the
+first step that has any return `selector.ambiguous` with their ids, also an
+agent tab and a shell tab with one name. Under an explicit parent (an id or a
+name) only that parent's scope is read. Before it parses a command, the CLI
+asks the daemon to resolve each such word (`<scope> <word> show`) and puts the
+id it answers in place of the word, so a flag that takes a full id
+(`notification create --terminal`, `agent report --terminal`) also takes a
+name, a prefix or a bare id. A word the daemon does not find stays as it is.
+An id, `current`, `caller`, `focused`, command words and the parser's
+subcommand words (such as `group` in `tab group list`, which no agent can take
+as its name) are not asked about. The scan reads flag values as the parser
+does: every flag that is not a boolean flag takes the next word.
 
 Names may be empty, contain Unicode or whitespace, and need not be unique.
 `name:<value>` forces name interpretation and is required for names equal to
@@ -697,7 +709,7 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended] [--terminal <selector>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
 agent <agent_id|term_id> focus
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
@@ -732,7 +744,7 @@ screen <selector> pane ...
 pane list [--name <name>] [--cwd <path>]
 pane create
 pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
-pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--focus]
+pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--index <n>] [--focus]
 pane <selector> focus direction <left|right|up|down>
 pane <selector> split ratio set
 pane <selector> viewport width set
@@ -912,26 +924,24 @@ Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
 `'^READY$'` matches a line that is only `READY`. Start the pattern with
 `(?-m)` to anchor at the start and end of the whole text.
 
-`pane <p> move` moves a whole pane: every tab in it, in order, with one
-`tab.move` each (the daemon has no pane move), and the emptied pane closes.
-`--to-pane <q>` appends the tabs to pane q; with `--split right|down|left|up`
-they go into a new pane split off q. `--to-tab <t>` puts them after tab t in
-its pane. `--to-workspace <w>` and `--new-screen` (alias `--new-tab`, the
-pane's own workspace) put them into a new screen there, named `--name`. A new
-pane's shell ends once the tabs are in (`terminal <t> close`, which takes
-its tab; a tab close alone left the shell running with no tab), and the new
-pane takes the moved pane's name. `tab.move` focuses what it moved, so afterwards the command
-focuses the pane that had the focus before (`--focus`: the destination pane);
-when the moved pane had the focus, the focus stays with its tabs. A
-destination in the pane itself is a usage error. The result is `{pane,
-moved_tabs, destination: {workspace, screen, pane, index}, created,
-focused_pane}`, `created` being `{screen, pane}`, `{pane}` or null. The
-command resolves every selector (ids, unique id prefixes, `name:` and exact
-names, `focused`, `current`, `caller`) against one `session.snapshot` and
-sends ids only. Each step is its own request. A failed step names itself and
-what already moved in `details.step` and `details.made`; running the command
-again does not resume it (`details.retry`), so move the remaining tabs with
-`tab move`.
+`pane <p> move` moves a whole pane: every tab in it, in order, in one
+`pane.move` request, which the daemon commits as one journaled change (a crash
+leaves the pane before or after the move; a retry with the same key replays
+the result). `--to-pane <q> --split right|down|left|up` puts the pane beside
+pane q, and `--to-workspace <w>` or `--new-screen` (alias `--new-tab`, the
+pane's own workspace) makes it the only pane of a new screen there, named
+`--name`: in these the pane keeps its id. `--to-pane <q>` without `--split`
+appends the tabs to pane q (at `--index <n>` if given), and `--to-tab <t>` puts
+them after tab t; the tabs keep their ids and the moved pane closes. A screen
+that the move empties closes. The focus stays where it was, unless `--focus`
+(the moved tabs' pane) or the moved pane had it (the focus stays with it). A
+destination in the pane itself is `validation.invalid`. The result is
+`{pane_id, moved_pane_id, pane_kept, workspace_id, screen_id, tab_ids, index,
+created_screen_id?, closed_screen_id?, focused_pane_id?}`: `pane_id` is where
+the tabs are now (the moved pane's own id unless the tabs merged), `index` the
+first tab's position there. The daemon resolves every selector, the
+destination's too (ids, unique id prefixes, bare ids, `name:` and exact names,
+`focused`, `current`; `caller` is resolved by the CLI for `<p>` only).
 
 `workspace create --worktree <name>` runs `git worktree create --name <name>`
 in the repository `--repo` names (default: the current directory), with
@@ -1274,7 +1284,9 @@ plugin names are slugs matching `[a-z0-9-_]+`.
 
 `agent list` is one `agent.list` read; the CLI ranks, limits and counts its
 rows, so the wire value is unchanged. `--state` and `--terminal` are the
-read's own filters. Every row has `status`, one of the words `terminal list
+read's own filters. `--terminal` takes any terminal selector: the `term_` id,
+the host id that `run` returns, a bare id, a unique prefix, a tab or pane id,
+or a name; the daemon resolves it (the read's `terminal` field). Every row has `status`, one of the words `terminal list
 --agents` and `agent wait` use: `blocked`, `done` (idle with an unread
 notification on its terminal), `working`, `idle` or `unknown`, and `null` for
 an agent whose session ended. The daemon's `state` field (`working`,

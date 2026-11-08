@@ -1093,6 +1093,10 @@
       "scope": "workspace:read",
       "class": "read"
     },
+    "pane.move": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
     "pane.neighbor.get": {
       "scope": "workspace:read",
       "class": "read"

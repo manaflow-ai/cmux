@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8. */
+/* cmux-tui mux protocol 12, IR 37b889c6029a32b5c190cb864ed186d24ecc2dc7d858ac1eacab2d0e7e74e7df. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8" as const;
+export const SDK_IR_SHA256 = "37b889c6029a32b5c190cb864ed186d24ecc2dc7d858ac1eacab2d0e7e74e7df" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -8751,6 +8751,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "pane_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "registry_id": {
         "nullable": false,
         "presence": "required",
@@ -8775,12 +8784,30 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "screen_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "surface": {
         "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "tab_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "terminal_id": {
@@ -8794,6 +8821,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "terminal_incarnation": {
         "nullable": true,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_resource_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -8813,6 +8849,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "workspace_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "workspace_key": {
@@ -8853,6 +8898,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "screen_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "surface": {
         "nullable": false,
         "presence": "required",
@@ -8886,9 +8940,27 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "terminal_resource_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "transaction": {
         "nullable": false,
         "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -9060,6 +9132,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
+      "screen_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "surface": {
         "nullable": false,
         "presence": "required",
@@ -9091,6 +9172,24 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": true,
         "presence": "optional",
         "since": 9,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_resource_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -9910,9 +10009,27 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "TerminalLifecycle"
         }
       },
+      "pane_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "registry_id": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "screen_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -9924,6 +10041,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "tab_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "terminal_id": {
@@ -9942,12 +10068,30 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "terminal_resource_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "terminal_revision": {
         "nullable": false,
         "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      },
+      "workspace_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "workspace_key": {
@@ -10202,6 +10346,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "pane_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "screen": {
         "nullable": true,
         "presence": "required",
@@ -10210,12 +10363,30 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "screen_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "surface": {
         "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "tab_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "terminal_id": {
@@ -10236,6 +10407,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "terminal_resource_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "terminal_revision": {
         "nullable": false,
         "presence": "required",
@@ -10251,6 +10431,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "workspace_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -12263,12 +12452,39 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "SurfaceResult": {
     "additional_properties": false,
     "fields": {
+      "pane_id": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "screen_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "surface": {
         "nullable": false,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "tab_id": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "terminal_id": {
@@ -12284,6 +12500,24 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": true,
         "presence": "optional",
         "since": 9,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_resource_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -13669,6 +13903,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "pane_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "registry_id": {
         "nullable": false,
         "presence": "required",
@@ -13693,12 +13936,30 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "screen_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "surface": {
         "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "tab_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "terminal_id": {
@@ -13741,6 +14002,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "workspace_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

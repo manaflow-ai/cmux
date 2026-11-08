@@ -42,6 +42,7 @@ fn direct_browser_id_derives_its_complete_path_without_structural_selectors() {
             machine_name: None,
             session_id: &session,
             session_name: "test",
+            in_process_host: None,
         },
         crate::ResourceTarget::Browser,
         &selectors,
@@ -189,6 +190,7 @@ fn selector_names_preserve_empty_whitespace_and_unicode_and_report_duplicates() 
             machine_name: None,
             session_id: &session,
             session_name: "test",
+            in_process_host: None,
         },
         crate::ResourceTarget::Workspace,
         &selectors,
@@ -211,6 +213,7 @@ fn selector_names_preserve_empty_whitespace_and_unicode_and_report_duplicates() 
                 machine_name: None,
                 session_id: &session,
                 session_name: "test",
+                in_process_host: None,
             },
             crate::ResourceTarget::Workspace,
             &selectors,
@@ -231,6 +234,7 @@ fn selector_rejects_incomplete_name_chain_wrong_type_stale_id_and_wrong_parent()
         machine_name: None,
         session_id: &session,
         session_name: "test",
+        in_process_host: None,
     };
 
     let mut incomplete = routed_selectors(&machine, &session);

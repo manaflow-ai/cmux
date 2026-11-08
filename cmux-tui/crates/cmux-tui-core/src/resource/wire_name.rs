@@ -130,6 +130,7 @@ impl ResourceOperation {
             Self::PaneFocusDirection => "pane.focus_direction",
             Self::PaneNeighborGet => "pane.neighbor.get",
             Self::PaneSwap => "pane.swap",
+            Self::PaneMove => "pane.move",
             Self::PaneZoom => "pane.zoom",
             Self::PaneSplitRatioSet => "pane.split_ratio.set",
             Self::PaneViewportWidthSet => "pane.viewport_width.set",

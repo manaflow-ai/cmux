@@ -457,18 +457,23 @@ pub(super) fn run(
     )?;
     let placement = result.placement;
     let already_exited = result.terminal.lifecycle == TerminalLifecycle::Exited;
-    Ok(json!({
-        "surface": placement.as_ref().map(|placement| placement.surface),
-        "terminal_id": result.terminal.terminal_id,
-        "terminal_incarnation": result.terminal.incarnation,
-        "pane": placement.as_ref().map(|placement| placement.pane),
-        "screen": placement.as_ref().map(|placement| placement.screen),
-        "workspace": placement.as_ref().map(|placement| placement.workspace),
-        "lifecycle": result.terminal.lifecycle,
-        "exit": result.terminal.exit,
-        "terminal_revision": result.terminal_revision,
-        "already_exited": already_exited,
-    }))
+    // The public ids too (`terminal_resource_id`, `tab_id`, ...): a client
+    // names the new terminal in every later command with no second request.
+    Ok(super::cmd_terminals::with_public_ids(
+        mux,
+        json!({
+            "surface": placement.as_ref().map(|placement| placement.surface),
+            "terminal_id": result.terminal.terminal_id,
+            "terminal_incarnation": result.terminal.incarnation,
+            "pane": placement.as_ref().map(|placement| placement.pane),
+            "screen": placement.as_ref().map(|placement| placement.screen),
+            "workspace": placement.as_ref().map(|placement| placement.workspace),
+            "lifecycle": result.terminal.lifecycle,
+            "exit": result.terminal.exit,
+            "terminal_revision": result.terminal_revision,
+            "already_exited": already_exited,
+        }),
+    ))
 }
 
 pub(super) fn send_key(
