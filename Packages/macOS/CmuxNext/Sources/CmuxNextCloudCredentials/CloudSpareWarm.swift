@@ -31,7 +31,8 @@ public import os
                   let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, teams: teams) else { return }
             let still: @MainActor @Sendable () async throws -> Bool = { [auth] in auth.user?.id == userID && auth.teamID == teams.active }
             let installed = await copyLogin(onto: copy.machineID, userID: userID, teamID: teams.active, still: still)
-            let end: CloudMoveCLI.SpareWarmEnd = installed || (try? await still()) == true ? .finished(copy.machineID) : .abandoned(copy.machineID)
+            let kept = installed ? true : (try? await still()) == true
+            let end: CloudMoveCLI.SpareWarmEnd = kept ? .finished(copy.machineID) : .abandoned(copy.machineID)
             _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, teams: teams, end: end)
         }
     }
