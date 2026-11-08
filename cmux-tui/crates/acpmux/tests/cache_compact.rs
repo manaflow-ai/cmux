@@ -81,11 +81,14 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     let root = std::env::temp_dir().join(format!("acpmux-cache-compact-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(root.join("claude")).unwrap();
     let settings = root.join("cmux-next.json");
-    let set = |on: bool| {
-        let doc = json!({"agents": {"cacheCompact": {"enabled": on, "minContextPercent": 50}}});
+    let set_at = |on: bool, percent: u64| {
+        let doc =
+            json!({"agents": {"cacheCompact": {"enabled": on, "minContextPercent": percent}}});
         std::fs::write(&settings, doc.to_string()).unwrap();
     };
+    let set = |on: bool| set_at(on, 50);
     set(true);
+    let compact_fails = root.join("compact-fails");
     // SAFETY: the only test in this binary; set before any session starts.
     unsafe {
         std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);
@@ -95,7 +98,8 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     std::fs::write(root.join("fleet-registry.json"), r#"{"machines": {}}"#).unwrap();
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"claude": {"kind": "claude-stdio", "argv": ["python3", FAKE_CLAUDE],
-            "env": {"CLAUDE_CONFIG_DIR": root.join("claude")}}},
+            "env": {"CLAUDE_CONFIG_DIR": root.join("claude"),
+                "FAKE_CLAUDE_COMPACT_FAIL_IF": compact_fails}}},
         "defaultHarness": "claude",
         "permissionPolicy": "approve-all",
     }))
@@ -127,6 +131,77 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     clock.advance(Duration::from_secs(3600));
     settle_until(Duration::from_millis(500), || false).await;
     assert_eq!(compactions(&hub, &id), 1, "once per idle stretch: {:?}", prompts(&hub, &id));
+
+    // An unsent draft in one surface's composer (`_acpmux/composer_set`), with nobody typing:
+    // the person is mid-message, so nothing is compacted under them.
+    let drafted = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&drafted, "cache-probe")).await;
+    let surface = json!({"id": "pane-1", "name": "Pane"});
+    let draft = json!({"sessionId": drafted, "surface": surface, "text": "half a thought"});
+    c.ok("_acpmux/composer_set", draft).await;
+    clock.advance(Duration::from_secs(3600));
+    settle_until(Duration::from_millis(500), || false).await;
+    assert_eq!(compactions(&hub, &drafted), 0, "{:?}", prompts(&hub, &drafted));
+
+    // Four ways the timer must stay quiet, each recorded, so one run names every one that fails.
+    let mut gaps = Vec::new();
+    let mut quiet = |gap: &str, id: &str| {
+        let n = compactions(&hub, id);
+        if n != 0 {
+            gaps.push(format!("{gap}: {n} compaction(s), {:?}", prompts(&hub, id)));
+        }
+    };
+
+    // The person compacted it before the deadline (`/compact`, which reports no usage after):
+    // the cache it was armed for is gone, so the timer ends with it.
+    let manual = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&manual, "cache-probe")).await;
+    c.ok("session/prompt", prompt(&manual, "/compact")).await;
+    clock.advance(Duration::from_secs(3600));
+    settle_until(Duration::from_millis(500), || false).await;
+    quiet("after a manual /compact", &manual);
+
+    // Armed at 75% with the threshold at 50%, then the person raised it to 90%: the threshold
+    // read at the deadline decides.
+    let raised = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&raised, "cache-probe")).await;
+    set_at(true, 90);
+    clock.advance(Duration::from_secs(3600));
+    settle_until(Duration::from_millis(500), || false).await;
+    set(true);
+    quiet("after the threshold was raised past the context", &raised);
+
+    // A background subagent still at work after the turn: the chat is not idle.
+    let fifo = root.join("bg-agent-gate");
+    assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    let busy = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    let gate = format!("bg-agent-gate: {}", fifo.display());
+    c.ok("session/prompt", prompt(&busy, &gate)).await;
+    c.ok("session/prompt", prompt(&busy, "cache-probe")).await;
+    clock.advance(Duration::from_secs(3600));
+    settle_until(Duration::from_millis(500), || false).await;
+    quiet("while a background subagent works", &busy);
+    let end = fifo.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(end, "done")).await.unwrap().unwrap();
+
+    // The compaction's connection drops: no automatic continuation follows it (a model call
+    // nobody asked for); the next turn's usage arms the timer again.
+    std::fs::write(&compact_fails, "").unwrap();
+    let cut = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&cut, "cache-probe")).await;
+    clock.advance(Duration::from_secs(275));
+    settle_until(Duration::from_secs(20), || compactions(&hub, &cut) == 1).await;
+    assert_eq!(compactions(&hub, &cut), 1, "{:?}", prompts(&hub, &cut));
+    let resumes = |hub: &Hub| {
+        let events = hub.events(&cut, 0, 10_000).unwrap();
+        events.iter().filter(|e| e.kind == "auto_resume_scheduled").count()
+    };
+    settle_until(Duration::from_millis(500), || resumes(&hub) > 0).await;
+    if resumes(&hub) != 0 {
+        gaps.push(format!("a failed cache compaction was auto-resumed: {:?}", prompts(&hub, &cut)));
+    }
+    std::fs::remove_file(&compact_fails).unwrap();
+    assert!(gaps.is_empty(), "{gaps:#?}");
 
     // Under the threshold (usage-probe: 4.2K of 200K, no cache tier): nothing is armed.
     let small = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();

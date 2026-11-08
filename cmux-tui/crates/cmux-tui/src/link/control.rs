@@ -8,13 +8,13 @@ use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use cmux_link::dial::{CloudEventRequest, MAX_LINE_BYTES, ReloadRequest, parse_line};
+use cmux_link::dial::{MAX_LINE_BYTES, ReloadRequest, parse_line};
 use cmux_link::owner_session::OwnerSession;
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 
-use super::cloud::{CloudResolver, ConnectInfoSource, apply_cloud_event};
+use super::acpmux::AcpmuxTarget;
 use super::dial::{Overlay, serve_dial_line};
 use super::inbound::{InboundRefused, serve_inbound_watched};
 use super::lines::read_line;
@@ -39,14 +39,6 @@ impl Peers {
         let loaded = Arc::new(Pairings::load(&path)?);
         let (changes, _) = tokio::sync::watch::channel(loaded);
         Ok(Self { path, changes, open: Arc::default(), updates: tokio::sync::Mutex::new(()) })
-    }
-
-    /// A Native Cloud link has no paired installs or local peers. Keep the
-    /// same revocation/event machinery while starting from an empty view;
-    /// its inherited broker is the only authority for Cloud hosts.
-    pub(super) fn isolated(path: PathBuf) -> Self {
-        let (changes, _) = tokio::sync::watch::channel(Arc::new(Pairings { peers: vec![] }));
-        Self { path, changes, open: Arc::default(), updates: tokio::sync::Mutex::new(()) }
     }
 
     /// What every incoming or outgoing paired stream watches for revocation.
@@ -109,11 +101,10 @@ enum StatusOp {
 /// Serve the local socket. Each caller must be this user and
 /// signed as cmux (`cmux_link::caller`); others are closed unanswered.
 /// `status` is the one-line answer to `link.status`.
-pub(super) async fn serve_local<O: Overlay, S: ConnectInfoSource>(
+pub(super) async fn serve_local<O: Overlay>(
     listener: UnixListener,
     overlay: Arc<O>,
     peers: Arc<Peers>,
-    resolver: Arc<CloudResolver<S>>,
     status: Arc<str>,
 ) -> io::Result<()> {
     let mut failures = 0u32;
@@ -131,24 +122,17 @@ pub(super) async fn serve_local<O: Overlay, S: ConnectInfoSource>(
                 continue;
             }
         };
-        tokio::spawn(serve_local_request(
-            stream,
-            overlay.clone(),
-            peers.clone(),
-            resolver.clone(),
-            status.clone(),
-        ));
+        tokio::spawn(serve_local_request(stream, overlay.clone(), peers.clone(), status.clone()));
     }
 }
 
 /// The first accept retry delay; later ones grow linearly up to 1 s.
 const ACCEPT_RETRY: std::time::Duration = std::time::Duration::from_millis(20);
 
-async fn serve_local_request<O: Overlay, S: ConnectInfoSource>(
+async fn serve_local_request<O: Overlay>(
     mut stream: UnixStream,
     overlay: Arc<O>,
     peers: Arc<Peers>,
-    resolver: Arc<CloudResolver<S>>,
     status: Arc<str>,
 ) {
     // The signature check calls into the OS; keep it off the async workers.
@@ -158,12 +142,6 @@ async fn serve_local_request<O: Overlay, S: ConnectInfoSource>(
         return;
     }
     let Ok(first) = read_line(&mut stream, MAX_LINE_BYTES).await else { return };
-    if let Some(event) = parse_line::<CloudEventRequest>(&first) {
-        let ok = apply_cloud_event(&event, &*overlay, &resolver).await;
-        let reply = if ok { "{\"ok\":true}\n" } else { "{\"ok\":false}\n" };
-        let _ = stream.write_all(reply.as_bytes()).await;
-        return;
-    }
     if let Some(StatusRequest { op: StatusOp::Status }) = parse_line::<StatusRequest>(&first) {
         let _ = stream.write_all(format!("{status}\n").as_bytes()).await;
         return;
@@ -175,20 +153,26 @@ async fn serve_local_request<O: Overlay, S: ConnectInfoSource>(
         return;
     }
     let pairings = peers.snapshot();
-    serve_dial_line(stream, &first, &*overlay, &pairings, &resolver, Some(peers.revocations()))
-        .await;
+    serve_dial_line(stream, &first, &*overlay, &pairings, Some(peers.revocations())).await;
 }
 
-/// Serve overlay streams from paired peers. Without a session socket this
-/// link only dials, and inbound streams are closed.
+/// Serve overlay streams from paired peers. Without a session socket and
+/// without an acpmux target this link only dials, and inbound streams are
+/// closed.
 pub(super) async fn serve_overlay<L: OverlayListener>(
     mut listener: L,
     peers: Arc<Peers>,
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
+    acpmux: AcpmuxTarget,
 ) {
+    let serves_nothing = session_socket.is_none() && matches!(acpmux, AcpmuxTarget::Off);
     while let Some((stream, key, address)) = listener.accept().await {
-        let Some(session_socket) = session_socket.clone() else { continue };
+        if serves_nothing {
+            continue;
+        }
+        let session_socket = session_socket.clone();
+        let acpmux = acpmux.clone();
         let pairings = peers.snapshot();
         let owner = owner.clone();
         let revocations = peers.revocations();
@@ -201,8 +185,9 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
                 key,
                 address,
                 &pairings,
-                &session_socket,
+                session_socket.as_deref(),
                 owner.as_deref(),
+                &acpmux,
                 Some(revocations),
             )
             .await;

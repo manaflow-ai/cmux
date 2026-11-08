@@ -110,6 +110,8 @@ SENDER_SURFACES = ("sender_local", "sender_peer", "sender_unreached")
 # SenderName's name control, the one that opens the sender's chat. Its aria-label says "Open NAME", so each case
 # clicks its own sender's line when the transcript holds several.
 SENDER_CHIP = ".cv-received__from--open"
+# A folded inbox notice's head (InboxNoticeCard.tsx, MessageGroupHead.tsx): its senders' chips show once it is open.
+INBOX_FOLDED = '.cv-inbox--group .cv-inbox__head[aria-expanded="false"]'
 # A name no daemon here has, as a lane VM's message relayed by the lane-gh broker names its sender.
 UNREACHED_SENDER = "some-vm/some-chat"
 # The peer daemon's sender chat, its transcript's turns (so its first rows are measurable), and the name the peer
@@ -799,6 +801,12 @@ def measure(run, chat, surface, label, round_index):
         if (SENDERS.get(surface) or {}).get("error") or not (SENDERS.get(surface) or {}).get("name"):
             return {"error": f"no message: {(SENDERS.get(surface) or {}).get('error') or 'not seeded'}", "opened_pane": False}
         panes_before = pane_count(chat)
+        # Not timed: senders held in the chat's inbox (sender_local's and sender_unreached's both) fold into one
+        # notice whose head lists them (InboxNoticeCard.tsx, two threads or more), and each sender's own chip shows
+        # only once it is open, as a person opens it before clicking a name.
+        expanded = run.rpc("debug.agent_pane", {"action": "click", "selector": INBOX_FOLDED, "pane": chat.pane}) or {}
+        if not expanded.get("error"):
+            time.sleep(0.4)  # test script: the notice's own motion ends
     if surface == "reopen_right":
         problem = open_and_close_right(run, chat, round_index, before)
         if problem:

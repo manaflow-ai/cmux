@@ -117,3 +117,21 @@ test("thousands of nested tags draw their text, not a stack overflow", () => {
   expect(out).toContain("<p>after</p>");
   expect(out.split("<div>").length - 1).toBeLessThanOrEqual(50);
 });
+
+// Review of #38075, F2: an ordinary <img> keeps its validated srcset (GitHub's responsive images),
+// and one with only a srcset loads its first candidate instead of falling back to alt text.
+test("an image keeps its srcset when every candidate may load, and a srcset alone still draws", () => {
+  const a = "https://private-user-images.githubusercontent.com/1/a.png";
+  const b = "https://private-user-images.githubusercontent.com/1/b.png";
+  const both = draw(`<p><img src="${a}" srcset="${a} 1x, ${b} 2x" alt="shot"></p>`);
+  expect(both).toContain(`src="${a}"`);
+  expect(both).toContain(`srcSet="${a} 1x, ${b} 2x"`);
+  const only = draw(`<p><img srcset="${a} 640w, ${b} 1280w" alt="shot"></p>`);
+  expect(only).toContain(`<img class="gh-md-img" src="${a}"`);
+  expect(only).toContain(`srcSet="${a} 640w, ${b} 1280w"`);
+  // One candidate off GitHub's hosts drops the whole srcset; the src still loads.
+  const mixed = draw(`<p><img src="${a}" srcset="${a} 1x, https://evil.example/x.png 2x" alt="shot"></p>`);
+  expect(mixed).toContain(`src="${a}"`);
+  expect(mixed).not.toContain("srcSet");
+  expect(mixed).not.toContain("evil.example");
+});

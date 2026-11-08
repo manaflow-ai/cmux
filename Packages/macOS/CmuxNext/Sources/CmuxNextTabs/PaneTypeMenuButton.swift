@@ -18,6 +18,8 @@ final class PaneTypeMenuButton: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        // The add buttons' size class: the chevron spans about the +'s width beside it.
+        glyph.symbolPointSize = { Metrics.addMenuChevronPointSize }
         addSubview(glyph)
         glyph.setAccessibilityElement(false)
         setAccessibilityElement(true)

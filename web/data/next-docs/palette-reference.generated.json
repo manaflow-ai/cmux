@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1375,
+    "entries": 1374,
     "shortcuts": 189
   },
   "sections": [
@@ -650,6 +650,12 @@
           "title": "Toggle Top Dock",
           "shortcut": null,
           "command": "cmux window toggle-dock-top"
+        },
+        {
+          "id": "home.undockChief",
+          "title": "Undock Chief",
+          "shortcut": null,
+          "command": "cmux home undock-chief"
         },
         {
           "id": "zoomWindow",
@@ -6838,12 +6844,6 @@
           "command": "cmux cloud bring-back"
         },
         {
-          "id": "cloudRelayChat",
-          "title": "Chat on Cloud Machine via the Relay…",
-          "shortcut": null,
-          "command": "cmux cloud relay-chat"
-        },
-        {
           "id": "cloudPortClose",
           "title": "Close Forwarded Machine Port…",
           "shortcut": null,
@@ -6944,12 +6944,6 @@
           "title": "Detach Cloud Tunnel Network",
           "shortcut": null,
           "command": "cmux cloud tunnel-detach"
-        },
-        {
-          "id": "cloudEnrollMachine",
-          "title": "Enroll Machine as Agent Host",
-          "shortcut": null,
-          "command": "cmux cloud enroll-machine"
         },
         {
           "id": "palette.cloud.fork",

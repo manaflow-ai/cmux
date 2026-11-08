@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 858,
-    "mcp": 772
+    "verbs": 857,
+    "mcp": 771
   },
   "nouns": [
     {
@@ -1282,13 +1282,6 @@
           "mcpTool": "app_cloud_domain_list"
         },
         {
-          "command": "cmux cloud enroll-machine",
-          "title": "Enroll Machine as Agent Host",
-          "id": "cloudEnrollMachine",
-          "mcp": true,
-          "mcpTool": "app_cloud_enroll_machine"
-        },
-        {
           "command": "cmux cloud exec",
           "title": "Run Command on Cloud Machine…",
           "id": "cloudExec",
@@ -1539,13 +1532,6 @@
           "id": "cloudPublicationList",
           "mcp": true,
           "mcpTool": "app_cloud_publication_list"
-        },
-        {
-          "command": "cmux cloud relay-chat",
-          "title": "Chat on Cloud Machine via the Relay…",
-          "id": "cloudRelayChat",
-          "mcp": true,
-          "mcpTool": "app_cloud_relay_chat"
         },
         {
           "command": "cmux cloud rename-machine",
@@ -2113,6 +2099,13 @@
           "id": "home.tab",
           "mcp": true,
           "mcpTool": "app_home_tab"
+        },
+        {
+          "command": "cmux home undock-chief",
+          "title": "Undock Chief",
+          "id": "home.undockChief",
+          "mcp": true,
+          "mcpTool": "app_home_undock_chief"
         },
         {
           "command": "cmux home unmute",
