@@ -504,7 +504,7 @@ fn output_heavy_sealed_registry(
              BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
         )
         .unwrap();
-    let per_segment = super::super::journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT as u64;
+    let per_segment = u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT).unwrap();
     let mut state = 0x2545_f491_u64;
     let mut expected = Vec::new();
     for segment in 0..segments {
@@ -607,10 +607,7 @@ fn roster_replay_over_output_heavy_segments_decodes_each_segment_once() {
     let segments = 48;
     let (registry, expected) = output_heavy_sealed_registry(segments, 4096);
     let head = registry.session_journal_head().unwrap();
-    assert_eq!(
-        head,
-        segments * super::super::journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT as u64
-    );
+    assert_eq!(head, segments * u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT).unwrap());
     SEGMENT_DECODE_COUNTS.with(|counts| counts.set((0, 0)));
     let started = std::time::Instant::now();
     let (mut cursor, mut seen, mut pages) = (0, Vec::new(), 0);
@@ -630,7 +627,7 @@ fn roster_replay_over_output_heavy_segments_decodes_each_segment_once() {
         elapsed.as_millis()
     );
     assert_eq!(seen, expected);
-    let (decodes, outputs) = SEGMENT_DECODE_COUNTS.with(std::cell::Cell::get);
+    let (decodes, outputs) = SEGMENT_DECODE_COUNTS.with(Cell::get);
     assert_eq!(decodes, segments, "each segment is decoded once");
     assert_eq!(outputs, 0, "no output record is validated only to be dropped");
 }
@@ -655,7 +652,7 @@ fn a_stopped_kind_backfill_resumes_after_its_last_finished_segment() {
     .unwrap();
     SEGMENT_DECODE_COUNTS.with(|counts| counts.set((0, 0)));
     backfill_legacy_journal_segment_kinds(&db).unwrap();
-    let (decodes, outputs) = SEGMENT_DECODE_COUNTS.with(std::cell::Cell::get);
+    let (decodes, outputs) = SEGMENT_DECODE_COUNTS.with(Cell::get);
     assert_eq!(decodes, 2, "only the segments after the recorded progress");
     assert_eq!(outputs, 0, "the backfill never validates output it only names");
     for segment_id in ["segment_1_1024", "segment_2049_3072", "segment_3073_4096"] {

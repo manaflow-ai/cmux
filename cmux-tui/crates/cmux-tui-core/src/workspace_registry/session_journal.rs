@@ -1949,8 +1949,7 @@ enum SegmentOutput {
 thread_local! {
     /// Segment decodes and output records validated on this thread, so a
     /// test can count what a read cost.
-    pub(super) static SEGMENT_DECODE_COUNTS: std::cell::Cell<(u64, u64)> =
-        const { std::cell::Cell::new((0, 0)) };
+    pub(super) static SEGMENT_DECODE_COUNTS: Cell<(u64, u64)> = const { Cell::new((0, 0)) };
 }
 
 /// A segment that output cleanup re-encoded keeps its sequence range but
