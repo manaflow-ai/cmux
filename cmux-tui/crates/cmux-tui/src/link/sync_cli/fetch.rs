@@ -247,7 +247,7 @@ fn run(command: &mut Command) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{claim, deep_enough, is_partial, origin_url};
+    use super::{claim, deep_enough, is_partial, origin_url, too_broad};
 
     #[test]
     fn a_repository_root_is_never_a_home_or_top_folder() {
