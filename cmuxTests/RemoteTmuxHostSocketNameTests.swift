@@ -131,6 +131,14 @@ import Testing
         // ssh execs its command and has no line limit.
         #expect(TerminalController.remoteTmuxSessionName(
             from: ["session": unnamedLimit, "socket_name": "alpha"], transport: .ssh, mode: .attach) == unnamedLimit)
+        // A quote in the name costs three bytes once shell-quoted, so a name that fits the
+        // length bound can still render past the budget; the boundary measures the rendering.
+        let quoted = String(unnamedLimit.dropLast()) + "'"
+        #expect(quoted.utf8.count == unnamedLimit.utf8.count)
+        #expect(TerminalController.remoteTmuxSessionName(
+            from: ["session": quoted], transport: .et, mode: .attach) == nil)
+        #expect(TerminalController.remoteTmuxSessionName(
+            from: ["session": quoted], transport: .ssh, mode: .attach) == quoted)
     }
 
     @Test func socketBoundaryBuildsAndRefusesSocketNames() {
