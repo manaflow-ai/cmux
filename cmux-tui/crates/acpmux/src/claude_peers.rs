@@ -106,7 +106,7 @@ fn read_entry(path: &Path) -> Option<Peer> {
     let record: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
     let peer = parse_entry(&record)?;
     (peer.pid.to_string() == stem
-        && crate::adopt_live::registered_runs(peer.pid, record["startedAt"].as_u64()))
+        && crate::adopt_live::registered_runs(peer.pid, record.get("startedAt").and_then(Value::as_u64)))
     .then_some(peer)
 }
 

@@ -30,14 +30,17 @@ const ANSWER_WAIT: Duration = Duration::from_secs(30 * 60);
 /// still finds its answer while it is kept.
 const KEPT: usize = 256;
 
+/// How a delivery ended: the turn the watch showed it as, or why the app's inbox did not take it.
+type Outcome = Option<Result<String, String>>;
+
 /// A delivery, by the uuid it was sent with: waiting for its transcript line and turn until
-/// `turn` holds the turn the watch showed it as, then kept so a resend is not delivered again.
+/// `turn` holds its [`Outcome`], then kept (when it went) so a resend is not delivered again.
 pub(super) struct Pending {
     pub(super) session_id: String,
     pub(super) prompt_id: String,
     pub(super) text: String,
     order: u64,
-    turn: watch::Sender<Option<String>>,
+    turn: watch::Sender<Outcome>,
 }
 
 #[derive(Default)]
@@ -61,12 +64,12 @@ impl Deliveries {
         session_id: &str,
         prompt_id: &str,
         text: &str,
-    ) -> Result<watch::Receiver<Option<String>>, watch::Receiver<Option<String>>> {
+    ) -> Result<watch::Receiver<Outcome>, watch::Receiver<Outcome>> {
         if let Some((_, p)) = self.of_prompt(session_id, prompt_id) {
             return Err(p.turn.subscribe());
         }
         let (turn, rx) = watch::channel(None);
-        self.next += 1;
+        self.next = self.next.saturating_add(1);
         let pending = Pending {
             session_id: session_id.to_owned(),
             prompt_id: prompt_id.to_owned(),
@@ -106,12 +109,12 @@ pub(super) fn delivered(session_id: &str, uuid: &str) -> Option<(String, String)
 /// The watch ended the turn of `prompt_id`: its call (and any resend's) answers with `turn_id`.
 pub(super) fn answered(session_id: &str, prompt_id: &str, turn_id: &str) {
     if let Some((_, p)) = deliveries().of_prompt(session_id, prompt_id) {
-        p.turn.send_replace(Some(turn_id.to_owned()));
+        p.turn.send_replace(Some(Ok(turn_id.to_owned())));
     }
 }
 
-/// The turn `rx` names, once the watch shows it, within [`ANSWER_WAIT`].
-async fn turn_of(mut rx: watch::Receiver<Option<String>>) -> Option<String> {
+/// The outcome `rx` gets, once the watch shows its turn or its delivery fails, within [`ANSWER_WAIT`].
+async fn turn_of(mut rx: watch::Receiver<Outcome>) -> Outcome {
     let wait = rx.wait_for(Option::is_some);
     tokio::time::timeout(ANSWER_WAIT, wait).await.ok()?.ok()?.clone()
 }
@@ -148,7 +151,7 @@ impl Hub {
         if let Some(id) = opts.prompt_id.clone() {
             let kept = deliveries().of_prompt(&session.id, &id).map(|(_, p)| p.turn.subscribe());
             if let Some(rx) = kept {
-                return Some(Ok(resent(session, &id, rx, opts).await));
+                return Some(resent(session, &id, rx, opts).await);
             }
         }
         let config = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).claude.clone();
@@ -171,15 +174,18 @@ impl Hub {
         let claimed = deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text);
         let rx = match claimed {
             Ok(rx) => rx,
-            Err(rx) => return Some(Ok(resent(session, &prompt_id, rx, opts).await)),
+            Err(rx) => return Some(resent(session, &prompt_id, rx, opts).await),
         };
         let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
         let from = crate::claude_peers::from_address(&sender);
         let sent = crate::claude_peers::deliver(&config, &peer, &text, &uuid, &from).await;
         if let Err(e) = sent {
-            deliveries().by_uuid.remove(&uuid);
-            return Some(Err(RpcError::new(-32000, format!("bridge.undelivered: {e}"))
-                .with_data(json!({"reason": "bridge.undelivered"}))));
+            // A resend waiting on this delivery fails with it, and a later one delivers again.
+            let gone = deliveries().by_uuid.remove(&uuid);
+            if let Some(p) = gone {
+                p.turn.send_replace(Some(Err(e.clone())));
+            }
+            return Some(Err(undelivered(&e)));
         }
         self.append(
             session,
@@ -192,8 +198,24 @@ impl Hub {
                 json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "state": "delivered", "bridged": true}),
             );
         }
-        let turn_id = turn_of(rx).await;
-        Some(Ok(reply(&prompt_id, turn_id.as_deref(), Some(&peer))))
+        Some(answer(&prompt_id, turn_of(rx).await, Some(&peer)))
+    }
+}
+
+fn undelivered(e: &str) -> RpcError {
+    RpcError::new(-32000, format!("bridge.undelivered: {e}"))
+        .with_data(json!({"reason": "bridge.undelivered"}))
+}
+
+fn answer(
+    prompt_id: &str,
+    outcome: Outcome,
+    peer: Option<&crate::claude_peers::Peer>,
+) -> Result<Value, RpcError> {
+    match outcome {
+        Some(Err(e)) => Err(undelivered(&e)),
+        Some(Ok(turn_id)) => Ok(reply(prompt_id, Some(&turn_id), peer)),
+        None => Ok(reply(prompt_id, None, peer)),
     }
 }
 
@@ -201,14 +223,13 @@ impl Hub {
 async fn resent(
     session: &Session,
     prompt_id: &str,
-    rx: watch::Receiver<Option<String>>,
+    rx: watch::Receiver<Outcome>,
     opts: &mut PromptOptions,
-) -> Value {
+) -> Result<Value, RpcError> {
     if let Some(f) = opts.on_accepted.take() {
         f(json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true}));
     }
-    let turn_id = turn_of(rx).await;
-    reply(prompt_id, turn_id.as_deref(), None)
+    answer(prompt_id, turn_of(rx).await, None)
 }
 
 fn reply(prompt_id: &str, turn_id: Option<&str>, peer: Option<&crate::claude_peers::Peer>) -> Value {

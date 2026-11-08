@@ -25,8 +25,20 @@ fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
     assert_eq!(delivered("s2", "u-find"), None);
     answered("s1", "p1", "t1");
     assert_eq!(delivered("s1", "u-find"), None, "an answered delivery is shown already");
-    assert_eq!(rx.borrow().as_deref(), Some("t1"));
+    assert_eq!(*rx.borrow(), Some(Ok("t1".to_owned())));
     assert!(deliveries().of_prompt("s1", "p1").is_some(), "kept, so a resend finds it");
+}
+
+/// A resend waiting on a delivery the inbox refused fails with it, never answers as a turn.
+#[tokio::test]
+async fn a_resend_of_a_delivery_that_failed_fails_too() {
+    let rx = deliveries().claim("u-fail".into(), "s9", "p9", "hi").unwrap();
+    let waiting = tokio::spawn(turn_of(rx));
+    let gone = deliveries().by_uuid.remove("u-fail").unwrap();
+    gone.turn.send_replace(Some(Err("refused".into())));
+    let outcome = waiting.await.unwrap();
+    let err = answer("p9", outcome, None).unwrap_err();
+    assert!(err.message.contains("bridge.undelivered: refused"), "{}", err.message);
 }
 
 fn scratch(name: &str) -> PathBuf {
