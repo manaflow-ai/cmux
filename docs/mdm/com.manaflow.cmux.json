@@ -74,12 +74,6 @@
       "title" : "Session Info Chip",
       "type" : "string"
     },
-    "agentPane.display.finishSound" : {
-      "default" : false,
-      "description" : "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting.",
-      "title" : "Play Sound When Work Finishes",
-      "type" : "boolean"
-    },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
       "description" : "agentPane.display.font.lineHeight",
@@ -109,9 +103,11 @@
       "type" : "number"
     },
     "agentPane.display.font.ui" : {
-      "default" : "inter-tuned",
+      "default" : "system-ui",
       "description" : "The font of the whole chat: replies, the composer, cards and menus.",
       "enum" : [
+        "system-ui",
+        "system-ui-tight",
         "inter-tuned",
         "inter",
         "verdana",
@@ -121,9 +117,7 @@
         "geist",
         "cmux-sans",
         "hanken",
-        "atkinson",
-        "system-ui",
-        "system-ui-tight"
+        "atkinson"
       ],
       "title" : "Chat Interface Font",
       "type" : "string"
@@ -2275,6 +2269,12 @@
       "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
+    "developerTools.appPages" : {
+      "default" : true,
+      "description" : "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them.",
+      "title" : "Developer Tools for cmux Pages",
+      "type" : "boolean"
+    },
     "deviceHub.url" : {
       "default" : "",
       "description" : "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub.",
@@ -2982,6 +2982,27 @@
         "hosted"
       ],
       "title" : "Engine",
+      "type" : "string"
+    },
+    "home.chiefPanel.seesScreen" : {
+      "default" : true,
+      "description" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off.",
+      "title" : "Chief Sees Your Screen When It Opens",
+      "type" : "boolean"
+    },
+    "home.chiefPanel.style" : {
+      "default" : "composeBar",
+      "description" : "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip.",
+      "enum" : [
+        "composeBar",
+        "pill",
+        "card",
+        "panel",
+        "bubble",
+        "seeThrough",
+        "seeThroughBar"
+      ],
+      "title" : "Floating Chief Style",
       "type" : "string"
     },
     "home.chiefPetEnabled" : {
