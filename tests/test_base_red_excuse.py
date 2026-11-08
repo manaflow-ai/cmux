@@ -2194,7 +2194,8 @@ def replay_log(charged, shared=(), base_timeouts=(), passed_alone=()):
     PASSED_ALONE passed alone there: charged before it, a warning after)."""
     def compare(errors, warnings):
         return [f"##[warning]{name}" for name in warnings] + [f"##[error]{name}" for name in errors] + [
-            f"{len(errors)} webview test steps red on this change, {len(warnings)} red on the base too, 0 fixed"]
+            f"{len(errors)} webview test steps red on this change, {len(warnings)} red on the base too, "
+            "0 flaky on the base, 0 fixed"]
     first = list(charged) + list(passed_alone)
     lines = web_log(timeouts=base_timeouts).splitlines() + [
         f"2026-11-08T09:29:40.2315681Z {line}" for line in compare(first, shared)]
@@ -2372,6 +2373,20 @@ class WebviewTestReplayPerTest(unittest.TestCase):
         with self.assertRaises(excuse.Refused) as refused:
             self.judge(gh)
         self.assertNotIn("judged per test", str(refused.exception))
+
+    def test_a_replay_whose_head_rerun_printed_no_final_verdict_is_refused(self):
+        # Review follow-up (1) on #38380: the re-run's failures alone are no charged-test verdict.
+        gh = WebReplayGitHub()
+        gh.logs[1] = gh.logs[1].rsplit("##[error]", 1)[0].rsplit("\n", 1)[0]
+        with self.assertRaisesRegex(excuse.Refused, "no final charged-test verdict"):
+            self.judge(gh)
+
+    def test_a_replay_whose_final_verdict_line_was_cut_off_is_refused(self):
+        # Review F1 on #38434: the log ends right after "red on the base too".
+        gh = WebReplayGitHub()
+        gh.logs[1] = gh.logs[1].rsplit(", 0 flaky on the base, 0 fixed", 1)[0]
+        with self.assertRaisesRegex(excuse.Refused, "no final charged-test verdict"):
+            self.judge(gh)
 
     def test_a_head_shard_red_matches_the_base_in_another_shard(self):
         gh = WebReplayGitHub()

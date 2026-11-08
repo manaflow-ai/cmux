@@ -298,6 +298,7 @@ extension AgentPaneView {
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             quoteReply: { [weak self] markdown in self?.runMessageAction("chat.quoteReply", ["markdown": markdown]) },
+            attachSelection: { [weak self] text in self?.runMessageAction("chat.attachSelection", ["text": text]) },
             open: { [weak self] url in self?.openLink(url) },
             linkItems: { [weak self] url in
                 // A pull request link's row opens the GitHub page or github.com beside this chat.
@@ -322,6 +323,9 @@ extension AgentPaneView {
             },
             sessionItems: { [weak self] session in self?.model.sessionMenuItems?(session) ?? [] },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
+            pinChapter: { [weak self] rowId, sessionId in
+                self?.runMessageAction("chat.pinChapter", ["rowId": rowId, "sessionId": sessionId])
+            },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
             pasteTarget: webView,
             inspectElement: AgentPaneTunables.pointerInspector.value ? {
