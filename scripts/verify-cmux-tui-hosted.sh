@@ -273,7 +273,7 @@ dispatched_run() {
 }
 check_runs_hint="gh run list --repo $REPO --workflow $WORKFLOW --branch $remote_branch --event workflow_dispatch"
 dispatch_tries=3
-for ((try = 1; ; try++)); do
+for try in 1 2 3; do
   dispatch_status=0
   run_id="$(dispatch)" || dispatch_status=$?
   [[ $dispatch_status -eq 0 ]] && break

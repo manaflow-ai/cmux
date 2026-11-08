@@ -41,6 +41,11 @@
       "reason": "Not a wait: retries gh attestation verify only when GitHub answers with a rate limit, with doubling backoff (4 retries from 1 minute by default, CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES and CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS change them); any other answer is final. Runs on user machines and nightly legs without glaeda-gh."
     },
     {
+      "path": "scripts/verify-cmux-tui-hosted.sh",
+      "match": "for try in 1 2 3; do",
+      "reason": "Not a wait: retries one workflow dispatch that got HTTP 5xx or a transport error, at most 3 tries 10 and 20 s apart, and before each new try reads the run list once so it never dispatches a second run; a 4xx fails at once. The run itself is waited for with glaeda-gh."
+    },
+    {
       "path": "workers/presence/scripts/local-proof.sh",
       "match": "while [ \"$(date +%s)\" -lt \"$DEADLINE\" ]; do",
       "reason": "A local proof of the presence worker: waits for its own SSE transcript to show the alarm-driven offline event, bounded by a 90 s deadline after the last heartbeat. No GitHub call, and it runs on a developer machine that may lack glaeda-gh."
