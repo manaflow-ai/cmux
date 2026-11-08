@@ -115,9 +115,15 @@ pub fn run(opts: &Opts) -> Res<()> {
 
 /// The session settings from the options (every mode).
 fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
+    let display = opts.str_or("display", DEFAULT_DISPLAY);
+    // An explicit --max-fps wins; else the display's refresh rate (60 when it cannot be read).
+    let max_fps = match opts.get("max-fps") {
+        Some(_) => opts.num_or("max-fps", 60)?,
+        None => crate::desktop::default_max_fps(&display),
+    };
     Ok(SessionCfg {
-        display: opts.str_or("display", DEFAULT_DISPLAY),
-        max_fps: opts.num_or("max-fps", 60)?,
+        display,
+        max_fps,
         start_kbps: opts.num_or("start-kbps", 8000)?,
         max_kbps: opts.num_or("max-kbps", 50_000)?,
         preset: opts.str_or("preset", "ultrafast"),

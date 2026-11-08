@@ -2762,7 +2762,9 @@ async fn lying_peer(says: Lying) -> u16 {
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let says = says.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
                         continue;
                     };
@@ -3433,7 +3435,9 @@ async fn legacy_models_peer(a_port: u16) -> u16 {
             let Ok(ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             tokio::spawn(async move {
                 let (mut sink, mut source) = ws.split();
-                while let Some(Ok(Ws::Text(text))) = source.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = source.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
                         continue;
                     };
@@ -3451,7 +3455,9 @@ async fn legacy_models_peer(a_port: u16) -> u16 {
                             let ask = Message::request(1, "_acpmux/models", json!({})).to_line();
                             back.send(Ws::Text(ask.trim_end().to_owned().into())).await.unwrap();
                             let mut rows = vec![json!({"harness": "old-agent", "models": []})];
-                            while let Some(Ok(Ws::Text(t))) = back.next().await {
+                            // Skip non-text frames: this loop reads A's responses.
+                            while let Some(Ok(frame)) = back.next().await {
+                                let Ws::Text(t) = frame else { continue };
                                 if let Ok(Message::Response { result: Some(r), .. }) =
                                     Message::parse(&t)
                                 {

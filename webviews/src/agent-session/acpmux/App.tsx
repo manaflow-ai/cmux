@@ -2343,8 +2343,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The asks of the sub-sessions below this chat (subagents/childAsks.ts): the oldest shows here,
   // answered through this chat, while the chat has no ask of its own.
   const belowAsks = useMemo(
-    () => childAsks(snapshot.asks ?? [], snapshot.sessions, snapshot.sessionId),
-    [snapshot.asks, snapshot.sessions, snapshot.sessionId],
+    () => childAsks([...(snapshot.asks ?? []), ...(snapshot.groupedAsks ?? [])], snapshot.sessions, snapshot.sessionId),
+    [snapshot.asks, snapshot.groupedAsks, snapshot.sessions, snapshot.sessionId],
   );
   const childAsk = individualPermission ? undefined : belowAsks[0];
   // Search files reads the session's folder through whoever runs the session: the acpmux
