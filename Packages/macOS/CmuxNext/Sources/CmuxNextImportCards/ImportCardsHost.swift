@@ -1,4 +1,5 @@
 public import CmuxNextBrowserImport
+public import CmuxNextDaemon
 public import Foundation
 
 /// What the cards need from the App, which owns the importer's stores: the
@@ -24,16 +25,21 @@ public struct ImportCardsHost {
     /// recorded in the import's ledger (so nothing comes over twice). Reports progress and
     /// returns as `importClassic` does.
     public var importConductor: (@escaping @MainActor (Double) -> Void) async throws -> Int?
+    /// Performs the daemon's read-only source probe for the live Import Suggestions scan.
+    /// Errors are handled by the scan caller and never hide the other source findings.
+    public var detectConductor: (() async -> ConductorImportDetection?)?
 
     public init(runImport: @escaping (ImportPlan, any SafeStorageKeyProviding, @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary,
                 importedProfiles: @escaping () async -> Set<String>,
                 openSettings: @escaping (String) -> Void,
                 importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
-                importConductor: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?) {
+                importConductor: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
+                detectConductor: (() async -> ConductorImportDetection?)? = nil) {
         self.runImport = runImport
         self.importedProfiles = importedProfiles
         self.openSettings = openSettings
         self.importClassic = importClassic
         self.importConductor = importConductor
+        self.detectConductor = detectConductor
     }
 }

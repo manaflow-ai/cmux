@@ -57,9 +57,12 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
     /// Sessions, threads or workspaces, for the agent, Classic and Conductor sources.
     public var count: Int
     public var access: Access
+    /// Whether this finding has a real Conductor installation. Generic agent worktree findings
+    /// keep the `.conductor` executor kind while suppressing Conductor-only copy and deadline text.
+    public var hasConductor: Bool
 
     public init(id: String, kind: ImportSourceKind, browser: ImportBrowser? = nil, name: String,
-                profiles: [Profile] = [], count: Int = 0, access: Access = .ready) {
+                profiles: [Profile] = [], count: Int = 0, access: Access = .ready, hasConductor: Bool = true) {
         self.id = id
         self.kind = kind
         self.browser = browser
@@ -67,6 +70,23 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
         self.profiles = profiles
         self.count = count
         self.access = access
+        self.hasConductor = hasConductor
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, browser, name, profiles, count, access, hasConductor
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        kind = try container.decode(ImportSourceKind.self, forKey: .kind)
+        browser = try container.decodeIfPresent(ImportBrowser.self, forKey: .browser)
+        name = try container.decode(String.self, forKey: .name)
+        profiles = try container.decodeIfPresent([Profile].self, forKey: .profiles) ?? []
+        count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0
+        access = try container.decodeIfPresent(Access.self, forKey: .access) ?? .ready
+        hasConductor = try container.decodeIfPresent(Bool.self, forKey: .hasConductor) ?? true
     }
 
     /// Nothing new to bring now (cmux Classic's saved session is all here already): only

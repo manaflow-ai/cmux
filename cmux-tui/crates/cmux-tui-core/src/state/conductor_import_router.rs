@@ -18,12 +18,12 @@
 //! A ledger from a newer cmux, or one that breaks the ledger's invariants,
 //! is never read past or written over.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cmux_conductor_import::ledger::{Ledger, Load, Stage};
-use cmux_conductor_import::{catalog, detect, inspect, plan};
+use cmux_conductor_import::{catalog, detect, inspect, plan, tools};
 use serde_json::{Map, Value, json};
 
 use crate::resource::{ResourceError, ResourceOperation};
@@ -221,6 +221,47 @@ fn open_key<'a>(state: &'a State, name: &str) -> Option<&'a str> {
 }
 
 impl Mux {
+    /// Metadata from the existing chat-index relay; no second scan or watcher.
+    fn agent_import_folders(&self) -> Result<Vec<(tools::AdapterKind, PathBuf)>, ResourceError> {
+        self.read_registry_state(|connection| {
+            let projects = super::projects_store::load(connection)?;
+            Ok(projects
+                .list(false)
+                .into_iter()
+                .flat_map(|project| {
+                    let disabled = projects.disabled();
+                    project.sources.keys().filter_map(move |source| {
+                        if disabled.contains(source) {
+                            return None;
+                        }
+                        tools::AdapterKind::from_id(source)
+                            .map(|tool| (tool, PathBuf::from(&project.path)))
+                    })
+                })
+                .collect())
+        })
+        .map_err(resource_operation_error)
+    }
+
+    /// Presence hints, not promises of worktrees the full plan can adopt.
+    pub(crate) fn agent_import_detect(&self, home: Option<&Path>) -> Result<Value, ResourceError> {
+        let found = home.map(detect::detect).unwrap_or_default();
+        let mut sources = BTreeMap::<&str, usize>::new();
+        for (tool, _) in self.agent_import_folders()? {
+            *sources.entry(tool.id()).or_default() += 1;
+        }
+        let has_conductor = found.database.is_some() || found.workspaces.is_some();
+        let card = (has_conductor || !sources.is_empty()).then(|| {
+            json!({
+                "id": "agents.conductor", "kind": "conductor", "name": "Agent worktrees",
+                // These are folder hints, not verified linked worktree counts.
+                "count": null,
+            })
+        });
+        Ok(json!({"found": found, "plan": null, "candidate_folders": sources,
+            "has_conductor": has_conductor, "card": card}))
+    }
+
     /// The workspaces open now, each by its key and by its public id.
     fn open_workspace_ids(&self) -> BTreeSet<String> {
         self.with_state(|state| {
@@ -238,6 +279,18 @@ impl Mux {
         &self,
         home: Option<&Path>,
     ) -> Result<Value, ResourceError> {
+        let refusals = super::projects_store::refusals();
+        self.conductor_import_plan_with_policy(home, &|path| {
+            path.to_str().is_some_and(|path| refusals.normalize(path).is_ok())
+        })
+    }
+
+    /// The same plan with an injected path policy for isolated fixture homes.
+    pub(crate) fn conductor_import_plan_with_policy(
+        &self,
+        home: Option<&Path>,
+        admit: &dyn Fn(&Path) -> bool,
+    ) -> Result<Value, ResourceError> {
         let Some(home) = home else {
             return Ok(json!({"found": detect::Found::default(), "plan": null}));
         };
@@ -250,16 +303,54 @@ impl Mux {
                 }
             },
             (None, Some(workspaces)) => inspect::catalog_from_folder(workspaces),
-            (None, None) => return Ok(json!({"found": found, "plan": null})),
+            (None, None) => catalog::Catalog::default(),
         };
         let ledger = match usable(self.personal_state_read(store::load)?) {
             Ok(ledger) => ledger,
             Err(reason) => return Ok(json!({"found": found, "plan": null, "error": reason})),
         };
         let open = self.open_workspace_ids();
-        let facts = inspect::inspect(&catalog, home);
-        let plan = plan::plan(&catalog, &facts, &ledger, &open);
-        let mut value = json!({"found": found, "plan": plan});
+        // The app already relays the chat index's grouped folders into the
+        // project registry. Reuse those detectors without another transcript
+        // scan or watcher. Hidden projects and disabled sources stay excluded.
+        let folders = self.agent_import_folders()?;
+        let has_conductor = found.database.is_some() || found.workspaces.is_some();
+        let mut source_error = None;
+        let catalog = match tools::folders(catalog.clone(), &folders, admit) {
+            Ok(catalog) => catalog,
+            Err(error) if has_conductor => {
+                source_error = Some(error);
+                catalog.into()
+            }
+            Err(error) => return Ok(json!({"found": found, "plan": null, "error": error})),
+        };
+        if catalog.catalog.repos.is_empty() && !found.any() {
+            return Ok(json!({"found": found, "plan": null}));
+        }
+        let facts = catalog.inspect(home);
+        let mut plan = plan::plan(&catalog.catalog, &facts, &ledger, &open);
+        self.exclude_open_import_workspaces(&mut plan)?;
+        if let Some(detail) = source_error {
+            plan.warnings.push(plan::Warning { code: "agent-source-scan-failed", detail });
+        }
+        if !has_conductor {
+            plan.cloud_read_only = "";
+            plan.cloud_shutdown = "";
+            plan.warnings.retain(|warning| warning.code != plan::ARCHIVE_DELETES_FOLDER);
+        }
+        let sources: BTreeMap<_, Vec<_>> = catalog
+            .tools
+            .iter()
+            .map(|(id, tools)| (id, tools.iter().map(|tool| tool.id()).collect()))
+            .collect();
+        let mut value = json!({
+            "found": found,
+            "plan": plan,
+            "tool_sources": sources,
+            "unreadable_folders": catalog.unreadable,
+            "has_conductor": has_conductor,
+        });
+        value["plan"]["has_conductor"] = json!(has_conductor);
         if let Some(projects) = value.get_mut("plan").and_then(|plan| plan.get_mut("projects")) {
             self.place_recipes(projects);
         }
@@ -349,7 +440,14 @@ pub(crate) fn dispatch(
     debug_assert!(handles(request.envelope.operation));
     mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
     match request.envelope.operation {
-        ResourceOperation::ConductorImportPlan => mux.conductor_import_plan(home().as_deref()),
+        ResourceOperation::ConductorImportPlan => match request.fields.get("detect_only") {
+            Some(Value::Bool(true)) => mux.agent_import_detect(home().as_deref()),
+            None | Some(Value::Bool(false)) => mux.conductor_import_plan(home().as_deref()),
+            Some(_) => Err(ResourceError::validation_invalid(
+                Some("detect_only"),
+                "detect_only must be a boolean",
+            )),
+        },
         ResourceOperation::ConductorImportRecord => {
             let record = Record::parse(&request.fields)?;
             let mutation = request.mutation().map_err(resource_operation_error)?;

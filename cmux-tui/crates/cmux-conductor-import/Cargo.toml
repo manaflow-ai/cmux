@@ -11,6 +11,7 @@ description = "Import from Conductor: reads conductor.db and each repository's C
 workspace = true
 
 [dependencies]
+cmux-chat-index.workspace = true
 cmux-git.workspace = true
 rusqlite.workspace = true
 serde = { workspace = true }

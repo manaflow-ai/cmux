@@ -39,6 +39,7 @@ pub mod inspect;
 pub mod ledger;
 pub mod plan;
 pub mod settings;
+pub mod tools;
 
 /// Conductor Cloud stops taking changes (UTC date).
 pub const CLOUD_READ_ONLY: &str = "2026-11-13";

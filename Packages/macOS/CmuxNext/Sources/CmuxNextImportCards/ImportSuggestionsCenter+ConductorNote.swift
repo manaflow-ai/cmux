@@ -12,7 +12,8 @@ extension ImportSuggestionsCenter {
 
     /// The note while it shows; nil otherwise, and while the cards are off.
     public var conductorNote: SidebarNoticeCard? {
-        guard isEnabled, !conductorDeadlinePassed, state.showsConductorNote(findings: findings, jobs: ledger, now: now()) else { return nil }
+        let instant = conductorDeadlinePassed ? max(now(), ImportSuggestionState.conductorDeadline) : now()
+        guard isEnabled, state.showsConductorNote(findings: findings, jobs: ledger, now: instant) else { return nil }
         return SidebarNoticeCard(id: Self.conductorNoteID, symbol: "square.and.arrow.down", title: ConductorImportStrings.noteTitle,
                                  detail: ConductorImportStrings.noteDetail,
                                  actions: [SidebarNoticeCard.Action(id: Self.conductorNoteOpen, title: ConductorImportStrings.noteOpen, prominent: true)],

@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 import CmuxNextBrowser
 import CmuxNextCookieImport
 import CmuxNextDesign
+import CmuxNextDaemon
 import CmuxNextImportCards
 import CmuxNextOnboarding
 
@@ -106,7 +107,11 @@ enum OnboardingHandlers {
             importedProfiles: { Set(await services.onboarding.importStore.sources().map(\.sourceKey)) },
             openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) },
             importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened },
-            importConductor: { progress in try await ConductorImport(host: services).run(progress: progress) })
+            importConductor: { progress in try await ConductorImport(host: services).run(progress: progress) },
+            detectConductor: {
+                guard let connection = services.daemon.connection else { return nil }
+                return try? await ConductorImportClient(connection: connection).detect()
+            })
     }
 
     /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux

@@ -13,9 +13,9 @@ extension ImportSuggestionState {
     /// here, since the ledger prunes finished jobs) or hides the Conductor card in Settings ›
     /// Import (its Done after an import does too).
     public func showsConductorNote(findings: [ImportFinding], jobs: ImportJobLedger, now: Date) -> Bool {
-        guard now < Self.conductorDeadline, conductorNoteClosed != true, conductorImportRan != true,
+        guard conductorNoteClosed != true, conductorImportRan != true,
               let finding = findings.first(where: { $0.kind == .conductor }) else { return false }
-        return jobs.job(finding.id) == nil && !hides(finding)
+        return (!finding.hasConductor || now < Self.conductorDeadline) && jobs.job(finding.id) == nil && !hides(finding)
     }
 }
 

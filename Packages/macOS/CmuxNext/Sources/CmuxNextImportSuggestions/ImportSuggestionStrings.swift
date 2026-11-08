@@ -21,6 +21,12 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static func workspaces(_ count: Int) -> String {
         String(localized: "importSuggestions.facts.workspaces", defaultValue: "\(count) saved workspaces", table: "ImportSuggestions", bundle: .module)
     }
+    public static var agentWorktreesTitle: String {
+        String(localized: "importSuggestions.agentWorktrees.title", defaultValue: "Agent worktrees", table: "ImportSuggestions", bundle: .module)
+    }
+    static var agentWorktrees: String {
+        String(localized: "importSuggestions.facts.agentWorktrees", defaultValue: "Agent worktrees found", table: "ImportSuggestions", bundle: .module)
+    }
     /// cmux Classic's saved session, all of it here already.
     static var classicAllHere: String {
         String(localized: "importSuggestions.facts.classicAllHere", defaultValue: "Every saved workspace is here", table: "ImportSuggestions", bundle: .module)
@@ -71,6 +77,11 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static var conductor: String {
         String(localized: "importSuggestions.benefit.conductor",
                defaultValue: "Your Conductor workspaces open here in place, on their branches, with their chats.",
+               table: "ImportSuggestions", bundle: .module)
+    }
+    static var agentWorktreesBenefit: String {
+        String(localized: "importSuggestions.benefit.agentWorktrees",
+               defaultValue: "Open existing agent worktrees in cmux, on their branches.",
                table: "ImportSuggestions", bundle: .module)
     }
     static var classicAgain: String {

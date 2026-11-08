@@ -14484,6 +14484,46 @@
       },
       "extra": false
     },
+    "ConductorImportCard": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Stable onboarding offer ID; currently agents.conductor."
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Existing onboarding route kind; currently conductor."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "count": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "Null for detection hints; no worktree count is claimed before the full plan."
+        }
+      },
+      "extra": false
+    },
     "ConductorImportFound": {
       "kind": "object",
       "fields": {
@@ -14542,7 +14582,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "The dry run (the cmux-conductor-import crate's Plan: source, cloud dates, projects with their workspaces and dispositions, cleanup, warnings); null when nothing is found or error is set."
+          "description": "The full dry run (the cmux-conductor-import Plan): source, projects with workspaces/dispositions and recipes, cleanup and warnings. Full plans add has_conductor; recipe.project_path names the destination project. Cloud dates and archive warnings apply only when has_conductor is true. Null for detect_only, when nothing is found, or when error is set."
         },
         "error": {
           "required": false,
@@ -14550,7 +14590,62 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "Why there is no plan: conductor.db could not be read, or the stored ledger is a newer cmux's or unreadable."
+          "description": "Why there is no plan: unreadable source data, an unreadable or newer ledger, or an agent-source scan limit. A failed agent-source scan preserves an available Conductor plan with warning code agent-source-scan-failed."
+        },
+        "candidate_folders": {
+          "required": false,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "Detect-only: candidate folder counts keyed by tool ID from the existing chat-project index. These are presence hints, not verified linked-worktree counts."
+        },
+        "card": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "ConductorImportCard"
+            }
+          },
+          "description": "Detect-only: the onboarding offer, or null when no Conductor data or agent folder candidates are present."
+        },
+        "has_conductor": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether a Conductor database or workspaces folder is present; an installed app alone does not count. Full plans also carry this flag inside plan."
+        },
+        "tool_sources": {
+          "required": false,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "description": "Full-plan tool IDs keyed by import workspace ID. Several tools can refer to one adopted worktree; Conductor workspace IDs are retained when paths match."
+        },
+        "unreadable_folders": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Full-plan candidate paths Git could not inspect. Contains paths only, never subprocess diagnostics or environment values."
         }
       },
       "extra": false
@@ -23649,12 +23744,24 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "detect_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "When true, return presence hints and an onboarding card with plan null. Does not run Git, read the import ledger, or scan transcripts. False or omitted builds the full dry run."
+          }
+        },
         "extra": false,
         "constraints": [
-          "Reads Conductor under the daemon's HOME, never a path from the caller: conductor.db read-only, or the workspaces folder alone when the database is gone. git worktree list confirms each workspace adopted in place.",
-          "The plan reads the stored ledger and the workspaces open now: a workspace recorded done stays already-imported while its cmux workspace is open.",
-          "A ledger from a newer cmux gives plan null and error \"ledger from a newer cmux\"; it is left as it is."
+          "Full plans read Conductor under the daemon's HOME, never a path from the caller: conductor.db read-only, or its workspaces folder when the database is gone. Existing chat-project folders add candidates from supported agent tools; Git confirms linked worktrees before adoption.",
+          "detect_only true returns found, plan null, candidate_folders, has_conductor and card from existing project-index rows plus Conductor presence checks. Counts are candidate folders, not verified linked worktrees. False or omitted retains the full-plan behavior.",
+          "The full plan reads the stored ledger and currently open workspaces: a completed, still-open workspace is already-imported; an already-open folder is not adopted twice. Tool candidates share the same plan and ledger, preserving matching Conductor IDs.",
+          "A ledger from a newer cmux gives plan null and error \"ledger from a newer cmux\"; it is left as it is.",
+          "Agent discovery is bounded and fails by name rather than returning a truncated adoption plan. When Conductor data is available, an agent-source scan failure preserves its plan with an agent-source-scan-failed warning.",
+          "Chat transcripts remain at their sources. Plans retain tool provenance, scripts and environment variable names only; environment values and credentials are not copied."
         ]
       },
       "result": {

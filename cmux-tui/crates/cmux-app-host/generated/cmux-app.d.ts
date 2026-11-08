@@ -84,8 +84,9 @@ declare namespace Cmux {
   type CommandSpec = unknown
   type CommitSha = string
   type Concurrency = { max: number; on_limit: "queue" | "skip" }
+  type ConductorImportCard = { id: string; kind: string; name: string; count: number | null }
   type ConductorImportFound = { database: string | null; workspaces: string | null; app: string | null }
-  type ConductorImportPlanResult = { found: Cmux.ConductorImportFound; plan: Cmux.JsonValue | null; error?: string }
+  type ConductorImportPlanResult = { found: Cmux.ConductorImportFound; plan: Cmux.JsonValue | null; error?: string; candidate_folders?: Record<string, number>; card?: Cmux.ConductorImportCard | null; has_conductor?: boolean; tool_sources?: Record<string, Array<string>>; unreadable_folders?: Array<string> }
   type ConductorImportRecordResult = { workspace: string; stage: "pending" | "done"; cmux_workspace: string | null; runs: number }
   type ConfirmationRequiredDetails = { confirmation_token: string; revision: string; closes_panes: Array<string /* pane_… */> }
   type ConfirmLevel = "strict" | "destructive-only" | "off"
