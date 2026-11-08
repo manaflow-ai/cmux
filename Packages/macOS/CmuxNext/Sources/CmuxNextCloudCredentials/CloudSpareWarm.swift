@@ -52,11 +52,7 @@ public import os
                 try await decision.readGuest(exec: { (try? await pinned.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause)
             }
             if decision.verdict.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: pinned, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)) }
-<<<<<<< HEAD
             guard decision.verdict.transferProvider == .claude, decision.verdict.warmInstalls ?? (decision.verdict.step == .install) else { return false }
-=======
-            guard decision.verdict.transferProvider == .claude, decision.verdict.step == .install else { return false }
->>>>>>> origin/feat-cmux-next
             if let outcome = try await CloudCredentialTransfer.CachedLogin.startOutcome({
                 await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams)
             }) {
@@ -76,7 +72,6 @@ public import os
     }
 }
 
-<<<<<<< HEAD
 public extension CloudHarnessLoginDecision {
     /// Reads the machine's Claude login into the decision. A start whose step would install it races a spare warm's
     /// copy onto this machine (Rust's ``Verdict/warmCopyConflict``, known only now): it waits for that copy (Rust's
@@ -90,8 +85,6 @@ public extension CloudHarnessLoginDecision {
     }
 }
 
-=======
->>>>>>> origin/feat-cmux-next
 public extension CloudAuth {
     /// Every scope a person's cached Claude login may sit under: each of their teams, then their personal scope. One login per person, whichever team is selected.
     var loginScopes: [String?] { teams.map { Optional($0.id) } + [nil] }
