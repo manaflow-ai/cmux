@@ -56,6 +56,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     private let burstTrace: BurstTrace?
     /// The app's grid sender (`AppServices.resizes`): a view's grid now, one in flight.
     private let resizes: ResizeCoordinator
+    let predictsEcho: Bool // the shell runs on another machine (a Cloud machine's daemon): keys show before their echo
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
     var creatingTerminalID: String? { creatingInput?.terminalID }
 
@@ -67,13 +68,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// go while the burst bench records (`debug.burst`).
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
-         creatingInput: CreatingTerminalInput? = nil,
+         creatingInput: CreatingTerminalInput? = nil, remoteShell: Bool = false,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.resizes = resizes
-        probeSurface = target.attachment.surface.rawValue
-        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
-        let surface = target.attachment.surface.rawValue
+        predictsEcho = remoteShell
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal"), surface = target.attachment.surface.rawValue
+        probeSurface = surface
         let driver = TerminalAttachDriver<TerminalAttachment>(
             initialSize: target.initialSize,
             visible: visible,
@@ -201,9 +202,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     /// Called by `ResizeCoordinator` once the size settled.
-    @MainActor func applySettled(_ size: CellSize) {
-        driver.resize(size)
-    }
+    @MainActor func applySettled(_ size: CellSize) { driver.resize(size) }
 
     @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
 
