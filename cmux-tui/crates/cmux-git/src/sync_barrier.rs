@@ -10,7 +10,10 @@
 //! it exclusively from before it takes the marker until [`Sync::head_ready`], so
 //! a reader that finds the marker locked and the head lock free sees
 //! [`Probe::HeadReady`]. A lock, not a byte: a producer that died after its head
-//! leaves nothing a later sync's reader could take for its own head. Only a
+//! leaves nothing a later sync's reader could take for its own head. A producer
+//! that marks heads also holds `<marker>.owner` for its whole sync; a producer from
+//! an older build holds only the marker, so with the owner lock free a reader never
+//! takes a free head lock (left by an earlier sync) for that producer's. Only a
 //! harness start whose every tool call is gated on [`wait_ready`] may go ahead at
 //! the head: its first prompt then waits on the repository's root and instruction
 //! files, not on the whole checkout, while its tools still wait for all of it.
@@ -30,6 +33,8 @@ pub struct Sync {
     marker: File,
     /// The head lock, held until [`Sync::head_ready`].
     head: Option<File>,
+    /// The owner lock: this sync marks heads. Released first on drop (below).
+    owner: Option<File>,
 }
 
 /// Shared locks stay held through the caller's write, preventing a new seed
@@ -75,8 +80,16 @@ pub fn wait_ready(path: &Path, timeout: Duration) -> io::Result<()> {
 }
 
 fn head_marker(folder: &Path) -> io::Result<PathBuf> {
+    sidecar(folder, ".head")
+}
+
+fn owner_marker(folder: &Path) -> io::Result<PathBuf> {
+    sidecar(folder, ".owner")
+}
+
+fn sidecar(folder: &Path, suffix: &str) -> io::Result<PathBuf> {
     let mut path = marker(folder)?.into_os_string();
-    path.push(".head");
+    path.push(suffix);
     Ok(PathBuf::from(path))
 }
 
@@ -144,6 +157,10 @@ impl Sync {
         // may take the head as in place. A reader holds it only for one probe.
         let head = open(&head_marker(folder)?, true)?;
         wait_lock(&head, libc::LOCK_EX)?;
+        // Under the head lock, so a reader holding it shared knows any owner it sees is
+        // past its head.
+        let owner = open(&owner_marker(folder)?, true)?;
+        wait_lock(&owner, libc::LOCK_EX)?;
         let mut file = open(&marker(folder)?, true)?;
         if !lock(&file, libc::LOCK_EX)? {
             return Err(io::Error::new(io::ErrorKind::WouldBlock, "repository is in use"));
@@ -156,7 +173,7 @@ impl Sync {
         file.write_all(b"0")?;
         file.set_len(1)?;
         file.sync_data()?;
-        Ok(Self { marker: file, head: Some(head) })
+        Ok(Self { marker: file, head: Some(head), owner: Some(owner) })
     }
 
     /// The head is in place and the rest of the checkout still arrives: a reader
@@ -259,9 +276,11 @@ enum Syncing {
 
 /// A folder whose marker was locked: whether its producer is past its head. The head lock is
 /// taken shared first and kept for this call, so no new producer can begin meanwhile
-/// ([`Sync::begin`] takes it first); then the marker is tried again. Still locked: the same
-/// producer is alive, and it released the head lock, so its head is in place. Free: it ended
-/// (a failed one drops both locks at once), and only the marker's byte may say ready.
+/// ([`Sync::begin`] takes it first); then the marker is tried again. Free: its producer ended
+/// (a failed one drops every lock), and only the marker's byte may say ready. Still locked:
+/// past its head only if the owner lock is held too. An owner can only hold it after its
+/// head lock, which it has let go of, and it holds the marker until after the owner lock;
+/// a producer from before owner locks never takes it.
 fn syncing_state(folder: &Path, marker: &File) -> io::Result<Syncing> {
     let head = match open(&head_marker(folder)?, false) {
         Ok(head) => head,
@@ -273,7 +292,15 @@ fn syncing_state(folder: &Path, marker: &File) -> io::Result<Syncing> {
     if !lock(&head, libc::LOCK_SH)? {
         return Ok(Syncing::ShortOfHead);
     }
-    if lock(marker, libc::LOCK_SH)? { Ok(Syncing::Ended) } else { Ok(Syncing::PastHead) }
+    if lock(marker, libc::LOCK_SH)? {
+        return Ok(Syncing::Ended);
+    }
+    let owner = match open(&owner_marker(folder)?, false) {
+        Ok(owner) => owner,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Syncing::ShortOfHead),
+        Err(error) => return Err(error),
+    };
+    if lock(&owner, libc::LOCK_SH)? { Ok(Syncing::ShortOfHead) } else { Ok(Syncing::PastHead) }
 }
 
 #[cfg(test)]
@@ -295,6 +322,35 @@ mod tests {
         assert!(matches!(syncing_state(&repo, &marker).unwrap(), Syncing::Ended));
         assert!(matches!(probe(&repo).unwrap(), Probe::Incomplete));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review F1 (cmux#38084, 9efddcbb52a): a producer from before head locks holds only the
+    /// marker. The head sidecar an earlier sync left is free, and that must not read as this
+    /// producer's head.
+    #[test]
+    fn an_older_producer_beside_a_left_head_sidecar_is_short_of_its_head() {
+        let dir = std::env::temp_dir().join(format!("cmux-sync-legacy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.canonicalize().unwrap().join("repo");
+        let mut sync = Sync::begin(&repo).unwrap();
+        sync.head_ready();
+        sync.complete().unwrap();
+        assert!(head_marker(&repo).unwrap().exists() && owner_marker(&repo).unwrap().exists());
+        let legacy = open(&marker(&repo).unwrap(), true).unwrap();
+        assert!(lock(&legacy, libc::LOCK_EX).unwrap());
+        assert!(matches!(probe(&repo).unwrap(), Probe::Syncing));
+        drop(legacy);
+        assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+impl Drop for Sync {
+    fn drop(&mut self) {
+        // The owner first: while it is held with the head lock free, a reader takes the
+        // head as in place, so it must not outlive the head lock or the marker.
+        self.owner = None;
+        self.head = None;
     }
 }
 
