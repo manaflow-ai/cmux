@@ -746,3 +746,27 @@ fn a_failed_barrier_is_filled_again_after_the_history_fetch() {
     );
     assert!(machine.0.join("home/held").exists(), "held again");
 }
+
+#[cfg(unix)]
+/// Review F1 (cmux#38582, ce36521d223): the fill opened the history lock with `>`, so a symlink
+/// planted at it truncated whatever file it named. The lock is now removed if a symlink and only
+/// appended to.
+#[test]
+fn a_symlink_at_the_history_lock_is_not_followed() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    assert_eq!(code, 0);
+    machine.settle();
+    let victim = machine.0.join("home/victim");
+    std::fs::write(&victim, "keep").unwrap();
+    let lock = machine.checkout().join(".git/cmux-history.lock");
+    let _ = std::fs::remove_file(&lock);
+    std::os::unix::fs::symlink(&victim, &lock).unwrap();
+    machine.barrier_reads(1);
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("background")), "{record}");
+    machine.settle();
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+    assert!(!lock.is_symlink(), "the symlink is gone");
+}

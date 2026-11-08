@@ -130,7 +130,8 @@ fill_later() {
 # fetch, so no later start finds the checkout open with the fetch not yet holding it.
 if [ "${1:-}" = fill ]; then
   use "${2:-anonymous}"
-  exec 9>"$history_lock" || exit 1
+  # Appended to, never truncated: a symlink planted there is removed, not followed.
+  { [ ! -L "$history_lock" ] || rm -f "$history_lock"; } && exec 9>>"$history_lock" || exit 1
   if command -v flock >/dev/null 2>&1; then flock 9 || exit 1; fi
   g -C "$dir" sparse-checkout disable || exit 1
   setsid "$d/repo" unshallow "${2:-anonymous}" </dev/null >>"$d/bootstrap.log" 2>&1 &
