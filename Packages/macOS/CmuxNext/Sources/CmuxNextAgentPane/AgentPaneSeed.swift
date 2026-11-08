@@ -41,6 +41,9 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var pastChat: String?
     /// The page opens on its Harnesses page (Integrate a Harness…, cx-uj5g8). Handed out once.
     public var showsHarnesses: Bool
+    /// The page picks Cloud for its new chat, as the Where menu's Cloud row does (New Cloud Chat,
+    /// `palette.newCloudChat`; handshake `pickCloud`). Handed out once.
+    public var picksCloud: Bool
     /// A Sandboxed send that already ended, shown by this new page as its own (a Run notification's
     /// click, ``AgentPaneSandboxRuns``).
     public var sandboxResult: SandboxResult?
@@ -70,9 +73,11 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
                 promptBy: PromptBy = .automation,
                 adopt: AgentPaneAdopt? = nil, surface: AgentPaneSurface? = nil, harness: String? = nil, model: String? = nil,
                 host: String? = nil,
-                folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil, showsHarnesses: Bool = false) {
+                folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil, showsHarnesses: Bool = false,
+                picksCloud: Bool = false) {
         self.promptBy = promptBy
         self.showsHarnesses = showsHarnesses
+        self.picksCloud = picksCloud
         self.folderNeeded = folderNeeded
         self.pastChat = pastChat
         self.cwd = cwd
@@ -123,6 +128,7 @@ public final class AgentPaneSeedSource {
         return value.draft == nil && value.prompt == nil && (value.promptAttachments?.isEmpty ?? true)
             && value.adopt == nil && value.surface == nil
             && value.harness == nil && value.model == nil && value.host == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
+            && !value.picksCloud
     }
 
     /// The seed names a chat of this Mac: an outside chat it resumes (`adopt`) or a past chat of
@@ -173,6 +179,7 @@ public final class AgentPaneSeedSource {
         value?.prompt = nil
         value?.promptAttachments = nil
         value?.showsHarnesses = false
+        value?.picksCloud = false
         // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).
         if let needed = value?.folderNeeded {
             folderNeeded = needed
@@ -199,6 +206,17 @@ func agentPaneFirst<T: Sendable>(within limit: Duration, _ read: @escaping @Main
             let value = await read()
             once.run { continuation.resume(returning: value) }
             deadline.cancel()
+        }
+    }
+}
+
+extension AgentPaneSeedSource {
+    /// New Cloud Chat: what New Agent Chat's tab inherits (`inherited`), with its page picking Cloud.
+    public static func picksCloud(after inherited: AgentPaneSeedSource?) -> AgentPaneSeedSource {
+        AgentPaneSeedSource {
+            var seed = await inherited?.peek() ?? AgentPaneSeed()
+            seed.picksCloud = true
+            return seed
         }
     }
 }

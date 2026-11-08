@@ -9255,6 +9255,7 @@ object{
   agents: array<object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
+    status?: "working"|"blocked"|"done"|"idle"|"unknown"|null,
     source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
     agent?: string|null,
@@ -9284,6 +9285,15 @@ banner text the app shows per its Show Previews setting) and whole as `message`,
 prompt as `prompt`, the posting agent's harness session as `session` and the ledger row's id
 as `id` (for the phone's Feed). The daemon drops the message once that event is sent. The
 durable notification row never holds any of them.
+
+`state` is the roster state; `done` there is an agent session that ended.
+`status` is the one status vocabulary every client shows: `blocked`, `done`
+(the agent finished a turn and no client has shown its tab since: `state` is
+`idle` and the terminal still carries its unread marker), `working`, `idle`
+and `unknown`, ranked for attention in that order; null for an ended session.
+`list-agents` is a read and never clears `done`; `ack-tab-notifications`, which
+a frontend sends when it shows the tab to the person, makes it `idle`. Older
+daemons omit `status`; use `state` there.
 
 `since_ms` is when the agent entered `state` (Unix ms): a report that keeps
 the state keeps it, so a client can show how long an agent has worked or

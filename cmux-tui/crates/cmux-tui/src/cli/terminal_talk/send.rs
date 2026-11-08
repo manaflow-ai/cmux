@@ -22,6 +22,8 @@
 //! - `pattern`: the wait also ends as soon as output printed after the
 //!   message's echo matches a regex (the echo itself and older output never
 //!   match), and when the command finishes without a match.
+//! - The reply is the output after the message's echo; without the echo,
+//!   the output after what the screen showed before the send (`idle`).
 //! - Reads join soft-wrapped rows into the lines the program printed
 //!   (`terminal-read-unwrap-v1`) when the daemon can; an older daemon gets
 //!   the plain row reads.
@@ -418,7 +420,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         return Err(SendFailure::local("usage.invalid", "send needs --text", json!({}), 2));
     }
     let pattern = match request.pattern.as_deref() {
-        Some(pattern) => Some(Regex::new(pattern).map_err(|error| {
+        Some(pattern) => Some(cmux_tui_core::wait_pattern::compile(pattern).map_err(|error| {
             SendFailure::local(
                 "usage.invalid",
                 format!("--pattern is not a valid regular expression: {error}"),
@@ -445,7 +447,8 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         ));
     }
     let agents = snapshot["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
-    let agent = roster::agent_of_terminal(terminal, agents);
+    // Only the blocked check below reads the agent; done-until-seen is moot.
+    let agent = roster::agent_of_terminal(terminal, agents, false);
     if !request.force
         && let Some(agent) = &agent
         && agent.state == AgentState::WaitingForInput
@@ -458,7 +461,12 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
                  escape), or pass --force to type anyway",
                 agent.harness
             ),
-            json!({"terminal": id, "harness": agent.harness, "state": agent.state.as_str()}),
+            json!({
+                "terminal": id,
+                "harness": agent.harness,
+                "state": agent.state.as_str(),
+                "status": "blocked",
+            }),
             1,
         ));
     }
@@ -490,6 +498,14 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
             .map_err(|error| stage_failure(error.into(), &send_id, &id, stage))?;
         Ok(())
     };
+    let reads = Reads::new();
+    // What the screen shows before the message: an agent whose echo is not
+    // found (a pasted message drawn as a placeholder) still answers only
+    // what it printed after the send, never the turns already there.
+    let shown_before = (request.wait == Wait::Idle)
+        .then(|| reads.screen(backend, session, &id, &[]).ok())
+        .flatten()
+        .map(|screen| reply::lines(screen.get("text").and_then(Value::as_str).unwrap_or_default()));
     let sent_ms = super::now_ms();
     write(&typed, "paste")?;
     std::thread::sleep(request.enter_delay);
@@ -506,7 +522,6 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         receipt.set("sent", Value::Bool(true));
         return Ok(receipt);
     }
-    let reads = Reads::new();
     let waited = wait(
         backend,
         session,
@@ -516,7 +531,10 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         &reads,
     )?;
     let lines = reply_lines(backend, session, &id, &waited.screen, &request.text, &reads);
-    let Reply { text, anchored } = reply::reply_after(&lines, &request.text);
+    let screen =
+        reply::lines(waited.screen.get("text").and_then(Value::as_str).unwrap_or_default());
+    let Reply { text, anchored } =
+        reply::reply_since(&lines, &request.text, shown_before.as_deref(), &screen);
     let (state, timed_out) = match waited.verdict {
         Verdict::Done(state) => (state.as_str(), false),
         Verdict::Exited => ("exited", false),
