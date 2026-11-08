@@ -106,11 +106,13 @@ async function render(snapshot: AcpmuxSnapshot, onReconnectMachine?: (link: Peer
   );
 }
 
-/// A started chat; on peer `peer` when given, whose link acpmux says is `state`.
-function started(peer?: string, state?: string, kind: "ssh" | "cloud" = "ssh"): AcpmuxSnapshot {
+/// A started chat; on peer `peer` when given, whose link acpmux says is `state`. With `banner`, the
+/// chat is drawn from the Mac's copy while its machine does not answer, so the peer copy banner shows.
+function started(peer?: string, state?: string, kind: "ssh" | "cloud" = "ssh", banner = false): AcpmuxSnapshot {
   const snapshot = chat([user("hello", 3), summary(2, { status: "completed" })], { title: "Reconnect" });
   return {
     ...snapshot,
+    ...(peer && banner ? { peerCopy: { peer, offline: true } } : {}),
     summary: { ...snapshot.summary!, ...(peer ? { peer } : {}) },
     ...(peer ? { peerKinds: { [peer]: kind } } : {}),
     ...(peer && state ? { peerStates: { [peer]: state } } : {}),
@@ -176,10 +178,45 @@ test("an offline peer offers Reconnect, which asks for that peer", async () => {
 });
 
 test("a Cloud peer that does not answer leaves it to the peer copy banner", async () => {
-  await render(started("dev-vm-2", "offline", "cloud"));
+  await render(started("dev-vm-2", "connected", "cloud"));
+  expect(link()?.dataset.link).toBe("connected");
+  for (const state of ["offline", "connecting", "reconnecting", "restarting", "degraded"]) {
+    await render(started("dev-vm-2", state, "cloud", true));
+    expect(link(), state).toBeNull();
+  }
+});
+
+test("a paused Cloud peer that was connected draws no Reconnecting spinner", async () => {
+  // A Cloud machine that was connected keeps its last_seen, so acpmux reports its pause as reconnecting.
+  await render(started("dev-vm-2", "connected", "cloud"));
+  expect(link()).not.toBeNull();
+  await render(started("dev-vm-2", "reconnecting", "cloud", true));
   expect(link()).toBeNull();
+  expect(host.querySelector(".acpmux-composer-foot .acpmux-machine-link-spinner")).toBeNull();
+  expect(host.querySelector(".acpmux-composer-foot")?.textContent ?? "").not.toContain("Reconnecting");
+});
+
+test("an open Cloud chat whose link drops with no banner keeps its warning in the footer", async () => {
+  // The chat is still read from its machine (no Mac's copy, so no peer copy banner): the footer is the
+  // only place that says the link is coming back.
+  await render(started("dev-vm-2", "connected", "cloud"));
   await render(started("dev-vm-2", "reconnecting", "cloud"));
   expect(link()?.dataset.link).toBe("connecting");
+  expect(said()).toBe("dev-vm-2Reconnecting…");
+});
+
+test("a Cloud peer whose sign-in or build needs a person still says so", async () => {
+  // Only the Cloud states that come back on their own are the peer copy banner's: a refused sign-in or
+  // a build the machine needs waits for a person, and the banner offers only Resume.
+  for (const [state, words] of [
+    ["authFailed", "Sign-in needed"],
+    ["updateRequired", "Update required"],
+  ] as const) {
+    await render(started("dev-vm-2", state, "cloud"));
+    expect(link()?.dataset.link, state).toBe("offline");
+    expect(said(), state).toBe(`dev-vm-2${words}`);
+    expect(reconnect(), state).toBeNull();
+  }
 });
 
 test("the model chip no longer reads Unavailable for a machine that is down", async () => {
