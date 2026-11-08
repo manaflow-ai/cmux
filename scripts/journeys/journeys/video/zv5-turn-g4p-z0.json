@@ -266,14 +266,6 @@
     ],
     "finally": [
         {
-            "do": "rpc",
-            "method": "debug.frames",
-            "params": {
-                "action": "zoom_variant V0 K2"
-            },
-            "title": "clean-up: the zoom selector back to V0"
-        },
-        {
             "do": "settings_file",
             "title": "clean-up: the fixture colors off (the next journey's theme is its own)",
             "set": {
