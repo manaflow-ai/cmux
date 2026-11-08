@@ -153,7 +153,10 @@ struct Resolve {
 #[serde(deny_unknown_fields)]
 struct LegacyFile {
     document: String,
-    idempotency_key: String,
+    /// Every mutation carries one; this op keys each node by its id instead
+    /// (`lookup::legacy_file`), so a copy that stopped replays what it did.
+    #[serde(rename = "idempotency_key")]
+    _idempotency_key: String,
 }
 
 /// An absent field is `None`; a present one, null included, is `Some`.
@@ -398,7 +401,7 @@ pub(super) fn routed(
             Ok(result)
         }
         "bookmarks.import_legacy_file" => {
-            let LegacyFile { document, idempotency_key: _ } = parse(params)?;
+            let LegacyFile { document, .. } = parse(params)?;
             let ops = lookup::legacy_file(&document).map_err(|error| {
                 ResourceError::validation_invalid(Some("document"), error.to_string())
             })?;
