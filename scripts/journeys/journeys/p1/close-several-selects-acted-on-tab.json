@@ -36,6 +36,7 @@
     {"do": "expect", "title": "T selected", "timeout": 10,
      "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_tab", "equals": "${t_id}"}}]},
     {"do": "rpc", "method": "action.run", "params": {"action": "closeTabsToRight", "target": "tab:${b2_id}", "focus": true, "wait": true}},
+    {"do": "use", "name": "b2"},
     {"do": "expect", "title": "Close Tabs to the Right of b2 (pinned T selected): b3 closes, b2 is selected", "timeout": 10, "settle": 1,
      "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_tab", "equals": "${b2_id}"}},
              {"app_layout": {"workspace": "jr-cos-${nonce}", "pane_tabs": 2}}]},
