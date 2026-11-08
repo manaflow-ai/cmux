@@ -484,3 +484,41 @@ test("a thread whose preview was cut inside the broker's head stays an expandabl
   await openAll(container);
   expect(container.querySelector(".cv-received__text")?.textContent).toBe("The whole message.");
 });
+
+test("two preview-only notices from one sender whose previews clean to nothing both keep their row", async () => {
+  // Review of cmux#37653 (F1 at b2dc1923): a preview cut inside the broker's head cleans to "", and
+  // with two prompt ids a thread names no single msgId, so the duplicate check keyed both on
+  // sender + "" and dropped the second thread. Each delivery is its prompt ids.
+  const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+  const notice = (id: string, threadId: string, promptIds: string[], at: number): AcpmuxRow => {
+    const prompt = incomingPrompt("[inbox] New messages from other agents in 1 thread.", {
+      client: "acpmux",
+      _meta: {
+        provenance: {
+          kind: "inbox_notice",
+          threads: [
+            {
+              threadId,
+              from: ["vm/lane"],
+              new: promptIds.length,
+              preview: relayed("The whole message.", "12345678", "vm/lane").slice(0, 120),
+              promptIds,
+            },
+          ],
+        },
+      },
+    });
+    if (prompt?.kind !== "inbox") throw new Error("not an inbox notice");
+    return { id, version: 1, at, kind: "user", incoming: prompt };
+  };
+  const rows = [notice("n1", "pr:1", ["p1", "p2"], 1), notice("n2", "pr:2", ["p3", "p4"], 2)];
+  const threads = flattenInboxRows(rows)
+    .filter((r) => r.inboxThread)
+    .map((r) => r.inboxThread!.threadId);
+  expect(threads).toEqual(["pr:1", "pr:2"]);
+  // The same thread delivered twice (the same prompt ids) still shows once.
+  const again = flattenInboxRows([notice("n1", "pr:1", ["p1", "p2"], 1), notice("n3", "pr:1", ["p1", "p2"], 3)])
+    .filter((r) => r.inboxThread)
+    .map((r) => r.inboxThread!.threadId);
+  expect(again).toEqual(["pr:1"]);
+});

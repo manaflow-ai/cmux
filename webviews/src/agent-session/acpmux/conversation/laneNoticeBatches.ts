@@ -345,14 +345,21 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   }
   const seenIds = new Set<string>();
   const seenBodies = new Set<string>();
+  // A delivery is its prompt: its own msgId, else the prompt ids of the preview-only thread it
+  // stands for. Its sender and text identify it only when it names no prompt: a cleaned preview
+  // can be empty, and two threads from one sender would then be one (review of cmux#37653).
   const keepDelivery = (child: AcpmuxRow): boolean => {
     const message = child.incoming?.kind === "message" ? child.incoming.message : undefined;
     if (!message) return false;
-    const id = message.msgId;
+    const ids = message.msgId ? [message.msgId] : (child.inboxThread?.promptIds ?? []);
+    if (ids.length) {
+      if (ids.every((id) => deliveredIds.has(id) || seenIds.has(id))) return false;
+      for (const id of ids) seenIds.add(id);
+      return true;
+    }
     const body = bodyKey(message.name, message.text);
-    if (id ? deliveredIds.has(id) || seenIds.has(id) : deliveredBodies.has(body) || seenBodies.has(body)) return false;
-    if (id) seenIds.add(id);
-    else seenBodies.add(body);
+    if (deliveredBodies.has(body) || seenBodies.has(body)) return false;
+    seenBodies.add(body);
     return true;
   };
   const offsets: number[] = [];
