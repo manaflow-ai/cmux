@@ -162,8 +162,10 @@ fn a_failed_turn_notifies_its_tab() {
     assert!(failed["title"].as_str().unwrap().ends_with("failed"), "{failed}");
 }
 
+/// A page that shows the chat stays shown while cmux is behind another app, so a turn that ends
+/// there still posts, once: the app reads it on sight when its person can see it (the app active).
 #[test]
-fn a_turn_that_ends_while_a_pane_shows_the_chat_posts_nothing() {
+fn a_turn_that_ends_while_a_pane_shows_the_chat_posts_once() {
     let daemon = machine("notice-shown");
     let (surface, session) = chat(&daemon);
     let (other_surface, other_session) = chat(&daemon);
@@ -172,14 +174,12 @@ fn a_turn_that_ends_while_a_pane_shows_the_chat_posts_nothing() {
     acpmux.prompt(&session, "hello while shown");
 
     // acpmux tells the daemon of every chat in order on one watch, so once
-    // the other chat's later turn notified, the shown chat's turn was passed over.
+    // the other chat's later turn notified, the shown chat's turn was told.
     Acpmux::connect(&daemon, &other_session).prompt(&other_session, "hello there");
     notice(&daemon, other_surface, |row| row["acknowledged"] == false);
-    assert_eq!(
-        notices(&daemon, surface),
-        Vec::<Value>::new(),
-        "a turn the person watched notified"
-    );
+    let shown = notices(&daemon, surface);
+    assert_eq!(shown.len(), 1, "one notice for the turn: {shown:?}");
+    assert!(shown[0]["title"].as_str().unwrap().ends_with("finished"), "{shown:?}");
 }
 
 #[test]
