@@ -633,14 +633,13 @@ fn fold(lines: &[&str]) -> String {
 }
 
 fn strip_comment(value: &str) -> &str {
-    value.find(" #").map_or(value, |at| &value[..at]).trim_end()
+    value.split_once(" #").map_or(value, |(head, _)| head).trim_end()
 }
 
 fn unquote(value: &str) -> String {
     let value = value.trim();
     if let Some(inner) = value.strip_prefix('\'') {
-        let end = inner.rfind('\'').unwrap_or(inner.len());
-        return inner[..end].replace("''", "'");
+        return inner.rsplit_once('\'').map_or(inner, |(head, _)| head).replace("''", "'");
     }
     let Some(inner) = value.strip_prefix('"') else { return value.to_owned() };
     let mut out = String::new();

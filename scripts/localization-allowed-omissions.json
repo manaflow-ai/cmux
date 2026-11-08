@@ -7371,5 +7371,68 @@
   "settings.choice.dictationSourceSuperwhisper": {
     "class": "brand",
     "source": "Superwhisper"
+  },
+  "settingsPage.skills.harness.claude": {
+    "class": "brand",
+    "source": "Claude Code"
+  },
+  "settingsPage.skills.harness.codex": {
+    "class": "brand",
+    "source": "Codex"
+  },
+  "settingsPage.skills.title": {
+    "source": "Skills",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.category.skills": {
+    "source": "Skills",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settingsPage.skills.harness": {
+    "source": "Harness",
+    "identityLocales": {
+      "de": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); German developer UIs keep the English word, as Klassifikator-Harness does."
+    }
+  },
+  "settingsPage.skills.scope.admin": {
+    "source": "Admin",
+    "identityLocales": {
+      "de": "Admin is the standard German short word for an administrator (in the Duden), spelled as in English."
+    }
+  },
+  "settingsPage.skills.scope.system": {
+    "source": "System",
+    "identityLocales": {
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "nb": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settingsPage.skills.scope.plugin": {
+    "source": "Plugin",
+    "identityLocales": {
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "it": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "nb": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "pt-BR": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "vi": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settingsPage.skills.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settingsPage.skills.description": {
+    "source": "Description",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
   }
 }
