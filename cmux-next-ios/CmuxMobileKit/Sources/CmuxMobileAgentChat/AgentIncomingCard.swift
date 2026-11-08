@@ -97,8 +97,8 @@ struct AgentIncomingCard: View {
                 .truncationMode(.middle)
             // acpmux could not verify who sent it (Leo, 2026-11-05: "why is it sending it as if it
             // were me?"): never the person's.
-            tag(incoming.unverified ? "unverified" : "agent")
-            if incoming.edited { tag("edited") }
+            mark(incoming.unverified ? "unverified" : "agent")
+            if incoming.edited { mark("edited") }
             Spacer(minLength: 4)
             Text(at, style: .time)
                 .font(.caption)
@@ -112,7 +112,10 @@ struct AgentIncomingCard: View {
         }
     }
 
-    private func tag(_ label: LocalizedStringKey) -> some View {
+    /// A small word beside the sender. Not named `tag`: with a string literal, `tag("agent")` picks
+    /// SwiftUI's `View.tag(_:)` (the literal's default type, String, beats LocalizedStringKey), which
+    /// drew the whole card inside its own header, without end.
+    private func mark(_ label: LocalizedStringKey) -> some View {
         Text(label)
             .font(.caption2.weight(.medium))
             .foregroundStyle(.secondary)
