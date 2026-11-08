@@ -98,10 +98,16 @@ final class FakeWidgets: HomeWidgetHosting {
             let part = try #require(customPart(snapshot))
             let image = try #require(Self.render(provider, part, light: light))
             #expect(Self.inkedPixels(image) > 500)
-            if let dir = ProcessInfo.processInfo.environment["CMUX_WIDGET_SHOTS"] {
-                try Self.png(image, to: URL(fileURLWithPath: dir).appendingPathComponent("pr-card-\(name)-\(look).png"))
-            }
+            try Self.png(image, to: Self.shots.appendingPathComponent("pr-card-\(name)-\(look).png"))
         }
+    }
+
+    /// Where the Before|After shots go: `CMUX_WIDGET_SHOTS`, else the package's `.build/widget-shots`
+    /// (a fleet step returns them with `--artifact`).
+    static var shots: URL {
+        if let dir = ProcessInfo.processInfo.environment["CMUX_WIDGET_SHOTS"] { return URL(fileURLWithPath: dir) }
+        let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return package.appendingPathComponent(".build/widget-shots")
     }
 
     /// The row as the transcript draws it: the incoming bubble, then the provider's body, at 2x.
