@@ -7,6 +7,7 @@ import React, {
   Activity,
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -9164,13 +9165,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// picks Cloud once it is offered; a chat that already started drops it.
   const cloudPickPending = cloudPickRequest > cloudPicksDone;
   const takeCloudPick = useCallback(() => setCloudPicksDone(cloudPickRequest), [cloudPickRequest]);
+  const pickCloudInComposer = useEffectEvent(() => {
+    if (sandbox.mode !== "cloud") composerModeRows.onMode("cloud");
+  });
   useEffect(() => {
     if (!cloudPickPending || showNewTab) return;
     if (snapshot.sessionId) return takeCloudPick();
     if (!sandboxOffered || onOtherMachine) return;
     takeCloudPick();
-    if (sandbox.mode !== "cloud") composerModeRows.onMode("cloud");
-  }, [cloudPickPending, showNewTab, snapshot.sessionId, sandboxOffered, onOtherMachine, sandbox.mode, composerModeRows, takeCloudPick]);
+    pickCloudInComposer();
+  }, [cloudPickPending, showNewTab, snapshot.sessionId, sandboxOffered, onOtherMachine, takeCloudPick]);
   // The handshake is done: the page that came back in that render took the draft (`takeDraft`
   // runs as it mounts, before this effect); an existing chat's recovery has no page to give it to.
   useEffect(() => {

@@ -3,7 +3,7 @@ import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import type { CloudMachine } from "../cloudMachines";
@@ -664,12 +664,15 @@ export function NewTabScreen(props: Props) {
   };
   // New Cloud Chat: the page's own Cloud pick (above), as soon as Cloud is offered here.
   const takeCloudPick = props.cloudPick;
-  const pickCloudNow = runMode && runMode.mode !== "cloud" ? runMode.onMode : undefined;
+  const cloudOfferedHere = runMode !== undefined;
+  const pickCloudNow = useEffectEvent(() => {
+    if (runMode && runMode.mode !== "cloud") runMode.onMode("cloud");
+  });
   useEffect(() => {
-    if (!takeCloudPick || !runMode) return;
+    if (!takeCloudPick || !cloudOfferedHere) return;
     takeCloudPick();
-    pickCloudNow?.("cloud");
-  }, [takeCloudPick, runMode, pickCloudNow]);
+    pickCloudNow();
+  }, [takeCloudPick, cloudOfferedHere]);
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
