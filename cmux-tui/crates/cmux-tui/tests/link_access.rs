@@ -573,6 +573,29 @@ fn an_upload_of_a_folder_in_git_keeps_its_ignore_rules_and_runs_none_of_its_conf
         }
     }
     assert!(!mark.exists(), "listing the folder ran the repository's fsmonitor");
+
+    // A bare repository, in a plain folder or in a working copy, sends none
+    // of its state; a bare repository dropped by itself is refused.
+    let plain = home.join("projects/plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    std::fs::write(plain.join("notes.txt"), "notes\n").unwrap();
+    for holder in [&plain, &repo] {
+        let bare = holder.join("mirror");
+        git(holder, &["init", "-q", "--bare", "mirror"]);
+        git(&bare, &["config", "remote.origin.url", "https://fake-git-token@example.com/r"]);
+        let (ok, sent) = upload(&world, &tmp, &[holder]);
+        assert!(ok, "{sent}");
+        let at = PathBuf::from(sent["uploads"][0]["path"].as_str().unwrap());
+        assert!(
+            std::fs::symlink_metadata(at.join("mirror")).is_err(),
+            "the bare repo went: {sent}"
+        );
+        let (ok, answer) = upload(&world, &tmp, &[&bare]);
+        assert!(!ok, "a bare repository was uploaded: {answer}");
+    }
+    let (ok, sent) = upload(&world, &tmp, &[&plain]);
+    assert!(ok, "{sent}");
+    assert_eq!(sent["uploads"][0]["files"], 1, "{sent}");
     for bytes in files_below(&world.machine_home) {
         assert!(!String::from_utf8_lossy(&bytes).contains("fake-git"), "an ignored file went");
     }

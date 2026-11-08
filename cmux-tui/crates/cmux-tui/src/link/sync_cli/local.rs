@@ -211,8 +211,34 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
 
 /// A dropped folder's own files for a one-off upload: git's ignore rules
 /// apply when it is in a working copy, its top or any folder inside one, and
-/// no git state goes.
+/// no git state goes, not even a bare repository's (a folder holding `HEAD`
+/// with `objects/` or `commondir`, whatever its name).
 pub(super) fn collect_files(folder: &Path) -> anyhow::Result<LocalSet> {
+    if git_state(folder) {
+        bail!("{} is a git repository's own folder", folder.display());
+    }
+    let mut set = listed_files(folder)?;
+    let mut fenced: BTreeMap<String, bool> = BTreeMap::new();
+    let before = set.files.len();
+    set.files.retain(|relative, _| {
+        !relative.match_indices('/').any(|(end, _)| {
+            let dir = &relative[..end];
+            *fenced.entry(dir.to_string()).or_insert_with(|| git_state(&folder.join(dir)))
+        })
+    });
+    set.skipped += (before - set.files.len()) as u64;
+    Ok(set)
+}
+
+/// A folder of git's own state: a bare repository, a `.git` folder by
+/// another name, or a linked worktree's.
+fn git_state(dir: &Path) -> bool {
+    std::fs::symlink_metadata(dir.join("HEAD")).is_ok_and(|meta| meta.is_file())
+        && (std::fs::symlink_metadata(dir.join("objects")).is_ok_and(|meta| meta.is_dir())
+            || std::fs::symlink_metadata(dir.join("commondir")).is_ok_and(|meta| meta.is_file()))
+}
+
+fn listed_files(folder: &Path) -> anyhow::Result<LocalSet> {
     let skips = Skips::new(folder);
     let mut set =
         LocalSet { files: BTreeMap::new(), links: BTreeMap::new(), skipped: 0, skips, git: false };
