@@ -272,7 +272,7 @@ fn process_identity(pid: u32) -> io::Result<((u64, u64), u32)> {
     let pid = libc::c_int::try_from(pid).map_err(io::Error::other)?;
     // SAFETY: proc_bsdinfo is plain C data; the out-buffer has its exact size.
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-    let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).map_err(io::Error::other)?;
+    let size = libc::c_int::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).map_err(io::Error::other)?;
     // SAFETY: info is writable for `size` bytes, as this flavor needs.
     let written =
         unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
