@@ -83,6 +83,8 @@ public final class HomeChiefVaultSection: NSStackView {
     /// What the section lists for the vault's `names`: a name the person set as it is, a sign-in cmux
     /// keeps by its provider, each once, sorted.
     static func shownNames(_ names: [String]) -> [String] {
-        names
+        Set(names.map { name in
+            CloudMachineSecrets.signInProvider(ofName: name).map(HomeEngineStrings.vaultSignIn) ?? name
+        }).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 }
