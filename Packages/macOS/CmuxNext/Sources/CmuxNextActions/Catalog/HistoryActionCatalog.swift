@@ -111,6 +111,15 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .menu],
                 arguments: [historyRange, historyKind], cliName: "history clear", mainMenu: .window
             ),
+            // Every page visit of one site, in every profile (the History page's Forget This Site). The
+            // session host owns `cmux history remove-site` (history.site.remove): ownerVerb.
+            ActionDescriptor(
+                id: "history.removeSite", title: t("action.history.removeSite", "Forget Site…"),
+                keywords: ["history", "privacy", "site", "host", "domain", "forget", "remove", "delete", "pages"],
+                category: .window, symbol: "globe.badge.chevron.backward", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "host", title: t("argument.history.host", "Site"), kind: .string)],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "layout.undo", title: t("action.layout.undo", "Undo Layout Change"),
                 keywords: ["undo", "layout", "split", "resize", "history", "revert"], category: .pane,

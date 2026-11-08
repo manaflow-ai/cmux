@@ -99,6 +99,13 @@ extension AppActions {
         bindHomeConversations(services)
         bindHomeGroups(services)
         bindHomeMessaging(services)
+        // Edit Chief…, Set Chief Model…, Set Chief Effort… and Make Agent a Chief… (`cmux chief edit|engine|adopt`).
+        HomeChiefRegistryActions(connection: { services.home.connection }, rows: { services.home.homeStore.rows.filter { !services.home.isCloudConversation($0.id) } },
+                                 deleted: { services.home.directory.deletedLocalChiefs }, openEditor: { chief in
+            guard !services.home.dock.isClassic else { return HomeChiefRegistryStrings.editNeedsChannels }
+            openChannelsRoute("/chief/\(chief)/edit", services) { _ in services.registry.refuse(HomeChiefRegistryStrings.editNeedsChannels) }
+            return nil
+        }).bind(into: registry)
         // Debug > Save Last 10 Seconds (DEV and NIGHTLY) and, in DEV, Agent Messages Playground; All Themes Playground (HomeDebugActions).
         HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff, themeFolders: Bundle.main.resourceURL.map { [$0.appending(path: "ghostty/themes")] } ?? []).bind(into: registry)
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
