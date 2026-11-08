@@ -3234,7 +3234,10 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
 /// says so (`sender_harness.rs`: `senderHarness`; a shell under a terminal or cmux claims none). A relay names what it
 /// carries (`fromRelay`, `via`: the lane-gh broker, the Cloud mobile carrier). A trigger, the
 /// app's own transport (`LocalApp`, whose pane proves the person instead) and every non-unix
-/// transport are no terminal. Any of those stays `unverified`. What is left is a plain unix
+/// transport are no terminal. Any of those stays `unverified`. A send the daemon keeps and delivers
+/// later (`_acpmux/send_queue`) replays on the outbox's own unix connection with its request's
+/// claims and the caller its sender named, proven or not (`Delivery::unproven_caller`), so it is
+/// judged here as the send itself was (#38260 F1). What is left is a plain unix
 /// connection of the user that claims nothing: the person at their terminal. A script of the
 /// same user that strips every label is let through, as it was before #37497; it still never
 /// releases a protected hold (`PromptOptions::unproven_owner`), never counts as an authenticated

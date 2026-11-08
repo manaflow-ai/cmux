@@ -58,6 +58,19 @@ struct HomeAgentChatContent: Equatable, Sendable {
     var workspaceLink: URL?
     /// The machine it moved to (a Chief move or `acpmux session move`); nil while it runs where it started.
     var place: String?
+    /// True while it waits in the Chief's queue for a free slot (not started; no workspace yet).
+    var isQueued = false
+    /// How many queued agents start before it (0: it starts next); nil when not queued or not known.
+    var ahead: Int?
+    /// True after the person pressed Start now, until it starts (the button says Starting and takes no click).
+    var isStarting = false
+
+    /// Where it stands in the queue for the header ("Starts next", "2 ahead of it"); nil when not queued.
+    var queueLine: String? {
+        guard isQueued, let ahead else { return nil }
+        if ahead == 0 { return String(localized: "home.agentPane.queueNext", defaultValue: "Starts next", bundle: .module) }
+        return String(format: String(localized: "home.agentPane.queueAhead", defaultValue: "%lld ahead of it", bundle: .module), ahead)
+    }
 }
 
 extension HomeAgentChatContent {
@@ -80,6 +93,11 @@ extension HomeAgentChatContent {
             details: details,
             messages: thread.entries.map { Message(sender: Sender($0.sender), text: $0.text) },
             workspaceLink: thread.workspaceLink)
+        isQueued = thread.state == .queued
+        // A started agent the Chief has not linked yet (one that waited in the queue): its session's own link.
+        if workspaceLink == nil, !isQueued, let session, session.peer == thread.peer {
+            workspaceLink = session.sessionLink
+        }
         // Only this chat's session (a restarted agent has another); once it moved, its own link opens it
         // where acpmux has it now, not the Chief's link to where it started.
         if let session, session.session == thread.session, session.hasMoved {

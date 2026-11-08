@@ -85,6 +85,10 @@
 //!     "ws": "127.0.0.1:7681",
 //!     "ws_token": "replace-with-a-secret"
 //!   },
+//!   "notifications": {
+//!     "desktop": "auto",
+//!     "bell": false
+//!   },
 //!   "keys": {
 //!     "prefix": "ctrl+b",
 //!     "alt_shortcuts": true,
@@ -120,7 +124,7 @@
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
 //! `resize-shrink`, `scroll-up`, `scroll-down`, `clear-history`, `browser-back`,
 //! `browser-forward`, `browser-reload`, `browser-edit-url`, `show-shortcuts`,
-//! and `detach`.
+//! `next-attention`, `attention-list`, and `detach`.
 //!
 //! The defaults intentionally match tmux where cmux has the same
 //! capability, except that `x` closes the more commonly managed tab and
@@ -265,6 +269,9 @@ struct RawConfig {
     viewport: RawViewport,
     #[serde(default)]
     server: RawServer,
+    /// Host terminal notifications (`host_notify.rs`).
+    #[serde(default)]
+    notifications: RawNotifications,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
     /// `"alt_shortcuts": false`, `"super_shortcuts": false`, or the host
@@ -281,6 +288,14 @@ struct RawServer {
     detached_owner: Option<bool>,
     /// `loopback-forward-v1` policy; validated when the daemon starts.
     loopback_forward: Option<Value>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNotifications {
+    /// `off`, `auto` or `always`.
+    desktop: Option<crate::host_notify::DesktopNotifyMode>,
+    bell: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -697,6 +712,8 @@ pub struct Config {
     pub status_bar: StatusBarOptions,
     pub viewport: Viewport,
     pub server: Server,
+    /// Host terminal notifications (`notifications`).
+    pub notifications: crate::host_notify::NotifyConfig,
     pub keys: Keys,
     pub commands: Vec<UserCommandConfig>,
 }
