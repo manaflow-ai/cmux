@@ -76,19 +76,22 @@ await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
       const field = document.querySelector<HTMLElement>(".acpmux-md")!;
       field.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "" }));
       field.dispatchEvent(new CompositionEvent("compositionupdate", { bubbles: true, data }));
+      field.textContent = data;
+      field.dispatchEvent(
+        new InputEvent("input", { bubbles: true, data, inputType: "insertCompositionText", isComposing: true }),
+      );
     }, preedit);
     if (candidate) {
       await dispatchImeKey(page, "ArrowDown", true);
       await dispatchImeKey(page, "Enter", true);
     }
-    // Trusted keyboard input updates the contenteditable while MarkdownField's composition flag is
-    // set, matching the IME's committed DOM update. A synthetic composition event does not make
-    // Playwright's `insertText` engage the browser's internal composition transaction.
-    await page.keyboard.type(committed);
     await page.evaluate((data) => {
-      document.querySelector<HTMLElement>(".acpmux-md")!.dispatchEvent(
-        new CompositionEvent("compositionend", { bubbles: true, data }),
+      const field = document.querySelector<HTMLElement>(".acpmux-md")!;
+      field.textContent = data;
+      field.dispatchEvent(
+        new InputEvent("input", { bubbles: true, data, inputType: "insertText", isComposing: false }),
       );
+      field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data }));
     }, committed);
     // WebKit sends the candidate-commit key after compositionend as keyCode 229.
     if (candidate) await dispatchImeKey(page, "Enter", false);
@@ -111,11 +114,17 @@ await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
         (expected) => document.querySelector(".acpmux-md")?.textContent === expected,
         probe.committed,
       );
+      if (process.env.FAST_CHECKS_OUT) {
+        await page.screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `ime-${probe.name}-composed.png`) });
+      }
       await dispatchSubmitReturn(page);
       await page.waitForFunction(() => {
         const log = (window as unknown as { cmuxGalleryLog: PromptCall[] }).cmuxGalleryLog;
         return log.some(({ method }) => method === "chat.send");
       });
+      if (process.env.FAST_CHECKS_OUT) {
+        await page.screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `ime-${probe.name}-submitted.png`) });
+      }
       const result = await page.evaluate(() => {
         const log = (window as unknown as { cmuxGalleryLog: PromptCall[] }).cmuxGalleryLog;
         const prompts = log.filter(({ method }) => method === "chat.send").map(({ params }) => params?.text ?? params?.prompt);
