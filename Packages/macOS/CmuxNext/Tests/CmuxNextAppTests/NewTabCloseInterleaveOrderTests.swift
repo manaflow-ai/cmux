@@ -212,8 +212,9 @@ struct NewTabCloseInterleaveOrderTests {
         }
     }
 
-    /// Review of #38105: a close that hides the new tab before its reply, then is undone (the daemon rejects it, or a
-    /// running program's confirmation keeps the tab), still lets the tab take its slot right after b once it shows again.
+    /// Review of #38105: a close that hides the new tab past its reply, then is undone (the daemon rejects it, or a
+    /// running program's confirmation keeps the tab), still lets the tab take its slot right after b once it shows again:
+    /// only a settled close ends the move's wait for its tab.
     @Test func aNewTabWhoseCloseIsUndoneStillTakesItsSlot() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-close-undone-interleave")

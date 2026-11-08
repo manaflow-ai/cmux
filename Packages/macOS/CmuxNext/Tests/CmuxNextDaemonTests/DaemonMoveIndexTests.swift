@@ -62,17 +62,28 @@ struct DaemonMoveIndexTests {
         #expect(moved.current == 1)
     }
 
-    /// A tab the person closed is closed lately (`closedLately`) through its close and after it settles, so a new tab's
-    /// move stops waiting for it to be listed (Leo 2026-11-05: "delete the proper thing"); a rejected close gives it back.
-    @Test func aClosedTabIsClosedLatelyUntilItsCloseIsRejected() throws {
+    /// A tab the person closed is closed lately (`closedLately`) once its close settles, so a new tab's move stops waiting
+    /// for it to be listed (Leo 2026-11-05: "delete the proper thing"); a pending close does not count (it can still give
+    /// the tab back), and a rejected one gives it back.
+    @Test func aClosedTabIsClosedLatelyOnceItsCloseSettles() throws {
         let store = Self.store()
         let tab = try #require(store.tab(surface: Self.surfaces[1]))
         #expect(!store.closedLately(Self.surfaces[1]) && !store.closedLately(tab.id))
-        let close = try #require(store.intendClose([Self.surfaces[1]]))
-        #expect(store.closedLately(Self.surfaces[1]) && store.closedLately(tab.id))
-        #expect(!store.closedLately(Self.surfaces[2]), "only the closed tab")
-        store.rejectIntent(close)
+        let rejected = try #require(store.intendClose([Self.surfaces[1]]))
+        #expect(!store.closedLately(Self.surfaces[1]) && !store.closedLately(tab.id), "pending: it can still come back")
+        store.rejectIntent(rejected)
         #expect(store.tab(surface: Self.surfaces[1]) != nil, "the rejected close shows the tab again")
         #expect(!store.closedLately(Self.surfaces[1]) && !store.closedLately(tab.id), "a rejected close leaves the tab open")
+
+        let close = try #require(store.intendClose([Self.surfaces[1]]))
+        store.noteSettledAtNextSnapshot(close)
+        let workspace = WorkspaceSnapshot(
+            id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "00000000-0000-4000-8000-000000000001"), name: "1",
+            screens: [ScreenSnapshot(id: ScreenID(rawValue: 2), active: true, activePane: Self.pane, layout: .leaf(Self.pane),
+                                     panes: [PaneSnapshot(id: Self.pane, tabs: Self.surfaces.filter { $0 != Self.surfaces[1] }.map { TabSnapshot(surface: $0) })])])
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [workspace]))
+        #expect(store.pendingIntents.isEmpty, "the snapshot settled the close")
+        #expect(store.closedLately(Self.surfaces[1]) && store.closedLately(tab.id))
+        #expect(!store.closedLately(Self.surfaces[2]), "only the closed tab")
     }
 }

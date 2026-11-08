@@ -124,12 +124,12 @@ enum NewTabSlot {
         let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }, earlier = turn?.earlier
         let placement: ActionWork = Task { @MainActor in
             let listed = Task { @MainActor () -> Bool in
-                for await found in ObservationStream({ locate() != nil || pane().map { gone(services.daemon(for: $0).store) } == true }) where found { return true } // a tab closed first never lists
+                for await found in ObservationStream({ locate() != nil || pane().map { gone(services.daemon(for: $0).store) } == true }) where found { return true } // a tab whose close settled first never lists
                 return false
             }
             let bound = DemandTimer(owner: "NewTabSlot.listed")
             bound.schedule(after: listLimit) { @MainActor in listed.cancel() }
-            let found = await listed.value; if found, locate() == nil { place(in: pane, turn: nil, services: services, find: find, gone: { _ in false }, joins: joins, index: index) } // closed first: the next turn goes on, and a close undone (rejected, or held for a confirmation) still places it
+            let found = await listed.value
             bound.cancel()
             _ = await earlier?.value // its own list wait, then its move's reply
             // A duplicate joins its original's group right after it, in one write that also puts it there.
