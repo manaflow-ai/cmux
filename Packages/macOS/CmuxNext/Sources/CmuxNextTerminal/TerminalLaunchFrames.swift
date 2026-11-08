@@ -509,15 +509,18 @@ public final class TerminalLaunchFrames {
         }
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil {
-            // A frame that could not be saved keeps the one its key had.
-            guard !keeping.contains(owner(of: old) ?? old), !unsaved.contains(String(old.dropLast(".png".count))) else { continue }
-            try? manager.removeItem(at: directory.appending(path: old))
-        }
         for (name, data) in files {
             let url = directory.appending(path: name)
-            guard (try? data.write(to: url, options: [.atomic])) != nil else { continue }
+            guard (try? data.write(to: url, options: [.atomic])) != nil else {
+                unsaved.insert(String(name.dropLast(".png".count)))
+                continue
+            }
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil {
+            // After the writes: a frame that could not be saved keeps the one its key had.
+            guard !keeping.contains(owner(of: old) ?? old), !unsaved.contains(String(old.dropLast(".png".count))) else { continue }
+            try? manager.removeItem(at: directory.appending(path: old))
         }
     }
 
@@ -540,16 +543,18 @@ public final class TerminalLaunchFrames {
         let file = encoded(frame, maximumBytes: maximumBytes)
         let name = "\(key)@\(scale)x.\(file?.ext ?? "")"
         let url = directory.appending(path: name)
+        var saved = false
         if let data = file?.data,
            stillWanted(),
            (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            saved = true
         }
         guard stillWanted() else { return }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
             // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone. A
-            // frame that could not be saved keeps the one its key had.
-            guard let tab = owner(of: old), tab == key ? file != nil : keeping.map({ !$0.contains(tab) }) == true else { continue }
+            // frame that could not be saved (not encoded, over the cap, or its write failed) keeps the one its key had.
+            guard let tab = owner(of: old), tab == key ? saved : keeping.map({ !$0.contains(tab) }) == true else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
