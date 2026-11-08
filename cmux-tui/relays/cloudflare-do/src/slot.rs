@@ -16,7 +16,7 @@ use crate::abuse::{
 };
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
-use crate::daemon::{heard_within_window, live_daemon, replaced_by_register};
+use crate::daemon::{current_registration, heard_within_window, live_daemon, replaced_by_register};
 use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
     connect_disposition, expired_while_parked, pairing_order, parked_and_live, parked_notice,
@@ -125,6 +125,18 @@ impl RelaySlot {
                 Some(((socket, attachment.clone()), ready_state, attachment))
             });
         live_daemon(candidates, slot, now_ms)
+    }
+
+    /// Whether `socket`, a registered daemon, is still its slot's current
+    /// registration (`crate::daemon::current_registration`).
+    fn is_current_registration(&self, socket: &WebSocket, attachment: &SlotAttachment) -> bool {
+        let others = self
+            .state
+            .get_websockets_with_tag(CONTROL_TAG)
+            .into_iter()
+            .filter(|other| other != socket)
+            .filter_map(|other| Self::attachment(&other).ok());
+        current_registration(attachment, socket.as_ref().ready_state(), others)
     }
 
     async fn circuits(&self) -> Result<CircuitLedger> {
@@ -269,17 +281,25 @@ impl RelaySlot {
             }
         };
 
+        // Each registration on the slot gets the next registration number
+        // (kept in `generation`, which a daemon socket has no other use for),
+        // so a replaced socket's late Ping knows it is no longer current.
+        let mut previous_registration = 0;
         for existing in self.state.get_websockets_with_tag(CONTROL_TAG) {
-            if existing != *socket
-                && Self::attachment(&existing)
-                    .is_ok_and(|current| replaced_by_register(&current, &slot))
-            {
+            let Ok(current) = Self::attachment(&existing) else {
+                continue;
+            };
+            if !replaced_by_register(&current, &slot) {
+                continue;
+            }
+            previous_registration = previous_registration.max(current.generation);
+            if existing != *socket {
                 Self::fail(&existing, "replaced", "daemon control connection was replaced", 4001);
             }
         }
 
         attachment.phase = SlotPhase::Registered;
-        attachment.generation = 0;
+        attachment.generation = previous_registration.saturating_add(1);
         attachment.last_seen_ms = now_ms;
         attachment.expires_at = claims.expires_at_unix;
         attachment.idle_deadline_ms = now_ms
@@ -658,6 +678,13 @@ impl RelaySlot {
                 socket.serialize_attachment(&attachment)?;
                 self.ensure_cleanup_alarm(attachment.idle_deadline_ms).await?;
                 send_control(socket, &RelayControl::Pong { nonce })?;
+                // A Ping from a registration a newer Register replaced (it
+                // was in flight when the replacement ran) hands nothing to
+                // this closing socket: the current registration owns the
+                // slot's parked Connects and unjoined circuits.
+                if !self.is_current_registration(socket, &attachment) {
+                    return Ok(());
+                }
                 // A Connect parked while this daemon was past the liveness
                 // window (crate::daemon) is answered now that it spoke.
                 let slot = attachment.relay.slot.clone();
