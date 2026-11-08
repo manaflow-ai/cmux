@@ -257,6 +257,8 @@ struct ConnectFlags {
     agent_hooks: Vec<String>,
     auto_install: bool,
     upgrade: bool,
+    /// `--ssh-forced-command`: see `SshBootstrapOptions::forced_command`.
+    ssh_forced_command: bool,
     forward_workspace: Option<String>,
     forward_host: Option<String>,
     forward_port: Option<u16>,
@@ -495,6 +497,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 flags.agent_hooks.extend(agent_hook_providers(&value("--agent-hooks")?));
             }
             "--no-install" => flags.auto_install = false,
+            "--ssh-forced-command" => flags.ssh_forced_command = true,
             "--upgrade" => flags.upgrade = true,
             "--workspace-root" => flags.forward_workspace = Some(value("--workspace-root")?),
             "--host" => flags.forward_host = Some(value("--host")?),
@@ -538,6 +541,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     }
     if flags.upgrade && !flags.auto_install {
         return Err(anyhow!(catalog().remote_client.upgrade_no_install));
+    }
+    if flags.upgrade && flags.ssh_forced_command {
+        return Err(anyhow!(catalog().remote_client.upgrade_forced_command));
     }
     if flags.json && !flags.headless {
         return Err(anyhow!(catalog().remote_client.json_requires_headless));
@@ -880,6 +886,7 @@ fn initial_ssh_bootstrap_options(
         auto_install: flags.auto_install,
         upgrade: flags.upgrade,
         attempt_timeout: startup_timeout,
+        forced_command: flags.ssh_forced_command,
     }
 }
 
@@ -3414,6 +3421,22 @@ mod tests {
         assert_ne!(bootstrap.attempt_timeout, flags.reconnect.attempt_timeout);
         assert!(bootstrap.auto_install);
         assert!(bootstrap.upgrade);
+    }
+
+    #[test]
+    fn ssh_forced_command_reaches_the_bootstrap_and_refuses_upgrade() {
+        let flags = parse_connect_flags(&["--ssh-forced-command".into()]).unwrap();
+        let bootstrap = initial_ssh_bootstrap_options(&flags, Duration::from_secs(2));
+        assert!(bootstrap.forced_command);
+        assert!(
+            !initial_ssh_bootstrap_options(&ConnectFlags::default(), Duration::from_secs(2))
+                .forced_command
+        );
+
+        let error = parse_connect_flags(&["--ssh-forced-command".into(), "--upgrade".into()])
+            .err()
+            .expect("--upgrade over a forced-command key must be refused");
+        assert!(error.to_string().contains("--ssh-forced-command"), "{error:#}");
     }
 
     #[test]

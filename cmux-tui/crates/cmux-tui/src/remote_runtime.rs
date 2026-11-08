@@ -562,6 +562,11 @@ pub struct SshBootstrapOptions {
     pub auto_install: bool,
     pub upgrade: bool,
     pub attempt_timeout: Duration,
+    /// Every SSH route's key carries a forced command that already runs
+    /// `remote-link` (the Cloud carrier key, `command="cmux-tui remote-link
+    /// --stdio ..."`). Then nothing else can run over it: the client skips
+    /// `remote-probe` and any install, and dials the link at once.
+    pub forced_command: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1193,6 +1198,11 @@ async fn bootstrap_initial_ssh_route(
     upgrade: bool,
     shutdown: Option<watch::Receiver<bool>>,
 ) -> anyhow::Result<()> {
+    if options.forced_command {
+        // The key's forced command runs `remote-link` whatever the client
+        // asks, so a `remote-probe` here would open a link and fail to parse.
+        return Ok(());
+    }
     let (destination, port) = ssh_bootstrap_destination(endpoint)?;
     let mut config = SshBootstrapConfig::defaults(
         destination,
@@ -1394,7 +1404,14 @@ impl RuntimeReconnectGroups {
             .routes
             .iter()
             .enumerate()
-            .map(|(index, _)| AtomicBool::new(selected_ssh && index == selected_index))
+            .map(|(index, _)| {
+                // A forced-command route has nothing to prepare (see
+                // `SshBootstrapOptions::forced_command`).
+                AtomicBool::new(
+                    options.ssh_bootstrap.forced_command
+                        || (selected_ssh && index == selected_index),
+                )
+            })
             .collect();
         Self {
             options,
@@ -3298,6 +3315,8 @@ mod tests {
 
     #[cfg(unix)]
     mod initial_route_budget;
+    #[cfg(unix)]
+    mod ssh_forced_command;
 
     fn instrumented_test_timeout(timeout: Duration) -> Duration {
         let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -4858,6 +4877,7 @@ mod tests {
                     auto_install: false,
                     upgrade: false,
                     attempt_timeout: Duration::from_secs(1),
+                    forced_command: false,
                 },
             });
             let _ = done_tx.send(result.map(|runtime| runtime.shutdown()));
@@ -5484,6 +5504,7 @@ mod tests {
                 auto_install: true,
                 upgrade: false,
                 attempt_timeout: Duration::from_millis(500),
+                forced_command: false,
             },
         }
     }
@@ -5647,6 +5668,7 @@ mod tests {
                 auto_install: true,
                 upgrade: false,
                 attempt_timeout: Duration::from_secs(10),
+                forced_command: false,
             },
         })
         .unwrap();
@@ -5817,6 +5839,7 @@ mod tests {
                 auto_install: false,
                 upgrade: false,
                 attempt_timeout: Duration::from_secs(1),
+                forced_command: false,
             },
         };
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -5899,6 +5922,7 @@ mod tests {
                 auto_install: false,
                 upgrade: false,
                 attempt_timeout: Duration::from_secs(1),
+                forced_command: false,
             },
         };
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -6129,6 +6153,7 @@ mod tests {
                 // run concurrently. Keep the watchdog independent of host
                 // scheduler latency; the reconnect budget remains 20 ms.
                 attempt_timeout: Duration::from_secs(30),
+                forced_command: false,
             },
         };
         let source = RuntimeReconnectGroups::new(options, 0);
@@ -6340,6 +6365,7 @@ mod tests {
             auto_install: true,
             upgrade: false,
             attempt_timeout: Duration::from_millis(100),
+            forced_command: false,
         };
 
         let error = bootstrap_initial_ssh_route(
@@ -6384,6 +6410,7 @@ mod tests {
                 auto_install: true,
                 upgrade: false,
                 attempt_timeout: Duration::from_secs(1),
+                forced_command: false,
             },
         };
         let source = RuntimeReconnectGroups::new(options, 0);
