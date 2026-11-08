@@ -11,8 +11,10 @@
 //!
 //! The app shows them like any tab notification (a banner unless that tab is
 //! focused, the Dock badge, a click that opens the tab, the workspace mute).
-//! An ended turn notifies unless a pane showed the chat as it ended (acpmux
-//! `shown`, and `unread` once it ended unseen). When acpmux says a
+//! An ended turn notifies once, also when a pane showed the chat as it ended:
+//! acpmux's `shown` is a page that is not hidden, which it stays while cmux is
+//! in the background, so the app reads a finish its person saw land (its
+//! visibility needs the app active). When acpmux says a
 //! pane showed the chat (`unread` turned false) or the wait ended, the daemon
 //! reads the tab's notifications, so seeing or answering the chat anywhere
 //! clears them. A reconnect compares acpmux's page with what the watch knew,
@@ -872,12 +874,12 @@ struct Chat {
     indicator: String,
     idle_since: Option<u64>,
     unread: bool,
-    /// A pane shows the chat now.
-    shown: bool,
     /// Muted from its tab's menu ([`MUTE_TAG`]).
     muted: bool,
     /// The last turn that ended: its id and status.
     last_turn: Option<(String, String)>,
+    /// Why the last turn failed (a quota or capacity error), when acpmux says.
+    last_error: Option<String>,
     /// Work it started runs past its turn (a background subagent, a working sub-session;
     /// acpmux's `subagentsWorkingSince`): the task is not done yet.
     works_below: bool,
@@ -917,6 +919,10 @@ impl Chat {
             .as_object()
             .filter(|lane| lane.get("state").and_then(Value::as_str) == Some("idle"))
             .and_then(|lane| lane.get("since").and_then(Value::as_u64));
+        let last_error = summary["lastTurn"]["errorText"]
+            .as_str()
+            .filter(|text| !text.trim().is_empty())
+            .map(str::to_owned);
         let last_turn = summary["lastTurn"].as_object().map(|turn| {
             let id = turn.get("turnId").and_then(Value::as_str).map(str::to_owned);
             let ended = turn.get("endedAt").map(Value::to_string).unwrap_or_default();
@@ -930,9 +936,9 @@ impl Chat {
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
             idle_since,
             unread: summary["unread"].as_bool() == Some(true),
-            shown: summary["shown"].as_bool() == Some(true),
             muted: summary["tags"][MUTE_TAG] == MUTED,
             last_turn,
+            last_error,
             works_below: summary["subagentsWorkingSince"].is_u64(),
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
@@ -980,11 +986,12 @@ impl Chat {
     }
 
     /// What this change says to the person, given what the chat did before.
-    /// An ended turn notifies once, unless a pane showed the chat as it ended:
-    /// when it ends while no pane shows the chat, or once acpmux marks the
-    /// chat unread (a turn that failed before it started is never marked so).
-    /// A turn that ends while work it started still runs waits: acpmux marks
-    /// the chat unread when that work ends (manaflow-ai/cmux#25563).
+    /// An ended turn notifies once: in the change it ends in, or once acpmux
+    /// marks the chat unread (a turn the watch saw end before it started). A
+    /// pane that showed it is no reason to stay silent: the page stays shown
+    /// while cmux is in the background, and the app reads a finish its person
+    /// saw land. A turn that ends while work it started still runs waits for
+    /// that work to end (manaflow-ai/cmux#25563, #24386).
     fn notices(&mut self, before: Option<&Chat>) -> Vec<Notice> {
         let mut notices = Vec::new();
         let name = &self.name;
@@ -992,9 +999,11 @@ impl Chat {
         let ended_now = |turn: &String| {
             before.is_some_and(|chat| chat.last_turn.as_ref().map(|(id, _)| id) != Some(turn))
         };
+        // Work it started past its turn ended in this change.
+        let below_ended = before.is_some_and(|chat| chat.works_below) && !self.works_below;
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
-            && (self.unread || (!self.shown && ended_now(turn)))
+            && (self.unread || below_ended || ended_now(turn))
             && self.notified_turn.as_ref() != Some(turn)
         {
             self.notified_turn = Some(turn.clone());
@@ -1011,7 +1020,7 @@ impl Chat {
                     key: format!("failed-{turn}"),
                     title: format!("{name} failed"),
                     subtitle: None,
-                    body: short(&self.last_message, MAX_BODY_CHARS),
+                    body: short(self.last_error.as_ref().unwrap_or(&self.last_message), MAX_BODY_CHARS),
                     level: NotificationLevel::Error,
                     restated: false,
                 }),
