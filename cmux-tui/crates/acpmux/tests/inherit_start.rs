@@ -408,13 +408,13 @@ fn hub_yolo() -> Arc<Hub> {
         "harnesses": {
             "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
             "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
-            // A family with a plan mode that asks, as Claude's: "build", "plan" and full access.
-            "planner": {"argv": ["python3", FAKE], "family": "planner", "env": {"FAKE_PLAN_MODE": "1", "FAKE_FULL_ACCESS": "1"}},
+            // A family with a plan mode that asks, as Claude's: "default", "plan" and full access.
+            "planner": {"argv": ["python3", FAKE], "family": "planner", "env": {"FAKE_PLAN_MODE": "claude", "FAKE_FULL_ACCESS": "1"}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         "defaultPermissionMode": "fullAccess",
-        "webAskingModes": {"fake": ["normal", "strict"], "kin": ["normal", "strict"], "planner": ["build", "plan"]},
+        "webAskingModes": {"fake": ["normal", "strict"], "kin": ["normal", "strict"], "planner": ["default", "plan"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -475,5 +475,5 @@ async fn a_sub_session_of_a_planning_chat_does_not_start_in_plan_mode() {
     let mut agent = Client::as_session(&hub, &parent).await;
     let started = agent.ok("_acpmux/subsession/start", json!({"prompt": "build it"})).await;
     let child = id(&started);
-    assert_eq!(app.level(&child).await.0, "build", "the child builds: {started}");
+    assert_eq!(app.level(&child).await.0, "default", "the child builds: {started}");
 }
