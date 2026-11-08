@@ -84,9 +84,17 @@ export function runMockAgentKeys(state: TeamAgentKeysState, run: AccountsRun): T
     if (run.action === "agentKeySave") {
       const kind = state.kinds.find((option) => option.id === run.name)?.title ?? "API key";
       const hint = (run.secret ?? "").slice(-4);
-      return { ...row, set: true, status: "Team key set", detail: `${kind} · Ending in …${hint}`, error: null, notice: "Team key saved." };
+      return {
+        ...row,
+        set: true,
+        status: "Team key set",
+        detail: `${kind} · Ending in …${hint}`,
+        error: null,
+        notice: "Team key saved.",
+      };
     }
-    if (run.action === "agentKeyRemove") return { ...unset(row.agent), notice: "Team key removed. Members' own keys apply again." };
+    if (run.action === "agentKeyRemove")
+      return { ...unset(row.agent), notice: "Team key removed. Members' own keys apply again." };
     return row;
   });
   return { ...state, agents };
