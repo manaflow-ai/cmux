@@ -1431,6 +1431,7 @@ mod tests {
 
     /// One acpmux summary of `chat-1`: `shown` is what acpmux reports for a pane that is on
     /// screen while cmux is not the active app (the page stays visible behind another app).
+    /// acpmux marks a chat no pane shows unread once its turn and the work below it ended.
     fn summary(
         indicator: &str,
         seq: u64,
@@ -1443,7 +1444,7 @@ mod tests {
             "title": "Review",
             "indicator": indicator,
             "shown": shown,
-            "unread": false,
+            "unread": !shown && turn.is_some() && !below,
             "lastSeq": seq,
             "lastMessage": {"text": "All tests pass."},
             "lastTurn": turn.map(|(id, status)| json!({"turnId": id, "status": status,
