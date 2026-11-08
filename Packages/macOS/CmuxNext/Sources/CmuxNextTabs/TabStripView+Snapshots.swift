@@ -37,7 +37,7 @@ extension TabStripView {
         }
 
         /// The same strip with another tab selected (a tab switch), other tabs multi-selected or
-        /// the pane zoomed or not (the selected tab's zoom indicator). Never in Full Width Tab mode,
+        /// the pane zoomed or not (the selected tab's VoiceOver zoom state). Never in Full Width Tab mode,
         /// where the selection decides the geometry.
         func differsOnlyInSelection(from other: ModelSnapshot) -> Bool {
             !showsSelectedFullWidth && showsSelectedFullWidth == other.showsSelectedFullWidth

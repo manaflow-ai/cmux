@@ -38,6 +38,14 @@ public final class AgentPresenceTagView: NSView {
         needsLayout = true
     }
 
+    /// Places the tag at `content`'s top-right with its top at `top` (both in the superview's
+    /// coordinates), left of the `trailing` width another corner control takes (the zoom indicator).
+    public func place(in content: NSRect, top: CGFloat, trailing: CGFloat = 0) {
+        let inset = Metrics.space2
+        let size = fittingSize(maxWidth: max(0, content.width / 2 - inset - trailing))
+        frame = NSRect(x: content.maxX - inset - trailing - size.width, y: top + inset, width: size.width, height: size.height)
+    }
+
     /// The tag's size for its text, at most `maxWidth` wide.
     public func fittingSize(maxWidth: CGFloat) -> NSSize {
         let text = labelSize
