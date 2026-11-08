@@ -1,0 +1,19 @@
+[package]
+name = "cmux-terminal-prediction"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Predictive local echo for remote terminals: decides which typed characters cmux may draw in an overlay before the remote echoes them (port of classic cmux's CmuxTerminalPrediction). Pure logic over an injected monotonic clock; the macOS app reaches it over the app FFI."
+
+[lints]
+workspace = true
+
+[dependencies]
+
+# include/cmux_terminal_prediction.h is cbindgen's output for src/ffi.rs (the
+# one file it reads). cmux-app-ffi's tests/terminal_prediction_header.rs
+# regenerates it and fails with the diff when the committed header differs;
+# CMUX_APP_FFI_HEADER_BLESS=1 cargo test --test terminal_prediction_header
+# (in cmux-tui/crates/cmux-app-ffi) rewrites it.
