@@ -30,7 +30,8 @@ const { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { useFolderTrustAsk } = await import("../src/agent-session/acpmux/useFolderTrustAsk");
 const { readTrust } = await import("../src/agent-session/acpmux/folderTrust");
-const { TrustAsk, trustedLabel } = await import("../src/agent-session/acpmux/TrustAsk");
+const { TrustAsk } = await import("../src/agent-session/acpmux/TrustAsk");
+const { trustedLabel } = await import("../src/agent-session/acpmux/trustAskModel");
 const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
 type TrustSource = import("../src/agent-session/acpmux/folderTrust").TrustSource;
 

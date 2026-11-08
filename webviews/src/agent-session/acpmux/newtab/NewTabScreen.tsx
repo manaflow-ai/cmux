@@ -104,7 +104,7 @@ import { tabsToComposer } from "../composerFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
-import { useComposerChrome } from "../composerChrome";
+import { useComposerChrome } from "../composerChromeModel";
 import { useComposerSettings } from "../composerSettings";
 import { useComposerLook } from "../composerLook";
 import { MarkdownField, type MarkdownFieldHandle } from "../MarkdownField";
