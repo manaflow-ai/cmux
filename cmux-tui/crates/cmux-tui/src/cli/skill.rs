@@ -142,6 +142,18 @@ pub(super) const RECIPES: &[Recipe] = &[
                screen does not move the person's view.",
     },
     Recipe {
+        ask: "Move that pane to its own screen. / Put it next to my editor pane.",
+        commands: &[
+            "cmux --json pane <pane> move --new-screen --name logs",
+            "cmux --json pane <pane> move --to-pane <other-pane> --split right",
+            "cmux --json pane <pane> move --to-workspace <ws>",
+        ],
+        read: "move takes every tab of the pane, in order, and the emptied pane closes: \
+               `moved_tabs`, `destination.pane` (where they are now), `created` (the new \
+               screen or pane, else null). --to-tab <tab> puts them after that tab. The \
+               focus stays unless --focus.",
+    },
+    Recipe {
         ask: "Tell me when you need me.",
         commands: &[
             "cmux attention request --tab <tab> --reason 'Approve the migration'",

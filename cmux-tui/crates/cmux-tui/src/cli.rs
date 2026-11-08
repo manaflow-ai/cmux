@@ -140,6 +140,8 @@ mod older_daemon;
 mod pane_context;
 #[cfg(unix)]
 mod pane_identify;
+#[cfg(unix)]
+mod pane_move;
 mod raw;
 #[cfg(unix)]
 mod remote_host;

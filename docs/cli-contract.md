@@ -287,7 +287,7 @@ two records share is `selector.ambiguous` with their ids.
 
 ```text
 cmux screen list
-cmux screen create [--name <value>] [--correlation-key <value>] [--shell <script> | -- <argv...>]
+cmux screen create [--workspace <selector>] [--name <value>] [--focus] [--correlation-key <value>] [--shell <script> | -- <argv...>]
 cmux screen <selector> show|focus|close
 cmux screen <selector> rename --name <value>
 cmux screen <selector> pin|unpin
@@ -303,6 +303,8 @@ cmux screen group <group> update [--name <value>] [--color <color>] [--icon <ico
 cmux screen group <group> add --screens <screen_id,...>
 cmux screen group remove --screens <screen_id,...>
 ```
+
+`screen create` keeps the focused screen unless `--focus` is given.
 
 Pinned screens sort first and leave their group. Group colors are `grey`,
 `blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan` and `orange`.
@@ -322,10 +324,20 @@ cmux pane <selector> zoom [--enabled <bool>]
 cmux pane <selector> split ratio set --split <split_id> --ratio <value>
 cmux pane <selector> viewport width set --columns <value>
 cmux pane <selector> run [--on-exit <close|keep|shell>] [--cwd <path>] [--name <value>] -- <argv...>
+cmux pane <selector> move --to-pane <sel> [--split right|down|left|up] [--focus]
+cmux pane <selector> move --to-tab <sel> [--focus]
+cmux pane <selector> move --to-workspace <sel> [--name <value>] [--focus]
+cmux pane <selector> move --new-screen|--new-tab [--name <value>] [--focus]
 cmux pane <selector> tab ...
 ```
 
-`split` defaults to `--right`.
+`split` defaults to `--right`. `move` moves every tab of the pane, in order,
+and the emptied pane closes: to the end of another pane (or a new pane split
+off it with `--split`), after a tab, or into a new screen in a workspace
+(`--new-screen` and its alias `--new-tab`: the pane's own workspace). The
+focus stays unless `--focus`; when the moved pane had the focus, it goes with
+the tabs. `--json` prints `pane`, `moved_tabs`, `destination` (`workspace`,
+`screen`, `pane`, `index`), `created` and `focused_pane`.
 
 ### tab
 

@@ -676,6 +676,7 @@ screen <selector> pane ...
 
 pane list|create
 pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
+pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--focus]
 pane <selector> focus direction <left|right|up|down>
 pane <selector> split ratio set
 pane <selector> viewport width set
@@ -850,6 +851,23 @@ Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
 --regex`) is multi-line: `^` and `$` match at the start and end of each line, so
 `'^READY$'` matches a line that is only `READY`. Start the pattern with
 `(?-m)` to anchor at the start and end of the whole text.
+
+`pane <p> move` moves a whole pane: every tab in it, in order, with one
+`tab.move` each (the daemon has no pane move), and the emptied pane closes.
+`--to-pane <q>` appends the tabs to pane q; with `--split right|down|left|up`
+they go into a new pane split off q. `--to-tab <t>` puts them after tab t in
+its pane. `--to-workspace <w>` and `--new-screen` (alias `--new-tab`, the
+pane's own workspace) put them into a new screen there, named `--name`. A new
+pane's shell tab closes once the tabs are in, and the new pane takes the
+moved pane's name. `tab.move` focuses what it moved, so afterwards the command
+focuses the pane that had the focus before (`--focus`: the destination pane);
+when the moved pane had the focus, the focus stays with its tabs. A
+destination in the pane itself is a usage error. The result is `{pane,
+moved_tabs, destination: {workspace, screen, pane, index}, created,
+focused_pane}`, `created` being `{screen, pane}`, `{pane}` or null. Each step
+is its own request; with `--idempotency-key` each step's key derives from
+it, and a failed step names itself and what the steps before it moved in
+`details.step` and `details.made`.
 
 `workspace create --worktree <name>` runs `git worktree create --name <name>`
 in the repository `--repo` names (default: the current directory), with
