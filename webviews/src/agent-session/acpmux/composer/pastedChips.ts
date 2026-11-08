@@ -31,8 +31,9 @@ export function usePastedChips(
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   field: RefObject<MarkdownFieldHandle | null>,
   /// Attaches a file the way a pasted file is (attachmentIntake.tsx): a paste past PASTE_FILE_CHARS
-  /// goes as one. Unset, such a paste is a chip like any large one.
-  attachFile?: (file: MadeFile) => void,
+  /// goes as one. Unset, such a paste is a chip like any large one. `inText` false: the file stays in
+  /// the strip and is never placed in the text.
+  attachFile?: (file: MadeFile, inText?: boolean) => void,
 ) {
   /// Until when a paste goes in as it is: Paste as Plain Text just ran.
   const plainUntil = useRef(0);
@@ -82,6 +83,21 @@ export function usePastedChips(
       expanding.current = false;
     }
   };
+  /// Sends chip `id`'s text as a file instead (Leo, 2026-11-07: "it just becomes this, like, .txt,
+  /// kind of like an attachment"): the chip and its place in the prompt go, a Pasted text.txt comes.
+  const keepAsFile = (id: string) => {
+    const chip = attachments.current.find((held) => held.id === id);
+    if (!attachFile || chip?.kind !== "pasted" || chip.text === undefined) return;
+    // A chip with no place in the text (a paste made in a code block) waits in the strip: its file
+    // waits there too. Placed at the caret, an undo would take the file out with no node of the
+    // chip's to bring it back, and the paste would be gone from the draft.
+    const inText = field.current?.inlineIds()?.includes(id) ?? true;
+    attachments.current = attachments.current.filter((held) => held.id !== id);
+    setAttachments((current) => current.filter((held) => held.id !== id));
+    // The caret goes to where the chip was, so the file is placed there, wherever the caret was.
+    field.current?.removeInline(id, true);
+    attachFile({ name: PASTED_TEXT_NAME, type: "text/plain", file: pastedTextFile(chip.text) }, inText);
+  };
   return {
     expanding,
     opens,
@@ -119,5 +135,7 @@ export function usePastedChips(
       return true;
     },
     expand,
+    /// Unset when the composer cannot attach a file.
+    keepAsFile: attachFile ? keepAsFile : undefined,
   };
 }

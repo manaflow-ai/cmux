@@ -5,23 +5,24 @@
 // bottom with Back (over the import explainers), Skip and the filled primary. Computer Use has its
 // own layout. Return presses the primary (not on a repeat, nor when a text field, a focused button
 // or an open popup owns it); Escape skips.
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { DialogButton } from "../../ui/DialogButton";
 import { StableLabel } from "../../ui/StableLabel";
 import type { Strings } from "../shared/i18n";
 import { AgentsStep, DEFAULT_AGENTS_LOOK, type AgentsLook } from "./AgentsStep";
 import { ComputerUseStep } from "./ComputerUseStep";
-import { ImportStep } from "./ImportStep";
+import { DEFAULT_IMPORT_LOOK, ImportSources, ImportStep, type ImportLook } from "./ImportStep";
 import { OPS, type OnboardingFooter, type OnboardingState, type OnboardingStep } from "./ops";
 import { OnboardingContext, useOnboarding } from "./parts";
 import type { OnboardingStore } from "./store";
 import { keyIntent, primaryLabel, primaryLabels, skipLabel, skipLabels, windowTitle } from "./text";
 
-function Footer({ footer, step }: { footer: OnboardingFooter; step: OnboardingStep }) {
+function Footer({ footer, step, leading }: { footer: OnboardingFooter; step: OnboardingStep; leading?: ReactNode }) {
   const { strings, store } = useOnboarding();
   const back = strings.t("onboarding.button.back");
   return (
     <footer className="onb-footer">
+      {leading}
       <div className="onb-footer-buttons">
         {/* The row is trailing-aligned: Back coming and going moves nothing else. */}
         {footer.showsBack && (
@@ -61,9 +62,19 @@ function Footer({ footer, step }: { footer: OnboardingFooter; step: OnboardingSt
   );
 }
 
-function Scaffold({ state, agentsLook }: { state: OnboardingState; agentsLook: AgentsLook }) {
+function Scaffold({
+  state,
+  agentsLook,
+  importLook,
+}: {
+  state: OnboardingState;
+  agentsLook: AgentsLook;
+  importLook: ImportLook;
+}) {
   const { strings } = useOnboarding();
   const agents = state.step === "agents";
+  const sources =
+    !agents && state.importer != null && importLook !== "plain" ? <ImportSources importer={state.importer} /> : null;
   return (
     <div className="onb-scaffold" data-step={state.step}>
       <header className="onb-header">
@@ -76,10 +87,10 @@ function Scaffold({ state, agentsLook }: { state: OnboardingState; agentsLook: A
         {agents ? (
           <AgentsStep agents={state.agents} look={agentsLook} />
         ) : state.importer != null ? (
-          <ImportStep importer={state.importer} progress={state.footer.progress} />
+          <ImportStep importer={state.importer} progress={state.footer.progress} look={importLook} />
         ) : null}
       </div>
-      <Footer footer={state.footer} step={state.step} />
+      <Footer footer={state.footer} step={state.step} leading={sources} />
     </div>
   );
 }
@@ -88,10 +99,12 @@ export function OnboardingPage({
   store,
   strings,
   agentsLook = DEFAULT_AGENTS_LOOK,
+  importLook = DEFAULT_IMPORT_LOOK,
 }: {
   store: OnboardingStore;
   strings: Strings;
   agentsLook?: AgentsLook;
+  importLook?: ImportLook;
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   useEffect(() => {
@@ -125,7 +138,7 @@ export function OnboardingPage({
             <ComputerUseStep computerUse={state.computerUse} />
           ) : null
         ) : (
-          <Scaffold state={state} agentsLook={agentsLook} />
+          <Scaffold state={state} agentsLook={agentsLook} importLook={importLook} />
         )}
       </div>
     </OnboardingContext.Provider>
