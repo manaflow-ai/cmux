@@ -47,7 +47,8 @@ export const CHASE_MAX_SPEED = 450;
 /// The most the view trails the newest line, in the chat's lines (chatDisplay's line height, so it
 /// follows the reader's font settings). What lands past it (a block faster than the chase) is
 /// brought back within BURST_S, never in one jump: the chase moves at least the excess over
-/// BURST_S a second until it is back inside the bound.
+/// BURST_S a second until it is back inside the bound, and on at that speed to a line
+/// (CATCH_UP_LINES), so the next block has room under the bound.
 export const CHASE_MAX_TRAIL_LINES = 2;
 /// How soon (s) the trail is back within its bound after a block lands past it: six 120 Hz frames.
 export const BURST_S = 0.05;
@@ -160,8 +161,10 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     // behind over CATCH_UP_S, so a frame never moves far while the view stays near the newest line.
     const line = currentChatMetrics().lineHeight;
     const catchUp = CATCH_UP_LINES * line;
-    const over = Math.abs(x) - chaseMaxTrail();
-    if (!(over > 0) && !landing) {
+    // A burst brings the trail back within its bound and on to a line (`drain`), so the next block
+    // that lands has room under the bound instead of starting another burst at once.
+    const drain = landing ? Math.abs(x) : Math.max(0, Math.abs(x) - catchUp);
+    if (!(burst > 0 && drain > 0)) {
       burst = 0;
       due = undefined;
     }
@@ -178,16 +181,21 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       const carry = v + w * x;
       let nextX = (x + carry * dt) * decay;
       let nextV = (v - w * carry * dt) * decay;
-      // No frame moves more than the speed limit allows, nor more than a line a 120 Hz slot.
-      const most = Math.min(limit * dt, CHASE_MAX_FRAME_LINES * line * Math.max(1, Math.round(dt * 120)));
+      // No frame moves more than the speed limit allows, nor more than a line a 120 Hz slot (`cap`,
+      // which the burst below keeps to as well: no path moves a frame further).
+      const cap = CHASE_MAX_FRAME_LINES * line * Math.max(1, Math.round(dt * 120));
+      const most = Math.min(limit * dt, cap);
       if (Math.abs(nextX - x) > most) {
         nextX = x + Math.sign(nextX - x) * most;
         nextV = Math.sign(nextV) * Math.min(Math.abs(nextV), limit);
       }
-      // Past the bound, at least the burst's step (the spring from rest starts slower).
-      if ((over > 0 || landing) && Math.abs(nextX - x) < burst * dt) {
-        nextX = x - Math.sign(x) * Math.min(Math.abs(x), burst * dt);
-        nextV = -Math.sign(x) * burst;
+      // In a burst, at least its step (the spring from rest starts slower), as far as a line from
+      // home: within that the chase keeps its own speed (the burst on to home moved the rows a line
+      // a frame past where they needed to). Landing, all the way home.
+      const floor = Math.min(drain, burst * dt, cap);
+      if (Math.abs(nextX - x) < floor) {
+        nextX = x - Math.sign(x) * floor;
+        nextV = -Math.sign(x) * Math.min(burst, limit);
       }
       // Critically damped never crosses its rest; a clamp's rounding must not either.
       if (Math.sign(nextX) !== Math.sign(x) && x !== 0) nextX = nextV = 0;
@@ -276,6 +284,10 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // (the default) everything may pass under the glass composer while it settles, held only by
       // the trail bound; the `spring` arm keeps a line to `below`, the rest of it moving at once.
       if ((arm === "blocks" && !held) || below === Number.POSITIVE_INFINITY) rising = true;
+      // Within the bound before this move, a block that lands past it starts a stretch of its own
+      // with all of BURST_S (the last stretch's deadline moved it up to a line a frame, its time
+      // already spent).
+      if (Math.abs(x) <= chaseMaxTrail()) due = undefined;
       x = Math.max(-most, Math.min(most, rising ? most : Math.max(0, below), x - moved));
       // Past the trail bound: back within it BURST_S after the landing that first put it past
       // (more landing before then speeds it up), at no more than a line a frame.

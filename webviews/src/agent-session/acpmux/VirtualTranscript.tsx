@@ -3137,8 +3137,18 @@ function TranscriptView({
             // The reply growing with no live line under it (no room: a line that names a call, a
             // queue's cards last, a view that draws none) steps as before (followRoom), as base's
             // glide did; rows that come and go, the send's among them, still chase.
-            const grewOnly = rows.length === oldRows.length && rows.at(-2)?.id === oldRows.at(-2)?.id;
-            const stepped = grewOnly && !(room > 0) && !held;
+            // Only the newest row's own growth (its version moved). A pass that moved the rows by
+            // the bottom stack alone (the composer clearing as the reader sends, before the turn's
+            // rows land: that stepped them 46 px down at once) is the send's move, and a row that
+            // settles to its drawn height (a tool call's row measured shorter than its estimate:
+            // that stepped the reply 15 px down while the chase held it) is the chase's too.
+            const tailOld = oldRows.at(-1);
+            const tailNew = rows.at(-1);
+            const grewOnly =
+              rows.length === oldRows.length &&
+              rows.at(-2)?.id === oldRows.at(-2)?.id &&
+              (tailNew?.id !== tailOld?.id || tailNew?.version !== tailOld?.version);
+            const stepped = grewOnly && !(room > 0) && !held && !cardCleared;
             chaseFollow(node, layout, rows, below, dockMoved || !live || stepped, held);
           }
         }
