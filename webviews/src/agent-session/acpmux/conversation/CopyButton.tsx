@@ -1,6 +1,7 @@
 // The copy button in a code card's or tool output's corner, and under a prompt or a turn. It says
 // "Copied", with a check, only when the clipboard took the text, and goes back to Copy after a
 // moment. Its name is also its tooltip: a bare copy glyph does not say what it copies.
+import { cornerAction } from "./cornerActions";
 import { useEffect, useRef, useState } from "react";
 import type { rovingTabStopProps } from "../../../ui/listRowKeyboard";
 import { useT } from "../i18n";
@@ -10,7 +11,7 @@ import { COPIED_MS } from "./copyButtonModel";
 export function CopyButton({
   text,
   label,
-  className = "cv-codeblock__action",
+  className = cornerAction(),
   copy = copyTextResult,
   size,
   copiedWord = false,

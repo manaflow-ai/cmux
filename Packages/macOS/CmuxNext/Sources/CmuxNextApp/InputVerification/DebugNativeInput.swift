@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextCompat
 import CmuxNextAgentPane
 
 /// How DEBUG automation (`debug.key`, `debug.agent_pane click`) delivers a synthesized native
