@@ -20,7 +20,13 @@ import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
 import { NewProjectName, NewProjectFailure } from "./NewProjectName";
-import { awaitProjectPreview, forgetProjectPreview, newProjectPrompt, projectNameFrom, projectSlug } from "./newProject";
+import {
+  awaitProjectPreview,
+  forgetProjectPreview,
+  newProjectPrompt,
+  projectNameFrom,
+  projectSlug,
+} from "./newProject";
 import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
