@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// The reply to a schedule method, or None for any other method.
-pub(super) fn dispatch(
+pub(super) async fn dispatch(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
@@ -33,10 +33,10 @@ pub(super) fn dispatch(
             "{m} (not served to a remote WebSocket connection or a peer)"
         ))));
     }
-    Some(handle(hub, conn, m, params))
+    Some(handle(hub, conn, m, params).await)
 }
 
-fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<Value, RpcError> {
+async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<Value, RpcError> {
     let key = str_param(params, "sessionId")
         .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
     let session = hub.resolve(key)?;
@@ -47,16 +47,26 @@ fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<Value,
         method::MUX_SCHEDULE_SET => {
             let req =
                 crate::prompt_schedule::request_of(params).map_err(RpcError::invalid_params)?;
-            hub.schedule_set(&session, req)
+            // A schedule sends prompts: it passes the folder-trust gate a prompt from this
+            // connection would (`trust_gate.rs`), and each run is checked again when it goes.
+            super::trust_gate::check(
+                hub,
+                conn.origin,
+                method::SESSION_PROMPT,
+                params,
+                Some(&session),
+            )
+            .await?;
+            hub.schedule_set(&session, req, super::trust_gate::gated(conn.origin, params))
         }
         method::MUX_SCHEDULE_PAUSE => {
             let paused = params
                 .get("paused")
                 .and_then(Value::as_bool)
                 .ok_or_else(|| RpcError::invalid_params("paused must be true or false"))?;
-            Ok(hub.schedule_pause(&session, paused))
+            hub.schedule_pause(&session, paused)
         }
-        method::MUX_SCHEDULE_CLEAR => Ok(json!({"cleared": hub.schedule_clear(&session)})),
+        method::MUX_SCHEDULE_CLEAR => Ok(json!({"cleared": hub.schedule_clear(&session)?})),
         _ => Ok(hub.schedule_get(&session)),
     }
 }

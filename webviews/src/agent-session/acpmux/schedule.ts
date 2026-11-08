@@ -97,38 +97,51 @@ function clockTime(word: string, now: Date): number | undefined {
 
 /// Reads `/loop`'s arguments: `5m <prompt>`, `idle <prompt>` or `at 9:30 <prompt>`, each with an
 /// optional `x<N>` (at most N runs) and `until <time>` before the prompt; or `pause`, `resume`,
-/// `stop`.
+/// `stop`. The prompt is kept as typed after those words, its lines and indentation included.
 export function parseLoop(args: string | undefined, now: Date = new Date()): LoopCommand | undefined {
-  const words = (args ?? "").trim().split(/\s+/).filter(Boolean);
-  if (words.length === 1) {
-    const word = words[0].toLowerCase();
-    if (word === "pause" || word === "resume") return { kind: word };
-    if (word === "stop" || word === "off" || word === "cancel") return { kind: "stop" };
-  }
+  let rest = (args ?? "").trim();
+  const bare = rest.toLowerCase();
+  if (bare === "pause" || bare === "resume") return { kind: bare };
+  if (bare === "stop" || bare === "off" || bare === "cancel") return { kind: "stop" };
+  /// The next word, and what follows it (leading whitespace dropped).
+  const peek = (): [string, string] | undefined => {
+    const match = /^(\S+)\s*([\s\S]*)$/.exec(rest);
+    return match ? [match[1].toLowerCase(), match[2]] : undefined;
+  };
   const request: Omit<ScheduleRequest, "prompt"> = {};
-  const first = words.shift()?.toLowerCase();
-  if (first === undefined) return undefined;
-  const every = interval(first);
+  const first = peek();
+  if (!first) return undefined;
+  rest = first[1];
+  const every = interval(first[0]);
   if (every !== undefined) request.everyMinutes = every;
-  else if (first === "idle") request.idle = true;
-  else if (first === "at") {
-    const at = words[0] && clockTime(words[0], now);
-    if (!at) return undefined;
-    words.shift();
+  else if (first[0] === "idle") request.idle = true;
+  else if (first[0] === "at") {
+    const time = peek();
+    const at = time && clockTime(time[0], now);
+    if (!time || !at) return undefined;
+    rest = time[1];
     request.at = at;
   } else return undefined;
   for (;;) {
-    const word = words[0]?.toLowerCase();
-    const runs = word && /^x(\d+)$/.exec(word);
-    if (runs) {
+    const next = peek();
+    const runs = next && /^x(\d+)$/.exec(next[0]);
+    if (next && runs) {
       request.maxRuns = Number(runs[1]);
-      words.shift();
-    } else if (word === "until" && words[1] && clockTime(words[1], now)) {
-      request.until = clockTime(words[1], now);
-      words.splice(0, 2);
-    } else break;
+      rest = next[1];
+      continue;
+    }
+    if (next?.[0] === "until") {
+      rest = next[1];
+      const time = peek();
+      const until = time && clockTime(time[0], now);
+      if (!time || !until) return undefined;
+      request.until = until;
+      rest = time[1];
+      continue;
+    }
+    break;
   }
-  const prompt = words.join(" ");
+  const prompt = rest.trimEnd();
   if (!prompt || request.maxRuns === 0 || request.everyMinutes === 0) return undefined;
   return { kind: "set", request: { prompt, ...request } };
 }

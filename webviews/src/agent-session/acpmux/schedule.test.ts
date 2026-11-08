@@ -36,6 +36,14 @@ describe("parseLoop", () => {
     });
   });
 
+  test("the prompt stays as typed, its lines and indentation included", () => {
+    const prompt = "run this:\n```sh\n  bun test\n```";
+    expect(parseLoop(`10m x2 ${prompt}`, NOW)).toEqual({
+      kind: "set",
+      request: { prompt, everyMinutes: 10, maxRuns: 2 },
+    });
+  });
+
   test("controls for the chat's schedule", () => {
     expect(parseLoop("pause", NOW)).toEqual({ kind: "pause" });
     expect(parseLoop("resume", NOW)).toEqual({ kind: "resume" });

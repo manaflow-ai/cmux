@@ -2,7 +2,7 @@
 //! clock: it sends into the chat through the person's path, ends on its stop, waits for a busy
 //! chat, and comes back after a daemon restart.
 
-use super::prompt_schedule::SETTLE_MS;
+use super::prompt_schedule::{BUSY_RECHECK_MS, SETTLE_MS};
 use super::*;
 use crate::clock::ManualClock;
 use crate::config::{Config, StoreMode};
@@ -98,7 +98,7 @@ fn logged_schedules(hub: &Hub, session: &Session) -> Vec<Value> {
 #[tokio::test]
 async fn an_every_schedule_sends_on_time_and_ends_after_its_runs() {
     let (hub, session, clocks) = chat().await;
-    let set = hub.schedule_set(&session, every(5, Some(2))).unwrap();
+    let set = hub.schedule_set(&session, every(5, Some(2)), false).unwrap();
     let id = set["id"].as_str().unwrap().to_owned();
     assert_eq!(set["nextRunAt"], json!(T0 + 5 * MIN));
     assert_eq!(hub.run_due_schedules(clocks.now()), Some(T0 + 5 * MIN), "nothing is due yet");
@@ -120,7 +120,7 @@ async fn an_every_schedule_sends_on_time_and_ends_after_its_runs() {
 #[tokio::test]
 async fn the_timer_task_fires_on_the_hub_clock() {
     let (hub, session, clocks) = chat().await;
-    hub.schedule_set(&session, every(1, Some(1))).unwrap();
+    hub.schedule_set(&session, every(1, Some(1)), false).unwrap();
     // The timer task takes its wake and waits for the run on the manual clock.
     for _ in 0..5 {
         tokio::task::yield_now().await;
@@ -134,11 +134,12 @@ async fn the_timer_task_fires_on_the_hub_clock() {
 #[tokio::test]
 async fn a_busy_chat_holds_the_run_until_its_turn_ends() {
     let (hub, session, clocks) = chat().await;
-    hub.schedule_set(&session, every(5, None)).unwrap();
+    hub.schedule_set(&session, every(5, None), false).unwrap();
     clocks.advance(5 * MIN);
     // A turn is running: the due run waits rather than queueing behind it.
     session.harness_turn.store(true, Ordering::SeqCst);
-    hub.run_due_schedules(clocks.now());
+    // It looks again while the run waits, for a chat freed without a turn ending.
+    assert_eq!(hub.run_due_schedules(clocks.now()), Some(clocks.now() + BUSY_RECHECK_MS));
     assert_eq!(session.meta().prompt_schedule.as_ref().unwrap().runs, 0);
     session.harness_turn.store(false, Ordering::SeqCst);
     // The turn's end: it looks again once the turn settled, then sends.
@@ -160,7 +161,7 @@ async fn an_idle_schedule_sends_after_each_turn() {
         max_runs: Some(2),
         until: None,
     };
-    hub.schedule_set(&session, req).unwrap();
+    hub.schedule_set(&session, req, false).unwrap();
     clocks.advance(IDLE_GRACE_MS);
     hub.run_due_schedules(clocks.now());
     turns_reach(&session, 1).await;
@@ -176,21 +177,21 @@ async fn an_idle_schedule_sends_after_each_turn() {
 #[tokio::test]
 async fn pause_and_clear_stop_it() {
     let (hub, session, clocks) = chat().await;
-    hub.schedule_set(&session, every(5, None)).unwrap();
-    assert_eq!(hub.schedule_pause(&session, true)["paused"], json!(true));
+    hub.schedule_set(&session, every(5, None), false).unwrap();
+    assert_eq!(hub.schedule_pause(&session, true).unwrap()["paused"], json!(true));
     clocks.advance(30 * MIN);
     assert_eq!(hub.run_due_schedules(clocks.now()), None);
     assert_eq!(session.meta().turn_count, 0);
-    assert!(hub.schedule_clear(&session));
+    assert!(hub.schedule_clear(&session).unwrap());
     assert_eq!(hub.schedule_get(&session), Value::Null);
-    assert!(!hub.schedule_clear(&session));
-    assert_eq!(hub.schedule_pause(&session, false), Value::Null);
+    assert!(!hub.schedule_clear(&session).unwrap());
+    assert_eq!(hub.schedule_pause(&session, false).unwrap(), Value::Null);
 }
 
 #[tokio::test]
 async fn a_schedule_outlives_a_daemon_restart() {
     let (hub, session, _clocks) = chat().await;
-    hub.schedule_set(&session, every(5, None)).unwrap();
+    hub.schedule_set(&session, every(5, None), false).unwrap();
     // The next daemon reads the same record.
     let cfg = hub.config.read().await.clone();
     let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
@@ -205,4 +206,14 @@ async fn a_schedule_outlives_a_daemon_restart() {
     clocks.advance(60 * MIN);
     assert_eq!(restored.run_due_schedules(clocks.now()), Some(clocks.now() + 5 * MIN));
     assert_eq!(session.meta().prompt_schedule.unwrap().runs, 1);
+}
+
+#[tokio::test]
+async fn a_schedule_from_the_pane_keeps_its_folder_trust_check() {
+    let (hub, session, _clocks) = chat().await;
+    let set = hub.schedule_set(&session, every(5, None), true).unwrap();
+    assert_eq!(set["trustGate"], json!(true));
+    assert!(session.meta().prompt_schedule.unwrap().trust_gate, "saved with the schedule");
+    let set = hub.schedule_set(&session, every(5, None), false).unwrap();
+    assert!(set.get("trustGate").is_none());
 }

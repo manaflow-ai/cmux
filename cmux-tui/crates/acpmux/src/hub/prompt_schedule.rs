@@ -13,7 +13,8 @@
 //! started. So one run at most is ever waiting, never a queue of them.
 //!
 //! One task per hub waits on the hub clock for the earliest run and on a wake signal for a
-//! change; it never polls. It sleeps at most `MAX_SLEEP_MS` at a time while any schedule waits
+//! change. It looks at a busy chat again every `BUSY_RECHECK_MS` only while that chat's run is
+//! due and waiting, and stops once the run went. It sleeps at most `MAX_SLEEP_MS` at a time while any schedule waits
 //! (a monotonic wait does not run while the machine sleeps, and the schedule is wall-clock),
 //! sleeps without a deadline when no chat has one, and ends with the hub or once shutdown starts.
 //! It reads only the chats that have a schedule (`Scheduler::chats`), never every chat.
@@ -24,6 +25,8 @@ use std::collections::{HashMap, HashSet};
 
 /// After a turn ends, how long the timer waits before it looks at the chat again.
 pub(super) const SETTLE_MS: u64 = 2_000;
+/// While a due run waits for a busy chat, how often the timer looks at the chat again.
+pub(super) const BUSY_RECHECK_MS: u64 = 15_000;
 /// The longest single wait, so a wall-clock run is at most this late after the machine wakes.
 pub(super) const MAX_SLEEP_MS: u64 = 60_000;
 
@@ -68,52 +71,61 @@ impl Hub {
     }
 
     /// `_acpmux/schedule/set`: the chat's schedule, replacing the one it had.
+    /// `trust_gate`: it came from a folder-trust-gated connection (the app's pane), so each run
+    /// is checked against the folder's trust again when it is sent, as a queued prompt is.
     pub(crate) fn schedule_set(
         self: &Arc<Self>,
         session: &Arc<Session>,
         req: Request,
+        trust_gate: bool,
     ) -> Result<Value, RpcError> {
         let now = self.schedule_now();
         let id = format!("sch-{}", uuid::Uuid::new_v4().simple());
-        let schedule = PromptSchedule::new(id, req, now).map_err(RpcError::invalid_params)?;
+        let mut schedule = PromptSchedule::new(id, req, now).map_err(RpcError::invalid_params)?;
+        schedule.trust_gate = trust_gate;
         let value = schedule.to_value();
         locked(&session.meta).prompt_schedule = Some(schedule);
-        self.publish_schedule(session);
+        self.publish_schedule(session)?;
         locked(&self.prompt_schedules.chats).insert(session.id.clone());
         self.wake_scheduler();
         Ok(value)
     }
 
     /// `_acpmux/schedule/pause {paused}`: the schedule's answer, null when the chat has none.
-    pub(crate) fn schedule_pause(self: &Arc<Self>, session: &Arc<Session>, paused: bool) -> Value {
+    pub(crate) fn schedule_pause(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        paused: bool,
+    ) -> Result<Value, RpcError> {
         let now = self.schedule_now();
         let value = {
             let mut m = locked(&session.meta);
-            let Some(schedule) = m.prompt_schedule.as_mut() else { return Value::Null };
+            let Some(schedule) = m.prompt_schedule.as_mut() else { return Ok(Value::Null) };
             schedule.set_paused(paused, now);
             schedule.to_value()
         };
-        self.publish_schedule(session);
+        self.publish_schedule(session)?;
         self.wake_scheduler();
-        value
+        Ok(value)
     }
 
     /// `_acpmux/schedule/clear`: whether the chat had one.
-    pub(crate) fn schedule_clear(&self, session: &Session) -> bool {
+    pub(crate) fn schedule_clear(&self, session: &Session) -> Result<bool, RpcError> {
         let had = locked(&session.meta).prompt_schedule.take().is_some();
-        if had {
-            self.publish_schedule(session);
-        }
         locked(&self.prompt_schedules.chats).remove(&session.id);
-        had
+        if had {
+            self.publish_schedule(session)?;
+        }
+        Ok(had)
     }
 
     pub(crate) fn schedule_get(&self, session: &Session) -> Value {
         locked(&session.meta).prompt_schedule.as_ref().map_or(Value::Null, PromptSchedule::to_value)
     }
 
-    /// Saves the chat's schedule and tells its clients, as one `session_info_update`.
-    fn publish_schedule(&self, session: &Session) {
+    /// Saves the chat's schedule, durably before it answers, and tells its clients, as one
+    /// `session_info_update`. A failed save tells no one and fails the caller.
+    fn publish_schedule(&self, session: &Session) -> Result<(), RpcError> {
         let (sid, schedule) = {
             let m = locked(&session.meta);
             (
@@ -121,12 +133,20 @@ impl Hub {
                 m.prompt_schedule.as_ref().map_or(Value::Null, PromptSchedule::to_value),
             )
         };
-        self.save_meta(session);
+        self.save_meta_answered(session)?;
         let update =
             json!({"sessionUpdate": "session_info_update", "_meta": {"schedule": schedule}});
         let msg = json!({"jsonrpc": "2.0", "method": "session/update",
                          "params": {"sessionId": sid, "update": update}});
         self.append(session, "in", "session_info_update", msg);
+        Ok(())
+    }
+
+    /// `publish_schedule` for a change no request waits on: a failed save is logged.
+    fn publish_schedule_logged(&self, session: &Session) {
+        if let Err(e) = self.publish_schedule(session) {
+            tracing::warn!(session = %session.id, error = %e.message, "scheduled prompt not saved");
+        }
     }
 
     /// At daemon start: the chats whose record holds a schedule.
@@ -154,7 +174,7 @@ impl Hub {
         let changed =
             locked(&session.meta).prompt_schedule.as_mut().is_some_and(|s| s.turn_ended(now));
         if changed {
-            self.publish_schedule(session);
+            self.publish_schedule_logged(session);
         }
         locked(&self.prompt_schedules.settle).insert(session.id.clone(), now + SETTLE_MS);
         self.wake_scheduler();
@@ -243,8 +263,11 @@ impl Hub {
                 soonest(at);
                 continue;
             }
-            // Busy: the end of its turn wakes this timer again.
+            // Busy: the end of its turn wakes this timer again, and it looks again every
+            // `BUSY_RECHECK_MS` while the run waits, for a chat freed another way (a queued
+            // prompt removed, a permission answered after its turn). It stops once the run went.
             if !self.free_for_schedule(&session) {
+                soonest(now + BUSY_RECHECK_MS);
                 continue;
             }
             if let Some(at) = self.fire_schedule(&session, now) {
@@ -271,20 +294,27 @@ impl Hub {
     /// Sends one run, counting it first, so a restart mid-send never sends it twice. The
     /// schedule's next run, if it has one.
     fn fire_schedule(self: &Arc<Self>, session: &Arc<Session>, now: u64) -> Option<u64> {
-        let (id, run, prompt, next, done) = {
+        let (id, run, prompt, next, done, trust_gate) = {
             let mut m = locked(&session.meta);
             let s = m.prompt_schedule.as_mut()?;
             s.fire(now);
             let done = s.finished(now);
-            let fired = (s.id.clone(), s.runs, s.prompt.clone(), s.deadline(now), done);
+            let fired =
+                (s.id.clone(), s.runs, s.prompt.clone(), s.deadline(now), done, s.trust_gate);
             if done {
                 m.prompt_schedule = None;
             }
             fired
         };
-        self.publish_schedule(session);
         if done {
             locked(&self.prompt_schedules.chats).remove(&session.id);
+        }
+        // The run is counted on disk before it goes, so a restart never sends it twice; one that
+        // could not be counted is not sent.
+        if let Err(e) = self.publish_schedule(session) {
+            tracing::warn!(session = %session.id, schedule = %id, run, error = %e.message,
+                "scheduled prompt not sent: its run could not be saved");
+            return if done { None } else { next };
         }
         tracing::info!(session = %session.id, schedule = %id, run, "scheduled prompt sent");
         let (hub, session) = (self.clone(), session.clone());
@@ -293,6 +323,7 @@ impl Hub {
             let opts = PromptOptions {
                 prompt_id: Some(format!("{id}-run-{run}")),
                 provenance: Some(json!({"kind": "schedule", "scheduleId": id, "run": run})),
+                trust_gate,
                 ..PromptOptions::default()
             };
             if let Err(e) = hub.prompt_with(&session, blocks, "acpmux", false, opts).await {
@@ -309,7 +340,7 @@ impl Hub {
         if let Some(s) = ended {
             tracing::info!(session = %session.id, schedule = %s.id, runs = s.runs, reason,
                 "scheduled prompt ended");
-            self.publish_schedule(session);
+            self.publish_schedule_logged(session);
         }
     }
 }

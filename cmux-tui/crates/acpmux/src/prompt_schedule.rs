@@ -71,6 +71,10 @@ pub struct PromptSchedule {
     #[serde(default)]
     pub paused: bool,
     pub created_at: u64,
+    /// Set by the hub: the schedule came from a folder-trust-gated connection, so each run is
+    /// checked against the folder's trust when it is sent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trust_gate: bool,
 }
 
 impl PromptSchedule {
@@ -127,6 +131,7 @@ impl PromptSchedule {
             last_run_at: None,
             paused: false,
             created_at: now,
+            trust_gate: false,
         })
     }
 
