@@ -84,8 +84,10 @@ public struct HomeChiefRegistryActions {
             do {
                 _ = try await ChiefControlClient(connection).setChiefEngine(fields, chief: chief)
                 return nil
-            } catch {
+            } catch let error as ChiefControlError {
                 return ActionWorkFailure(refusal: .unavailable, reason: HomeChiefEngineError(error).text)
+            } catch {
+                return ActionWorkFailure(refusal: .unavailable, reason: HomeChiefEngineError.other(String(describing: error)).text)
             }
         }
     }
