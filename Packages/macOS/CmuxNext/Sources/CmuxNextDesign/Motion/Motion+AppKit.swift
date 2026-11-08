@@ -520,6 +520,22 @@ extension MotionGate {
         return hide
     }
 
+    /// Holds a moving row's background at `cover` (opaque) until a `token` move has settled (within 0.2% of its
+    /// target, the bound the move's own end uses), then fades it to `fill`, its own: a selected row passing over
+    /// others hides what it crosses itself in every frame it moves, and needs nothing undone once it ends. Nil when
+    /// moves snap.
+    public func passOverCover(_ token: MotionSpring, cover: CGColor, fill: CGColor?) -> CAAnimation? {
+        guard animatesMovement else { return nil }
+        let settle = spring(token).settlingTime(within: 0.002)
+        let total = settle + duration(MotionFade.fadeIn)
+        let end = fill ?? cover.copy(alpha: 0) ?? cover
+        let hold = CAKeyframeAnimation(keyPath: "backgroundColor")
+        hold.values = [cover, cover, end]
+        hold.keyTimes = [0, NSNumber(value: settle / total), 1]
+        hold.duration = total
+        return hold
+    }
+
     /// Under Reduce Motion, a change that would move things crossfades in place instead
     /// (motion.md rule 7): `layer` fades from what it showed to what it shows after this
     /// transaction. Nil when fades are off.

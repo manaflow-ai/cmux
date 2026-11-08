@@ -269,11 +269,13 @@ struct RowMotion {
         }
     }
 
-    /// A moved selected row passes over the
-    /// rows it trades places with: it draws above them, and each row it
-    /// crosses hides at once and fades back in once the move has nearly
-    /// settled, so a translucent selection fill never shows a title through
-    /// it (cx-bqm6, cx-ai79).
+    /// A moved selected row passes over the rows it trades places with: it draws above them, and it covers them
+    /// itself: its background shows its fill over the sidebar's opaque ground until the move has nearly settled, then
+    /// fades to its own fill (`passOverCover`, on the render server, gone once it ends), so a translucent selection
+    /// fill never shows a title through it while every crossed row stays drawn at full opacity (cx-bqm6, cx-ai79;
+    /// Leo 2026-11-08: "there's like still a bit of a flicker on that, like individual top group"). In a see-through
+    /// window no opaque color matches what is behind the rows, so there each crossed row still hides at once and
+    /// fades back in once the move has nearly settled.
     private func passOver(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout) {
         // A dragged row is hidden under its lifted card, which already draws
         // above the list: no row passes under it, so none hides (cx-ikxz).
@@ -288,13 +290,49 @@ struct RowMotion {
         // Only a row that crosses rows is raised: re-adding a view delays its
         // first frames, so a row an insert pushes down would lag the new row
         // opening above it (cx-ai79).
-        guard !passed.isEmpty else { return }
-        if let top = list.subviews.last(where: { $0 is SidebarRowView }), let view = list.rowViews[key], view !== top {
+        guard !passed.isEmpty, let view = list.rowViews[key], let layer = view.layer else { return }
+        if let top = list.subviews.last(where: { $0 is SidebarRowView }), view !== top {
             list.addSubview(view, positioned: .above, relativeTo: top)
+        }
+        if let ground = Self.rowGround(of: list) {
+            // The fill the row shows once it lands (a selection this change made paints now), under the cover.
+            view.displayIfNeeded()
+            let fill = layer.backgroundColor
+            let cover = fill.flatMap(Self.rgb).map { $0.composited(over: ground) } ?? ground
+            if let hold = Motion.sidebar.passOverCover(.move, cover: cover.cgColor, fill: fill) {
+                layer.add(hold, forKey: "cmux.passOverCover")
+            }
+            return
         }
         for view in passed {
             guard let hide = Motion.sidebar.passOverAnimation(.move) else { return }
             view.layer?.add(hide, forKey: "cmux.passOver")
+        }
+    }
+
+    private static func rgb(_ color: CGColor) -> ThemeRGB? {
+        guard let rgb = NSColor(cgColor: color)?.usingColorSpace(.sRGB) else { return nil }
+        return ThemeRGB(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent, alpha: rgb.alphaComponent)
+    }
+
+    /// The opaque color the sidebar shows behind its rows: the theme's sidebar background under what the sidebar's
+    /// own views paint over it (`appearance.surfaces.sidebar`, the rail's overlay). Nil in a see-through window
+    /// (translucent, frosted, glass, a picture), where the desktop or the picture shows through and no opaque color
+    /// matches it.
+    private static func rowGround(of list: SidebarListView) -> ThemeRGB? {
+        list.performWithTheme {
+            let tokens = list.themeTokens
+            guard WindowBackdrop.current(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled).isOpaque else { return nil }
+            var fills: [CGColor] = []
+            var ancestor = list.superview
+            while let view = ancestor {
+                if let fill = view.layer?.backgroundColor, fill.alpha > 0 { fills.append(fill) }
+                if view is SidebarContainerView || view === list.window?.contentView { break }
+                ancestor = view.superview
+            }
+            return fills.reversed().reduce(tokens.sidebarBackground.withAlpha(1)) { ground, fill in
+                rgb(fill).map { $0.composited(over: ground) } ?? ground
+            }
         }
     }
 }
