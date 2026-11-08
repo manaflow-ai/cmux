@@ -1,5 +1,5 @@
 // The person's own record of where they stepped into a running agent from the Steer queue
-// (model.ts): which chat, what they did, what they typed, and when. The queue's rows say "Steered
+// (model.ts): which chat, what they did, what they typed, and when. The queue's rows say "Sent
 // 3m ago" from it, and it is the start of a replay of where a person stepped in and why. It stays
 // on this computer (localStorage), capped, and holds nothing acpmux does not already have: every
 // steer is also a prompt in its chat.

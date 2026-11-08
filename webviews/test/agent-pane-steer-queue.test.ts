@@ -168,7 +168,7 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
     console.log(`STEER-QUEUE-STEERED ${JSON.stringify(after)}`);
     const steered = after.find((row) => row.name === QUIET);
     if (steered) {
-      expect(steered.said.startsWith("Steered")).toBe(true);
+      expect(steered.said.startsWith("Sent")).toBe(true);
       expect(steered.selected).toBe(false);
     }
     await still(page, "steered");

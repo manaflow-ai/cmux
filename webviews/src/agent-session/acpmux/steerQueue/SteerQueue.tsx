@@ -59,11 +59,11 @@ export function SteerQueue({
   const [focusId, setFocusId] = useState(initialFocus);
   const [text, setText] = useState("");
   const [step, setStep] = useState<Step>();
-  const index = Math.max(
-    0,
-    items.findIndex((item) => item.sessionId === focusId),
-  );
-  const focused = items[index];
+  const found = items.findIndex((item) => item.sessionId === focusId);
+  const index = Math.max(0, found);
+  // A typed line never moves to another chat: when the chat it was for leaves the list, nothing is
+  // focused until the person picks one, so Return cannot steer an agent they did not choose.
+  const focused = found >= 0 || focusId === undefined || !text ? items[index] : undefined;
 
   const frame = useRef<HTMLDivElement>(null);
   useEffect(() => field.current?.focus(), []);
