@@ -9778,7 +9778,7 @@
     "zh-Hans": "在新窗口中新建浏览器",
     "zh-Hant": "在新視窗中新增瀏覽器"
    },
-   "action.new.browser.workspace": {
+   "action.new.browser.toWorkspace": {
     "ar": "متصفح جديد في مساحة عمل جديدة",
     "bs": "Novi preglednik u novom radnom prostoru",
     "da": "Ny browser i nyt arbejdsområde",
