@@ -1,7 +1,8 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { AppearanceHistory, diff, HISTORY_LIMIT, type KeyState } from "./appearanceHistory";
 import { activePreset, APPEARANCE_PRESETS } from "./appearancePresets";
-import { withLinked } from "./appearanceUndo";
+import { linkedWriteKeys, withLinked } from "./appearanceUndo";
+import type { SettingsState } from "./store";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -25,6 +26,26 @@ const setting = (key: string, value: unknown, customized = true): KeyState => ({
 describe("the undo stack (model)", () => {
   // https://github.com/manaflow-ai/cmux/issues/29881: picking a picture at Opacity 100% also clears
   // Opacity (and the Material it named) on the host, so the step records both and Undo restores them.
+  test("a picture written at Opacity 100% names the Opacity and Material the host clears with it", () => {
+    const state = (opacity: number | null, blur: string | null) =>
+      ({
+        rows: new Map<string, { value: unknown; customized: boolean }>([
+          ["appearance.backgroundOpacity", { value: opacity ?? 1, customized: opacity !== null }],
+          ["appearance.backgroundBlur", { value: blur ?? "none", customized: blur !== null }],
+        ]),
+      }) as unknown as SettingsState;
+    const picture = setting("appearance.background", "van-gogh-starry-night");
+    expect(linkedWriteKeys(state(1, "none"), picture)).toEqual([
+      "appearance.backgroundOpacity",
+      "appearance.backgroundBlur",
+    ]);
+    expect(linkedWriteKeys(state(1, null), picture)).toEqual(["appearance.backgroundOpacity"]);
+    expect(linkedWriteKeys(state(0.6, "none"), picture)).toEqual([]);
+    expect(linkedWriteKeys(state(null, null), picture)).toEqual([]);
+    expect(linkedWriteKeys(state(1, "none"), setting("appearance.background", "none"))).toEqual([]);
+    expect(linkedWriteKeys(state(1, "none"), setting("appearance.background", null, false))).toEqual([]);
+  });
+
   test("a background write's step also records the window Opacity and Material it may clear", () => {
     expect(withLinked(["appearance.background"])).toEqual([
       "appearance.background",
