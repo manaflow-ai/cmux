@@ -223,7 +223,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "notifications.allowDesktop",
         group: GROUP,
-        title: t("ActionCatalog", "action.notifications.allowDesktop", "Allow cmux Notifications in macOS"),
+        title: t("ActionCatalog", "action.notifications.allowDesktop", "Allow cmux Notifications"),
         keywords: &["permission", "allow", "enable", "banner", "desktop", "system", "macos", "notifications", "setup"],
         category: "notifications",
         symbol: "bell.badge",

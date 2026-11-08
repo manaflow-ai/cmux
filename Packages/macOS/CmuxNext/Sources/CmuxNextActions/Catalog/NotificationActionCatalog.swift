@@ -115,7 +115,7 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             // System Settings pane where only they turn it on.
             ActionDescriptor(
                 id: "notifications.allowDesktop",
-                title: String(localized: "action.notifications.allowDesktop", defaultValue: "Allow cmux Notifications in macOS", bundle: .module),
+                title: String(localized: "action.notifications.allowDesktop", defaultValue: "Allow cmux Notifications", bundle: .module),
                 keywords: ["permission", "allow", "enable", "banner", "desktop", "system", "macos", "notifications", "setup"],
                 category: .notifications, symbol: "bell.badge", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noObject)
