@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the cmux SDK daemon client and the Chrome cookie sync"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the cmux SDK daemon client, the Chrome cookie sync and terminal predictive local echo"
 
 # Own workspace, like its members: built only for the app xcframework
 # (scripts/cmux-next/build-app-ffi.sh), so cmux-tui workspace builds and
@@ -36,6 +36,8 @@ cmux-motion = { path = "../cmux-motion", default-features = false }
 # The daemon client the cmux CLI uses (cmux-tui/bindings/rust) as a C ABI:
 # the app's connect, call, command and subscribe (include/cmux_sdk_ffi.h).
 cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
+# Predictive local echo for remote terminals (src/ffi.rs: one engine handle per surface).
+cmux-terminal-prediction = { path = "../cmux-terminal-prediction" }
 
 # Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
 # when the committed header differs. A test, not a build.rs: no build rewrites
