@@ -163,7 +163,8 @@ fn code_mode_runs_a_script_against_the_servers() {
         json!({"action": "run", "code": "const a = await mcp.fake.echo({ text: 'one' });\nconst [b, c] = await Promise.all([mcp.fake.echo({ text: 'two' }), mcp.fake.slow_sum({ a: 2, b: 40, seconds: 0.1 })]);\nconsole.log(a, b);\nreturn { sum: c };"}),
     );
     assert!(out.contains("one two"), "{out}");
-    assert!(out.contains("\"sum\": 42"), "{out}");
+    // Plain text stays text (only JSON objects and arrays are parsed).
+    assert!(out.contains("\"sum\": \"42\""), "{out}");
     assert!(out.contains("3 MCP call(s)"), "{out}");
     // A failed tool throws in the script; the script's error comes back.
     let err = r
