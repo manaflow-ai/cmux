@@ -1366,7 +1366,8 @@
           "computerUse",
           "harnesses",
           "agentHarnesses",
-          "agentIntegrations"
+          "agentIntegrations",
+          "worktreeSetup"
         ]
       },
       {
