@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42523902624",
+  "recorded_at": "2026-11-08T21:24:08Z",
+  "reason": "cmux-tui f56cb4ca98e4 changes the image's cmux-tui (pinned 0173a5201843)",
+  "dry_run": false,
+  "cmux_tui": "f56cb4ca98e46a72b960f1b856e9bfc2fa2d055c",
+  "fixes": [
+    {
+      "sha": "f56cb4ca98e46a72b960f1b856e9bfc2fa2d055c",
+      "mergedAt": "2026-11-08T12:54:39-08:00",
+      "subject": "cmux-layout-reducer: which terminal commands keep the Mac awake (keep_awake_plan, step A) (#38437)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T21:24:08Z",
+    "snapshot_id": "sh-932f905b9f57466fa25c7326961dae8d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42523902624): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "de6327ba66722ce3b8094ae23572a63de929173d",
+    "image": "cloud-native-auto-f56cb4ca-42523902624-1",
+    "revision": "ci-42523902624-1",
+    "at": "2026-11-08T21:24:08Z"
+  },
+  "rolled_back": false
+}
