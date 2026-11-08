@@ -7239,3 +7239,40 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   color: var(--agent-muted);
   white-space: nowrap;
 }
+.cv-pi-rich-row {
+  margin: 4px 0;
+  padding: 8px 10px;
+  border-inline-start: 2px solid color-mix(in srgb, var(--cv-fg) 42%, transparent);
+  background: var(--cv-bubble);
+  color: var(--cv-text);
+}
+
+.cv-pi-rich-row__head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-height: 20px;
+}
+
+.cv-pi-rich-row__mark {
+  color: var(--cv-text-muted);
+}
+
+.cv-pi-rich-row__status {
+  margin-inline-start: auto;
+  color: var(--cv-text-muted);
+  font-size: 0.85em;
+}
+
+.cv-pi-rich-row__body {
+  margin: 6px 0 0 18px;
+  max-height: 12em;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--cv-text-muted);
+  font: 0.9em/1.4 var(--cv-mono);
+}
+
+.cv-pi-rich-row__body.is-output {
+  color: var(--cv-text);
+}

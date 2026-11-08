@@ -16,6 +16,7 @@ import { sendKey } from "./sentMessageLineModel";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
+import { PiRichRow } from "./PiRichRow";
 import { ToolRun } from "./ToolRun";
 import { toolRunSummary } from "./toolRunSummary";
 import { ToolRunSteps } from "./ToolRunSteps";
@@ -223,7 +224,11 @@ function groupNode(
           </p>
         );
       return group.item.tool ? (
-        <ToolRow key={group.item.tool.id || index} item={group.item} />
+        group.item.tool.piRich ? (
+          <PiRichRow key={group.item.tool.id || index} item={group.item} />
+        ) : (
+          <ToolRow key={group.item.tool.id || index} item={group.item} />
+        )
       ) : (
         <ThoughtRow
           key={`${rowId}:thought:${thoughts}`}

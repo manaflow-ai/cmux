@@ -805,6 +805,10 @@ export type AcpmuxActivity = {
     /// The harness metadata that names a built-in tool. Titles are user-visible labels and are
     /// not sufficient to identify plumbing calls with names such as ToolSearch.
     provenance?: { claudeTool?: string; claudeCodeToolName?: string };
+    /// Pi custom tools carry renderer output outside ACP's schema.  The hub
+    /// marks them so the pane keeps their structured call/result visible in a
+    /// generic rich row.
+    piRich?: true;
   };
 };
 

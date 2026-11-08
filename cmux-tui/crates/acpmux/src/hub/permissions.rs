@@ -550,6 +550,20 @@ impl Hub {
         // Grok's x.ai extension requests: a question or a plan approval,
         // asked through the same permission path (xai.rs).
         let again = (m.clone(), params.clone(), epoch, turn_id.clone(), host_incarnation.clone());
+        if session.meta().harness == "pi"
+            && matches!(m.as_str(), "extension_ui_request" | "pi/extension_ui_request")
+            && let Some(kind) = params
+                .as_ref()
+                .and_then(|value| value.get("method"))
+                .and_then(Value::as_str)
+                .and_then(super::pi_ext::request_kind)
+        {
+            let result = self
+                .handle_pi_request(&session, kind, params.unwrap_or(Value::Null), epoch, turn_id)
+                .await;
+            self.respond_answer(&session, &child, id, result, again).await;
+            return;
+        }
         if let Some(kind) = super::xai::request_kind(&m) {
             let result = self
                 .handle_xai_request(&session, kind, params.unwrap_or(Value::Null), epoch, turn_id)
@@ -573,6 +587,7 @@ impl Hub {
         }
         if m == method::SESSION_REQUEST_PERMISSION {
             let mut params = params.unwrap_or(Value::Null);
+            super::pi_ext::normalize_permission(&session, &mut params);
             // Gemini's plan approval names its plan file only: its card carries the plan
             // (`gemini_plan.rs`).
             if let Some(call) = params.get_mut("toolCall")

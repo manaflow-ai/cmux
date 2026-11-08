@@ -1,0 +1,34 @@
+{
+  "selectPermission": {
+    "sessionId": "pi-session",
+    "toolCall": {
+      "toolCallId": "pi-ui-select",
+      "title": "Pick a mode",
+      "kind": "other",
+      "status": "pending",
+      "rawInput": {
+        "method": "select",
+        "title": "Pick a mode",
+        "options": ["Fast", "Safe"]
+      }
+    },
+    "options": [
+      {"optionId": "choice-0", "name": "Fast", "kind": "allow_once"},
+      {"optionId": "choice-1", "name": "Safe", "kind": "allow_once"}
+    ]
+  },
+  "customToolCall": {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "paint-1",
+    "title": "paint_chart",
+    "kind": "other",
+    "status": "in_progress",
+    "rawInput": {"series": [1, 3, 2], "theme": "night"}
+  },
+  "customToolResult": {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "paint-1",
+    "status": "completed",
+    "rawOutput": {"summary": "Chart painted", "points": 3}
+  }
+}

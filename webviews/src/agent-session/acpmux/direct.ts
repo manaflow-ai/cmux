@@ -1323,6 +1323,7 @@ export function mergeToolItem(
             : {}),
         }
       : before?.provenance;
+  const piRich = update._meta?.piAcp?.rich?.renderer === "generic" ? true : before?.piRich;
   const title = update.title ?? update.name;
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
@@ -1380,6 +1381,7 @@ export function mergeToolItem(
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs,
       ...(provenance ? { provenance } : {}),
+      ...(piRich ? { piRich: true as const } : {}),
     },
   };
 }

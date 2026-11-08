@@ -90,3 +90,34 @@ test("a shell call with Bash's description but no command yet is still a draft",
     isDraftCall({ id: "call-2", title: "Bash", kind: "execute", status: "in_progress", description: "List the runs" }),
   ).toBe(true);
 });
+
+test("Pi custom renderer metadata keeps a generic rich row across updates", () => {
+  const call = mergeToolItem(
+    undefined,
+    {
+      title: "paint_chart",
+      kind: "other",
+      status: "in_progress",
+      rawInput: { series: [1, 3, 2] },
+      _meta: { piAcp: { rich: { renderer: "generic" } } },
+    },
+    "paint-1",
+    "",
+    1,
+  );
+  const ended = mergeToolItem(
+    call,
+    {
+      status: "completed",
+      rawOutput: { summary: "Chart painted" },
+      _meta: { piAcp: { rich: { renderer: "generic" } } },
+    },
+    "paint-1",
+    JSON.stringify({ summary: "Chart painted" }),
+    2,
+  );
+  expect(call.tool?.piRich).toBe(true);
+  expect(ended.tool?.piRich).toBe(true);
+  expect(ended.tool?.inputSummary).toBe(JSON.stringify({ series: [1, 3, 2] }));
+  expect(ended.tool?.output).toContain("Chart painted");
+});

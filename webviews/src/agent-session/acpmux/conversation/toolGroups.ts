@@ -175,7 +175,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     }
     if (!send && tool && !dispatch && !whoElse) send = acpmuxMcpSends(tool);
     const message = tool && !dispatch && !whoElse && !send ? agentMessage(tool) : undefined;
-    const named = tool && !dispatch && !whoElse && !send && !message ? mcpCall(tool) : undefined;
+    const rich = tool?.piRich === true;
+    const named = tool && !rich && !dispatch && !whoElse && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     const agent = tool && !dispatch && !whoElse && !send && !message && !named ? agentCall(tool) : undefined;

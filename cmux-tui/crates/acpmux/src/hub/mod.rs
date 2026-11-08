@@ -193,6 +193,7 @@ mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 pub(crate) mod inbox;
+mod pi_ext;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;

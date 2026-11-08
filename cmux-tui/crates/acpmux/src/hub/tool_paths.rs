@@ -19,6 +19,10 @@ pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value
     }
     // A shell call's exit code and command where clients read them (`tool_shell.rs`).
     super::tool_shell::add_shell_fields(kind, msg);
+    // Pi custom tool renderers are not part of ACP's wire schema. Preserve a
+    // bounded marker so the pane can draw the call/result as a generic rich
+    // row while keeping the agent's raw payloads untouched.
+    super::pi_ext::annotate_tool(session, kind, msg);
     let Some(update) = msg.pointer_mut("/params/update").filter(|u| u.is_object()) else {
         return;
     };
