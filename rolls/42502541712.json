@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42502541712",
+  "recorded_at": "2026-11-08T17:06:23Z",
+  "reason": "cmux-tui 7465b1962388 changes the image's cmux-tui (pinned 522ee949726a)",
+  "dry_run": false,
+  "cmux_tui": "7465b19623885bfbd79192b4ae775c22ba7a800b",
+  "fixes": [
+    {
+      "sha": "7465b19623885bfbd79192b4ae775c22ba7a800b",
+      "mergedAt": "2026-11-08T08:42:01-08:00",
+      "subject": "fix(cmux-tui): screen evidence belongs to the plugin child that saw it (roster v8) (#38710)"
+    },
+    {
+      "sha": "c59ef114daa2fd81960e53a54f06bd648cabe985",
+      "mergedAt": "2026-11-08T16:40:14Z",
+      "subject": "cmux-tui: the transport path coverage test exercises screen create --focus (base red since #38638) (#38714)"
+    },
+    {
+      "sha": "74fb8407f8e214b913df30fbe3d58f6d7c87e24d",
+      "mergedAt": "2026-11-08T16:40:10Z",
+      "subject": "cmux-host: the carrier register harness is a _tests.rs file (hand_written_routes base red) (#38712)"
+    },
+    {
+      "sha": "9dca893b6931bb606bd95766a2a1193d952103e1",
+      "mergedAt": "2026-11-08T16:35:38Z",
+      "subject": "chore(next): base autofix at 522ee949726a"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T17:06:23Z",
+    "snapshot_id": "sh-6c9736ae818c41fe8bca9798225a7410",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42502541712): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9a9e8af7f202cb07062fe8bbfa013d53c4eada8a",
+    "image": "cloud-native-auto-7465b196-42502541712-1",
+    "revision": "ci-42502541712-1",
+    "at": "2026-11-08T17:06:23Z"
+  },
+  "rolled_back": false
+}
