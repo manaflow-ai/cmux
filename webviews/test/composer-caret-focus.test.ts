@@ -3,7 +3,7 @@
 // stuff for composer"): the chat composer and the New Tab page's composer draw the same states.
 //
 // - Rest: each button is its icon or label, no pill. The button row is the chat's plain footer, so
-//   the New Tab model chip keeps its provider's logo in the chip's ink, as the chat's does.
+//   the New Tab model chip keeps its provider's logo in its brand colors, as the chat's does.
 // - Hover: the hovered button alone takes the soft pill (--acpmux-pill-hover), the mic included;
 //   the composer box never changes under the pointer.
 // - Keyboard focus: the same pill and no outline (#23745, Leo 2026-10-21: "I HATE THE APPEARANCE OF
@@ -264,8 +264,8 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
     );
 
   for (const [engine] of engines) {
-    // The New Tab row is the chat's footer: the same plain look, the model's provider logo drawn in
-    // the chip's ink (cmux#38053) and its name in the muted chip ink, as the chat's (composerLocation.css).
+    // The New Tab row is the chat's footer: the same plain look, the model's provider logo in its
+    // brand colors (cmux#38053) and its name in the muted chip ink, as the chat's (composerLocation.css).
     for (const stage of COMPOSERS)
       test(`${engine}: ${stage.name}: the button row is the plain footer, its model chip a muted label`, async () => {
         const page = await open(engine, stage);
@@ -283,7 +283,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
             const quietRow = bar.classList.contains("acpmux-composer-foot");
             return {
               look: bar.dataset.footerLook ?? "",
-              // The provider's logo draws, in the chip's ink ("ink"), not its brand colors.
+              // The provider's logo draws in its brand colors ("brand"), not the chip's ink.
               mark:
                 !mark || getComputedStyle(mark).display === "none"
                   ? "none"
@@ -300,7 +300,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
           { foot: stage.foot },
         );
         await page.close();
-        expect(row).toEqual({ look: "plain", mark: "ink", muted: true });
+        expect(row).toEqual({ look: "plain", mark: "brand", muted: true });
       });
 
     // Hover pills the one button under the pointer, every button the same soft pill (the mic too);

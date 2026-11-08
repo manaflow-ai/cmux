@@ -4,7 +4,7 @@
 // the rest of the difference away:
 //   - the model's name is muted like its effort and the permission mode (the model button names
 //     both, "Opus 5.5  Medium": Leo 2026-10-20, one button, no effort chip of its own);
-//   - the model keeps its provider's logo left of its name (cmux#38053), in the chip's own ink, and
+//   - the model keeps its provider's logo left of its name (cmux#38053), in its brand colors, and
 //     the logo alone when the row's fit steps take the name away, so no chip is a bare chevron; the
 //     mode keeps its symbol beside its label, as Codex's "(!) Full access" (Leo 2026-10-21: "symbol
 //     plus its label").
@@ -332,12 +332,12 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
         if (model?.detailColor !== undefined && model.detailColor === model.nameColor)
           problems.push(`the effort ${model.detailColor} is not one step back of the model name`);
         // The provider's logo left of the model's name (cmux#38053): the fixture is Claude Opus 5.5, so
-        // Claude's logo, in the chip's ink, before the name, at every width.
+        // Claude's logo, in its brand color (not the chip's grey ink), before the name, at every width.
         if (!model?.leadingIcon) problems.push("the model chip draws no provider logo");
         if (model?.iconAgent !== "claude")
           problems.push(`the model chip's logo is "${model?.iconAgent}", not Claude's`);
-        if (model?.iconFill !== model?.color)
-          problems.push(`the model's logo ${model?.iconFill} is not in the chip's ink ${model?.color}`);
+        if (model?.iconFill === model?.color)
+          problems.push(`the model's logo is drawn in the chip's ink ${model?.color}, not its brand color`);
         const mode = chip(row, "mode");
         if (!mode?.leadingIcon) problems.push("the mode chip lost its symbol");
         problems.push(...overlaps(row));

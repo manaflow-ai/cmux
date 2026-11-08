@@ -603,13 +603,12 @@
    open. The model's name
    (any form of it) is muted like effort and the mode, and Plan when on is accent text only. The
    model keeps its provider's logo left of its name (cmux#38053: Claude's for Claude models, OpenAI's
-   for Codex and GPT), drawn in the chip's ink (ModelPicker `tint`), as the mode keeps its symbol
+   for Codex and GPT) in its brand colors, as the model menu draws it, and the mode keeps its symbol
    beside its label, Codex's "(!) Full access" (Leo 2026-10-21: "symbol plus its label"). Hover,
    keyboard focus and an open menu draw the row's wash. Once the row's fit steps (composerRowFit.ts:
    the composer's container queries, or data-fit-model / data-fit-access when a label is too long for
    its step) take the model's name or the mode's label away, its mark or symbol alone shows, so
-   neither chip is ever a bare chevron. With the plain footer off the row draws the mark in its brand
-   colors. test/composer-footer-plain.test.ts measures it. */
+   neither chip is ever a bare chevron. test/composer-footer-plain.test.ts measures it. */
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
