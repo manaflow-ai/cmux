@@ -1354,6 +1354,64 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotEqual(entry.workspaceId, remintedWorkspace.id)
     }
 
+    /// Two saved workspaces sharing a persisted ID (an imported, edited or
+    /// corrupted session file): the Dock panel saved in the first workspace is
+    /// rebuilt through that workspace, not through the reminted second copy.
+    func testSessionRestoreRebuildsDockPanelThroughDockOwningWorkspaceForDuplicatePersistedWorkspaceId() throws {
+        let duplicateWorkspaceId = UUID()
+        let dockPanelId = UUID()
+        var firstWorkspace = Self.localWorkspaceSnapshot(title: "First", panelId: UUID())
+        var secondWorkspace = Self.localWorkspaceSnapshot(title: "Second", panelId: UUID())
+        firstWorkspace.workspaceId = duplicateWorkspaceId
+        secondWorkspace.workspaceId = duplicateWorkspaceId
+        // The Dock panel snapshot carries no directory, so the rebuilt shell
+        // starts in whichever workspace rebuilt it.
+        firstWorkspace.currentDirectory = NSHomeDirectory()
+        secondWorkspace.currentDirectory = FileManager.default.temporaryDirectory.path
+        firstWorkspace.dock = SessionSplitContainerSnapshot(
+            focusedPanelId: dockPanelId,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [dockPanelId],
+                selectedPanelId: dockPanelId
+            )),
+            panels: [Self.terminalPanelSnapshot(id: dockPanelId)],
+            sourceWorkspaceIdsByPanelId: [dockPanelId: duplicateWorkspaceId]
+        )
+
+        let restoreManager = makeTabManager()
+        _ = restoreManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [firstWorkspace, secondWorkspace]
+        ))
+        XCTAssertEqual(restoreManager.tabs.count, 2)
+        let dockOwner = try XCTUnwrap(restoreManager.tabs.first)
+        let remintedWorkspace = try XCTUnwrap(restoreManager.tabs.last)
+        XCTAssertEqual(dockOwner.id, duplicateWorkspaceId)
+        XCTAssertNotEqual(remintedWorkspace.id, duplicateWorkspaceId)
+
+        let dock = try XCTUnwrap(dockOwner.dockSplit)
+        XCTAssertEqual(dock.panels.count, 1)
+        let (restoredPanelId, restoredPanel) = try XCTUnwrap(dock.panels.first)
+        let terminal = try XCTUnwrap(restoredPanel as? TerminalPanel)
+        defer { terminal.surface.killShellProcessesForTesting() }
+
+        // The transfer record names the workspace that rebuilt the panel, and
+        // the next save persists the same ownership.
+        XCTAssertEqual(
+            dock.detachedSurfaceTransfersByPanelId[restoredPanelId]?.sourceWorkspaceId,
+            duplicateWorkspaceId
+        )
+        XCTAssertEqual(
+            dock.sessionSnapshot(includeScrollback: false)
+                .sourceWorkspaceIdsByPanelId?[restoredPanelId],
+            duplicateWorkspaceId
+        )
+        XCTAssertEqual(terminal.requestedWorkingDirectory, NSHomeDirectory())
+        // The reminted copy neither grew a Dock nor kept a stray panel.
+        XCTAssertNil(remintedWorkspace._dockSplit)
+        XCTAssertEqual(remintedWorkspace.panels.count, 1)
+    }
+
     func testRecentlyClosedWorkspaceTitleIgnoresDotDirectoryFallback() throws {
         let manager = makeTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
