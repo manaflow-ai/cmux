@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42535214429",
+  "recorded_at": "2026-11-08T23:38:53Z",
+  "reason": "cmux-tui 0bafba673e20 changes the image's cmux-tui (pinned 4f3a060e666d)",
+  "dry_run": false,
+  "cmux_tui": "0bafba673e206bc626bbb694386b6b25c55afa61",
+  "fixes": [
+    {
+      "sha": "0bafba673e206bc626bbb694386b6b25c55afa61",
+      "mergedAt": "2026-11-08T15:09:59-08:00",
+      "subject": "Computer Use: wait_for_element says gone only from a whole tree and waits for elements you can act on (#38920)"
+    },
+    {
+      "sha": "8c39afa35501fa8db2fc420f1b8fa6dfdb19b100",
+      "mergedAt": "2026-11-08T15:08:08-08:00",
+      "subject": "acpmux: route a Claude Code subagent's MCP-path sends and reports to it (#38952)"
+    },
+    {
+      "sha": "2e6e48ad01b0599d3b1e3109136efbdac6dbd410",
+      "mergedAt": "2026-11-08T15:08:02-08:00",
+      "subject": "smoltcp (vendored): floor 2 * SRTT, not the whole probe timeout, at 10 ms (#38955)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T23:38:53Z",
+    "snapshot_id": "sh-29e0e866f0ea4d1bb8013b0a6876b7c2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42535214429): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4df112bc28c044483be62b5a42c05b045445a685",
+    "image": "cloud-native-auto-0bafba67-42535214429-1",
+    "revision": "ci-42535214429-1",
+    "at": "2026-11-08T23:38:53Z"
+  },
+  "rolled_back": false
+}
