@@ -306,17 +306,16 @@ pub enum PeerState {
 }
 
 impl PeerState {
-    /// Its `_acpmux/peer_state_changed` form (`protocol/peer_state.rs`).
-    pub fn wire(self) -> crate::protocol::peer_state::PeerLinkState {
-        use crate::protocol::peer_state::PeerLinkState as W;
+    /// Its `_acpmux/peer_state_changed` `link` (`protocol/peer_state.rs`), unfolded: a restart
+    /// is `restarting` there too. An older app reads `state`, `MachineLink::folded`.
+    pub fn wire(self) -> crate::protocol::peer_state::MachineLink {
+        use crate::protocol::peer_state::MachineLink as W;
         match self {
             Self::Connecting => W::Connecting,
             Self::Connected => W::Connected,
             Self::Degraded => W::Degraded,
             Self::Reconnecting => W::Reconnecting,
-            // Existing typed clients understand reconnecting. The richer restart status is
-            // exposed by `_acpmux/peers` summaries until the UI protocol adds it.
-            Self::Restarting => W::Reconnecting,
+            Self::Restarting => W::Restarting,
             Self::Offline => W::Offline,
         }
     }
@@ -346,6 +345,10 @@ pub struct Link {
     pub down_since: Option<u64>,
     /// A parked peer's next automatic attempt, preserved across daemon updates.
     pub next_retry_at: Option<u64>,
+    /// The next automatic attempt of a link that is down, parked or not (`nextRetryAt` on the
+    /// wire); None while a link is open. Past it, an attempt runs or ran. Only reported, never
+    /// waited on: the run loop keeps its own delay.
+    pub retry_at: Option<u64>,
     /// Failed attempts since the link was last ready.
     pub attempts: u32,
     /// When the link last became ready.
@@ -428,6 +431,7 @@ impl Link {
 
     /// The WebSocket opened; the handshake runs.
     pub fn opened(&mut self, now: u64) {
+        self.retry_at = None;
         self.opened_at = Some(now);
         self.open = true;
         self.ready = false;

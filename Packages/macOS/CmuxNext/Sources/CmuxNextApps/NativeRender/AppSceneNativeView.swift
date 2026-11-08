@@ -11,9 +11,12 @@ import CmuxNextDesign
 /// makes views for new nodes and drops the views of removed ones. A change is noticed by Observation
 /// (no polling) while the view is in a window, and any layout pass draws a pending one; ``onContentSizeChange`` tells the host when the
 /// height may have changed. Loading draws nothing; a failed or disconnected mount draws one quiet row
-/// with the reason. Use ``AppScene/isNativelyRenderable`` to choose this renderer.
+/// with the reason. Every node type of the kit has an AppKit view here, so no scene falls back to
+/// SwiftUI.
 final class AppSceneNativeView: NSView {
     let model: AppSceneModel
+    /// The app bundle's folder: `Image` nodes read their `src` from it.
+    let bundleDirectory: URL?
     /// Runs after a redraw that may have changed ``preferredHeight(width:)``.
     var onContentSizeChange: (() -> Void)?
     private var views: [String: AppSceneNodeNSView] = [:]
@@ -22,8 +25,9 @@ final class AppSceneNativeView: NSView {
     private var drawnRevision = -1
     private var drawnStatus: AppSceneModel.Status?
 
-    init(model: AppSceneModel) {
+    init(model: AppSceneModel, bundleDirectory: URL? = nil) {
         self.model = model
+        self.bundleDirectory = bundleDirectory
         super.init(frame: .zero)
         wantsLayer = true
         failure.font = Typography.caption
@@ -109,6 +113,7 @@ final class AppSceneNativeView: NSView {
         } else {
             view = Self.make(id: id, node: node)
             view.model = model
+            view.bundleDirectory = bundleDirectory
             view.configure(node)
             views[id] = view
         }
@@ -120,7 +125,7 @@ final class AppSceneNativeView: NSView {
 
     private static func isContainer(_ type: AppSceneNodeType) -> Bool {
         switch type {
-        case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack, .panel, .button: true
+        case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack, .zStack, .panel, .button: true
         default: false
         }
     }
@@ -130,14 +135,21 @@ final class AppSceneNativeView: NSView {
         case .row: AppSceneRowNSView(id: id, node: node)
         case .text: AppSceneTextNSView(id: id, node: node)
         case .icon: AppSceneIconNSView(id: id, node: node)
+        case .image: AppSceneImageNSView(id: id, node: node)
         case .badge: AppSceneBadgeNSView(id: id, node: node)
         case .emptyState: AppSceneEmptyStateNSView(id: id, node: node)
         case .divider: AppSceneDividerNSView(id: id, node: node)
         case .spacer: AppSceneSpacerNSView(id: id, node: node)
         case .button: AppSceneButtonNSView(id: id, node: node)
+        case .menu: AppSceneMenuNSView(id: id, node: node)
         case .panel: AppScenePanelNSView(id: id, node: node)
-        // Stacks, and any type the support check let through by mistake, lay out as a vertical stack.
-        default: AppSceneStackNSView(id: id, node: node)
+        case .toggle: AppSceneToggleNSView(id: id, node: node)
+        case .slider: AppSceneSliderNSView(id: id, node: node)
+        case .textField: AppSceneTextFieldNSView(id: id, node: node)
+        case .progressView: AppSceneProgressNSView(id: id, node: node)
+        case .circle, .capsule, .rectangle, .roundedRectangle: AppSceneShapeNSView(id: id, node: node)
+        case .zStack: AppSceneZStackNSView(id: id, node: node)
+        case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack: AppSceneStackNSView(id: id, node: node)
         }
     }
 
@@ -168,7 +180,8 @@ final class AppSceneNativeView: NSView {
             failure.frame = CGRect(x: failureInset, y: Metrics.space2, width: max(0, bounds.width - 2 * failureInset), height: height)
         }
         guard let rootView else { return }
-        rootView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: rootView.height(width: bounds.width))
+        let width = min(rootView.naturalWidth ?? bounds.width, bounds.width)
+        rootView.frame = CGRect(x: 0, y: 0, width: width, height: rootView.height(width: width))
     }
 
     override func updateLayer() {
