@@ -332,7 +332,7 @@ import {
   viewChangesPatch,
   viewChangesTurn,
 } from "./turnChanges/viewChanges";
-import { resendToOwner, retryFailedTurn } from "./conversation/turnRetry";
+import { resendToOwner, retryFailedTurn, sendUntilTaken } from "./conversation/turnRetry";
 import {
   TurnActionsContext,
   chatLoginCommand,
@@ -3663,7 +3663,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           owns: reaches,
                           restore: () => client.resendPrompt(rowId, prompt),
                           send: (draft) =>
-                            callNative("chat.send", { text: draft.input, attachments: draft.attachments }),
+                            sendUntilTaken((accepted) =>
+                              callNative("chat.send", { text: draft.input, attachments: draft.attachments, accepted }),
+                            ),
                         })
                     : undefined,
               });
@@ -3671,7 +3673,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }),
         }))(async (rowId: string, prompt: string) => {
           const draft = await directClient.current?.resendPrompt(rowId, prompt);
-          return callNative("chat.send", { text: draft?.input ?? prompt, attachments: draft?.attachments ?? [] });
+          // Settled once acpmux took it, not when its turn ends (turnRetry.ts `sendUntilTaken`).
+          return sendUntilTaken((accepted) =>
+            callNative("chat.send", {
+              text: draft?.input ?? prompt,
+              attachments: draft?.attachments ?? [],
+              accepted,
+            }),
+          );
         })),
 
       // Continue after a stop (Codex's) sends its prompt as the composer would: it shows as the

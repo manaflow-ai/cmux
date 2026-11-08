@@ -51,6 +51,20 @@ export type OwnedResendDeps<Client, Draft> = {
   send: (draft: Draft) => Promise<unknown>;
 };
 
+/// A prompt sent again through the composer's send (`chat.send`), settled once acpmux took it: that
+/// send resolves only when the turn it starts ends, and a Retry's card says Retrying… only until the
+/// attempt reaches the chat (cmux#34369). A send acpmux took whose turn then failed counts as sent
+/// (direct.ts marks its error `taken`): that failure is the transcript's, on the attempt's own card.
+/// Rejects when the send was refused before acpmux took it.
+export function sendUntilTaken(send: (accepted: () => void) => Promise<unknown>): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    send(() => resolve()).then(
+      () => resolve(),
+      (error: unknown) => ((error as { taken?: unknown } | null)?.taken === true ? resolve() : reject(error)),
+    );
+  });
+}
+
 /// A Retry that sent nothing: the chat the failed row was drawn for is not the one the pane's client
 /// reaches any more. It rejects, so the card says Retry could not run instead of taking it as sent
 /// (cmux#34369: a Retry that settled as sent with nothing sent read as a dead button).

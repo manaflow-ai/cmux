@@ -364,3 +364,75 @@ test("a plain resend that did not go says Retry could not run", async () => {
   // A provider that names no outcome still counts as sent.
   expect(await errorRecovery(row, undefined, { retry: () => undefined })!.run()).toBeUndefined();
 });
+
+// cmux#34369 review: a fallback Retry (no acpmux turn retry) sends through `chat.send`, which settles
+// only when the turn it starts ends. Waiting on it kept Retrying… and a disabled Retry up for the
+// whole retried turn, and called a turn that ran and then failed "Couldn't retry". It settles once
+// acpmux took the prompt; a send it took whose turn then failed is still sent.
+test("a fallback send settles once acpmux took it, not when its turn ends", async () => {
+  const { sendUntilTaken } = await import("../src/agent-session/acpmux/conversation/turnRetry");
+  let settled = false;
+  let accept: () => void = () => undefined;
+  let endTurn: (value?: unknown) => void = () => undefined;
+  let failTurn: (error: unknown) => void = () => undefined;
+  const going = sendUntilTaken((accepted) => {
+    accept = accepted;
+    return new Promise((resolve, reject) => ((endTurn = resolve), (failTurn = reject)));
+  }).then(() => (settled = true));
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  accept();
+  await going;
+  expect(settled).toBe(true);
+  endTurn();
+  // Taken, then its turn failed: sent. Refused before acpmux took it: not sent.
+  const taken = sendUntilTaken(() => Promise.reject(Object.assign(new Error("turn failed"), { taken: true })));
+  expect(await taken.then(() => "sent")).toBe("sent");
+  const refused = sendUntilTaken(() => Promise.reject(new Error("refused")));
+  expect(
+    await refused.then(
+      () => "sent",
+      () => "not sent",
+    ),
+  ).toBe("not sent");
+  failTurn(new Error("late"));
+});
+
+// cmux#34369 review: Retrying… belongs to the row that was clicked. Once the attempt reaches the chat
+// and changes that row, the note goes even if the request is still in flight.
+test("Retrying… goes once the clicked row changes, even while the request is in flight", async () => {
+  const draw = (row: Parameters<typeof TurnFooter>[0]["row"]) =>
+    act(async () =>
+      root.render(
+        <TurnActionsContext.Provider
+          value={{ retry: () => undefined, retryFailed: () => new Promise(() => undefined) }}
+        >
+          <TurnFooter key={row.id} row={row} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  const note = () => card().querySelector(".cv-turn-error__note")?.textContent;
+  await draw({ ...failed, id: "summary-in-flight" });
+  await act(async () => cardRetry().click());
+  expect(note()).toBe("Retrying…");
+  await draw({ ...failed, id: "summary-in-flight", version: failed.version + 1 });
+  expect(note()).toBeUndefined();
+});
+
+// cmux#34369 review: the footer Retry of a chat without acpmux's turn retry sent the prompt again
+// with no feedback, and a send that did not go read as nothing happening.
+test("the footer's plain resend says Retrying…, and Couldn't retry when the send did not go", async () => {
+  let answer: (sent: boolean) => void = () => undefined;
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => new Promise<boolean>((resolve) => (answer = resolve)) }}>
+        <TurnFooter key="summary-plain" row={{ ...failed, id: "summary-plain" }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  const note = () => card().querySelector(".cv-turn-error__note")?.textContent;
+  await act(async () => footerRetry().click());
+  expect([note(), footerRetry().hasAttribute("disabled")]).toEqual(["Retrying…", true]);
+  await act(async () => answer(false));
+  expect([note(), footerRetry().hasAttribute("disabled")]).toEqual(["Couldn't retry", false]);
+});

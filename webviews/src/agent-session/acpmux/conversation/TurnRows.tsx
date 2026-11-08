@@ -371,19 +371,21 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
   const [retrying, setRetrying] = useState(false);
   const [retryNote, setRetryNote] = useState<RetryNote>();
-  // The row's version when acpmux took the Retry (cmux#34369): the card says Retrying… until the
-  // retried attempt reaches the transcript and changes this row (it stops offering Retry, or a new
-  // attempt draws below it). Without it the card came back at once looking untouched, and a retry
-  // that failed again as fast (a gateway outage) read as a click that did nothing. The button waits
-  // only while the request is in flight: a second click is acpmux's to refuse (Busy, try again
-  // shortly), so a row that never changes cannot leave it stuck.
-  // Its label is the click's: the attempt can reach the chat (and change what the row offers) before
-  // acpmux answers.
-  const [retriedAt, setRetriedAt] = useState<number>();
+  // The card says Retrying… from the click until the retried attempt reaches the transcript and
+  // changes this row (it stops offering Retry, or a new attempt draws below it), and only while this
+  // row is still the version that was clicked (cmux#34369). Without it the card came back at once
+  // looking untouched, and a retry that failed again as fast (a gateway outage) read as a click that
+  // did nothing. The button waits only while the request is in flight (acpmux's answer, or a fallback
+  // send until acpmux took it): a second click is acpmux's to refuse (Busy, try again shortly), so a
+  // row that never changes cannot leave it stuck. Its label is the click's: the attempt can reach the
+  // chat (and change what the row offers) before acpmux answers.
+  const [retryAt, setRetryAt] = useState<number>();
+  const [retryWent, setRetryWent] = useState(false);
   const [retryLabel, setRetryLabel] = useState<ErrorRecovery["label"]>("retry");
-  const retryWent = retriedAt !== undefined && retriedAt === row.version;
+  const retryProgress = retryAt !== undefined && retryAt === row.version && (retrying || retryWent);
   const runRetry = (run: () => Promise<RetryNote | undefined>, label: ErrorRecovery["label"]) => {
-    const at = row.version;
+    setRetryAt(row.version);
+    setRetryWent(false);
     setRetryLabel(label);
     setRetrying(true);
     setRetryNote(undefined);
@@ -391,7 +393,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       .then(
         (note) => {
           setRetryNote(note);
-          setRetriedAt(note === undefined ? at : undefined);
+          setRetryWent(note === undefined);
         },
         () => setRetryNote("retry.failed"),
       )
@@ -428,7 +430,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           runRetry(() => retryFailed(row.retryRowId, prompt), row.continuable ? "continue" : "retry");
         }
       : retry && prompt && row.retryRowId
-        ? () => retry(row.retryRowId!, prompt)
+        ? () => {
+            // A chat without acpmux's retry sends the prompt again; a send that did not go says so.
+            if (retrying) return;
+            const rowId = row.retryRowId!;
+            runRetry(async () => ((await retry(rowId, prompt)) === false ? "retry.failed" : undefined), "retry");
+          }
         : undefined;
   // The footer of the person's last prompt, when that turn ended well, sends it again as the
   // prompt's Retry did, where turns.ts retryPlacement puts the chat's one Retry on this footer.
@@ -485,7 +492,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           goOn={goOn}
           goOnLabel={recovery?.label}
           retrying={retrying}
-          retryWent={retryWent}
+          retryProgress={retryProgress}
           retryLabel={retryLabel}
           failedAgain={row.failedAgain === true}
           retryNote={retryNote}
@@ -599,7 +606,7 @@ function TurnFailure({
   goOn,
   goOnLabel,
   retrying = false,
-  retryWent = false,
+  retryProgress = false,
   retryLabel = "retry",
   failedAgain = false,
   retryNote,
@@ -628,9 +635,9 @@ function TurnFailure({
   goOnLabel?: ErrorRecovery["label"];
   /// A Continue or Retry is in flight: its button waits, and the note says Retrying….
   retrying?: boolean;
-  /// acpmux took the Continue or Retry and its attempt has not reached the chat yet: the note still
-  /// says Retrying… (cmux#34369).
-  retryWent?: boolean;
+  /// The note says Retrying… (or Continuing…): from the click, while this row is still the version
+  /// that was clicked and the retry is in flight or acpmux took it (cmux#34369).
+  retryProgress?: boolean;
   /// What the click under way was: the note says Continuing… or Retrying….
   retryLabel?: ErrorRecovery["label"];
   /// This turn was a retry of a failed one and failed too (turns.ts `failedAgain`).
@@ -807,7 +814,7 @@ function TurnFailure({
         )}
         {retryNote ? (
           <output className="cv-turn-error__note text-detail text-dim">{t(retryNote)}</output>
-        ) : retrying || retryWent ? (
+        ) : retryProgress ? (
           // The click went (cmux#34369): said from the click until the retried attempt shows.
           <output className="cv-turn-error__note text-detail text-dim">
             {t(retryLabel === "continue" ? "turn.continuing" : "turn.retrying")}
