@@ -80,7 +80,10 @@ const STATES: Record<State, string> = {
   opening: "its open transition stopped half way",
 };
 
-const variants = Object.fromEntries(
+/// One state of the gallery: what it shows, its props, the stage's height and its steps.
+type Variant = { note: string; props: Props; height?: number; play?: (ctx: PlayContext) => Promise<void> };
+
+const variants: Record<string, Variant> = Object.fromEntries(
   (["sheet", "expand", "tile"] as const).flatMap((design) =>
     (["closed", "open", "opening"] as const).map((state) => {
       const run = play(design, state);
@@ -91,6 +94,15 @@ const variants = Object.fromEntries(
     }),
   ),
 );
+
+/// The sheet opened in a short pane (a split, a small window): its bar and actions stay in the pane,
+/// the text taking only what is left (review of #38350).
+variants["sheet-open-short"] = {
+  note: "Ships, opened in a 200 px pane: the bar and both actions stay in the pane, the text scrolls in what is left.",
+  height: 200,
+  props: { design: "sheet", state: "open" },
+  play: (ctx: PlayContext) => open(ctx, "sheet"),
+};
 
 export default componentEntry<Props>({
   id: "agent-pane.composer-paste-chip",
