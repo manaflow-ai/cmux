@@ -117,4 +117,49 @@ struct AgentPaneToastAvoidanceTests {
         #expect(CmuxToastAvoidance.floor(width: 400, in: bounds, window: window) >= composer.maxY + CmuxToastAvoidance.avoidanceGap - 0.5,
                 "the toast stayed over the composer after the chat showed again")
     }
+
+    /// A chat moved straight to another window at the same window-relative frame: the toast host
+    /// there is told to move its toasts, which now rest above the composer, and the window it left
+    /// stops avoiding it.
+    @Test func aToastInTheWindowAChatMovesToMovesAboveItsComposer() async throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file)))
+        defer { view.close() }
+        let windows = (0..<2).map { _ in
+            NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.borderless], backing: .buffered, defer: false)
+        }
+        defer {
+            for window in windows {
+                let panel = WindowOverlayHost.existingHost(for: window)?.panel
+                window.isReleasedWhenClosed = false
+                window.close()
+                panel?.close()
+            }
+        }
+        let source = try #require(windows[0].contentView), destination = try #require(windows[1].contentView)
+        view.frame = source.bounds
+        source.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        let pageHeight = (view.page?.frame ?? view.webView.frame).height
+        _ = await view.model.respond(to: .toastAvoidance(CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90)))
+        let composer = view.convert(view.toastAvoidanceRect, to: nil)
+
+        // The destination window shows a toast and has no chat yet: its stack rests at the window's foot.
+        let spy = ReanchorSpy()
+        CmuxToastAvoidance.register(spy, in: windows[1])
+        defer { CmuxToastAvoidance.unregister(spy, from: windows[1]) }
+        #expect(CmuxToastAvoidance.floor(width: 400, in: destination.bounds, window: windows[1]) < composer.maxY)
+
+        let before = spy.reanchors
+        destination.addSubview(view) // the same frame in the new window
+        view.layoutSubtreeIfNeeded()
+        #expect(view.convert(view.toastAvoidanceRect, to: nil) == composer)
+        for _ in 0..<20 where spy.reanchors == before { await Task.yield() }
+        #expect(spy.reanchors > before, "the toast host in the chat's new window was not told")
+        #expect(CmuxToastAvoidance.floor(width: 400, in: destination.bounds, window: windows[1])
+                    >= composer.maxY + CmuxToastAvoidance.avoidanceGap - 0.5,
+                "the toast in the chat's new window stayed over its composer")
+        #expect(CmuxToastAvoidance.floor(width: 400, in: source.bounds, window: windows[0]) == source.bounds.minY,
+                "the window the chat left still avoids it")
+    }
 }

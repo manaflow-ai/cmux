@@ -211,3 +211,30 @@ async fn resolve_takes_a_whole_name_before_a_peer_named_like_its_parent() {
     let found = hub.locate("coord/lane", false, true).unwrap();
     assert_eq!(found["session"]["sessionId"], child.id.as_str(), "{found}");
 }
+
+/// Review of #36919: `HOST/ID`, a peer session's qualified id, names that session before a
+/// session whose whole name is the same text.
+#[tokio::test]
+async fn resolve_takes_a_qualified_id_before_a_whole_name_like_it() {
+    let hub = test_hub();
+    let lookalike = named(&hub, "hb/0199eeee-5555").await;
+    add_peer(&hub, "hb");
+    list_as_peers_do(&hub, "hb", "0199eeee-5555", "worker");
+    let found = hub.locate("hb/0199eeee-5555", false, true).unwrap();
+    assert_ne!(found["session"]["sessionId"], lookalike.id.as_str(), "{found}");
+    assert_eq!(found["session"]["qualifiedSessionId"], "hb/0199eeee-5555", "{found}");
+    // A loose key `key_route` sends to that peer session is read back as its qualified id, never
+    // as the local name like it.
+    let found = hub.locate("WORKER", false, true).unwrap();
+    assert_eq!(found["session"]["qualifiedSessionId"], "hb/0199eeee-5555", "{found}");
+}
+
+/// Peer `peer`'s session `id` named `name`, with the summary a peer's list gives it
+/// (`Hub::remote_summary`: its `peer/` name, qualified id and receipt).
+fn list_as_peers_do(hub: &Hub, peer: &str, id: &str, name: &str) {
+    let summary =
+        Hub::remote_summary(peer, json!({"sessionId": id, "name": name, "status": "idle"}));
+    let receipt = crate::session_identity::SessionReceipt::new(peer, id, None, 1);
+    let row = RemoteSession { peer: peer.into(), summary, receipt };
+    hub.remote_sessions.lock().unwrap().insert(format!("{peer}/{id}"), row);
+}
