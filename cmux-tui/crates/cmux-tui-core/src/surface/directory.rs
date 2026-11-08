@@ -65,12 +65,15 @@ impl Surface {
     pub(crate) fn terminal_command_context(
         &self,
     ) -> Option<crate::command_context::CommandContext> {
-        let (read, cwd) = self.with_terminal(|term| {
+        // The status is read under the terminal lock too: the output thread
+        // writes a command's screen and its `D` mark under that lock, so all
+        // three belong to the same command.
+        let (read, exit_code, cwd) = self.with_terminal(|term| {
             let read = term.last_command_output(crate::command_context::MAX_OUTPUT_ROWS)?;
+            let exit_code = self.terminal_last_command().and_then(|last| last.exit_code);
             let cwd = term.pwd().as_deref().and_then(crate::shell_history::command_cwd);
-            Some((read, cwd))
+            Some((read, exit_code, cwd))
         })??;
-        let exit_code = self.terminal_last_command().and_then(|last| last.exit_code);
         Some(crate::command_context::CommandContext::new(read, exit_code, cwd))
     }
 

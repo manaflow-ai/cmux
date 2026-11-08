@@ -75,7 +75,15 @@ impl Terminal {
         } else {
             String::new()
         };
-        let output = output.trim_matches(|c| c == '\n' || c == '\r').to_owned();
+        let mut output = output.trim_matches(|c| c == '\n' || c == '\r').to_owned();
+        // Output with no final newline (`printf foo`) ends on the prompt's
+        // own row, before the prompt's first cell.
+        if let Some(tail) = self.output_before_prompt(prompt, cols) {
+            if !output.is_empty() {
+                output.push('\n');
+            }
+            output.push_str(&tail);
+        }
         Some(CommandOutput { command, output, truncated })
     }
 
@@ -95,6 +103,20 @@ impl Terminal {
             }
         }
         self.selection_text_absolute(first, (last_x, row))
+    }
+
+    /// The text left of the first prompt or input cell of screen row `row`,
+    /// when that row starts with output; `None` when the prompt starts it.
+    fn output_before_prompt(&mut self, row: u64, cols: u16) -> Option<String> {
+        let first = (0..cols).find(|&x| {
+            self.cell_semantic(x, row).is_some_and(|semantic| {
+                semantic == sys::GHOSTTY_CELL_SEMANTIC_PROMPT
+                    || semantic == sys::GHOSTTY_CELL_SEMANTIC_INPUT
+            })
+        })?;
+        let text = self.selection_text_absolute((0, row), (first.checked_sub(1)?, row))?;
+        let text = text.trim_end();
+        (!text.is_empty()).then(|| text.to_owned())
     }
 
     /// Whether screen row `row` belongs to the shell (a prompt or input row)
@@ -119,25 +141,24 @@ impl Terminal {
         cols: u16,
         semantics: &[sys::GhosttyCellSemanticContent],
     ) -> bool {
-        (0..cols).any(|x| {
-            let Some(grid_ref) = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, x, row) else {
-                return false;
-            };
-            let mut cell = sys::GhosttyCell::default();
-            if check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut cell) }).is_err() {
-                return false;
-            }
-            let mut semantic = sys::GHOSTTY_CELL_SEMANTIC_OUTPUT;
-            check(unsafe {
-                sys::ghostty_cell_get(
-                    cell,
-                    sys::GHOSTTY_CELL_DATA_SEMANTIC_CONTENT,
-                    (&mut semantic as *mut sys::GhosttyCellSemanticContent).cast(),
-                )
-            })
-            .is_ok()
-                && semantics.contains(&semantic)
+        (0..cols).any(|x| self.cell_semantic(x, row).is_some_and(|s| semantics.contains(&s)))
+    }
+
+    /// The semantic content of the cell at column `x` of screen row `row`.
+    fn cell_semantic(&self, x: u16, row: u64) -> Option<sys::GhosttyCellSemanticContent> {
+        let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, x, row)?;
+        let mut cell = sys::GhosttyCell::default();
+        check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut cell) }).ok()?;
+        let mut semantic = sys::GHOSTTY_CELL_SEMANTIC_OUTPUT;
+        check(unsafe {
+            sys::ghostty_cell_get(
+                cell,
+                sys::GHOSTTY_CELL_DATA_SEMANTIC_CONTENT,
+                (&mut semantic as *mut sys::GhosttyCellSemanticContent).cast(),
+            )
         })
+        .ok()?;
+        Some(semantic)
     }
 }
 
@@ -194,6 +215,21 @@ mod tests {
         let last = term.last_command_output(100).unwrap();
         assert_eq!(last.command.as_deref(), Some("make"));
         assert_eq!(last.output, "boom");
+    }
+
+    #[test]
+    fn output_without_a_final_newline_ends_on_the_prompt_row() {
+        let mut term = shell();
+        run(&mut term, "printf foo", "foo", 1);
+        prompt(&mut term);
+        let last = term.last_command_output(100).unwrap();
+        assert_eq!(last.command.as_deref(), Some("printf foo"));
+        assert_eq!(last.output, "foo");
+
+        let mut term = shell();
+        run(&mut term, "make", "one\r\ntwo", 2);
+        prompt(&mut term);
+        assert_eq!(term.last_command_output(100).unwrap().output, "one\ntwo");
     }
 
     #[test]

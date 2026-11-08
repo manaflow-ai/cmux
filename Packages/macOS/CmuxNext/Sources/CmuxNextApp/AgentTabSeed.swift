@@ -5,16 +5,16 @@ import CmuxNextDaemonService
 import Foundation
 
 extension AppActionContext {
-    /// Terminal text to a chat (``TerminalToChatActions``): after the draft of the workspace's agent chat the person
-    /// focused last (``WorkContextTrail``), else as the draft of a new chat beside the terminal, in its folder.
+    /// Terminal text to a chat (``TerminalToChatActions``): after the draft of the workspace's agent chat focused last
+    /// (``WorkContextTrail``; woken if hibernated), else a new chat's draft. A CLI or MCP run moves no selection or focus.
     func draftInChat(_ markdown: String, from invocation: ActionInvocation) {
         guard let (tab, pane) = daemonTab(invocation) else { return }
-        if let chat = services.inheritedWork(besides: tab, in: pane, kinds: [.chat], value: { $0.id }),
-           services.revealTab(chat), let view = services.agentTabs.existingView(chat) {
-            return view.appendToDraft(markdown)
+        let shows = invocation.allowsViewChange, chat = services.inheritedWork(besides: tab, in: pane, kinds: [.chat], value: { $0.id })
+        if let chat, !shows || services.revealTab(chat), let view = services.agentTabs.view(for: chat) {
+            return view.appendToDraft(markdown, focus: shows)
         }
         guard let pane = services.paneController(for: pane) else { return refuse(RefusalStrings.notShownInAnyWindow(tab.id)) }
-        _ = pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: tab.cwd, draft: markdown, harness: pane.inheritedHarness())))
+        _ = pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: tab.cwd, draft: markdown, harness: pane.inheritedHarness())), select: shows)
     }
 }
 

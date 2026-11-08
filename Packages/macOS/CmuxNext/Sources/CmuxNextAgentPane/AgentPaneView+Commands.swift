@@ -42,9 +42,14 @@ extension AgentPaneView {
     }
     /// Send to Chat from a terminal (Fix, Send Selection or Last Output to Chat): `markdown` goes
     /// after this chat's draft, which stays as typed (the path Quote in Reply takes), and the
-    /// composer takes the keyboard. Nothing is sent: the person reads it and presses Return.
-    public func appendToDraft(_ markdown: String) {
-        focusChat()
+    /// composer takes the keyboard unless `focus` is false (a CLI or MCP run). Nothing is sent: the
+    /// person reads it and presses Return. A page still connecting gets it when it says it is ready.
+    public func appendToDraft(_ markdown: String, focus: Bool = true) {
+        if focus { focusChat() }
+        guard model.clientReady else {
+            model.clientReadyWaiters.append { [weak self] in self?.runMessageAction("chat.quoteReply", ["markdown": markdown]) }
+            return
+        }
         runMessageAction("chat.quoteReply", ["markdown": markdown])
     }
     /// A chat that just opened from a fork (``AgentForkDestination``): the keyboard goes to its
