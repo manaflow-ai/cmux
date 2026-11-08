@@ -22,6 +22,7 @@ const body = step("body");
 const detail = step("detail");
 const caption = step("caption");
 const padding = gridLength("cards-padding");
+const uiFontFamily = typeScale.font.stack.join(", ");
 
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
 function textHeight(text: string, width: number, size: number, line: number, mono = false, weight = 400): number {
@@ -29,9 +30,9 @@ function textHeight(text: string, width: number, size: number, line: number, mon
   if (!mono) text = text.replace(/\s+/g, " ");
   try {
     return layout(
-      prepare(text, `${weight} ${size}px ${mono ? "monospace" : typeScale.font.family}`, {
+      prepare(text, `${weight} ${size}px ${mono ? "monospace" : uiFontFamily}`, {
         whiteSpace: "pre-wrap",
-        letterSpacing: mono ? 0 : (typeScale.steps.find((entry) => entry.size === size)?.tracking ?? 0) * size,
+        letterSpacing: 0,
       }),
       room,
       line,
@@ -46,8 +47,8 @@ function textWidth(text: string, size: number, weight = 400): number {
   try {
     return (
       layoutWithLines(
-        prepareWithSegments(text, `${weight} ${size}px ${typeScale.font.family}`, {
-          letterSpacing: (typeScale.steps.find((entry) => entry.size === size)?.tracking ?? 0) * size,
+        prepareWithSegments(text, `${weight} ${size}px ${uiFontFamily}`, {
+          letterSpacing: 0,
         }),
         Infinity,
         size,

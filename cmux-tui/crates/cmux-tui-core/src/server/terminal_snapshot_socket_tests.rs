@@ -1108,7 +1108,9 @@ fn fixture_line(event: &Value) -> String {
 /// `snapshot_local_history` gets READY, history chunks and images chunks;
 /// then a resize to 60x20 gives one local READY. The lines must equal
 /// `spec/fixtures/terminal-snapshot-dogfood-png.jsonl`;
-/// `CMUX_UPDATE_SNAPSHOT_FIXTURE=1` rewrites the file.
+/// `CMUX_UPDATE_SNAPSHOT_FIXTURE=1` rewrites the file. Since the ghostty-next sync of #35478
+/// (upstream c7f68a7f4), GHOSTSNP itself carries the image: a `kitty_image_storage` record (tag 8)
+/// before READY and a `kitty_image_payload` record (tag 9) in the history chunk.
 #[test]
 fn dogfood_png_snapshot_events_match_the_golden_fixture() {
     let (mux, surface) = quiet_surface_with_scrollback("snapshot-images-fixture", 0);

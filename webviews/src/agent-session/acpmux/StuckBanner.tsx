@@ -10,7 +10,7 @@ export type StuckBannerProps = {
 export function StuckBanner({ diagnosis, onNudge }: StuckBannerProps) {
   const t = useT();
   return (
-    <output className="acpmux-stuck-banner" aria-live="polite">
+    <aside className="acpmux-stuck-banner" role="status" aria-live="polite">
       <span className="acpmux-stuck-ring" aria-hidden="true" />
       <span className="acpmux-stuck-copy">
         <strong>{t("stuck.title")}</strong>
@@ -19,6 +19,6 @@ export function StuckBanner({ diagnosis, onNudge }: StuckBannerProps) {
       <button type="button" className="acpmux-stuck-nudge" onClick={onNudge}>
         {t("stuck.nudge")}
       </button>
-    </output>
+    </aside>
   );
 }
