@@ -12,6 +12,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { createNoticeQueue, NoticeStack } from "../src/ui/NoticeStack";
+import { JumpToLatest } from "../src/agent-session/acpmux/VirtualTranscript";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -46,7 +47,10 @@ const VIEW = { width: 800, height: 600 };
 /// A pane: transcript rows (one in view, one rendered below the viewport's edge), a control with no
 /// box, then the toast deck, then the composer. With `disabledFieldsets`, a disabled fieldset whose
 /// button is in view sits on each side of the deck: the browser never tabs to those buttons.
-function renderPane({ disabledFieldsets = false }: { disabledFieldsets?: boolean } = {}): Document {
+function renderPane({
+  disabledFieldsets = false,
+  jumpLatest = false,
+}: { disabledFieldsets?: boolean; jumpLatest?: boolean } = {}): Document {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/",
     pretendToBeVisual: true,
@@ -118,6 +122,7 @@ function renderPane({ disabledFieldsets = false }: { disabledFieldsets?: boolean
             </button>
           </fieldset>
         ) : null}
+        {jumpLatest ? <JumpToLatest shown working={false} lift={0} onJump={() => {}} /> : null}
         <div className="dock">
           <NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" />
           {disabledFieldsets ? (
@@ -167,7 +172,7 @@ function focusedName(doc: Document): string {
   const active = doc.activeElement as HTMLElement | null;
   const card = active?.closest(".ui-notice-deck-card");
   if (card) return `${card.querySelector(".ui-notice-message, p")?.textContent ?? card.textContent} ×`;
-  return active?.id || active?.tagName || "none";
+  return active?.id || active?.getAttribute("aria-label") || active?.tagName || "none";
 }
 
 function focusFrontClose(doc: Document): void {
@@ -227,4 +232,19 @@ test("leaving the deck skips buttons in a disabled fieldset, as the browser does
   focusFrontClose(doc);
   press(doc, false);
   expect(focusedName(doc)).toBe("composer");
+});
+
+// Jump to latest floats over the transcript's foot, just before the deck in the document, so it is
+// where Shift-Tab out of the deck lands in the agent pane. It is a layer over the transcript too:
+// the browser's next stop before it is a row the virtual list rendered past the viewport's edge,
+// and focusing that row scrolled the reader away (#38090, real-app capture after #38126).
+test("Shift-Tab from the deck through Jump to latest stays on controls in view", () => {
+  const doc = renderPane({ jumpLatest: true });
+  focusFrontClose(doc);
+  const walked: string[] = [];
+  for (let step = 0; step < 4; step += 1) {
+    press(doc, true);
+    walked.push(focusedName(doc));
+  }
+  expect(walked).toEqual(["Second ×", "First ×", "Jump to latest", "row-in-view"]);
 });
