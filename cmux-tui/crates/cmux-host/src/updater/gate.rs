@@ -25,8 +25,8 @@
 //! update flips and a bind does not go out (it retries). A rollback still
 //! goes (keeping a build that never proved itself is worse, #37280); a bind
 //! can't go out then either, so there is none for it to cut. A state that
-//! can't be parsed is replaced by a held, restart-pending one that lapses on
-//! its own, so a bad file never wedges a machine.
+//! can't be parsed is replaced by a held, restart-pending one with a bind in
+//! flight, which lapses on its own, so a bad file never wedges a machine.
 
 use std::fmt;
 use std::fs;
@@ -143,7 +143,8 @@ impl Gate {
     }
 
     /// The state under the lock. Missing is empty; unparsable is replaced by
-    /// a held, restart-pending state (written back) that lapses on its own.
+    /// a held, restart-pending state with a bind in flight (written back)
+    /// that lapses on its own.
     fn read(&self, now_ms: u64) -> io::Result<GateState> {
         let bytes = match fs::read(self.paths.at(GATE_FILE)) {
             Ok(bytes) => bytes,
@@ -153,10 +154,12 @@ impl Gate {
         if let Ok(state) = serde_json::from_slice(&bytes) {
             return Ok(state);
         }
+        // What the file said is lost: a bind may be in flight, so the
+        // barrier holds for a fresh bound, as if one had just started.
         let state = GateState {
             held_until_ms: Some(now_ms.saturating_add(ms(CONNECT_HOLD))),
             restart_pending_until_ms: Some(now_ms.saturating_add(ms(RESTART_PENDING_FOR))),
-            bind_in_flight_until_ms: None,
+            bind_in_flight_until_ms: Some(now_ms.saturating_add(ms(BIND_IN_FLIGHT_FOR))),
         };
         self.write(&state)?;
         Ok(state)

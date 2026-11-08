@@ -667,8 +667,14 @@ fn carrier_busy(paths: &Paths) -> Option<String> {
 /// it, under the same bound. A list that can't be read holds nothing here:
 /// the session host that would answer is the build being rolled back, and
 /// keeping a broken build is worse than a restart (#37280).
+///
+/// Each wait has its own hold, started when the wait begins: the forward
+/// update's hold may have passed its bound, and a session that reconnected
+/// since would get no hold at all.
 #[derive(Default)]
-pub(super) struct RollbackCarrier;
+pub(super) struct RollbackCarrier {
+    hold: CarrierHold,
+}
 
 impl RollbackCarrier {
     /// One look at `now` at the sessions read.
@@ -679,7 +685,9 @@ impl RollbackCarrier {
         sessions: Result<Vec<String>, String>,
     ) -> Option<String> {
         let ids = sessions.ok()?;
-        carrier_busy_at(paths, now, Ok(ids))
+        act_on_look(self.hold.look(now, Ok(ids)), || {
+            hold_connects(paths);
+        })
     }
 }
 
