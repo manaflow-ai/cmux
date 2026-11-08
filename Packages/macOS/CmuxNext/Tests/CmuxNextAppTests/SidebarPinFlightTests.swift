@@ -435,25 +435,33 @@ struct SidebarPinFlightTests {
         list.model.workspacePin = (isPinned: { pinnedNow && $0 == Self.moved }, toggle: { _ in })
         let (sections, blocks) = Self.state([Self.moved])
         list.model.sections = sections
+        let rowsStart = CACurrentMediaTime()
         list.reload(animated: true)
+        let rowsEnd = CACurrentMediaTime()
         CATransaction.flush()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
         // The closing row's path, read before the item takes over (the row goes in that apply).
-        let closing = Self.probes(Self.moved, list, now: CACurrentMediaTime())
+        let probed = CACurrentMediaTime()
+        let closing = Self.probes(Self.moved, list, now: probed)
         pinnedNow = true
         list.blocks = blocks
         list.reload(animated: true)
         let turnEnd = CACurrentMediaTime()
+        // Where the time between the two updates went (ms): the rows' apply, the wait for the blocks, the blocks' apply.
+        func ms(_ a: CFTimeInterval, _ b: CFTimeInterval) -> String { String(format: "%.1f", (b - a) * 1000) }
+        let timing = "rows apply \(ms(rowsStart, rowsEnd)) ms, then \(ms(rowsEnd, probed)) ms to the blocks, blocks apply \(ms(probed, turnEnd)) ms"
+        print("pin-closing-row timing: \(timing)")
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
         var failures: [String] = []
         Self.checkBegin("pinned d (rows first)", of: arrived, turnEnd: turnEnd, failures: &failures)
         // Where the person sees the workspace when the item takes over: the closing row's path at the move's begin.
         let now = Self.moveBegin(of: arrived) ?? turnEnd
+        print("pin-closing-row timing: the item begins \(ms(turnEnd, now)) ms after the blocks' turn, \(ms(rowsStart, now)) ms after the rows' apply")
         let drawnStart: CGRect
         switch Self.one(closing, at: now) {
         case let .success(frame): drawnStart = frame
         case let .failure(failure):
-            Issue.record("the closing row at the item's begin: \(failure.text)")
+            Issue.record("the closing row at the item's begin: \(failure.text) (\(timing); the item begins \(ms(rowsStart, now)) ms after the rows' apply)")
             return
         }
         let probes = Self.probes(Self.moved, list, now: now)
