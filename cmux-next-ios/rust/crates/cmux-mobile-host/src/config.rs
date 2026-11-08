@@ -107,6 +107,7 @@ pub struct HostConfig {
     pub include_loopback: bool,
     /// Never offer or use 100.64.0.0/10 (Tailscale) addresses.
     pub exclude_cgnat: bool,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
     pub services: ServiceConfig,
 }
 
@@ -142,7 +143,7 @@ pub fn default_state_dir() -> PathBuf {
         .unwrap_or_else(|| home().join("Library/Application Support/cmux-mobile-host"))
 }
 
-fn hostname() -> String {
+pub(crate) fn hostname() -> String {
     let mut buffer = [0u8; 256];
     // SAFETY: the buffer is valid for its length; gethostname NUL-terminates
     // on success when the name fits.
@@ -269,7 +270,12 @@ pub fn sibling_device_ids(app_support: &Path, own: &str, machine_id: &str) -> Ve
 /// this build is its own computer; claiming this Mac's folders as its
 /// siblings would make the backend give its id to every same-owner record
 /// that has none yet (old builds, other rigs) and fold them into it for good.
-pub fn registration_siblings(app_support: &Path, own: &str, machine_id: &str, overridden: bool) -> Vec<String> {
+pub fn registration_siblings(
+    app_support: &Path,
+    own: &str,
+    machine_id: &str,
+    overridden: bool,
+) -> Vec<String> {
     if overridden {
         return Vec::new();
     }
@@ -372,6 +378,9 @@ impl HostConfig {
             .with_spent_replies(std::sync::Arc::new(crate::mailbox::SpentReplies::load(
                 default_state_dir().join("mailbox-spent.json"),
             )))
+            .with_activity(std::sync::Arc::new(crate::activity::Activity::file(
+                default_state_dir().join("machine-activity.jsonl"),
+            )))
         });
         let max_tabs = env("CMUX_MOBILE_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
         let browser = match (&supplied, env("CMUX_MOBILE_RB_HOST")) {
@@ -426,6 +435,7 @@ impl HostConfig {
             owner_user_id: env("CMUX_MOBILE_OWNER_USER_ID"),
             include_loopback: env("CMUX_MOBILE_INCLUDE_LOOPBACK").is_some_and(|v| v == "1"),
             exclude_cgnat: env("CMUX_MOBILE_EXCLUDE_CGNAT").is_some_and(|v| v == "1"),
+            session_exposure: supplied.map(|value| value.session_exposure),
             services: ServiceConfig {
                 chief_socket: Some(chief_socket(
                     &env("CMUX_MOBILE_TUI_SOCKET_DIR")

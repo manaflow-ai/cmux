@@ -197,17 +197,10 @@ extension CloudStrings {
                table: "Cloud", bundle: .module)
     }
 
-    /// `cloud new-machine` with any option on a Cloud backend whose create takes none yet.
-    static var machineOptionsUnavailable: String {
-        String(localized: "cloud.cli.machineOptionsUnavailable",
-               defaultValue: "This Cloud backend can't create a machine with a size, idle pause, name or bootstrap yet. Create it without them, then use cloud resize-machine, cloud set-idle-pause and cloud rename-machine.",
-               table: "Cloud", bundle: .module)
-    }
-
     /// `cloud new-machine --repo` that is not a GitHub repository in an accepted form.
     static var repoUnrecognized: String {
         String(localized: "cloud.cli.repoUnrecognized",
-               defaultValue: "--repo takes a GitHub repository: OWNER/NAME, https://github.com/OWNER/NAME or git@github.com:OWNER/NAME.git, with an optional @REF.",
+               defaultValue: "--repo takes a GitHub repository (OWNER/NAME, https://github.com/OWNER/NAME or git@github.com:OWNER/NAME.git) or another host's https URL (https://gitlab.com/GROUP/NAME), with an optional @REF.",
                table: "Cloud", bundle: .module)
     }
 
@@ -228,18 +221,6 @@ extension CloudStrings {
     /// `cloud set-idle-pause` with a `minutes` value the server does not take.
     static func idlePauseMustBeOneOf(_ list: String) -> String {
         String(format: String(localized: "cloud.cli.idlePauseMustBeOneOf", defaultValue: "Minutes must be one of: %@.", table: "Cloud", bundle: .module), list)
-    }
-
-    /// `cloud set-network-access` with an `access` value that is not a level.
-    static func networkAccessMustBeOneOf(_ list: String) -> String {
-        String(format: String(localized: "cloud.cli.networkAccessMustBeOneOf", defaultValue: "Access must be one of: %@.", table: "Cloud", bundle: .module), list)
-    }
-
-    /// An agent's `cloud set-network-access` that would let the machine reach more than it can now.
-    static var networkAccessAgentWidens: String {
-        String(localized: "cloud.cli.networkAccessAgentWidens",
-               defaultValue: "An agent can only turn a machine's internet access off. To choose another level, use Internet Access… in the machine's menu.",
-               table: "Cloud", bundle: .module)
     }
 }
 

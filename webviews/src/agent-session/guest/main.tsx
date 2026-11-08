@@ -1,30 +1,39 @@
 // The guest page's entry (vite.config.guest-page.mjs; scripts/cmux-next/build-guest-page-web.sh
-// builds it for the room to serve at /g/<share_id>). The page carries the agent pane's own
+// builds it for the room to serve at /g/<share_id>, and at /i/<share_id> for an invite). The page carries the agent pane's own
 // stylesheet, the one the app ships and the gallery draws (dev-server/galleryHost.ts), so the
 // transcript looks as the owner sees it.
 import "virtual:cmux-gallery/agent-pane.css";
 import "./page.css";
 import { createRoot } from "react-dom/client";
 import { UiProvider } from "../../ui/UiProvider";
-import { AcpmuxDirectClient, nextFrame } from "../acpmux/direct";
-import { GuestPage } from "./GuestPage";
-import { attemptId, joinedAs, joinedName, redeemOverFetch, rememberJoined, takeGuestLink } from "./redeem";
+import { GuestPage, startGuestPage } from "./GuestPage";
+import {
+  acceptOverFetch,
+  attemptId,
+  joinedAs,
+  joinedName,
+  joinedRole,
+  redeemOverFetch,
+  rememberJoined,
+  takeGuestLink,
+  whoamiOverFetch,
+} from "./redeem";
 import { followBrowserTheme } from "./theme";
-import { installGuestHost } from "./guestHost";
 
 // The built page loads its strings from locales/ before this module (the build script's loader);
 // the dev server has none and reads the whole table.
 if (import.meta.env.DEV) globalThis.__cmuxPaneStrings ??= (await import("../acpmux/generated/strings.json")).default;
 
-// No owner host, before anything can ask one (guestHost.ts).
-installGuestHost();
-AcpmuxDirectClient.scheduleFrame = nextFrame;
 document.documentElement.dataset.cmuxWebviewKind = "guest-page";
 followBrowserTheme();
 
 const storage = window.sessionStorage;
 // Read first: this takes the secret out of the address bar before anything else runs.
 const link = takeGuestLink(window.location, window.history, storage);
+// The transcript's chunk (GuestTranscript.tsx) loads beside the first frame: a joined guest needs it
+// for the room's snapshot, a new one after Join. Its no-owner host is installed as it arrives,
+// before anything from it draws (GuestPage.tsx startGuestPage).
+if (link) startGuestPage();
 const root = document.getElementById("root")!;
 // A path that names no share opens the join page with Join off ("This link is incomplete").
 const shareId = link?.shareId ?? "";
@@ -34,12 +43,16 @@ createRoot(root).render(
     <GuestPage
       shareId={shareId}
       secret={link?.secret}
-      guestId={link ? joinedAs(shareId, storage) : undefined}
+      guestId={link ? joinedAs(shareId, storage, link.invite === true) : undefined}
       name={link ? joinedName(shareId, storage) : undefined}
+      role={link ? joinedRole(shareId, storage, link.invite === true) : undefined}
       storage={storage}
       redeem={redeemOverFetch()}
+      invite={link?.invite === true}
+      accept={acceptOverFetch()}
+      whoami={whoamiOverFetch()}
       attempt={() => attemptId(shareId, storage)}
-      onJoined={(guestId, name) => rememberJoined(shareId, guestId, storage, name)}
+      onJoined={(guestId, name, role, via) => rememberJoined(shareId, guestId, storage, name, role, via)}
       socketUrl={socketUrl}
     />
   </UiProvider>,

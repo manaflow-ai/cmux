@@ -23,8 +23,8 @@ fn empty_state() -> State {
         panes: HashMap::new(),
         surfaces: Default::default(),
         terminal_catalog: Default::default(),
-        terminal_catalog_by_runtime: HashMap::new(),
-        terminal_catalog_by_host: HashMap::new(),
+        terminal_catalog_by_runtime: Default::default(),
+        terminal_catalog_by_host: Default::default(),
         split_screens: HashMap::new(),
         resource_indexes: PublicSlotIndexes::default(),
     }

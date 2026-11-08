@@ -1494,6 +1494,7 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
         cwd: Some("/tmp/project".into()),
         title: None,
         on_show: false,
+        last_command: None,
     }])
     .unwrap();
     assert!(revision(&mux) > before, "a keep-layout record advances the resource revision");
@@ -1520,6 +1521,37 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
     let before = revision(&mux);
     mux.forget_kept_tabs(std::slice::from_ref(&other)).unwrap();
     assert!(changes_after(&mux, before).iter().all(|change| change["resource"] != "tab"));
+    mux.shutdown();
+}
+
+/// A parked tab's last command (`kept_tabs.last_command_json`) is read back
+/// whole for its restored marker line, and a later record replaces it.
+#[test]
+fn a_kept_tab_keeps_its_last_command() {
+    use crate::state::kept_tab_store::{KeptTab, LastCommand};
+    let mux = Mux::new_for_test("state-kept-last-command", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let kept = tab_id(&mux, tabs[0]);
+    let last = LastCommand {
+        command: "npm test -- --watch=false".into(),
+        exit_code: Some(1),
+        started_at_ms: 1_700_000_000_000,
+        ended_at_ms: 1_700_000_180_000,
+    };
+    let record = |last_command: Option<LastCommand>| KeptTab {
+        tab_id: kept.clone(),
+        cwd: Some("/tmp/project".into()),
+        title: None,
+        on_show: true,
+        last_command,
+    };
+    mux.commit_kept_tabs(&[record(Some(last.clone()))]).unwrap();
+    let read = |mux: &Mux| {
+        mux.workspace_registry.lock().unwrap().kept_tabs_of(std::slice::from_ref(&kept)).unwrap()
+    };
+    assert_eq!(read(&mux), vec![record(Some(last))]);
+    mux.commit_kept_tabs(&[record(None)]).unwrap();
+    assert_eq!(read(&mux), vec![record(None)], "a newer record without one clears it");
     mux.shutdown();
 }
 
@@ -1657,4 +1689,53 @@ fn raw_metadata_and_pin_commands_publish_the_same_state_on_session_events() {
             && change["id"] == second
             && change["value"]["extra"]["pinned"] == true
     }));
+}
+
+/// TUL-F7 (TYPING UNDER LOAD, STATUS 6339): under the L1 CLI storm one
+/// workspace status commit held the session lock (`Mux.state`) for 452 ms
+/// while its registry transaction ran, and a request waited 418 ms for it.
+/// Every key whose terminal lookup takes the session lock waited with it.
+/// A state mutation reads the session only to resolve its targets: the
+/// lock is free while its registry transaction writes and commits.
+#[test]
+fn a_status_commit_frees_the_session_lock_while_it_writes_the_registry() {
+    use std::sync::mpsc::sync_channel;
+    let mux = Mux::new_for_test("state-status-lock", SurfaceOptions::default());
+    let workspace = empty_workspace(&mux, "status");
+    let (entered, entered_receiver) = sync_channel::<()>(1);
+    let (release, release_receiver) = sync_channel::<()>(1);
+    let release_receiver = std::sync::Mutex::new(release_receiver);
+    mux.set_state_commit_after_apply_hook_for_test(Some(Arc::new(move || {
+        entered.send(()).unwrap();
+        let _ = release_receiver.lock().unwrap().recv_timeout(std::time::Duration::from_secs(10));
+    })));
+    let committing = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            mutate(
+                &mux,
+                "workspace_status.set",
+                json!({"workspace": workspace, "key": "build", "text": "slow write"}),
+                "status-while-writing",
+            )
+        })
+    };
+    entered_receiver.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+    // A key's terminal lookup (`Mux::surface` on the send path) takes the
+    // session lock; it must not wait for the registry write.
+    let (looked_up, looked_up_receiver) = sync_channel::<()>(1);
+    let key = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            mux.with_state(|state| state.surfaces.len());
+            looked_up.send(()).unwrap();
+        })
+    };
+    let waited = looked_up_receiver.recv_timeout(std::time::Duration::from_secs(2));
+    release.send(()).unwrap();
+    let set = committing.join().unwrap();
+    key.join().unwrap();
+    mux.set_state_commit_after_apply_hook_for_test(None);
+    assert!(waited.is_ok(), "a key's session lookup waited for a status commit's registry write");
+    assert_eq!(set["entries"][0]["text"], "slow write", "{set}");
 }

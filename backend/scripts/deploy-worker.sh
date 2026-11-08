@@ -65,6 +65,13 @@ case "$target" in
     trap 'rm -f "$secrets" "$preview_config"' EXIT
     sed "s/\"cmux-automation-run-development\"/\"cmux-automation-run-${target}\"/" wrangler.jsonc > "$preview_config"
     grep -q "cmux-automation-run-${target}" "$preview_config" || { echo "preview workflow rename failed" >&2; exit 1; }
+    # CMUX_PREVIEW_PLATFORM_WORKER=cmux-platform-preview-<n>: this preview's PLATFORM service and CLOUD_DO go to a
+    # cmux-platform preview instead of cmux-platform-development, so a platform PR is checked the way the app reaches it.
+    if [ -n "${CMUX_PREVIEW_PLATFORM_WORKER:-}" ]; then
+      case "$CMUX_PREVIEW_PLATFORM_WORKER" in cmux-platform-preview-*[!a-z0-9-]*|cmux-platform-preview-) echo "CMUX_PREVIEW_PLATFORM_WORKER must be cmux-platform-preview-<a-z0-9->" >&2; exit 2 ;; cmux-platform-preview-[a-z0-9]*) ;; *) echo "CMUX_PREVIEW_PLATFORM_WORKER must be cmux-platform-preview-<name>" >&2; exit 2 ;; esac
+      sed -i.bak "s/\"cmux-platform-development\"/\"${CMUX_PREVIEW_PLATFORM_WORKER}\"/g" "$preview_config" && rm -f "$preview_config.bak"
+      grep -q "\"${CMUX_PREVIEW_PLATFORM_WORKER}\"" "$preview_config" || { echo "preview platform rebind failed" >&2; exit 1; }
+    fi
     config=(--config "$preview_config") ;;
 esac
 # Release rails (plans/cmux-next/release-rails.md): staging and production record the serving

@@ -20,6 +20,7 @@ import datetime as dt
 import gzip
 import io
 import json
+import re
 import os
 import itertools
 import sys
@@ -46,6 +47,25 @@ TRUSTED_POOL = "glaeda-trusted-std-xcode-26.6"
 TRUSTED_RUNNER = "glaeda-runner-cmux15-glaeda"
 # Each guarded job and the picker job whose outputs route it.
 GUARDED = {"build-nightly-app": "pick-nightly-build-runner"}
+
+
+_RUNNER_POOL_LABELS = {
+    "linux_2": "blacksmith-2vcpu-ubuntu-2404",
+    "linux_4": "blacksmith-4vcpu-ubuntu-2404",
+    "linux_8": "blacksmith-8vcpu-ubuntu-2404",
+    "linux_16": "blacksmith-16vcpu-ubuntu-2404",
+    "linux_32": "blacksmith-32vcpu-ubuntu-2404",
+    "macos_15": "blacksmith-6vcpu-macos-15",
+    "macos_26": "blacksmith-6vcpu-macos-26",
+    "macos_26_large": "blacksmith-12vcpu-macos-26",
+}
+
+
+def parse_nightly_expression(source: str):
+    """Parse pool reads as their declared labels for this legacy expression evaluator."""
+    for pool, label in _RUNNER_POOL_LABELS.items():
+        source = source.replace(f"fromJSON(vars.RUNNER_POOLS).{pool}", repr(label))
+    return parse_expression(source)
 
 
 def runner(*labels: str, busy: bool = False, status: str = "online") -> dict:
@@ -343,6 +363,27 @@ class NightlyOnlyBuilderRoute(unittest.TestCase):
                                ("", [runner()]), (plain, [runner()]), ("glaeda-unregistered", [runner()])):
             with self.subTest(label=label, runners=runners):
                 self.assertEqual(picker.nightly_only_builder_route(label, plain, runners)[0], plain)
+
+
+    def test_the_idle_xl_builder_comes_first_and_never_waits(self) -> None:
+        builder, plain, xl = (picker.NIGHTLY_ONLY_BUILDER_LABEL, picker.NIGHTLY_ONLY_LABEL,
+                              picker.NIGHTLY_ONLY_XL_BUILDER_LABEL)
+
+        def runner(label: str, status: str = "online", busy: bool = False) -> dict:
+            return {"status": status, "busy": busy, "labels": [{"name": label}]}
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, [runner(builder), runner(xl)])[0], xl)
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, [runner(xl, busy=True), runner(xl)])[0], xl)
+        # Busy or offline xl builders fall to the M4 Pro builders, then the plain label, with no wait.
+        for xl_runner in (runner(xl, busy=True), runner(xl, "offline")):
+            with self.subTest(xl=xl_runner):
+                self.assertEqual(picker.nightly_only_builder_route(builder, plain, [xl_runner, runner(builder)])[0],
+                                 builder)
+                self.assertEqual(picker.nightly_only_builder_route(
+                    builder, plain, [xl_runner, runner(builder, busy=True)])[0], plain)
+        # The xl builder is offered only while the M4 Pro builder variable is the enrolled label (the switch).
+        for label in ("", "glaeda-unregistered"):
+            self.assertEqual(picker.nightly_only_builder_route(label, plain, [runner(xl)])[0], plain)
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, None)[0], plain)
 
 
 class BlacksmithRoute(unittest.TestCase):
@@ -697,7 +738,7 @@ class Workflow(unittest.TestCase):
                                               ("", "", ""), ("0", "1", "")):
                 with self.subTest(job=job, owned_on=owned_on, rescue_on=rescue_on):
                     context = {"vars.CI_PR_POOL_OWNED": owned_on, "vars.CI_OWNED_POOL_RESCUE": rescue_on}
-                    self.assertEqual(evaluate(parse_expression(flag), context) or "", want)
+                    self.assertEqual(evaluate(parse_nightly_expression(flag), context) or "", want)
         # The signing pick (signing_runner.py owned) never takes it: its exclusive claim needs a pinned runner.
         sign = next(step for step in DOC["jobs"]["pick-nightly-sign-runner"]["steps"] if step.get("id") == "sign-owned")
         self.assertNotIn("UNREAD_OWNED_FALLBACK", sign.get("env") or {})
@@ -712,12 +753,12 @@ class Workflow(unittest.TestCase):
                 runs_on = DOC["jobs"][job]["runs-on"]
                 self.assertNotIn("CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 self.assertIn(f"needs.{GUARDED[job]}.outputs.owned", runs_on)
-                self.assertIn(f"needs.{GUARDED[job]}.outputs.blacksmith", runs_on)
+                self.assertNotIn(f"needs.{GUARDED[job]}.outputs.blacksmith", runs_on)
 
-    def test_every_nightly_next_route_has_a_blacksmith_fallback(self) -> None:
-        # Owned only when the picker saw it idle for this very attempt; anything else (a re-run of
-        # failed jobs that kept an earlier attempt's pick included) is Blacksmith, whatever
-        # vars.MACOS_RUNNER_26 holds (a hosted or owned value never routes around the pick).
+    def test_every_nightly_next_route_falls_back_to_the_nightly_only_builder(self) -> None:
+        # The pick only when the picker saw it idle for this very attempt; anything else (a re-run of
+        # failed jobs that kept an earlier attempt's pick included) is our plain nightly-only pool,
+        # never Blacksmith (nightlies never use Blacksmith), whatever vars.MACOS_RUNNER_26 holds.
         for job, pick in GUARDED.items():
             source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
             for event, attempt, picked_for, owned, blacksmith, owned_on, variable in itertools.product(
@@ -732,13 +773,13 @@ class Workflow(unittest.TestCase):
                            f"needs.{pick}.outputs.owned": owned, f"needs.{pick}.outputs.blacksmith": blacksmith}
                 with self.subTest(job=job, event=event, attempt=attempt, picked_for=picked_for, owned=owned,
                                   blacksmith=blacksmith, owned_on=owned_on, variable=variable):
-                    label = evaluate(parse_expression(source), context)
+                    label = evaluate(parse_nightly_expression(source), context)
                     if picked_for == str(attempt) and owned:
                         self.assertEqual(label, owned)
                     else:
-                        self.assertTrue(str(label).startswith("blacksmith-"), label)
+                        self.assertEqual(label, "glaeda-nightly-only-m4pro")
 
-    def test_the_ghostty_helper_takes_the_owned_or_blacksmith_pick_never_the_dedicated_builder(self) -> None:
+    def test_the_ghostty_helper_takes_the_owned_pick_or_our_nightly_pool_never_the_dedicated_builder(self) -> None:
         # Starved on Blacksmith macos-26 behind the bare label (run 40500413442). The dedicated
         # builder's hook admits only build-nightly-app, so the helper never takes it.
         job = DOC["jobs"]["build-nightly-ghostty-cli-helper"]
@@ -761,14 +802,14 @@ class Workflow(unittest.TestCase):
                        f"needs.{pick}.outputs.blacksmith": blacksmith}
             with self.subTest(event=event, attempt=attempt, picked_for=picked_for, helper=helper, dedicated=dedicated,
                               blacksmith=blacksmith):
-                label = evaluate(parse_expression(source), context)
+                label = evaluate(parse_nightly_expression(source), context)
                 # The same rule as build-nightly-app: only a pick made for this attempt; the helper
                 # pick, which stands while the app build holds the dedicated builder, never that builder.
                 if picked_for == str(attempt) and helper == SIDE:
                     self.assertEqual(label, SIDE)
                 else:
-                    # The picker's moving label, else the default; never a dropped pick.
-                    self.assertEqual(label, blacksmith or SMALL)
+                    # The owned nightly pool, never the picker's Blacksmith label nor a dropped pick.
+                    self.assertEqual(label, "glaeda-nightly-std-xcode-26.6")
 
     def test_the_pickers_never_block_their_job(self) -> None:
         for job, pick in GUARDED.items():
@@ -786,7 +827,11 @@ class Workflow(unittest.TestCase):
                 self.assertEqual(step["env"]["DEDICATED_LABEL"], "${{ vars.CI_NIGHTLY_NEXT_DEDICATED_LABEL }}")
                 # The wait for a busy dedicated builder fits in the step and the job.
                 self.assertGreaterEqual(step["timeout-minutes"] * 60, picker.DEDICATED_WAIT_SECONDS + 120)
-                self.assertGreater(definition["timeout-minutes"], step["timeout-minutes"] + 2)
+                # One-mini mode adds room for glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py):
+                # the smaller limit, the mode off, is the one that must hold.
+                limit = definition["timeout-minutes"]
+                limit = min(int(n) for n in re.findall(r"\b\d+\b", limit)) if isinstance(limit, str) else limit
+                self.assertGreater(limit, step["timeout-minutes"] + 2)
                 self.assertIn("steps.pick.outputs.owned", definition["outputs"]["owned"])
                 self.assertEqual(definition["outputs"]["blacksmith"], "${{ steps.pick.outputs.blacksmith }}")
                 # The helper's pick stands on the same terms as `owned`.
@@ -799,7 +844,7 @@ class Workflow(unittest.TestCase):
         context = {"github.repository": "manaflow-ai/cmux", "github.run_attempt": 1, "vars.CI_PR_POOL_OWNED": "1",
                    "vars.GLAEDA_ROUTE_APP_ID": "123", "github.event_name": "push",
                    "github.ref": "refs/heads/nightly-next", **changes}
-        return bool(evaluate(parse_expression(step["if"]), context))
+        return bool(evaluate(parse_nightly_expression(step["if"]), context))
 
     def test_owned_is_offered_only_where_the_rescue_watches(self) -> None:
         # owned_pool_rescue.nightly_target (on main) watches nightly-next push and dispatch runs at
@@ -841,11 +886,11 @@ class Workflow(unittest.TestCase):
                                "github.run_attempt": attempt, "vars.CI_PR_POOL_OWNED": "1",
                                **{f"needs.{pick}.outputs.{key}": value for key, value in out.items()}}
                     source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
-                    self.assertEqual(evaluate(parse_expression(source), context), SIDE)
-                    # A re-run of failed jobs that kept the previous attempt's pick takes the moving
-                    # Blacksmith label, so a refused owned label is never taken again.
+                    self.assertEqual(evaluate(parse_nightly_expression(source), context), SIDE)
+                    # A re-run of failed jobs that kept the previous attempt's pick takes our nightly-only
+                    # pool (never the warm builder label), so a refused owned label is never taken again, and never Blacksmith.
                     stale = {**context, "github.run_attempt": attempt + 1}
-                    self.assertEqual(evaluate(parse_expression(source), stale), LARGE)
+                    self.assertEqual(evaluate(parse_nightly_expression(source), stale), "glaeda-nightly-only-m4pro")
 
     def test_an_owned_pick_outside_the_workflow_run_watch_leaves_a_marker(self) -> None:
         for pick in GUARDED.values():
@@ -868,14 +913,14 @@ class Workflow(unittest.TestCase):
                 with self.subTest(output=True, event=event, attempt=attempt, upload=upload_outcome):
                     context = {"github.event_name": event, "github.run_attempt": attempt,
                                "steps.upload-marker.outcome": upload_outcome, "steps.pick.outputs.owned": SIDE}
-                    self.assertEqual(evaluate(parse_expression(owned_output), context), wanted)
+                    self.assertEqual(evaluate(parse_nightly_expression(owned_output), context), wanted)
             for event, attempt, owned, wanted in (("push", 1, SIDE, False), ("push", 2, SIDE, True),
                                                   ("workflow_dispatch", 1, SIDE, True),
                                                   ("workflow_dispatch", 1, "", False)):
                 with self.subTest(event=event, attempt=attempt, owned=owned):
                     context = {"github.event_name": event, "github.run_attempt": attempt,
                                "steps.pick.outputs.owned": owned}
-                    self.assertEqual(bool(evaluate(parse_expression(marker["if"]), context)), wanted)
+                    self.assertEqual(bool(evaluate(parse_nightly_expression(marker["if"]), context)), wanted)
 
 
 class BuilderReadDeadline(unittest.TestCase):

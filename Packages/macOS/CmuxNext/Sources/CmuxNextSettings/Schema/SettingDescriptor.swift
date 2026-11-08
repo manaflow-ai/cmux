@@ -37,15 +37,22 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
     public var consumers: Set<SettingConsumer> = [.cmuxNext]
     /// Whether the Settings page shows this row (`isShownOnSettingsPage`).
     public var page: SettingPageExposure = .shown
+    /// What the empty field of a list row shows: a localized instruction ("Add a word or phrase")
+    /// or a syntax example with no catalog key (`devbox.local`). nil shows none, except that a
+    /// host list falls back to its host example.
+    public var placeholder: SettingText?
 
     /// A row whose texts come from the string catalog (`SettingsText.keyed`).
+    ///
+    /// - Parameter placeholder: What an empty list field shows (``placeholder``); nil shows none.
     public init(_ path: [String], section: SettingsSection, group: SettingText, title: SettingText, help: SettingText? = nil,
                 summary: SettingText? = nil, kind: SettingKind, default defaultValue: JSONValue?,
-                defaultLabel: SettingText? = nil, keywords: [String] = []) {
+                defaultLabel: SettingText? = nil, keywords: [String] = [], placeholder: SettingText? = nil) {
         self.init(path, section: section, group: group.text, title: title.text, help: help?.text, summary: summary?.text,
                   kind: kind, default: defaultValue, defaultLabel: defaultLabel?.text, keywords: keywords,
                   textKeys: SettingTextKeys(group: group.key, title: title.key, help: help?.key, summary: summary?.key,
                                             defaultLabel: defaultLabel?.key))
+        self.placeholder = placeholder
     }
 
     public init(_ path: [String], section: SettingsSection, group: String, title: String, help: String? = nil,
@@ -94,6 +101,13 @@ extension SettingDescriptor {
         var row = self
         row.page = .hidden(reason)
         row.palette = .hidden(reason)
+        return row
+    }
+
+    /// This row, kept off the Settings page for `reason` and still in the palette (another card draws it).
+    public func keptOffSettingsPage(_ reason: String) -> SettingDescriptor {
+        var row = self
+        row.page = .hidden(reason)
         return row
     }
 }

@@ -111,7 +111,13 @@ test("New Tab's create actions open a terminal, a browser tab and a chat", async
       await act(async () =>
         root.render(
           <QueryClientProvider client={new QueryClient()}>
-            <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+            <NewTabScreen
+              template="default"
+              snapshot={noChat()}
+              lastAgent="claude"
+              cwd="/Users/you/src/app"
+              {...actions}
+            />
           </QueryClientProvider>,
         ),
       );
@@ -128,9 +134,12 @@ test("New Tab's create actions open a terminal, a browser tab and a chat", async
     const opened = calls.filter((call) => call.method === "tab.open" || call.method === "chat.new");
     expect(opened).toEqual([
       // A terminal in the tab's folder, with nothing typed.
-      { method: "tab.open", params: { kind: "terminal", text: "", run: false, cwd: "/Users/you/src/app" } },
+      {
+        method: "tab.open",
+        params: { kind: "terminal", text: "", run: false, inPlace: true, cwd: "/Users/you/src/app" },
+      },
       // A browser tab on the new tab page (`browser.newTabPage`), with nothing to load.
-      { method: "tab.open", params: { kind: "browser", text: "" } },
+      { method: "tab.open", params: { kind: "browser", text: "", inPlace: true } },
       // The page becomes a chat with the agent Return would ask, sending nothing.
       { method: "chat.new", params: expect.objectContaining({ harness: "claude" }) },
     ]);
@@ -161,7 +170,13 @@ test("New chat sends what the field holds, and a second click opens nothing more
     act(async () =>
       root.render(
         <QueryClientProvider client={new QueryClient()}>
-          <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+          <NewTabScreen
+            template="default"
+            snapshot={noChat()}
+            lastAgent="claude"
+            cwd="/Users/you/src/app"
+            {...actions}
+          />
         </QueryClientProvider>,
       ),
     );

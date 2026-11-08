@@ -17,7 +17,6 @@ function host(compose?: AutomationCompose): AutomationHost {
     call: async () => undefined,
     selectSession: () => undefined,
     openDiff: () => undefined,
-    diff: () => ({ open: false, paths: [] }),
     ...(compose ? { compose } : {}),
   };
 }

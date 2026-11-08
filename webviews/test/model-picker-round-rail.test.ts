@@ -97,24 +97,24 @@ await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
     test(`${engine}: every rail tab is a readable rounded row, the selected one included`, async () => {
       const page = await open(engine);
       await press(page, chip("Model"));
-      await page.locator(".acpmux-quick-rail-tab").first().waitFor();
+      await page.locator(".acpmux-cols-tab[role=tab]").first().waitFor();
       const tabs = await page.evaluate(() => {
         const corner = (node: Element) => parseFloat(getComputedStyle(node).borderTopLeftRadius);
-        const harnessTabs = [
-          ...document.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab:not(.acpmux-quick-rail-add)"),
-        ];
-        const add = document.querySelector<HTMLElement>(".acpmux-quick-rail-add");
+        const harnessTabs = [...document.querySelectorAll<HTMLElement>(".acpmux-cols-tab[role=tab]")];
+        const add = document.querySelector<HTMLElement>(".acpmux-cols-tab-add");
         return {
           harnesses: harnessTabs.map((tab) => {
-            const name = tab.querySelector<HTMLElement>(".acpmux-quick-harness-name");
+            const symbol = tab.querySelector(".agent-mark, .acpmux-cols-initial, svg");
             return {
-              // A symbol shown alone, its name the tab's label and title.
-              symbol: !!tab.querySelector(".agent-mark") && !!name?.classList.contains("sr-only") && !!tab.title,
+              // Starred has its star; each harness has its mark or initial. The accessible
+              // label and tooltip name the icon-only tab.
+              symbol: !!symbol,
+              markHeight: tab.querySelector(".agent-mark, svg")?.getBoundingClientRect().height,
               name: tab.getAttribute("aria-label") ?? "",
-              shown: name?.textContent?.trim() ?? "",
-              clipped: name ? name.scrollWidth > name.clientWidth + 1 : true,
+              title: tab.title,
+              clipped: tab.scrollWidth > tab.clientWidth + 1 || tab.scrollHeight > tab.clientHeight + 1,
               corner: corner(tab),
-              selected: tab.getAttribute("aria-pressed") === "true",
+              selected: tab.getAttribute("aria-selected") === "true",
               filled: getComputedStyle(tab).backgroundColor !== "rgba(0, 0, 0, 0)",
             };
           }),
@@ -127,11 +127,22 @@ await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
         };
       });
       expect(tabs.harnesses.length, "the rail shows its harness tabs").toBeGreaterThan(1);
+      expect(tabs.harnesses[0]?.name, "Starred is the first tab").toBe("Starred");
+      expect(
+        tabs.harnesses.some((tab) => tab.markHeight !== undefined),
+        "the rail draws harness marks",
+      ).toBe(true);
+      expect(
+        tabs.harnesses.every((tab) => tab.markHeight === undefined || tab.markHeight <= 16),
+        "rail marks stay compact",
+      ).toBe(true);
       expect(tabs.add, "the rail keeps an accessible Add harness action").toMatchObject({ name: "Add harness…" });
       expect(tabs.add?.corner ?? 0, "the Add harness action is rounded").toBeGreaterThanOrEqual(4);
       expect(
-        tabs.harnesses.filter((tab) => !tab.symbol && (tab.shown !== tab.name || tab.clipped)).map((tab) => tab.name),
-        "tabs that show neither their symbol nor their whole name",
+        tabs.harnesses
+          .filter((tab) => !tab.symbol || !tab.name || !tab.title.includes(tab.name) || tab.clipped)
+          .map((tab) => tab.name),
+        "tabs without an unclipped symbol and accessible name",
       ).toEqual([]);
       expect(
         tabs.harnesses.filter((tab) => tab.corner < 4).map((tab) => `${tab.name}: ${tab.corner}`),

@@ -12,6 +12,12 @@ name: iOS streamed-screenshot CI validation
 # test account) is provided as CMUXTERM_DEV_ENV_B64.
 on:
   workflow_dispatch:
+    inputs:
+      model:
+        description: "stub: Claude Code talks to the shared model stub with a throwaway login (default). real: the team's Claude login, for the weekly real-login canary."
+        type: choice
+        options: [stub, real]
+        default: stub
 
 permissions:
   contents: read
@@ -29,13 +35,14 @@ jobs:
     #
     # It stays on an ephemeral Blacksmith machine and never takes an owned Mac
     # (scripts/ci/ios_runner_pool.py): it changes the whole login session, not
-    # just its workspace. It puts CLAUDE_CODE_OAUTH_TOKEN into the GUI session
+    # just its workspace. It puts the model stub's URL and a throwaway login
+    # (or, for the canary, CLAUDE_CODE_OAUTH_TOKEN) into the GUI session
     # environment (launchctl setenv), writes agent credentials under $HOME
     # (~/.claude.json, ~/.codex/auth.json, ~/.pi, opencode), flips the global
     # dark-mode default, symlinks into /usr/local/bin, launches the Mac app
     # through launchd, and leaves Postgres and a Next.js server on fixed ports.
     # On a reused runner every later job would inherit that.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
       CMUX_PORT: "3000"
@@ -71,6 +78,13 @@ jobs:
         # Prefer the SHA-pinned prebuilt xcframework (the path ci.yml/reload-build
         # use); fall back to a local build only if the prebuilt is unavailable.
         run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+
+      # The cmux-next web bundles the Mac app build makes need bun 1.4.4 or
+      # newer; the runner's own bun is older, so pin it as nightly.yml does.
+      - name: Set up bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
 
       - name: Install tools (bun, idb, postgres)
         run: |
@@ -260,10 +274,13 @@ jobs:
           # mobile-dev-launch signs the device in with this account.
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          # Agent auth for the real streamed sessions. claude uses the OAuth token
-          # natively; codex/opencode/pi get FAKE per-provider auth (seeded below)
-          # so each resumes its own recorded model (no DeepSeek fallback).
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Agent auth for the streamed sessions. codex/opencode/pi get FAKE
+          # per-provider auth (seeded above) so each resumes its own recorded
+          # model. claude gets a throwaway login pointed at the shared model stub
+          # (tests/fixtures/model-stub), so nothing it sends reaches Anthropic;
+          # only the real-login canary (model=real) gives it the team's login.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          MODEL: ${{ inputs.model || 'stub' }}
         run: |
           set -euo pipefail
           export PATH="/tmp/idbvenv/bin:$HOME/.bun/bin:$PATH"
@@ -287,7 +304,34 @@ jobs:
           # shell's, so agent terminals spawned by the app won't see step env vars.
           # Push the agent auth into the GUI session env BEFORE launching so the
           # workspace shells (and the agents they run) inherit it.
-          [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_CODE_OAUTH_TOKEN" || true
+          if [ "$MODEL" = real ]; then
+            [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { echo "::error::model=real needs CLAUDE_CODE_OAUTH_TOKEN"; exit 1; }
+            # No stub routing left from an earlier job on a reused runner.
+            launchctl unsetenv ANTHROPIC_BASE_URL 2>/dev/null || true
+            launchctl unsetenv ANTHROPIC_AUTH_TOKEN 2>/dev/null || true
+            launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_CODE_OAUTH_TOKEN"
+          else
+            # No team login or other model route left in the GUI environment from an
+            # earlier job on a reused runner: the stub run sends only its throwaway login.
+            for key in CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL \
+              CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX ANTHROPIC_CUSTOM_HEADERS; do
+              launchctl unsetenv "$key" 2>/dev/null || true
+            done
+            # The shared model stub on loopback, for as long as this step runs.
+            STUB_DIR="$RUNNER_TEMP/model-stub"
+            mkdir -p "$STUB_DIR"
+            nohup python3 tests/fixtures/model-stub/model_stub.py --port 0 \
+              --ready-file "$STUB_DIR/ready.json" --log "$STUB_DIR/requests.jsonl" \
+              > "$STUB_DIR/out.txt" 2>&1 < /dev/null &
+            echo $! > "$STUB_DIR/pid"
+            for _ in $(seq 600); do [ -s "$STUB_DIR/ready.json" ] && break; sleep 0.2; done
+            [ -s "$STUB_DIR/ready.json" ] || { echo "::error::the model stub did not start ($(command -v python3))"; cat "$STUB_DIR/out.txt"; exit 1; }
+            STUB_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["url"])' "$STUB_DIR/ready.json")"
+            echo "model stub on $STUB_URL"
+            launchctl setenv ANTHROPIC_BASE_URL "$STUB_URL"
+            # A throwaway bearer login: Claude Code signs in without the team's login.
+            launchctl setenv ANTHROPIC_AUTH_TOKEN "stub-$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
+          fi
           # The fresh CI runner boots in Light Mode, so cmux resolves a LIGHT
           # terminal theme and streams a white background -> the phone shows white
           # bands on unpainted cells. Force cmux to a dark appearance for the
@@ -319,6 +363,8 @@ jobs:
           xcrun simctl io "$SIM_ID" screenshot /tmp/streamed-ci/_diag/post-capture.png || true
           idb ui describe-all --udid "$SIM_ID" > /tmp/streamed-ci/_diag/post-capture-a11y.json 2>&1 || true
           echo "=== captured files ==="; ls -laR /tmp/streamed-ci || true
+          # How many requests Claude Code sent the stub (counts only, no bodies).
+          [ "$MODEL" = real ] || echo "model stub requests: $(wc -l < "$RUNNER_TEMP/model-stub/requests.jsonl" 2>/dev/null || echo 0)" | tee /tmp/streamed-ci/_diag/model-stub.txt
           # Assert on an AGENT shot at the top level (_diag/*.png are diagnostics).
           ls /tmp/streamed-ci/*.png >/dev/null 2>&1 || { echo "::error::no streamed screenshot was captured (capture rc=$CAP_RC); see _diag artifacts"; exit 1; }
 
@@ -341,3 +387,8 @@ jobs:
           rm -f "$HOME/.secrets/cmuxterm-dev.env"
           rmdir "$HOME/.secrets" 2>/dev/null || true
           launchctl unsetenv CLAUDE_CODE_OAUTH_TOKEN 2>/dev/null || true
+          launchctl unsetenv ANTHROPIC_BASE_URL 2>/dev/null || true
+          launchctl unsetenv ANTHROPIC_AUTH_TOKEN 2>/dev/null || true
+          launchctl unsetenv ANTHROPIC_API_KEY 2>/dev/null || true
+          # The model stub this job started (its own pid, recorded at start).
+          if [ -s "$RUNNER_TEMP/model-stub/pid" ]; then kill "$(cat "$RUNNER_TEMP/model-stub/pid")" 2>/dev/null || true; fi

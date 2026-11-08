@@ -37,8 +37,8 @@ extension LayoutRootView {
     /// Syncs the overlay when it is stale.
     func flushOverlaySync() {
         // A parked or hidden root keeps its overlay stale: nothing shows it, and it syncs once when it goes
-        // live again (`setLive`).
-        guard overlayIsStale, isLive else { return }
+        // live again (`setLive`). The frame tick's input keeps it stale for the frame's one sync (`LayoutFrameInput`).
+        guard overlayIsStale, isLive, !context.holdsPresentations else { return }
         syncOverlay()
     }
 
@@ -108,8 +108,8 @@ extension LayoutRootView {
     /// nothing over panes (`dividerMouseAreas`).
     public var interactiveOverlayRects: [CGRect] {
         var rects: [CGRect] = []
-        if let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden {
-            rects += screen.dividerLineRects.map { convert($0, from: screen) }
+        if let active = model.layoutPassReads.activeScreenID, let screen = screenViews[active], !screen.isHidden {
+            rects += ScreenDividers(screen: screen).lineRects.map { convert($0, from: screen) }
         }
         return rects
     }
@@ -119,7 +119,7 @@ extension LayoutRootView {
     /// click-catching panel that forwards the mouse to this window, so the
     /// page keeps drawing edge to edge under them.
     public var dividerMouseAreas: [LayoutMouseArea] {
-        guard let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden else { return [] }
+        guard let active = model.layoutPassReads.activeScreenID, let screen = screenViews[active], !screen.isHidden else { return [] }
         return screen.dividerMouseAreas.map { area in
             var area = area
             area.rect = convert(area.rect, from: screen)

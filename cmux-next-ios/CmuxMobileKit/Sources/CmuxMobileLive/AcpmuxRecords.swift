@@ -41,6 +41,11 @@ struct AcpmuxRecords {
             if kind == "turn_result", let turnID = msg["turnId"]?.stringValue, let seq = record["seq"]?.numberValue {
                 events.append(.turnSeq(turnId: turnID, seq: Int(seq)))
             }
+            // A bookmark marks the prompt's record (never a message steered into a running turn).
+            if kind == "user_message", msg["steer"] != .bool(true), let turnID = msg["turnId"]?.stringValue,
+               let seq = record["seq"]?.numberValue {
+                events.append(.promptSeq(turnId: turnID, seq: Int(seq)))
+            }
             return events
         default:
             return []
@@ -66,9 +71,16 @@ struct AcpmuxRecords {
             }
             events.append(.userMessage(text: AgentVideo.withoutFrameText(msg["text"]?.stringValue ?? "", imageNames: imageNames), promptId: msg["promptId"]?.stringValue ?? turnID,
                                  turnId: turnID, attachments: images, at: at))
+            if let incoming = AgentIncoming.parse(text: msg["text"]?.stringValue ?? "", provenance: msg["_meta"]?["provenance"],
+                                                  client: msg["client"]?.stringValue, fromHarness: msg["fromHarness"]?.stringValue) {
+                events.append(.promptFrom(turnId: turnID, incoming: incoming))
+            }
             return events
         case "queued":
             guard let promptID = msg["promptId"]?.stringValue else { return [] }
+            // acpmux's inbox notice is no queued prompt of the person's (Leo, 2026-11-05: "Why is the
+            // thing still queued? ... don't show these kinds of things"): it goes in by itself.
+            if msg["_meta"]?["provenance"]?["kind"]?.stringValue == "inbox_notice" { return [] }
             return [.queued(text: msg["text"]?.stringValue ?? "", promptId: promptID, position: Int(msg["position"]?.numberValue ?? 0))]
         case "dequeued":
             guard let promptID = msg["promptId"]?.stringValue else { return [] }
@@ -80,9 +92,19 @@ struct AcpmuxRecords {
             guard case .array(let ids)? = msg["order"] else { return [] }
             return [.queueOrder(ids.compactMap(\.stringValue))]
         case "queue_paused":
-            return [.queuePaused(true, reason: msg["reason"]?.stringValue)]
+            // Held prompts that go in again by themselves (`retrying`: other agents' messages and
+            // inbox notices) pause nothing: only the person's wait for Resume.
+            let reason = msg["reason"]?.stringValue
+            let held = Set((msg["held"]?.arrayValue ?? []).compactMap(\.stringValue))
+            let retrying = Set((msg["retrying"]?.arrayValue ?? []).compactMap(\.stringValue))
+            if reason == nil, !held.isEmpty, held.isSubset(of: retrying) { return [] }
+            return [.queuePaused(true, reason: reason)]
         case "queue_resumed":
             return [.queuePaused(false, reason: nil)]
+        case "bookmarks":
+            // Every mark after a change (acpmux `hub/bookmarks.rs`).
+            guard case .array(let marks)? = msg["bookmarks"] else { return [] }
+            return [.bookmarks(marks.compactMap { $0.numberValue.map { Int($0) } })]
         case "turn_started":
             guard let turnID = msg["turnId"]?.stringValue else { return [] }
             return [.turnStarted(turnId: turnID, at: at)]
@@ -104,6 +126,18 @@ struct AcpmuxRecords {
             // A question's answers, as acpmux put them into the tool's input.
             let answers = outcome?["_meta"]?["updatedInput"]?["answers"].flatMap { try? Self.convert($0, to: AgentQuestionJSON.self) }
             return [.permissionDecision(permissionId: permissionID, optionId: optionID, answers: answers)]
+        case "elevation_request":
+            // A card with no nonce comes from an acpmux whose sudo cards a phone cannot approve.
+            guard let id = msg["secretId"]?.stringValue, let nonce = msg["decisionNonce"]?.stringValue,
+                  let instance = msg["personInstance"]?.stringValue else { return [] }
+            let argv = (msg["argv"]?.arrayValue ?? []).compactMap(\.stringValue)
+            let timeout = msg["timeoutSecs"]?.numberValue.map { Int($0) }
+            return [.elevationRequest(AgentElevationAsk(
+                id: id, argv: argv, reason: msg["reason"]?.stringValue ?? "", host: msg["host"]?.stringValue ?? "",
+                timeoutSecs: timeout, nonce: nonce, instance: instance))]
+        case "elevation_decision":
+            guard let id = msg["secretId"]?.stringValue else { return [] }
+            return [.elevationDecision(id: id)]
         default:
             return []
         }
@@ -117,7 +151,8 @@ struct AcpmuxRecords {
         }
         guard let toolCall = request["toolCall"], let call = try? Self.decode(ACPToolCall.self, toolCall) else { return nil }
         let options = (try? Self.decode([ACPPermissionOption].self, request["options"] ?? .array([]))) ?? []
-        return .permissionRequest(ACPPermissionRequest(id: permissionID, toolCall: call, options: options, cwd: request["cwd"]?.stringValue))
+        return .permissionRequest(ACPPermissionRequest(id: permissionID, toolCall: call, options: options, cwd: request["cwd"]?.stringValue,
+                                                       plan: ACPPermissionRequest.plan(toolCall: toolCall)))
     }
 
     static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {

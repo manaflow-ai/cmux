@@ -1,0 +1,155 @@
+/* An opened read or file search (FileResultCard.tsx). A read is the edit diff's card (conversation.css
+   `.cv-edit-diff`): the file's name and line range in its header, its lines under it with their numbers
+   in a gutter at the code's line height, cut to eight lines under the shared fade. A search is a flat
+   list in the transcript's column: the counts, then each file and its matching lines. */
+.cv-filepeek__name {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  cursor: default;
+}
+button.cv-filepeek__name:hover > .cv-edit-diff__name,
+button.cv-filepeek__name:focus-visible > .cv-edit-diff__name {
+  text-decoration: underline;
+}
+.cv-filepeek__icon {
+  flex: none;
+  color: var(--cv-text-muted);
+}
+.cv-filepeek__range {
+  flex: none;
+  color: var(--cv-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cv-filepeek .cv-edit-diff__copy {
+  margin-left: auto;
+}
+.cv-filepeek__body {
+  --cv-lane: 0px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.cv-filepeek__body[data-preview="cut"] {
+  max-height: calc(8 * var(--cv-codeblock-line-height, 20px) + var(--ds-space-2));
+  overflow: hidden;
+  --cv-fade-bottom: 28px;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-fade-bottom)), transparent);
+}
+.cv-filepeek__body[data-preview="all"] {
+  max-height: min(70vh, 640px);
+}
+.cv-filepeek__code {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: var(--ds-space-2) 0;
+}
+.cv-filepeek__gutter {
+  margin: 0;
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
+  color: var(--cv-text-muted);
+  font-family: var(
+    --cv-mono,
+    var(--cmux-diff-code-font-family, "SF Mono", ui-monospace, Menlo, monospace)
+  );
+  font-size: var(--cv-codeblock-size, var(--text-detail));
+  line-height: var(--cv-codeblock-line-height, 20px);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+  opacity: 0.7;
+}
+/* Pierre's lines and the plain ones under them share one cell, the plain ones until Pierre has painted. */
+.cv-filepeek__lines {
+  position: relative;
+  min-width: 0;
+}
+.cv-filepeek__lines .cv-code-plain {
+  padding-left: 0;
+}
+
+.cv-filematches {
+  display: grid;
+  gap: var(--grid-half-step);
+  margin: var(--grid-half-step) 0 var(--ds-space-2);
+  min-width: 0;
+}
+/* The list holds the summary and files (FileResultCard.tsx); cut, its last rows fade out over 32px.
+   The fade is on the list only, never on the card, so Show all under it stays at full ink. */
+.cv-filematches__list {
+  display: grid;
+  gap: var(--grid-half-step);
+  min-width: 0;
+}
+.cv-filematches[data-cut] > .cv-filematches__list {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+}
+.cv-filematches__summary {
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.cv-filematches__file {
+  display: grid;
+  min-width: 0;
+}
+.cv-filematches__path,
+.cv-filematches__line {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  cursor: default;
+}
+.cv-filematches__path {
+  min-height: var(--ds-control-compact);
+  color: var(--cv-text);
+  font-size: var(--text-detail);
+}
+.cv-filematches__line {
+  min-height: 20px;
+  color: var(--cv-codeblock-text);
+  font-family: var(
+    --cv-mono,
+    var(--cmux-diff-code-font-family, "SF Mono", ui-monospace, Menlo, monospace)
+  );
+  font-size: var(--cv-codeblock-size, var(--text-detail));
+  line-height: var(--cv-codeblock-line-height, 20px);
+}
+:is(button.cv-filematches__path, button.cv-filematches__line):hover,
+:is(button.cv-filematches__path, button.cv-filematches__line):focus-visible {
+  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
+}
+.cv-filematches__icon {
+  flex: none;
+  color: var(--cv-text-muted);
+}
+.cv-filematches__name,
+.cv-filematches__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-filematches__count {
+  flex: none;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+/* The number sits in the file icon's column, so a file's lines start under its name. */
+.cv-filematches__number {
+  flex: none;
+  min-width: 16px;
+  color: var(--cv-text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cv-filematches__number:empty {
+  visibility: hidden;
+}

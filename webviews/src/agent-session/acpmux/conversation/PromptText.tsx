@@ -1,7 +1,7 @@
 // A sent prompt's text in its bubble (UserBubble.tsx). A prompt taller than ten lines opens on
 // them, the last ones fading out under a mask, with Show more under them and Show less once open,
-// as Claude's does (Leo 2026-10-21). A block the composer sent as a paste is a chip, the composer's
-// attachment chip without its ×: "<first words> · N lines", which opens the paste in place. Each
+// as Claude's does (Leo 2026-10-21). A block the composer sent as a paste is a card of its first
+// lines over the composer's label ("Pasted text · N lines · NK characters"), which opens in place. Each
 // choice is kept by the row's id (transcriptDisclosure.tsx), so a prompt scrolled out and back, or
 // drawn again from history, stays as the reader left it. Find opens a collapsed prompt, or a closed
 // chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
@@ -15,21 +15,31 @@ import {
   hasHugeTypedPart,
   isHugePrompt,
   looksLongPrompt,
-  pasteLines,
   pasteName,
+  pastePreview,
   headParts,
   promptParts,
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { foldMotion, foldMs, markHeightFold } from "./fold";
+import { cancelResize, foldMotion, foldMs, markHeightFold, playResize } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
-import { SoftBroken, softBreaks } from "./softBreaks";
+import { SoftBroken } from "./softBreaks";
+import { softBreaks } from "./softBreaksModel";
+import { ExpandRow } from "./ExpandRow";
 import { isPromptMarkdown } from "./promptMarkdown";
-import { githubRefLabel, UrlChip } from "../chips/LinkChips";
-import { textLinks } from "../chips/paths";
+import { UrlChip } from "../chips/LinkChips";
+import { githubRefLabel } from "../chips/linkChipsModel";
+import { withForeignFiles } from "../chips/linkedText";
+import { foreignFileIds, textLinks } from "../chips/paths";
+import { deeplinks } from "../composer/deeplinks";
 import { SkillWordsContext } from "./skillWords";
-import { withSkillWords } from "./SkillWord";
+import { withSkillWords } from "./withSkillWords";
+import { Bot, ChevronDown } from "./icons";
+import { agentText } from "../agentText";
+import { experimentArm } from "../../../experiments/experiment";
+import { pastedAgentLook } from "./pastedAgentLook.experiment";
+import { pastedSize } from "../composer/textAttachmentCardModel";
 
 export function PromptText({
   rowId,
@@ -81,14 +91,14 @@ export function PromptText({
       // `display: contents`, so the bubble insets its text as before), and its lines measure it.
       let height = node.scrollHeight;
       if (!node.classList.contains("is-clamped")) {
-        const range = node.ownerDocument.createRange();
-        range.selectNodeContents(node);
-        height = typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect().height : 0;
+        height = drawnBox(node)?.height ?? 0;
       }
       // No layout (a test DOM) keeps the guess.
       if (!height || !Number.isFinite(lineHeight)) return;
       const next = height > COLLAPSED_PROMPT_LINES * lineHeight + 1;
-      setMeasured((last) => (last?.parts === parts && last.long === next ? last : { parts, long: next }));
+      // Confirming the guess changes no UI. Keep that mount to one commit; a width or content
+      // change that disagrees still updates the fold synchronously before paint.
+      setMeasured((last) => ((last?.parts === parts ? last.long : guess) === next ? last : { parts, long: next }));
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
@@ -96,7 +106,7 @@ export function PromptText({
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts, long, open, children]);
+  }, [parts, guess, long, open, children]);
   const collapsed = long && !open;
   // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
   // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
@@ -208,19 +218,43 @@ export function PromptText({
             )}
       </div>
       {long && (
-        <button
-          type="button"
+        <ExpandRow
           className="cv-user__more"
-          aria-expanded={!collapsed}
-          aria-controls={id}
-          data-find-skip=""
-          onClick={() => showMore(collapsed)}
-        >
-          {t(collapsed ? "message.more" : "message.less")}
-        </button>
+          open={!collapsed}
+          controls={id}
+          onToggle={() => showMore(collapsed)}
+          label={t(collapsed ? "message.more" : "message.less")}
+        />
       )}
     </>
   );
+}
+
+/// The box `node`'s content is drawn in, for a prompt drawn whole (no box of its own): its text's,
+/// except that a paste card counts as its own box. A range over a closed card's text would count the
+/// lines its preview clips too, so the prompt would measure long, clamp, measure short and unclamp
+/// without end.
+function drawnBox(node: Node): { top: number; bottom: number; height: number } | undefined {
+  // 1 is ELEMENT_NODE; a test DOM may install no global `Node`.
+  const element = node.nodeType === 1 ? (node as Element) : undefined;
+  if (element?.classList.contains("cv-user__paste-block")) return element.getBoundingClientRect();
+  if (!element || !element.querySelector(".cv-user__paste-block")) {
+    const range = node.ownerDocument?.createRange();
+    if (!range) return undefined;
+    range.selectNodeContents(node);
+    if (typeof range.getBoundingClientRect !== "function") return undefined;
+    const rect = range.getBoundingClientRect();
+    return rect.height ? rect : undefined;
+  }
+  let box: { top: number; bottom: number; height: number } | undefined;
+  for (const child of element.childNodes) {
+    const part = drawnBox(child);
+    if (!part) continue;
+    const top = Math.min(box?.top ?? part.top, part.top);
+    const bottom = Math.max(box?.bottom ?? part.bottom, part.bottom);
+    box = { top, bottom, height: bottom - top };
+  }
+  return box;
 }
 
 /// One typed block of a sent prompt: Markdown when it is written in Markdown (promptMarkdown.ts),
@@ -240,7 +274,7 @@ export function PromptTyped({
   const shown = show(text);
   // A skill's `/name` draws as the composer's command words do, its description on hover.
   const skills = useContext(SkillWordsContext).words;
-  if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{shown}</span>;
+  if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{plainWithForeignFiles(shown)}</span>;
   // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
   // only in its own plain text.
   return isPromptMarkdown(text) ? (
@@ -258,28 +292,66 @@ export function PromptTyped({
   );
 }
 
-/// Literal prompt text with each bare web address a link (UrlChip, as in a reply); the rest keeps
-/// its break points (softBreaks.tsx).
+/// A huge prompt's drawn text (#29840): one literal text node but for provider file ids, each its
+/// `ForeignFileRef`. One scan over the drawn text; past `MAX_PLAIN_FOREIGN_IDS` ids it stays one
+/// text node, so a prompt of ids alone never draws a node per id.
+const MAX_PLAIN_FOREIGN_IDS = 64;
+
+function plainWithForeignFiles(text: string): ReactNode {
+  const ids = foreignFileIds(text, MAX_PLAIN_FOREIGN_IDS);
+  if (!ids.length || ids.length > MAX_PLAIN_FOREIGN_IDS) return text;
+  return withForeignFiles(text, "f", (piece) => [piece], ids);
+}
+
+/// Literal prompt text with each bare web address a link (UrlChip, as in a reply) and each cmux app
+/// link (`cmux://workspace/…`, `cmux-nightly://agent/…`) a link the host opens in the app, as a
+/// reply's app link draws (Markdown.tsx); the rest keeps its break points (softBreaks.tsx).
 function LiteralText({ text }: { text: string }) {
-  const urls = text.includes("://") ? textLinks(text).filter((link) => link.kind === "url") : [];
-  if (!urls.length) return <SoftBroken text={text} />;
+  const links = text.includes("://") ? promptLinks(text) : [];
+  if (!links.length) return <>{withForeignFiles(text, "f", softBreaks)}</>;
   const out: ReactNode[] = [];
   let at = 0;
-  urls.forEach((link, index) => {
-    if (link.start > at) out.push(...softBreaks(text.slice(at, link.start), `t${index}`));
+  links.forEach((link, index) => {
+    if (link.start > at) out.push(...withForeignFiles(text.slice(at, link.start), `t${index}`, softBreaks));
     out.push(
-      <UrlChip key={`u${index}`} href={link.value}>
-        {githubRefLabel(link.value) ?? link.value}
-      </UrlChip>,
+      link.app ? (
+        // A plain anchor, so the click takes the host's link path (opened in the app).
+        <a key={`a${index}`} className="cv-link is-app" href={link.value}>
+          <SoftBroken text={link.value} />
+        </a>
+      ) : (
+        <UrlChip key={`u${index}`} href={link.value}>
+          {githubRefLabel(link.value) ?? link.value}
+        </UrlChip>
+      ),
     );
     at = link.end;
   });
-  if (at < text.length) out.push(...softBreaks(text.slice(at), "tail"));
+  if (at < text.length) out.push(...withForeignFiles(text.slice(at), "tail", softBreaks));
   return <>{out}</>;
 }
 
-/// One pasted block: the chip, and the paste under it once opened. A sent prompt's inline parts
-/// draw theirs with it too (InlinePromptContent.tsx).
+/// The links of a literal prompt, in order: its web addresses and its cmux app links.
+function promptLinks(text: string): { start: number; end: number; value: string; app: boolean }[] {
+  const web = textLinks(text)
+    .filter((link) => link.kind === "url")
+    .map((link) => ({ start: link.start, end: link.end, value: link.value, app: false }));
+  const app = deeplinks(text)
+    .filter((link) => !link.href.startsWith("https:"))
+    .map((link) => ({ start: link.start, end: link.end, value: link.href, app: true }));
+  if (!app.length) return web;
+  const free = web.filter((link) => !app.some((other) => link.start < other.end && other.start < link.end));
+  return [...free, ...app].sort((a, b) => a.start - b.start);
+}
+
+/// One pasted block: a card of the paste's own first lines, wrapped in the prompt's font and the
+/// last fading out, over the composer's label ("Pasted text · 2,300 lines · 92K characters",
+/// composer/TextAttachmentCard.tsx). The label, or a click on the lines, opens the same text in
+/// place to the whole paste, the card sliding to its new height; the label under it closes it
+/// again. Closed, the card draws only the paste's head (`pastePreview`), outside Find. Leo,
+/// 2026-11-05, on the chip it replaces, a box of the paste's first words over the whole text:
+/// "I think this is almost kind of interesting, but it's, like, really awkward". A sent prompt's
+/// inline parts draw theirs with it too (InlinePromptContent.tsx).
 export function PasteChip({
   rowId,
   index,
@@ -306,33 +378,90 @@ export function PasteChip({
     reveal?.repaint();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [hit, reveal]);
-  const lines = pasteLines(text);
-  const count = new Intl.NumberFormat(language).format(lines);
+  const card = useRef<HTMLSpanElement>(null);
+  const label = useRef<HTMLButtonElement>(null);
+  // The card's height before the reader's toggle, which it slides from (fold.ts playResize).
+  const resized = useRef<number | undefined>(undefined);
+  const toggle = () => {
+    const node = card.current;
+    if (node) {
+      // Opening holds the card's top, the text growing below it; closing holds the label, where
+      // the reader clicked it, as Show more and Show less do.
+      holdHeader(open ? (label.current ?? node) : node);
+      resized.current = node.getBoundingClientRect().height;
+    }
+    if (!open) onOpen();
+    setOpen(!open);
+  };
+  useLayoutEffect(() => {
+    const from = resized.current;
+    resized.current = undefined;
+    if (from !== undefined && card.current) playResize(card.current, from);
+  }, [open]);
+  useEffect(() => {
+    const node = card.current;
+    return () => {
+      if (node) cancelResize(node);
+    };
+  }, []);
+  const preview = useMemo(() => (open ? text : pastePreview(text)), [open, text]);
+  const size = pastedSize(t, language, text);
+  // A paste that reads as another agent's output names it, never the person's words (agentText.ts):
+  // from its text, so the bubble draws the same before and after acpmux's echo.
+  const agent = useMemo(() => {
+    const found = agentText(text);
+    return found.signals.length ? { from: found.from } : undefined;
+  }, [text]);
+  const look = agent ? experimentArm(pastedAgentLook) : undefined;
+  const agentName = agent?.from ?? "";
+  const from = agent
+    ? agentName
+      ? t("transcript.pastedFrom", { name: agentName })
+      : t("transcript.pastedFromAgent")
+    : undefined;
+  const name = from && look !== "badge" ? from : t("composer.pastedText");
   return (
     <span className="cv-user__paste-block">
-      <button
-        type="button"
-        className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link cv-user__paste"
-        // Its name and count are labels, not the prompt's text: Find counts matches in `text`
-        // (chatFind.ts findMatches), so it paints none here.
-        data-find-skip=""
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => {
-          if (!open) onOpen();
-          setOpen(!open);
-        }}
-      >
-        <span className="cv-user__paste-name">{pasteName(text)}</span>
-        <span className="acpmux-attachment-link-note cv-user__paste-lines">
-          {t("transcript.pastedLines", { n: lines, count })}
+      <span ref={card} className="cv-user__paste-card" data-open={open ? "" : undefined} data-agent={look}>
+        {/* Closed, its lines are a wider mouse target for the label's toggle; the label is the
+            keyboard and screen reader control. */}
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <span
+          id={id}
+          className="cv-user__paste-text"
+          dir="auto"
+          // Closed, its lines are a preview: Find counts matches in `text` and opens the card.
+          data-find-skip={open ? undefined : ""}
+          aria-hidden={open ? undefined : true}
+          onClick={open ? undefined : toggle}
+        >
+          {preview}
         </span>
-      </button>
-      {open && (
-        <span id={id} className="cv-user__paste-text">
-          {text}
-        </span>
-      )}
+        <button
+          ref={label}
+          type="button"
+          className="cv-user__paste"
+          // Its name and size are labels, not the prompt's text: Find paints none here.
+          data-find-skip=""
+          // The preview is hidden from screen readers, so the name says whose paste it is, as the
+          // composer's card does.
+          aria-label={`${pasteName(text)}, ${from ?? t("composer.pastedText")} · ${size}`}
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={toggle}
+        >
+          {look === "badge" && (
+            <span className="cv-user__paste-agent">
+              <Bot size={12} />
+              {agentName || t("transcript.pastedFromAgent")}
+            </span>
+          )}
+          {look && look !== "badge" && <Bot size={12} className="cv-user__paste-glyph" />}
+          <span className="cv-user__paste-name">{name}</span>
+          <span className="cv-user__paste-lines">{size}</span>
+          <ChevronDown size={12} className="cv-user__paste-chevron" />
+        </button>
+      </span>
     </span>
   );
 }

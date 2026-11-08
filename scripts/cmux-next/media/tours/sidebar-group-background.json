@@ -1,0 +1,46 @@
+{
+  "title": "Sidebar group backgrounds",
+  "steps": [
+    {
+      "title": "Launch: the sidebar as it opens",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "A group with no color and a red group",
+      "cmux": [
+        "workspace",
+        "group",
+        "create",
+        "--name",
+        "No color"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Groups: no color, red",
+      "cmux": [
+        "workspace",
+        "group",
+        "create",
+        "--name",
+        "Design",
+        "--color",
+        "red"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Glass group backgrounds",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.groupHeader.background",
+        "glass"
+      ],
+      "wait": 2,
+      "optional": "sidebar.groupHeader.background is new in this change"
+    }
+  ]
+}

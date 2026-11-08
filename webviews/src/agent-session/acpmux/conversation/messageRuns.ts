@@ -11,12 +11,24 @@
 // "compaction and subagent/system notices" among it). Prose, a steer, a card kept in sight and the
 // live line end the run. The line is a fold of the transcript's fold set, like a background turn's
 // line (backgroundTurns.ts): its rows follow it while open and never draw while closed, so each
-// keeps its own estimate and the scroll never jumps.
-import { isLineRow, MESSAGE_RUN, type AcpmuxActivity, type AcpmuxMessageRun, type AcpmuxRow } from "../model";
+// keeps its own estimate and the scroll never jumps. A run of other agents' lines alone is no
+// message run: it is the turn's "Received N messages" row (laneNoticeBatches.ts; Leo, 2026-11-02:
+// "can't we simply just display most of these as recieved x messages").
+import {
+  isLineRow,
+  MESSAGE_RUN,
+  rowFrameKey,
+  type AcpmuxActivity,
+  type AcpmuxMessageRun,
+  type AcpmuxRow,
+} from "../model";
 import type { Translate } from "../i18n";
+import { inboxCounts } from "./inboxNotice";
+import { joinsReceivedRow } from "./laneNoticeBatches";
 import { isWaitingMessage } from "./pendingMessages";
-import { awaitsPermission, isFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
+import { awaitsPermission, countsFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
+import { visibleToolItems } from "./mcpPresentation";
 import type { Folds } from "./viewFolds";
 
 export const messageRunRowId = (firstId: string) => `${MESSAGE_RUN}-${firstId}`;
@@ -43,39 +55,54 @@ type Member = {
 function member(row: AcpmuxRow): Member | undefined {
   if (row.kind === "compaction")
     return { lines: 1, sent: 0, received: 0, work: [], failed: 0, running: row.compaction?.state === "running" };
+  // A tool's fire stays in sight: it ends a run, never folds into its line.
+  if (isReceivedLine(row) && row.incoming?.kind === "message" && row.incoming.message.notice?.severity === "fire")
+    return undefined;
   if (isReceivedLine(row)) {
-    // An inbox notice is one line per thread (InboxNoticeCard.tsx).
-    const n = row.incoming?.kind === "inbox" ? Math.max(1, row.incoming.notice.threads.length) : 1;
+    // An inbox notice counts the messages it brought, not its threads (inboxNotice.ts `inboxCounts`).
+    const n = row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
     return { lines: 1, sent: 0, received: n, work: [], failed: 0, running: false };
   }
   // A folded run (codexRuns, shapeTurn): its lines as ToolRows draws them (`runStretches`).
   if (row.kind !== "activity" || row.foldRun !== true || !row.items?.length) return undefined;
-  const groups = toolGroups(row.items);
-  // A card that stays in sight for its own sake (a sub-session started or waited on, a dispatch)
+  const items = visibleToolItems(row.items)!;
+  const groups = toolGroups(items);
+  // A card that stays in sight for its own sake (a sub-session started or waited on, a dispatch,
+  // who else works on these files)
   // keeps the run open around it; only messages fold. So does a run whose edit still waits for its
   // permission: the change it asks about stays in sight (turns.ts codexRuns).
-  if (row.items.some((item) => awaitsPermission(item.tool))) return undefined;
+  if (items.some((item) => awaitsPermission(item.tool))) return undefined;
   if (
     groups.some(
       (group) =>
         group.type === "subsessionGroup" ||
+        group.type === "agentCall" ||
         group.type === "dispatch" ||
+        group.type === "whoElse" ||
         (group.type === "subsession" && group.call.tool !== "send"),
     )
   )
     return undefined;
   let lines = 0;
   for (const stretch of runStretches(row, groups)) lines += stretch.fold ? 1 : stretch.groups.length;
-  const sent = groups.filter(isSend).length;
-  const sentItems = new Set(groups.flatMap((group) => (isSend(group) && "item" in group ? [group.item] : [])));
-  const work = row.items.filter((item) => item.tool && !sentItems.has(item));
+  // A group of sends counts each of its messages (toolGroups.ts `sendGroup`).
+  const sent = groups.reduce(
+    (sum, group) => sum + (group.type === "sendGroup" ? group.entries.length : isSend(group) ? 1 : 0),
+    0,
+  );
+  const sentItems = new Set(
+    groups.flatMap((group) =>
+      group.type === "sendGroup" ? group.items : isSend(group) && "item" in group ? [group.item] : [],
+    ),
+  );
+  const work = items.filter((item) => item.tool && !sentItems.has(item));
   return {
     lines,
     sent,
     received: 0,
     work,
-    failed: row.items.filter((item) => item.tool && isFailed(item.tool)).length,
-    running: row.items.some((item) => item.tool && isRunning(item.tool)),
+    failed: items.filter((item) => item.tool && countsFailed(item.tool)).length,
+    running: items.some((item) => item.tool && isRunning(item.tool)),
   };
 }
 
@@ -99,7 +126,11 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     const lines = parts.reduce((sum, part) => sum + part.lines, 0);
     const sent = parts.reduce((sum, part) => sum + part.sent, 0);
     const received = parts.reduce((sum, part) => sum + part.received, 0);
-    if (lines < 2 || sent + received === 0) {
+    // A run of received lines that all join the turn's "Received N messages" row is not a message
+    // run: they draw in that row (laneNoticeBatches.ts `projectInboxRows`). One with a lane report,
+    // a task's result or a person's message among them still folds here.
+    const onlyReceived = sent === 0 && members.every(joinsReceivedRow);
+    if (lines < 2 || sent + received === 0 || onlyReceived) {
       out?.push(...members);
       index = end;
       continue;
@@ -125,8 +156,14 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     const opened = run.rows.find((rowId) => expanded.has(messageRunRowId(rowId)));
     const id = messageRunRowId(opened ?? first.id);
     const open = opened !== undefined;
+    // The line draws in its first row's frame: the run on screen becomes the line in place, with no
+    // unmount and no second entrance (Leo, 2026-11-07, on a run whose steered message the agent
+    // read: "the tool call of this thing that got sent in, that came in, flickered a bit"). While
+    // open, that first row draws under the line in a frame of its own.
+    const frame = rowFrameKey(first);
     out.push({
       id,
+      frame,
       // Moves with every member's version and the open state: the memoized line and the height
       // cache compare versions only.
       version: members.reduce((sum, row) => (sum * 31 + row.version) % 1_000_003, members.length) * 2 + (open ? 1 : 0),
@@ -136,7 +173,7 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
       messageRun: run,
       ...(first.settled && { settled: true }),
     });
-    if (open) out.push(...members);
+    if (open) out.push({ ...first, frame: `${frame}:${MESSAGE_RUN}` }, ...members.slice(1));
     index = end;
   }
   return out ?? rows;

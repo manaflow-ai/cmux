@@ -12,19 +12,16 @@ import { Icon } from "../icons/Icon";
 import { AgentMark } from "../../shared/AgentMark";
 import { agentTone } from "../subagents/agentTones";
 import { TonedIcon } from "../subagents/TonedIcon";
+
+import { readableParent, subagentBackLabel, type SubagentScope } from "./subagentScope";
+import { type SubagentHeaderVariant } from "./subagentScopeHeaderModel";
 import { tooltipProps } from "../shortcuts";
-import type { SubagentScope } from "./subagentScope";
-
-export type SubagentHeaderVariant = "title" | "crumb" | "card";
-/// The one the panel draws.
-export const SUBAGENT_HEADER: SubagentHeaderVariant = "title";
-
 type Props = { scope: Pick<SubagentScope, "agent" | "parent" | "onBack"> };
 
 function Back({ scope }: Props) {
   const t = useT();
   if (!scope.onBack) return null;
-  const label = t("sessionInfo.subagent.back", { name: scope.parent });
+  const label = subagentBackLabel(t, scope.parent);
   return (
     <button
       type="button"
@@ -71,10 +68,10 @@ export function SubagentBanner({ scope, variant }: Props & { variant: Exclude<Su
         {scope.onBack ? (
           <button type="button" className="acpmux-session-info-scope__parent" onClick={scope.onBack}>
             <Icon name="nav.back" size={12} />
-            <span>{scope.parent}</span>
+            <span>{readableParent(scope.parent) ?? subagentBackLabel(t, scope.parent)}</span>
           </button>
         ) : (
-          <span className="acpmux-session-info-scope__parent">{scope.parent}</span>
+          <span className="acpmux-session-info-scope__parent">{readableParent(scope.parent) ?? ""}</span>
         )}
         <Icon name="disclosure.collapsed" size={12} className="acpmux-session-info-scope__sep" />
         <Name scope={scope} />
@@ -101,7 +98,7 @@ export function SubagentBanner({ scope, variant }: Props & { variant: Exclude<Su
       </span>
       {scope.onBack && (
         <button type="button" className="acpmux-session-info-link" onClick={scope.onBack}>
-          {t("sessionInfo.subagent.back", { name: scope.parent })}
+          {subagentBackLabel(t, scope.parent)}
         </button>
       )}
     </div>

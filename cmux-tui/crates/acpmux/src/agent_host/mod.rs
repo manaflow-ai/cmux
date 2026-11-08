@@ -37,8 +37,8 @@ pub(crate) mod tree;
 pub(crate) mod unresolved;
 mod wait;
 pub use wait::{
-    HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async, wait_dead_within, within,
-    within_on,
+    HostTimeout, QUERY_BUDGET, dead, death_watches, host_dead_now, wait_dead_async,
+    wait_dead_within, within, within_on,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -260,8 +260,18 @@ pub struct TranslatorSpec {
     /// Claude Code's fast mode at spawn (the session's `fast-mode` option).
     #[serde(default)]
     pub fast: bool,
+    /// The chat's prompt suggestions at spawn (its `prompt-suggestions` option, on unless off).
+    #[serde(default = "suggestions_default")]
+    pub prompt_suggestions: bool,
+    /// The chat's session recap choice at spawn (its `session-recap` option).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recap: Option<String>,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+}
+
+fn suggestions_default() -> bool {
+    true
 }
 
 impl SpawnSpec {
@@ -630,6 +640,24 @@ pub fn terminate_unadoptable(
 ) -> Result<bool> {
     Err(crate::platform::unsupported("agent hosts"))
 }
+
+/// The environment variable a host starts its harness with, set to its `start_nonce`. Every
+/// process under the harness inherits it, a helper that left the group with setsid too, so what
+/// a host killed outright left running is still found once its parent link is gone
+/// (`end_left_behind`).
+pub const HOST_MARK: &str = "ACPMUX_HOST_NONCE";
+
+/// SIGKILL what still runs from the host incarnation `start_nonce`: the processes that carry its
+/// `HOST_MARK`. For a host proven dead, which can no longer end its harness and what it started.
+/// The nonce is random per host, and each process is signalled only while it still runs with the
+/// start time it had when found.
+#[cfg(unix)]
+pub fn end_left_behind(start_nonce: &str) {
+    tree::kill_still_running(&tree::marked(HOST_MARK, start_nonce));
+}
+/// Windows port: hosts come in a later landing.
+#[cfg(not(unix))]
+pub fn end_left_behind(_start_nonce: &str) {}
 
 /// Remove a dead host's record, lock and socket.
 pub fn remove_artifacts(dir: &Path, record: &HostRecord) {

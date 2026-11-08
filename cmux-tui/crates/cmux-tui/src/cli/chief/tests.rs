@@ -6,11 +6,14 @@ use serde_json::{Value, json};
 use super::adapter::{Draft, DraftKind, Drafts, UiEvent, adapt};
 use super::chat::Chat;
 use super::editor::{Editor, EditorAction};
-use super::link::{envelope, is_brain_socket, select_chief, send_params};
+use super::link::{is_brain_socket, select_chief};
 use super::pipe::finish_text;
 use super::render::wrap;
 use super::turn::TurnWatch;
 use super::{Args, parse_args};
+
+#[path = "attachment_tests.rs"]
+mod attachment_tests;
 
 const CONV: &str = "conv_01J0000000000000000000000A";
 
@@ -81,14 +84,67 @@ fn an_agents_prompt_names_its_sender_and_a_persons_none() {
     ]))
     .unwrap();
     let want = AgentSender::new("lane-a", Some("question"), Some("t1"));
-    assert_eq!(parsed.sender(None), want);
+    let session = |name: &'static str| {
+        move |key: &str| (key == "ACPMUX_SESSION_NAME").then(|| name.to_owned())
+    };
+    let none = |_: &str| None::<String>;
+    let host = || Some("mini-7.local".to_owned());
+    assert_eq!(parsed.sender(&none, &host), want);
     // `--from` wins over the acpmux session this runs in.
-    assert_eq!(parsed.sender(Some("other")), want);
+    assert_eq!(parsed.sender(&session("other"), &host), want);
     let plain = parse_args(&strings(&["-p", "hi"])).unwrap();
-    assert_eq!(plain.sender(Some("lane-b")), AgentSender::new("lane-b", None, None));
-    // The person at a terminal: no acpmux session, no sender.
-    assert_eq!(plain.sender(None), None);
-    assert_eq!(plain.sender(Some("")), None);
+    assert_eq!(plain.sender(&session("lane-b"), &host), AgentSender::new("lane-b", None, None));
+    // The person at a terminal: no acpmux session and no coding agent, no sender.
+    assert_eq!(plain.sender(&none, &host), None);
+    assert_eq!(plain.sender(&session(""), &host), None);
+    // A Claude Code terminal outside acpmux is that Claude, on this machine (u19922).
+    let claude = |key: &str| match key {
+        "CLAUDECODE" => Some("1".to_owned()),
+        "CLAUDE_CODE_SESSION_ID" => Some("9d1c0e7a-1111".to_owned()),
+        _ => None,
+    };
+    // The chat shows it as Claude Code › its session on this machine (u20190).
+    assert_eq!(
+        plain.sender(&claude, &host),
+        AgentSender::new("claude-9d1c0e7a@mini-7", None, None)
+            .map(|s| s.with_display("Claude Code", Some("9d1c0e7a@mini-7")))
+    );
+}
+
+#[test]
+fn a_prompt_goes_to_the_chief_it_names() {
+    let to = parse_args(&strings(&["-p", "hi", "--chief", "Codex Chief"])).unwrap();
+    assert_eq!(to.target.chat.as_deref(), Some("Codex Chief"));
+    assert_eq!(to.chief, None);
+    let alias = parse_args(&strings(&["-p", "hi", "--to", "muse"])).unwrap();
+    assert_eq!(alias.target.chat.as_deref(), Some("muse"));
+    assert!(parse_args(&strings(&["-p", "hi", "--to", "a", "--chat", "b"])).is_err());
+    // With engine the flag still names the Chief to change.
+    let engine = parse_args(&strings(&["engine", "--chief", "agent_7"])).unwrap();
+    assert_eq!((engine.chief.as_deref(), engine.target.chat), (Some("agent_7"), None));
+}
+
+#[test]
+fn a_chat_is_named_by_its_chiefs_name_or_id() {
+    use super::backend::Owner;
+    let chat = |id: &str, title: &str, chief: &str| {
+        json!({"id": id, "title": title,
+            "participants": [{"id": "user_local", "kind": "person"}, {"id": chief, "kind": "agent"}]})
+    };
+    let chats = vec![
+        chat("conv_A", "Chief", "agent_mux"),
+        chat("conv_B", "Codex Chief", "agent_01CODEX"),
+        chat("conv_C", "Muse Chief", "agent_01MUSE"),
+    ];
+    let id = |wanted: Option<&str>| {
+        super::pick_chat(&chats, wanted, Owner::Local)
+            .map(|c| c["id"].as_str().unwrap_or_default().to_owned())
+    };
+    assert_eq!(id(Some("codex")).as_deref(), Ok("conv_B"));
+    assert_eq!(id(Some("Muse Chief")).as_deref(), Ok("conv_C"));
+    assert_eq!(id(Some("agent_01CODEX")).as_deref(), Ok("conv_B"));
+    assert_eq!(id(Some("conv_C")).as_deref(), Ok("conv_C"));
+    assert!(id(Some("Austin")).is_err());
 }
 
 #[test]
@@ -116,21 +172,6 @@ fn a_brain_session_socket_is_refused() {
     assert!(is_brain_socket(Path::new("/Users/me/.cmux/brains/chief/daemon.sock")));
     assert!(!is_brain_socket(Path::new("/tmp/cmux-501/main.sock")));
     assert!(!is_brain_socket(Path::new("/Users/me/brains/.cmux/x.sock")));
-}
-
-#[test]
-fn requests_are_v2_operations_on_the_current_session() {
-    let line = envelope("chief-1", "conversation.send", send_params(CONV, "hi"), Some("cli-1"));
-    assert_eq!(line["protocol"], "cmux.protocol/2");
-    assert_eq!(line["type"], "request");
-    assert_eq!(line["operation"], "conversation.send");
-    assert_eq!(line["idempotency_key"], "cli-1");
-    assert_eq!(
-        line["params"],
-        json!({"conversation": CONV, "text": "hi", "machine": "current", "session": "current"})
-    );
-    let read = envelope("chief-2", "conversation.list", json!({}), None);
-    assert!(read.get("idempotency_key").is_none());
 }
 
 #[test]
@@ -754,4 +795,67 @@ fn chat_rows_name_the_chief_and_unread() {
     let line = chat_row_text(1, &row);
     assert!(line.starts_with("*  1  "), "{line}");
     assert!(line.contains("#9  unread 3"), "{line}");
+}
+
+/// `cmux chief primary CHIEF` runs the app's `home primary-chief` with the Chief (the same path as
+/// Chief Settings' Primary row and the `/primary` text); no Chief, or two, is a usage error.
+#[test]
+fn chief_primary_runs_the_home_action_with_the_chief() {
+    use super::primary::{ACTION, action_args};
+    assert_eq!(ACTION, "home primary-chief");
+    assert_eq!(action_args(&strings(&["muse"])), Ok(Some(strings(&["--chief", "muse"]))));
+    assert_eq!(
+        action_args(&strings(&["agent_7J78"])),
+        Ok(Some(strings(&["--chief", "agent_7J78"])))
+    );
+    assert_eq!(action_args(&strings(&["--help"])), Ok(None));
+    assert!(action_args(&strings(&[])).is_err());
+    assert!(action_args(&strings(&["muse", "codex"])).is_err());
+    assert!(action_args(&strings(&["--force"])).is_err());
+}
+
+#[test]
+fn runs_plain_text_makes_agent_terminal_controls_inert() {
+    use super::script::{run_row_text, step_line};
+    let osc52 = "\u{1b}]52;c;cHduZWQ=\u{7}";
+    let clear = "\u{1b}[2J";
+    let step = serde_json::json!({"kind": "talk", "status": "done",
+                                  "text": format!("hi{osc52}{clear}\u{9b}31m there\nsecond")});
+    let line = step_line(&step);
+    assert!(!line.chars().any(|c| c.is_control()), "{line:?}");
+    assert!(line.contains("hi") && line.contains("there") && !line.contains("second"), "{line:?}");
+    let run =
+        serde_json::json!({"id": "turn:1", "status": "done", "title": format!("t{clear}{osc52}")});
+    let row = run_row_text(&run);
+    assert!(!row.chars().any(|c| c.is_control()), "{row:?}");
+    assert!(row.starts_with("turn:1  done"), "{row:?}");
+}
+
+#[test]
+fn runs_steps_updated_between_pages_keep_the_newest_copy_once() {
+    use super::script::merge_steps;
+    let mut steps = Vec::new();
+    merge_steps(
+        &mut steps,
+        vec![
+            serde_json::json!({"id": "tool:1", "rev": 1, "status": "running"}),
+            serde_json::json!({"id": "talk:1", "rev": 2}),
+        ],
+        "rev",
+    );
+    // The next page: tool:1 was updated (newer rev), and an older copy of
+    // talk:1 must not replace the newer one.
+    merge_steps(
+        &mut steps,
+        vec![
+            serde_json::json!({"id": "tool:1", "rev": 3, "status": "done"}),
+            serde_json::json!({"id": "talk:1", "rev": 1}),
+            serde_json::json!({"id": "talk:2", "rev": 4}),
+        ],
+        "rev",
+    );
+    let ids: Vec<&str> = steps.iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["tool:1", "talk:1", "talk:2"]);
+    assert_eq!(steps[0]["status"], "done");
+    assert_eq!(steps[1]["rev"], 2);
 }

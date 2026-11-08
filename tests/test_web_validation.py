@@ -13,6 +13,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import web_validation as gate
+sys.path.insert(0, str(ROOT / "tests"))
+from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
 import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
@@ -34,7 +36,10 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
 
     def test_it_calls_ci_web_as_the_web_job_with_every_web_lane(self):
         self.assertIn(
-            "jobs:\n  web:\n    uses: ./.github/workflows/ci-web.yml\n    with:\n"
+            "  web:\n    needs: coalesce\n"
+            "    # A yielded coalesce job (a newer push's run checks these commits) runs no checks.\n"
+            "    if: ${{ needs.coalesce.outputs.run != 'false' }}\n"
+            "    uses: ./.github/workflows/ci-web.yml\n    with:\n"
             "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n",
             self.text,
         )
@@ -210,13 +215,14 @@ class WebValidationTests(unittest.TestCase):
         start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
-        runs_on = re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1)
+        # A fork keeps its label; this is what every other run takes.
+        runs_on = unwrap_fork_pool_reads(re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1))
         self.assertIn("scripts/ci/run-webviews-tests.sh", block)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("4vcpu", runs_on)
         # 16 vCPU (memory for the suite at half the 32 vCPU price), failing over to 32.
-        self.assertTrue(runs_on.endswith("'blacksmith-16vcpu-ubuntu-2404' }}"), runs_on)
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        self.assertTrue(runs_on.endswith("fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32", runs_on)
 
     def test_webviews_tests_shard_on_wide_runners(self):
         """Two 8 vCPU shards each ran about 65 dev-server files two at a time for 12 of
@@ -234,7 +240,7 @@ class WebValidationTests(unittest.TestCase):
         shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
         counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
         self.assertEqual(len(shards), 8)
-        self.assertIn("'blacksmith-16vcpu-ubuntu-2404' }}", block)
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_16 }}", unwrap_fork_pool_reads(block))
         self.assertEqual(shards, list(range(1, len(shards) + 1)))
         self.assertEqual(counts, {str(len(shards))})
         base_start = workflow.index("  react-apps-base-check:")
@@ -276,6 +282,16 @@ class WebValidationTests(unittest.TestCase):
         return subprocess.run([sys.executable, str(ROOT / "scripts/ci/web_validation.py"), "check"],
             env={**os.environ, "WEB_VALIDATION_NEEDS": json.dumps(needs),
                  "GITHUB_EVENT_NAME": event}, capture_output=True).returncode
+
+    def test_failed_or_skipped_optional_placement_does_not_fail_selected_web_results(self):
+        needs = {"changes": {"result": "success", "outputs": {"required": "true"}},
+                 "build": {"result": "success"}, "tests": {"result": "success"},
+                 "database": {"result": "success"}}
+        for result in ("failure", "skipped"):
+            with self.subTest(result=result):
+                placed = {**needs, "portable-placement": {"result": result}}
+                self.assertEqual(gate.failures(placed), {})
+                self.assertEqual(self.check_results(placed, "merge_group"), 0)
 
     def test_gate_rejects_missing_cancelled_failed_or_skipped_required_jobs(self):
         good = {"changes": {"result": "success", "outputs": {"required": "true"}},

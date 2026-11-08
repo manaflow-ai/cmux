@@ -11,7 +11,7 @@ import Testing
 /// terminal theme's `selection-background` is the default; `appearance.highlightColor` in cmux.json
 /// (Settings > Appearance > Highlight Color) replaces it for the terminal itself, and so for every
 /// page and text field, which read the terminal's selection color.
-@MainActor @Suite(.serialized) struct HighlightColorTests {
+@MainActor @Suite(.serialized, .ghosttyOverrides) struct HighlightColorTests {
     func make(_ json: String) async throws -> (SettingsController, URL) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-highlight-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

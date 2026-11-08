@@ -321,3 +321,35 @@ fn reaction_wake_the_classifier_runs_on_claude_haiku_by_default_and_on_what_is_c
         asks[0].0.prompt
     );
 }
+
+#[test]
+fn reaction_only_turn_routes_to_haiku_without_classifying_the_wake_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = settings(dir.path());
+    let file = dir.path().join("engine.json");
+    std::fs::write(&file, r#"{"turn_routing":"auto"}"#).unwrap();
+    s.engine_file = Some(file);
+    let mut h = Harness::configured(
+        dir,
+        default_script(),
+        Arc::new(Mutex::new(Owner {
+            summary: Some(summary()),
+            ..Owner::default()
+        })),
+        s,
+        Arc::new(|_| {}),
+    );
+    let reply = chief_reply(&mut h);
+    judge(&mut h, |_| Ok("WAKE: review this design".into()));
+    react(&mut h, &reply, &[ReactionKind::Tapback(Tapback::Question)]);
+    decide(&mut h);
+    let inner = h.agents.inner.lock().unwrap();
+    let spec = inner
+        .specs
+        .iter()
+        .rev()
+        .find(|s| s.name.starts_with(TURN_PREFIX))
+        .unwrap();
+    assert_eq!(spec.model.as_deref(), Some("claude-haiku-5-5"));
+    assert_eq!(spec.effort.as_deref(), Some("low"));
+}

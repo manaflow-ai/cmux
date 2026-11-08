@@ -261,6 +261,7 @@ fn the_offered_speeds_follow_the_turn_harness() {
     let codex = engine(
         &mut brain,
         EngineRequest::Set {
+            turn_routing: None,
             harness: Some("codex".to_owned()),
             model: None,
             effort: None,
@@ -291,6 +292,7 @@ fn the_engine_set_names_the_compactors_harness_and_model_acpmux_has() {
         ],
     );
     let set = |compactor_harness: &str, compactor_model: Option<&str>| EngineRequest::Set {
+        turn_routing: None,
         harness: None,
         model: None,
         effort: None,
@@ -351,6 +353,7 @@ fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
         ],
     );
     let set = |harness: &str| EngineRequest::Set {
+        turn_routing: None,
         harness: Some(harness.to_owned()),
         model: None,
         effort: None,
@@ -421,6 +424,7 @@ fn the_engine_set_does_not_wait_on_acpmuxs_peers() {
     let answer = engine(
         &mut brain,
         EngineRequest::Set {
+            turn_routing: None,
             harness: Some("codex".to_owned()),
             model: None,
             effort: None,
@@ -449,6 +453,7 @@ fn a_peer_harness_still_offers_the_peers_models() {
     let answer = engine(
         &mut brain,
         EngineRequest::Set {
+            turn_routing: None,
             harness: Some("huge-blue/claude-sr".to_owned()),
             model: None,
             effort: None,
@@ -629,6 +634,7 @@ fn an_offer_never_names_a_harness_effort_or_speed_a_set_would_refuse() {
 
     let set =
         |harness: Option<&str>, effort: Option<&str>, speed: Option<&str>| EngineRequest::Set {
+            turn_routing: None,
             harness: harness.map(str::to_owned),
             model: None,
             effort: effort.map(str::to_owned),
@@ -728,6 +734,7 @@ fn the_engine_set_takes_the_reaction_classifier() {
     );
     brain.set_reaction_user_settings(None);
     let set = |reactions: ReactionFields| EngineRequest::Set {
+        turn_routing: None,
         harness: None,
         model: None,
         effort: None,
@@ -751,6 +758,7 @@ fn the_engine_set_takes_the_reaction_classifier() {
             classifier_model: Some("claude-sonnet-5-5".into()),
             classifier_prompt: Some("Wake only on 👎.".into()),
             reactions_can_wake: Some("false".into()),
+            ..ReactionFields::default()
         }),
     );
     assert_eq!(
@@ -816,4 +824,87 @@ fn the_chief_harness_is_never_offered_to_a_chief_and_never_admitted() {
             .all(|h| h["id"] != "chief" && h["family"] != "chief"),
         "the engine picker offers the Chief harness: {answer:#}"
     );
+}
+
+#[test]
+fn turn_routing_control_validates_and_clears_without_touching_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(
+        dir.path(),
+        &[("claude-sr", optchat_chief::acpmux::Family::Claude)],
+    );
+    let set = |routing: &str| EngineRequest::Set {
+        harness: None,
+        model: None,
+        effort: None,
+        speed: None,
+        compactor_speed: None,
+        compactor_harness: None,
+        compactor_model: None,
+        reactions: Default::default(),
+        turn_routing: Some(routing.into()),
+    };
+    assert_eq!(
+        engine(&mut brain, EngineRequest::Show)["engine"]["turn_routing"],
+        "off"
+    );
+    for routing in ["auto", "off"] {
+        let answer = engine(&mut brain, set(routing));
+        assert_eq!(answer["choice"]["turn_routing"], routing);
+    }
+    let refused = engine(&mut brain, set("sometimes"));
+    assert_eq!(refused["error"]["code"], "invalid_value");
+    assert_eq!(
+        engine(&mut brain, EngineRequest::Show)["choice"]["turn_routing"],
+        "off"
+    );
+    let cleared = engine(&mut brain, set("default"));
+    assert!(cleared["choice"]["turn_routing"].is_null());
+    assert_eq!(cleared["engine"]["turn_routing"], "off");
+}
+
+/// chief.engine.set `permission_mode` (cmux#37392): the Home Chief Settings
+/// panel and `cmux chief engine --mode` reach the brain; the answer names
+/// the mode the next turn runs in and what chose it.
+#[test]
+fn permission_mode_control_sets_names_and_clears_the_turn_mode() {
+    use optchat_chief::brain::ReactionFields;
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(
+        dir.path(),
+        &[("claude-sr", optchat_chief::acpmux::Family::Claude)],
+    );
+    brain.set_user_settings(None);
+    let set = |mode: &str| EngineRequest::Set {
+        harness: None,
+        model: None,
+        effort: None,
+        speed: None,
+        compactor_speed: None,
+        compactor_harness: None,
+        compactor_model: None,
+        turn_routing: None,
+        reactions: Box::new(ReactionFields {
+            permission_mode: Some(mode.into()),
+            ..ReactionFields::default()
+        }),
+    };
+    let shown = engine(&mut brain, EngineRequest::Show);
+    assert_eq!(shown["engine"]["permission_mode"], "bypassPermissions");
+    assert_eq!(shown["engine"]["permission_mode_source"], "default");
+    let answer = engine(&mut brain, set("auto"));
+    assert_eq!(answer["choice"]["permission_mode"], "auto");
+    assert_eq!(answer["engine"]["permission_mode"], "auto");
+    assert_eq!(answer["engine"]["permission_mode_source"], "engine");
+    let refused = engine(&mut brain, set("plan"));
+    assert_eq!(refused["error"]["code"], "invalid_value");
+    // Settings caps it.
+    brain.set_user_settings(Some(json!({"chief": {"permissionMode": "default"}})));
+    let capped = engine(&mut brain, EngineRequest::Show);
+    assert_eq!(capped["engine"]["permission_mode"], "default");
+    assert_eq!(capped["engine"]["permission_mode_source"], "settings");
+    brain.set_user_settings(None);
+    let cleared = engine(&mut brain, set("unset"));
+    assert!(cleared["choice"]["permission_mode"].is_null());
+    assert_eq!(cleared["engine"]["permission_mode"], "bypassPermissions");
 }

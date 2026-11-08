@@ -34,16 +34,20 @@ import Testing
                                   }) {}
     }
 
-    @Test func theToggleShipsOnAndOffNeverMakesTheService() {
-        #expect(HostPressureTunables.enabled.defaultValue == true)
-        let store = Self.store(forcing: .critical, enabled: false)
-        var made = 0
-        let indicator = Self.indicator(store: store, visibility: Visibility()) { _ in made += 1 }
-        indicator.reconcile()
-        #expect(!indicator.sampling.samples)
-        #expect(!indicator.isSampling)
-        #expect(made == 0)
-        #expect(indicator.isHidden)
+    /// Lawrence 2026-11-02: "get rid of host-pressure warning by default, can be enabled in cmd shift p tho".
+    /// With nothing set, a seen window's indicator makes no service, so no monitor, no 15 s timer and no banner.
+    @Test func theToggleShipsOffAndOffNeverMakesTheService() {
+        #expect(HostPressureTunables.enabled.defaultValue == false)
+        for enabled in [nil, false] as [Bool?] {
+            let store = Self.store(forcing: .critical, enabled: enabled)
+            var made = 0
+            let indicator = Self.indicator(store: store, visibility: Visibility()) { _ in made += 1 }
+            indicator.reconcile()
+            #expect(!indicator.sampling.samples)
+            #expect(!indicator.isSampling)
+            #expect(made == 0)
+            #expect(indicator.isHidden)
+        }
     }
 
     @Test func itSamplesOnlyWhileOnAndVisible() async {

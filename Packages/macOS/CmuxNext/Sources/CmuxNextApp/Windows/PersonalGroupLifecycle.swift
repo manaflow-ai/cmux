@@ -1,62 +1,9 @@
+import CmuxNextAppCore
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextSidebar
 import CmuxNextDesign
-
-/// When a personal workspace group ends (cx-rcby). The home daemon keeps a
-/// group until a client deletes it, so the client that moves workspaces
-/// owns the rule:
-/// - an unpinned group that loses its last live member is deleted (the
-///   daemon records the delete in closed history, so Reopen Closed brings it
-///   back); a pinned (saved) group stays empty;
-/// - New Group on workspaces that already are one whole group makes no
-///   second group;
-/// - a group made with no member is deleted when its name editor closes
-///   while it is still empty.
-/// "Live" members are the rows the sidebar can show: a closed workspace
-/// keeps its personal row (reopen restores its group) but holds no group open.
-nonisolated enum PersonalGroupLifecycle {
-    /// A session-qualified workspace, the personal rows' key.
-    struct Member: Hashable, Sendable {
-        var session: String
-        var key: String
-    }
-
-    struct Group: Sendable {
-        var id: WorkspaceGroupID
-        var pinned: Bool
-    }
-
-    static func member(_ row: PersonalWorkspace) -> Member {
-        Member(session: row.sessionID, key: row.workspaceKey.rawValue)
-    }
-
-    /// The unpinned groups that `leaving` leaves with no live member when
-    /// they move to `target` (nil: loose, or a new group).
-    static func emptied(groups: [Group], rows: [PersonalWorkspace], leaving: Set<Member>, into target: WorkspaceGroupID?,
-                        isLive: (Member) -> Bool) -> [WorkspaceGroupID] {
-        let sources = Set(rows.filter { leaving.contains(member($0)) }.compactMap(\.group))
-        return groups.filter { group in
-            !group.pinned && group.id != target && sources.contains(group.id)
-                && !rows.contains { $0.group == group.id && !leaving.contains(member($0)) && isLive(member($0)) }
-        }.map(\.id)
-    }
-
-    /// The group whose live members are exactly `members`, if any.
-    static func whole(groups: [Group], rows: [PersonalWorkspace], members: Set<Member>,
-                      isLive: (Member) -> Bool) -> WorkspaceGroupID? {
-        guard !members.isEmpty else { return nil }
-        return groups.first { group in
-            Set(rows.filter { $0.group == group.id }.map(member).filter(isLive)) == members
-        }?.id
-    }
-
-    /// Whether `group` has no live member.
-    static func isEmpty(_ group: WorkspaceGroupID, rows: [PersonalWorkspace], isLive: (Member) -> Bool) -> Bool {
-        !rows.contains { $0.group == group && isLive(member($0)) }
-    }
-}
 
 /// The lifecycle rule over the home session's personal state and the
 /// machines' trees.
@@ -64,9 +11,9 @@ nonisolated enum PersonalGroupLifecycle {
 struct PersonalGroupLife {
     let machines: MachineRegistry
 
-    private var personal: PersonalStore { machines.local.store.personal }
-    private var groups: [PersonalGroupLifecycle.Group] {
-        personal.groups.map { PersonalGroupLifecycle.Group(id: $0.id, pinned: $0.pinned) }
+    var personal: PersonalStore { machines.local.store.personal }
+    private var rules: PersonalGroupLifecycle {
+        PersonalGroupLifecycle(groups: personal.groups.map { .init(id: $0.id, pinned: $0.pinned) }, rows: personal.workspaces)
     }
 
     /// A row is live when its session's tree holds the workspace. A session
@@ -85,19 +32,18 @@ struct PersonalGroupLife {
 
     /// Groups the move of `placements` into `target` empties.
     func emptied(by placements: [PersonalSidebarPlanner.Placement], into target: WorkspaceGroupID?) -> [WorkspaceGroupID] {
-        PersonalGroupLifecycle.emptied(groups: groups, rows: personal.workspaces, leaving: members(placements), into: target,
-                                       isLive: isLive)
+        rules.emptied(leaving: members(placements), into: target, isLive: isLive)
     }
 
     /// The group that already is exactly `placements`.
     func whole(_ placements: [PersonalSidebarPlanner.Placement]) -> WorkspaceGroupID? {
-        PersonalGroupLifecycle.whole(groups: groups, rows: personal.workspaces, members: members(placements), isLive: isLive)
+        rules.whole(members: members(placements), isLive: isLive)
     }
 
     /// Whether `group` exists, is unpinned and has no live member.
     func isEmptyUnpinned(_ group: WorkspaceGroupID) -> Bool {
         guard let model = personal.group(group), !model.pinned else { return false }
-        return PersonalGroupLifecycle.isEmpty(group, rows: personal.workspaces, isLive: isLive)
+        return rules.isEmpty(group, isLive: isLive)
     }
 
     /// Sends one organization command to the home session, then deletes
@@ -111,8 +57,9 @@ struct PersonalGroupLife {
     /// `applied` runs once the home store holds the command's result
     /// (read-your-writes): a sidebar pending edit settles there (cx-odqn).
     /// `completed` runs last, with whether the command and its cleanup applied.
-    /// `landed` gets the command's value as soon as it replied.
+    /// `landed` gets the command's value as soon as it replied. `until`: sent again while unanswered, never undone.
     func commit<Value: Sendable>(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
+                                 until claim: PersonalWriteLedger.Claim? = nil, unanswered: (@MainActor () async -> Void)? = nil,
                                  failed: @escaping @MainActor (ActionWorkFailure) -> Void, applied: (@MainActor () -> Void)? = nil,
                                  completed: (@MainActor (Bool) -> Void)? = nil,
                                  landed: @escaping @MainActor (Value) -> Void = { _ in },
@@ -122,10 +69,10 @@ struct PersonalGroupLife {
         Task {
             // Shown again before a failure re-syncs, so a kept group never stays hidden.
             @MainActor func end() { personal.endingGroups.subtract(ending) }
-            let result: (value: Value, completed: Bool)
+            let result: (value: Value, completed: Bool)?
             do {
                 // `perform`, not `request`: a failure comes back with why, for the caller to say (#26382).
-                result = try await home.perform(label) { connection in
+                result = try await home.perform(label, until: claim, unanswered: unanswered) { connection in
                     let value = try await body(connection)
                     // Keep cleanup on the reply's connection and wait for the primary
                     // event before deciding whether the source group is now empty.
@@ -138,7 +85,7 @@ struct PersonalGroupLife {
                         if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) }
                         else { try await connection.deletePersonalGroup(group) }
                     }
-                    return (value, true)
+                    return (value: value, completed: true)
                 }
             } catch {
                 end()
@@ -147,15 +94,46 @@ struct PersonalGroupLife {
                 return
             }
             end()
-            completed?(result.completed)
+            if result == nil { applied?() } // superseded: the newer write owns what the rows show
+            completed?(result?.completed ?? true)
         }
     }
 
-    /// Deletes `group` when it is still an unpinned group with no live member.
-    func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor (ActionWorkFailure) -> Void) {
-        guard isEmptyUnpinned(group) else { return }
+    /// Deletes `group` when it is still an unpinned group with no live member; `landed` gets whether the delete went and landed.
+    func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor (ActionWorkFailure) -> Void,
+                       landed: @escaping @MainActor (Bool) -> Void = { _ in }) {
+        guard isEmptyUnpinned(group) else { return landed(false) }
+        let life = self, doomed = DeleteSent()
+        commit("delete-personal-group", ending: [group], recheck: { doomed.value = life.isEmptyUnpinned(group); return doomed.value ? [group] : [] },
+               failed: failed, completed: { landed($0 && doomed.value) }) { _ -> Void in }
+    }
+
+    /// Whether a close ends the groups it empties: where Close Workspaces in Group does (`PersonalGroupPin`).
+    var endsGroupsOnClose: Bool {
+        let home = machines.local
+        return personal.isLoaded && home.store.servesStateResources && home.supports(DaemonCapability.workspaceGroupPin.rawValue)
+    }
+
+    /// The unpinned personal groups a close of the workspaces `ids` may empty, read before they close.
+    func groupsClosing(_ ids: [String]) -> Set<WorkspaceGroupID> {
+        guard endsGroupsOnClose else { return [] }
+        let closing = Set(ids.compactMap { id in
+            WindowProfiles.qualified(id, machines: machines).flatMap { personal.workspace(session: $0.session, key: $0.key)?.group }
+        })
+        return rules.prunable(closing)
+    }
+
+    @MainActor private final class DeleteSent { var value = false }
+
+    /// One close's cleanup of `group`, on the home store and the closed history (`GroupCloseCleanup`).
+    func closeCleanup(_ group: WorkspaceGroupID, history: @escaping @MainActor @Sendable () -> [(id: String, group: String?)],
+                      failed: @escaping @MainActor @Sendable (ActionWorkFailure) -> Void) -> GroupCloseCleanup {
         let life = self
-        commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ -> Void in }
+        return GroupCloseCleanup(group, home: .init(
+            exists: { life.personal.group(group) != nil },
+            isEmptyUnpinned: { life.isEmptyUnpinned(group) },
+            delete: { await withCheckedContinuation { done in life.deleteIfEmpty(group, failed: failed) { done.resume(returning: $0) } } },
+            history: history))
     }
 }
 

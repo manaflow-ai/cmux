@@ -14,9 +14,9 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { AgentMark } from "../../shared/AgentMark";
 import { useMinuteClock } from "../clock";
 import { agentDisplayName } from "../agents";
-import { HEADER_GLYPH } from "../header/ChatHeaderTools";
+import { HEADER_GLYPH } from "../header/chatHeaderToolsModel";
 import { HeaderIcon } from "../header/HeaderIcon";
-import { useT, type StringKey, type Translate } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { shortAge } from "../sessionList";
 import { Popover } from "../../../ui/Popover";
@@ -25,22 +25,9 @@ import { onOpenNeedsYou } from "./links";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
 import type { AskContext } from "./context";
 import { reply as questionReply, selection, type AgentQuestion, type QuestionReply } from "../question/model";
-import { messagePreview } from "../conversation/incomingMessage";
+
 import "./needsYou.css";
-
-/// The Debug choice `agentPane.debug.needsYou` (data-needs-you on <html>): `pinned` (the default)
-/// draws each ask with its answers; `compact` one line per ask; `off` no badge at all. The host
-/// also writes `off` while the App Store's Needs You item is not installed
-/// (`agentPane.needsYou.enabled`, off by default): no badge, no list, and no link opens one.
-export type NeedsYouMode = "pinned" | "compact" | "off";
-
-export function needsYouMode(
-  root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement,
-): NeedsYouMode {
-  const value = root?.dataset.needsYou;
-  return value === "off" || value === "compact" ? value : "pinned";
-}
-
+import { type NeedsYouMode, askText, sideQuestionPrompt } from "./needsYouModel";
 export type NeedsYouActions = {
   /// Sends a one-click answer; rejects when acpmux refused it.
   answer(item: NeedsYouItem, answer: NeedsYouAnswer): Promise<unknown>;
@@ -78,6 +65,7 @@ const KINDS: Record<NeedsYouKind, StringKey> = {
   verify: "needsYou.kind.verify",
   held: "needsYou.kind.held",
   input: "needsYou.kind.input",
+  tab: "needsYou.kind.tab",
 };
 
 const CHIEF_AVATAR = new URL("../mascots/ChiefMascotOrb.png", import.meta.url).href;
@@ -311,17 +299,20 @@ function NeedsYouRow({
         <span className="acpmux-needs-you-end">
           {age && <span className="acpmux-needs-you-age">{age}</span>}
           <span className="acpmux-needs-you-tools">
-            <button
-              type="button"
-              className="acpmux-needs-you-expand"
-              aria-label={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
-              title={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
-              aria-expanded={expanded}
-              onClick={toggle}
-            >
-              <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={14} />
-            </button>
-            {!compact && (
+            {/* A marked tab names no chat to ask about or open elsewhere: Go to is its one action. */}
+            {item.kind !== "tab" && (
+              <button
+                type="button"
+                className="acpmux-needs-you-expand"
+                aria-label={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
+                title={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
+                aria-expanded={expanded}
+                onClick={toggle}
+              >
+                <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={14} />
+              </button>
+            )}
+            {!compact && item.kind !== "tab" && (
               <button
                 type="button"
                 className="acpmux-needs-you-ask-about"
@@ -347,7 +338,13 @@ function NeedsYouRow({
       </div>
       {/* The ask itself expands the row too: the person reads it and wants the rest. */}
       <p className="acpmux-needs-you-ask">
-        <button type="button" className="acpmux-needs-you-ask-toggle" aria-expanded={expanded} onClick={toggle}>
+        {/* A marked tab's reason goes to the tab: it has no chat to expand. */}
+        <button
+          type="button"
+          className="acpmux-needs-you-ask-toggle"
+          aria-expanded={item.kind === "tab" ? undefined : expanded}
+          onClick={item.kind === "tab" ? () => actions.goTo(item) : toggle}
+        >
           {askText(item, t)}
         </button>
       </p>
@@ -611,6 +608,13 @@ function SideQuestion({ item, ask, onAsked }: { item: NeedsYouItem; ask: NeedsYo
 }
 
 function Avatar({ item }: { item: NeedsYouItem }) {
+  // A marked tab is in a workspace, not a chat: the workspace glyph, by its title.
+  if (item.kind === "tab")
+    return (
+      <span className="acpmux-needs-you-avatar">
+        <Icon name="workspace" size={12} />
+      </span>
+    );
   if (item.who.chief)
     return (
       <img
@@ -627,30 +631,4 @@ function Avatar({ item }: { item: NeedsYouItem }) {
       <AgentMark agent={item.who.harness} size={14} reserve />
     </span>
   );
-}
-
-/// The ask's line: its own text, else what its kind says (a permission asks to allow, anything
-/// else for an answer).
-export function askText(item: NeedsYouItem, t: Translate): string {
-  // A guest's held prompt reads as its text, as a question reads as its prompt.
-  if (item.kind === "held" && item.promptId) return messagePreview(item.ask);
-  if (item.kind === "held") return t("needsYou.held", { n: item.held ?? 1, peer: item.ask });
-  return item.ask || t(item.kind === "approval" ? "needsYou.waitingPermission" : "needsYou.waiting");
-}
-
-/// The side session's first prompt (`_acpmux/btw`): the ask, then the person's question, so the
-/// side session answers about this ask from the chat's conversation without the chat re-reading.
-export function sideQuestionPrompt(item: NeedsYouItem, question: string): string {
-  // l10n-allow: a prompt to the agent, never shown to the person
-  const lines = [
-    "I am about to answer an open ask from this chat and want to understand it first.",
-    `The ask (${item.kind}): ${item.ask || "waiting for my answer"}`,
-    ...(item.detail ? [`Details: ${item.detail}`] : []),
-    ...(item.question?.items[0]?.options.length
-      ? [`Choices: ${item.question.items[0].options.map((option) => option.label).join(" / ")}`]
-      : []),
-    `My question: ${question}`,
-    "Answer briefly from what this chat has done: what the agent is doing, why it asks, and what each answer would lead to.",
-  ];
-  return lines.join("\n");
 }

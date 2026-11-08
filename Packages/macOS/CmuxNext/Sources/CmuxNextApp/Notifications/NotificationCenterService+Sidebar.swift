@@ -15,7 +15,7 @@ extension NotificationCenterService {
     /// one and one a window shows stay where they are.
     func moveToTop(_ workspace: WorkspaceModel, finishedTurn: Bool) {
         guard let services, DesignSettings.shared.attention.movesToTop(finishedTurn: finishedTurn), !workspace.pinned,
-              !preferences.mutedWorkspaces.contains(workspace.id),
+              !notificationKeys(of: workspace).muted,
               !services.windows.controllers.contains(where: { $0.state.workspaceID == workspace.id }),
               let owner = services.windows.registry.value.owner(of: workspace.id),
               let controller = services.windows.controller(for: owner) else { return }

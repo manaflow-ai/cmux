@@ -2,8 +2,8 @@
 // not aligned with the icon vertically and too small and also not prominent enough because the
 // whole line gets highlighted and it's not obvious that clicking on this will be a new thing"), in
 // a real layout (test/browser/session-chip.harness.tsx): on a received message's line and on a
-// sent message's row, the chip's centre is the row icon's centre, it has real padding around its
-// name, it reads as a way to another chat (its own tint, no arrow glyph), and pointing at it lights the chip alone:
+// sent message's row, the chip's centre is the row icon's centre, it is its name at the row's size
+// with 4px at the sides, it reads as a way to another chat (its own tint, no arrow glyph), and pointing at it lights the chip alone:
 // the line's background and text keep their tone. design/chat-transcript.md "Session link chip".
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -52,8 +52,9 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
     },
     sent: {
       chip: '[data-chip-row="sent"] button.cv-agent-tag',
-      line: '[data-chip-row="sent"] .cv-tool',
-      icon: '[data-chip-row="sent"] .cv-tool__icon svg',
+      // A sent message draws as a received one (cmux#37879): the same line and mark.
+      line: '[data-chip-row="sent"] .cv-disclosure__line',
+      icon: '[data-chip-row="sent"] .cv-received__mark :is(svg, img)',
     },
   } as const;
 
@@ -100,7 +101,6 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
         insetEnd: c.right - l.right,
         cue: chip.querySelectorAll("svg").length + (/↗/.test(chip.textContent ?? "") ? 1 : 0),
         labelCut: label.scrollWidth > label.clientWidth + 0.5,
-        chipColor: paint(chipStyle.color),
         chipBackground: paint(chipStyle.backgroundColor),
         lineColor: paint(lineStyle.color),
         lineBackground: paint(lineStyle.backgroundColor),
@@ -130,16 +130,19 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
 
           // Centred on the icon's centre line, to half a device pixel.
           expect(Math.abs(rest.chipCentre - rest.iconCentre)).toBeLessThanOrEqual(0.5);
-          // Sized to its name with real padding, not a tight strip.
-          expect(rest.chipHeight).toBeGreaterThanOrEqual(22);
+          // The row's words in a box no taller than they are (Leo, 2026-11-03: "i thought we made
+          // this stuff smaller"): 1em + 4px, 18 at 14px, inside the 22 row; 4px at the sides.
+          expect(rest.chipHeight).toBeGreaterThanOrEqual(16);
+          expect(rest.chipHeight).toBeLessThanOrEqual(19);
           expect(rest.insetStart).toBeGreaterThanOrEqual(4);
           expect(rest.insetEnd).toBeGreaterThanOrEqual(4);
           expect(rest.chipWidth).toBeLessThan(rest.lineWidth * 0.6);
           // The whole name shows when the line has room for it: never cut beside an empty gap.
           expect(rest.labelCut).toBe(false);
-          // A link: its own colour, apart from the line's words, and no arrow glyph (Leo, 2026-11-01:
-          // "nobody asked for that up right arrow").
-          expect(rest.chipColor).not.toBe(rest.lineColor);
+          // A link: the theme's text on its own wash, apart from the line's plate (design/chat-transcript.md
+          // "Session link chip"; a message row's words share that text tone, so the wash sets it apart),
+          // and no arrow glyph (Leo, 2026-11-01: "nobody asked for that up right arrow").
+          expect(rest.chipBackground).not.toBe(rest.lineBackground);
           expect(rest.cue).toBe(0);
 
           // Pointing at the chip lights it alone: the line's plate and tone stay as at rest.

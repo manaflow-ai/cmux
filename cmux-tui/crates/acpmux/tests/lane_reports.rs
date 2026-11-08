@@ -750,12 +750,13 @@ async fn lane_report_a_task_steered_into_a_report_turn_is_reported_upward() {
     Client::as_session(&hub, &coord).await.prompt(&lane, "lane task").await;
     person.until(&coord, 1).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    // The person's task joins the turn on the report: that turn did real work now.
+    // The person's task joins the turn on the report: that turn did real work now. Steer-only, so
+    // it goes into that turn or is refused, never run later as a turn of its own.
     person
         .ok(
             "session/prompt",
             json!({"sessionId": coord, "prompt": [{"type": "text", "text": "person task"}],
-                   "_meta": {"acpmux": {"steer": true}}}),
+                   "_meta": {"acpmux": {"steer": true, "steerOnly": true}}}),
         )
         .await;
     person.ok("session/cancel", json!({"sessionId": coord})).await;

@@ -26,6 +26,9 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     public var toolbarIconSize: CGFloat
     /// The star and other trailing address-bar icons.
     public var trailingIconSize: CGFloat
+    /// The bookmark star's drawing side: `toolbarIconSize` (one ink box with the toolbar's glyphs),
+    /// clamped to the star's button, `trailingIconSize + 2`.
+    public var starIconSize: CGFloat { min(toolbarIconSize, trailingIconSize + 2) }
 
     /// `browser.omnibar.height`'s allowed range in points (the settings row's range,
     /// `BrowserOmnibarSetting.heightRange`; `OmnibarDensityTests` keeps the two equal).
@@ -46,12 +49,12 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         let requested = height.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.heightRange).rounded()) : nil } ?? densityHeight
         barHeight = max(requested, Self.minimumBarHeight(fontSize: font))
         self.fontSize = font
-        buttonSize = tokens.resolve(compact: 28, comfortable: 34)
+        buttonSize = tokens.toolbarButtonSize
         // The chip is the bar less 2 pt on each side. Its glyph draws at `iconRowSize`, about 1.2
         // times this point size (13 -> 16 at Standard), and keeps 2 pt inside the chip, so a short
         // bar shrinks it (a suggestion row centers the glyph on the chip's center).
         iconPointSize = min(tokens.resolve(compact: 13, comfortable: 15), ((barHeight - 8) / 1.2).rounded(.down))
-        toolbarIconSize = min(tokens.resolve(compact: 20, comfortable: 22), buttonSize - 4)
+        toolbarIconSize = min(tokens.toolbarGlyphSize, buttonSize - 4)
         trailingIconSize = min(tokens.resolve(compact: 18, comfortable: 20), barHeight - 6)
     }
 

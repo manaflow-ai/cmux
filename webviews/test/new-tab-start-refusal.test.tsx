@@ -286,7 +286,8 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
     }
     expect(host.querySelector(".nt-field")).toBe(field);
     expect(promptValue()).toBe("inspect the failed build");
-    expect(machineButton()?.textContent).toContain("devbox");
+    // The strip names the machine (the machine chip; the Where chip says where it runs).
+    expect(host.querySelector(".acpmux-location-leading")?.textContent).toContain("devbox");
     if (trust) {
       await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust control on the retained New Tab");
       expect(host.querySelector(".nt-field")).toBe(field);

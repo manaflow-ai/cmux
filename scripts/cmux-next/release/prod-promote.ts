@@ -69,8 +69,8 @@ export const SOAK_MINUTES = 60
 export const SPACING_HOURS = 6
 export const STALE_HOURS = 24
 export const STALE_COMMITS = 20
-/** G7: production vars whose change spends money, sends messages or opens a service-binding surface; each new value needs an approval. */
-export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$|CLOUD_PLAN_ENTITLEMENTS$|PLATFORM_MACHINES$)/
+/** G7: production vars whose change spends money, sends messages or opens a service-binding surface (PLATFORM_SURFACES: requests forwarded to cmux-platform); each new value needs an approval. */
+export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$|CLOUD_PLAN_ENTITLEMENTS$|PLATFORM_MACHINES$|PLATFORM_SURFACES$)/
 
 export interface Approvals {
   /** Secrets production must have before any deploy (names). */
@@ -145,11 +145,30 @@ const cf = async (path: string): Promise<any> => {
   return ((await r.json()) as { result: unknown }).result
 }
 
-const gh = async (path: string, init: RequestInit = {}): Promise<any> => {
+/** Waits before each retry of a GitHub 5xx or network error (one 502 failed promote-gates before G1-G7 ran). 4xx never retries. */
+export const GH_RETRY_DELAYS_MS: ReadonlyArray<number> = [2_000, 5_000, 10_000]
+
+export const gh = async (path: string, init: RequestInit = {}, delays: ReadonlyArray<number> = GH_RETRY_DELAYS_MS): Promise<any> => {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
   const repo = process.env.GITHUB_REPOSITORY ?? "manaflow-ai/cmux"
   if (!token) throw new Error("GITHUB_TOKEN is not set")
-  const r = await fetch(`https://api.github.com/repos/${repo}${path}`, { ...init, headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", ...(init.headers ?? {}) } })
+  // A POST is not retried: a 5xx may still have created the issue or comment, and a retry would duplicate it.
+  const retries = (init.method ?? "GET").toUpperCase() === "POST" ? [] : delays
+  const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
+  const url = `https://api.github.com/repos/${repo}${path}`
+  const opts = { ...init, headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", ...(init.headers ?? {}) } }
+  const fetchOnce = async (attempt: number): Promise<Response> => {
+    try {
+      const res = await fetch(url, opts)
+      if (res.status < 500 || attempt >= retries.length) return res
+      await res.body?.cancel().catch(() => {})
+    } catch (e) {
+      if (attempt >= retries.length) throw e
+    }
+    await sleep(retries[attempt]!)
+    return fetchOnce(attempt + 1)
+  }
+  const r = await fetchOnce(0)
   // The body and the rate-limit headers say why (a 403 is a rate limit or a permission; the status alone hid which).
   if (!r.ok) throw new Error(`GitHub ${path}: HTTP ${r.status} ${(await r.text().catch(() => "")).slice(0, 300)} [remaining ${r.headers.get("x-ratelimit-remaining")}, reset ${r.headers.get("x-ratelimit-reset")}, retry-after ${r.headers.get("retry-after")}]`)
   return r.status === 204 ? null : r.json()
@@ -239,6 +258,8 @@ export const stagingRuns = async (limit = 30): Promise<Array<StagingRun>> => {
     const jobs = (await gh(`/actions/runs/${run.id}/jobs?per_page=100`)).jobs as Array<any>
     const job = jobs.find((j) => j.name === "deploy-staging")
     if (!job || job.conclusion === "skipped") continue
+    // A source-fenced stale run made no staging mutation and contributes no soak evidence.
+    if ((job.steps as Array<any>).some((s) => s.name === "Newer deployment inputs already queued; skip" && s.conclusion === "success")) continue
     const smoke = (job.steps as Array<any>).find((s) => String(s.name).startsWith("Smoke the API Worker"))
     // G1 proves the tests too: the run's test and migrations-push-guard jobs passed.
     const passed = (name: string) => jobs.some((j) => j.name === name && j.conclusion === "success")

@@ -191,6 +191,7 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
             let why = match msg["reason"].as_str().unwrap_or("transport") {
                 "capacity" => "The provider had no capacity.".to_owned(),
                 "agent_exited" => "The agent exited before finishing.".to_owned(),
+                "context" => "The chat outgrew its context window.".to_owned(),
                 _ => "The connection was interrupted.".to_owned(),
             };
             Some(Step::RetryRestored { turn, why })
@@ -999,7 +1000,7 @@ impl Io for AgentSocket {
 /// Follows this daemon's own sessions (never a peer's) and reports their turns to their
 /// hand-offs while the Cloud agent's socket is there.
 /// The Cloud agent's socket: `ACPMUX_CLOUD_AGENT_SOCKET`, else [`SOCKET`].
-fn agent_socket() -> PathBuf {
+pub(super) fn agent_socket() -> PathBuf {
     std::env::var_os(SOCKET_ENV).map_or_else(|| PathBuf::from(SOCKET), PathBuf::from)
 }
 

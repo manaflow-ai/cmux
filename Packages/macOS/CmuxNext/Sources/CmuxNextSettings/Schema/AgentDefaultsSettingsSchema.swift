@@ -15,6 +15,9 @@ import CmuxNextDesign
 nonisolated enum AgentDefaultsSettingsSchema {
     static let permissionModePath = ["agents", "defaultPermissionMode"]
     static let modelRouterModelPath = ["agents", "modelRouter", "model"]
+    /// `agents.promptCache`: how long Claude Code keeps a chat's prompt cached. acpmux reads it at each
+    /// Claude Code start (`cmux-tui/crates/acpmux/src/prompt_cache_env.rs`): `1h` (the default) or `5m`.
+    static let promptCachePath = ["agents", "promptCache"]
     /// The router's DeepSeek models, default first (`CMUX_ROUTER_MODELS` in acpmux lists the same ids).
     static var modelRouterChoices: [SettingChoice] {
         [
@@ -43,6 +46,18 @@ nonisolated enum AgentDefaultsSettingsSchema {
             ]),
             default: .string("fullAccess"),
             keywords: ["permission", "mode", "full access", "ask", "approval", "yolo", "bypass", "agent", "new chat"]
+        ), SettingDescriptor(
+            promptCachePath, section: .general,
+            group: SettingsText.keyed("settings.group.agentChat", "Agent Chat"),
+            title: SettingsText.keyed("settings.agents.promptCache", "Prompt Cache"),
+            help: SettingsText.keyed("settings.agents.promptCache.help",
+                                     "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more."),
+            kind: .choice([
+                SettingChoice("1h", SettingsText.keyed("settings.choice.promptCacheOneHour", "1 Hour")),
+                SettingChoice("5m", SettingsText.keyed("settings.choice.promptCacheFiveMinutes", "5 Minutes")),
+            ]),
+            default: .string("1h"),
+            keywords: ["prompt cache", "cache", "ttl", "claude", "cost", "tokens", "1 hour", "5 minutes"]
         ), SettingDescriptor(
             modelRouterModelPath, section: .general,
             group: SettingsText.keyed("settings.group.agentChat", "Agent Chat"),

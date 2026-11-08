@@ -273,13 +273,27 @@ impl Mux {
         // workspace first at a start). A retry after a backoff takes none:
         // it must not hold the line for its delay.
         let ticket = plan.delay.is_zero().then(|| self.respawn_gate.ticket());
+        // A respawn that starts at once is sized into the Kitty budget now:
+        // its reservation then never waits for another respawn's launch.
+        // One after a backoff is not: it would shrink running terminals for
+        // the length of the backoff.
+        let kitty_expectation = plan
+            .delay
+            .is_zero()
+            .then(|| mux.expect_kitty_image_respawn(plan.old_runtime.as_ref(), plan.slot));
         let gate = self.respawn_gate.clone();
         let name = format!("terminal-respawn-{terminal_id}");
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
+            let _kitty_expectation = kitty_expectation;
             let stopping =
                 || mux.shutting_down.load(Ordering::Acquire) || mux.session_shutdown.began();
+            // A terminal the person sees (shown when it took its place,
+            // selected while it waits, or lost while hidden respawns still
+            // wait) takes the next free slot before the hidden ones. It still
+            // takes a slot: the cap bounds it too.
+            let shown_now = || mux.respawn_slot_shown(plan.slot);
             let turn = match ticket {
-                Some(ticket) => match gate.turn(ticket, stopping) {
+                Some(ticket) => match gate.turn_first_if(ticket, stopping, shown_now) {
                     Some(turn) => Some(turn),
                     None => {
                         mux.abandon_terminal_respawn(&plan.terminal_id);
@@ -300,6 +314,18 @@ impl Mux {
             eprintln!("cmux-tui: no thread to respawn terminal {terminal_id}: {error}");
             self.abandon_terminal_respawn(terminal_id);
         }
+    }
+
+    /// Whether the tab `slot` (a respawn's first placement) is in the
+    /// workspace the person sees. Takes the state lock: never call it under
+    /// the respawn gate's lock.
+    #[cfg(any(unix, windows))]
+    fn respawn_slot_shown(&self, slot: SurfaceId) -> bool {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state
+            .pane_of(slot)
+            .and_then(|pane| state.screen_of(pane))
+            .is_some_and(|(workspace, _)| workspace == state.active_workspace)
     }
 
     #[cfg(any(unix, windows))]
@@ -603,10 +629,18 @@ impl Mux {
         self.publish_resource_event();
         let _ = self.retry_pending_agent_hooks_for_terminal(&plan.public_id);
         self.reconcile_agent_roster_projections_for_terminal(&plan.public_id);
+        // Only a shell the freeing tier parked offers its last command again.
+        let freed_last = plan
+            .kept
+            .iter()
+            .filter(|kept| kept.on_show)
+            .find_map(|kept| kept.last_command.as_ref())
+            .map(|last| last.command.as_str());
         let prefill = self.respawn_prefill(
             &plan.terminal_id,
             record.as_ref(),
             crate::user_settings::resume_agents(),
+            freed_last,
         );
         Ok(Some((surface, prefill)))
     }
@@ -726,6 +760,27 @@ fn wait_for_old_hosts(root: &Path, terminal_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R-LIFECYCLE S1b: an abandoned respawn changes what keeps an app
+    /// session's owner (server/owner_keepers.rs), so it wakes the terminal
+    /// lifecycle watchers, as the other ends of a respawn do.
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn an_abandoned_respawn_wakes_the_terminal_lifecycle_watchers() {
+        let mux = Mux::new_for_test("test", SurfaceOptions::default());
+        let events = mux.subscribe_terminal_lifecycle();
+        while events.try_recv().is_ok() {}
+        mux.pending_terminals
+            .lock()
+            .unwrap()
+            .insert("term_x".to_string(), ("t1".to_string(), PendingTerminal::Respawning));
+        mux.abandon_terminal_respawn("t1");
+        assert!(!mux.terminal_is_respawning("t1"));
+        assert!(
+            events.try_recv().is_ok(),
+            "an abandoned respawn woke no terminal lifecycle watcher"
+        );
+    }
 
     #[test]
     fn a_closed_terminals_argv_is_forgotten_and_the_memory_is_bounded() {

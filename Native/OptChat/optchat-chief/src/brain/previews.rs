@@ -4,9 +4,9 @@
 //! brain thread, on its own connection (`PreviewPort`): it reads the
 //! conversation, keeps the URL lines a person wrote, fetches every card's
 //! preview concurrently, uploads each picture as an attachment record of the
-//! Chief, and answers with the filled parts. A reply never waits longer than
-//! [`HOLD`]: when the hold ends first (or the host stops), it goes as its
-//! text.
+//! Chief, and answers with the filled parts. Link cards wait no longer than
+//! [`HOLD`]. Original attachments have a durable manifest and wait for their
+//! upload outcome; a restart resumes the files from disk.
 //!
 //! Which URLs: only a line whose URL equals, exactly, a URL token a person
 //! wrote in a recent message of the same conversation (its text parts or the
@@ -31,9 +31,6 @@ use crate::state::OutboxEntry;
 /// The longest a reply waits for its previews: the read, the fetch timeout
 /// and room for the uploads.
 pub const HOLD: Duration = Duration::from_secs(12);
-
-/// The longest a reply with pictures or videos waits for their uploads.
-pub const MEDIA_HOLD: Duration = Duration::from_secs(60);
 
 /// The name of a preview picture's attachment record.
 const PICTURE_NAME: &str = "link-preview.jpg";
@@ -62,9 +59,6 @@ impl Brain {
         extra: Vec<super::media::MediaRef>,
     ) -> OutboxEntry {
         let conversation = entry.conversation.clone();
-        let Some(daemon) = self.daemon.as_ref() else {
-            return entry;
-        };
         let reply = match &entry.op {
             Op::MessageSend { parts, .. } => match parts.as_slice() {
                 [Part::Text { text, .. }] => text.clone(),
@@ -75,11 +69,15 @@ impl Brain {
         // Pictures and videos the reply names (media.rs) go whether or not the owner takes cards.
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
         let mut media = super::media::media_refs(&reply, home.as_deref());
-        for file in extra {
+        for file in entry.pending_media.iter().cloned().chain(extra) {
             if !media.iter().any(|m| m.path == file.path) {
                 media.push(file);
             }
         }
+        entry.pending_media = media.clone();
+        let Some(daemon) = self.daemon.as_ref() else {
+            return entry;
+        };
         let fetcher = self.previewer.clone().filter(|_| {
             daemon.supports(LINK_PREVIEW_CAPABILITY)
                 && link_preview::split::text_parts(&reply)
@@ -90,6 +88,15 @@ impl Brain {
             return entry;
         }
         let Some(port) = daemon.preview_port() else {
+            if !media.is_empty() {
+                if let Op::MessageSend { parts, .. } = &mut entry.op {
+                    *parts = vec![Part::Text {
+                        text: failed_text(&reply, &media),
+                        runs: None,
+                    }];
+                }
+                entry.pending_media.clear();
+            }
             return entry;
         };
         let (tx, owned_key, log) = (
@@ -98,11 +105,26 @@ impl Brain {
             self.log.clone(),
         );
         let thread_reply = reply.clone();
-        let hold = if media.is_empty() { HOLD } else { MEDIA_HOLD };
+        let has_media = !media.is_empty();
+        let job_key = owned_key.clone();
         let spawned = std::thread::Builder::new()
             .name("optchat-link-previews".into())
             .spawn(move || {
-                let parts = filled(port, fetcher, &conversation, &thread_reply, &media, &log);
+                let parts = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    filled(port, fetcher, &conversation, &thread_reply, &media, &log)
+                }))
+                .unwrap_or_else(|panic| {
+                    let reason = panic
+                        .downcast_ref::<&str>()
+                        .copied()
+                        .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+                        .unwrap_or("unknown panic");
+                    log(&format!("attachment/preview worker panicked: {reason}"));
+                    Some(vec![Part::Text {
+                        text: failed_text(&thread_reply, &media),
+                        runs: None,
+                    }])
+                });
                 let _ = tx.send(Input::Previews {
                     key: owned_key,
                     parts,
@@ -111,27 +133,80 @@ impl Brain {
         match spawned {
             Ok(_) => {
                 entry.plain_text = Some(reply);
-                entry.previews_until = Some(now_ms() + hold.as_millis() as u64);
+                if has_media {
+                    self.media_uploads.insert(job_key);
+                    entry.previews_until = None;
+                } else {
+                    entry.previews_until = Some(now_ms() + HOLD.as_millis() as u64);
+                }
             }
-            Err(e) => (self.log)(&format!("starting the link previews failed: {e}")),
+            Err(e) => {
+                (self.log)(&format!("starting the link previews failed: {e}"));
+                if let Op::MessageSend { parts, .. } = &mut entry.op {
+                    *parts = vec![Part::Text {
+                        text: failed_text(&reply, &entry.pending_media),
+                        runs: None,
+                    }];
+                }
+                entry.pending_media.clear();
+                entry.previews_until = None;
+                entry.plain_text = None;
+            }
         }
         entry
+    }
+
+    /// File references survive restart, but worker threads do not. Start one
+    /// worker per durable manifest when the daemon reconnects.
+    pub(super) fn resume_media_uploads(&mut self) {
+        let pending: Vec<_> = self
+            .state
+            .outbox
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                !entry.attempted
+                    && !entry.pending_media.is_empty()
+                    && !self.media_uploads.contains(&entry.idempotency_key)
+            })
+            .map(|(at, entry)| (at, entry.clone()))
+            .collect();
+        for (at, entry) in pending {
+            self.state.outbox[at] = self.reply_with_media(entry, Vec::new());
+        }
     }
 
     /// The preview thread answered for reply `key`: the filled parts replace
     /// its text (which stays as the fallback), or it stays text; the hold
     /// ends. A reply already sent keeps what it sent.
     pub(super) fn previews_fetched(&mut self, key: &str, parts: Option<Vec<Part>>) {
-        let Some(at) =
-            self.state.outbox.iter().position(|e| {
-                e.idempotency_key == key && !e.attempted && e.previews_until.is_some()
-            })
-        else {
+        self.media_uploads.remove(key);
+        let Some(at) = self.state.outbox.iter().position(|e| {
+            e.idempotency_key == key
+                && !e.attempted
+                && (e.previews_until.is_some() || !e.pending_media.is_empty())
+        }) else {
             return;
         };
         let entry = &mut self.state.outbox[at];
         match parts {
             Some(parts) => {
+                if !entry.pending_media.is_empty() {
+                    // Preserve failed-file links too if a stricter owner
+                    // later refuses the link cards. Original attachment
+                    // parts are retained separately by the outbox retry.
+                    entry.plain_text = Some(
+                        parts
+                            .iter()
+                            .filter_map(|part| match part {
+                                Part::Text { text, .. } => Some(text.as_str()),
+                                Part::LinkPreview { url, .. } => Some(url.as_str()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    );
+                }
                 if let Op::MessageSend { parts: sent, .. } = &mut entry.op {
                     *sent = parts;
                 }
@@ -139,6 +214,7 @@ impl Brain {
             None => entry.plain_text = None,
         }
         entry.previews_until = None;
+        entry.pending_media.clear();
         self.save();
         self.flush_outbox();
     }
@@ -162,7 +238,22 @@ fn filled(
         .iter()
         .filter(|m| m.image_syntax.is_some() && !refs.iter().any(|r| r.path == m.path))
         .collect();
-    let text = super::media::settled(reply, &refs, &failed);
+    let hash_of = |media: &super::media::MediaRef| {
+        files
+            .iter()
+            .find(|(sent, _)| sent.path == media.path)
+            .and_then(|(_, part)| match part {
+                Part::Attachment { hash, .. } => Some(hash.clone()),
+                _ => None,
+            })
+    };
+    let mut text = super::media::settled(reply, &refs, &failed, &hash_of);
+    let explicit_failed: Vec<_> = media
+        .iter()
+        .filter(|m| m.image_syntax.is_none() && !refs.iter().any(|r| r.path == m.path))
+        .cloned()
+        .collect();
+    text = failed_text(&text, &explicit_failed);
     let cards = fetcher.and_then(|fetcher| previews(&mut *port, fetcher, conversation, &text, log));
     if files.is_empty() {
         // A failed upload still changes the text: its image syntax is a link now.
@@ -184,6 +275,29 @@ fn filled(
     parts.retain(|part| !matches!(part, Part::Text { text, .. } if text.trim().is_empty()));
     parts.extend(files.into_iter().map(|(_, part)| part));
     Some(parts)
+}
+
+fn failed_text(reply: &str, files: &[super::media::MediaRef]) -> String {
+    let failed_images: Vec<_> = files
+        .iter()
+        .filter(|file| file.image_syntax.is_some())
+        .collect();
+    let mut text = super::media::settled(reply, &[], &failed_images, &|_| None);
+    for file in files.iter().filter(|file| file.image_syntax.is_none()) {
+        let target = url::Url::from_file_path(&file.path)
+            .map_or_else(|_| file.path.display().to_string(), |url| url.to_string());
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        let name = file
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("file")
+            .replace(['[', ']', '\n'], " ");
+        text.push_str(&format!("Attachment upload failed: [{name}]({target})"));
+    }
+    text
 }
 
 /// The cards of the reply: its parts with a card for each URL line a

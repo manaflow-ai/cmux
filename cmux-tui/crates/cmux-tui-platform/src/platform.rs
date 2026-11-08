@@ -33,6 +33,14 @@ pub fn peer_executable(peer_key: &str) -> Option<PathBuf> {
     peer_process::executable(peer_key)
 }
 
+/// Linux: [`peer_executable`] with that executable opened: the binary the
+/// peer runs, which still reads once no path names it (its path then ends in
+/// ` (deleted)`). Nil when the key is malformed or stale.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn peer_executable_file(peer_key: &str) -> Option<(PathBuf, File)> {
+    peer_process::executable_file(peer_key)
+}
+
 /// Refuses a connected Unix socket whose peer is not `expected_uid`. Call it
 /// before writing anything to a socket found at a path the caller derived.
 #[cfg(unix)]
@@ -1394,7 +1402,7 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 mod codex_daemon;
 pub use codex_daemon::descends_from_codex_app_server_daemon;
 mod job_launch;
-pub use job_launch::{JobLaunch, foreground_job_launch};
+pub use job_launch::{JobLaunch, foreground_job_launch, process_launch};
 
 #[cfg(test)]
 mod tests;

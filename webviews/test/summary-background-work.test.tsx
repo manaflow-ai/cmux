@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture commands and chat titles, not shipped UI.
 // Background work is visible (Leo: "where is the background showing?"). With Session Info off
-// (Debug Settings `agent.inspector`), the summary card lists the chat's background commands live
+// (Debug Settings `agent.sessionInfo`), the summary card lists the chat's background commands live
 // (session-info/processes.ts `backgroundCommands`, whose merge session-info-tasks.test.tsx covers),
 // running ones first with their time and Stop, and finished work as compact status cards; the chats
 // the agent started sit under Subagents with their state; an empty card draws one quiet line instead
@@ -19,7 +19,7 @@ import {
 } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
-import { orderedSessions } from "../src/agent-session/acpmux/session-info/ChildSessionRows";
+import { orderedSessions } from "../src/agent-session/acpmux/session-info/childSessionRowsModel";
 import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/session-info/processes";
 import type { SessionSummary, SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { SubagentStatusList } from "../src/agent-session/acpmux/summary/SubagentStatusList";

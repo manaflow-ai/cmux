@@ -142,7 +142,8 @@ test("collapsed groups follow child sessions after their start calls finish", as
   );
   const status = () => container.querySelector(".cv-disclosure__status")!;
   expect(status().textContent).toContain("Working");
-  expect(status().querySelector("svg")).not.toBeNull();
+  // No spinner beside the status: its words say it works (Leo, no spinners on tool calls, #32196).
+  expect(status().querySelector("svg")).toBeNull();
   await act(async () => setChild({ lane: "input" }));
   expect(status().textContent).toContain("1 waiting");
   expect(status().querySelector("svg")).toBeNull();
@@ -151,7 +152,7 @@ test("collapsed groups follow child sessions after their start calls finish", as
   await act(async () => setChild({ lane: "failed", retry: { attempt: 1, of: 4 } }));
   expect(status().textContent).toContain("Working");
   expect(status().textContent).not.toContain("failed");
-  expect(status().querySelector("svg")).not.toBeNull();
+  expect(status().querySelector("svg")).toBeNull();
   await act(async () => setChild({ lane: "working", waitsForSlot: true }));
   expect(status().textContent).toContain("1 waiting");
   await act(async () => setChild({ lane: "idle" }));
@@ -250,6 +251,32 @@ test("a result's Show more choice survives closing its card and virtualized remo
   expect(more(0).getAttribute("aria-expanded")).toBe("false");
 });
 
+test("an agent run is one transcript line, its model and machine beside its name, its reply under it", async () => {
+  // Leo, 2026-11-04: "I don't like how misaligned and how much extra space those agent cards take
+  // compared to the past one lines we had/how Claude code just has one lines too".
+  const container = installDom();
+  const agent: Subagent = {
+    id: "run:call-line",
+    parent: null,
+    name: "review",
+    kind: "codex gpt-6-astra",
+    host: "huge-blue",
+    state: "completed",
+    startedAt: 0,
+    endedAt: 1_000,
+    result: "Reviewed.",
+  };
+  root = createRoot(container);
+  await act(async () => root!.render(<AgentRunTranscriptCard agent={agent} sessionId="chat-line" />));
+  expect(container.querySelector(".cv-agent-card")).toBeNull();
+  const row = container.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!;
+  expect(row.querySelector(".cv-disclosure__label")?.textContent).toBe("review");
+  expect(row.querySelector(".cv-disclosure__meta")?.textContent).toBe("codex gpt-6-astra · huge-blue");
+  expect(container.textContent).not.toContain("Reviewed.");
+  await act(async () => row.click());
+  expect(container.querySelector(".cv-disclosure__panel")?.textContent).toContain("Reviewed.");
+});
+
 test("standalone agent-run Show more is scoped to its parent chat across switches and remounts", async () => {
   const container = installDom();
   Object.defineProperty(dom!.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 200 });
@@ -265,8 +292,13 @@ test("standalone agent-run Show more is scoped to its parent chat across switche
     result: "First paragraph.\n\nSecond paragraph.\n\nFinal checkpoint.",
   };
   root = createRoot(container);
-  const render = (sessionId: string) =>
-    act(async () => root!.render(<AgentRunTranscriptCard agent={agent} sessionId={sessionId} />));
+  // The run is one line (Leo, 2026-11-04: "how Claude code just has one lines too"); its reply opens
+  // under it, so each render opens the row before reading the reply's own toggle.
+  const render = async (sessionId: string) => {
+    await act(async () => root!.render(<AgentRunTranscriptCard agent={agent} sessionId={sessionId} />));
+    const row = container.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!;
+    if (row.getAttribute("aria-expanded") !== "true") await act(async () => row.click());
+  };
   const more = () => container.querySelector<HTMLButtonElement>(".cv-subsession__cut button")!;
 
   await render("chat-a");
@@ -407,7 +439,8 @@ test("Find highlights a prompt's link URL in Raw, including a query shared with 
     title: "mcp__cmux-subsessions__start_session",
     status: "completed",
     inputSummary: JSON.stringify({ name: "first", prompt }),
-    output: "Started",
+    // The output a started sub-session has, so the transcript draws this call as its card.
+    output: "Started sub-session first (sessionId first-id, depth 1).",
   };
   const row: AcpmuxRow = {
     id: "row",
@@ -446,7 +479,7 @@ test("Find uses Raw for fenced code in a shadow root and Markdown while plain co
     title: "mcp__cmux-subsessions__start_session",
     status: "completed",
     inputSummary: JSON.stringify({ prompt }),
-    output: "Started",
+    output: "Started sub-session first (sessionId first-id, depth 1).",
   };
   const row: AcpmuxRow = {
     id: "row",

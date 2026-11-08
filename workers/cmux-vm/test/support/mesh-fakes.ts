@@ -61,9 +61,34 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
         }
         return inner.recordRule(tenantId, rule);
       },
+      recordRules: (tenantId: Parameters<typeof inner.recordRules>[0], rules: Parameters<typeof inner.recordRules>[1]) => {
+        if (recordFailures > 0 && rules.length > 0) {
+          recordFailures -= 1;
+          return Effect.fail(new StoreError({ operation: "mesh.recordRules", cause: "injected" }));
+        }
+        return inner.recordRules(tenantId, rules);
+      },
     })),
   ).pipe(Layer.provide(base.layer));
-  const store = { ...base, layer: failingLayer };
+  /** Every mesh store call waits this long first: a stand-in for one Worker-to-database round trip. */
+  let storeLatencyMs = 0;
+  /** Mesh store calls made so far: each is one round trip on the request's one database connection. */
+  let storeCalls = 0;
+  const latencyLayer = Layer.effect(
+    MeshStore,
+    Effect.map(MeshStore, (inner) => new Proxy(inner, {
+      get(target, key, receiver) {
+        const value: unknown = Reflect.get(target, key, receiver);
+        if (typeof value !== "function") return value;
+        return (...args: ReadonlyArray<unknown>) => {
+          storeCalls += 1;
+          const run: unknown = Reflect.apply(value, target, args);
+          return storeLatencyMs > 0 && Effect.isEffect(run) ? Effect.zipRight(Effect.sleep(storeLatencyMs), run) : run;
+        };
+      },
+    })),
+  ).pipe(Layer.provide(failingLayer));
+  const store = { ...base, layer: latencyLayer };
   const vpcs = new Map<string, { readonly id: string; readonly cidr: string; readonly slug?: string; readonly displayName?: string }>();
   let networkCreateStatus: number | null = null, networkLostReplies = 0, hideNetworks = false;
   let networkHold: Promise<void> | null = null, networkHeld = false;
@@ -131,6 +156,14 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       path.startsWith("/v5/firewall/rules/") ||
       /^\/v5\/vms\/[^/]+\/networks$/u.test(path);
     if (!isMesh) return null;
+    // A VM's public egress (live-public-egress.ts) is fake-upstream.ts's: the list, and a create sourced by one VM.
+    if (path === "/v5/firewall/rules" && method === "GET") return null;
+    if (path === "/v5/firewall/rules" && method === "POST") {
+      const peek: unknown = await request.clone().json().catch(() => null);
+      const source: unknown = typeof peek === "object" && peek !== null ? Reflect.get(peek, "source") : undefined;
+      const destination: unknown = typeof peek === "object" && peek !== null ? Reflect.get(peek, "destination") : undefined;
+      if (typeof source === "object" && source !== null && "vmId" in source && typeof destination === "object" && destination !== null && "public" in destination) return null;
+    }
     const raw = request.body === null ? null : new Uint8Array(await request.clone().arrayBuffer());
     const body: unknown = raw === null || raw.length === 0 ? null : JSON.parse(new TextDecoder().decode(raw));
     provider.calls.push({ method, path, search: url.searchParams, json: body, bytes: raw });
@@ -293,6 +326,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     layer,
     store,
     onDeviceInventoryRead(hook: () => void) { inventoryRead = hook; },
+    /** Delays every mesh store call by `ms` (0: none), so a test can count serial database round trips. */
+    delayStoreCalls(ms: number) { storeLatencyMs = ms; },
+    /** How many mesh store calls have been made (each is a database round trip in production). */
+    storeCallCount() { return storeCalls; },
     failNetworkCreates(status: number | null) { networkCreateStatus = status; },
     loseNetworkReplies(times: number) { networkLostReplies = times; },
     hideNetworks(on: boolean) { hideNetworks = on; },

@@ -43,19 +43,18 @@ A run:
    - **Refusals:** a build pulled from the cmux NEXT feed, or one with a `fail` verdict.
    - **Already shipped:** when the stable feed already has the build, the run stops (unless
      `force`).
-2. **gates**, in parallel:
+2. **gates**, in parallel. They check the behavior people use, not every unit test: CmuxNext's
+   own suites are not a stable gate.
    - `crash-class`: the `cmux-next-crash-class.yml` rules on the whole tree, plus
      `stable_next.py crash-delta`. That compares the candidate against the commit the stable
      feed serves, and fails on any new counted or banned crash-class hit. The whole-tree
      ratchet is red on `feat-cmux-next` itself, so as a gate it would block every night on
      debt the last stable build already shipped.
-   - `swift-suites`: one owned mini submits 4 shards at once. Together they cover every
-     CmuxNext test target, by target name, and run with `package-test-lane.sh suite` as
-     build-fleet steps on `macos-27` + `ram48` workers. Those are M4 Pro only, because no M6
-     mini has `ram48`. Each shard retries once.
    - `perf-budgets`: `split-spring.sh --suite=budgets --gate` on an exclusive macOS 27 M4 Pro
      measure worker. It fails when a row's p95 is more than 10% over the
      `apple-m4-pro-macos27` baseline.
+     A measured regression blocks. No verdict (no idle M4 Pro measure worker within 3 h, or
+     three steps that ended without measuring) only warns.
    - `sign`: Blacksmith macOS 26. It re-signs the nightly DMG as cmux NEXT Stable
      (`scripts/ci/stable-next-identity.sh`), notarizes and staples the result, and generates
      the Sparkle item.

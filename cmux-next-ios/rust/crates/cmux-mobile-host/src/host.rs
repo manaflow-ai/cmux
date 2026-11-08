@@ -27,6 +27,7 @@ pub struct AnswerContext {
     pub exclude_cgnat: bool,
     /// Supervised: sealed replies the backend holds for this Mac (`mailbox.rs`).
     pub mailbox: Option<Arc<crate::mailbox::Mailbox>>,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 }
 
 #[derive(Clone)]
@@ -154,11 +155,34 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             config.services.acpmux.clone(),
             Some(config.services.daemon_socket()),
             sealer,
+            config.session_exposure.clone(),
         ))))
     } else {
         None
     };
-    let mailbox = mailbox_for(&services);
+    let mailbox = mailbox_for(&services, config.session_exposure.clone());
+    // This Mac reaching the person's other machines through the same warm
+    // socket (`link_socket.rs`); only with the app, which holds the identity key.
+    let (signaling_now, signaling_watch) = tokio::sync::watch::channel(None::<SignalingClient>);
+    let _machine_link = services.pairing.as_ref().map(|pairing| {
+        let dialer = Arc::new(crate::link_socket::Dialer {
+            device_id: config.device_id.clone(),
+            device_name: config.device_name.clone(),
+            base_url: config.base_url.clone(),
+            tokens: Arc::clone(&tokens),
+            ice: ice.clone(),
+            signaling: signaling_watch.clone(),
+            identity: pairing.identity.clone(),
+            activity: Arc::clone(&pairing.activity),
+            links: Default::default(),
+        });
+        let path = crate::link_socket::socket_path(&services.daemon_socket());
+        AbortTask(tokio::spawn(async move {
+            if let Err(error) = crate::link_socket::serve(path, dialer).await {
+                tracing::warn!("machine link socket stopped: {error:#}");
+            }
+        }))
+    });
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
     // Live tunnels can roam even while signaling is unreachable. Rehome resends
@@ -177,7 +201,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         let attempt = tokio::select! {
             // Process a server removal first if both events are ready.
             biased;
-            result = connect_once(&config, &tokens, &services, &ice, &mailbox) => result,
+            result = connect_once(&config, &tokens, &services, &ice, &mailbox, &signaling_now) => result,
             Ok(()) = changes.changed() => {
                 ice.invalidate();
                 backoff = Duration::from_secs(1);
@@ -228,6 +252,7 @@ async fn connect_once(
     services: &Arc<ServiceConfig>,
     ice: &IceSource,
     mailbox: &Option<Arc<crate::mailbox::Mailbox>>,
+    signaling_now: &tokio::sync::watch::Sender<Option<SignalingClient>>,
 ) -> Result<String> {
     let token = tokens.access_token().await.context("access token")?;
     let owner = config
@@ -255,7 +280,9 @@ async fn connect_once(
         .context("signaling connect")?;
     // Cancellation on wake/network change must close the old socket and stop
     // its auxiliary tasks; dropping a SignalingClient alone does neither.
-    let mut lifetime = ConnectionLifetime { signaling: signaling.clone(), tasks: Vec::new() };
+    signaling_now.send_replace(Some(signaling.clone()));
+    let mut lifetime =
+        ConnectionLifetime { signaling: signaling.clone(), tasks: Vec::new(), published: signaling_now.clone() };
     tracing::info!(device_id = config.device_id, "signaling connected");
     // Sessions of the previous socket (WireGuard tunnels outlive it) send
     // their `bye` on this one now.
@@ -271,6 +298,7 @@ async fn connect_once(
         include_loopback: config.include_loopback,
         exclude_cgnat: config.exclude_cgnat,
         mailbox: mailbox.clone(),
+        session_exposure: config.session_exposure.clone(),
     };
     let refresher = if std::env::var_os("CMUX_MOBILE_BASELINE").is_some() { None } else { ice.keep_fresh() };
     if let Some(task) = refresher {
@@ -283,10 +311,13 @@ async fn connect_once(
 struct ConnectionLifetime {
     signaling: SignalingClient,
     tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// Where the machine link finds the socket to dial on; emptied with it.
+    published: tokio::sync::watch::Sender<Option<SignalingClient>>,
 }
 
 impl Drop for ConnectionLifetime {
     fn drop(&mut self) {
+        self.published.send_replace(None);
         self.signaling.close();
         for task in &self.tasks {
             task.abort();
@@ -323,7 +354,10 @@ pub fn unauthorized(error: &anyhow::Error) -> bool {
 
 /// The mailbox of a supervised hostd: its pairing's keys and trust, the
 /// services a link reaches, and the replies already spent (on disk).
-fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>> {
+fn mailbox_for(
+    services: &ServiceConfig,
+    session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> Option<Arc<crate::mailbox::Mailbox>> {
     let pairing = services.pairing.as_ref()?;
     let daemon_socket = services
         .default_socket
@@ -339,6 +373,7 @@ fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>>
             acpmux: services.acpmux.clone(),
             daemon_socket,
             chief_socket: services.chief_socket.clone(),
+            session_exposure,
         }),
     }))
 }
@@ -497,7 +532,12 @@ async fn answer_session(
     kind: TransportKind,
     context: AnswerContext,
 ) {
-    let mut peer = Peer { device_id: first.from.clone(), session_id: first.session_id.clone(), video: None };
+    let mut peer = Peer {
+        device_id: first.from.clone(),
+        session_id: first.session_id.clone(),
+        video: None,
+        session_exposure: context.session_exposure.clone(),
+    };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
     timeline.mark("offer_received");

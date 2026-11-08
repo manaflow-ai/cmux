@@ -23,7 +23,9 @@
 //! before the current one and the one the pane hints at
 //! (`_acpmux/prewarm`, debounced: a harness pick, or typing in a new chat);
 //! one hinted entry per harness across folders (`pool.hintedPerHarness`), and
-//! a hint the pane takes back (`release`) ends its entry; a 1 GB RSS cap for the whole pool, oldest
+//! a hint the pane takes back (`release`) ends its entry; one spare per harness the machine used
+//! (`spare.rs`: the shape of its newest session, kept `pool.spareIdleMinutes`, remembered across
+//! daemon starts, replaced when it dies); a 1 GB RSS cap for the whole pool, oldest
 //! first; idle exit on the injected clock (`pool.idleMinutes`, default 10).
 //! The default for idle CPU is that exit; `pool.park` (off) SIGSTOPs a ready
 //! harness instead. Never for a remote-origin chain (REMOTE-FLOOR v3).
@@ -48,6 +50,7 @@ mod auth;
 mod held;
 pub(crate) mod policy;
 mod reaper;
+mod spare;
 mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
 use policy::{Origin, Pool, PoolKey, Role, Take};
@@ -58,24 +61,30 @@ pub use reaper::tree_rss_bytes;
 #[cfg(test)]
 pub(super) use start::held_reports_full_access;
 
-/// Most a pooled start's `initialize` and harness session may take before
-/// it counts as failed (and its host is ended).
-const START_BUDGET: Duration = Duration::from_secs(90);
-// A pooled host waits longer for its first controller than this budget
-// gives the attach (`agent_host/host.rs`).
-#[cfg(unix)]
-const _: () = assert!(agent_host::host::POOLED_OWNER_WAIT.as_secs() > START_BUDGET.as_secs());
+/// How often a pooled start reports that it is still waiting. This is a
+/// progress signal, not a deadline for a live harness.
+const START_PROGRESS: Duration = Duration::from_secs(10);
+/// A real hazard bound for a harness that has received CPU but never answers.
+/// A starved machine (no CPU available) therefore keeps waiting.
+// timeout: a live harness that has received CPU but has not answered for this
+// long is treated as wedged, so a prewarm cannot retain resources forever.
+const START_HAZARD: Duration = Duration::from_secs(30 * 60);
+/// A long fallback for platforms that cannot expose one process's CPU signal.
+// timeout: without per-process accounting we still need a finite bound for a
+// live-but-wedged host, while allowing scheduler starvation to recover first.
+const START_UNREAD_HAZARD: Duration = Duration::from_secs(2 * 60 * 60);
 /// How often the pool's RSS is measured again while it holds entries.
 const RSS_TICK: Duration = Duration::from_secs(60);
-/// Most a `session/new` waits for a matching entry that is still starting
-/// before it starts cold.
-const CLAIM_WAIT: Duration = Duration::from_secs(15);
+/// Compatibility envelope for forwarded `session/new` requests. Local starts
+/// are liveness based; this value is only the peer link's hazard bound for a
+/// handler that never answers and never closes its connection.
+// timeout: a remote handler that stays connected but never answers must not
+// retain a forwarding request forever; the transport keepalive remains the
+// earlier failure path for a dead peer. Nine minutes leaves substantial room
+// beyond the old 90-second pooled-start cutoff.
+pub(crate) const SESSION_NEW_BUDGET: Duration = Duration::from_secs(9 * 60);
 /// How long an ended entry's host gets before it is ended by nonce proof.
 const END_GRACE: Duration = Duration::from_secs(2);
-/// Most a claimed entry's host may take to answer before the entry counts
-/// as wedged: the hello budget of `agent_host::link::connect`. A healthy
-/// host answers in milliseconds; a loaded machine may take seconds.
-const CLAIM_PROBE: Duration = Duration::from_secs(5);
 
 /// Measures a pooled host's process tree RSS in bytes.
 pub type RssProbe = Arc<dyn Fn(u32) -> u64 + Send + Sync>;
@@ -102,6 +111,13 @@ pub(crate) struct PoolState {
     starting: StdMutex<HashMap<String, HostRecord>>,
     /// Keys whose session alone is over the RSS cap: never started again.
     oversize: StdMutex<std::collections::HashSet<PoolKey>>,
+    /// The harness shapes `pool-spares.json` holds, read once on first use (`spare.rs`).
+    spares: StdMutex<Option<Vec<spare::Remembered>>>,
+    /// Held across a write of `pool-spares.json`, so the newest list is the one written.
+    spare_file: StdMutex<()>,
+    /// Harnesses whose spare died, for the spare worker to start again (`spare.rs`).
+    spare_restart: StdMutex<Vec<String>>,
+    spare_wake: Notify,
 }
 
 type Spec = (String, Option<String>);
@@ -121,6 +137,10 @@ impl PoolState {
             rss: StdMutex::new(Arc::new(tree_rss_bytes)),
             starting: StdMutex::new(HashMap::new()),
             oversize: StdMutex::new(Default::default()),
+            spares: StdMutex::new(None),
+            spare_file: StdMutex::new(()),
+            spare_restart: StdMutex::new(Vec::new()),
+            spare_wake: Notify::new(),
         }
     }
 }
@@ -283,6 +303,9 @@ impl Hub {
                 if v.hinted {
                     roles.push("hinted");
                 }
+                if v.spare {
+                    roles.push("spare");
+                }
                 json!({"harness": v.key.harness, "preset": v.key.preset, "cwd": v.key.cwd,
                     "roles": roles, "state": v.state})
             })
@@ -336,6 +359,19 @@ impl Hub {
         preset: Option<String>,
         cwd: PathBuf,
     ) -> Result<PoolSpec, RpcError> {
+        self.pool_spec_in(harness, preset, cwd, None).await
+    }
+
+    /// `pool_spec`; a `spare` (the shape of a session the person started in `cwd`, `Some` with
+    /// that session's model request) asks for that model and may also start in the home folder
+    /// off macOS (`protected_folders::spare_refusal`).
+    async fn pool_spec_in(
+        &self,
+        harness: Option<String>,
+        preset: Option<String>,
+        cwd: PathBuf,
+        spare: Option<Option<String>>,
+    ) -> Result<PoolSpec, RpcError> {
         let r = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, None, false, None)?
@@ -343,24 +379,35 @@ impl Hub {
         let family = crate::config::derive_family(&r.agent, &r.profile);
         // A pooled agent starts before anyone asks for it: never in the home
         // folder, `/` or a privacy-protected folder.
-        if let Some(reason) = crate::protected_folders::unasked_refusal(&cwd) {
+        let refusal = if spare.is_some() {
+            crate::protected_folders::spare_refusal(&cwd)
+        } else {
+            crate::protected_folders::unasked_refusal(&cwd)
+        };
+        if let Some(reason) = refusal {
             return Err(RpcError::invalid_params(reason));
         }
         let (cwd, _) = super::adoption::session_cwd(Some(cwd), None, &family, &[])?;
         let spawn_model = profile_takes_model_at_spawn(&r.profile)
             || r.defaults.env.values().any(|v| v.contains("${model}"));
-        let draft = super::resolve::draft_meta(super::resolve::Draft {
+        let mut draft = super::resolve::draft_meta(super::resolve::Draft {
             id: String::new(),
             agent: &r.agent,
             profile: &r.profile,
             family: &family,
             preset: r.preset_name.clone(),
-            model_request: if spawn_model { r.defaults.model.clone() } else { None },
+            model_request: if spawn_model {
+                spare.flatten().or_else(|| r.defaults.model.clone())
+            } else {
+                None
+            },
             cwd,
             agent_session_id: None,
             policy: r.defaults.policy,
             remote: false,
         });
+        draft.cmux_preset_prompt =
+            crate::context_inventory::preset_override(&draft, &*self.config.read().await);
         self.pool_spec_for(&draft, &r.profile, &r.defaults.env).await
     }
 
@@ -473,14 +520,19 @@ impl Hub {
         if lock(&self.pool.oversize).contains(&spec.key) {
             return;
         }
-        let (idle, per_harness) = {
+        let (idle, spare_idle, per_harness) = {
             let cfg = self.config.read().await;
-            (cfg.pool.idle(), usize::try_from(cfg.pool.hinted_per_harness).unwrap_or(usize::MAX))
+            (
+                cfg.pool.idle(),
+                cfg.pool.spare_idle(),
+                usize::try_from(cfg.pool.hinted_per_harness).unwrap_or(usize::MAX),
+            )
         };
         let now = lock(&self.clock).now();
         let wanted = {
             let mut pool = lock(&self.pool.pool);
             pool.set_idle(idle);
+            pool.set_spare_idle(spare_idle);
             pool.set_hinted_per_harness(per_harness);
             pool.want(role, spec.key.clone(), now)
         };
@@ -529,11 +581,14 @@ impl Hub {
 
     /// An entry became ready: measure the pool, keep it under the RSS cap
     /// (oldest first), and park ready harnesses when `pool.park` is on.
-    async fn pool_after_ready(&self) {
+    async fn pool_after_ready(self: &Arc<Self>) {
         let (cap, park) = {
             let cfg = self.config.read().await;
             (cfg.pool.max_rss_mb.saturating_mul(1024 * 1024), cfg.pool.park)
         };
+        // A ready entry whose host died (killed, OOM) is removed now rather than found dead at a
+        // claim; a spare among them starts again (`spare.rs`).
+        self.spare_replace_dead().await;
         let pids: Vec<u32> = lock(&self.pool.pool).ready_mut().map(|p| p.record.host_pid).collect();
         let probe = lock(&self.pool.rss).clone();
         let measured: HashMap<u32, u64> =
@@ -685,19 +740,20 @@ impl Hub {
                     self.claim_gap_report(&p);
                     #[cfg(debug_assertions)]
                     self.claim_off_seam();
-                    // A dead or wedged host is ended; the session starts on
-                    // a fresh host (`spawn_hosted_child`). So is one whose link
-                    // stopped reading: it still answers a query, but nothing it
-                    // sends from then on is heard (`ChildAgent::is_stopped`).
-                    let asked = std::time::Instant::now();
-                    if !p.child.is_alive().await
-                        || p.child.is_stopped()
-                        || !p.child.answers_within(CLAIM_PROBE).await
-                    {
+                    // A dead host is ended; the session starts on a fresh host
+                    // (`spawn_hosted_child`). A live host is kept even when its
+                    // optional health query is slow: that query is a health
+                    // observation, and must not turn a busy-machine wake into
+                    // a cold-start failure.
+                    // The link ends only once the reader sees the closed socket: a host
+                    // killed just before this claim still looks live there, so its live lock
+                    // decides too.
+                    let lock_free =
+                        p.child.host_record().is_some_and(|r| crate::agent_host::host_dead_now(&r));
+                    if lock_free || !p.child.is_alive().await || p.child.is_stopped() {
                         tracing::warn!(
                             harness = %spec.key.harness,
-                            waited_ms = asked.elapsed().as_millis() as u64,
-                            "a pooled agent host did not answer or is not heard; it ends and the session starts on a fresh host"
+                            "a pooled agent host is no longer live; it ends and the session starts on a fresh host"
                         );
                         self.pool_discard(vec![p]);
                         return None;
@@ -733,11 +789,12 @@ impl Hub {
                 }
                 Take::Miss => return None,
                 Take::Warming(mut settled) => {
-                    // A start that hangs never holds a user's session/new
-                    // longer than a cold start would roughly take.
-                    match tokio::time::timeout(CLAIM_WAIT, settled.changed()).await {
-                        Ok(Ok(())) => {}
-                        _ => return None,
+                    // A live warming start is still the session the caller
+                    // asked for. Wait for its process to settle; a failed or
+                    // exited start notifies this watcher and the next pass
+                    // falls back to a cold start.
+                    if settled.changed().await.is_err() {
+                        return None;
                     }
                 }
             }
@@ -894,10 +951,20 @@ impl Hub {
 
     /// A local session was created: the harness used before it in that cwd
     /// takes the last-used role (the common back-and-forth is a hit).
-    pub(super) fn pool_note_used(self: &Arc<Self>, session: &Session) {
+    /// `claimable`: the session's own creation could have taken a pooled agent (no env, route,
+    /// disallowed tools or extra folders of its own); only such a session's shape gets a spare.
+    pub(super) fn pool_note_used(self: &Arc<Self>, session: &Session, claimable: bool) {
         let m = session.meta();
         if m.remote_origin {
             return;
+        }
+        if claimable {
+            self.spare_note_used(
+                &m.harness,
+                m.preset.clone(),
+                m.cwd.clone(),
+                m.model_request.clone(),
+            );
         }
         let spec: Spec = (m.harness.clone(), m.preset.clone());
         let previous = {
@@ -1148,5 +1215,9 @@ async fn end_pooled_host(record: &HostRecord) {
         )
         .await;
     }
+    // A host killed outright ended nothing under it, and its harness exits on the closed pipe:
+    // a helper that left the group is found only by the host's mark.
+    let nonce = record.start_nonce.clone();
+    let _ = tokio::task::spawn_blocking(move || agent_host::end_left_behind(&nonce)).await;
     agent_host::remove_artifacts(&dir, record);
 }
