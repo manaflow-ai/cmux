@@ -168,7 +168,8 @@ export function TailnetCard() {
         if (!next || !tailnetSettling(next) || !mounted.current) break;
         client.setQueryData(TAILNET_KEY, next);
         await new Promise((resolve) => setTimeout(resolve, wait));
-        next = await store.tailnet("state");
+        // A read with no answer keeps what the card has and reads again at the next wait.
+        next = (await store.tailnet("state")) ?? next;
       }
       // A Sign In with no answer: acpmux may still hold the reason (its `error` state), so show that if it
       // has one; any other state would hide the failure. Not after Sign Out, where a read could show the
@@ -177,6 +178,8 @@ export function TailnetCard() {
         const now = await store.tailnet("state");
         if (now?.state === "error") next = now;
       }
+      // A card that went away writes nothing: the cache may already hold a newer card's state.
+      if (!mounted.current) return;
       if (next) client.setQueryData(TAILNET_KEY, next);
       else setFailed(true);
     } finally {

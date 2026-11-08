@@ -91,7 +91,7 @@ test("an acpmux with no tailnet draws no card", async () => {
   expect(card()).toBeNull();
 });
 
-test("Sign In with no answer keeps the card and says cmux could not reach its agent service", async () => {
+test("Sign In with no answer keeps the card and says the agent service did not answer", async () => {
   let provider!: MockSettingsProvider;
   await open((p) => {
     provider = p;
@@ -100,7 +100,7 @@ test("Sign In with no answer keeps the card and says cmux could not reach its ag
   await click(card()!.querySelector<HTMLElement>('[data-tailnet-action="start"]')!);
   await settle();
   expect(card()!.dataset.tailnetState).toBe("signedOut");
-  expect(card()!.textContent).toContain("cmux couldn’t reach its agent service. Try again.");
+  expect(card()!.textContent).toContain("cmux’s agent service didn’t answer. Try again.");
 });
 
 test("a failed Sign In shows acpmux's own reason and Try Again", async () => {
@@ -113,7 +113,7 @@ test("a failed Sign In shows acpmux's own reason and Try Again", async () => {
   await settle();
   expect(card()!.dataset.tailnetState).toBe("error");
   expect(card()!.textContent).toContain("tailnet start was superseded");
-  expect(card()!.textContent).not.toContain("couldn’t reach");
+  expect(card()!.textContent).not.toContain("didn’t answer");
   expect(card()!.querySelector('[data-tailnet-action="start"]')).not.toBeNull();
 });
 
@@ -127,5 +127,25 @@ test("Sign Out with no answer says so instead of showing the old state", async (
   provider.tailnet = { state: "stopped" };
   await click(card()!.querySelector<HTMLElement>('[data-tailnet-action="logout"]')!);
   await settle();
-  expect(card()!.textContent).toContain("cmux couldn’t reach its agent service. Try again.");
+  expect(card()!.textContent).toContain("cmux’s agent service didn’t answer. Try again.");
+});
+
+test("a dropped read after Sign In keeps going and still reaches the sign-in page", async () => {
+  let provider!: MockSettingsProvider;
+  await open((p) => {
+    provider = p;
+  });
+  provider.tailnetDropReads = 1;
+  let reads = 0;
+  const second = new Promise<void>((resolve) => {
+    provider.onTailnetRead = () => {
+      reads += 1;
+      if (reads === 2) resolve();
+    };
+  });
+  await click(card()!.querySelector<HTMLElement>('[data-tailnet-action="start"]')!);
+  await second;
+  await settle();
+  expect(card()!.dataset.tailnetState).toBe("needsLogin");
+  expect(card()!.textContent).not.toContain("didn’t answer");
 });

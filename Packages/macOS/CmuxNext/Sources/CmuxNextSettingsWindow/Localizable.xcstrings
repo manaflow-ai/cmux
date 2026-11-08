@@ -75259,127 +75259,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to Tailscale to reach this Mac from your other devices. Only your own account can connect."
+            "value": "Reach this Mac from your devices. Only you can connect."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "سجّل الدخول إلى Tailscale للوصول إلى هذا الـMac من أجهزتك الأخرى. يمكن لحسابك فقط الاتصال."
+            "value": "صِل إلى هذا الـMac من أجهزتك. يمكنك أنت فقط الاتصال."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prijavite se na Tailscale da biste ovom Macu pristupili s drugih uređaja. Povezati se može samo vaš račun."
+            "value": "Pristupite ovom Macu s uređaja. Povezati se možete samo vi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Log ind på Tailscale for at nå denne Mac fra dine andre enheder. Kun din egen konto kan oprette forbindelse."
+            "value": "Nå denne Mac fra dine enheder. Kun du kan forbinde."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Melde dich bei Tailscale an, um diesen Mac von deinen anderen Geräten aus zu erreichen. Nur dein eigener Account kann sich verbinden."
+            "value": "Erreiche diesen Mac von deinen Geräten. Nur du hast Zugriff."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicia sesión en Tailscale para acceder a este Mac desde tus otros dispositivos. Solo tu propia cuenta puede conectarse."
+            "value": "Accede a este Mac desde tus dispositivos. Solo tú puedes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Connectez-vous à Tailscale pour accéder à ce Mac depuis vos autres appareils. Seul votre propre compte peut se connecter."
+            "value": "Accédez à ce Mac depuis vos appareils. Vous seul."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Accedi a Tailscale per raggiungere questo Mac dagli altri tuoi dispositivi. Solo il tuo account può connettersi."
+            "value": "Raggiungi questo Mac dai tuoi dispositivi. Solo tu puoi."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tailscale にサインインすると、ほかのデバイスからこの Mac にアクセスできます。接続できるのはあなた自身のアカウントだけです。"
+            "value": "ほかのデバイスからこの Mac に接続できます。接続できるのはあなただけです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចូល Tailscale ដើម្បីចូលប្រើ Mac នេះពីឧបករណ៍ផ្សេងទៀតរបស់អ្នក។ មានតែគណនីរបស់អ្នកប៉ុណ្ណោះដែលអាចភ្ជាប់បាន។"
+            "value": "ចូលប្រើ Mac នេះពីឧបករណ៍របស់អ្នក។ មានតែអ្នកទេដែលភ្ជាប់បាន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tailscale에 로그인하면 다른 기기에서 이 Mac에 접속할 수 있습니다. 본인 계정만 연결할 수 있습니다."
+            "value": "다른 기기에서 이 Mac에 접속합니다. 본인만 연결할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Logg på Tailscale for å nå denne Mac-en fra de andre enhetene dine. Bare din egen konto kan koble til."
+            "value": "Nå denne Mac-en fra enhetene dine. Bare du kan koble til."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zaloguj się do Tailscale, aby łączyć się z tym Makiem z innych urządzeń. Połączyć może się tylko Twoje konto."
+            "value": "Łącz się z tym Makiem z innych urządzeń. Tylko Ty możesz."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicie sessão no Tailscale para acessar este Mac pelos seus outros dispositivos. Só a sua própria conta pode se conectar."
+            "value": "Acesse este Mac de seus dispositivos. Só você pode conectar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Войдите в Tailscale, чтобы подключаться к этому Mac с других устройств. Подключиться может только ваша учетная запись."
+            "value": "Подключайтесь к этому Mac с других устройств. Только вы."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ลงชื่อเข้าใช้ Tailscale เพื่อเข้าถึง Mac เครื่องนี้จากอุปกรณ์อื่นของคุณ เฉพาะบัญชีของคุณเท่านั้นที่เชื่อมต่อได้"
+            "value": "เข้าถึง Mac เครื่องนี้จากอุปกรณ์ของคุณ เชื่อมต่อได้เฉพาะคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diğer cihazlarınızdan bu Mac’e ulaşmak için Tailscale’de oturum açın. Yalnızca kendi hesabınız bağlanabilir."
+            "value": "Bu Mac’e cihazlarınızdan ulaşın. Yalnızca siz bağlanırsınız."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Увійдіть у Tailscale, щоб підключатися до цього Mac з інших пристроїв. Підключитися може лише ваш обліковий запис."
+            "value": "Підключайтеся до цього Mac з інших пристроїв. Лише ви."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đăng nhập Tailscale để truy cập máy Mac này từ các thiết bị khác của bạn. Chỉ tài khoản của bạn mới kết nối được."
+            "value": "Truy cập máy Mac này từ thiết bị khác. Chỉ bạn kết nối được."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "登录 Tailscale，即可从你的其他设备访问这台 Mac。只有你自己的账户可以连接。"
+            "value": "从你的其他设备访问这台 Mac。只有你能连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "登入 Tailscale，即可從你的其他裝置存取這台 Mac。只有你自己的帳號可以連線。"
+            "value": "從你的其他裝置存取這台 Mac。只有你能連線。"
           }
         }
       }
@@ -75787,127 +75787,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open the sign-in page and finish in your browser."
+            "value": "Open the sign-in page in your browser."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "افتح صفحة تسجيل الدخول وأكمل في متصفحك."
+            "value": "افتح صفحة تسجيل الدخول في متصفحك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otvorite stranicu za prijavu i završite u pregledniku."
+            "value": "Otvorite stranicu za prijavu u pregledniku."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åbn loginsiden, og gør det færdigt i din browser."
+            "value": "Åbn login-siden i din browser."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Öffne die Anmeldeseite und schließe sie in deinem Browser ab."
+            "value": "Öffne die Anmeldeseite in deinem Browser."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abre la página de inicio de sesión y termina en tu navegador."
+            "value": "Abre la página de inicio de sesión en tu navegador."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ouvrez la page de connexion et terminez dans votre navigateur."
+            "value": "Ouvrez la page de connexion dans votre navigateur."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Apri la pagina di accesso e completa nel browser."
+            "value": "Apri la pagina di accesso nel browser."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "サインインページを開き、ブラウザで完了してください。"
+            "value": "ブラウザでサインインページを開いてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បើកទំព័រចូលគណនី ហើយបញ្ចប់នៅក្នុងកម្មវិធីរុករករបស់អ្នក។"
+            "value": "បើកទំព័រចូលនៅក្នុងកម្មវិធីរុករករបស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "로그인 페이지를 열고 브라우저에서 완료하세요."
+            "value": "브라우저에서 로그인 페이지를 여세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åpne påloggingssiden og fullfør i nettleseren."
+            "value": "Åpne påloggingssiden i nettleseren."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otwórz stronę logowania i dokończ w przeglądarce."
+            "value": "Otwórz stronę logowania w przeglądarce."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abra a página de início de sessão e conclua no seu navegador."
+            "value": "Abra a página de login no navegador."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Откройте страницу входа и завершите вход в браузере."
+            "value": "Откройте страницу входа в браузере."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิดหน้าลงชื่อเข้าใช้และทำให้เสร็จในเบราว์เซอร์ของคุณ"
+            "value": "เปิดหน้าลงชื่อเข้าใช้ในเบราว์เซอร์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oturum açma sayfasını açın ve tarayıcınızda tamamlayın."
+            "value": "Oturum açma sayfasını tarayıcınızda açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відкрийте сторінку входу й завершіть вхід у браузері."
+            "value": "Відкрийте сторінку входу в браузері."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mở trang đăng nhập và hoàn tất trong trình duyệt."
+            "value": "Mở trang đăng nhập trong trình duyệt."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "打开登录页面，在浏览器中完成登录。"
+            "value": "在浏览器中打开登录页面。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "打開登入頁面，在瀏覽器中完成登入。"
+            "value": "在瀏覽器中開啟登入頁面。"
           }
         }
       }
@@ -76183,7 +76183,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your tailnet’s admin needs to approve this Mac."
+            "value": "Your tailnet’s admin must approve this Mac."
           }
         },
         "ar": {
@@ -76195,13 +76195,13 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Administrator vašeg tailneta treba odobriti ovaj Mac."
+            "value": "Administrator tailneta mora odobriti ovaj Mac."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Administratoren af dit tailnet skal godkende denne Mac."
+            "value": "Din tailnets administrator skal godkende denne Mac."
           }
         },
         "de": {
@@ -76219,13 +76219,13 @@
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’administrateur de votre tailnet doit approuver ce Mac."
+            "value": "L’administrateur du tailnet doit approuver ce Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’amministratore del tuo tailnet deve approvare questo Mac."
+            "value": "L’amministratore del tailnet deve approvare questo Mac."
           }
         },
         "ja": {
@@ -76237,7 +76237,7 @@
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អ្នកគ្រប់គ្រង tailnet របស់អ្នកត្រូវអនុម័ត Mac នេះ។"
+            "value": "អ្នកគ្រប់គ្រង tailnet ត្រូវអនុម័ត Mac នេះ។"
           }
         },
         "ko": {
@@ -76249,61 +76249,61 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Administratoren for tailnetet ditt må godkjenne denne Mac-en."
+            "value": "Tailnet-administratoren må godkjenne denne Mac-en."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Administrator Twojego tailnetu musi zatwierdzić tego Maca."
+            "value": "Administrator tailnetu musi zatwierdzić tego Maca."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O administrador da sua tailnet precisa aprovar este Mac."
+            "value": "O administrador do tailnet precisa aprovar este Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Администратор вашей сети tailnet должен одобрить этот Mac."
+            "value": "Администратор tailnet должен одобрить этот Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ผู้ดูแล tailnet ของคุณต้องอนุมัติ Mac เครื่องนี้"
+            "value": "ผู้ดูแล tailnet ต้องอนุมัติ Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tailnet yöneticinizin bu Mac’i onaylaması gerekiyor."
+            "value": "Tailnet yöneticiniz bu Mac’i onaylamalı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Адміністратор вашого tailnet має схвалити цей Mac."
+            "value": "Адміністратор tailnet має схвалити цей Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quản trị viên tailnet của bạn cần phê duyệt máy Mac này."
+            "value": "Quản trị viên tailnet phải phê duyệt máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "你的 tailnet 管理员需要批准这台 Mac。"
+            "value": "需要 tailnet 管理员批准这台 Mac。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "你的 tailnet 管理員需要核准這台 Mac。"
+            "value": "需要 tailnet 管理員核准這台 Mac。"
           }
         }
       }
@@ -76843,127 +76843,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux couldn’t reach its agent service. Try again."
+            "value": "cmux’s agent service didn’t answer. Try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر على cmux الوصول إلى خدمة الوكيل. حاول مرة أخرى."
+            "value": "لم تستجب خدمة الوكلاء في cmux. حاول مجددًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux nije mogao doći do svoje usluge agenata. Pokušajte ponovo."
+            "value": "Usluga agenata nije odgovorila. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux kunne ikke nå sin agenttjeneste. Prøv igen."
+            "value": "cmux’ agenttjeneste svarede ikke. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux hat seinen Agent-Dienst nicht erreicht. Versuche es noch einmal."
+            "value": "Der Agent-Dienst von cmux antwortet nicht. Erneut versuchen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux no pudo conectar con su servicio de agentes. Inténtalo de nuevo."
+            "value": "El servicio de agentes no respondió. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux n’a pas pu joindre son service d’agents. Réessayez."
+            "value": "Le service d’agents n’a pas répondu. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux non è riuscito a raggiungere il servizio degli agenti. Riprova."
+            "value": "Il servizio agenti non ha risposto. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux がエージェントサービスに接続できませんでした。もう一度お試しください。"
+            "value": "cmux のエージェントサービスが応答しません。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux មិនអាចភ្ជាប់ទៅសេវាភ្នាក់ងាររបស់វាបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+            "value": "សេវាភ្នាក់ងារ cmux មិនឆ្លើយតប។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux가 에이전트 서비스에 연결하지 못했습니다. 다시 시도하세요."
+            "value": "cmux 에이전트 서비스가 응답하지 않습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux kunne ikke nå agenttjenesten sin. Prøv igjen."
+            "value": "cmux-agenttjenesten svarte ikke. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux nie mógł połączyć się z usługą agentów. Spróbuj ponownie."
+            "value": "Usługa agentów nie odpowiedziała. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux não conseguiu acessar o serviço de agentes. Tente novamente."
+            "value": "O serviço de agentes não respondeu. Tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux не удалось связаться со службой агентов. Повторите попытку."
+            "value": "Служба агентов не ответила. Повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux เข้าถึงบริการเอเจนต์ไม่ได้ ลองอีกครั้ง"
+            "value": "บริการเอเจนต์ของ cmux ไม่ตอบสนอง ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux, ajan hizmetine ulaşamadı. Tekrar deneyin."
+            "value": "cmux ajan hizmeti yanıt vermedi. Tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux не вдалося зв’язатися зі службою агентів. Спробуйте ще раз."
+            "value": "Служба агентів не відповіла. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux không kết nối được dịch vụ tác tử. Hãy thử lại."
+            "value": "Dịch vụ tác tử của cmux không phản hồi. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 无法连接到其代理服务。请重试。"
+            "value": "cmux 的代理服务没有响应。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 無法連線到其代理服務。請再試一次。"
+            "value": "cmux 的代理服務沒有回應。請再試一次。"
           }
         }
       }

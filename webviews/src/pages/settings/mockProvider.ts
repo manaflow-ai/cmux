@@ -506,6 +506,10 @@ export class MockSettingsProvider {
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
       "cmux.settings.tailnet.state": () => {
         this.onTailnetRead?.();
+        if (this.tailnetDropReads > 0) {
+          this.tailnetDropReads -= 1;
+          return null;
+        }
         return this.tailnet;
       },
       "cmux.settings.tailnet.start": () => this.stepTailnet("start"),
@@ -719,6 +723,8 @@ export class MockSettingsProvider {
   tailnetRefuses = false;
   /** Called on every tailnet state read, so a test can wait for the card's next read. */
   onTailnetRead: (() => void) | null = null;
+  /** The next this many state reads answer null (the relay dropped them), then reads answer again. */
+  tailnetDropReads = 0;
   /** Start and Login fail with this text (acpmux keeps it in its state; the step itself answers null). */
   tailnetFails: string | null = null;
 
