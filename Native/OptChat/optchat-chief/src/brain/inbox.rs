@@ -443,6 +443,11 @@ impl Brain {
             let framed = agent_framed(sender.as_ref(), relay.is_some(), &text);
             // A person's `/name` runs that skill on this message: the turn reads
             // its SKILL.md (slash_skills.rs). Agents' messages invoke nothing.
+            let framed = if sender.is_none() {
+                self.with_slash_skill(&framed)
+            } else {
+                framed
+            };
             let logged =
                 super::files::logged_text(&super::images::logged_text(&framed, &images), &files);
             self.posted
@@ -593,7 +598,6 @@ impl Brain {
     /// `text` with the invocation line of the skill it invokes (`/name`,
     /// slash_skills.rs); the catalog is read only for a message that starts
     /// with a command.
-    #[allow(dead_code)]
     pub(super) fn with_slash_skill(&self, text: &str) -> String {
         if crate::slash_skills::invoked(text).is_none() {
             return text.to_owned();

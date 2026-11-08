@@ -580,6 +580,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         tv.onSend = { [weak self] in
             guard let self else { return }
             // cmux: Return in the `/` menu picks the skill (ChatController+SlashSkills.swift).
+            if slashMenuTakesReturn() { return }
             if voice.finish() != true { send() }
         }
         // cmux: the send button sends as Return does, and follows the field and the draft.
@@ -760,10 +761,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let gone = draft.filter { !shown.contains($0.id) }
         for a in gone { dispatch(.removeDraftAttachment(a.id)) }
         intents?.draftChanged()
+        updateSlashMenu()  // cmux: the `/` menu follows the command
     }
 
     func escape() {
         if picker != nil { closePicker(); return }
+        if dismissSlashMenu() { return }  // cmux: Esc closes the `/` menu first
         // cmux: Esc while dictating drops the words and leaves the draft as it was.
         if voice.cancel() { return }
         // Innermost first. cmux: Reply to Selection: an empty field's Esc takes the quote off
