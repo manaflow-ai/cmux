@@ -133,11 +133,24 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return read.object ?? Data(#"{"ok":false,"error_code":"bad_answer"}"#.utf8)
     }
 
-    /// A fresh spare warm (``startChatWarmSpare(platform:team:account:access:)``): the machine to copy the login onto.
+    /// A fresh spare warm (``startChatWarmSpare(platform:team:account:access:)``), bound to the one identity that asked.
     public struct SpareWarm: Sendable, Equatable {
         public var machineID: String
-        /// The platform's owner answer for the machine (vm_kind "owner"), as `callerOwnsVM` reads an attach's.
-        public var callerOwns: Bool
+        /// The platform's answer for the machine (vm_kind) to `account` in `team`: "owner" only is a pre-copy target.
+        public var vmKind: String?
+        /// The account and team the warm was asked for; its answer means nothing for any other.
+        public var account: String
+        public var team: String?
+
+        public init(machineID: String, vmKind: String?, account: String, team: String?) {
+            (self.machineID, self.vmKind, self.account, self.team) = (machineID, vmKind, account, team)
+        }
+
+        /// Whether the person's login may be pre-copied onto this machine now: the signed-in account and team are still
+        /// the ones the warm was asked for, and that person owns the machine. Never a team guest: nobody asked for this copy.
+        public func copyAllowed(account current: String?, team currentTeam: String?) -> Bool {
+            vmKind == "owner" && current == account && currentTeam == team
+        }
     }
 
     /// `cmux link start-chat warm-spare --request JSON`, the session `access` token on stdin: the person's spare, warmed.
@@ -151,7 +164,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
                                         stdin: Data((access + "\n").utf8)),
               let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
               reply["fresh"] as? Bool == true, let machineID = reply["machine"] as? String else { return nil }
-        return SpareWarm(machineID: machineID, callerOwns: reply["vm_kind"] as? String == "owner")
+        return SpareWarm(machineID: machineID, vmKind: reply["vm_kind"] as? String, account: account, team: team)
     }
 
     /// `cmux link start-chat plan --request JSON`, the cmux `access` token on stdin.

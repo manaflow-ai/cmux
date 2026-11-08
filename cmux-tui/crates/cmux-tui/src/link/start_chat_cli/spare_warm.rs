@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn a_warm_is_fresh_once_per_gap_and_never_carries_the_ticket() {
         let dir = tempfile::tempdir().unwrap();
-        let calls = Cell::new(0);
+        let calls = Cell::new(0_usize);
         let transport = |request: &Request, credential: &str| {
             calls.set(calls.get().saturating_add(1));
             assert_eq!((request.account.as_str(), credential), ("user_a", "tok"));

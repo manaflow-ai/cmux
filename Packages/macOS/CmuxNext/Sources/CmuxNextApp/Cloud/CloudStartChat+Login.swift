@@ -33,13 +33,15 @@ extension CloudStartChat {
     /// Its questions show where ``asker`` shows them: the start's card for a composer start, else a dialog in the active window.
     func passHarnessLogin(harness: String?, machine: CloudMachineSession, codexPrompt: Bool = true, ask: CloudHarnessLoginAsk = .init()) async -> Bool {
         let cloud = services.cloud
-        return await passHarnessLogin(harness: harness, target: .init(machineID: machine.machineID, title: machine.machine.title, step: "cloud start chat",
+        return await passHarnessLogin(harness: harness, target: .init(machineID: machine.machineID, title: machine.machine.title, step: "cloud start chat", ownerOnly: false,
             callerOwns: { [machineID = machine.machineID] in try await cloud.callerOwnsVM(machineID) }, record: { machine.harnessLogin = $0 }), codexPrompt: codexPrompt, ask: ask)
     }
 
     /// The machine a login goes to: a start's session, or a warm spare that has none yet (CloudStartChat+WarmSpare).
     struct LoginTarget {
         let machineID: String, title: String, step: String
+        /// A copy nobody asked for (the warm's): only onto a machine the person owns, never as a team guest.
+        let ownerOnly: Bool
         let callerOwns: @MainActor @Sendable () async throws -> Bool
         let record: @MainActor (CloudHarnessLoginDecision) -> Void
     }
@@ -77,6 +79,8 @@ extension CloudStartChat {
                 decision.outcome = outcome
                 return false
             }
+            // A copy nobody asked for goes only to a machine the person owns (the guest probe's "owner"), never to a team guest.
+            if target.ownerOnly, verdict.guestKind != "owner" { decision.outcome = Self.notOwnerSkipped; return false }
             switch verdict.step {
             case .skip, .refuse: return false // a refusal is the start-session's error (CloudStartSession)
             case .install: break
@@ -97,7 +101,7 @@ extension CloudStartChat {
                 }
             } else {
                 let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
-                    allowsCreatorTeamGuest: verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), otherTeams: otherTeams, openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
+                    allowsCreatorTeamGuest: !target.ownerOnly && verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), otherTeams: otherTeams, openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID }, currentUserID: { cloud.auth.user?.id },
                                        confirmed: true, callerOwnsVM: target.callerOwns, stillAllowed: gate.stillAllowed)
             }
@@ -108,6 +112,8 @@ extension CloudStartChat {
 
     /// The start record's outcome when the copy failed, before its fixed text.
     nonisolated static let loginFailed = "failed: "
+    /// The warm's outcome on a machine the person does not own: no pre-copy.
+    static let notOwnerSkipped = "skipped: not the owner's machine"
     /// The start record's outcome when the person said no to the copy.
     static let loginDeclined = "declined"
     /// The outcomes when this Mac held no login to give: the machine signs in with its chat's Sign in to Claude card.
