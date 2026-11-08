@@ -52,10 +52,10 @@ final class UIInspectorController {
         start()
     }
 
-    /// Starts the picker and highlights the element under the most recent
-    /// right-click in an app-owned web page (the page whose menu opened last).
-    /// The page records that point itself, so no app-wide right-click monitor
-    /// runs. The web equivalent of DevTools' Inspect Element.
+    /// Starts the picker on the element under the latest right-click in an app-owned
+    /// page (the page whose menu opened last), never the one under the chosen menu row:
+    /// the page records it on `contextmenu` and holds it through a short grace (picker.ts).
+    /// No app-wide right-click monitor runs. The web equivalent of DevTools' Inspect Element.
     func inspectFromContextMenu() {
         guard AgentPaneTunables.pointerInspector.value else { return }
         start()
@@ -65,7 +65,7 @@ final class UIInspectorController {
               latest.page.window?.isVisible == true else { return }
         let menuPage = latest.page, point = latest.menu.point
         activate(menuPage)
-        menuPage.evaluateUiPointer(pointerScript("highlight", point: point, page: menuPage))
+        menuPage.evaluateUiPointer(pointerScript("inspectMenuTarget", point: point, page: menuPage))
     }
 
     private func start() {

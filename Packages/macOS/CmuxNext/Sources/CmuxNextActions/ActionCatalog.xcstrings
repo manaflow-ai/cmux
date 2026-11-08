@@ -25622,137 +25622,6 @@
         }
       }
     },
-    "action.feed.show": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إظهار الموجز"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikaži feed"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis feed"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Feed anzeigen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Feed"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar feed"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afficher le flux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra feed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィードを表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញ​ព័ត៌មាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "피드 보기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis feed"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż kanał"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar feed"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показать ленту"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงฟีด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Akışı Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показати стрічку"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiện bảng tin"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "显示动态"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "顯示動態"
-          }
-        }
-      }
-    },
     "action.file.open": {
       "extractionState": "manual",
       "localizations": {
@@ -103159,33 +103028,6 @@
         }
       }
     },
-    "action.cloudEnrollMachine": {
-      "comment": "Cloud machine action: make the machine reachable by ssh from this Mac and add it as an agent host.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Enroll Machine as Agent Host"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "マシンをエージェントホストとして登録"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine als Agent-Host einrichten"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Inscrire la machine comme hôte d’agents"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Registrar la máquina como host de agentes"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "تسجيل الجهاز كمضيف للوكلاء"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "머신을 에이전트 호스트로 등록"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将机器登记为代理主机"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將機器登記為代理主機"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Upiši mašinu kao host za agente"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Tilmeld maskine som agentvært"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Registra la macchina come host degli agenti"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ចុះឈ្មោះម៉ាស៊ីនជាម៉ាស៊ីនមេសម្រាប់ភ្នាក់ងារ"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Registrer maskinen som agentvert"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Zarejestruj maszynę jako host agentów"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Registrar máquina como host de agentes"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Зарегистрировать машину как хост агентов"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ลงทะเบียนเครื่องเป็นโฮสต์ของเอเจนต์"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Makineyi ajan ana bilgisayarı olarak kaydet"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Зареєструвати машину як хост агентів"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Đăng ký máy làm máy chủ tác tử"}}
-      }
-    },
     "action.cloudApplyMachineConfig": {
       "comment": "Cloud machine action: apply the machine's .cmux/machine.toml (env, secret names, setup commands).",
       "extractionState": "manual",
@@ -103497,6 +103339,136 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cuộc trò chuyện tác nhân mới trên…"
+          }
+        }
+      }
+    },
+    "action.palette.newCloudChat": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Cloud Chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Cloud-Chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle discussion Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محادثة Cloud جديدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo chat en Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增 Cloud 對話"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建 Cloud 对话"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 Cloud 채팅"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規 Cloud チャット"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi Cloud razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny Cloud-chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova chat Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែក Cloud ថ្មី"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny Cloud-chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy czat w Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova conversa no Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новый чат в Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชท Cloud ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Cloud sohbeti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новий чат у Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện Cloud mới"
           }
         }
       }

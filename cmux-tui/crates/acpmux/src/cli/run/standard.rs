@@ -78,7 +78,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             )
             .await
         }
-        Command::Ensure { name, model, preset, host, cwd, policy, effort, tags, harness_from } => {
+        Command::Ensure {
+            name,
+            model,
+            preset,
+            host,
+            cwd,
+            policy,
+            effort,
+            tags,
+            harness_from,
+            full,
+        } => {
             orchestrate::ensure(
                 connect(true).await?,
                 &name,
@@ -90,6 +101,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 effort,
                 tags,
                 harness_from,
+                full,
                 json_out,
             )
             .await
@@ -390,7 +402,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // and runs the whole find-or-create again, so it finds that session and
             // never makes a second one; a handover can happen twice in a row
             // (systemd's daemon taking over one the CLI started), hence two tries.
-            // Without a name to find it by, a retry could make a duplicate: no retry.
+            // Without a name to find it by, a retry could make a duplicate: no retry,
+            // except after the daemon's shutdown refused the create before making
+            // anything (`refused_before_create`): a self-update's restart, or one on a
+            // failing disk, then never fails a new session.
             let mut reconnects = 0;
             let (v, reused, lost_race) = loop {
                 match find_or_create(
@@ -404,10 +419,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .await
                 {
                     Err(error)
-                        if launch.reuse
-                            && key.is_some()
-                            && reconnects < NEW_RECONNECTS
-                            && daemon_closed_error(&error) =>
+                        if reconnects < NEW_RECONNECTS
+                            && ((launch.reuse && key.is_some() && daemon_closed_error(&error))
+                                || refused_before_create(&error)) =>
                     {
                         reconnects += 1;
                         client =
@@ -472,7 +486,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .first_prompt(&args, &v)
                     .filter(|_| !lost_race && launch::never_prompted(info));
                 if let Some(text) = &first {
-                    let prompt = PromptId::new(args.prompt_id.clone());
+                    let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                     let accepted = before_deadline(
                         deadline,
                         route_id,
@@ -488,7 +502,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     let mut info = info.clone();
                     info["reused"] = json!(true);
                     info["prompted"] = json!(first.is_some());
-                    print_json(&info);
+                    print_json(&crate::cli::output::session_record(info, args.full));
                 } else if first.is_some() {
                     println!(
                         "reused {name} ({}): it had no prompt yet, so its first prompt is queued",
@@ -508,7 +522,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // is interrupted while the app is opening its workspace.
             let queue_before_open = args.detach && !one_shot;
             if queue_before_open && let Some(text) = &first {
-                let prompt = PromptId::new(args.prompt_id.clone());
+                let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                 let accepted = before_deadline(
                     deadline,
                     route_id,
@@ -521,7 +535,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Err(mut open_error) = show() {
                 if !queue_before_open && let Some(text) = &first {
-                    let prompt = PromptId::new(args.prompt_id.clone());
+                    let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                     if let Err(error) = before_deadline(
                         deadline,
                         route_id,
@@ -562,7 +576,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if let Some(a) = v.pointer("/_meta/acpmux/admission") {
                     info["admission"] = a.clone();
                 }
-                print_json(&info);
+                print_json(&crate::cli::output::session_record(info, args.full));
             } else if !one_shot {
                 let folder = v.pointer("/_meta/acpmux/cwd").and_then(Value::as_str);
                 let line = crate::cli::session_folder::created_line(
@@ -588,7 +602,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
             }
             if let Some(text) = first {
-                let prompt = PromptId::new(args.prompt_id.clone());
+                let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                 if one_shot {
                     let opts = CollectOpts {
                         timeout: args.timeout,
@@ -699,8 +713,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             })?;
             let from = from.or_else(|| notice.as_ref().map(|n| n.sender().to_owned()));
             // A relay names its sender by where it came from when it gave no --from: another
-            // agent's message, which queues and steers as one, never the person's.
-            let relayed = relay.relayed_from.clone().filter(|_| relay.relay.is_some());
+            // agent's message, which queues and steers as one, never the person's. The label fits
+            // `fromAgent`; the relay record (`relay_fields`) carries the whole name. The thread key
+            // comes from that cut label, so two relayed names sharing their first 64 characters
+            // share a thread (the record still tells them apart).
+            let relayed = relay
+                .relayed_from
+                .as_deref()
+                .filter(|_| relay.relay.is_some())
+                .map(crate::prompt_provenance::relayed_label)
+                .filter(|label| !label.is_empty());
             // The harness or app it runs in says where it came from: provenance beside the prompt,
             // self-reported (Leo, 2026-11-07: "ACPMux should also auto-detect that you sent it
             // from...").
@@ -727,6 +749,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 classed,
                 agent: agent || crate::cli::sender::in_an_agent_harness(),
             });
+            // The sender this send goes out as: printed, so an agent knows who the receiver
+            // will answer (a subagent sent as its lead's chat before the hook marked it).
+            let harness_agent = agent || crate::cli::sender::in_an_agent_harness();
+            if harness_agent {
+                prompt_id.subagent =
+                    crate::cli::sender::subagent_of_this_process().map(|s| s.to_value());
+            }
+            let announce = harness_agent && !json_out;
+            // An agent that waits for the reply asks a question, which wakes an idle receiver
+            // (`prompt_class.rs`); a class it names stays. A message that would still not wake
+            // the receiver is refused at once instead of waiting for a turn that never comes.
+            if harness_agent && !no_wait && tag.is_none() {
+                prompt_id.class.get_or_insert_with(|| "question".to_owned());
+                prompt_id.wake_or_fail = true;
+            }
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
             if let Some(tag) = tag {
                 if !attach.is_empty() {
@@ -783,6 +820,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let (mesh_prompt, mesh_steer) = (prompt_id.clone(), steer);
             let sent = async move {
                 let client = before_deadline(deadline, &session, connect(true)).await?;
+                if harness_agent {
+                    let named = prompt_id.from_agent.as_deref();
+                    let sender = crate::cli::sender::sending_as_on(&client, named).await;
+                    // A Codex subagent is told by its thread, which only the daemon can compare
+                    // with the session's own (`cli/sender.rs` `codex_thread_in`).
+                    if let Some(sub) = &sender.subagent {
+                        prompt_id.subagent = Some(sub.to_value());
+                    }
+                    if announce && let Some(shown) = sender.shown {
+                        eprintln!("sending as {shown}");
+                    }
+                }
                 // Any size and number: inline when they fit one message with the text, else uploaded
                 // to the chat first and named by reference (`attach.rs`).
                 if !attach.is_empty() {

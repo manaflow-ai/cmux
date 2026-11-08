@@ -1,6 +1,9 @@
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextHostedChief
+import CmuxNextMobileHost
+import CmuxNextPages
 import CmuxNextRemote
 import CmuxNextServer
 import Foundation
@@ -49,9 +52,47 @@ extension ServerMenuBarController {
             guard let services else { return nil }
             return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, cli: services.bundledCLI,
                                    chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
-        }, makeInviteCard: { [weak services] in
-            guard let services else { return nil }
-            return PairInviteCardPanel.app(services: services)
-        })
+        }, makeCards: { [weak services] cards in services.flatMap { WebCardPanel.serverCards(services: $0, with: cards) } },
+        qr: { [qrCode = PairingQRCode()] in qrCode.pngDataURL(for: $0) })
+    }
+}
+
+extension WebCardPanel {
+    /// The App's server card panel, kept warm: Pair Another Machine (the invite minted and watched as the
+    /// signed-in user; its arrived machine previewed and approved by Add Server's own cloud source),
+    /// and the menu bar item's own `cards` (Add Server).
+    @MainActor
+    static func serverCards(services: AppServices, with cards: [any WebCard] = []) -> WebCardPanel? {
+        let feed = services.feed
+        let call: CloudPairingSource.Call = { [weak feed] path, body in
+            guard let feed else { throw FeedServiceError.signedOut }
+            return try await feed.call(path, body)
+        }
+        let pairing = CloudPairingSource(
+            inner: NoLocalServerSource(), call: call,
+            account: { [weak auth = services.cloud.auth] in
+                guard let auth, auth.isSignedIn else { return nil }
+                return auth.user?.displayName ?? auth.user?.primaryEmail ?? ""
+            },
+            chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
+        let approver = ServerModel(source: pairing)
+        approver.start()
+        let qrCode = PairingQRCode()
+        let invite = PairInviteCardProvider(
+            service: .cloud(
+                team: { try await pairing.workerTeam()?.id },
+                call: { try CloudPairingSource.okValue(try await pairing.call($0, $1)) },
+                texts: .init(
+                    failed: { RefusalStrings.format("refusal.server.inviteFailed", "Could not make a pairing code: %@", $0) },
+                    unreachable: RefusalStrings.text("refusal.server.pairUnreachable", "Could not reach cmux. Check the connection and try again."),
+                    notMade: RefusalStrings.text("refusal.server.inviteNotMade", "cmux could not make a pairing code. Try again.")),
+                apiBaseURL: feed.apiBaseURL),
+            approver: approver,
+            // A single-use code: marked concealed and transient (nspasteboard.org) so clipboard managers do not keep it.
+            copy: { SystemPasswordPasteboard().write($0, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType]) },
+            qr: { qrCode.pngDataURL(for: $0) })
+        guard let panel = WebCardPanel(descriptor: .serverCards, cards: [invite] + cards, overlayProcess: services.overlayProcess) else { return nil }
+        panel.isPersonEvent = { [person = PersonInputCheck(sources: services.personInput.sources)] in person.isPerson($0) }
+        return panel
     }
 }

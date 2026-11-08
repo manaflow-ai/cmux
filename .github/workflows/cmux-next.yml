@@ -62,6 +62,8 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/cargo-groups.sh
+      - scripts/ci/acpmux-build-features.sh
+      - scripts/ci/tailnet-go.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - workers/cmux-vm/cli/**
@@ -109,6 +111,7 @@ on:
       # tests/test_web_bundle_key_inputs.sh keeps this list complete).
       - web/data/model-catalog/**
       - Resources/markdown-viewer/viewer-navigation.js
+      - clients/ts/cloud/src/generated.ts
       - config/vite-plus/**
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh
@@ -137,6 +140,7 @@ on:
       - scripts/cmux-next/settings-exports.txt
       - scripts/cmux-next/check-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - cmux-tui/**
       - CLI/**
       - cmuxCLITests/**
@@ -185,8 +189,8 @@ on:
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
-      - scripts/cmux-next/check-leo-bans.py
-      - tests/test_leo_bans.py
+      - scripts/cmux-next/check-ui-font.py
+      - tests/test_ui_font.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
       - schemas/layout-grid/layout-grid.json
@@ -352,6 +356,8 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/cargo-groups.sh
+      - scripts/ci/acpmux-build-features.sh
+      - scripts/ci/tailnet-go.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - workers/cmux-vm/cli/**
@@ -394,6 +400,7 @@ on:
       # tests/test_web_bundle_key_inputs.sh keeps this list complete).
       - web/data/model-catalog/**
       - Resources/markdown-viewer/viewer-navigation.js
+      - clients/ts/cloud/src/generated.ts
       - config/vite-plus/**
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh
@@ -422,6 +429,7 @@ on:
       - scripts/cmux-next/settings-exports.txt
       - scripts/cmux-next/check-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - cmux-tui/**
       - CLI/**
       - cmuxCLITests/**
@@ -472,8 +480,8 @@ on:
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
-      - scripts/cmux-next/check-leo-bans.py
-      - tests/test_leo_bans.py
+      - scripts/cmux-next/check-ui-font.py
+      - tests/test_ui_font.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
       - schemas/layout-grid/layout-grid.json
@@ -694,17 +702,20 @@ jobs:
   # 82 minutes to 2026-11-05T08:36Z, 17 of 100 PR runs were cancelled by the PR's next push (4 of
   # them under 5 minutes after the first, the rest after 5 to 36 minutes of checks and compiles).
   # It runs before portable-placement, so the placement it would read is not made yet, and an idle
-  # runner that placement finds is still idle when the job it placed starts. Like that bootstrap it
-  # takes hosted Ubuntu (.github/runners.json hosted_light_jobs): it sleeps, so it holds no fleet
-  # runner or mini. A re-run (attempt 2 and later), a `leo-named-fix` PR (landing.md: those land
+  # runner that placement finds is still idle when the job it placed starts. It sleeps on the
+  # smallest Blacksmith Linux size (the linux_2 pool), so it holds no fleet runner or mini. It is
+  # not on hosted Ubuntu: the org runs at most 20 hosted jobs at once, and on 2026-11-07 its
+  # 2,103 sleeps held 6 of them on average (8,400 of 21,600 hosted minutes), so the routers and
+  # report steps that must start fast queued 1.5-2 min at the median through the busy hours. Its
+  # own start costs nothing on any runner: the sleep ends at the push time plus the window, so a
+  # queued start sleeps that much less. A re-run (attempt 2 and later), a `leo-named-fix` PR (landing.md: those land
   # with no wait) and vars.CI_PR_QUIET_PERIOD_SECONDS = '0' skip it; pushes and dispatches never
   # run it. Leo, 2026-11-05: "i meant can you do all of htem".
   pr-quiet-period:
     if: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && !contains(github.event.pull_request.labels.*.name, 'leo-named-fix') && format('{0}', vars.CI_PR_QUIET_PERIOD_SECONDS) != '0' }}
     name: cmux-next PR quiet period
-    # A fork's run takes hosted Ubuntu too: the job checks nothing out and holds no token, so the sleep never
-    # holds Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # A fork pull request's sleep takes the fixed 2 vCPU label like every fork route (no pool read).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 12
     permissions: {}
     steps:
@@ -1924,22 +1935,23 @@ jobs:
         continue-on-error: true
         run: python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check
 
-      # Leo's bans (Leo 2026-10-21, ask-52da478628): the UI font is Inter, bundled, with its calculated
-      # tracking (schemas/type-scale/leo-bans.json pins them). Fails on another family or tracking, a
-      # stylesheet that names the system font instead of var(--font-ui), or a pin change with no
-      # `Leo-order:` trailer. A pull request's own commits are fetched for the trailer, which the
-      # pushed-commits step below then sees too.
-      - name: Leo's bans (Inter UI font and tracking)
-        id: leo-bans
+      # UI font (Lawrence 2026-11-07: "default fonts on cmux for everything should be macos default,
+      # not inter"): the UI font is the macOS system font, no letter-spacing, nothing bundled
+      # (schemas/type-scale/ui-font-pin.json pins it). Fails on another stack, letter-spacing on the
+      # system font, a bundled Inter file, a webviews default stack that names Inter, or a pin change
+      # with no `Font-order:` trailer. A pull request's own commits are fetched for the trailer, which
+      # the pushed-commits step below then sees too.
+      - name: UI font (the system font)
+        id: ui-font
         continue-on-error: true
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           if [[ "$EVENT_NAME" == pull_request ]]; then
             git fetch --no-tags --quiet --depth=200 origin "$GITHUB_SHA" || true
-            python3 -I scripts/cmux-next/check-leo-bans.py --rev HEAD --base HEAD^1
+            python3 -I scripts/cmux-next/check-ui-font.py --rev HEAD --base HEAD^1
           else
-            python3 -I scripts/cmux-next/check-leo-bans.py --rev HEAD
+            python3 -I scripts/cmux-next/check-ui-font.py --rev HEAD
           fi
 
       # The one motion duration scale (schemas/motion-scale/motion-scale.json): its Swift, CSS and
@@ -2024,8 +2036,8 @@ jobs:
             bash tests/test_strip_release_bundle.sh
             # The pre-push gate refuses a push that adds a violation and names the commit in CI.
             python3 tests/test_cmux_next_prepush_gate.py
-            # Leo's bans: the UI font stays Inter with its calculated tracking (check-leo-bans.py).
-            python3 tests/test_leo_bans.py
+            # UI font: the system font everywhere, no Inter default (check-ui-font.py).
+            python3 tests/test_ui_font.py
             # The perf gate skips its per-frame timings on a window that draws no frames (--frames auto).
             python3 tests/test_cmux_next_perf_gate_unlit.py
             # A base merge pushed while the PR's CI runs gets a warning (scripts/ci/base_merge_warning.py).
@@ -2506,7 +2518,7 @@ jobs:
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.layout-grid.outcome }}|Layout grid
-            ${{ steps.leo-bans.outcome }}|Leo's bans (Inter UI font and tracking)
+            ${{ steps.ui-font.outcome }}|UI font (the system font)
             ${{ steps.motion-scale.outcome }}|Motion scale
             ${{ steps.menu-metrics.outcome }}|Menu metrics
             ${{ steps.surface-roles.outcome }}|Surface roles
@@ -3116,6 +3128,11 @@ jobs:
   # that every fleet step it reads tested that commit: no verdict, or a step at
   # another commit, fails it and is never a pass. fast-tier keeps the check
   # name and reports this job's verdict from a 2 vCPU Linux runner.
+  # A step still queued when the client stops waiting (exit 75; the step keeps its place, as the
+  # controller never cancels one for waiting) gives the verdict `queued`: this job passes with a
+  # warning and fast-tier runs the Swift suites itself on Blacksmith macOS, the cascade's next route,
+  # so the PR gets a verdict in the same attempt (cmux#38346: both steps queued past 600 s, then
+  # passed 40 minutes later, and the PR went red on the wait).
   fast-tier-fleet:
     needs: [macos-placement, fast-tier-rerun-placement, path_route, push-head-preflight]
     if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (contains(needs.macos-placement.outputs.fleet_jobs, ' fast-tier ') && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' || contains(needs.fast-tier-rerun-placement.outputs.fleet_jobs, ' fast-tier ') && needs.fast-tier-rerun-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.fast-tier-rerun-placement.outputs.gateway_runner != '') }}
@@ -3126,9 +3143,9 @@ jobs:
     # This attempt's re-run reading first (fast-tier-rerun-placement), else macos-placement's.
     runs-on: ${{ needs.fast-tier-rerun-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.fast-tier-rerun-placement.outputs.gateway_runner || needs.macos-placement.outputs.gateway_runner }}
     permissions: {}
-    # Longer than the client's queue (600 s) plus run (1500 s) timeouts and the
+    # Longer than the client's queue (1200 s) plus run (1500 s) timeouts and the
     # report, so the client, not the job timeout, ends a slow step.
-    timeout-minutes: 40
+    timeout-minutes: 50
     outputs:
       verdict: ${{ steps.client.outputs.verdict }}
     steps:
@@ -3155,6 +3172,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
             case "$1" in
               pass) exit 0 ;;
+              queued) echo "::warning title=Fast tier on the build fleet: still queued::no verdict yet for $REF, so cmux-next fast tier runs the Swift suites itself: ${reasons[*]}"; exit 0 ;;
               fail) echo "::error title=Fast tier on the build fleet::a suite failed at $REF: ${reasons[*]}"; exit 1 ;;
               *) echo "::error title=Fast tier on the build fleet: no verdict::no verdict for $REF, which is never a pass: ${reasons[*]}"; exit 1 ;;
             esac
@@ -3175,12 +3193,14 @@ jobs:
           # CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 keeps the Mac fast tier's 60-second limit per entry
           # (package-test-lane.sh's suite default is 900 s); the build before the suites has no such limit.
           # --no-supersede: a newer head never takes this run's step, so the verdict stays this commit's.
+          # --queue-timeout 1200: the light class's measured queue p90 (cmux-ci's warning: 746 s on
+          # 2026-11-08 12:07Z, 1314 s at 14:28Z), bounded at 20 minutes; past it the tier runs itself.
           submit() {
             local status=0
             "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
               --arg=suite --arg="$2" --arg="$3" --no-supersede \
               --env=CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 \
-              --timeout 1500 --queue-timeout 600 > "$RUNNER_TEMP/fast-tier-fleet-$1.log" 2>&1 || status=$?
+              --timeout 1500 --queue-timeout 1200 > "$RUNNER_TEMP/fast-tier-fleet-$1.log" 2>&1 || status=$?
             echo "$status" > "$RUNNER_TEMP/fast-tier-fleet-$1.exit"
           }
           submit 1 Packages/Shared/CmuxHomeRender "$HOME_RENDER_SUITES" &
@@ -3233,6 +3253,9 @@ jobs:
                 step=pass; why="$2: every suite passed at $REF (step $id)"
               elif [[ ( "$state" == "failed" || "$state" == "done" ) && "$code" =~ ^-?[0-9]+$ && "$code" -ne 0 ]]; then
                 step=fail; why="$2: a suite failed or did not build at $REF (step $id, exit $code); the errors are in its log above"
+              elif [[ "$status" == 75 ]]; then
+                # The client stopped waiting for the queue; the step keeps its place and runs later.
+                step=queued; why="$2: step $id still queued after the client's queue wait (client exit 75, step ${state:-unknown})"
               else
                 why="$2: no verdict from step $id (client exit ${status:-unknown}, step ${state:-unknown})"
               fi
@@ -3242,11 +3265,101 @@ jobs:
             case "$step" in
               fail) verdict=fail ;;
               unavailable) [[ "$verdict" == fail ]] || verdict=unavailable ;;
+              queued) [[ "$verdict" != pass ]] || verdict=queued ;;
             esac
           }
           judge 1 Packages/Shared/CmuxHomeRender
           judge 2 Packages/macOS/CmuxNext
           finish "$verdict"
+
+  # The fast tier's queued hand-back, placed again (side_lane_placement.handback()). When fast-tier-fleet hands
+  # the tier back (verdict `queued`: a fleet step still queued after the client's 20-minute wait),
+  # macos-placement's reading is from the start of the run. This job reads the runners and Blacksmith's health
+  # now: the tier takes its own idle label, an idle owned side runner (a warm build), Blacksmith 6 vCPU while
+  # it is not full, under a declared outage, dead or stalled, and otherwise waits on the owned route. #38627's
+  # review: an unconditional Blacksmith 6 vCPU queued on an excluded label with no verdict.
+  # Fails open: an unread placement or a base script that predates it writes nothing, and the tier takes
+  # Blacksmith 6 vCPU as #38627 sends it.
+  fast-tier-handback-placement:
+    environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
+    needs: [fast-tier-fleet]
+    if: ${{ !cancelled() && needs.fast-tier-fleet.outputs.verdict == 'queued' && github.repository_owner == 'manaflow-ai' && vars.CI_PR_POOL_OWNED == '1' }}
+    name: cmux-next fast tier hand-back placement
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # Checkout (1m), three bounded token mints (3m), the reads (2m), plus runner setup.
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    outputs:
+      runner: ${{ steps.place.outputs.runner }}
+    steps:
+      # The placement code from the base branch, as macos-placement's.
+      - name: Check out the trusted placement
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the cmux-bot runner-read token
+        id: route-token-fallback
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-organization-self-hosted-runners: read
+
+      # Blacksmith's health (the pool snapshot's declared outages and dead labels), as macos-placement reads it.
+      - name: Mint the glaeda read token
+        id: snapshot-read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+
+      - name: Place the fast tier's hand-back
+        id: place
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          PLACEMENT: handback
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          # The owned side label itself: CMUX_NEXT_SIDE_ROUTE names Blacksmith on a person's re-run. A fork's
+          # pull request never gets it (it never reaches this job either: its fleet client does not run).
+          SIDE_LABEL: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_SIDE_LANE_RUNNER }}
+          FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}
+        run: |
+          if ! grep -q '^def handback_main' scripts/ci/side_lane_placement.py; then
+            echo "fast tier hand-back placement: the trusted placement predates it; the tier takes Blacksmith 6 vCPU"
+            exit 0
+          fi
+          python3 scripts/ci/side_lane_placement.py
 
   # The PR fast tier (hq#1915, cx-29ch2): every registered deterministic suite
   # (scripts/cmux-next/fast-tier.json) on every feat-cmux-next PR and push,
@@ -3263,7 +3376,7 @@ jobs:
   # package build cannot see (cmux_next_route.py fast_tier). The cargo half
   # still runs, and a route with no answer (a failed path_route) runs it as before.
   fast-tier:
-    needs: [macos-placement, path_route, push-head-preflight, fast-tier-fleet]
+    needs: [macos-placement, path_route, push-head-preflight, fast-tier-fleet, fast-tier-handback-placement]
     if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
     name: cmux-next fast tier
     # The cache saves name the R2 write credentials, which live in the ci-cache-writer
@@ -3277,6 +3390,9 @@ jobs:
     # (glaeda-fast-<class>-xcode-26.6). The tier takes it only through the
     # placement's fast_runner, set while one of its runners is idle, and only on
     # attempt 1: a re-run reuses attempt 1's placement, whose idle reading is stale.
+    # With no fast runner idle, fast_runner names an idle light side runner instead
+    # (glaeda-side-light-xcode-26.6, side_lane_placement.light_fast_route(); Leo, 2026-11-08:
+    # "the light minis are largely idling"), never while a nightly job waits on the light minis.
     # Otherwise the tier takes the current cascade allocation. With every
     # alternative excluded, deferred_runner preserves the base owned queue;
     # it never bypasses Blacksmith outage/nightly exclusions or skips tests.
@@ -3286,17 +3402,24 @@ jobs:
     # when it names our own runner, as portable-placement does), else a 2 vCPU Blacksmith Linux runner, and
     # only reports that job's verdict: every other step is off (CMUX_FAST_TIER_FLEET, or it reads a
     # step that is). fast_runner is empty then: placement lists only a tier no idle runner took.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.fast_runner != '' && github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_4 || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && fromJSON(vars.RUNNER_POOLS).linux_2 || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') && fromJSON(vars.RUNNER_POOLS).macos_26 || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' fast-tier ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' fast-tier ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    # When the client hands the tier back (verdict `queued`: a fleet step still queued past its wait),
+    # the tier runs in full, with 35 minutes, where fast-tier-handback-placement's fresh reading sends it
+    # (an idle owned Mac, else Blacksmith 6 vCPU unless excluded, else the owned route), else on
+    # Blacksmith 6 vCPU.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.fast_runner != '' && github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_4 || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && fromJSON(vars.RUNNER_POOLS).linux_2 || needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.runner || needs.fast-tier-fleet.outputs.verdict == 'queued' && fromJSON(vars.RUNNER_POOLS).macos_26 || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') && fromJSON(vars.RUNNER_POOLS).macos_26 || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' fast-tier ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' fast-tier ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     permissions:
       # The reuse lookup lists artifacts.
       actions: read
       contents: read
     # A cold package build can exceed the 5-minute target; the job still runs
     # the entries so a cold mini reports, and the summary shows the time.
-    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && 5 || 20 }}
+    # The fleet's `queued` hand-back always runs cold on Blacksmith 6 vCPU macOS, whose fast-tier p90 was
+    # 19.8 minutes (#38181's data), so it gets 35: a slow cold build still gives the verdict.
+    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || 20 }}
     env:
-      # 'report' when fast-tier-fleet ran: the steps below then only report its verdict.
-      CMUX_FAST_TIER_FLEET: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && 'report' || '' }}
+      # 'report' when fast-tier-fleet ran with a verdict (or none) to report: the steps below then only
+      # report it. A `queued` hand-back runs them in full.
+      CMUX_FAST_TIER_FLEET: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 'report' || '' }}
     steps:
       # The build fleet's verdict, under this job's name: fail and no verdict both fail it.
       - name: Report the build fleet's fast tier verdict

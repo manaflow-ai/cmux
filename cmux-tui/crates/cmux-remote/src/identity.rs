@@ -1460,16 +1460,21 @@ impl ServerAuthenticator for AuthDatabase {
                                 "carrier grant verifier answered a non-grant device id".into()
                             );
                         }
-                        self.admitted_grants.remember(request.device_public_key, admission.clone());
+                        self.admitted_grants.remember(
+                            request.device_public_key,
+                            request.session,
+                            admission.clone(),
+                        );
                         admission
                     }
                     // A resume: only into a session this key already holds
                     // (the daemon refuses generation 1+ without one).
-                    None if request.generation > 0 => {
-                        self.admitted_grants.get(&request.device_public_key).ok_or_else(|| {
+                    None if request.generation > 0 => self
+                        .admitted_grants
+                        .get(&request.device_public_key, request.session)
+                        .ok_or_else(|| {
                             "no carrier grant admitted this key; ask for a grant".to_string()
-                        })?
-                    }
+                        })?,
                     None => return Err("a new carrier session needs a grant".into()),
                 };
                 Ok(AuthGrant {

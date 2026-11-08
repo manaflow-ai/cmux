@@ -9,7 +9,8 @@
 //   need reconnecting, each failed one with a Reconnect where acpmux reconnects it (ConnectorsSection).
 //   Context and Connectors are one row each until opened.
 // - What it made: Changes, the pull requests it opened, touched or named, in any repository
-//   (ChangesSection); Outputs, the files and artifacts it produced (OutputsSection).
+//   (ChangesSection); Outputs, the pull requests, issues and commits, files and artifacts it produced
+//   (OutputsSection).
 // - What it runs: Subagents, each running subagent and started chat on its own line, the ended ones
 //   folded into one row: the harness's subagents and the chats its agent started, a Cloud VM's or
 //   another machine's included (SubagentsSection); Background tasks, the dev servers it runs first
@@ -84,6 +85,8 @@ import { AlsoHereSection } from "./AlsoHereSection";
 import { useAlsoHere } from "./alsoHereSectionModel";
 import { sessionStatus } from "./childSessionRowsModel";
 import { chatOutputs } from "./chatOutputs";
+import { producedLinks, type ProducedLink } from "./producedLinks";
+import { openOnGitHub } from "./pullRequestDiff";
 import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
 import { ProgressSection } from "./ProgressSection";
@@ -343,6 +346,7 @@ export function SessionInfo({
   documents = [],
   rows = [],
   outputFiles,
+  produced: givenProduced,
   plan,
   toolCalls,
   agents = [],
@@ -414,6 +418,9 @@ export function SessionInfo({
   rows?: readonly AcpmuxRow[];
   /// What the chat made for the person (chatOutputs.ts), where the caller reads it; else read from `rows`.
   outputFiles?: ReturnType<typeof chatOutputs>;
+  /// The pull requests, issues and commits the chat produced (producedLinks.ts), where the caller reads
+  /// them; else read from `rows`.
+  produced?: readonly ProducedLink[];
   /// The agent's current plan (ProgressSection.tsx `currentPlan`); without one, no Progress.
   plan?: SessionInfoPlan;
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
@@ -608,6 +615,7 @@ export function SessionInfo({
   // deliverables its file tools created, never its code edits (the Changes row has those).
   const cwd = summary?.cwd;
   const madeFiles = useMemo(() => outputFiles ?? chatOutputs(rows, cwd), [outputFiles, rows, cwd]);
+  const produced = useMemo(() => givenProduced ?? producedLinks(rows, repository), [givenProduced, rows, repository]);
   // A file made and then deleted drops off, as the host answers for it (only on this Mac: another
   // machine's files are asked about nowhere).
   const missing = useMissingPaths(
@@ -774,8 +782,11 @@ export function SessionInfo({
   );
   // The rows Outputs lists (OutputsSection): its documents, the gallery's one row and its files.
   const outputCount =
-    outputs.length + (onOpenDocument ? documents.length : 0) + (artifacts > 0 && rows.length > 0 ? 1 : 0);
-  const outputsShown = outputs.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;
+    produced.length +
+    outputs.length +
+    (onOpenDocument ? documents.length : 0) +
+    (artifacts > 0 && rows.length > 0 ? 1 : 0);
+  const outputsShown = produced.length + outputs.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;
   const outputsSection = outputsShown && (
     <SessionInfoSection
       id="outputs"
@@ -785,6 +796,9 @@ export function SessionInfo({
       meta={outputCount > 0 ? value(String(outputCount)) : undefined}
     >
       <OutputsSection
+        produced={produced}
+        repository={repository}
+        onOpenProduced={openOnGitHub}
         files={outputs}
         artifacts={artifacts}
         documents={documents}
