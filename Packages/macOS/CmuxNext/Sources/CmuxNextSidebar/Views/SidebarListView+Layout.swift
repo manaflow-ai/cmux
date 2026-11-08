@@ -210,7 +210,16 @@ extension SidebarListViewComponents {
         var keep = Set<SidebarRowKey>()
         let adopting = springsRows && !old.rows.isEmpty
         // A new workspace row (Cmd-N, a script, another client) opens only with ui.animations.newWorkspace on (hq-1d).
-        let insertsWorkspace = spliced != nil || layout.rows.contains { if case .workspace = $0.key { old.row(for: $0.key) == nil } else { false } }
+        // An unpin's row is not a new workspace: its block item is drawn now and flies to it (`SidebarListView+PinFlight`).
+        var drawnInBlocks: Set<WorkspaceID>?
+        func drawsInBlock(_ id: WorkspaceID) -> Bool {
+            let drawn = drawnInBlocks ?? blockDrawnWorkspaces()
+            drawnInBlocks = drawn
+            return drawn.contains(id)
+        }
+        let insertsWorkspace = spliced != nil || layout.rows.contains { row in
+            if case let .workspace(id) = row.key { old.row(for: row.key) == nil && !drawsInBlock(id) } else { false }
+        }
         let animate = !adopting && animated && !old.rows.isEmpty && (!insertsWorkspace || Motion.sidebar.animates(.newWorkspace))
         // New rows open from their run's top, so only the rows below move. A row still opening that the next update
         // only pushes (Cmd-N held: each new workspace lands at the top and pushes the ones still opening down) keeps
@@ -259,7 +268,9 @@ extension SidebarListViewComponents {
             // A new row outside the rows drawn now before a reveal jump does not open (``apply(_:animated:newRowsInPlace:)``).
             // A splice's only new row is its own; any other change walks every row for the new ones.
             let candidates = spliced.map { ([$0] + reopened).compactMap { layout.row(for: $0) } } ?? layout.rows
-            for row in candidates where (old.row(for: row.key) == nil && (!newRowsInPlace || frame(for: row).intersects(realize)))
+            // An unpin's row flies from its block item: it does not open (and a later move must not reopen it).
+            for row in candidates where (old.row(for: row.key) == nil && (!newRowsInPlace || frame(for: row).intersects(realize))
+                && flightSources.unpin(for: row.key) == nil)
                 || reopened.contains(row.key) { openingRows[row.key] = opening } // only animated applies open rows (hq-1d)
         } else {
             // A row this change moves while still opening stands at its new slot: it must not keep an earlier insert's

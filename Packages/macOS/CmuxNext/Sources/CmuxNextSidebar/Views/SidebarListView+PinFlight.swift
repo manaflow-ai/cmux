@@ -67,6 +67,11 @@ extension SidebarListViewComponents {
         return Set(blocks.sections.values.lazy.flatMap(\.items).compactMap { blocks.infos[$0.id]?.workspace })
     }
 
+    /// The workspaces the blocks' items draw now (before an apply changes them). O(pinned items).
+    func blockDrawnWorkspaces() -> Set<WorkspaceID> {
+        Set(blockRegions.lazy.flatMap(\.itemViews.values).filter { $0.superview != nil }.compactMap(\.info.workspace))
+    }
+
     /// Before an apply's rows change: the views a pin or an unpin hands off, with where each is drawn now. Only the
     /// realized rows and the blocks' items are read (O(realized + pinned)). Empty when the apply does not move rows.
     func pinFlightSources(from old: SidebarLayout, to layout: SidebarLayout, moves: Bool) -> SidebarPinFlightSources {
@@ -90,7 +95,7 @@ extension SidebarListViewComponents {
     /// `view`'s frame in the list as drawn now (its and its containers' presentation), with its title's pen origin.
     private func source(of view: NSView) -> SidebarPinFlightSource {
         let frame = drawnFrame(of: view)
-        let pen = (view as? SidebarRenameTitle)?.titlePenOrigin.map { pen in
+        let pen = (view as? any SidebarRenameTitle)?.titlePenOrigin.map { pen in
             CGPoint(x: frame.minX + pen.pointValue.x, y: frame.minY + pen.pointValue.y)
         }
         return SidebarPinFlightSource(frame: frame, pen: pen)
@@ -161,7 +166,7 @@ extension SidebarListViewComponents {
     /// the source's frame, so its pen starts there plus its own pen origin. The containers share the list's scale and
     /// flip, so the offset is the same in the title's superview.
     private func titleOffset(of view: NSView, from source: SidebarPinFlightSource) -> (view: NSView, offset: CGPoint)? {
-        guard let sourcePen = source.pen, let titled = view as? SidebarRenameTitle, let pen = titled.titlePenOrigin?.pointValue,
+        guard let sourcePen = source.pen, let titled = view as? any SidebarRenameTitle, let pen = titled.titlePenOrigin?.pointValue,
               let title = Self.flightTitle(of: view) else { return nil }
         let startPen = CGPoint(x: source.frame.minX + pen.x, y: source.frame.minY + pen.y)
         let offset = CGPoint(x: sourcePen.x - startPen.x, y: sourcePen.y - startPen.y)

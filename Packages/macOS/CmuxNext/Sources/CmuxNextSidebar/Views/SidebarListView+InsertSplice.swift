@@ -12,7 +12,9 @@ extension SidebarListViewComponents {
         guard let insertion = model.rowInsertion, insertion.to == model.sectionsRevision, insertion.content == model.contentRevision, let base = spliceBase,
               base.revision == insertion.from, drag == nil, settling == nil, landing == nil, external == nil,
               rowHold.isEmpty, leaving.isEmpty, let ws = insertion.workspace, workspaces[ws.id] == nil,
-              let shown = sections[insertion.section.id], shown.nodes.count + 1 == insertion.section.nodes.count else { return nil }
+              let shown = sections[insertion.section.id], shown.nodes.count + 1 == insertion.section.nodes.count,
+              // An unpin, not a create: the blocks change with it, and its row flies from the block's item.
+              !blockDrawnWorkspaces().contains(ws.id) else { return nil }
         // The section the list drew is the set's without the new node (one compare per node, no layout): not when
         // `listingEachWorkspaceOnce` left out a workspace an earlier section lists too, which the cache would take back.
         var before = insertion.section

@@ -1697,6 +1697,7 @@ An empty group now keeps only its header at rest. The header's existing + appear
   is drawn on, the leaving view goes in the same transaction (one copy each frame), and it, its title and the rows
   between the two slots move on the rows' one `.move` spring (critically damped, no overshoot) from rest. Motion off
   or Reduce Motion: the final state in one frame. Regression: `SidebarPinFlightTests`.
+- An unpin's row is not a new workspace: it never takes the create's splice or the `newWorkspace` animation switch.
 - Gap: the first pin, which creates the Pinned block, still opens that block with its own fade.
 
 ## Reviewed behavior-only commits
