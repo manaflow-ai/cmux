@@ -1,14 +1,22 @@
 //! An invitation's welcome waits on a person's approval, which may take far longer than a link
 //! attempt's deadline: the deadline on the daemon's link-ready (`authenticate_one`) starts once the
-//! welcome is in, so a slow approval still enrolls.
+//! welcome is in, so a slow approval still enrolls. Every frame the client receives comes a moment
+//! after the one before, so link-ready is never already waiting when the welcome is read.
 
+use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
+use bytes::Bytes;
 use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
 use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
 use cmux_remote::daemon::{RemoteDaemon, serve_direct_websocket};
 use cmux_remote::identity::AuthDatabase;
-use cmux_remote::provider::{ConnectRequest, DirectWebSocketProvider, TransportProvider};
+use cmux_remote::link::{FrameLink, LinkError};
+use cmux_remote::provider::{
+    CarrierEvidence, ConnectRequest, DirectWebSocketProvider, LinkGroup, LinkRequest,
+    ProviderCapabilities, ProviderError, TransportProvider,
+};
 use cmux_remote::session::SessionLimits;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use tempfile::tempdir;
@@ -20,6 +28,53 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Each link attempt's deadline, well under the approval's delay.
 const ATTEMPT_TIMEOUT: Duration = Duration::from_millis(300);
 const APPROVAL_DELAY: Duration = Duration::from_millis(1_500);
+/// Between two frames the client receives.
+const FRAME_GAP: Duration = Duration::from_millis(50);
+
+/// A link whose every received frame comes `FRAME_GAP` after it arrived.
+struct Spaced(Box<dyn FrameLink>);
+
+#[async_trait]
+impl FrameLink for Spaced {
+    fn description(&self) -> &str {
+        self.0.description()
+    }
+    fn maximum_frame_bytes(&self) -> usize {
+        self.0.maximum_frame_bytes()
+    }
+    async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+        self.0.send(frame).await
+    }
+    async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+        let frame = self.0.receive().await;
+        tokio::time::sleep(FRAME_GAP).await;
+        frame
+    }
+    async fn close(&self) -> Result<(), LinkError> {
+        self.0.close().await
+    }
+}
+
+struct SpacedGroup(Arc<dyn LinkGroup>);
+
+#[async_trait]
+impl LinkGroup for SpacedGroup {
+    fn description(&self) -> &str {
+        self.0.description()
+    }
+    fn capabilities(&self) -> ProviderCapabilities {
+        self.0.capabilities()
+    }
+    fn evidence(&self) -> &CarrierEvidence {
+        self.0.evidence()
+    }
+    async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+        Ok(Box::new(Spaced(self.0.open(request).await?)))
+    }
+    async fn close(&self) -> Result<(), ProviderError> {
+        self.0.close().await
+    }
+}
 
 #[tokio::test(flavor = "current_thread")]
 async fn an_invitation_approved_after_the_attempt_deadline_still_enrolls() {
@@ -67,7 +122,7 @@ async fn an_invitation_approved_after_the_attempt_deadline_still_enrolls() {
             .await
             .unwrap();
         let connection = ClientConnection::connect(
-            group,
+            Arc::new(SpacedGroup(group)),
             ClientConnectionConfig {
                 identity: StaticIdentity::generate().unwrap(),
                 expected_daemon: Some(auth.identity().public_key()),
