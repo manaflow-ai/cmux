@@ -57,9 +57,8 @@ enum SurfaceDiagnosticsReport {
                     object["skipped_images"] = JSONValue(diagnostics.skippedImages)
                     object["last_frame_holds"] = JSONValue(diagnostics.lastFrameHolds)
                     object["frame_held"] = .bool(diagnostics.holdingFrame)
-                    if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
+                    if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }; if let scroll = JSONValue(foundation: entry.session.debugScrollIntegrity) { object.merge(scroll.objectValue ?? [:]) { _, new in new } }
                     #if DEBUG || CMUX_BENCH_HOOKS
-                    if let scroll = JSONValue(foundation: entry.session.debugScrollIntegrity) { object.merge(scroll.objectValue ?? [:]) { _, new in new } }
                     if let grid = Self.grid(entry.session.surfaceView, window: row.window) { object["grid"] = grid }
                     // The font zoom the terminal draws at, as a scale of the configured
                     // `font-size` (1 at that size); its tab record saves it (cx-mzuqi).
