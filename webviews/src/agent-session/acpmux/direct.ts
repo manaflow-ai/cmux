@@ -8626,16 +8626,22 @@ export class AcpmuxDirectClient {
     // upload, and a send under any other goes as before, inline.
     const bound = this.boundSendTickets.get(ownPromptId);
     this.boundSendTickets.delete(ownPromptId);
+    const ticketGeneration = this.selectionGeneration;
+    const unclaim = () => {
+      if (claim && this.handoffTurnsSent.get(sessionId) === claim.turn) {
+        if (claim.before === undefined) this.handoffTurnsSent.delete(sessionId);
+        else this.handoffTurnsSent.set(sessionId, claim.before);
+      }
+    };
     const boundTicket = bound?.sessionId === sessionId && bound.ticket === ticket ? await ticket : undefined;
+    // The selection moved while the ticket came, for any send under one: the prompt goes back to
+    // its sender, never into the chat shown now.
+    if (boundTicket && (ticketGeneration !== this.selectionGeneration || this.selectedSessionId !== sessionId)) {
+      unclaim();
+      throw new Error(translate("error.notOpen"));
+    }
     const uploads = this.uploadForSend && boundTicket ? uploadsToFit(input, sendAttachments, options) : [];
     if (uploads.length && boundTicket) {
-      const generation = this.selectionGeneration;
-      const unclaim = () => {
-        if (claim && this.handoffTurnsSent.get(sessionId) === claim.turn) {
-          if (claim.before === undefined) this.handoffTurnsSent.delete(sessionId);
-          else this.handoffTurnsSent.set(sessionId, claim.before);
-        }
-      };
       const sent = await this.uploadForSend!(uploads, { sessionId, promptId, ticket: boundTicket });
       if ("error" in sent) {
         unclaim();
@@ -8643,7 +8649,7 @@ export class AcpmuxDirectClient {
       }
       // The selection moved while the files uploaded: the prompt goes back to its sender, never
       // into the chat shown now.
-      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) {
+      if (ticketGeneration !== this.selectionGeneration || this.selectedSessionId !== sessionId) {
         unclaim();
         throw new Error(translate("error.notOpen"));
       }
