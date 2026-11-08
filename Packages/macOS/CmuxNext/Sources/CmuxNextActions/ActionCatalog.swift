@@ -110,6 +110,7 @@ public nonisolated enum ActionCatalog {
         ProfileActionCatalog.self,
         ThemeActionCatalog.self,
         PaneActionCatalog.self,
+        NewPlacementActionCatalog.self,
         TabActionCatalog.self,
         VerticalTabsActionCatalog.self,
         AgentChatRailActionCatalog.self,

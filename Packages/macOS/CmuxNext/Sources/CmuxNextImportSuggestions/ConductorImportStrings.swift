@@ -40,6 +40,12 @@ public nonisolated struct ConductorImportStrings: Sendable {
                               defaultValue: "Environment variables Conductor set, which you set yourself here: %@",
                               table: "ImportSuggestions", bundle: .module), names)
     }
+    /// Followed by one line per project with its recipe's commands as written.
+    public static func recipes(_ count: Int) -> String {
+        format(String(localized: "conductorImport.preview.recipes",
+                      defaultValue: "Projects whose new worktrees get the same setup (edit it in the project’s settings): %@",
+                      table: "ImportSuggestions", bundle: .module), count)
+    }
     public static var archiveWarning: String {
         String(localized: "conductorImport.preview.archiveWarning",
                defaultValue: "Archiving one of these workspaces in Conductor deletes its folder, which cmux now uses. Archive it in cmux instead.",

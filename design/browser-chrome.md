@@ -19,6 +19,7 @@ windows.
 - Gallery: `browser-chrome.toolbar`, `browser-chrome.suggestions`, `browser-chrome.page-info`,
   `browser-chrome.page-info.site-settings`, `.site-data`, `.certificate` (area Browser chrome,
   Experimental until the React chrome ships). Each has a Look option.
+- The Import Cookies card (its own section below): gallery `browser-chrome.cookie-import`, same area, with a Look option.
 
 The native sources these match: `UI/OmnibarStyle.swift`, `OmnibarMetrics.swift`,
 `BrowserToolbarLayout.swift`, `BrowserToolbarButton.swift`, `BrowserToolbarPolicy.swift`,
@@ -152,6 +153,34 @@ with names `{commonName?, organization?, organizationalUnit?, summary}` and date
 (`PageInfoWindowCommand`): `setPermission`, `resetPermissions`, `deleteSiteData` (a domain, or the
 window's site), `exportCertificate {index}`, `close`. Escape closes every window.
 
+## Import Cookies card
+
+The card at the bottom of a browser page that offers to bring cookies over from the most used
+browser on this Mac (`webviews/src/browser-chrome/cookie-import/CookieImportCard.tsx`, page
+`pages/cookie-import`, host `CmuxNextBrowser/UI/BrowserCookieImportCard.swift`, gallery
+`browser-chrome.cookie-import`). Leo, 2026-11-07: "this looks kind of ugly, to be honest. Like
+this isn't styled well." The native card drew two labels and buttons of two different kinds,
+with Don't Show Again as loose gray text at another height.
+
+- **Surface.** The native card is the glass (the theme's tint, the dialog radius 8, the popups'
+  elevation-2 shadow, the blur of the page behind its window, opaque under Reduce Transparency);
+  the page draws only text and buttons on it. Width: the pane's, at most `promptMaxWidth`.
+- **Layout (Standard density).** Padding 12. The browser's app icon at 32, 12 to the text. Title
+  in the body step (13) at emphasis, one line, cut at its end; detail in the detail step (12) in
+  the muted ink, at most two lines. 8 below, one row of answers.
+- **Answers.** Not Now (subtle) and Import… (the theme accent), both the compact control height
+  (24) and one width, the wider label's. Don't Show Again is a ghost button of the same height in
+  the faint ink (muted on hover), its text on the title's column; all three share one baseline.
+  No key hints: the card never takes focus, so Return and Escape stay the page's.
+- **States.** It shows only once its page reported the height of its lines, fading in at that
+  height (no empty frame, no growth after it appeared); until then every click goes to the page.
+  Any answer fades it out and the chrome answers the host. After cookies came over by any path
+  (this card, File > Import from Browser, Import Cookies from Browser) it never shows again.
+- **Keep in sync.** For a Chromium browser, a checkbox under the detail, on by default
+  (`browser.import.cookieSync`, also Settings > Browser > Import). Its state goes to the host with
+  Import only. On, the sites whose cookies change in that browser come over again; it never signs
+  cmux out of a site the browser signed out of.
+
 ## Keyboard
 
 - Toolbar: every control is a button in tab order; Space or Return presses it. Shortcuts
@@ -173,6 +202,7 @@ window's site), `exportCertificate {index}`, `close`. Escape closes every window
 | Site settings | parity (today), grouped (inset cards), segmented (choices on the row) | **parity** |
 | On-device site data | parity (today), grouped (this site / third parties headed), compact (one line) | **parity** |
 | Certificate viewer | list (Details shows every field's value), tabs (today: pick a field), sheet (no tabs) | **list** |
+| Import Cookies card | split (link on the text column, buttons at the end), trailing (all three answers at the end), inline (one row, buttons beside the text) | **split** |
 
 - **Flat** keeps the bar a field you can find at a glance on any wallpaper or theme, and its fill
   is what the joined card continues. Outlined reads lighter but loses the bar on busy pages and
@@ -192,3 +222,8 @@ window's site), `exportCertificate {index}`, `close`. Escape closes every window
   field in a short table; listing every field with its value (selectable to copy) reads the whole
   certificate at once in the same window, and keeps General as today. The sheet loses the quick
   General summary under a long scroll.
+- **Split** reads in order: what this is, then the quiet way out on the left and the two real
+  answers together on the right, so the eye lands on Import last. Trailing puts three
+  same-height targets side by side, which makes Don't Show Again look like a third button of
+  equal weight. Inline saves a row in wide panes but squeezes the text in the narrow ones the
+  browser pane often is.

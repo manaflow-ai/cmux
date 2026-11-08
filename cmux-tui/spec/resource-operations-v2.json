@@ -30786,6 +30786,14 @@
               }
             },
             "description": "The project's worktree recipe (setup, teardown, run, include); null clears it. Commands are at most 64 KiB, include at most 1000 lines."
+          },
+          "keep_saved_worktree": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "When true, worktree only fills a project that has no saved recipe; a saved one is left as it is."
           }
         },
         "extra": false,

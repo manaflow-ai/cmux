@@ -145,6 +145,8 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           // A hook's block: its plain status on the row, no "PreToolUse" and no line of its words.
           expect(m.columnText).not.toContain("PreToolUse");
           expect(m.columnText).not.toContain("fixture guard");
+          // A blocked merge says no outcome: its row reads as its line, never "Merged PR #101".
+          expect(m.columnText).not.toContain("Merged");
           expect(m.rows.filter((row) => row.status === "blocked by hook").length).toBe(2);
           // The failed calls keep their word for screen readers, and the lone one its cause.
           expect(m.rows.some((row) => row.status === "Exit 1")).toBe(true);

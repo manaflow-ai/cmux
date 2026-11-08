@@ -634,6 +634,18 @@ fn run_response(
                             Err(error) => print_operation_error(&error, global.output),
                         };
                     }
+                    // An older daemon refuses an operation it does not know
+                    // as a bare envelope error: name it and the upgrade.
+                    if let WireOperation::Typed(operation) = &plan.operation
+                        && let Some(outdated) = super::older_daemon::replace(
+                            reader,
+                            &error,
+                            operation.wire_name(),
+                            Some(daemon_socket),
+                        )
+                    {
+                        error = outdated;
+                    }
                     if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
                         localize_operation_error(plan, &mut error);
                     }

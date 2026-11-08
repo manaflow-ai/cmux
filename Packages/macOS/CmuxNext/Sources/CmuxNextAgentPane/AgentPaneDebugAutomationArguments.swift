@@ -52,7 +52,7 @@ public struct AgentPaneDebugAutomationArguments {
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
-        case "send_prompt", "compose_send":
+        case "send_prompt", "compose_send", "toast":
             return [params["text"]?.stringValue ?? ""]
         case "run_mode":
             return [params["mode"]?.stringValue ?? NSNull()]

@@ -75,7 +75,7 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 640,
   widths: { narrow: 560, normal: 700, wide: 900 },
-  covers: ["agent-session/acpmux/session-info/SessionInfo.tsx#sessionInfoPopover"],
+  covers: ["agent-session/acpmux/session-info/SessionInfo.tsx#SessionInfoPanel"],
   variants: {
     animated: {
       note: "Shipped (tall pane): a five-line draft; the panel's foot follows the composer's top with an animation, never a jump.",
