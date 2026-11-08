@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 613,
+  "count": 612,
   "sections": [
     {
       "id": "general",
@@ -1268,14 +1268,6 @@
             "top",
             "bottom"
           ]
-        },
-        {
-          "key": "tabs.cmdWClosesPinnedTabs",
-          "title": "Cmd-W Closes Pinned Tabs",
-          "help": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Tabs"
         },
         {
           "key": "tabs.hideLoneChatTab",
@@ -3730,7 +3722,7 @@
         {
           "key": "sidebar.groupPalette",
           "title": "Group Colors",
-          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient.",
+          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list.",
           "kind": "choice",
           "default": "glass",
           "group": "Sidebar",
@@ -3740,7 +3732,8 @@
             "wallpaper",
             "grayscale",
             "vibrant",
-            "gradient"
+            "gradient",
+            "pictorial"
           ]
         },
         {

@@ -445,7 +445,8 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         ));
     }
     let agents = snapshot["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
-    let agent = roster::agent_of_terminal(terminal, agents);
+    // Only the blocked check below reads the agent; done-until-seen is moot.
+    let agent = roster::agent_of_terminal(terminal, agents, false);
     if !request.force
         && let Some(agent) = &agent
         && agent.state == AgentState::WaitingForInput
@@ -458,7 +459,12 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
                  escape), or pass --force to type anyway",
                 agent.harness
             ),
-            json!({"terminal": id, "harness": agent.harness, "state": agent.state.as_str()}),
+            json!({
+                "terminal": id,
+                "harness": agent.harness,
+                "state": agent.state.as_str(),
+                "status": "blocked",
+            }),
             1,
         ));
     }
