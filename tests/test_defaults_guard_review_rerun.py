@@ -141,7 +141,8 @@ class Rerun(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [])
 
-    def invoke_authoritative(self, *, event_association="MEMBER", fetched_association="MEMBER", fetched_head=HEAD):
+    def invoke_authoritative(self, *, event_association="MEMBER", fetched_association="MEMBER", fetched_head=HEAD,
+                             fetched_user=None):
         event = {"comment": {"body": f"Review (router): SHIP at {HEAD}\nEvidence: focused checks passed", "author_association": event_association}}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -170,7 +171,8 @@ class Rerun(unittest.TestCase):
                    "PR_RESPONSE": json.dumps({"base": {"ref": "feat-cmux-next"},
                                               "head": {"repo": {"full_name": REPO}, "sha": fetched_head}}),
                    "COMMENT_RESPONSE": json.dumps({"author_association": fetched_association,
-                                                   "body": event["comment"]["body"]})}
+                                                   "body": event["comment"]["body"],
+                                                   **({"user": fetched_user} if fetched_user else {})})}
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", receipt_script()],
                                     env=env, text=True, capture_output=True, timeout=5)
             calls = log.read_text().splitlines()
@@ -202,6 +204,20 @@ class Rerun(unittest.TestCase):
         self.assertEqual(calls, ["called", "called"])
         self.assertIn("eligible=true", output)
 
+
+    def test_the_review_service_receipt_from_cmux_bot_wakes_the_guard(self):
+        # next-review's receipt, posted by the cmux-bot App (association NONE), is the review an author lane requests
+        # (`router-review manaflow-ai/cmux N --request`). Only the App by its node id counts; the guard judges it.
+        bot = {"type": "Bot", "login": "cmux-bot[bot]", "node_id": "BOT_kgDOFMYsLQ"}
+        result, _, output = self.invoke_authoritative(event_association="NONE", fetched_association="NONE",
+                                                      fetched_user=bot)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("eligible=true", output)
+        for user in (dict(bot, node_id="BOT_wrong"), dict(bot, login="other[bot]"), dict(bot, type="User")):
+            result, _, output = self.invoke_authoritative(event_association="NONE", fetched_association="NONE",
+                                                          fetched_user=user)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("eligible=true", output, user)
 
 if __name__ == "__main__":
     unittest.main()
