@@ -52,9 +52,10 @@ const fake: StashTransport = {
   move: async (chat, to) => {
     const kept = daemon.get(to) ?? [];
     const moving = (daemon.get(chat) ?? []).filter((row) => !kept.some((own) => own.id === row.id));
+    const ids = (daemon.get(chat) ?? []).map((row) => row.id);
     daemon.set(to, [...moving, ...kept].slice(0, 5));
     daemon.delete(chat);
-    return { moved: moving.length };
+    return { moved: moving.length, ids };
   },
 };
 
@@ -234,6 +235,47 @@ describe("draft stash", () => {
     await retryMoves("session-1");
     expect(daemon.get("new-a")?.map((row) => row.text)).toEqual(["kept"]);
     // The first acpmux again, on a new connection: the move finishes.
+    setStashTransport({ ...fake });
+    await retryMoves("session-1");
+    expect(texts("session-1")).toEqual(["kept"]);
+    expect(daemon.get("new-a")).toBeUndefined();
+  });
+
+  test("a move waits for a stash into the new chat that is still on its way", async () => {
+    let land: () => void = () => {};
+    setStashTransport({
+      ...fake,
+      push: (...args) => new Promise((resolve) => (land = () => resolve(fake.push(...args)))),
+    });
+    const stashed = stashDraft("new-a", "typed just before", []);
+    for (let turn = 0; turn < 3; turn++) await Promise.resolve();
+    const moved = moveStash("new-a", "session-1");
+    for (let turn = 0; turn < 3; turn++) await Promise.resolve();
+    land();
+    await stashed;
+    await moved;
+    expect(texts("session-1")).toEqual(["typed just before"]);
+    expect(daemon.get("new-a")).toBeUndefined();
+  });
+
+  test("another acpmux whose session stack is full never finishes a move it holds none of", async () => {
+    await stashDraft("new-a", "kept", []);
+    setStashTransport({
+      ...fake,
+      move: async () => {
+        throw new Error("lost the connection");
+      },
+    });
+    await moveStash("new-a", "session-1");
+    const elsewhere = new Map<string, Row[]>([
+      ["session-1", [0, 1, 2, 3, 4].map((n) => ({ id: `other-${n}`, text: `other ${n}`, attachments: [], at: n }))],
+    ]);
+    setStashTransport({
+      ...fake,
+      list: async (chat) => ({ drafts: elsewhere.get(chat) ?? [] }),
+      move: async () => ({ moved: 0, ids: [] }),
+    });
+    await retryMoves("session-1");
     setStashTransport({ ...fake });
     await retryMoves("session-1");
     expect(texts("session-1")).toEqual(["kept"]);

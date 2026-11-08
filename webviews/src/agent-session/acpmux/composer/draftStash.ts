@@ -79,6 +79,10 @@ export function setStashTransport(next: StashTransport | undefined): void {
   for (const chat of wanted) void refreshStash(chat).then(() => retryMoves(chat));
 }
 
+/// Pushes still out, per chat: a move of that chat's stack waits for them, so a draft stashed just
+/// before the chat got its session is moved too, never left behind.
+const pushes = new Map<string, Set<Promise<unknown>>>();
+
 /// Pushes and drops begun or ended, per chat: a list read while one was out may not hold it.
 const changes = new Map<string, number>();
 const changed = (chat: string) => changes.set(chat, (changes.get(chat) ?? 0) + 1);
@@ -114,8 +118,12 @@ export async function stashDraft(
   const link = transport;
   if (!link || (!text.trim() && attachments.length === 0)) return false;
   changed(chat);
+  const pushed = link.push(chat, text, attachments, replaces);
+  const out = pushes.get(chat) ?? new Set<Promise<unknown>>();
+  out.add(pushed);
+  pushes.set(chat, out);
   try {
-    const answer = await link.push(chat, text, attachments, replaces);
+    const answer = await pushed;
     const row = draftFrom((answer as { draft?: unknown } | undefined)?.draft);
     // A connection that changed meanwhile: the composer keeps the draft (the old acpmux has a copy).
     if (!row || link !== transport) return false;
@@ -130,6 +138,8 @@ export async function stashDraft(
   } catch {
     return false;
   } finally {
+    out.delete(pushed);
+    if (!out.size && pushes.get(chat) === out) pushes.delete(chat);
     changed(chat);
   }
 }
@@ -167,9 +177,10 @@ export async function dropStashed(chat: string, id: string): Promise<boolean> {
 
 /// Moves not yet done, by the chat they go to, each with the drafts it is to bring: tried again
 /// when that chat shows or acpmux connects again, so a move that failed leaves no draft where no
-/// composer looks. A move is done only once the chat's stack lists every one of its drafts (or is
-/// full, the oldest let go): another acpmux (another machine), which holds none of them and moves
-/// none, leaves it waiting for the one that does.
+/// composer looks. A move is done only once every draft it read from the new chat's stack is
+/// accounted for: named in acpmux's answer (`ids`, the drafts it took, those a full stack let go
+/// too) or listed on the chat's stack. Another acpmux (another machine), which holds none of them
+/// and takes none, leaves it waiting for the one that does.
 type PendingMove = { ids: Set<string>; read: boolean };
 const moves = new Map<string, Map<string, PendingMove>>();
 const moving = new Set<string>();
@@ -190,6 +201,8 @@ async function moveNow(from: string, to: string): Promise<void> {
   if (!link || moving.has(from)) return;
   moving.add(from);
   try {
+    // A stash into the new chat still on its way lands first, so the move takes it too.
+    await Promise.allSettled([...(pushes.get(from) ?? [])]);
     // The drafts this acpmux holds for the new chat now, read on this connection.
     const pending = moves.get(to)?.get(from);
     if (pending && (await refreshStash(from))) {
@@ -198,17 +211,19 @@ async function moveNow(from: string, to: string): Promise<void> {
     }
     changed(from);
     changed(to);
-    await link.move(from, to).catch(() => undefined);
+    const answer = await link.move(from, to).catch(() => undefined);
+    const raw = (answer as { ids?: unknown } | undefined)?.ids;
+    const taken = new Set(Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : []);
     changed(from);
     changed(to);
     await Promise.all([refreshStash(from), refreshStash(to)]);
-    const brought = new Set((stacks.get(to) ?? NONE).map((entry) => entry.id));
+    const listed = new Set((stacks.get(to) ?? NONE).map((entry) => entry.id));
     const sources = moves.get(to);
     const whole =
       link === transport &&
       !!pending?.read &&
       !(stacks.get(from) ?? NONE).length &&
-      (brought.size >= STASH_LIMIT || [...pending.ids].every((id) => brought.has(id)));
+      [...pending.ids].every((id) => taken.has(id) || listed.has(id));
     if (whole && sources) {
       sources.delete(from);
       if (!sources.size) moves.delete(to);
@@ -284,6 +299,7 @@ export function resetStashForTests(next?: StashTransport): void {
   changes.clear();
   moves.clear();
   moving.clear();
+  pushes.clear();
   transport = next;
 }
 

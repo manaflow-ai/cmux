@@ -157,7 +157,7 @@ pub fn handle(m: &str, params: &Value) -> Result<Value, RpcError> {
                     RpcError::invalid_params(format!("to must be 1 to {MAX_CHAT_CHARS} characters"))
                 })?;
             let moved = move_stack(&dir, chat, to)?;
-            Ok(json!({"moved": moved}))
+            Ok(json!({"moved": moved.count, "ids": moved.ids}))
         }
         _ => Err(RpcError::method_not_found(m)),
     }
@@ -225,17 +225,18 @@ pub fn remove(dir: &Path, chat: &str, id: &str) -> Result<bool, RpcError> {
 /// Moves `from`'s stack onto `to`'s: one write of `to` with `from`'s drafts on top in their order
 /// (as pushing each would put them) and `to`'s own below, the oldest past [`STASH_LIMIT`] let go,
 /// then `from`'s file removed. A draft `to` already holds (a move a failed removal left behind) is
-/// not added again. How many drafts moved.
-pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<usize, RpcError> {
+/// not added again.
+pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<Moved, RpcError> {
     if from == to {
-        return Ok(0);
+        return Ok(Moved::default());
     }
     let _held = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let from_path = chat_path(dir, from);
     let moving = load(&from_path).map_err(unreadable)?;
     if moving.is_empty() {
-        return Ok(0);
+        return Ok(Moved::default());
     }
+    let ids: Vec<String> = moving.iter().map(|d| d.id.clone()).collect();
     let to_path = chat_path(dir, to);
     let own = load(&to_path).map_err(unreadable)?;
     // Ids are unique across chats and relaunches (`new_id`): one `to` holds is a draft an
@@ -253,7 +254,15 @@ pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<usize, RpcError> {
         Err(e) => return Err(not_saved(e)),
     }
     trim_chats(dir, &to_path);
-    Ok(moved)
+    Ok(Moved { count: moved, ids })
+}
+
+/// What a move did: how many drafts it added to the stack, and the ids of every draft it took from
+/// the source (those `to` held already too), so the page knows the drafts it waits for arrived.
+#[derive(Debug, Default, PartialEq)]
+pub struct Moved {
+    pub count: usize,
+    pub ids: Vec<String>,
 }
 
 /// Lets the chats written longest ago go once more than [`STASH_CHATS`] have a stack; never `keep`.
@@ -478,14 +487,14 @@ mod tests {
         push(&dir, "session", "the session's own", Vec::new(), None, 2).unwrap();
         push(&dir, "new", "older", vec![chip("a")], None, 1).unwrap();
         push(&dir, "new", "newer", Vec::new(), None, 3).unwrap();
-        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 2);
+        assert_eq!(move_stack(&dir, "new", "session").unwrap().count, 2);
         let kept = load(&chat_path(&dir, "session")).unwrap();
         let texts: Vec<&str> = kept.iter().map(|d| d.text.as_str()).collect();
         assert_eq!(texts, ["newer", "older", "the session's own"]);
         assert_eq!(kept[1].attachments[0]["data"], "AAA");
         assert!(!chat_path(&dir, "new").exists());
         // Nothing left to move: tried again, it changes nothing.
-        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 0);
+        assert_eq!(move_stack(&dir, "new", "session").unwrap().count, 0);
         assert_eq!(load(&chat_path(&dir, "session")).unwrap(), kept);
     }
 
@@ -498,9 +507,12 @@ mod tests {
         }
         // The move wrote the session's stack but its source stayed (a removal that failed).
         let source = fs::read(chat_path(&dir, "new")).unwrap();
-        move_stack(&dir, "new", "session").unwrap();
+        let first = move_stack(&dir, "new", "session").unwrap();
         fs::write(chat_path(&dir, "new"), source).unwrap();
-        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 0);
+        // Tried again it adds none, and still names every draft it took.
+        let again = move_stack(&dir, "new", "session").unwrap();
+        assert_eq!((first.count, again.count), (STASH_LIMIT, 0));
+        assert_eq!(again.ids, first.ids);
         let texts: Vec<String> =
             load(&chat_path(&dir, "session")).unwrap().into_iter().map(|d| d.text).collect();
         assert_eq!(texts, ["draft 4", "draft 3", "draft 2", "draft 1", "draft 0"]);
@@ -546,7 +558,7 @@ mod tests {
             push(&dir, "session", &format!("own {n}"), Vec::new(), None, 7).unwrap();
         }
         push(&dir, "new", "moved", Vec::new(), None, 7).unwrap();
-        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 1);
+        assert_eq!(move_stack(&dir, "new", "session").unwrap().count, 1);
         let texts: Vec<String> =
             load(&chat_path(&dir, "session")).unwrap().into_iter().map(|d| d.text).collect();
         assert_eq!(texts, ["moved", "own 4", "own 3", "own 2", "own 1"]);
@@ -558,7 +570,7 @@ mod tests {
         let dir = home.path().join(DIR);
         push(&dir, "session", "same", Vec::new(), None, 5).unwrap();
         push(&dir, "new", "same", Vec::new(), None, 5).unwrap();
-        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 1);
+        assert_eq!(move_stack(&dir, "new", "session").unwrap().count, 1);
         let kept = load(&chat_path(&dir, "session")).unwrap();
         assert_eq!(kept.len(), 2);
         assert_ne!(kept[0].id, kept[1].id);

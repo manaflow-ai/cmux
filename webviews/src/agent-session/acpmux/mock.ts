@@ -697,10 +697,11 @@ export class MockAcpmuxSocket {
         const to = String(params.to);
         if (from === to) return { moved: 0 };
         const kept = this.stash.get(to) ?? [];
-        const moving = (this.stash.get(from) ?? []).filter((entry) => !kept.some((own) => own.id === entry.id));
+        const source = this.stash.get(from) ?? [];
+        const moving = source.filter((entry) => !kept.some((own) => own.id === entry.id));
         this.stash.set(to, [...moving, ...kept].slice(0, 5));
         this.stash.delete(from);
-        return { moved: moving.length };
+        return { moved: moving.length, ids: source.map((entry) => entry.id) };
       }
       // The memory inbox's Accept and Dismiss (acpmux hub/memory.rs): writes nothing here, and logs
       // the `memory_resolved` record the daemon would, with only the offer's facts still open.
