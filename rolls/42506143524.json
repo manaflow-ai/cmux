@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42506143524",
+  "recorded_at": "2026-11-08T17:49:09Z",
+  "reason": "cmux-tui 94d9f6bbb8ad changes the image's cmux-tui (pinned a2e4b46d418a)",
+  "dry_run": false,
+  "cmux_tui": "94d9f6bbb8adceaed736d1aa6596286d2eb2570d",
+  "fixes": [
+    {
+      "sha": "94d9f6bbb8adceaed736d1aa6596286d2eb2570d",
+      "mergedAt": "2026-11-08T17:25:11Z",
+      "subject": "carrier serve: close off the slot lock, time a stream from handover, count allocated lanes, require a JWT's shape (#38559)"
+    },
+    {
+      "sha": "41cb6c1ad46ad63e1cf01ed259c263700f323c5d",
+      "mergedAt": "2026-11-08T17:22:24Z",
+      "subject": "fix(cmux-tui-core): dogfood png golden fixture carries the GHOSTSNP kitty image records of the #35478 ghostty-next sync (#38737)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T17:49:09Z",
+    "snapshot_id": "sh-c62258e74cc545bd872e40db398e98df",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42506143524): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3cb2e684fb47880a3e58c3ed58d2aca02ad42452",
+    "image": "cloud-native-auto-94d9f6bb-42506143524-1",
+    "revision": "ci-42506143524-1",
+    "at": "2026-11-08T17:49:09Z"
+  },
+  "rolled_back": false
+}
