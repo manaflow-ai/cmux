@@ -136,6 +136,8 @@ public final class AcpmuxChatWindows {
         public var total: Int?
         /// More chats pass the window's filter past its rows.
         public var hasMore: Bool
+        /// The revision a diff applies on: the one before it, or the first of a drain's diffs merged into it.
+        var follows: UInt64
 
         public init(window: String, generation: UInt64? = nil, revision: UInt64, full: Bool, keys: [String], rows: [AcpmuxChat],
                     hasMore: Bool = false) {
@@ -146,7 +148,19 @@ public final class AcpmuxChatWindows {
             self.keys = keys
             self.rows = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
             self.hasMore = hasMore
+            follows = revision &- 1
             total = nil
+        }
+
+        /// This message and `next` as one, when `next` is the diff right after it for the same spec: `next`'s keys,
+        /// counts and revision, and the rows of both (`next`'s where both have a chat). Nil otherwise.
+        func merged(with next: Update) -> Update? {
+            guard !next.full, next.window == window, next.generation == generation, next.revision == revision &+ 1 else { return nil }
+            var merged = next
+            merged.full = full
+            merged.follows = follows
+            merged.rows = rows.merging(next.rows) { $1 }
+            return merged
         }
 
         public init?(params: [String: Any]) {
@@ -284,9 +298,21 @@ public final class AcpmuxChatWindows {
         for id in retry.sorted() { if let spec = specs[id] { ask(spec) } }
     }
 
-    /// Applies one drain's window messages, in order.
-    public func apply(contentsOf updates: [Update]) {
-        for update in updates { apply(update) }
+    /// Applies one drain's window messages, in order. A run of diffs that follow each other for one window's spec
+    /// is applied as one diff, so a drain costs each window's keys once plus the rows that changed, and its
+    /// followers run once with the last rows, however many diffs the drain held (a drain of 4,096 diffs, each
+    /// rebuilding and comparing the window's rows, hung the main thread on 2026-11-04).
+    public func apply(contentsOf updates: [Update]) { // perf-hot: 1ms chats-window-diff (every chat index change a window shows)
+        var pending: Update?
+        for update in updates {
+            if let merged = pending?.merged(with: update) {
+                pending = merged
+                continue
+            }
+            if let pending { apply(pending) }
+            pending = update
+        }
+        if let pending { apply(pending) }
     }
 
     /// Applies one window message: O(keys + changed rows). A message for an older spec is dropped;
@@ -299,7 +325,7 @@ public final class AcpmuxChatWindows {
             awaitingFull.remove(update.window)
         } else {
             guard !awaitingFull.contains(update.window) else { return }
-            guard update.revision == model.revision + 1 else { return ask(spec) }
+            guard update.follows == model.revision else { return ask(spec) }
         }
         var known: [String: AcpmuxChat] = [:]
         if !update.full {
