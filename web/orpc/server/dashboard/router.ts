@@ -1,6 +1,5 @@
 import { accountRouter } from "./account";
 import { billingRouter } from "./billing";
-import { cloudRouter } from "./cloud";
 import { coderouterRouter } from "./coderouter";
 import { opsRouter } from "./ops";
 import { settingsRouter } from "./settings";
@@ -17,7 +16,6 @@ export const dashboardRouter = {
   billing: billingRouter,
   teams: teamsRouter,
   coderouter: coderouterRouter,
-  cloud: cloudRouter,
   vault: vaultRouter,
   settings: settingsRouter,
   ops: opsRouter,

@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 import { expectNoErrorCard, watchPage } from "./watch";
 
 const SIDEBAR: ReadonlyArray<{ link: string; path: string; heading: RegExp }> = [
-  { link: "Mac access", path: "/dashboard/cloud", heading: /mac access/i },
   { link: "Overview", path: "/dashboard/coderouter", heading: /coderouter/i },
   { link: "Mobile devices", path: "/dashboard/mobile-devices", heading: /mobile devices/i },
   { link: "iOS TestFlight", path: "/dashboard/testflight", heading: /testflight/i },

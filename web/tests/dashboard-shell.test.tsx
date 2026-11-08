@@ -96,7 +96,7 @@ describe("dashboard shell", () => {
 
   test("labels groups and entries in title case", async () => {
     const html = await renderShell(false);
-    for (const label of ["Cloud", "Mac access", "Coderouter", "Overview", "Remote control", "Mobile devices", "iOS TestFlight", "Account", "Settings"]) {
+    for (const label of ["Coderouter", "Overview", "Remote control", "Mobile devices", "iOS TestFlight", "Account", "Settings"]) {
       expect(html).toContain(`>${label}<`);
     }
   });
@@ -118,7 +118,7 @@ describe("dashboard shell", () => {
 
   test.each(locales)("capitalizes every navigation label in %s", async (locale) => {
     const nav = ((await loadMessages(locale)).dashboard as Record<string, Record<string, string>>).nav!;
-    for (const key of ["cloudGroup", "cloudDevices", "coderouterGroup", "coderouterOverview", "remoteControlGroup", "mobileDevices", "accountGroup", "settings"]) {
+    for (const key of ["coderouterGroup", "coderouterOverview", "remoteControlGroup", "mobileDevices", "accountGroup", "settings"]) {
       const first = nav[key]!.charAt(0);
       // Scripts without case (ja, zh, ko, th, km, ar) have first === upper === lower.
       expect({ key, first }).toEqual({ key, first: first.toLocaleUpperCase(locale) });

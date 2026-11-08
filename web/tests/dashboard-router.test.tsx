@@ -42,7 +42,7 @@ const serveRpc = fakeDashboardRpcFetch({
     };
   },
   "vault.summary": () => ({ sessionCount: 0, rawBytes: 0, compressedBytes: 0, lastUploadedAt: null, agents: [] }),
-  "cloud.devices": () => {
+  "coderouter.overview": () => {
     throw refuse(503, "service_unavailable");
   },
 });
@@ -110,7 +110,6 @@ describe("dashboard router", () => {
     ["/dashboard/billing", "/shell/hub/dashboard/billing"],
     ["/dashboard/testflight", "/shell/dashboard/testflight"],
     ["/dashboard/coderouter", "/shell/dashboard/coderouter"],
-    ["/dashboard/cloud", "/shell/dashboard/cloud"],
     ["/dashboard/mobile-devices", "/shell/dashboard/mobile-devices"],
     ["/dashboard/settings", "/shell/hub/dashboard/settings/"],
     ["/dashboard/settings/api-keys", "/shell/hub/dashboard/settings/api-keys"],
@@ -125,6 +124,12 @@ describe("dashboard router", () => {
     const { router } = await loadRouter(url);
     expect(leafRouteId(router)).toBe(routeId);
     expect(router.state.matches.some((match) => match._notFound)).toBe(false);
+  });
+
+  test("the deleted Cloud page redirects to the dashboard home, so old return URLs still land", async () => {
+    const { router } = await loadRouter("/dashboard/cloud?welcome=max");
+    expect(router.state.location.pathname).toBe("/dashboard");
+    expect(leafRouteId(router)).toBe("/shell/dashboard");
   });
 
   test("the locale prefix is the basepath, so route paths stay public", async () => {
@@ -174,7 +179,7 @@ describe("dashboard router", () => {
     // The home cards follow the shell navigation; Vault leads when enabled.
     const main = html.slice(html.indexOf("<main"));
     expect(main.indexOf('href="/dashboard/vault"')).toBeGreaterThan(-1);
-    expect(main.indexOf('href="/dashboard/vault"')).toBeLessThan(main.indexOf('href="/dashboard/cloud"'));
+    expect(main.indexOf('href="/dashboard/vault"')).toBeLessThan(main.indexOf('href="/dashboard/coderouter"'));
     expect(main).toContain('href="/dashboard/testflight"');
   });
 
@@ -205,10 +210,10 @@ describe("dashboard router", () => {
   });
 
   test("a 503 from page data shows the page's own error, not sign-in recovery", async () => {
-    const { html } = await render("/dashboard/cloud");
+    const { html } = await render("/dashboard/coderouter");
     expect(html).toContain('data-testid="dashboard-shell"');
     expect(html).toContain('data-testid="section-error"');
-    expect(html).toContain("Cloud machines and Mac access");
+    expect(html).toContain("Coderouter");
     expect(html).toContain("Try again");
     expect(html).not.toContain('data-testid="dashboard-auth-recovery"');
   });
