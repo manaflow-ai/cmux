@@ -24,17 +24,19 @@ async fn open(grant: Option<CarrierGrant>, reply: &'static str) -> (Value, Vec<S
     let fake = tokio::spawn(async move {
         let (socket, _) = listener.accept().await.unwrap();
         let mut socket = BufReader::new(socket);
+        // Every line it reads, the first answered with `reply`, until it hears nothing for a
+        // while (a stream without a grant sends nothing of its own here).
         let mut lines = Vec::new();
-        let mut line = String::new();
-        if socket.read_line(&mut line).await.unwrap() > 0 {
-            lines.push(line.trim_end().to_owned());
-            socket.get_mut().write_all(reply.as_bytes()).await.unwrap();
-        }
         loop {
             let mut line = String::new();
             match tokio::time::timeout(Duration::from_millis(300), socket.read_line(&mut line)).await
             {
-                Ok(Ok(n)) if n > 0 => lines.push(line.trim_end().to_owned()),
+                Ok(Ok(n)) if n > 0 => {
+                    if lines.is_empty() {
+                        socket.get_mut().write_all(reply.as_bytes()).await.unwrap();
+                    }
+                    lines.push(line.trim_end().to_owned());
+                }
                 _ => break,
             }
         }
