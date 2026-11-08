@@ -34,7 +34,7 @@ if [ "$count" -le "${FAKE_ZIG_HANGS:-0}" ]; then
   echo half > "zig-pkg/.tmp-$count/data"
   echo half > "$FAKE_CACHE/p/N-cut-$count.tar.gz"
   # Another job on the machine finishes a download meanwhile.
-  echo whole | gzip > "$FAKE_CACHE/p/N-other-$count.tar.gz"
+  tar -czf "$FAKE_CACHE/p/N-other-$count.tar.gz" -T /dev/null
   sleep 600 &
   echo "$!" >> "${FAKE_ZIG_CHILDREN:?}"
   wait
@@ -62,7 +62,7 @@ run() { # <hangs> <failures> -> status in $status, seconds in $elapsed
   : > "$TMP/children"
   # Packages an earlier run finished, which a stopped attempt must not touch.
   mkdir -p "$TMP/src/zig-pkg/N-old"
-  echo whole | gzip > "$TMP/cache/p/N-old.tar.gz"
+  tar -czf "$TMP/cache/p/N-old.tar.gz" -T /dev/null
   # Another job's download in progress: the global tmp/ is shared on a reused machine.
   mkdir -p "$TMP/cache/tmp/other-job"
   if [ "${PRE_CUT:-0}" = 1 ]; then
