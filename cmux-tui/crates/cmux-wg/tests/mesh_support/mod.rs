@@ -162,7 +162,7 @@ pub async fn cuttable_link(server: SocketAddr, delay: Duration) -> (SocketAddr, 
     let cut = Arc::new(AtomicBool::new(false));
     let client: Arc<Mutex<Option<SocketAddr>>> = Arc::default();
     let forward = |from: Arc<UdpSocket>, to: Arc<UdpSocket>, toward: Option<SocketAddr>| {
-        let (cut, client) = (cut.clone(), client.clone());
+        let (cut, client, delay) = (cut.clone(), client.clone(), delay);
         tokio::spawn(async move {
             let mut buffer = vec![0u8; 65_536];
             while let Ok((count, source)) = from.recv_from(&mut buffer).await {
