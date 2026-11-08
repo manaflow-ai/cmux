@@ -1,4 +1,6 @@
 // l10n-allow-file: isolated browser fixture.
+// Load the same sizing and typography tokens as the app before the pane styles.
+import "../../src/pages/shared/desktop.css";
 import { createRoot } from "react-dom/client";
 import { TimeBreakdown, type TimeBreakdownLook } from "../../src/agent-session/acpmux/session-info/TimeBreakdown";
 import { breakdown } from "../../src/agent-session/acpmux/session-info/TimeBreakdown.gallery";
