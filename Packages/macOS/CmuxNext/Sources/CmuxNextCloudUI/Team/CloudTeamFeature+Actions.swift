@@ -17,14 +17,15 @@ extension CloudTeamFeature {
         let host = { [weak self] in self?.host }
         // The publisher starts with the actions it shares the store with, once per app.
         publisher.start()
-        func bind(_ id: ActionID, _ run: @escaping @MainActor (ActionInvocation) throws(CloudTeamError) -> @MainActor () async throws -> [String: Any]) {
+        func bind(_ id: ActionID, _ run: @escaping @MainActor (ActionInvocation) throws -> @MainActor () async throws -> [String: Any]) {
             let bound = registry.bindEffect(id, unavailable: reason) { invocation in
                 let work: @MainActor () async throws -> [String: Any]
                 do {
                     work = try run(invocation)
                 } catch {
                     // A bad --session or a run with no Cloud target: refused with its code, nothing sent.
-                    let failure = ActionWorkFailure(code: error.code, reason: error.message)
+                    let refusal = error as? CloudTeamError ?? CloudTeamError(code: "validation.invalid", message: String(describing: error))
+                    let failure = ActionWorkFailure(code: refusal.code, reason: refusal.message)
                     return .applied(result: { .failure(failure) })
                 }
                 return .applied(result: {

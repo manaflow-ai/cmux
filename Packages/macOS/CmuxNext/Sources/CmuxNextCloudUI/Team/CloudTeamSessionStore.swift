@@ -1,5 +1,5 @@
 public import CmuxNextActions
-public import Foundation
+import Foundation
 public import Observation
 
 /// The team's Cloud workspaces and chats (cloud multiplayer, lane D): the one core path the
