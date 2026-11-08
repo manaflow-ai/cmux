@@ -234,6 +234,13 @@ impl<'a> RosterEvent<'a> {
         true
     }
 
+    /// The plugin saw the agent's own idle prompt (`native.visible.idle`,
+    /// the screen detector's prompt-box rules): positive evidence that no
+    /// dialog covers it.
+    fn plugin_visible_idle(&self) -> bool {
+        self.payload.pointer("/native/visible/idle").and_then(Value::as_bool) == Some(true)
+    }
+
     fn plugin_event_name(&self) -> Option<&str> {
         if !self.plugin_event() {
             return None;
@@ -679,7 +686,7 @@ impl AgentRoster {
             return Vec::new();
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
-        // The screen showed a blocker and now shows something else.
+        // The screen proves that no dialog is up any more ([`Self::screen_clears_hook_blocker`]).
         let mut screen_cleared_blocker = false;
         let (state, source, producer, producer_generation, session, agent, updated_at_ms) = if event
             .plugin_event()
@@ -699,8 +706,9 @@ impl AgentRoster {
             let session = event.normalized("source_session").map(str::to_string);
             let agent = event.adapter_id().map(str::to_string);
             let state = if event_name == "session.ended" { AgentState::Done } else { state };
+            let saw_blocker_go = self.note_screen_evidence(terminal_id, event.producer_id, state);
             screen_cleared_blocker =
-                self.note_screen_evidence(terminal_id, event.producer_id, state);
+                saw_blocker_go || (state == AgentState::Idle && event.plugin_visible_idle());
             (
                 state,
                 AgentSource::Plugin,
@@ -985,9 +993,13 @@ impl AgentRoster {
     /// while the hook is fresh. Blocked is the one hook state whose end can
     /// come without a hook: a dialog dismissed with Esc interrupts the turn,
     /// so neither the tool's completion nor the turn's end is reported. The
-    /// screen must have shown the blocker and then shown it gone
-    /// (`cleared_blocker`), after the hook reported the block, so a hook
-    /// question the screen rules do not recognize stays blocked.
+    /// screen must prove the dialog gone (`cleared_blocker`), observed after
+    /// the hook reported the block: the same plugin saw the blocker and now
+    /// sees it gone, or it sees the agent's own idle prompt
+    /// (`native.visible.idle`), which no dialog shows. A dismissal faster than
+    /// the plugin's scan leaves only the second proof. A plain screen `idle`
+    /// proves nothing, so a hook question the screen rules do not recognize
+    /// stays blocked.
     fn screen_clears_hook_blocker(
         existing: &RosterEntry,
         cleared_blocker: bool,

@@ -34,6 +34,11 @@ fn apply_hook(roster: &mut AgentRoster, sequence: u64, at_ms: u64, native_event:
 }
 
 fn plugin_payload(state: &str, observed_at_ms: u64) -> Value {
+    plugin_payload_seen(state, observed_at_ms, false)
+}
+
+/// `visible_idle`: the detector matched the agent's idle prompt box.
+fn plugin_payload_seen(state: &str, observed_at_ms: u64, visible_idle: bool) -> Value {
     json!({
         "format": AGENT_PLUGIN_FORMAT,
         "plugin": {"id": PLUGIN, "version": 1},
@@ -45,13 +50,24 @@ fn plugin_payload(state: &str, observed_at_ms: u64) -> Value {
             "observed_at_ms": observed_at_ms.to_string(),
             "plugin_generation": "1",
         },
+        "native": {"visible": {"idle": visible_idle, "blocker": false, "working": false}},
     })
 }
 
 /// One screen-detection report, committed when it was observed.
 fn apply_screen(roster: &mut AgentRoster, sequence: u64, at_ms: u64, state: &str) {
+    apply_screen_seen(roster, sequence, at_ms, state, false);
+}
+
+fn apply_screen_seen(
+    roster: &mut AgentRoster,
+    sequence: u64,
+    at_ms: u64,
+    state: &str,
+    visible_idle: bool,
+) {
     let subjects = vec![JournalSubject { kind: "terminal".into(), id: TERMINAL.into() }];
-    let payload = plugin_payload(state, at_ms);
+    let payload = plugin_payload_seen(state, at_ms, visible_idle);
     let kind = format!("plugin.{PLUGIN}.agent.state.changed");
     roster.apply(&RosterEvent {
         producer_id: PLUGIN,
@@ -167,4 +183,31 @@ fn a_retired_terminal_forgets_its_screen_evidence() {
     let mut roster = denied_with_esc();
     assert!(roster.retire_terminal(TERMINAL));
     assert!(roster.screen_evidence.is_empty());
+}
+
+/// The real-build repro: Esc 0.3 s after the dialog drew, before the plugin's
+/// next scan, so the plugin never reported the blocker. Its next report is
+/// the idle prompt box, which no dialog shows.
+#[test]
+fn a_dialog_dismissed_before_the_screen_scan_clears_on_the_visible_prompt() {
+    let mut roster = AgentRoster::default();
+    apply_hook(&mut roster, 1, 10_000, "UserPromptSubmit", "");
+    apply_screen(&mut roster, 2, 10_400, "working");
+    apply_hook(&mut roster, 3, 12_100, "PreToolUse", "Bash");
+    apply_hook(&mut roster, 4, 12_150, "PermissionRequest", "Bash");
+    assert_eq!(state(&roster), "blocked");
+    apply_screen_seen(&mut roster, 5, 12_600, "idle", true);
+    assert_eq!(state(&roster), "idle");
+    assert_eq!(roster.entries[TERMINAL].source, "plugin");
+}
+
+/// A prompt box seen before the hook's block is older evidence: it cannot
+/// clear the block.
+#[test]
+fn a_visible_prompt_seen_before_the_block_does_not_clear_it() {
+    let mut roster = AgentRoster::default();
+    apply_hook(&mut roster, 1, 10_000, "UserPromptSubmit", "");
+    apply_hook(&mut roster, 2, 12_150, "PermissionRequest", "Bash");
+    apply_screen_seen(&mut roster, 3, 12_100, "idle", true);
+    assert_eq!(state(&roster), "blocked");
 }
