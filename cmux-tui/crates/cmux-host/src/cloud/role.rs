@@ -27,7 +27,7 @@ use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContex
 use serde_json::{Value, json};
 
 use super::agent_socket::listen;
-use super::carrier_server::CarrierServer;
+use super::carrier_server::{CarrierServer, Resumes};
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
@@ -404,6 +404,9 @@ struct WorkerHandle {
     /// Set before `stop`: from then on the minter hands out no token,
     /// even if the worker is stuck in a request past the deadline.
     github_stop: Arc<Stop>,
+    /// Noted on `HostEvent::Resumed`: the carrier ticket thread reads it
+    /// directly, never through the worker's loop.
+    resumes: Arc<Resumes>,
 }
 
 impl CloudRole {
@@ -466,21 +469,30 @@ impl Role for CloudRole {
         let (done_tx, done) = std::sync::mpsc::channel::<()>();
         let github_stop = Arc::new(Stop::default());
         let worker_stop = Arc::clone(&github_stop);
+        let resumes = Arc::new(Resumes::default());
+        let worker_resumes = Arc::clone(&resumes);
         let thread = std::thread::Builder::new()
             .name("cmux-host-cloud".to_owned())
             .spawn(move || {
                 let _done = done_tx;
-                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs, worker_stop)
-                    .map(|mut worker| {
-                        worker.bootstrap = bootstrap;
-                        worker
-                    });
+                let worker = Worker::new(
+                    paths,
+                    instance_id,
+                    heartbeat_env,
+                    theirs,
+                    worker_stop,
+                    worker_resumes,
+                )
+                .map(|mut worker| {
+                    worker.bootstrap = bootstrap;
+                    worker
+                });
                 if let Err(e) = worker.and_then(|mut w| w.run()) {
                     log(&format!("worker stopped: {e}"));
                 }
             })
             .map_err(|e| RoleError(e.to_string()))?;
-        self.worker = Some(WorkerHandle { thread, control: ours, done, github_stop });
+        self.worker = Some(WorkerHandle { thread, control: ours, done, github_stop, resumes });
         Ok(())
     }
 
@@ -491,6 +503,11 @@ impl Role for CloudRole {
     fn on_event(&mut self, event: &HostEvent) -> Result<(), RoleError> {
         match event {
             HostEvent::Resumed => {
+                // First: the carrier ticket thread asks for a fresh ticket while the session host finds its
+                // registration from before the pause dead.
+                if let Some(worker) = &self.worker {
+                    worker.resumes.note();
+                }
                 if let Some(bridge) = &self.bootstrap {
                     let _ = bridge.resume();
                 }
@@ -585,6 +602,7 @@ impl Worker {
         heartbeat_env: Option<String>,
         control: UnixStream,
         github_stop: Arc<Stop>,
+        resumes: Arc<Resumes>,
     ) -> io::Result<Worker> {
         let state_dir = paths.at(STATE_DIR);
         fs::create_dir_all(&state_dir)?;
@@ -598,7 +616,14 @@ impl Worker {
         let keyset = super::carrier_keyset::Refresher::spawn(paths.clone(), log)?;
         // Before the bind: a ticket asked meanwhile waits for it there, not in the poll loop.
         let carrier = listen(&paths, super::carrier_server::CARRIER_SOCKET)
-            .and_then(|l| CarrierServer::spawn(l, wall_ms, log, Arc::clone(&github_stop)))
+            .and_then(|l| {
+                let hooks = super::carrier_server::Hooks {
+                    now: wall_ms,
+                    log,
+                    ask_wait: super::carrier_server::ASK_WAIT,
+                };
+                CarrierServer::spawn(l, hooks, Arc::clone(&github_stop), resumes)
+            })
             .map_err(|e| log(&format!("carrier socket: {e}")))
             .ok();
         Ok(Worker {
@@ -1037,7 +1062,9 @@ impl Worker {
         }
         if let Some(carrier) = self.carrier.as_ref() {
             match github_client(&bound, &key) {
-                Ok(client) => carrier.bound(client),
+                // A machine with a relay carrier asks for its first ticket now (`carrier_server.rs`).
+                Ok(client) => carrier
+                    .bound(client, self.paths.at(crate::carrier_entry::CARRIER_FILE).is_file()),
                 Err(e) => log(&format!("carrier ticket: {e}")),
             }
         }
