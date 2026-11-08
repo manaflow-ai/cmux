@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42484154423",
+  "recorded_at": "2026-11-08T13:24:00Z",
+  "reason": "cmux-tui 020abdb81b30 changes the image's cmux-tui (pinned 1752445e71d1)",
+  "dry_run": false,
+  "cmux_tui": "020abdb81b30b34d8ade196e26e0f626e8498ef7",
+  "fixes": [
+    {
+      "sha": "020abdb81b30b34d8ade196e26e0f626e8498ef7",
+      "mergedAt": "2026-11-08T05:01:50-08:00",
+      "subject": "Agent chat finishes notify while cmux is in the background (#38418)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T13:24:00Z",
+    "snapshot_id": "sh-f29b750a7d40497b8250d79a768acd7a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42484154423): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6b0e59ea6a2e25685613f031469d7f6c08fe2aeb",
+    "image": "cloud-native-auto-020abdb8-42484154423-1",
+    "revision": "ci-42484154423-1",
+    "at": "2026-11-08T13:24:00Z"
+  },
+  "rolled_back": false
+}
