@@ -22,7 +22,7 @@
 //! ledger is never written over.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use cmux_classic_import::ledger::{self, Entry, Folder, Ledger, Load, Stage, State};
 use cmux_classic_import::plan::{self, Mode, Preview};
@@ -485,6 +485,6 @@ pub(crate) fn dispatch(
 }
 
 #[cfg(test)]
-pub(crate) fn places_for_test(home: &Path) -> Places {
+pub(crate) fn places_for_test(home: &std::path::Path) -> Places {
     Places { home: home.to_path_buf(), xdg_state_home: None }
 }

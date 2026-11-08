@@ -226,12 +226,9 @@ fn a_newer_ledger_is_left_alone_and_only_classics_files_are_backed_up() {
     std::fs::write(&stray, "{}").unwrap();
     let mut fields = json!({"bundle_id": BUNDLE, "event": "begin", "source": first["source"], "backups": [stray]});
     let parsed = Record::parse(fields.as_object().unwrap()).unwrap();
-    let mutation = WorkspaceMutation::new(
-        "stray".into(),
-        "resource-api",
-        crate::workspace_registry::Actor::Daemon,
-    )
-    .unwrap();
+    let mutation =
+        WorkspaceMutation::new("stray", "resource-api", crate::workspace_registry::Actor::Daemon)
+            .unwrap();
     assert!(mux.classic_import_record(Some(&home.places()), &mutation, &parsed).is_err());
     assert!(!home.ledger().exists());
 
@@ -250,7 +247,7 @@ fn a_newer_ledger_is_left_alone_and_only_classics_files_are_backed_up() {
     fields["backups"] = first["backups"].clone();
     let parsed = Record::parse(fields.as_object().unwrap()).unwrap();
     let mutation = WorkspaceMutation::new(
-        "over-newer".into(),
+        "over-newer",
         "resource-api",
         crate::workspace_registry::Actor::Daemon,
     )
