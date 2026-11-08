@@ -62,7 +62,8 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
             log.log("keychain read missed file fallback token; switching to file fallback for this session")
             return fallback
         }
-        return primary
+        // An unreadable file may still hold the session the Keychain lacks.
+        return fallback.isAvailable ? primary : fallback
     }
 
     /// Reports current storage availability without consuming another read's status.

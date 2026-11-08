@@ -568,10 +568,14 @@ actor APIClient {
         let outcome = await refresh(refreshToken: refreshToken)
         guard epoch == refreshCooldownEpoch else {
             // An unrelated token store can change this client's epoch. Its
-            // stale result must not change cooldowns or clear credentials, but
-            // the coordinator still owns compare-and-set for a valid success.
-            if case .success = outcome { return outcome }
-            return .transientFailure
+            // stale result must not change cooldowns. Terminal outcomes still
+            // pass through: the coordinator applies them by compare-and-set on
+            // the exchanged refresh token, so a definitive rejection can only
+            // clear that same dead token, never a replacement session.
+            switch outcome {
+            case .success, .definitivelyRejected: return outcome
+            default: return .transientFailure
+            }
         }
         switch outcome {
         case .rateLimited(let retryAfter, let bodyKind):

@@ -93,9 +93,13 @@ extension RateLimitRetryTests {
         )
 
         let result = await refresh.value
-        #expect(result.refreshToken == "session-a")
+        // A stale definitive rejection still ends the token it rejected; the
+        // coordinator clears it by compare-and-set, so store B is untouched.
+        let survivingRefresh: String? = status == 401 ? nil : "session-a"
+        #expect(result.refreshToken == survivingRefresh)
         #expect(result.accessToken == (status == 200 ? RefreshLifecycleTests.fresh : nil))
-        #expect(await store.getStoredRefreshToken() == "session-a")
+        #expect(await store.getStoredRefreshToken() == survivingRefresh)
+        #expect(await otherStore.getStoredRefreshToken() == "session-b")
         // A stale 429 must not delay store B's first refresh either.
         await fixture.release(status: 200, token: RefreshLifecycleTests.fresh)
         let otherResult = await client.getOrFetchLikelyValidTokens(tokenStoreOverride: otherStore)

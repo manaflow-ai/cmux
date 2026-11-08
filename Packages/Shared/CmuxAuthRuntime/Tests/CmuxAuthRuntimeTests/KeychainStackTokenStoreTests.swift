@@ -7,6 +7,42 @@ import Testing
 
 @Suite(.serialized)
 struct KeychainStackTokenStoreTests {
+    /// An existing credentials file that cannot be read is not an empty
+    /// store, and the failed read is retried rather than cached.
+    @Test func unreadableCredentialsFileIsUnavailableAndRetried() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let credentials = directory.appendingPathComponent("credentials.json")
+        // A directory at the file's path makes every read fail.
+        try FileManager.default.createDirectory(at: credentials, withIntermediateDirectories: true)
+        let file = FileStackTokenStore(directory: directory)
+
+        let failed = await file.readStoredTokens()
+        #expect(failed.refreshToken == nil)
+        #expect(!failed.isAvailable)
+
+        try FileManager.default.removeItem(at: credentials)
+        try Data(#"{"accessToken":"access","refreshToken":"refresh"}"#.utf8).write(to: credentials)
+        let recovered = await file.readStoredTokens()
+        #expect(recovered.refreshToken == "refresh")
+        #expect(recovered.isAvailable)
+    }
+
+    /// An undecodable file never heals by retrying, so it reads as an empty,
+    /// available store and the user can sign in again.
+    @Test func undecodableCredentialsFileReadsAsEmpty() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: directory.appendingPathComponent("credentials.json"))
+
+        let read = await FileStackTokenStore(directory: directory).readStoredTokens()
+        #expect(read.refreshToken == nil)
+        #expect(read.isAvailable)
+    }
+
     #if canImport(Security)
     @Test func clearingLegacyTokensPreservesSameAccountInAnotherService() async throws {
         let projectID = UUID().uuidString

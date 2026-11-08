@@ -23,6 +23,9 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
     private let log = AuthDebugLog()
     private let fileURL: URL
     private var cache: Snapshot?
+    /// Whether the last load answered definitively. An existing credentials
+    /// file that could not be read is not an empty store.
+    private var lastLoadWasDefinitive = true
 
     /// Creates a file store persisting to `credentials.json` inside `directory`.
     /// - Parameter directory: The directory to create (0700) and write into;
@@ -41,11 +44,13 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     /// Reads both credentials from one file snapshot.
-    /// - Returns: The file's credentials as a definitive read.
+    /// - Returns: The file's credentials, unavailable when an existing
+    ///   credentials file could not be read.
     public func readStoredTokens() -> AuthStoredTokenRead {
         let snapshot = loadIfNeeded()
         return AuthStoredTokenRead(
-            accessToken: snapshot.accessToken, refreshToken: snapshot.refreshToken, isAvailable: true
+            accessToken: snapshot.accessToken, refreshToken: snapshot.refreshToken,
+            isAvailable: lastLoadWasDefinitive
         )
     }
 
@@ -99,21 +104,38 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     private func loadIfNeeded() -> Snapshot {
-        if let cache { return cache }
-        let snapshot = readFromDisk()
+        if let cache {
+            lastLoadWasDefinitive = true
+            return cache
+        }
+        guard let snapshot = readFromDisk() else {
+            // Not cached: the next read retries the file.
+            lastLoadWasDefinitive = false
+            return Snapshot()
+        }
+        lastLoadWasDefinitive = true
         cache = snapshot
         return snapshot
     }
 
-    private func readFromDisk() -> Snapshot {
+    /// Reads the credentials file.
+    /// - Returns: The stored snapshot; an empty one for a missing or
+    ///   undecodable file, which no retry can fix; `nil` when an existing file
+    ///   could not be read.
+    private func readFromDisk() -> Snapshot? {
         let fm = FileManager.default
         guard fm.fileExists(atPath: fileURL.path) else { return Snapshot() }
+        let data: Data
         do {
-            let data = try Data(contentsOf: fileURL)
-            let snapshot = try JSONDecoder().decode(Snapshot.self, from: data)
-            return snapshot
+            data = try Data(contentsOf: fileURL)
         } catch {
             log.log("credentials read failed: \(error)")
+            return nil
+        }
+        do {
+            return try JSONDecoder().decode(Snapshot.self, from: data)
+        } catch {
+            log.log("credentials decode failed: \(error)")
             return Snapshot()
         }
     }
