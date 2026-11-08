@@ -254,6 +254,17 @@ class FastGate(unittest.TestCase):
         # A skipped cargo half too: push-head-preflight was not current, so neither tier has a verdict.
         with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
             run(Reader(base + [check("cmux-next fast tier (cargo)", conclusion="SKIPPED")]))
+        # A cancelled run skips the Mac tier too: the cargo half may have passed before the cancel.
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(base + [check("cmux-next fast tier (cargo)"), check("cmux-next guards", conclusion="CANCELLED")]))
+        # Path routing did not pass: its outputs are not a route.
+        no_route = [c for c in base if c["name"] != "cmux-next path routing"]
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(no_route + [check("cmux-next path routing", conclusion="FAILURE"), check("cmux-next fast tier (cargo)")]))
+        # A change to the route itself cannot excuse its own skip.
+        for path in gate.ROUTE_FILES:
+            with self.subTest(path=path), self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+                run(Reader(base + [check("cmux-next fast tier (cargo)")], files=(path,)))
 
     def test_the_callers_full_file_list_routes_web(self):
         """gh pr view --json files stops at 100 files; the helper passes its paginated list,

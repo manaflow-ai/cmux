@@ -170,9 +170,21 @@ def latest(rollup: list[dict]) -> dict[str, tuple[str, str]]:
     return checks
 
 
-def routed_skip(checks: dict[str, tuple[str, str]]) -> bool:
-    """Whether a skipped Mac fast tier was path routing's choice: its cargo half ran (any state but
-    skipped), which needs push-head-preflight current, the only other reason the Mac tier skips."""
+# A change to these files changes the route itself, so its own route cannot excuse a skip.
+ROUTE_FILES = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/cmux-next/fast-tier.json")
+
+
+def routed_skip(checks: dict[str, tuple[str, str]], files: list[str]) -> bool:
+    """Whether a skipped Mac fast tier was path routing's choice: path routing passed, its cargo half
+    ran (any state but skipped or cancelled), which needs push-head-preflight current, the only other
+    reason the Mac tier skips, and no check on the head was cancelled (a cancelled run skips the Mac
+    tier too). Never for a change to the route itself: the PR's own route would excuse its own skip."""
+    if any(path in ROUTE_FILES for path in files):
+        return False
+    if checks.get(ROUTING, ("", ""))[1] != "SUCCESS":
+        return False
+    if any(conclusion == "CANCELLED" for _, conclusion in checks.values()):
+        return False
     cargo = checks.get(FAST_TIER_CARGO)
     return cargo is not None and cargo[1] != "SKIPPED"
 
@@ -206,7 +218,7 @@ def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next:
                 # (path_route fast_tier=false, e.g. a cmux-tui Rust change, PR #38743). The
                 # cargo half has the same conditions minus the path ones, so a cargo half
                 # that was not skipped proves the preflight was current: the route skipped it.
-                if name == FAST_TIER and touches_next and not routed_skip(checks):
+                if name == FAST_TIER and touches_next and not routed_skip(checks, files):
                     raise Refused(f"'{name}' was skipped on the exact head: no verdict to waive, "
                                   "and --override cannot bypass that; rerun it")
                 continue
