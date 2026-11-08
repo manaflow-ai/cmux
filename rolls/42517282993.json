@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42517282993",
+  "recorded_at": "2026-11-08T20:04:03Z",
+  "reason": "cmux-tui 811a68071e57 changes the image's cmux-tui (pinned a7daab079346)",
+  "dry_run": false,
+  "cmux_tui": "811a68071e57a025ca5f28c4a3ea0c4427b48483",
+  "fixes": [
+    {
+      "sha": "811a68071e57a025ca5f28c4a3ea0c4427b48483",
+      "mergedAt": "2026-11-08T11:35:30-08:00",
+      "subject": "cmux-remote: keep the redialer's deadlines and probes honest under contention (#38762)"
+    },
+    {
+      "sha": "91ac233400d6b60718f851487fb5050e54c4eb28",
+      "mergedAt": "2026-11-08T11:35:21-08:00",
+      "subject": "cmux-wg: opt-in ultra mode (FEC and duplication under WireGuard) and its loss bench (#38518)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T20:04:03Z",
+    "snapshot_id": "sh-c385eb88a4534d3788fe68967e50d479",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42517282993): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "aba230d969e8afc31e42fe97aa316750f3f5feaf",
+    "image": "cloud-native-auto-811a6807-42517282993-1",
+    "revision": "ci-42517282993-1",
+    "at": "2026-11-08T20:04:03Z"
+  },
+  "rolled_back": false
+}
