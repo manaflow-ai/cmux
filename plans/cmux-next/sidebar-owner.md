@@ -1733,5 +1733,8 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Then a new pinned item's pin glyph has its own layer from its init, so the flight's fade applies (it showed at once).
   Then a block never draws a workspace the rows still list (`SidebarView.docWorkspaceListing`): a pin whose document
   comes a render before its rows starts on the row, not 17 pt off.
+  Then the app pin flies: a flight puts a new view's layer into its superview's layer before it adds the springs
+  (`SidebarDragSpring.attach`). AppKit attached a new Pinned item's layer only at its display pass, and Core Animation
+  dropped the springs added before that, so the item showed at its slot at once.
   Then a flying list row keeps its opaque ground through its own display pass (`SidebarRowView.flightGround`: the fill is
   painted over the ground, opaque); the p1j films showed the passed titles through a flying selected row.
