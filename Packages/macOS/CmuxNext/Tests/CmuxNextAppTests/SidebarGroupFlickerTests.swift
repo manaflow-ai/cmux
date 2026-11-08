@@ -182,6 +182,22 @@ import Testing
         }
     }
 
+    /// The selected row as drawn while it passes over the top group (event i): its y, its fill's opacity (the
+    /// presentation's background, the opaque cover included) and whether it draws above every top group row.
+    struct Mover {
+        var y: CGFloat
+        var fillAlpha: CGFloat
+        var above: Bool
+    }
+
+    static func mover(_ list: SidebarListView, _ id: WorkspaceID, flipped: Bool) -> Mover? {
+        guard let view = list.rowViews[.workspace(id)], let layer = view.layer, let container = list.layer else { return nil }
+        let index = list.subviews.firstIndex { $0 === view } ?? -1
+        let crossed = ([list.rowViews[.group(top)]] + members.map { list.rowViews[.workspace($0)] }).compactMap { $0 }
+        let above = crossed.allSatisfy { other in (list.subviews.firstIndex { $0 === other } ?? .max) < index }
+        return Mover(y: span(layer, in: container, flipped: flipped).0, fillAlpha: presented(layer).backgroundColor?.alpha ?? 0, above: above)
+    }
+
     static func step(_ list: SidebarListView) {
         list.layoutSubtreeIfNeeded()
         CATransaction.flush()
@@ -205,6 +221,9 @@ import Testing
         let before = sample(list, flipped: flipped)
         var applies = 0
         var frames: [Frame] = []
+        // Event i: the selected row passing over the top group.
+        let passes = event == .selectedPassesOver
+        var movers: [Mover?] = []
         var applyFrames: [(Int, Frame)] = []
         list.onApply = { _ in
             applies += 1
@@ -214,14 +233,17 @@ import Testing
         list.layoutSubtreeIfNeeded()
         CATransaction.flush()
         frames.append(sample(list, flipped: flipped))
+        if passes { movers.append(mover(list, loose[1], flipped: flipped)) }
         for index in 1...30 {
             if let second, index == 2 { apply(second, model, list, intent: intent) }
             step(list)
             frames.append(sample(list, flipped: flipped))
+            if passes { movers.append(mover(list, loose[1], flipped: flipped)) }
         }
         RunLoop.main.run(until: Date().addingTimeInterval(1.0))
         step(list)
         let after = sample(list, flipped: flipped)
+        let landed = passes ? mover(list, loose[1], flipped: flipped) : nil
 
         print("SidebarGroupFlicker ran \(label)")
         var failures: [String] = []
@@ -240,6 +262,9 @@ import Testing
         let headerHeight = before.header.maxY - before.header.minY
         let railOffset = before.rail.minY - before.header.minY
         let folds = event == .topFolds || second == .topFolds
+        // Leo 2026-11-08 ("a bit of a flicker on that, like individual top group"): while the selected row passes over
+        // the top group, no piece of the group dims at all, in any frame: the moving row covers what it crosses itself.
+        let least: Float = passes ? 0.9999 : 0.99
         // The list as `apply` hands it over (before the frame commits): the header is the same view, shown.
         for (index, frame) in applyFrames {
             let h = frame.header
@@ -256,19 +281,19 @@ import Testing
             if h.object != before.header.object { fail(index, "header view replaced or gone (\(h))") }
             if !h.attached { fail(index, "header removed from the list (\(h))") }
             if h.hidden { fail(index, "header hidden (\(h))") }
-            if h.alpha < 0.99 { fail(index, "header alpha \(h.alpha) (\(h))") }
+            if h.alpha < least { fail(index, "header alpha \(h.alpha) (\(h))") }
             if abs((h.maxY - h.minY) - headerHeight) > 0.5 { fail(index, "header height \(Piece.f(h.maxY - h.minY)), was \(Piece.f(headerHeight))") }
             // The pieces drawn before stay drawn, at full opacity, with the header.
             for (name, was, now) in [("bar fill", before.fill, frame.fill), ("glass rim", before.rim, frame.rim)] where was.shown {
                 if !now.shown { fail(index, "\(name) gone or hidden (\(now))") }
-                if now.alpha < 0.99 { fail(index, "\(name) alpha \(now.alpha)") }
+                if now.alpha < least { fail(index, "\(name) alpha \(now.alpha)") }
                 if abs(now.minY - was.minY) > 0.5 { fail(index, "\(name) at y \(Piece.f(h.minY + now.minY)), header y \(Piece.f(h.minY)) (offset \(Piece.f(now.minY)), was \(Piece.f(was.minY)))") }
             }
             if before.rail.shown {
                 let r = frame.rail
                 if r.object != before.rail.object { fail(index, "rail replaced or gone (\(r), header y \(Piece.f(h.minY)))") }
                 if !r.shown { fail(index, "rail detached or hidden (\(r))") }
-                if r.alpha < 0.99 { fail(index, "rail alpha \(r.alpha) (\(r), header y \(Piece.f(h.minY)))") }
+                if r.alpha < least { fail(index, "rail alpha \(r.alpha) (\(r), header y \(Piece.f(h.minY)))") }
                 if abs((r.minY - h.minY) - railOffset) > 0.5 {
                     fail(index, "rail y \(Piece.f(r.minY)), header y \(Piece.f(h.minY)): offset \(Piece.f(r.minY - h.minY)), was \(Piece.f(railOffset))")
                 }
@@ -278,8 +303,22 @@ import Testing
                 let now = frame.members[id] ?? Piece()
                 if now.object != was.object { fail(index, "member \(id.rawValue) view replaced or gone (\(now))") }
                 if !now.shown { fail(index, "member \(id.rawValue) detached or hidden (\(now))") }
-                if now.alpha < 0.99 { fail(index, "member \(id.rawValue) alpha \(now.alpha) (\(now))") }
+                if now.alpha < least { fail(index, "member \(id.rawValue) alpha \(now.alpha) (\(now))") }
             }
+        }
+        if passes, let landed {
+            // The invariant pass-over keeps (cx-bqm6, cx-ai79): a translucent selection fill never shows a crossed row's title
+            // through it. In every frame the selected row is still moving it draws above the top group, opaque; once it
+            // lands it paints its own fill again.
+            for (index, mover) in movers.enumerated() {
+                guard let mover else { fail(index, "selected row gone"); continue }
+                guard abs(mover.y - landed.y) > 0.5 else { continue }
+                if !mover.above { fail(index, "selected row at y \(Piece.f(mover.y)) draws below a top group row") }
+                if mover.fillAlpha < 0.999 { fail(index, "selected row at y \(Piece.f(mover.y)) is see-through: fill alpha \(Piece.f(mover.fillAlpha))") }
+            }
+            if landed.fillAlpha > 0.999 { fail(frames.count, "selected row still covered after it landed (fill alpha \(Piece.f(landed.fillAlpha)))") }
+            log.append("\(label): selected row y \(movers.prefix(10).map { $0.map { Piece.f($0.y) } ?? "-" }) fill alpha \(movers.prefix(10).map { $0.map { Piece.f($0.fillAlpha) } ?? "-" }), landed \(Piece.f(landed.fillAlpha)); "
+                + "header, rail, m1..m3 alpha by frame \(frames.prefix(6).map { f in ([f.header, f.rail] + members.map { f.members[$0] ?? Piece() }).map { String(format: "%.2f", $0.alpha) }.joined(separator: "/") })")
         }
         monotonic("header", frames.map(\.header.minY), start: before.header.minY, end: after.header.minY)
         if folds {
