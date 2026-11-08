@@ -69095,13 +69095,13 @@
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Repository: %@"
+            "value": "I repositoriet: %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Repository: %@"
+            "value": "Im Repository: %@"
           }
         },
         "es": {
@@ -69119,7 +69119,7 @@
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Repository: %@"
+            "value": "Nel repository: %@"
           }
         },
         "ja": {
@@ -69143,7 +69143,7 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Repository: %@"
+            "value": "I repositoriet: %@"
           }
         },
         "pl": {
@@ -69167,7 +69167,7 @@
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Repository: %@"
+            "value": "ในรีโพซิทอรี: %@"
           }
         },
         "tr": {
