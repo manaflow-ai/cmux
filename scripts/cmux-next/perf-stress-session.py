@@ -23,11 +23,13 @@ agent chats and no New Tab page in their place, Chromium running with no WebKit 
 before it returns: another shape raises StressShapeError instead of being measured as STRESS.
 
 The window (`place_window`) goes on the main screen at WINDOW_SIZE: centered across the screen's visible
-frame, its top at the visible frame's top (under the menu bar). The 1920 x 1080 main display of the fleet
-(split-spring.sh --vdisplay=120) has a visible height under 1000 pt when the Dock shows at the bottom, so
-a bottom Dock may cover the window's lower edge: the Dock draws over it, every pane stays on the screen
-and is laid out and drawn as before. The summary records that overlap (`dock_overlap_pt`) as a bench
-condition. A window past the screen's edges or under the menu bar is not STRESS. An app built before
+frame, its top at the visible frame's top (under the menu bar). AppKit keeps the window inside the visible
+frame, so a bottom Dock does not cover it: it makes the window shorter. A 1920 x 1080 display with a 90 pt
+bottom Dock gives 1600 x 960 (cmux-austin-mini-1, step 5b671a0b, 2026-11-08) and an AWS Nitro 1024 x 768
+display gives 1600 x 680: that window is not STRESS (`window_problem`). The fleet's virtual display
+(split-spring.sh --vdisplay=HZ, 1920 x 1200 by default) holds the full window above the Dock. The summary
+still records `dock_overlap_pt` as a bench condition (0 when AppKit clamped the window). A window past the
+screen's edges or under the menu bar is not STRESS. An app built before
 the `visible_frame` / `screen_frame` fields (bb4ac3c2b03) gets the size check and the grid check from
 debug.layers pane frames only, and the summary says `window_on_screen: "unknown"`.
 
@@ -652,8 +654,8 @@ def typed_refusal(reply):
 
 def window_target(reply):
     """WINDOW_SIZE on the screen of a `debug.window_frame` reply: centered across its visible frame, its top at
-    the visible frame's top (under the menu bar), so only a bottom Dock may cover it. None without the screen
-    fields (an app before bb4ac3c2b03)."""
+    the visible frame's top (under the menu bar); AppKit clamps a window taller than the visible frame. None
+    without the screen fields (an app before bb4ac3c2b03)."""
     visible = reply.get("visible_frame") if isinstance(reply, dict) else None
     if not visible:
         return None
