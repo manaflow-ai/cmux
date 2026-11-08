@@ -50,6 +50,12 @@ fn every_word_in_one_message_any_case_the_newest_message_is_the_hit() {
     assert_eq!(found.matches, 2);
     let hit = &doc.messages[found.message as usize];
     assert_eq!((hit.turn, hit.answer), (1, true));
+    // A word said many times in one message counts that message once (review of #38431, F3).
+    let repeated = Doc::new(
+        Stamp { updated_ms: 0, messages: None },
+        &[turn("nan nan row nan", "row"), turn("x", "nan NaN nan row")],
+    );
+    assert_eq!(repeated.find(&words, &Matcher::new(&words)).map(|f| f.matches), Some(2));
     // Words split between a prompt and its answer are no match.
     let split = needle("sidebar nan");
     assert_eq!(doc.find(&split, &Matcher::new(&split)), None);

@@ -121,7 +121,7 @@ final class PaletteRowCell: NSTableCellView {
     private let icon = NSImageView()
     let swatch = PaletteSwatchView()
     private let title = PaletteText.label(Typography.body, tone: nil)
-    private let subtitle = PaletteText.label(Typography.caption, tone: .secondary)
+    let subtitle = PaletteText.label(Typography.caption, tone: .secondary)
     private let accessory = PaletteText.label(Typography.caption, tone: .tertiary)
     private let keycaps = PaletteKeycapsView()
     /// An on/off command's state (``PaletteItem/toggleState``), left of the keycaps.
@@ -167,7 +167,6 @@ final class PaletteRowCell: NSTableCellView {
         titleText = item.title
         titleFace = item.fontFamily.flatMap { PaletteFontFaces.shared.font(family: $0, size: Typography.body.pointSize) }
         highlights = row.highlights
-        applyColors()
         // A reused cell can come from before a text size change.
         subtitle.refreshFont()
         accessory.refreshFont()
@@ -175,8 +174,9 @@ final class PaletteRowCell: NSTableCellView {
         subtitleHighlights = item.subtitleHighlights
         // A snippet keeps its start, where its words are; a path keeps both ends.
         subtitle.lineBreakMode = subtitleHighlights.isEmpty ? .byTruncatingMiddle : .byTruncatingTail
-        if subtitleHighlights.isEmpty { subtitle.stringValue = subtitleText }
         subtitle.isHidden = item.subtitle == nil
+        // After the subtitle's text: a snippet draws its words emphasized there.
+        applyColors()
         accessory.stringValue = item.accessory ?? ""
         accessory.isHidden = item.accessory == nil
         keycaps.keycaps = item.keycaps ?? []
@@ -212,7 +212,9 @@ final class PaletteRowCell: NSTableCellView {
         performWithTheme {
             icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
             title.attributedStringValue = Self.highlighted(titleText, highlights, face: titleFace)
-            if !subtitleHighlights.isEmpty {
+            if subtitleHighlights.isEmpty {
+                subtitle.stringValue = subtitleText
+            } else {
                 subtitle.attributedStringValue = Self.highlightedSubtitle(subtitleText, subtitleHighlights)
             }
             swatch.colors = ball.map { [$0.color.ballRGB] } ?? swatches

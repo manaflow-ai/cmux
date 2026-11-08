@@ -25,6 +25,10 @@ describe("said reveal (the chats page opens a chat at the message it found)", ()
     expect(saidRows(rows, { answer: true, words: ["cache", "key"] })).toEqual(["4"]);
     expect(saidRows(rows, { answer: false, words: ["key", "cache"] })).toEqual(["1"]);
     expect(saidRows(rows, { answer: true, words: ["zephyrine"] })).toEqual([]);
+    // A final sigma is folded as acpmux folds it.
+    expect(
+      saidRows([row("g", "user", "ΚΟΣΜΟΣ")], { answer: false, words: revealedSaid("said:prompt:κοσμος")!.words }),
+    ).toEqual(["g"]);
     // A reply a tool call split: the newest row holding most of the words.
     expect(saidRows(rows, { answer: true, words: ["stable", "build"] })).toEqual(["4"]);
   });

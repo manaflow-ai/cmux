@@ -9,6 +9,10 @@ export const SAID_REVEAL = "said:";
 
 export type SaidReveal = { answer: boolean; words: string[] };
 
+/// Text lowercased as acpmux folds it (`chats/search.rs` `fold_char`): a final sigma (`ς`) as `σ`,
+/// so a Greek word acpmux matched is found in the row too.
+const fold = (text: string) => text.toLowerCase().replaceAll("ς", "σ");
+
 /// The match a reveal names, or undefined for any other reveal.
 export function revealedSaid(value: string): SaidReveal | undefined {
   if (!value.startsWith(SAID_REVEAL)) return undefined;
@@ -18,9 +22,7 @@ export function revealedSaid(value: string): SaidReveal | undefined {
   if (colon < 0 || (role !== "prompt" && role !== "answer")) return undefined;
   const words = [
     ...new Set(
-      rest
-        .slice(colon + 1)
-        .toLowerCase()
+      fold(rest.slice(colon + 1))
         .split(/\s+/)
         .filter(Boolean),
     ),
@@ -38,7 +40,7 @@ export function saidRows(rows: readonly AcpmuxRow[], said: SaidReveal): string[]
   for (let at = rows.length - 1; at >= 0; at--) {
     const row = rows[at]!;
     if (row.kind !== kind || !row.text) continue;
-    const text = row.text.toLowerCase();
+    const text = fold(row.text);
     const held = said.words.filter((word) => text.includes(word)).length;
     if (held === said.words.length) return [row.id];
     if (held > (best?.held ?? 0)) best = { id: row.id, held };
