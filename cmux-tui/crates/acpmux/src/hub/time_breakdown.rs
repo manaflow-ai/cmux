@@ -229,10 +229,17 @@ impl Reducer {
                     turn.waiting = true;
                 }
             }
-            "turn_result" | "turn_end" | "turn_error" => {
+            "turn_result" => {
                 if let Some(mut turn) = self.turn.take() {
                     turn.advance(at);
                     self.finish(turn, usage(&record.msg));
+                }
+            }
+            "turn_end" | "turn_error" => {
+                if let Some(turn) = self.turn.as_mut() {
+                    turn.advance(at);
+                    // Some harnesses emit an end marker before the result carrying usage. Keep
+                    // the turn open so that result can close it and retain its token totals.
                 }
             }
             _ => {
@@ -329,6 +336,10 @@ impl Reducer {
                     tokens: None,
                 });
             }
+        }
+        if spans.len() > MAX_SPANS {
+            let excess = spans.len() - MAX_SPANS;
+            spans.drain(..excess);
         }
         let complete = self.ended_turns > 0 && self.token_turns == self.ended_turns;
         TimeBreakdown {
@@ -451,6 +462,18 @@ mod tests {
         let second = state.snapshot(20);
         assert_eq!(first, second);
         assert_eq!(first.total_ms, 10);
+    }
+
+    #[test]
+    fn end_marker_waits_for_result_usage() {
+        let mut state = State::default();
+        state.record(&record(1, 10, "turn_started", serde_json::json!({"turnSeq": 1})));
+        state.record(&record(2, 20, "turn_end", serde_json::json!({})));
+        state.record(&record(3, 30, "turn_result", serde_json::json!({"usage": {"outputTokens": 4}})));
+        let result = state.snapshot(30);
+        assert_eq!(result.total_ms, 20);
+        assert_eq!(result.total_tokens, Some(4));
+        assert!(result.tokens_complete);
     }
 
     #[test]
