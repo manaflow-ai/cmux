@@ -171,6 +171,12 @@ mod tests {
         assert_eq!(scrub("at /users/bob/src", None), "at /Users/<redacted>/src");
         // A home with a trailing slash, outside /Users and /home (cmux#38555 review 8 F1).
         assert_eq!(scrub("at /srv/alice/project/x", Some("/srv/alice/")), "at ~/project/x");
+        // Any character that cannot continue a name ends the home (cmux#38555 review 9 F1).
+        let home = Some("/srv/alice");
+        assert_eq!(scrub("cannot read /srv/alice: denied", home), "cannot read ~: denied");
+        assert_eq!(scrub("open(/srv/alice) and [/srv/alice]", home), "open(~) and [~]");
+        let longer = "at /srv/alice.old/x and /srv/alice-2";
+        assert_eq!(scrub(longer, home), longer);
         // A home that is the users' directory must not hide the name (cmux#38555 review 7 F1).
         for home in ["/home", "/Users", "/home/"] {
             let out = scrub("at /home/alice/project and /Users/alice/x", Some(home));

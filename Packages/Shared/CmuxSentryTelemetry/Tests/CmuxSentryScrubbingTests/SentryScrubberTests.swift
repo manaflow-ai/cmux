@@ -21,6 +21,14 @@ import Testing
         #expect(!SentryScrubber(homeDirectory: "/srv/alice/").scrub("at /srv/alice/project/x").contains("alice"))
     }
 
+    /// Any character that cannot continue a name ends the home (cmux#38555 review 9 F1).
+    @Test func punctuationAfterTheHomeStillEndsIt() {
+        let scrubber = SentryScrubber(homeDirectory: "/srv/alice")
+        #expect(scrubber.scrub("cannot read /srv/alice: denied") == "cannot read /<redacted>: denied")
+        #expect(!scrubber.scrub("open(/srv/alice) and [/srv/alice]").contains("alice"))
+        #expect(scrubber.scrub("at /srv/alice.old/x") == "at /srv/alice.old/x")
+    }
+
     /// A home that is the users' directory itself must not hide the user name from the generic rule.
     @Test(arguments: ["/Users", "/home", "/Users/"])
     func aHomeThatIsTheUsersDirectoryKeepsNoName(home: String) {
