@@ -285,6 +285,21 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("actions/cache/save", base)  # a pull request never writes the base's history
         self.assertIn('webviews_test_history.py" flaky', base)
 
+    def test_the_web_bisect_reads_the_history_artifact(self):
+        # The cache it restored is no longer saved (#38716): it read nothing, and known flakes stayed bisectable.
+        text = (ROOT / ".github/workflows/cmux-next-web.yml").read_text(encoding="utf-8")
+        start = text.index("\n  web-bisect:\n") + 1
+        end = re.search(r"\n  [a-z][a-z0-9-]*:\n", text[start + 1:])
+        job = text[start:start + 1 + end.start()] if end else text[start:]
+        restore = job[job.index("      - name: Restore the base's webview test history"):]
+        restore = restore[:restore.index("\n      - name:", 10)]
+        self.assertIn('webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json"', restore)
+        self.assertIn('--branch "$BRANCH"', restore)
+        self.assertIn("continue-on-error: true", restore)
+        self.assertNotIn("webviews-test-history-${{", job)
+        block = job[job.index("    permissions:\n"):].split("\n    ", 3)
+        self.assertEqual(block[1:3], ["  contents: read", "  actions: read"])
+
     def test_only_the_history_jobs_ask_for_actions_read(self):
         # The history is an artifact: listing and downloading it takes actions: read, nothing more.
         for name in ("webviews-test-history", "react-apps-base-check"):
