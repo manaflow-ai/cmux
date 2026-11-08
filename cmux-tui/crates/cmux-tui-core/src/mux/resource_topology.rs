@@ -100,6 +100,7 @@ mod layout_ops;
 pub(in crate::mux) use layout_ops::LayoutSizesUnchanged;
 mod layout_projection;
 mod pane_browser;
+mod pane_move;
 mod pane_tab_moves;
 mod published_screen;
 mod rename_focus;

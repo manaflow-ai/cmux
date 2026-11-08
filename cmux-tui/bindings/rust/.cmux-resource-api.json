@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "7be279edf9e67500ec5f487784fd59725de13d0f569f817385a2081a725f64b2",
+  "catalog_sha256": "bd20c2e33675881c70b9f18dd0cba5598e81beec6144a2f8420397818feba66f",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -498,6 +498,9 @@
     },
     "pane.list": {
       "class": "read"
+    },
+    "pane.move": {
+      "class": "mutation"
     },
     "pane.neighbor.get": {
       "class": "read"

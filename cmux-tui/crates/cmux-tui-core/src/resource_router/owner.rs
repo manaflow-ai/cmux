@@ -85,6 +85,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::PaneFocusDirection
         | ResourceOperation::PaneNeighborGet
         | ResourceOperation::PaneSwap
+        | ResourceOperation::PaneMove
         | ResourceOperation::PaneZoom
         | ResourceOperation::PaneSplitRatioSet
         | ResourceOperation::PaneViewportWidthSet

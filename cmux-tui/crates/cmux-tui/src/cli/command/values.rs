@@ -1,6 +1,7 @@
 //! Typed flag values: parse one flag's string as a bool, number, decimal, color,
 //! JSON object, id or selector, validate it, and insert it into request params.
 
+use cmux_tui_core::resource::{id_prefix_parts, is_bare_id};
 use serde_json::Number;
 
 use super::*;
@@ -402,10 +403,22 @@ pub(super) fn insert_viewport_width(
 
 pub(super) fn validate_selector(scope: &str, prefix: &str, value: &str) -> Result<(), UsageError> {
     let selector = Selector::parse(value).map_err(|error| UsageError::new(error.message))?;
-    if matches!(selector, Selector::Id(_)) {
+    if matches!(selector, Selector::Id(_)) && !is_expanded_id_form(scope, prefix, value) {
         validate_prefixed_id(scope, prefix, value)?;
     }
     Ok(())
+}
+
+/// Whether `value` is an id form the daemon expands for `scope` (W5-P): a
+/// bare id (32 hex digits, or a terminal's host id), a unique prefix of
+/// `prefix`'s ids (`pane_3f`), and for a terminal also a tab or pane id in
+/// any form (the terminal that tab or pane shows).
+fn is_expanded_id_form(scope: &str, prefix: &str, value: &str) -> bool {
+    let views: &[&str] = if scope == "terminal" { &["tab", "pane"] } else { &[] };
+    is_bare_id(value)
+        || id_prefix_parts(value)
+            .is_some_and(|(given, _)| given == prefix || views.contains(&given))
+        || views.iter().any(|view| validate_prefixed_id(scope, view, value).is_ok())
 }
 
 pub(super) fn validate_prefixed_id(

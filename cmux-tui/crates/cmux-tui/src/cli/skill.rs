@@ -201,10 +201,10 @@ pub(super) const RECIPES: &[Recipe] = &[
             "cmux --json pane <pane> move --to-pane <other-pane> --split right",
             "cmux --json pane <pane> move --to-workspace <ws>",
         ],
-        read: "move takes every tab of the pane, in order, and the emptied pane closes: \
-               `moved_tabs`, `destination.pane` (where they are now), `created` (the new \
-               screen or pane, else null). --to-tab <tab> puts them after that tab. The \
-               focus stays unless --focus.",
+        read: "move is one change. Beside a pane or to a new screen the pane keeps its id \
+               (`pane_kept`); --to-pane <pane> without --split or --to-tab <tab> merges the tabs \
+               into that pane and the moved pane closes. `pane_id` is where the tabs are now, \
+               `tab_ids` their ids. The focus stays unless --focus.",
     },
     Recipe {
         ask: "Tell me when you need me.",
@@ -384,8 +384,9 @@ const RULES: &str = "\
 - **Check first.** `cmux --json identify` prints where you run. In a cmux-tui pane it \
 answers from the pane's session (`kind: \"cmux-tui\"`), even when that cmux-tui runs inside \
 the cmux app; `cmux app identify` asks the app around it (`outer_app`).
-- **Targets.** A selector is an id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), \
-`current`, `caller`, or an exact name (`name:` forces a name). Inside a cmux terminal \
+- **Targets.** A selector is an id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), a \
+unique id prefix, the bare 32 hex digits (for a terminal also the host `terminal_id` that \
+`run` prints), `current`, `caller`, `focused`, or an exact name (`name:` forces a name). Inside a cmux terminal \
 `current` and `caller` are your own workspace, screen, pane, tab and terminal, not the one the \
 person looks at. For the person's focused pane, name the session: \
 `cmux --session <session.name> pane current show` (an explicit route makes `current` the \

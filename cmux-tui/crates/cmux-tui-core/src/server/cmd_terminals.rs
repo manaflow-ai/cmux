@@ -19,6 +19,7 @@ use crate::Mux;
 use crate::SurfaceId;
 use crate::WorkspaceId;
 use crate::platform;
+use crate::resource::ContentPublicId;
 use crate::workspace_registry::TerminalLifecycle;
 use serde_json::Value;
 use serde_json::json;
@@ -96,18 +97,21 @@ pub(super) fn resolve_terminal(mux: &Arc<Mux>, terminal_id: String) -> anyhow::R
         anyhow::bail!("terminal_not_found");
     };
     let (registry_id, generation) = mux.registry_identity();
-    Ok(json!({
-        "surface": resolution.surface,
-        "terminal_id": resolution.terminal.terminal_id,
-        "terminal_incarnation": resolution.terminal.incarnation,
-        "workspace_key": resolution.terminal.workspace_key,
-        "lifecycle": resolution.terminal.lifecycle,
-        "launch_spec": resolution.terminal.launch_spec,
-        "exit": resolution.terminal.exit,
-        "terminal_revision": resolution.terminal_revision,
-        "registry_id": registry_id,
-        "generation": generation,
-    }))
+    Ok(with_public_ids(
+        mux,
+        json!({
+            "surface": resolution.surface,
+            "terminal_id": resolution.terminal.terminal_id,
+            "terminal_incarnation": resolution.terminal.incarnation,
+            "workspace_key": resolution.terminal.workspace_key,
+            "lifecycle": resolution.terminal.lifecycle,
+            "launch_spec": resolution.terminal.launch_spec,
+            "exit": resolution.terminal.exit,
+            "terminal_revision": resolution.terminal_revision,
+            "registry_id": registry_id,
+            "generation": generation,
+        }),
+    ))
 }
 
 pub(super) fn close_terminal(
@@ -339,22 +343,25 @@ pub(super) fn create_terminal(
         }
         let placement = created.placement;
         let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
-        Ok(json!({
-            "surface": placement.as_ref().map(|placement| placement.surface),
-            "terminal_id": created.terminal.terminal_id,
-            "terminal_incarnation": created.terminal.incarnation,
-            "pane": placement.as_ref().map(|placement| placement.pane),
-            "screen": placement.as_ref().map(|placement| placement.screen),
-            "workspace": placement.as_ref().map(|placement| placement.workspace),
-            "key": key,
-            "lifecycle": created.terminal.lifecycle,
-            "exit": created.terminal.exit,
-            "already_exited": already_exited,
-            "terminal_revision": created.terminal_revision,
-            "replayed": result.replayed,
-            "registry_id": registry_id,
-            "generation": generation,
-        }))
+        Ok(with_public_ids(
+            mux,
+            json!({
+                "surface": placement.as_ref().map(|placement| placement.surface),
+                "terminal_id": created.terminal.terminal_id,
+                "terminal_incarnation": created.terminal.incarnation,
+                "pane": placement.as_ref().map(|placement| placement.pane),
+                "screen": placement.as_ref().map(|placement| placement.screen),
+                "workspace": placement.as_ref().map(|placement| placement.workspace),
+                "key": key,
+                "lifecycle": created.terminal.lifecycle,
+                "exit": created.terminal.exit,
+                "already_exited": already_exited,
+                "terminal_revision": created.terminal_revision,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }),
+        ))
     } else {
         let (workspace, key) = resolved?;
         let created =
@@ -364,22 +371,25 @@ pub(super) fn create_terminal(
         }
         let placement = created.placement;
         let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
-        Ok(json!({
-            "surface": placement.as_ref().map(|placement| placement.surface),
-            "terminal_id": created.terminal.terminal_id,
-            "terminal_incarnation": created.terminal.incarnation,
-            "pane": placement.as_ref().map(|placement| placement.pane),
-            "screen": placement.as_ref().map(|placement| placement.screen),
-            "workspace": placement.as_ref().map(|placement| placement.workspace),
-            "key": key,
-            "lifecycle": created.terminal.lifecycle,
-            "exit": created.terminal.exit,
-            "already_exited": already_exited,
-            "terminal_revision": created.terminal_revision,
-            "replayed": false,
-            "registry_id": registry_id,
-            "generation": generation,
-        }))
+        Ok(with_public_ids(
+            mux,
+            json!({
+                "surface": placement.as_ref().map(|placement| placement.surface),
+                "terminal_id": created.terminal.terminal_id,
+                "terminal_incarnation": created.terminal.incarnation,
+                "pane": placement.as_ref().map(|placement| placement.pane),
+                "screen": placement.as_ref().map(|placement| placement.screen),
+                "workspace": placement.as_ref().map(|placement| placement.workspace),
+                "key": key,
+                "lifecycle": created.terminal.lifecycle,
+                "exit": created.terminal.exit,
+                "already_exited": already_exited,
+                "terminal_revision": created.terminal_revision,
+                "replayed": false,
+                "registry_id": registry_id,
+                "generation": generation,
+            }),
+        ))
     }
 }
 
@@ -423,21 +433,24 @@ pub(super) fn move_terminal(
         &workspace_mutation,
     )?;
     let (registry_id, generation) = mux.registry_identity();
-    Ok(json!({
-        "surface":result.placement.as_ref().map(|placement| placement.surface),
-        "pane":result.placement.as_ref().map(|placement| placement.pane),
-        "screen":result.placement.as_ref().map(|placement| placement.screen),
-        "workspace":result.placement.as_ref().map(|placement| placement.workspace),
-        "terminal_id":result.terminal.terminal_id,
-        "terminal_incarnation":result.terminal.incarnation,
-        "workspace_key":result.terminal.workspace_key,
-        "lifecycle":result.terminal.lifecycle,
-        "changed":result.changed,
-        "replayed":result.replayed,
-        "terminal_revision":result.terminal_revision,
-        "registry_id":registry_id,
-        "generation":generation,
-    }))
+    Ok(with_public_ids(
+        mux,
+        json!({
+            "surface":result.placement.as_ref().map(|placement| placement.surface),
+            "pane":result.placement.as_ref().map(|placement| placement.pane),
+            "screen":result.placement.as_ref().map(|placement| placement.screen),
+            "workspace":result.placement.as_ref().map(|placement| placement.workspace),
+            "terminal_id":result.terminal.terminal_id,
+            "terminal_incarnation":result.terminal.incarnation,
+            "workspace_key":result.terminal.workspace_key,
+            "lifecycle":result.terminal.lifecycle,
+            "changed":result.changed,
+            "replayed":result.replayed,
+            "terminal_revision":result.terminal_revision,
+            "registry_id":registry_id,
+            "generation":generation,
+        }),
+    ))
 }
 
 pub(super) fn terminal_history(
@@ -489,11 +502,67 @@ pub(super) fn placed_terminal_result(
     if keep {
         keep_created_terminal(mux, identity.as_ref().map(|i| i.terminal_id.as_str()))?;
     }
-    Ok(json!({
-        "surface": surface.id,
-        "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
-        "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
-    }))
+    Ok(with_public_ids(
+        mux,
+        json!({
+            "surface": surface.id,
+            "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
+            "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
+        }),
+    ))
+}
+
+/// `reply` with the public ids of its terminal and view (W5-P, for W5-N):
+/// `terminal_resource_id` is the `term_` id that the CLI, the agent roster
+/// and every resource selector take, so no client maps the host
+/// `terminal_id` with a second request. `tab_id`, `pane_id`, `screen_id` and
+/// `workspace_id` name the view of the reply's `surface`. A field the daemon
+/// cannot name (a detached terminal has no view) is absent.
+pub(super) fn with_public_ids(mux: &Mux, mut reply: Value) -> Value {
+    let surface = reply.get("surface").and_then(Value::as_u64);
+    let host = reply.get("terminal_id").and_then(Value::as_str).map(str::to_owned);
+    let ids = mux.with_state(|state| {
+        let indexes = &state.resource_indexes;
+        let mut ids = serde_json::Map::new();
+        let terminal = host
+            .as_deref()
+            .and_then(|host| state.terminal_catalog_by_host.get(host).cloned())
+            .or_else(|| match indexes.content_ids.get(&surface?)? {
+                ContentPublicId::Terminal(id) => Some(id.clone()),
+                ContentPublicId::Browser(_) => None,
+            });
+        if let Some(terminal) = terminal {
+            ids.insert("terminal_resource_id".into(), json!(terminal));
+        }
+        let Some(surface) = surface else { return ids };
+        let pane = indexes.tab_pane.get(&surface).copied();
+        let screen = pane.and_then(|pane| indexes.pane_screen.get(&pane).copied());
+        let workspace = screen.and_then(|screen| indexes.screen_workspace.get(&screen).copied());
+        let named = [
+            ("tab_id", indexes.tab_ids.get(&surface).map(|id| json!(id))),
+            ("pane_id", pane.and_then(|pane| indexes.pane_ids.get(&pane)).map(|id| json!(id))),
+            (
+                "screen_id",
+                screen.and_then(|screen| indexes.screen_ids.get(&screen)).map(|id| json!(id)),
+            ),
+            (
+                "workspace_id",
+                workspace
+                    .and_then(|workspace| indexes.workspace_ids.get(&workspace))
+                    .map(|id| json!(id)),
+            ),
+        ];
+        for (field, id) in named {
+            if let Some(id) = id {
+                ids.insert(field.into(), id);
+            }
+        }
+        ids
+    });
+    if let Some(object) = reply.as_object_mut() {
+        object.extend(ids);
+    }
+    reply
 }
 
 /// Apply `keep: true` from a creating command. A terminal without a durable
