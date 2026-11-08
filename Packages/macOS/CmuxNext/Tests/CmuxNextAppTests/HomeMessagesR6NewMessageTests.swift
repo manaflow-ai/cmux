@@ -78,6 +78,25 @@ struct HomeMessagesR6NewMessageTests {
         #expect(outbox.load().value(at: ["pending", id.rawValue])?.arrayValue?.count == 1, "kept for the next launch")
     }
 
+    /// Round 7 F1: a Not Delivered send the outbox refuses (past ``HomeMessagesOutbox/maxEntryBytes``)
+    /// stays in HomeStore's log: it leaves the log only once the outbox keeps it, so it is never lost.
+    @Test func aSendTheOutboxRefusesStaysInHomeStoresLog() async throws {
+        let source = MockHomeSource(options: .immediate)
+        let store = HomeStore(source: source, blobCacheDirectory: try Self.directory())
+        store.start()
+        defer { store.stop() }
+        await Self.until { store.isOnline && !store.rows.isEmpty }
+        let id = try #require(store.rows.first?.id)
+        let key = IdempotencyKey("native-failed-oversized")
+        await source.failNextSubmits(of: key, times: 1, with: .invalid("refused"))
+        let text = String(repeating: "x", count: HomeMessagesOutbox.maxEntryBytes + 1)
+        _ = try? await store.perform(.sendMessage(conversation: id, parts: [.text(text)]), key: key)
+        #expect(store.cachedSend(key) != nil, "the fixture leaves a Not Delivered send in the log")
+        let outbox = HomeMessagesOutbox(store: store)
+        #expect(outbox.load().value(at: ["pending", id.rawValue]) == nil, "the outbox refuses it")
+        #expect(store.cachedSend(key) != nil, "so it stays in the log, not lost")
+    }
+
     /// G2: `contacts` lists the invites still pending, as the native Invite sheet's `pending`.
     @Test func contactsListThePendingInvites() {
         let invited = Participant(id: ParticipantID("addr_1"), kind: .human, displayName: "", membership: .invited, invitedContact: "a@b.co")
