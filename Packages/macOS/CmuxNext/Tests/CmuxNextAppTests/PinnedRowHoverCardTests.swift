@@ -103,17 +103,17 @@ import Testing
         #expect(body.lines.contains { $0.contains("Durable runner for the cloud Chief") }, "\(body.lines)")
     }
 
-    /// The same delay as a list row: no card before `sidebar.hoverCards.delay`.
+    /// The same wait as a list row: no card until the pointer stops (`HoverCardTiming.settleQuiet`).
     @Test func aPinnedRowWaitsARowsDelay() async throws {
         let clock = ManualClock()
         let harness = Self.sidebar(clock: clock)
         defer { harness.tearDown() }
         harness.list.updateHover(try harness.pinnedRowMiddle())
         try await clock.waitForSleeper()
-        clock.advance(by: DesignSettings.shared.hoverCardDelay - .milliseconds(20))
+        clock.advance(by: HoverCardTiming.settleQuiet - .milliseconds(10))
         for _ in 0..<20 { await Task.yield() }
         #expect(harness.coordinator.machine.shownTarget == nil, "a sweep over a pinned row opened a card early")
-        clock.advance(by: .milliseconds(70))
+        clock.advance(by: .milliseconds(20))
         try await Self.settle { harness.coordinator.machine.shownTarget != nil }
         #expect(harness.coordinator.machine.shownTarget?.id == WorkspaceHoverCardController.targetID(Self.pinnedID))
     }

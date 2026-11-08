@@ -89,6 +89,44 @@ import CmuxNextWakeupsTestSupport
         #expect(shown.isEmpty, "the sweep showed \(shown.count) cards: \(shown)")
     }
 
+    /// Leo 2026-11-01: "i need these hover previews to appear a hell of a lot faster than they do
+    /// now". A pointer that stops on a row gets its card once it stops (`HoverCardTiming.settleQuiet`),
+    /// not after the whole delay; the sweep above, which never stops, still gets none.
+    @Test func aPointerThatStopsOnARowGetsItsCardOnceItStops() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { Self.tearDown(list, window, coordinator) }
+        let row = try #require(rows.dropFirst(2).first)
+        Self.move(list, to: (row.y + row.maxY) / 2)
+        try await clock.waitForSleeper()
+        clock.advance(by: HoverCardTiming.settleQuiet - .milliseconds(10))
+        try await Self.settle()
+        #expect(coordinator.machine.shownTarget == nil, "the card showed before the pointer had stopped")
+        clock.advance(by: .milliseconds(20))
+        try await Self.settle(until: { coordinator.machine.shownTarget != nil })
+        #expect(coordinator.machine.shownTarget != nil,
+                "a pointer resting \(HoverCardTiming.settleQuiet + .milliseconds(10)) on the row got no card (\(coordinator.machine.phase))")
+    }
+
+    /// A hand easing onto a row: its last move is slower than `HoverCardTiming.settleSpeed`, and the
+    /// card shows on that move, with no wait at all.
+    @Test func aPointerEasingOntoARowGetsItsCardOnTheSlowMove() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { Self.tearDown(list, window, coordinator) }
+        let row = try #require(rows.dropFirst(2).first)
+        let middle = (row.y + row.maxY) / 2
+        // 6 pt in 8 ms (750 pt/s): still moving, no card.
+        Self.move(list, to: middle - 7)
+        clock.advance(by: .milliseconds(8))
+        Self.move(list, to: middle - 1)
+        #expect(coordinator.machine.shownTarget == nil, "a pointer moving at 750 pt/s got a card")
+        // 1 pt in 8 ms (125 pt/s): it has stopped.
+        clock.advance(by: .milliseconds(8))
+        Self.move(list, to: middle)
+        #expect(coordinator.machine.shownTarget != nil, "a pointer easing onto the row at 125 pt/s got no card (\(coordinator.machine.phase))")
+    }
+
     /// Lawrence 2026-10-19: "there's a slight delay from when I mouse over the card for our own
     /// workspace and then leave it before it disappears. We need it to instantly disappear with
     /// fade opacity when I mouse out." The card touches its row; the pointer moving from the row

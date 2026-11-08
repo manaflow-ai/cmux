@@ -94,18 +94,20 @@ import CmuxNextWakeupsTestSupport
         try #require(s.shows(id), "resting on tab \(id) showed no card")
     }
 
-    @Test func aCardOpensAfterTheHoverCardDelay() async throws {
+    /// A pointer that stops on a tab gets its card once it stops (`HoverCardTiming.settleQuiet`), well
+    /// before the hover card delay (Leo 2026-11-01: hover previews must appear a lot faster).
+    @Test func aCardOpensOnceThePointerStopsOnTheTab() async throws {
         let s = Self.strip()
         defer { s.tearDown() }
         s.move(to: try s.center("b"))
         #expect(!s.showsAny, "the card showed on the first frame")
         try await s.clock.waitForSleeper()
-        s.clock.advance(by: Self.delay - .milliseconds(150))
+        s.clock.advance(by: HoverCardTiming.settleQuiet - .milliseconds(10))
         try await Self.settle()
-        #expect(!s.showsAny, "the card showed before the delay")
-        s.clock.advance(by: .milliseconds(250))
+        #expect(!s.showsAny, "the card showed before the pointer had stopped")
+        s.clock.advance(by: .milliseconds(20))
         try await Self.settle(until: { s.shows("b") })
-        #expect(s.shows("b"), "no card after the delay on the tab")
+        #expect(s.shows("b"), "no card once the pointer stopped on the tab")
     }
 
     @Test func withACardOpenAnotherTabTakesItOverAtOnce() async throws {
