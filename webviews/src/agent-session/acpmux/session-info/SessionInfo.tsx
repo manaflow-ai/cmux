@@ -76,7 +76,7 @@ import {
 } from "./sessionInfoState";
 import { OutputsSection } from "./OutputsSection";
 import { sessionInfoLists, type SessionInfoProcess } from "./processes";
-import { outputArtifacts, type OutputArtifact } from "./outputsSectionModel";
+import type { OutputArtifact } from "./outputsSectionModel";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
