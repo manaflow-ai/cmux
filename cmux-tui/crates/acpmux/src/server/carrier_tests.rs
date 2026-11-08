@@ -885,8 +885,8 @@ fn hub_with_local_chats() -> Arc<Hub> {
 async fn a_teammate_cancels_a_local_chat_it_was_given_and_no_other() {
     let hub = hub_with_local_chats();
     assert!(!hub.resolve("local-gemini").unwrap().meta().remote_origin);
-    // `local-` is in the grant but is only a prefix of the granted chats' ids.
-    let chats = vec!["local-gemini".into(), "local-claude".into(), "local-".into()];
+    // `local-g` is in the grant but is only a unique prefix of `local-gemini`'s id.
+    let chats = vec!["local-gemini".into(), "local-claude".into(), "local-g".into()];
     let who = Attested { chats, ..teammate() };
     let (send, inbound) = tokio::sync::mpsc::channel(8);
     let (out, mut recv) = tokio::sync::mpsc::channel(256);
@@ -898,7 +898,7 @@ async fn a_teammate_cancels_a_local_chat_it_was_given_and_no_other() {
     let claude =
         ask(&send, &mut recv, 2, "session/cancel", json!({"sessionId": "local-claude"})).await;
     assert_eq!(claude["error"]["data"]["reason"], "remote.local_claude_session", "{claude}");
-    for (id, chat) in [(3, "other"), (4, "local-")] {
+    for (id, chat) in [(3, "other"), (4, "local-g")] {
         let reply = ask(&send, &mut recv, id, "session/cancel", json!({"sessionId": chat})).await;
         assert_eq!(reply["error"]["data"]["reason"], "carrier.team_refused", "{chat}: {reply}");
     }
@@ -911,5 +911,5 @@ async fn a_teammate_cancels_a_local_chat_it_was_given_and_no_other() {
     };
     assert!(cancel("local-gemini"));
     assert!(!cancel("other"));
-    assert!(!cancel("local-"), "a prefix in the grant never stops another chat");
+    assert!(!cancel("local-g"), "a prefix in the grant never stops another chat");
 }
