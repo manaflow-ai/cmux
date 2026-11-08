@@ -41,7 +41,13 @@ pub(crate) fn accepts_connects(
         && attachment.relay.role == RelayRole::Daemon
         && attachment.relay.slot == slot
         && attachment.expires_at > now_ms / 1_000
-        && attachment.last_seen_ms.saturating_add(DAEMON_LIVENESS_WINDOW_MS) > now_ms
+        && heard_within_window(attachment, now_ms)
+}
+
+/// Whether this daemon's control socket spoke within
+/// [`DAEMON_LIVENESS_WINDOW_MS`] before `now_ms`.
+pub(crate) fn heard_within_window(attachment: &SlotAttachment, now_ms: u64) -> bool {
+    attachment.last_seen_ms.saturating_add(DAEMON_LIVENESS_WINDOW_MS) > now_ms
 }
 
 /// The first candidate a Connect on `slot` may be allocated to at `now_ms`.
@@ -221,5 +227,19 @@ mod tests {
         assert_eq!(handed_over[0].circuit, "c1");
         assert_eq!(handed_over[0].route, route);
         assert!(register_ms - connect_ms < CLIENT_JOIN_TIMEOUT_MS);
+    }
+
+    /// A daemon that was silent past the window and pings again resumed:
+    /// circuits allocated to it while it was silent may never have reached
+    /// it, so its Ping is handed the unjoined ones, as a Register is. A
+    /// daemon pinging on its normal heartbeat is not.
+    #[test]
+    fn ping_after_silence_past_the_window_hands_over_unjoined_circuits() {
+        let resumed = daemon(T);
+        let ping_ms = T + DAEMON_LIVENESS_WINDOW_MS + 5_000;
+        assert!(!heard_within_window(&resumed, ping_ms), "resumed: hand over");
+
+        let heartbeat = daemon(T);
+        assert!(heard_within_window(&heartbeat, T + 10_000), "heartbeat: no hand-over");
     }
 }

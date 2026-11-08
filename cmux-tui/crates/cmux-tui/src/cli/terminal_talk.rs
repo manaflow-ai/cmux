@@ -13,9 +13,7 @@
 //!   exits with the typed command's status (OSC 133 `D`).
 //! - `cmux terminal <t> run [OPTIONS] -- <command...>`: `send --wait prompt
 //!   --exit-with-status`: type a command into the terminal's shell, wait
-//!   for it to finish, print its output and exit with its status. Several
-//!   words after `--` are an argv, each quoted for the shell; one word is a
-//!   shell line typed as written (`run_line`).
+//!   for it to finish, print its output and exit with its status.
 //!
 //! The MCP tools `agents_terminal_list` and `agents_terminal_send`
 //! (mcp/terminal_talk_tools.rs) run the same code.
@@ -159,10 +157,13 @@ pub(in crate::cli) fn parse_send(
 
 /// `terminal <t> run [OPTIONS] -- <command...>` (or `--text <command>`):
 /// a send that waits for the prompt and exits with the command's status.
+/// One word after `--` is a shell line as it is (`run -- 'make && ./a'`);
+/// two or more are an argv, each word shell-quoted, so `run -- sh -c 'exit
+/// 7'` runs `sh` with the two arguments `-c` and `exit 7`.
 pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRequest, UsageError> {
     let split = flags.iter().position(|word| word == "--").unwrap_or(flags.len());
     let (options, argv) = flags.split_at(split);
-    let command = argv.split_first().map(|(_, command)| run_line(command));
+    let command = argv.split_first().map(|(_, command)| shell_line(command));
     let mut options = options.to_vec();
     if options.iter().any(|word| word == "--wait" || word.starts_with("--wait=")) {
         return Err(UsageError("terminal run waits for the prompt; it takes no --wait".into()));
@@ -186,16 +187,14 @@ pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRe
     Ok(request)
 }
 
-/// The line `run -- <command...>` types. One word is a shell line, typed as
-/// written: `run -- 'npm test && echo ok'`. More words are an argv, the way
-/// exec and ssh take one: each word is quoted as the shell needs, so
-/// `run -- sh -c 'echo a; exit 7'` runs `sh` with exactly those three
-/// arguments and the `exit 7` never reaches the person's shell. Plain words
-/// (`npm`, `--flag=x`, paths) stay unquoted so the typed line reads well. The
-/// command word is also quoted when the shell would read it as syntax: a
-/// reserved word (`if`, `{`, `!`) or an assignment (`FOO=bar`).
-pub(in crate::cli) fn run_line(words: &[String]) -> String {
-    let [first, rest @ ..] = words else { return String::new() };
+/// The shell line `terminal run` types for the words after `--`: one word
+/// as it is, more words each POSIX-quoted (sh, bash and zsh read them back
+/// as the same words). The command word is also quoted when the shell would
+/// read it as syntax: a reserved word (`if`, `{`, `!`) or an assignment
+/// (`FOO=bar`). cmd.exe and PowerShell quote differently; the help tells
+/// their users to pass one word.
+fn shell_line(argv: &[String]) -> String {
+    let [first, rest @ ..] = argv else { return String::new() };
     if rest.is_empty() {
         return first.clone();
     }

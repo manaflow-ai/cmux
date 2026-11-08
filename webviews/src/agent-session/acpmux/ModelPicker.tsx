@@ -26,6 +26,8 @@ import { useUpdateOffer } from "./harnessHealthNoticeModel";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
+import { listsFeedModels } from "./feedHarnesses";
+import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
@@ -388,6 +390,7 @@ export function ModelPicker(props: ModelPickerProps) {
     detail,
     detailShort,
     fork,
+    onSetUpPick,
   } = props;
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
@@ -396,6 +399,27 @@ export function ModelPicker(props: ModelPickerProps) {
     (entry: HarnessChoice) => entry.notInstalled === true || loginFor(entry) !== undefined,
     [loginFor],
   );
+  /// A harness the search and the rail offer: set up here, or one a pick sets up (onSetUpPick).
+  const offered = useCallback(
+    (entry: HarnessChoice) => !needsSetup(entry) || onSetUpPick !== undefined,
+    [needsSetup, onSetUpPick],
+  );
+  /// A pick of `model` on a harness that needs setting up hands it to the composer, which installs
+  /// the harness, signs it in and starts the chat on the model. False when the harness is set up.
+  const setUpPick = (owner: HarnessChoice, model: string, effort?: string, fast?: boolean) => {
+    if (!needsSetup(owner) || !onSetUpPick) return false;
+    const login = loginFor(owner);
+    onSetUpPick({
+      harness: owner.acpmuxHarness ?? owner.id,
+      name: owner.name,
+      model,
+      ...(effort ? { effort } : {}),
+      ...(fast ? { fast: true } : {}),
+      notInstalled: owner.notInstalled === true,
+      ...(login ? { login } : {}),
+    });
+    return true;
+  };
   const t = useT();
   // The Default row's name follows the pane language (`sectionsFor`), so the model rows do too.
   const lang = usePaneLanguage();
@@ -415,6 +439,8 @@ export function ModelPicker(props: ModelPickerProps) {
   const addHarnessText = t("modelPicker.addHarness");
   const fastText = t("picker.fastOn");
   const unavailableText = t("picker.unavailable");
+  const notInstalledText = t("harnesses.notInstalled");
+  const signedOutText = t("harnesses.signedOut");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
   const [open, setOpen] = useState(false);
   // The compact menu (QuickModelMenu) a click opens when `quick` is set; More models opens the full one.
@@ -522,7 +548,7 @@ export function ModelPicker(props: ModelPickerProps) {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (!modelsNeeded) return owner;
     if (searching) {
-      const searchable = harnesses.filter((entry) => entry.pickable && !blockedProfile(entry) && !needsSetup(entry));
+      const searchable = harnesses.filter((entry) => entry.pickable && !blockedProfile(entry) && offered(entry));
       for (const { model, entry } of searchModels(searchable, parsed, lang)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
@@ -551,6 +577,7 @@ export function ModelPicker(props: ModelPickerProps) {
     starredView,
     runsHere,
     needsSetup,
+    offered,
     harness,
     lang,
   ]);
@@ -781,11 +808,15 @@ export function ModelPicker(props: ModelPickerProps) {
 
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
-    if (model.unavailable || model.defaultChoice || !owner?.pickable || needsSetup(owner)) return;
-    toPrompt.current = true;
+    if (model.unavailable || model.defaultChoice || !owner?.pickable) return;
     // A typed effort or fast mode, or a model of another harness, lands as one combo.
     const effort = searching ? modelEffort(model, parsed.effort) : undefined;
     const fast = searching ? parsed.fast : undefined;
+    if (needsSetup(owner)) {
+      if (setUpPick(owner, model.id, effort, fast)) close();
+      return;
+    }
+    toPrompt.current = true;
     const harnessId = owner.acpmuxHarness ?? owner.id;
     if (onCombo && (effort || fast || !owner.ids.includes(harness ?? ""))) {
       onCombo({ harness: harnessId, model: model.id, effort, fast });
@@ -813,10 +844,19 @@ export function ModelPicker(props: ModelPickerProps) {
         entry.pickable &&
         !blockedProfile(entry) &&
         entry.folder?.state !== "needs-enable" &&
-        !needsSetup(entry) &&
+        offered(entry) &&
         // A harness whose probe failed has stale rows: the search finds none of them, unless it runs the chat.
         (!entry.unavailable || entry.ids.includes(harness ?? "")),
     );
+    // The harnesses set up here first, then the vendors' own ones a pick installs (Gemini CLI for a
+    // Gemini model), then those listing the feed's models until they run (OpenCode serves Gemini
+    // too), then those no pick can install (their pick opens the Harnesses page).
+    const rank = (entry: HarnessChoice) => {
+      if (!needsSetup(entry)) return 0;
+      const id = entry.acpmuxHarness ?? entry.id;
+      if (entry.notInstalled && !INSTALL_COMMANDS[id]) return 3;
+      return entry.notInstalled && listsFeedModels(id) ? 2 : 1;
+    };
     const found = searchModels(searchable, typed, lang);
     // A model several providers serve is one match, in the place of its best-ranked provider's row.
     const groupOf = new Map<ModelChoice, ModelChoice>();
@@ -835,14 +875,18 @@ export function ModelPicker(props: ModelPickerProps) {
       if (seen.has(model)) return [];
       seen.add(model);
       const effort = modelEffort(model, typed.effort);
-      // The harness travels on its own: the menu heads each harness's matches with its name.
-      const hint = [model.provider, effort, typed.fast ? fastText : undefined].filter(Boolean).join(" · ");
+      // The harness travels on its own: the menu heads each harness's matches with its name. One
+      // that a pick sets up first says so ("Not installed": the pick installs it).
+      const setup = entry.notInstalled ? notInstalledText : loginFor(entry) !== undefined ? signedOutText : undefined;
+      const hint = [model.provider, effort, typed.fast ? fastText : undefined, setup].filter(Boolean).join(" · ");
       const row = quickRow(entry.id, model);
       return [
         {
           ...row,
           ...(!harnessFixed ? { harness: entry.name } : {}),
           ...(hint ? { hint } : {}),
+          ...(rank(entry) > 0 ? { rank: rank(entry) } : {}),
+          ...(setup ? { setupNote: setup } : {}),
           ...(effort ? { effort } : {}),
           ...(typed.fast ? { fast: true } : {}),
         },
@@ -886,7 +930,9 @@ export function ModelPicker(props: ModelPickerProps) {
       // A harness this machine does not have lists its catalog models, none of them pickable, with
       // its Install… row.
       const missing = !!entry.notInstalled;
-      const tabRow = (model: ModelChoice) => (missing ? { ...row(entry, model), disabled: true } : row(entry, model));
+      // With onSetUpPick a pick of one installs the harness first, so its rows stay pickable.
+      const tabRow = (model: ModelChoice) =>
+        missing && !onSetUpPick ? { ...row(entry, model), disabled: true } : row(entry, model);
       list.push({
         id: entry.id,
         name: entry.name,
@@ -931,6 +977,7 @@ export function ModelPicker(props: ModelPickerProps) {
     loginFor,
     needsSetup,
     onAddAgent,
+    onSetUpPick,
     favorites,
     starredText,
     harness,
@@ -945,7 +992,11 @@ export function ModelPicker(props: ModelPickerProps) {
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
   const pickQuick = (model: QuickModel) => {
     const owner = harnesses.find((entry) => entry.id === model.family);
-    if (!owner || model.disabled || !owner.pickable || needsSetup(owner)) return;
+    if (!owner || model.disabled || !owner.pickable) return;
+    if (needsSetup(owner)) {
+      setUpPick(owner, model.id, model.effort, model.fast);
+      return;
+    }
     const harnessId = owner.acpmuxHarness ?? owner.id;
     const here = owner.ids.includes(harness ?? "");
     if (onCombo && (model.effort || model.fast || !here)) {
@@ -1283,6 +1334,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   }
                 : {}),
               ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
+              ...(props.setup ? { setup: props.setup } : {}),
               // This harness's top models, the running one among them; a signed-out harness lists none.
               models:
                 modelsNeeded && current && !needsSetup(current)

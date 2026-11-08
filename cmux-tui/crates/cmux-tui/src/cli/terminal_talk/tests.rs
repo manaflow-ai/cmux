@@ -787,7 +787,7 @@ fn run_argv_line_reads_back_as_the_same_argv_in_sh() {
             .iter()
             .map(|word| (*word).to_owned())
             .collect();
-    let line = super::run_line(&argv);
+    let line = super::shell_line(&argv);
     // The shell splits the typed line into printf's arguments, NUL-terminated.
     let output = std::process::Command::new("sh")
         .arg("-c")
@@ -871,4 +871,51 @@ fn read_run_read_and_wait_flags_send_unwrap_lines_and_new() {
         .map(|a| (*a).to_owned())
         .collect();
     assert!(command::parse(&args, super::super::Surface::CmuxTui).is_err());
+}
+
+/// `terminal run -- sh -c 'exit 7'` (bench round 3, T3): the words after
+/// `--` are an argv, so the shell must get each one as one word. A plain
+/// join made the shell run `sh -c exit 7`, which exits 0.
+#[test]
+fn w4j_run_gives_the_shell_each_argv_word_as_one_word() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let shell = |line: &str| {
+        std::process::Command::new("/bin/sh").arg("-c").arg(line).output().expect("sh runs")
+    };
+    let request =
+        super::parse_run("term_a", &words(&["--", "sh", "-c", "exit 7"])).expect("parsed");
+    assert_eq!(shell(&request.text).status.code(), Some(7), "typed {:?}", request.text);
+
+    let argv = ["a b", "it's", "say \"hi\"", "$HOME", "*", "back\\slash", "", "tab\there"];
+    let mut command = vec!["--", "printf", "%s\\n"];
+    command.extend(argv);
+    let request = super::parse_run("term_a", &words(&command)).expect("parsed");
+    let printed = shell(&request.text);
+    assert!(printed.status.success(), "typed {:?}", request.text);
+    let printed = String::from_utf8(printed.stdout).expect("utf-8");
+    assert_eq!(printed.lines().collect::<Vec<_>>(), argv, "typed {:?}", request.text);
+
+    // One word after -- stays a shell line, as `run -- 'a; b'` was.
+    let request =
+        super::parse_run("term_a", &words(&["--", "echo AFTER_$((2+2)); exit 3"])).expect("parsed");
+    assert_eq!(request.text, "echo AFTER_$((2+2)); exit 3");
+    assert_eq!(shell(&request.text).status.code(), Some(3));
+}
+
+/// `send --pattern '^BENCH_OK$'` (bench round 3, T2): a pattern is matched
+/// line by line, so `^` and `$` anchor at each line without `(?m)`.
+#[test]
+fn w4j_send_pattern_anchors_match_at_each_line() {
+    let message = "for i in 1 2 3; do echo step $i; done; echo BENCH_OK";
+    let echo = format!("$ {message}");
+    let daemon = ShellDaemon::new(
+        None,
+        vec![shell_record(json!({"activity": {"state": "running"}}))],
+        &[&echo, &format!("{echo}\nstep 1\nstep 2\nstep 3\nBENCH_OK\n$ ")],
+        true,
+    );
+    let request = SendRequest { pattern: Some("^BENCH_OK$".into()), ..shell_send(message) };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["matched"], true, "{receipt}");
+    assert_eq!(super::send_exit_code(&receipt, false), 0);
 }

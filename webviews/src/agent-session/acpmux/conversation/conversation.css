@@ -4078,6 +4078,31 @@ button.cv-video-frames__frame:focus-visible {
     transition: none;
   }
 }
+/* A running background command's page (PreviewChip.tsx): the globe and its address in the accent,
+   as the running line's parts read, at the edge where a running row has no mark. Never wraps; a long
+   address gives way first. */
+.cv-preview-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 24ch;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border-radius: 4px;
+  color: var(--agent-accent);
+  cursor: default;
+}
+.cv-preview-chip__address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-preview-chip:hover .cv-preview-chip__address {
+  text-decoration: underline;
+}
+.cv-preview-chip:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
 .cv-tool__meta {
   margin-left: auto;
