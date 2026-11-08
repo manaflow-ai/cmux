@@ -17,6 +17,9 @@ path = "src/main.rs"
 
 [dependencies]
 base64 = "0.22"
+# The generated cmux.wire/1 records and op markers (backend/catalog), the one
+# machine type, by path only.
+cmux-cloud-wire = { path = "../../../cmux-tui/crates/cmux-cloud-wire" }
 # The terminal interfaces (cmux.terminal.backend/1 and connector/1), shared
 # with the cmux-tui daemon, by path only.
 cmux-terminal-iface = { path = "../../../cmux-tui/crates/cmux-terminal-iface" }

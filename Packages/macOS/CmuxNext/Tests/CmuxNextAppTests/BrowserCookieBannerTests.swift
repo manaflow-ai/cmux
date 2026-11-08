@@ -214,15 +214,17 @@ import Testing
     }
 
     /// Show Import Cookies Banner (palette, `cmux browser show-cookie-banner`, MCP): turns a dismissed
-    /// banner back on. It imports nothing.
+    /// banner back on. It imports nothing. On is the row's default, so the write removes the key
+    /// (#38119: an unset key follows its default) and the snapshot reads it on.
     @Test func theShowActionUndoesADismissal() async throws {
         let h = try await make()
         defer { h.tearDown() }
         try await h.settings.set(.bool(false), at: Self.cookieBannerPath)
         #expect(h.services.registry.isAvailable("browser.showCookieImportBanner"))
         #expect(h.services.registry.perform("browser.showCookieImportBanner", invocation: ActionInvocation(origin: .cli)))
-        try await h.until { try h.storedBannerValue() == true }
-        #expect(try h.storedBannerValue() == true)
+        try await h.until { try h.storedBannerValue() == nil && h.settings.snapshot.browserImportCookieBanner }
+        #expect(try h.storedBannerValue() == nil, "on is the default: cmux.json drops the dismissal and keeps no copy")
+        #expect(h.settings.snapshot.browserImportCookieBanner, "the banner is on again")
         #expect(!h.services.onboarding.isShowing, "showing the banner opens no import")
     }
 

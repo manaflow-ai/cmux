@@ -98,7 +98,7 @@ async function line(
     // identifier like it was before and you can click it to go to that session"); no Open chat.
     open: host.querySelector<HTMLButtonElement>("button.cv-received__from--open"),
     from: host.querySelector<HTMLElement>(".cv-received__from"),
-    toggle: host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!,
+    toggle: host.querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!,
     opened,
   };
 }
@@ -109,7 +109,7 @@ test("a peer lane, found by its bare name, opens from its name; no Open chat, th
   expect(host.textContent).not.toContain(t("subsession.openChat"));
   expect(from?.textContent).toBe("chief-ui");
   expect(from).toBe(open);
-  expect(from?.closest("button.cv-disclosure__toggle")).toBeNull();
+  expect(from?.closest("button.cv-agentmsg__toggle")).toBeNull();
   await act(async () => open!.click());
   expect(opened).toEqual(["mux-chief-ui"]);
   // The name leaves the message closed.
