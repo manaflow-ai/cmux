@@ -195,6 +195,14 @@ fn a_guest_reaches_only_its_verbs_and_its_prompts_wait_for_the_owner() {
     let id = format!("g-{}", &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash)[..22]);
     assert_eq!(sent["params"]["_meta"]["acpmux"]["promptId"], id);
     assert_eq!(sent["params"]["_meta"]["acpmux"]["author"], author);
+    // A guest never steers: its prompt waits for the owner, whatever it asks (cloud multiplayer).
+    let steer = json!({"cmd":"agent-session-prompt", "surface":surface, "client_id":"c0",
+        "text":"steer me in", "steer":true});
+    let held = client.request(steer);
+    assert_eq!(held["ok"], true, "{held}");
+    let sent = fake.frame();
+    assert_eq!(sent["params"]["_meta"]["acpmux"]["author"], author);
+    assert!(sent["params"]["_meta"]["acpmux"].get("steer").is_none(), "{sent}");
     let content = json!([{"type":"text", "text":" "}, {"type":"text", "text":"still Theo"}]);
     assert_eq!(
         client.request(json!({"cmd":"agent-session-prompt", "surface":surface,

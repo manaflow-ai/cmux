@@ -18,8 +18,9 @@ extension AgentShareActions {
             case .success(let found): chat = found
             case .failure(let refusal): return Self.refused(refusal, registry)
             }
-            // The owner's install token goes only to this Mac's daemon (a new share needs it).
-            guard chat.isLocal else { return .refused(AgentShareStrings.notThisMac) }
+            // The owner's install token goes only to this Mac's daemon or the owner's own Cloud
+            // machine (a new share needs it; the Cloud owner is checked on its link in the work).
+            guard chat.shareable else { return .refused(AgentShareStrings.notThisMac) }
             guard let role = AgentShareInvites.role(invocation["role"]?.stringValue) else { return .refused(AgentShareStrings.badRole) }
             guard let account = Self.argument(invocation, "account") else {
                 // The palette's Invite People to Chat… and the tab menu's Invite People… name nobody: the
@@ -47,7 +48,7 @@ extension AgentShareActions {
             var chat: AgentShareChat?
             if shareID == nil {
                 switch Self.chat(invocation, host: host) {
-                case .success(let found) where !found.isLocal: return .refused(AgentShareStrings.notThisMac)
+                case .success(let found) where !found.shareable: return .refused(AgentShareStrings.notThisMac)
                 case .success(let found): chat = found
                 case .failure(let refusal): return Self.refused(refusal, registry)
                 }
@@ -71,6 +72,7 @@ extension AgentShareActions {
     /// behind when it refuses). The caller has the owner's consent already.
     static func inviteWork(_ chat: AgentShareChat, account: String, role: String, ttl: UInt64?,
                            host: any AgentShareHost) async throws -> [String: ActionResultValue] {
+        try await chat.requireCloudOwner()
         let connection = try Self.connected(chat.connection)
         var request = AgentSessionShareInviteChatRequest(surface: chat.surface, session: chat.session, account: account, role: role,
                                                          ttlSecs: ttl, createId: UUID().uuidString)

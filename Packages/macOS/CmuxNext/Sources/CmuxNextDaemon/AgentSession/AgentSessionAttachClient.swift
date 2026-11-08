@@ -64,6 +64,8 @@ public actor AgentSessionAttachClient {
     private let endpoint: EndpointProvider
     private let reconnect: Reconnect?
     private let requestTimeout: Duration
+    /// The person's display name for a Cloud team member's connection (`agent-session-member-v1`).
+    private let personName: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-attach")
     private var transport: LineTransport?
     private var connecting: Task<(LineTransport, Served), any Error>?
@@ -114,6 +116,10 @@ public actor AgentSessionAttachClient {
         var content = false
         /// `agent-session-context-v1`.
         var context = false
+        /// `agent-session-steer-v1`.
+        var steer = false
+        /// `agent-session-queue-decision-v1`.
+        var queueDecision = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -126,8 +132,9 @@ public actor AgentSessionAttachClient {
     /// `surface`: the tab's surface id in the daemon's store.
     /// `reconnect`: asked when a connection fails (``Reconnect``); nil, never tried again.
     public init(surface: UInt64, requestTimeout: Duration = .seconds(10), mode: Mode = .attach,
-                reconnect: Reconnect? = nil, endpoint: @escaping EndpointProvider) {
+                reconnect: Reconnect? = nil, personName: String? = nil, endpoint: @escaping EndpointProvider) {
         self.surface = surface
+        self.personName = personName
         self.mode = mode
         self.endpoint = endpoint
         self.reconnect = reconnect
@@ -310,13 +317,40 @@ public actor AgentSessionAttachClient {
     public static let startUnsupported = "agent_session.start_unsupported"
     public static let forkUnsupported = "agent_session.fork_unsupported"
 
-    public func prompt(id: String, text: String) async throws -> Data {
-        try await call("agent-session-prompt", ["prompt_id": id, "text": text])
+    /// `steer`: into the running turn (`agent-session-steer-v1`); a daemon without it queues the
+    /// prompt as before (it would refuse the field), and a link guest's is held whatever it says.
+    public func prompt(id: String, text: String, steer: Bool = false) async throws -> Data {
+        let (transport, served) = try await liveConnection()
+        var params: [String: any Sendable] = ["prompt_id": id, "text": text]
+        if steer, served.steer { params["steer"] = true }
+        return try await call("agent-session-prompt", params, on: transport)
+    }
+
+    /// `agent-session-queue-approve`: the owner runs the held prompt `promptID` (its `turnID` and
+    /// queue `revision` as the page saw them; a newer edit answers stale).
+    public func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data {
+        let (transport, served) = try await liveConnection()
+        guard served.queueDecision else { throw Self.queueDecisionUnsupportedError }
+        return try await call("agent-session-queue-approve", ["prompt_id": promptID, "turn_id": turnID, "revision": revision], on: transport)
+    }
+
+    /// `agent-session-queue-decline`: the owner drops the held prompt `promptID`.
+    public func queueDecline(promptID: String) async throws -> Data {
+        let (transport, served) = try await liveConnection()
+        guard served.queueDecision else { throw Self.queueDecisionUnsupportedError }
+        return try await call("agent-session-queue-decline", ["prompt_id": promptID], on: transport)
+    }
+
+    /// The code a held-prompt decision gets from a daemon too old to take it.
+    public static let queueDecisionUnsupported = "agent_session.queue_decision_unsupported"
+    static var queueDecisionUnsupportedError: AgentSessionAttachError {
+        AgentSessionAttachError(code: queueDecisionUnsupported, message: "Update cmux on that machine to approve held messages.")
     }
 
     /// Ordered ACP blocks; the owning daemon pins their session and validates their shape.
-    public func prompt(id: String, content: Data) async throws -> Data {
+    public func prompt(id: String, content: Data, steer: Bool = false) async throws -> Data {
         let (transport, served) = try await liveConnection()
+        let steered = steer && served.steer
         guard served.content else {
             // Older daemons still accept pasted text as plain text. Never discard media to
             // make a prompt fit the legacy contract, and never send a field they would refuse.
@@ -325,9 +359,13 @@ public actor AgentSessionAttachClient {
                 throw AgentSessionAttachError(code: "agent_session.content_unsupported", message: "Update cmux on that machine to send attachments.")
             }
             let text = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n\n")
-            return try await call("agent-session-prompt", ["prompt_id": id, "text": text], on: transport)
+            var params: [String: any Sendable] = ["prompt_id": id, "text": text]
+            if steered { params["steer"] = true }
+            return try await call("agent-session-prompt", params, on: transport)
         }
-        return try await call("agent-session-prompt", ["prompt_id": id], json: ["content": content], on: transport)
+        var params: [String: any Sendable] = ["prompt_id": id]
+        if steered { params["steer"] = true }
+        return try await call("agent-session-prompt", params, json: ["content": content], on: transport)
     }
 
     public func cancel() async throws {
@@ -679,12 +717,16 @@ public actor AgentSessionAttachClient {
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
                             login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),
                             content: identity.supports(DaemonCapability.agentSessionContent.rawValue),
-                            context: identity.supports(DaemonCapability.agentSessionContext.rawValue))
+                            context: identity.supports(DaemonCapability.agentSessionContext.rawValue),
+                            steer: identity.supports(DaemonCapability.agentSessionSteer.rawValue),
+                            queueDecision: identity.supports(DaemonCapability.agentSessionQueueDecision.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).
+                // A teammate's team machine names the member by its signed id and shows this name.
                 SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind,
-                                     capabilities: served.presence ? [DaemonCapability.agentSessionPresence.rawValue] : []),
+                                     capabilities: served.presence ? [DaemonCapability.agentSessionPresence.rawValue] : [],
+                                     personName: identity.supports(DaemonCapability.agentSessionMember.rawValue) ? personName : nil),
                 on: transport, timeout: requestTimeout)
         } catch {
             if quiet { quietLoss = true }

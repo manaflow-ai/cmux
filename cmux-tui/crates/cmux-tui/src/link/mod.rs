@@ -12,6 +12,7 @@ mod daemon_entry;
 pub(crate) use daemon_entry::DaemonEntryStartup;
 mod dial;
 mod dial_cli;
+mod chat_cli;
 mod enrollment;
 mod ensure;
 mod native_broker;
@@ -129,6 +130,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
     // `dial` has its own exit codes and always one JSON line on stderr.
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
+    }
+    // `chat`: a Cloud machine's chats as the caller's role reaches them (one JSON object out).
+    if args.first().map(String::as_str) == Some("chat") {
+        return chat_cli::run(&args[1..]);
     }
     // `sync` answers one JSON line on stdout and has its own exit codes too.
     if args.first().map(String::as_str) == Some("sync") {

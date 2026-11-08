@@ -365,6 +365,15 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionLogin = "agent-session-login-v1"
     /// Owner-only context inventory and cmux-added overrides for an attached session.
     case agentSessionContext = "agent-session-context-v1"
+    /// `agent-session-prompt` takes `steer`: the owner's and a Cloud team member's prompt steers
+    /// into the running turn (a link guest's is still held for the owner).
+    case agentSessionSteer = "agent-session-steer-v1"
+    /// `agent-session-queue-approve` / `-queue-decline`: the owner runs or drops a prompt held for
+    /// them (a link guest's) on a chat on that machine.
+    case agentSessionQueueDecision = "agent-session-queue-decision-v1"
+    /// A Cloud team member's chat verbs on a teammate's team machine (`agent-session-team-list`
+    /// and the attach verbs, stamped with the member the link token names).
+    case agentSessionMember = "agent-session-member-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     case pageTabs = "page-tabs-v1"
@@ -573,7 +582,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionContext, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionContext, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,

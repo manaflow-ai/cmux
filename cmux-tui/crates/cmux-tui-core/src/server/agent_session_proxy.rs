@@ -39,6 +39,28 @@ const VIEWER_VERBS: [&str; 5] = [
     "agent-session-detach",
 ];
 
+/// A Cloud team member on a teammate's team machine (`member.rs`): the chat's own verbs, its
+/// steer, typing and view. Never start, trust, media, children, permission, a queue decision,
+/// a setting or the owner's sign-in. Its prompts steer like the owner's and are never held.
+const MEMBER_VERBS: [&str; 8] = [
+    "agent-session-attach",
+    "agent-session-events",
+    "agent-session-prompt",
+    "agent-session-cancel",
+    "agent-session-typing",
+    "agent-session-view",
+    "agent-session-detach",
+    "agent-session-permission",
+];
+
+/// Whether `author` is a Cloud team member's (`user_<id>`, named by its signed link token).
+pub(super) fn is_member(author: &Value) -> bool {
+    author["id"].as_str().is_some_and(|id| id.starts_with(MEMBER_PREFIX))
+}
+
+/// The id prefix of a Cloud account (cmux-platform `userIdFor`), as acpmux's author takes it.
+pub(super) const MEMBER_PREFIX: &str = "user_";
+
 /// Whether `author` is a link guest's (`guest:<share_id>.<guest_id>`).
 pub(super) fn is_guest(author: &Value) -> bool {
     author["id"].as_str().is_some_and(|id| id.starts_with(shares::GUEST_PREFIX))
@@ -64,9 +86,12 @@ pub(super) fn scope(
     let cmd = object.get("cmd").and_then(Value::as_str).unwrap_or_default().to_owned();
     if let Some(author) = author {
         let guest = is_guest(author);
+        // `agent-session-permission` is in the member's list only so it is answered
+        // `agent_session.owner_only` (`run_on_worker`), not a bare not-trusted.
         let verbs: &[&str] = match (guest, shares::view_only(author)) {
             (true, true) => &VIEWER_VERBS,
             (true, false) => &GUEST_VERBS,
+            (false, _) if is_member(author) => &MEMBER_VERBS,
             (false, _) => &TEAMMATE_VERBS,
         };
         if !verbs.contains(&cmd.as_str()) {
@@ -219,6 +244,7 @@ pub(super) fn session_of(
     if bound
         || (!mux.control_clients.is_unix(client) || mux.is_remote_client(client))
             && !mux.cloud_mobile_client(client)
+            && !mux.is_native_agent_owner(client)
     {
         return refuse(writer, id, Refusal::NotTrusted);
     }

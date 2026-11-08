@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
@@ -15,6 +16,9 @@ extension AppServices: AgentShareHost {
     func shareConnection(holding tab: TabModel) -> DaemonConnection? { locateTab(tab.id).map(\.1).map(daemon(for:))?.connection }
     func shareIsOnThisMac(_ tab: TabModel) -> Bool { machines.local.store.tab(idOrResource: tab.id) === tab }
     var shareLocalConnection: DaemonConnection? { machines.local.connection }
+    func shareCloudOwner(_ tab: TabModel) -> (@MainActor @Sendable () async -> Bool)? {
+        (try? machines.agentDaemon(forTab: tab)).flatMap { $0.isLocal ? nil : machines.session($0.machineID) }.map { AgentShareActions.ownsCloudMachine(CloudMachineLinks(appLink: $0.appLink)) }
+    }
     func shareOwnerToken(api: URL?) async -> String? { await cloud.shareOwnerToken(api: api) }
     func shareCopy(_ text: String) { AppActionContext(services: self).copy(text) }
     func shareNotice(_ message: String) { BrowserFileImport.toast(self, id: "agent-share", message) }
@@ -29,14 +33,6 @@ extension AppServices: AgentShareHost {
 /// decline before the caller's person deadline, so the waiting CLI or agent always gets an answer.
 @MainActor
 enum AgentShareConsentSheet {
-    /// The sheet closes early enough that an Allow at its last second still has the daemon's create
-    /// (``AgentShareActions/createDeadline``) and a margin inside the caller's person deadline.
-    static let answerWithin: Duration = ActionDescriptor.personDeadline - AgentShareActions.createDeadline - .seconds(10)
-
-    /// Only the person answers it (`DebugDialog.userOnly`): the debug socket's press would let the
-    /// asking script approve its own link.
-    static let identifier = "cmux.dialog.agentShareConsent"
-
     /// The Feed request while the sheet waits: its "Show on Mac" brings the app forward, never allows.
     static func feedRequest(_ ask: AgentShareConsentAsk) -> FeedPendingConfirm.Request {
         .init(title: ask.title, statement: ask.lines.joined(separator: " "), confirmLabel: ask.showOnMacTitle, cancelLabel: ask.declineTitle)
@@ -45,12 +41,12 @@ enum AgentShareConsentSheet {
     static func spec(_ ask: AgentShareConsentAsk) -> CmuxDialogSpec {
         CmuxDialogSpec(title: ask.title, lines: ask.lines,
                        buttons: [.cancel(ask.declineTitle), CmuxDialogButton(id: "allow", title: ask.allowTitle)],
-                       identifier: identifier)
+                       identifier: AgentShareActions.consentDialogIdentifier)
     }
 
     /// `feed`: while the sheet waits it is also an open Feed request (``FeedPendingConfirm``), which only
     /// declines the sheet or brings the app forward.
-    static func ask(_ ask: AgentShareConsentAsk, center: CmuxDialogCenter = .shared, within limit: Duration = answerWithin,
+    static func ask(_ ask: AgentShareConsentAsk, center: CmuxDialogCenter = .shared, within limit: Duration = AgentShareActions.consentAnswerWithin,
                     feed: FeedService? = nil) async -> Bool {
         let timeout = DemandTimer(owner: "AgentShareConsentSheet.ask")
         let request = feed.flatMap { feed in feed.isSignedIn ? FeedPendingConfirm(owner: { try await feed.call($0, $1) }) : nil }
