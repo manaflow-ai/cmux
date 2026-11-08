@@ -117,9 +117,12 @@ public struct BrowserImportedCookie: Sendable, Equatable {
     /// columns, in the order ``chromium(host:name:value:path:expiresUTC:isSecure:isHTTPOnly:sameSite:topFrameSiteKey:)``
     /// takes them after the encrypted value.
     public static func chromiumCookiesQuery(columns: Set<String>) -> String {
-        """
+        // Cookie schema 15 (2021) added `top_frame_site_key`; an older table
+        // has no partitioned cookies.
+        let topFrameSiteKey = columns.contains("top_frame_site_key") ? "top_frame_site_key" : "''"
+        return """
         SELECT host_key, name, value, path, expires_utc, is_secure, encrypted_value,
-               is_httponly, samesite, top_frame_site_key
+               is_httponly, samesite, \(topFrameSiteKey)
         FROM cookies
         """
     }

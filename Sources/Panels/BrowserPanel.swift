@@ -10599,11 +10599,11 @@ enum BrowserDataImporter {
             do {
                 try querySQLiteRows(
                     sourceDatabaseURL: databaseURL,
-                    sql: """
-                    SELECT host_key, name, value, path, expires_utc, is_secure, encrypted_value,
-                           is_httponly, samesite, top_frame_site_key
-                    FROM cookies
-                    """
+                    makeSQL: { database in
+                        BrowserImportedCookie.chromiumCookiesQuery(
+                            columns: sqliteColumnNames(database, table: "cookies")
+                        )
+                    }
                 ) { statement in
                     let host = sqliteColumnText(statement, index: 0) ?? ""
                     let name = sqliteColumnText(statement, index: 1) ?? ""
@@ -10972,6 +10972,16 @@ enum BrowserDataImporter {
         sql: String,
         rowHandler: (OpaquePointer) throws -> Void
     ) throws {
+        try querySQLiteRows(sourceDatabaseURL: sourceDatabaseURL, makeSQL: { _ in sql }, rowHandler: rowHandler)
+    }
+
+    /// Runs the query `makeSQL` builds against the open snapshot, for a query
+    /// that depends on which columns the source browser's schema has.
+    private static func querySQLiteRows(
+        sourceDatabaseURL: URL,
+        makeSQL: (OpaquePointer) -> String,
+        rowHandler: (OpaquePointer) throws -> Void
+    ) throws {
         let fileManager = FileManager.default
         let tempRoot = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-browser-import-\(UUID().uuidString)",
@@ -11006,7 +11016,7 @@ enum BrowserDataImporter {
         defer { sqlite3_close(database) }
 
         var statement: OpaquePointer?
-        let prepareCode = sqlite3_prepare_v2(database, sql, -1, &statement, nil)
+        let prepareCode = sqlite3_prepare_v2(database, makeSQL(database), -1, &statement, nil)
         guard prepareCode == SQLITE_OK, let statement else {
             let message = sqliteMessage(from: database) ?? "unknown SQLite prepare failure"
             sqlite3_finalize(statement)
@@ -11030,6 +11040,24 @@ enum BrowserDataImporter {
                 NSLocalizedDescriptionKey: message,
             ])
         }
+    }
+
+    private static func sqliteColumnNames(_ database: OpaquePointer, table: String) -> Set<String> {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, "SELECT name FROM pragma_table_info(?1)", -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            sqlite3_finalize(statement)
+            return []
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, table, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        var names: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let name = sqliteColumnText(statement, index: 0) {
+                names.insert(name)
+            }
+        }
+        return names
     }
 
     private static func sqliteMessage(from database: OpaquePointer?) -> String? {
