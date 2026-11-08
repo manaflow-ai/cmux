@@ -71,9 +71,30 @@ fn parse(rest: &[String]) -> Option<(PathBuf, &[String])> {
     }
 }
 
-/// Whether the head may be marked ready: none of [`START_SETTINGS`] is in it.
+/// The head's folders a harness reads at start (the step's `head_dirs`, beside the root's files).
+const HEAD_DIRS: &[&str] =
+    &[".claude", ".codex", ".cursor", ".gemini", ".github", ".vscode", ".devcontainer"];
+
+/// Whether the head may be marked ready: none of [`START_SETTINGS`] is in it, and no symlink at
+/// its root or in [`HEAD_DIRS`] points at what the head left out (a `CLAUDE.md` linked into
+/// `docs/`): a start would read no instructions where the whole checkout has them.
 pub(crate) fn head_allowed(dir: &Path) -> bool {
     START_SETTINGS.iter().all(|settings| std::fs::symlink_metadata(dir.join(settings)).is_err())
+        && !links_out_of_the_head(dir, 0)
+}
+
+/// A symlink in `dir` (and, from the root, in [`HEAD_DIRS`]) whose target is not there.
+fn links_out_of_the_head(dir: &Path, depth: usize) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else { return false };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        let Ok(kind) = entry.file_type() else { return true };
+        if kind.is_symlink() {
+            return std::fs::metadata(&path).is_err();
+        }
+        let harness = depth == 0 && HEAD_DIRS.iter().any(|d| entry.file_name() == *d);
+        kind.is_dir() && (harness || depth > 0) && depth < 8 && links_out_of_the_head(&path, depth + 1)
+    })
 }
 
 /// Waits until the barrier on `dir` is open (`cmux_git::sync_barrier::wait_ready`).

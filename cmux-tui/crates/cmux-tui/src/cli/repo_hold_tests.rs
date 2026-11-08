@@ -67,6 +67,21 @@ fn a_head_with_harness_start_settings_is_never_marked() {
     assert_eq!(settled(&repo, "ready"), "ready");
 }
 
+/// Review F1 (cmux#38099, c64fa326f5b): a `CLAUDE.md` linked into a folder the head left out
+/// would start a harness with no instructions, so such a head is never marked.
+#[test]
+fn a_head_whose_instructions_link_out_of_it_is_never_marked() {
+    let (_dir, repo) = checkout();
+    std::os::unix::fs::symlink("docs/instructions.md", repo.join("CLAUDE.md")).unwrap();
+    assert!(!head_allowed(&repo));
+    std::fs::create_dir(repo.join("docs")).unwrap();
+    std::fs::write(repo.join("docs/instructions.md"), "x").unwrap();
+    assert!(head_allowed(&repo), "a link whose target is there is fine");
+    std::fs::create_dir_all(repo.join(".claude/agents")).unwrap();
+    std::os::unix::fs::symlink("../../shared/a.md", repo.join(".claude/agents/a.md")).unwrap();
+    assert!(!head_allowed(&repo), "nor one in a harness folder");
+}
+
 #[test]
 fn a_held_checkout_refuses_a_second_hold() {
     let (_dir, repo) = checkout();
