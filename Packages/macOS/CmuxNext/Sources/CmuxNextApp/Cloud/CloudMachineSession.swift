@@ -23,6 +23,7 @@ final class CloudMachineSession {
     @ObservationIgnored let appLink: CloudLinkSession?
     /// The last Cloud start's harness login decision here: its summary for `cloud.machines`, its team skip for the chat's card.
     @ObservationIgnored var harnessLogin: CloudHarnessLoginDecision?
+    @ObservationIgnored var relayLogins: [String: Task<Void, any Error>] = [:] // a relay chat's login step still running, by agent, account and `--login` ask
     /// This Mac's own daemon identity: an app link socket that leads back to
     /// it is refused after the handshake (`DaemonIdentity.checkNotLocal(local:)`, CmuxNextCloud).
     @ObservationIgnored private let localIdentity: @MainActor () -> DaemonIdentity?

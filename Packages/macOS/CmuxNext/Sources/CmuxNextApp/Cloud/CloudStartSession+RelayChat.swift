@@ -62,7 +62,9 @@ extension CloudStartSession {
                 try Self.checked(account, now: now(), asked)
                 guard await steps.link(machine) else { return ("cloud.relay.not_connected", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
                 try Self.checked(account, now: now(), asked); guard ContinuousClock.now - linking < steps.loginWithin else { return ("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) }
-                try await steps.login(machine, started) { try Self.checked(account, now: now(), asked) }
+                // start-chat's rerun after `login_pending` joins this machine's login still running (one transfer, never two racing on `harnessLogin`); task-owner: the step, to its end.
+                let key = "\(started.agent)|\(account)|\(started.login)", step = machine.relayLogins[key] ?? Task { try await steps.login(machine, started) { try Self.checked(account, now: now(), asked) } }
+                machine.relayLogins[key] = step; let stepped = await step.result; if machine.relayLogins[key] == step { machine.relayLogins[key] = nil }; try stepped.get()
                 let link = machine.appLink, ownership = await link?.callerOwnership ?? .unknown, state = await link?.stateWord ?? "none", decision = machine.harnessLogin
                 let refusal = relayLoginRefusal(decision, started, machine: machine.machine.title, ownership: ownership)
                 let cached = decision.map { $0.machineProbe == nil && $0.machineLogin == nil ? "unqueried" : $0.cached ? "yes" : "no" } ?? "unqueried" // verdicts only: no id, token, path or provider output
@@ -139,14 +141,11 @@ extension CloudStartSession {
     }
 
     /// A relay chat refused before anything was sent.
-    static func notSent(_ code: String, _ message: String) -> [String: ActionResultValue] {
-        ["delivered": .bool(false), "ended": .bool(true), "error_code": .string(code), "error_message": .string(message)]
-    }
+    static func notSent(_ code: String, _ message: String) -> [String: ActionResultValue] { ["delivered": .bool(false), "ended": .bool(true), "error_code": .string(code), "error_message": .string(message)] }
 
     /// The answer's fields: what the CLI prints with `--json`. `linkLogin`: the link and login before the relay's request (cmuxterm-hq#7415's stage trace).
     static func relayFields(_ answer: CloudRelayChat.Answer, machineID: String, linkLogin: Duration? = nil) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = ["machine_id": .string(machineID), "reply": .string(answer.reply), "queued": .bool(answer.queued),
-                                                   "ended": .bool(answer.ended), "delivered": .bool(answer.delivered)]
+        var fields: [String: ActionResultValue] = ["machine_id": .string(machineID), "reply": .string(answer.reply), "queued": .bool(answer.queued), "ended": .bool(answer.ended), "delivered": .bool(answer.delivered)]
         let texts = ["session_id": answer.session, "prompt_id": answer.promptID, "stop_reason": answer.stopReason].merging(answer.errorTexts) { $1 } // and error_code, error_message, the machine's typed error
         for case let (key, text?) in texts { fields[key] = .string(text) }
         if let retryable = answer.errorRetryable { fields["error_retryable"] = .bool(retryable) }
