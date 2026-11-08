@@ -25,6 +25,12 @@ import Testing
             guard let data = try? Data(contentsOf: url), let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
             return (root["sidebar"] as? [String: Any])?[key] as? Bool
         }
+
+        /// Whether cmux.json is there and parses as an object, so a missing or unreadable file never passes for "the key is absent".
+        func fileParses() -> Bool {
+            guard let data = try? Data(contentsOf: url), let root = try? JSONSerialization.jsonObject(with: data) else { return false }
+            return root is [String: Any]
+        }
         var account: LayoutItemID { LayoutItemID("itm_account") }
         var showsProfileControl: Bool { sidebar.footerRegion.itemView(account) != nil }
 
@@ -124,8 +130,9 @@ import Testing
         #expect(!band.contains("Show Profile Button"))
         _ = h.services.registry.perform("sidebar.spaces.show")
         // Shown is the default: the write removes the key (#38119), so cmux.json keeps no copy.
-        await h.until { !h.sidebar.profileBar.isHidden && h.saved("showSpaces") == nil }
+        await h.until { !h.sidebar.profileBar.isHidden && h.fileParses() && h.saved("showSpaces") == nil }
         #expect(!h.sidebar.profileBar.isHidden)
+        #expect(h.fileParses(), "cmux.json is missing or does not parse")
         #expect(h.saved("showSpaces") == nil, "shown is the default: sidebar.showSpaces leaves cmux.json")
     }
 
