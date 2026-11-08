@@ -34,11 +34,14 @@ struct LayoutFrameInput {
     }
 
     /// The pass a screen's presentation waited for in the frame's input, for each screen whose springs did not
-    /// present it this frame (a drag moves no spring), before the frame syncs its overlay.
+    /// present it this frame (a drag moves no spring), before the frame syncs its overlay. A snap held for its terminals'
+    /// frames (Reduce Motion: no spring lands it, so no settle shows it) shows here, through the same path as a settle
+    /// (``ScreenContentView/presentHeldSnap()``): each host lets go of a size drawn ahead for it that its placement did not
+    /// take (review of b8085fe5bf1, P1 1 and 2: a press taken back before the tick kept its size and grid with Ghostty
+    /// and the PTY until the pane moved again).
     func presentWaiting() { // perf-hot: 4ms motion-frame
         for view in root.screenViews.values where view.frameInput.presentationWaiting {
-            view.frameInput.snapWaitsForContent = false
-            view.applyPresentation()
+            if view.frameInput.snapWaitsForContent { view.presentHeldSnap() } else { view.applyPresentation() }
         }
     }
 }

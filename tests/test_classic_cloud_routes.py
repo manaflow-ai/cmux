@@ -66,7 +66,9 @@ TEST_NAME = re.compile(r"((?:^|[._-])[Mm]ocks?[._-]|^mock[A-Z]|(?:^|[._-])fixtur
 STRING_COMMON = r'"""[\s\S]*?"""|"(?:\\.|[^"\\\n])*"'
 COMMENT = r"//[^\n]*|/\*[\s\S]*?\*/"
 TOKENS = {
-    ".rs": re.compile(rf"{STRING_COMMON}|'(?:\\.|[^'\\\n])'|{COMMENT}"),  # a char literal, never a lifetime
+    # A raw string (r"..", r#".."#, br#".."#) ends at a quote and its own hashes; a backslash in it is literal.
+    ".rs": re.compile(rf"(?<![A-Za-z0-9_])b?r(?P<hashes>#*)\"[\s\S]*?\"(?P=hashes)|{STRING_COMMON}"
+                      rf"|'(?:\\.|[^'\\\n])'|{COMMENT}"),  # a char literal, never a lifetime
     ".swift": re.compile(rf"{STRING_COMMON}|{COMMENT}"),
 }
 TOKENS_JS = re.compile(rf"{STRING_COMMON}|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`|{COMMENT}")
@@ -290,6 +292,10 @@ class Matcher(unittest.TestCase):
         source = ('const A: &str = "/api/vm";\n#[cfg(test)]\nmod tests {\n    const B: &str = "/api/vm/{x}";\n'
                   '    fn f() { let _ = "}"; }\n}\nconst C: &str = "/api/runs";\n')
         self.assertEqual(matches(source, "cmux-tui/crates/x/src/lib.rs"), {"route:/api/vm": [1], "route:/api/runs": [7]})
+        # A raw string ends at its own `"#`: a backslash in it escapes nothing (r#"{"k":"a\"x"}"#).
+        raw = ('#[cfg(test)]\nmod tests {\n    const R: &str = r#"{"k":"a\\"x","n":1}"#;\n'
+               '    const T: &str = "/api/vm";\n}\nconst C: &str = "/api/runs";\n')
+        self.assertEqual(matches(raw, "cmux-tui/crates/x/src/lib.rs"), {"route:/api/runs": [6]})
 
     def test_test_and_mock_files_are_out_of_scope(self):
         paths = {"include": ["Packages/macOS/CmuxNext/", "webviews/src/"]}

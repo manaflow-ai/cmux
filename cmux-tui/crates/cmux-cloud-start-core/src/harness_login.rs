@@ -339,13 +339,15 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     }
     if d.provider == Some(Provider::Codex) {
         // The machine keeps its own Codex sign-in when asked to; otherwise the broker runs. Its
-        // device-code prompt is its own confirm (with Cancel), so no second one comes first, and a
-        // run that may show no prompt passes nothing rather than refusing the start.
+        // device-code prompt is its own confirm (with Cancel), so no second one comes first. A run
+        // that may show no prompt and has no choice refuses at once, as Claude's does: passing
+        // nothing left Codex signed out on the machine and the run's first turn hung until its
+        // deadline (production start matrix, `codex-signed-out`, 2026-11-08).
         let chose_pass = choice == Some(Choice::Pass)
             && (d.requested_by_person || d.stored == Some(Choice::Pass));
         return match choice {
             Some(Choice::Machine) => (Step::Skip, Reason::MachineLoginKept),
-            _ if d.headless && !chose_pass => (Step::Skip, Reason::NeedsLoginChoice),
+            _ if d.headless && !chose_pass => (Step::Refuse, Reason::NeedsLoginChoice),
             _ => (Step::Install, Reason::CodexBroker),
         };
     }

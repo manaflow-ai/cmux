@@ -2,6 +2,7 @@
 
 mod background_checks;
 mod crash_forward;
+mod crash_scrub;
 mod memory_guard;
 mod owner_panic;
 

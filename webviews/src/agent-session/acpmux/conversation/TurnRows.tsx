@@ -19,6 +19,7 @@ import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { toolRunSummary } from "./toolRunSummary";
 import { ToolRunSteps } from "./ToolRunSteps";
+import { KeepOpenedLine } from "./KeepOpenedLine";
 import { visibleToolItems } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
@@ -73,7 +74,7 @@ import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./useTurnWaterfall";
-import { groupDisclosureKey, runDisclosureKey, thoughtIds } from "./turnRowsModel";
+import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -244,6 +245,9 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   const foldRun = row.foldRun;
   const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
+  // The row's groups and runs, in a word: when a new call changes it, the line the reader opened is
+  // kept where it is on screen (KeepOpenedLine.tsx).
+  const shape = useMemo(() => runShape(stretches), [stretches]);
   const nodes = stretches.map((stretch) => {
     // A stretch's line and its groups' lines take each other's place as calls arrive (one group
     // grows into a run of two kinds; a run loses its line when a call in it runs again): each opens
@@ -288,7 +292,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
           {/* No verb column: each row reads icon, verb, then its subject one space after, as Claude Code
               lists them (Leo, 2026-10-31: "why are these indented for no reason"). */}
-          <div className="cv-tools">{nodes}</div>
+          <KeepOpenedLine shape={shape}>{nodes}</KeepOpenedLine>
         </FindReveal.Provider>
       </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
