@@ -748,7 +748,10 @@ async function seedDraft(page: Page, chars: number): Promise<void> {
     { chars, line: DRAFT_LINE, editor: composerEditor },
   );
   await quiet(page);
-  const length = await page.evaluate((editor) => document.querySelector(editor)?.textContent?.length ?? 0, composerEditor);
+  const length = await page.evaluate(
+    (editor) => document.querySelector(editor)?.textContent?.length ?? 0,
+    composerEditor,
+  );
   if (length < chars * 0.9) throw new Error(`draft fixture laid ${length} of ${chars} characters inline`);
   if (await page.$(".acpmux-attachments .acpmux-attachment")) throw new Error("draft fixture became a paste chip");
   await page.evaluate((chars) => ((window as unknown as { __latencyDraft?: number }).__latencyDraft = chars), chars);
@@ -1358,13 +1361,14 @@ export const PAGES: LatencyPageSpec[] = [
   AGENT_PANE_PAGE,
   CHAT_FLOWS_PAGE,
   ...LONG_CHAT_PAGES,
-  ...DRAFT_TYPING_PAGES,
   SETTINGS_PAGE,
   RAIL_DRAG_PAGE,
   RAIL_POINTER_PAGE,
   ...RAIL_SWEEP_PAGES,
   // Experiment comparisons (design/glass.md, design/motion-and-polish.md in leo-workspace): run on
   // demand with CMUX_LATENCY_EXPERIMENTS=1, never in the CI scoreboard.
+  // Typing behind a long draft: run on demand with CMUX_LATENCY_DRAFTS=1, never in the CI scoreboard.
+  ...(process.env.CMUX_LATENCY_DRAFTS === "1" ? DRAFT_TYPING_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? CHAT_SWITCH_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? GLASS_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? LIVE_BACKGROUND_PAGES : []),
