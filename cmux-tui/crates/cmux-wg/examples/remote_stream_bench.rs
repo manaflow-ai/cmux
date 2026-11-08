@@ -431,16 +431,23 @@ impl Rng {
 /// Forward datagrams from `from` to wherever `to` says, each after a fixed
 /// delay and each lost with probability `loss_pct`. The delay line is FIFO,
 /// so the link never reorders, like netem with a fixed delay.
+/// How one direction of a link misbehaves.
+struct Shape {
+    delay: Duration,
+    loss_pct: f64,
+    seed: u64,
+    /// Drop everything while set (a pulled cable).
+    cut: Arc<AtomicBool>,
+}
+
 fn impair_direction(
     from: Arc<UdpSocket>,
     out: Arc<UdpSocket>,
     to: Arc<Mutex<Option<SocketAddr>>>,
     learn: Option<Arc<Mutex<Option<SocketAddr>>>>,
-    delay: Duration,
-    loss_pct: f64,
-    seed: u64,
-    cut: Arc<AtomicBool>,
+    shape: Shape,
 ) {
+    let Shape { delay, loss_pct, seed, cut } = shape;
     let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<(Instant, Vec<u8>)>();
     tokio::spawn(async move {
         let mut rng = Rng(seed);
@@ -493,12 +500,10 @@ async fn impair_cuttable(
         back.clone(),
         server,
         Some(client.clone()),
-        delay,
-        loss_pct,
-        0x9e37_79b9_7f4a_7c15,
-        cut.clone(),
+        Shape { delay, loss_pct, seed: 0x9e37_79b9_7f4a_7c15, cut: cut.clone() },
     );
-    impair_direction(back, front, client, None, delay, loss_pct, 0xd1b5_4a32_d192_ed03, cut);
+    let shape = Shape { delay, loss_pct, seed: 0xd1b5_4a32_d192_ed03, cut };
+    impair_direction(back, front, client, None, shape);
     Ok(address)
 }
 

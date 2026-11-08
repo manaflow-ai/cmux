@@ -42,6 +42,21 @@ pub(crate) struct PathProbe {
     outstanding: Option<(u64, Instant)>,
 }
 
+impl PathProbe {
+    /// The probe waiting for its answer, and when it was sent.
+    pub(crate) fn outstanding(&self) -> Option<(u64, Instant)> {
+        self.outstanding
+    }
+
+    /// Probe at the next step, whatever the interval said (the path went
+    /// quiet).
+    pub(crate) fn due_now(&mut self, now: Instant) {
+        if self.next_at.is_none_or(|at| at > now) {
+            self.next_at = Some(now);
+        }
+    }
+}
+
 /// What one path needs now.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ProbeStep {
@@ -56,7 +71,8 @@ pub(crate) struct ProbeStep {
 impl ProbeConfig {
     fn interval(&self, view: &PathView, current: bool) -> Duration {
         match view.state {
-            PathState::Probing => self.dial_interval,
+            // A suspect proves itself alive, or dead, as fast as a new path.
+            PathState::Probing | PathState::Suspect => self.dial_interval,
             _ if current => self.current_interval,
             _ => self.other_interval,
         }
