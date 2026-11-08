@@ -892,11 +892,20 @@ fn run_ensure(
             {
                 let adopted = wait_for_adoption(&spec.socket, spec.socket_is_derived);
                 result.set("terminals", adopted.counts());
-                if !adopted.not_running.is_empty() {
-                    let text = messages
-                        .restart_terminals_not_running
-                        .replace("{count}", &adopted.not_running.len().to_string())
-                        .replace("{terminals}", &adopted.not_running.join(", "));
+                if !adopted.listed || !adopted.not_running.is_empty() {
+                    let text = if adopted.listed {
+                        messages
+                            .restart_terminals_not_running
+                            .replace("{count}", &adopted.not_running.len().to_string())
+                            .replace("{terminals}", &adopted.not_running.join(", "))
+                    } else {
+                        messages.restart_terminals_unknown.to_owned()
+                    };
+                    // The top-level message says what is wrong; the success
+                    // text ("every terminal was kept") would contradict it.
+                    if let Some(result) = result.as_object_mut() {
+                        result.remove("message");
+                    }
                     result.set("not_running", json!(adopted.not_running));
                     return local_error_with_details(
                         "server.terminals_not_running",
@@ -939,9 +948,11 @@ const ADOPTION_DEADLINE: Duration = Duration::from_secs(30);
 
 /// The terminals of a restarted owner, by lifecycle, once none is adopting
 /// (or at [`ADOPTION_DEADLINE`]): `not_running` are the ids still adopting
-/// or launching then, or every id when the owner could not be read.
+/// or launching then; `listed` is false when the owner could not be read.
 #[derive(Debug, Default)]
 struct Adopted {
+    /// Whether the new owner listed its terminals at all.
+    listed: bool,
     running: usize,
     exited: usize,
     not_running: Vec<String>,
@@ -955,7 +966,7 @@ impl Adopted {
     /// From a `list-terminals` answer, and whether no terminal is still
     /// being adopted or launched.
     fn settled(listed: &Value) -> (Self, bool) {
-        let mut adopted = Self::default();
+        let mut adopted = Self { listed: true, ..Self::default() };
         for row in listed["terminals"].as_array().into_iter().flatten() {
             match row["lifecycle"].as_str() {
                 Some("running") => adopted.running += 1,
@@ -975,8 +986,7 @@ impl Adopted {
 /// `adopting` or `launching`), up to [`ADOPTION_DEADLINE`].
 fn wait_for_adoption(socket: &std::path::Path, socket_is_derived: bool) -> Adopted {
     let deadline = Instant::now() + ADOPTION_DEADLINE;
-    let mut last =
-        Adopted { not_running: vec!["(terminal list unavailable)".into()], ..Adopted::default() };
+    let mut last = Adopted::default();
     let Ok(stream) = cmux_tui_core::server::connect_session_socket(socket, socket_is_derived)
     else {
         return last;
