@@ -191,6 +191,7 @@ import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
 import { answerFromHome } from "./homeInboxModel";
 import { HomeLists } from "./HomeLists";
+import { HomeWaitingTimeline } from "./waiting/WaitingTimeline";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
@@ -4115,6 +4116,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     );
   }, []);
+  // Waiting on me (waiting/WaitingTimeline.tsx): the day's lanes come from this page's acpmux, and a
+  // red stretch opens its chat at the turn the wait began in, once that turn's row is drawn.
+  const readWaitingDay = useCallback(
+    (params: { since: number; until: number }) =>
+      directClient.current?.waitingDay(params) ?? Promise.reject(new Error("not connected")),
+    [],
+  );
+  const jumpToWait = useCallback(
+    (sessionId: string, turnId?: string) => {
+      selectSession(sessionId);
+      if (turnId) void revealTurnWhenShown(turnId);
+    },
+    [selectSession],
+  );
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
   /// same selection and changes-view paths the sidebar and the edited-files card use.
   const automationView = useRef<{
@@ -11901,6 +11916,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
                       shortcuts={!hasBottomAsk}
                     />
+                    <HomeWaitingTimeline read={readWaitingDay} sessions={snapshot.sessions} onJump={jumpToWait} />
                   </div>
                 )}
                 {hostLine}

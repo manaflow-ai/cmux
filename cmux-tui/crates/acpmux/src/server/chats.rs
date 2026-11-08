@@ -63,6 +63,7 @@ mod ledger;
 mod offers;
 mod search;
 mod stats;
+mod waiting_day;
 mod workspace_purge;
 
 use crate::no_panic::JsonExt;
@@ -170,6 +171,10 @@ pub(super) async fn route(
     // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
     if m == crate::rpc::method::MUX_LEDGER {
         return ledger::handle(hub, conn.origin, &params);
+    }
+    // When each chat worked or waited on the person (`hub/waiting_day.rs`): as the ledger.
+    if m == crate::rpc::method::MUX_WAITING_DAY {
+        return waiting_day::handle(hub, conn.origin, &params);
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {

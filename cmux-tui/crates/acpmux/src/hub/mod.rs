@@ -138,6 +138,7 @@ pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
 pub mod ledger;
+pub mod waiting_day;
 mod model_hint;
 mod models_view;
 mod paging;
@@ -631,6 +632,8 @@ pub struct Hub {
     pub(crate) usage_stats: usage_view::UsageCache,
     /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
     pub(crate) ledger: ledger::Ledger,
+    /// When each chat worked or waited on the person, the last two days (`hub/waiting_day.rs`).
+    pub(crate) waiting_day: waiting_day::WaitingDay,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -999,6 +1002,8 @@ impl Hub {
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
+        let waiting_day =
+            waiting_day::WaitingDay::open(home.as_ref().map(|h| h.join(waiting_day::FILE)), now_ms());
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
@@ -1025,6 +1030,7 @@ impl Hub {
             list_guard: Default::default(),
             usage_stats: Default::default(),
             ledger,
+            waiting_day,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
@@ -2192,6 +2198,13 @@ impl Hub {
         }
         // The cost ledger's index: O(1), no IO (its writer thread writes the file).
         self.ledger.observe(session, &record);
+        // The waiting day's marks: O(1), no IO; a sub-session waits on the session above it.
+        if matches!(kind, "status" | "turn_started")
+            && !session.purged.load(Ordering::SeqCst)
+            && session.meta.lock().unwrap().subsession.is_none()
+        {
+            self.waiting_day.record(&session.id, &record);
+        }
         if matches!(
             kind,
             "status"
