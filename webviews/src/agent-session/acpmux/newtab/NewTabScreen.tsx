@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import type { CloudMachine } from "../cloudMachines";
+import { CloudChatHint } from "../CloudChatHint";
 import { isActive, type Dictation, type DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../newTabModel";
 import { acpmuxPerf } from "../perf";
@@ -232,6 +233,12 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
   startNotice?: React.ReactNode;
+  /// New Cloud Chat (the palette) is pending: once Run as is offered, the page takes it (this call)
+  /// and picks Cloud.
+  cloudPick?(): void;
+  /// The one-time Cloud hint (cloudChatHint.ts) is due: it shows over the strip while Cloud is not
+  /// the mode, and its Use Cloud is this page's own Cloud pick.
+  cloudHint?: { onClose(): void };
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -655,6 +662,14 @@ export function NewTabScreen(props: Props) {
       props.runMode?.onMode(mode);
     },
   };
+  // New Cloud Chat: the page's own Cloud pick (above), as soon as Cloud is offered here.
+  const takeCloudPick = props.cloudPick;
+  const pickCloudNow = runMode && runMode.mode !== "cloud" ? runMode.onMode : undefined;
+  useEffect(() => {
+    if (!takeCloudPick || !runMode) return;
+    takeCloudPick();
+    pickCloudNow?.("cloud");
+  }, [takeCloudPick, runMode, pickCloudNow]);
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
@@ -2037,6 +2052,9 @@ export function NewTabScreen(props: Props) {
         {/* Above the box: the project and machine strip, in every look (Cards draws it under the
             field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
             up so much space"; the quiet row under the box keeps the mode and the model. */}
+        {props.cloudHint && runMode && runMode.mode !== "cloud" && (
+          <CloudChatHint onUse={() => runMode.onMode("cloud")} onClose={props.cloudHint.onClose} />
+        )}
         {!pill && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box" inert={props.cloudStarting === true}>
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}

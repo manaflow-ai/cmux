@@ -126,6 +126,9 @@ enum AgentHandlers {
             _ = registry.perform("palette.newAgentChat", invocation: invocation)
             return .done
         })
+        registry.bindEffect("palette.newCloudChat", effect: { invocation in  // New Agent Chat's tab, then the page's own Cloud pick
+            withAgentPane(invocation, context: context, seed: AgentPaneSeed()) { pane in pane.newAgentTab { [weak services = context.services] key in services?.agentTabs.existingView(key)?.pickCloud() } }
+            return .done })
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(.toggleSessionInfo, context, invocation)?.toggleSessionInfo()
         }

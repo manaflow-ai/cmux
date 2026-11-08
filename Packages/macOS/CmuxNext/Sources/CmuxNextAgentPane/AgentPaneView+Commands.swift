@@ -43,6 +43,9 @@ extension AgentPaneView {
     /// A chat that just opened from a fork (``AgentForkDestination``): the keyboard goes to its
     /// composer, so the next words go to the fork.
     public func focusComposer() { showWithKeyboard("focusComposer") }
+    /// New Cloud Chat (the palette): a new chat's composer takes the keyboard and picks Cloud, as the
+    /// Where menu's Cloud row does; the page ignores it once its chat started or where Cloud is not offered.
+    public func pickCloud() { showWithKeyboard("pickCloud") }
     private func showWithKeyboard(_ command: String) {
         focusChat()
         send(command)
