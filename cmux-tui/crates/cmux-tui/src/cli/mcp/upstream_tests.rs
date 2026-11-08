@@ -525,7 +525,7 @@ fn a_stored_list_answers_without_starting_the_server_until_a_call() {
     let mut second = upstream_server("cmux-cua").with_listings(Some(dir.path().into()));
     assert_eq!(second.descriptors(&BTreeSet::new()), listed, "the stored list, rules included");
     assert!(!second.started(), "a stored list starts nothing");
-    let result = second.call("look", json!({"at": 1}), None).unwrap();
+    let result = second.call("look", json!({"at": 1}), None, None).unwrap();
     assert!(second.started(), "the first call starts it");
     assert_eq!(result["content"][0]["text"], "saw {\"at\": 1}");
 }
