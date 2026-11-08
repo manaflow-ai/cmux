@@ -45,7 +45,7 @@ pub fn short_step(name: &str, key: &str) -> Option<Step> {
     let segments = key.split('/').count();
     let cut =
         name.char_indices().filter(|(_, c)| *c == '/').map(|(i, _)| i).rev().nth(segments - 1)?;
-    step(&name[cut + 1..], key).filter(|at| *at != Step::Prefix)
+    step(name.get(cut + 1..)?, key).filter(|at| *at != Step::Prefix)
 }
 
 /// `text` in lowercase without `-`, `_` or spaces: `td2-A`, `td2_a` and `TD2 a` all read `td2a`.
