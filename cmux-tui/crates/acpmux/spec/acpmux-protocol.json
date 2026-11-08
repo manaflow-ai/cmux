@@ -663,13 +663,13 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/plan/fanout",
+      "name": "_acpmux/plan/keep",
       "params": true,
       "result": true
     },
     {
       "kind": "request",
-      "name": "_acpmux/plan/keep",
+      "name": "_acpmux/plan/fanout",
       "params": true,
       "result": true
     },
