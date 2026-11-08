@@ -77,7 +77,16 @@ test("two wide images in an attachment-only prompt reserve two thumbnail rows", 
   expect(two! - one!).toBe(128);
 });
 
-test("an attachment-only send reserves its delivery anchor", () => {
+// A video sent with its frames draws a 120px tile in the thumbnail row, not a 36px file chip.
+test("a video-only prompt reserves its tile's thumbnail row", () => {
+  const video = { width: 1920, height: 1080, durationMs: 4_000, poster: "data:image/jpeg;base64,AA==", frames: ["f"] };
+  const chip = { id: "v", kind: "link", name: "clip.mp4", path: "/tmp/clip.mp4", mimeType: "video/mp4", size: 1, video };
+  const [height] = heightsOf([{ id: "video", version: 1, at: 0, kind: "user", retryAttachments: [chip] }]);
+  expect(height).toBeGreaterThanOrEqual(128);
+});
+
+// Its clock sits beside the attachment band (UserBubble.tsx), so the row keeps its height when it lands.
+test("an attachment-only send keeps its height when it lands", () => {
   const row = {
     id: "sending-image",
     version: 1,
@@ -87,7 +96,7 @@ test("an attachment-only send reserves its delivery anchor", () => {
   };
   const [sent] = heightsOf([row]);
   const [sending] = heightsOf([{ ...row, delivery: { state: "sending", promptId: "p", sessionId: "s", sentAt: 0 } }]);
-  expect(sending!).toBeGreaterThan(sent!);
+  expect(sending!).toBe(sent!);
 });
 
 test("a reply over its footer is its text alone, with no 34px floor", () => {

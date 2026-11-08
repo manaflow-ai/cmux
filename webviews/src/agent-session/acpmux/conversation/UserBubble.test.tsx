@@ -95,7 +95,9 @@ test("an image-only prompt keeps slow delivery feedback without an empty bubble"
   const container = await render(row);
 
   expect(container.querySelector(".cv-user__bubble")).toBeNull();
-  expect(container.querySelector(".cv-user__bubble-wrap.is-empty")).not.toBeNull();
+  // The clock sits in the image band, beside the thumbnails, not on an empty line of its own.
+  expect(container.querySelector(".cv-user__bubble-wrap.is-empty")).toBeNull();
+  expect(container.querySelector(".cv-user__images .cv-user__delivery")).not.toBeNull();
   expect(container.querySelector(".cv-user__delivery")?.getAttribute("aria-label")).toBe(
     translate("prompt.delivery.stillSending"),
   );
