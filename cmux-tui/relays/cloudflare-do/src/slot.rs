@@ -34,8 +34,8 @@ const JOIN_TICKET_TTL_SECONDS: u64 = 30;
 const REGISTRATION_HEARTBEAT_SECONDS: u64 = 30;
 const CLOSE_POLICY: u16 = 1008;
 const CLOSE_UNSUPPORTED: u16 = 1003;
-// RED CHECK, reverted in the next commit: the resumed Ping hands over nothing.
-const HAND_OVER_ON_RESUMED_PING: bool = false;
+// RED CHECK, reverted in the next commit: every Ping hands over.
+const HAND_OVER_ON_EVERY_PING: bool = true;
 
 #[durable_object]
 pub struct RelaySlot {
@@ -652,8 +652,7 @@ impl RelaySlot {
                 // Silent past the liveness window: it paused or lost its
                 // network and is back, so circuits sent to it meanwhile may
                 // never have arrived.
-                let resumed =
-                    !heard_within_window(&attachment, now_ms) && HAND_OVER_ON_RESUMED_PING;
+                let resumed = !heard_within_window(&attachment, now_ms) || HAND_OVER_ON_EVERY_PING;
                 attachment.last_seen_ms = now_ms;
                 attachment.idle_deadline_ms = now_ms
                     .saturating_add(DAEMON_CONTROL_IDLE_TIMEOUT_MS)
