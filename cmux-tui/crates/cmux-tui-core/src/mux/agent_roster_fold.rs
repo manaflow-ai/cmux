@@ -668,7 +668,7 @@ impl Mux {
     ) {
         let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) else { return };
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
-        let mut fences = self.agent_hook_fences.lock().unwrap();
+        let mut fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(fence) = fences.get(&terminal_id).cloned().filter(|fence| {
             fence.session_id == session_id && !fence.ended && fence.sequence < sequence
         }) else {
@@ -705,7 +705,7 @@ impl Mux {
         drop(fences);
         // As a hook's `SessionEnd` does: the done state was committed and
         // broadcast, and the live record goes.
-        let mut records = self.agent_records.lock().unwrap();
+        let mut records = self.agent_records.lock().unwrap_or_else(PoisonError::into_inner);
         if records.get(&terminal_id).is_some_and(|record| record.state == AgentState::Done) {
             records.remove(&terminal_id);
         }
