@@ -144,7 +144,7 @@ test("a durable worktree overlap event becomes a reconnect-safe snapshot chip", 
       smallerSessionId: "peer-session",
     };
     f.event({ seq: 100_000, at: Date.now(), dir: "mux", kind: "worktree_overlap", msg: overlap });
-    expect(f.latest().overlaps).toEqual([overlap]);
+    expect(f.latest().overlaps ?? []).toEqual([overlap]);
     const emitted = f.snapshots.length;
     f.event({ seq: 100_000, at: Date.now(), dir: "mux", kind: "worktree_overlap", msg: overlap });
     expect(f.snapshots).toHaveLength(emitted);
