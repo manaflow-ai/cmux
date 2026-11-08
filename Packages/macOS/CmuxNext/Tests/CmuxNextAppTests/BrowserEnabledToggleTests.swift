@@ -77,9 +77,10 @@ import Testing
         #expect(h.hidden("palette.disableBrowser"))
         #expect(!h.hidden("palette.enableBrowser"))
 
+        // On is the default: the write removes the key (#38119), so cmux.json keeps no copy.
         _ = h.services.registry.perform("palette.enableBrowser")
-        await h.until { h.saved() == true && h.hidden("palette.enableBrowser") }
-        #expect(h.saved() == true)
+        await h.until { h.saved() == nil && h.hidden("palette.enableBrowser") }
+        #expect(h.saved() == nil, "on is the default: browser.enabled leaves cmux.json")
         #expect(h.hidden("palette.enableBrowser"))
     }
 

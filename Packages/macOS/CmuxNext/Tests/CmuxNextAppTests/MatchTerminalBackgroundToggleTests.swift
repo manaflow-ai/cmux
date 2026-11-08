@@ -43,8 +43,10 @@ import Testing
         await until { saved() == "separate" && SidebarSurfaceSetting.effective(in: settings.snapshot) == .separate }
         #expect(saved() == "separate")
         #expect(services.registry.perform("palette.toggleMatchTerminalBackground", invocation: ActionInvocation()))
-        await until { saved() == "same" }
-        #expect(saved() == "same")
+        // "same" is the default: the write removes the key (#38119), so cmux.json keeps no copy.
+        await until { saved() == nil && SidebarSurfaceSetting.effective(in: settings.snapshot) == .same }
+        #expect(saved() == nil, "the default leaves cmux.json")
+        #expect(SidebarSurfaceSetting.effective(in: settings.snapshot) == .same)
     }
 
     /// The palette row reads the state its run asked for at once, while cmux.json is still being
