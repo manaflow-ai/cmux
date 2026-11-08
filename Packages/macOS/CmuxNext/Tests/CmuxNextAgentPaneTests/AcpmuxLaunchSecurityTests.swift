@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -156,6 +157,32 @@ struct AcpmuxLaunchSecurityTests {
         let systemBinary = URL(fileURLWithPath: "/bin/ls")
         #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "NOTCMUXTEAM"))
         #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "invalid team"))
+    }
+
+    /// Launch: the first strict check of a process hashed every page of the bundled `cmux` (148 MB) on
+    /// the main thread, 2.5 s on a cold disk cache. A binary the kernel kills at a bad page (hardened
+    /// runtime, as every Team-signed nightly binary) is checked without its pages; one without that
+    /// flag still has every page hashed.
+    @Test func strictTeamCheckHashesPagesOnlyWhenTheKernelWouldNot() throws {
+        let plain = URL(fileURLWithPath: "/bin/ls")
+        let hardened = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-rt-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: hardened) }
+        try FileManager.default.copyItem(at: plain, to: hardened)
+        let sign = Process()
+        sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        sign.arguments = ["--force", "--sign", "-", "--options", "runtime", hardened.path]
+        try sign.run()
+        sign.waitUntilExit()
+        try #require(sign.terminationStatus == 0)
+
+        func flags(_ url: URL) throws -> UInt32 {
+            var code: SecStaticCode?
+            try #require(SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess)
+            return AcpmuxServerPeer.strictFlags(for: try #require(code)).rawValue
+        }
+        let strict = kSecCSCheckAllArchitectures | kSecCSStrictValidate
+        #expect(try flags(plain) == strict)
+        #expect(try flags(hardened) == strict | kSecCSDoNotValidateExecutable)
     }
 
     /// The nightly hang reports of 2026-11-05: `resolve`'s strict signature check read the whole
