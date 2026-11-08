@@ -150,9 +150,9 @@ export function PosterDialogHost({
 }) {
   const t = useT();
   // The rows as of the last render, which the open below reads once (declared first, so it runs first).
-  const latest = useRef({ rows, chat });
+  const latest = useRef({ rows, chat, close: onOpenChange });
   useEffect(() => {
-    latest.current = { rows, chat };
+    latest.current = { rows, chat, close: onOpenChange };
   });
   const [poster, setPoster] = useState<{ data: PosterData; theme: PosterTheme }>();
   const [link, setLink] = useState<string>();
@@ -162,13 +162,15 @@ export function PosterDialogHost({
   // A callback ref kept in state: the dialog mounts its popup after `open`, and the PNG waits for it.
   const [svg, setSvg] = useState<SVGSVGElement | null>(null);
   const client = useMemo(() => shareClient(sessionId, call), [sessionId, call]);
-  // Each open builds the poster afresh from the turn that finished last, off by default.
+  // Each open builds the poster afresh from the turn that finished last, off by default. No
+  // finished turn (the chat changed under the menu): the open ends, so the next one starts again.
   useEffect(() => {
     if (!open) return;
     const data = buildPoster(latest.current.rows, latest.current.chat);
     setPoster(data ? { data, theme: paneTheme() } : undefined);
     setLink(undefined);
     setStatus(null);
+    if (!data) latest.current.close(false);
   }, [open]);
   const data = useMemo(() => (poster && link ? { ...poster.data, link } : poster?.data), [poster, link]);
   // The PNG of what the preview shows, drawn after the preview commits.
