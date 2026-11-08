@@ -241,14 +241,15 @@ extension AgentPaneTransport {
     /// The refusal of a session-scoped frame for a session that is not this pane's.
     nonisolated static func sessionRefusal(_ object: [String: Any], sessions: AcpmuxPaneSessions) -> AcpmuxPaneMethods.Decision? {
         guard let method = object["method"] as? String else { return nil }
-        let named = (object["params"] as? [String: Any])?["sessionId"]
+        let params = object["params"] as? [String: Any]
+        let primaryKey = AcpmuxPaneMethods.primarySessionParams[method] ?? "sessionId"
+        let named = params?[primaryKey]
         // A frame that may name a session and names none is not session-scoped.
         if AcpmuxPaneMethods.optionallySessionScoped.contains(method), named == nil { return nil }
         guard AcpmuxPaneMethods.sessionScoped.contains(method) || AcpmuxPaneMethods.optionallySessionScoped.contains(method)
         else { return nil }
         let session = named as? String
         // Other params that name a session must name one of the pane's too (`_acpmux/side`'s chat).
-        let params = object["params"] as? [String: Any]
         let othersHeld = AcpmuxPaneMethods.scopedSessionParams[method, default: []]
             .allSatisfy { (params?[$0] as? String).map(sessions.contains) == true }
         // Ones that may name a session (an accepted offer's child): none is fine, a named one
