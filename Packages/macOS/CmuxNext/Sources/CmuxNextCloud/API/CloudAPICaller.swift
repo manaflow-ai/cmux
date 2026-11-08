@@ -20,6 +20,8 @@ public struct CloudAPICaller: Sendable {
     public static func daemon(_ connection: @escaping @Sendable () async -> DaemonConnection?) -> CloudAPICaller {
         CloudAPICaller { operation, fields, mutation, timeout in
             guard let connection = await connection() else { throw CloudAPIError.transport("cmux is not connected") }
+            // A caller that gave up while its tokens or connection were read starts nothing (a Run costs).
+            try Task.checkCancellation()
             return try await ResourceRelayClient(connection: connection).send(
                 operation: operation, params: fields, idempotencyKey: mutation ? UUID().uuidString : nil, timeout: timeout)
         }
@@ -57,6 +59,8 @@ public struct CloudAPICaller: Sendable {
         if let version = credentials.appVersion { fields["app_version"] = .string(version) }
         if credentials.localOnly { fields["local_only"] = .bool(true) }
         let mutation = !Self.reads.contains(call)
+        // The credentials were read across a suspension: a caller cancelled meanwhile sends nothing.
+        try Task.checkCancellation()
         let answer: JSONValue
         do {
             answer = try await send("cloud.\(call)", fields, mutation, timeout + .seconds(15))

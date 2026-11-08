@@ -66,6 +66,21 @@ import Testing
             == .noBackend(URL(string: "https://vm-api.standin.invalid") ?? URL(fileURLWithPath: "/")))
     }
 
+    @Test func aCallCancelledWhileItsTokensAreReadSendsNothing() async {
+        let fake = FakeCloudAPI()
+        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
+                                                       process: [:], isDebugBuild: true)
+        let api = CloudAPIClient(configuration: configuration, tokens: {
+            await Task.yield()
+            return ("access", "refresh")
+        }, teamID: { "team-1" }, caller: fake.caller)
+        // A mutation whose caller gave up before its tokens came back.
+        let call = Task { try await api.deleteFirewallRule("rule-1") }
+        call.cancel()
+        await #expect(throws: CancellationError.self) { try await call.value }
+        #expect(fake.seen.isEmpty, "a cancelled call never reaches the daemon")
+    }
+
     @Test func aDaemonThatIsGoneOrRefusesTheFieldsIsATransportFailure() async {
         let gone = FakeCloudAPI { _ in throw DaemonError.notConnected }
         await #expect(throws: CloudAPIError.transport(DaemonError.notConnected.description)) { _ = try await gone.classic().listDomains() }
