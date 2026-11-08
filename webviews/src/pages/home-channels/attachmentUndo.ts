@@ -2,7 +2,9 @@
 // The text's edits live in the editor's own history; a file added or removed is not an edit of the
 // text, so it goes here, stamped with how many text edits the editor could undo when it happened.
 // Cmd-Z then takes the newest of the two: a file edit made after the last text edit comes off
-// first, a text edit made after it goes first. Redo walks the same line forward.
+// first, a text edit made after it goes first. Redo walks the same line forward. The editor keeps
+// its newest 100 text steps (ProseMirror's history depth): past that, its depth stays at the cap and
+// a file edit there can come off before newer text, which only a very long draft reaches.
 
 export type AttachmentEdit<T> = {
   kind: "add" | "remove";
@@ -56,9 +58,11 @@ export class AttachmentUndo<T> {
   }
 }
 
-/// Cmd-Z (undo), Shift-Cmd-Z (redo), or neither.
+/// Cmd-Z (undo), Shift-Cmd-Z or Cmd-Y (redo, as the editor's keymap has them), or neither.
 export function undoChord(event: KeyboardEvent): "undo" | "redo" | undefined {
   if (!event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return undefined;
-  if (event.key.toLowerCase() !== "z") return undefined;
+  const key = event.key.toLowerCase();
+  if (key === "y" && !event.shiftKey) return "redo";
+  if (key !== "z") return undefined;
   return event.shiftKey ? "redo" : "undo";
 }

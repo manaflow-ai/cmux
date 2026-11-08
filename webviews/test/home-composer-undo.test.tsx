@@ -40,6 +40,7 @@ const keys = [
   "FileReader",
   "MouseEvent",
   "KeyboardEvent",
+  "InputEvent",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -57,6 +58,7 @@ Object.assign(scope, {
   FileReader: dom.window.FileReader,
   MouseEvent: dom.window.MouseEvent,
   KeyboardEvent: dom.window.KeyboardEvent,
+  InputEvent: dom.window.InputEvent,
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
   cancelAnimationFrame: (id: number) => clearTimeout(id),
@@ -132,20 +134,30 @@ async function mount() {
       });
       await settle();
     },
+    /// A click on the file's remove button, as WebKit sends it: its mousedown would take the
+    /// keyboard from the prompt unless the button keeps it there. Answers whether it did.
     async remove(name: string) {
       const button = container.querySelector<HTMLButtonElement>(
         `button[aria-label="${strings.format("attach.remove", name)}"]`,
       )!;
-      await act(async () => button.click());
-      await settle();
-    },
-    async key(shift: boolean) {
+      const down = new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true });
       await act(async () => {
-        editable().dispatchEvent(
+        button.dispatchEvent(down);
+        button.click();
+      });
+      await settle();
+      return down.defaultPrevented;
+    },
+    blur: () => act(async () => (dom.window.document.activeElement as HTMLElement | null)?.blur()),
+    /// The key goes where the keyboard is, as WebKit sends it.
+    async key(shift: boolean, key = shift ? "Z" : "z") {
+      const target = dom.window.document.activeElement ?? dom.window.document.body;
+      await act(async () => {
+        target.dispatchEvent(
           new dom.window.KeyboardEvent("keydown", {
-            key: shift ? "Z" : "z",
-            code: "KeyZ",
-            keyCode: 90,
+            key,
+            code: `Key${key.toUpperCase()}`,
+            keyCode: key.toUpperCase().charCodeAt(0),
             metaKey: true,
             shiftKey: shift,
             bubbles: true,
@@ -155,6 +167,16 @@ async function mount() {
       });
       await settle();
     },
+    /// Edit > Undo or Redo: WebKit sends the editor `beforeinput` with `historyUndo` / `historyRedo`.
+    async menu(inputType: "historyUndo" | "historyRedo") {
+      await act(async () => {
+        editable().dispatchEvent(
+          new dom.window.InputEvent("beforeinput", { inputType, bubbles: true, cancelable: true }),
+        );
+      });
+      await settle();
+    },
+    focused: () => editable().contains(dom.window.document.activeElement),
     unmount: () => act(async () => root.unmount()),
   };
 }
@@ -164,7 +186,8 @@ test("Cmd-Z and Shift-Cmd-Z undo and redo the text and the staged files, newest 
   await composer.type("hello");
   await composer.pick("a.txt");
   await composer.type(" world");
-  await composer.remove("a.txt");
+  // The prompt keeps the keyboard through the remove click, so Cmd-Z reaches it.
+  expect(await composer.remove("a.txt")).toBe(true);
   expect(composer.text()).toBe("hello world");
   expect(composer.files()).toEqual([]);
 
@@ -214,5 +237,38 @@ test("a file put back by undo keeps its stored upload, and a new edit ends the r
   // Typing after the undo ended its redo, as in a text field: the file stays out.
   expect(composer.files()).toEqual([]);
   expect(composer.text()).toBe("x");
+  await composer.unmount();
+});
+
+test("after the file chooser the prompt has the keyboard again, so Cmd-Z takes the file back out", async () => {
+  const composer = await mount();
+  await composer.type("note");
+  // The chooser took the keyboard from the page.
+  await composer.blur();
+  await composer.pick("c.txt");
+  expect(composer.focused()).toBe(true);
+  await composer.key(false);
+  expect(composer.files()).toEqual([]);
+  expect(composer.text()).toBe("note");
+  // Cmd-Y redoes, as the editor's keymap has it.
+  await composer.key(false, "y");
+  expect(composer.files()).toEqual(["c.txt"]);
+  await composer.unmount();
+});
+
+test("Edit > Undo and Redo take the same line as the keys, one step each", async () => {
+  const composer = await mount();
+  await composer.type("draft");
+  await composer.pick("d.txt");
+  await composer.remove("d.txt");
+  await composer.menu("historyUndo");
+  // Only the file came back: the text stayed as it was.
+  expect(composer.files()).toEqual(["d.txt"]);
+  expect(composer.text()).toBe("draft");
+  await composer.menu("historyUndo");
+  expect(composer.files()).toEqual([]);
+  expect(composer.text()).toBe("draft");
+  await composer.menu("historyRedo");
+  expect(composer.files()).toEqual(["d.txt"]);
   await composer.unmount();
 });

@@ -120,7 +120,7 @@ export function Composer({
   filesNow.current = files;
   /// The staged files' adds and removes, for Cmd-Z and Shift-Cmd-Z (attachmentUndo.ts).
   const fileHistory = useRef(new AttachmentUndo<PendingAttachment>());
-  /// A Cmd-Z or Shift-Cmd-Z the editor runs on its text: its change is no new edit.
+  /// An undo or redo the editor runs on its text: its change is no new edit.
   const replaying = useRef(false);
   const upload = (id: string, file: File) => {
     if (!attachments) return;
@@ -142,6 +142,8 @@ export function Composer({
   const noteFileEdit = (edit: Omit<AttachmentEdit<PendingAttachment>, "depth">) => {
     fileHistory.current.record({ ...edit, depth: editor.current?.history().depth ?? 0 });
     editor.current?.closeHistory();
+    // A click on the tray or a file chooser took the keyboard from the field: Cmd-Z goes to it again.
+    editor.current?.focus();
   };
   const addFiles = (list: Iterable<File>) => {
     if (!attachments || disabled) return;
@@ -164,8 +166,10 @@ export function Composer({
       upload(id, file);
     }
     if (!added.length) return;
+    const index = filesNow.current.length;
+    filesNow.current = [...filesNow.current, ...added];
     setFiles((current) => [...current, ...added]);
-    noteFileEdit({ kind: "add", items: added, index: filesNow.current.length });
+    noteFileEdit({ kind: "add", items: added, index });
   };
   /// Takes `items` out of the tray; an upload still running stops.
   const takeOut = (items: readonly PendingAttachment[]) => {
@@ -174,6 +178,7 @@ export function Composer({
       uploads.current.get(id)?.abort();
       uploads.current.delete(id);
     }
+    filesNow.current = filesNow.current.filter((item) => !ids.has(item.id));
     setFiles((current) => current.filter((item) => !ids.has(item.id)));
   };
   /// Puts `items` back at `index` as they were (with the newest picture, progress and stored part
@@ -181,12 +186,14 @@ export function Composer({
   const putBack = (items: readonly PendingAttachment[], index: number) => {
     for (const item of items)
       if (!item.part && !item.error && !uploads.current.has(item.id)) upload(item.id, item.file);
-    setFiles((current) => {
+    const place = (current: readonly PendingAttachment[]) => {
       const ids = new Set(items.map((item) => item.id));
       const rest = current.filter((item) => !ids.has(item.id));
       const at = Math.min(index, rest.length);
       return [...rest.slice(0, at), ...items, ...rest.slice(at)];
-    });
+    };
+    filesNow.current = place(filesNow.current);
+    setFiles(place);
   };
   const removeFile = (id: string) => {
     const index = filesNow.current.findIndex((item) => item.id === id);
@@ -199,6 +206,34 @@ export function Composer({
   /// after the edit stays with them).
   const current = (items: readonly PendingAttachment[]) =>
     items.map((item) => filesNow.current.find((each) => each.id === item.id) ?? item);
+  /// An undo or redo (its key, or Edit > Undo and Redo as `historyUndo` / `historyRedo` input): a
+  /// file edit that is the newest runs here; otherwise the editor runs its text's in this same event.
+  const replay = (direction: "undo" | "redo", event: Event) => {
+    if (replayFiles(direction)) {
+      event.preventDefault();
+      // The editor's history takes `historyUndo` input too: this one was the files'.
+      if (event.type === "beforeinput") event.stopPropagation();
+      return;
+    }
+    replaying.current = true;
+    queueMicrotask(() => {
+      replaying.current = false;
+    });
+  };
+  const replayRef = useRef(replay);
+  replayRef.current = replay;
+  // Edit > Undo and Redo reach the field as `beforeinput` (historyUndo, historyRedo), not as keys.
+  useEffect(() => {
+    const node = root.current;
+    if (!node) return;
+    const input = (event: Event) => {
+      const type = (event as InputEvent).inputType;
+      if (type === "historyUndo" || type === "historyRedo")
+        replayRef.current(type === "historyUndo" ? "undo" : "redo", event);
+    };
+    node.addEventListener("beforeinput", input, true);
+    return () => node.removeEventListener("beforeinput", input, true);
+  }, []);
   /// Cmd-Z or Shift-Cmd-Z on a file edit: an add undone or a remove redone takes the files out, the
   /// others put them back. Returns whether a file edit was the newest.
   const replayFiles = (direction: "undo" | "redo"): boolean => {
@@ -437,18 +472,7 @@ export function Composer({
           onCaret={refreshFormats}
           onKeyDown={(event) => {
             const chord = undoChord(event);
-            if (chord) {
-              if (replayFiles(chord)) {
-                event.preventDefault();
-                return;
-              }
-              // The editor undoes or redoes its text in this same key-down.
-              replaying.current = true;
-              queueMicrotask(() => {
-                replaying.current = false;
-              });
-              return;
-            }
+            if (chord) return replay(chord, event);
             if (event.key === "Escape" && onCancel) {
               event.preventDefault();
               onCancel();
