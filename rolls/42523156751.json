@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42523156751",
+  "recorded_at": "2026-11-08T21:10:21Z",
+  "reason": "cmux-tui d27d3e61464f changes the image's cmux-tui (pinned 3127f433240f)",
+  "dry_run": false,
+  "cmux_tui": "d27d3e61464f28598a6596bd15f61388c6374fde",
+  "fixes": [
+    {
+      "sha": "d27d3e61464f28598a6596bd15f61388c6374fde",
+      "mergedAt": "2026-11-08T12:45:59-08:00",
+      "subject": "acpmux: hold a narrow policy whatever Claude Code's mode, or do not start (W5-L) (#38809)"
+    },
+    {
+      "sha": "a7f730f3adcd63be425e985d9c558d716f2ec49a",
+      "mergedAt": "2026-11-08T20:40:31Z",
+      "subject": "acpmux tests: fake Claude matches remote probes after the sender line (#38855)"
+    },
+    {
+      "sha": "53e64e8151dca550ea2b4a9d1b5e2d7ed746c606",
+      "mergedAt": "2026-11-08T20:39:46Z",
+      "subject": "cmux NEXT CLI: --json on a stream names the --jsonl command; identify answers with no app (#38766)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T21:10:21Z",
+    "snapshot_id": "sh-885e1f21c38442c283109a73f4d70ea7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42523156751): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "48d1d2769dbc730898c5bf4e486f938850475d6a",
+    "image": "cloud-native-auto-d27d3e61-42523156751-1",
+    "revision": "ci-42523156751-1",
+    "at": "2026-11-08T21:10:21Z"
+  },
+  "rolled_back": false
+}
