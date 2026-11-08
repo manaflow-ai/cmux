@@ -24,16 +24,16 @@ extension SettingsSchema {
         // `editor.importFrom` (FilePageLook), `LANGUAGE_DEFAULTS` in webviews' `settingsForLanguage`
         // (Markdown and commit messages wrap, Go and Makefiles indent with tabs), and keys that
         // follow another (`autoClosingQuotes` follows `autoClosingBrackets`).
+        // `editor.importFrom` itself is none of these (`unsetIsNotDefault` leaves it out).
         "editor.": "another editor's settings, the built-in per-language values, a key it follows",
-        // `LinkRouting`: an older file's `browser.openTerminalLinksInCmuxBrowser` fills it.
-        "browser.openLinksInCmuxBrowser": "classic's browser.openTerminalLinksInCmuxBrowser",
         // webviews' `resolveHarnessPlacement`: the Debug tunable `agent.harnessPlacement` fills it.
         "agentPane.display.harnessPlacement": "the Debug tunable agent.harnessPlacement",
     ]
 
     /// Whether `unsetIsNotDefaultKeys` names `key`.
     nonisolated static func unsetIsNotDefault(_ key: String) -> Bool {
-        unsetIsNotDefaultKeys.keys.contains { $0.hasSuffix(".") ? key.hasPrefix($0) : key == $0 }
+        key != EditorSettingsSchema.importFromPath.joined(separator: ".")
+            && unsetIsNotDefaultKeys.keys.contains { $0.hasSuffix(".") ? key.hasPrefix($0) : key == $0 }
     }
 }
 
