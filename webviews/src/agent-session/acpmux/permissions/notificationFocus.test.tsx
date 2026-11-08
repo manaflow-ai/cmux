@@ -129,7 +129,11 @@ test("a card that mounts just after the click still takes the keyboard", async (
   root = createRoot(container);
   await act(async () => {
     root!.render(
-      <PermissionCard permission={permissionFromMessage(ask, "s1")!} harness="claude" onAnswer={(id) => answers.push(id)} />,
+      <PermissionCard
+        permission={permissionFromMessage(ask, "s1")!}
+        harness="claude"
+        onAnswer={(id) => answers.push(id)}
+      />,
     );
   });
   expect(doc.activeElement).toBe(container.querySelector(".acpmux-permission-ask"));
@@ -147,7 +151,9 @@ test("a click long before the card mounts takes nothing from the composer", asyn
   askPermissionFocus(performance.now() - FOCUS_REQUEST_MS - 1);
   root = createRoot(container);
   await act(async () => {
-    root!.render(<PermissionCard permission={permissionFromMessage(ask, "s1")!} harness="claude" onAnswer={() => undefined} />);
+    root!.render(
+      <PermissionCard permission={permissionFromMessage(ask, "s1")!} harness="claude" onAnswer={() => undefined} />,
+    );
   });
   expect(doc.activeElement).toBe(composer);
 });
