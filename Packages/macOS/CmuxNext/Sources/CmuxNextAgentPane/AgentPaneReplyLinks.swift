@@ -202,9 +202,9 @@ extension AgentPaneModel {
                 if let title = site.title, !title.isEmpty { entry["title"] = String(title.prefix(300)) }
                 if !entry.isEmpty { sites[text] = entry }
             }
-            // The reply's pull request links are read now, in the background, so a card has them
-            // before the pointer arrives and no hover ever waits on GitHub.
-            replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.pullRequestURL))
+            // The reply's pull request and issue links are read now, in the background, so a card
+            // has them before the pointer arrives and no hover ever waits on GitHub.
+            replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.githubItemURL))
             return AgentPaneReply.success([
                 "paths": places, "sites": sites,
                 "policy": [

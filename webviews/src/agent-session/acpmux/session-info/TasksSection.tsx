@@ -25,6 +25,7 @@ import { arrivalKey, sendLabel, splitCommands, type BackgroundCommand } from "./
 import { scheduledTrailing, splitScheduled, useScheduledClock, type ScheduledEntry } from "./scheduled";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { TASK_ICONS } from "./taskIcons";
+import { useFoldMotion } from "./foldMotion";
 import { COMMAND_STATE } from "./tasksSectionModel";
 import { WindowedRows } from "./WindowedRows";
 
@@ -55,6 +56,8 @@ export function TasksSection({
   const t = useT();
   const language = usePaneLanguage();
   const [showFinished, setShowFinished] = useState(false);
+  // The finished row opens its list as one motion with the sections under it (foldMotion.ts).
+  const finishedFold = useFoldMotion<HTMLDivElement>(showFinished, () => 0);
   const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
   // Moves once, when the earliest wakeup or cron job still ahead ends (no per-second poll).
@@ -169,28 +172,30 @@ export function TasksSection({
       )}
       {finishedRows.length > 0 && (
         <>
-          <SessionInfoFold open={showFinished} onToggle={() => setShowFinished(!showFinished)}>
-            <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+          <SessionInfoFold open={showFinished} onToggle={() => finishedFold.toggle(!showFinished, setShowFinished)}>
+            <Icon name="disclosure.collapsed" size={12} />
             {t("rail.finished", { count: finishedRows.length })}
           </SessionInfoFold>
-          {showFinished && (
-            <ul className="acpmux-session-info-list" data-finished="">
-              {/* However many ended, the open draws the rows that can show (WindowedRows). */}
-              <WindowedRows
-                items={finishedRows}
-                render={(entry) =>
-                  "command" in entry
-                    ? row(
-                        entry.command,
-                        entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
-                          ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
-                          : undefined,
-                        t(COMMAND_STATE[entry.command.state]),
-                      )
-                    : scheduledRow(entry.entry)
-                }
-              />
-            </ul>
+          {finishedFold.drawn && (
+            <div ref={finishedFold.ref} className="acpmux-session-info-fold-box">
+              <ul className="acpmux-session-info-list" data-finished="">
+                {/* However many ended, the open draws the rows that can show (WindowedRows). */}
+                <WindowedRows
+                  items={finishedRows}
+                  render={(entry) =>
+                    "command" in entry
+                      ? row(
+                          entry.command,
+                          entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
+                            ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
+                            : undefined,
+                          t(COMMAND_STATE[entry.command.state]),
+                        )
+                      : scheduledRow(entry.entry)
+                  }
+                />
+              </ul>
+            </div>
           )}
         </>
       )}

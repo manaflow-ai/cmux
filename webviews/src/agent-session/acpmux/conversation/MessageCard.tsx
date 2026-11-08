@@ -19,7 +19,7 @@ import { messagePreview } from "./agentMessageRowModel";
 import { AgentNamesContext, AgentOpenContext, recipientName, shortId } from "./agentNames";
 import { useFindReveal } from "./chatFind";
 import { Envelope } from "./icons";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { wholeLineCut } from "./lineCut";
 import { ExpandRow } from "./ExpandRow";
