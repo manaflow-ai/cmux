@@ -80,6 +80,15 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     ],
     "confirm": []
   },
+  "stash": {
+    "read": [
+      "stash.list"
+    ],
+    "gesture": [
+      "stash.import"
+    ],
+    "confirm": []
+  },
   "tasks": {
     "read": [
       "tasks.snapshot"

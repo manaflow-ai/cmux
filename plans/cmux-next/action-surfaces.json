@@ -59189,14 +59189,6 @@
     {
       "name" : "homeBackground",
       "source" : "CmuxNextHomeEngine\/HomePageMenus.swift"
-    },
-    {
-      "name" : "historyToolbar",
-      "source" : "CmuxNextHistory\/HistoryPageView.swift"
-    },
-    {
-      "name" : "historyRow",
-      "source" : "CmuxNextHistory\/HistoryPageRow.swift"
     }
   ],
   "version" : 1

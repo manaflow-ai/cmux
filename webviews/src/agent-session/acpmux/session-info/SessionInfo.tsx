@@ -53,7 +53,8 @@ import { useScrollEdges } from "../summary/scrollEdges";
 import { type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { StartedSession } from "../started/startedSessions";
-import { ChangesSection, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
+import { ChangesSection } from "./ChangesSection";
+import { visibleChanges, type SessionInfoPullRequestStatus } from "./changesSectionModel";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { summarizeConnectors } from "./connectorState";
 import { useIMessage, type IMessageView } from "./imessage";
@@ -73,8 +74,9 @@ import {
   type SessionInfoSectionId,
   type SessionInfoSections,
 } from "./sessionInfoState";
-import { OutputsSection, type OutputArtifact } from "./OutputsSection";
+import { OutputsSection } from "./OutputsSection";
 import { sessionInfoLists, type SessionInfoProcess } from "./processes";
+import { outputArtifacts, type OutputArtifact } from "./outputsSectionModel";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";

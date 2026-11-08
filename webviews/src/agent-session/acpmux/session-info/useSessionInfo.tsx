@@ -18,7 +18,7 @@ import { sessionSummary, type SessionSummary } from "../summary/sessionSummary";
 import { waitingSubagents } from "../summary/subagentStatusListModel";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { StartedSession } from "../started/startedSessions";
-import { headerStatus, visibleChanges } from "./ChangesSection";
+import { headerStatus, visibleChanges } from "./changesSectionModel";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { type AccessGrant } from "./EnvironmentSection";
 import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
@@ -39,7 +39,7 @@ import {
   useSessionInfoState,
   type SessionInfoSectionId,
 } from "./sessionInfoState";
-import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./OutputsSection";
+import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./outputsSectionModel";
 import { chatOutputs, type OutputFile } from "./chatOutputs";
 import { type ProcessRegistry, type SessionInfoProcess } from "./processes";
 import { currentPlan, type SessionInfoPlan } from "./progressSectionModel";
