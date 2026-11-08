@@ -9,9 +9,7 @@ import { useT } from "../i18n";
 import { machineColor } from "../machineColor";
 import { useAvatarPicture } from "../../../pages/home-channels/avatars";
 import { initials, isGuest, type Participant } from "./participants";
-
-/// Faces the header shows before "+N".
-export const PRESENCE_STACK = 3;
+import { PRESENCE_STACK } from "./facesModel";
 
 /// An https picture the page could not load itself, as the host loaded it (`data:`), or null when the
 /// host would not: asked once per link for the page's life.
@@ -44,7 +42,9 @@ function inline(src: string): Promise<string | null> {
 /// An https picture (a signed-in guest's `fromAvatar`) loads as itself where the page may load it
 /// (the guest page); where the page's policy refuses links (the app's `img-src data:`), the host
 /// loads it inline, and a picture neither can load draws the initials.
-export function Face({ person, size = 16 }: { person: Participant; size?: number }) {
+/// `size` is pixels, or a CSS length that scales with the interface (the author line's
+/// `var(--cv-author-face)`); a length draws one initial.
+export function Face({ person, size = 16 }: { person: Participant; size?: number | string }) {
   const served = useAvatarPicture(person.avatar ? undefined : person.id);
   const wanted = person.avatar ?? served ?? undefined;
   const [broken, setBroken] = useState<string>();
@@ -72,7 +72,12 @@ export function Face({ person, size = 16 }: { person: Participant; size?: number
   return (
     <span
       className="cv-face"
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.45), background: machineColor(person.name) }}
+      style={{
+        width: size,
+        height: size,
+        fontSize: typeof size === "number" ? Math.round(size * 0.45) : `calc(${size} * 0.45)`,
+        background: machineColor(person.name),
+      }}
       aria-hidden="true"
     >
       {/* A small face has room for one letter, as Home's avatars. */}
@@ -86,7 +91,7 @@ export function Face({ person, size = 16 }: { person: Participant; size?: number
           onError={() => setBroken(picture)}
         />
       ) : (
-        initials(person.name, size >= 24 ? 2 : 1)
+        initials(person.name, typeof size === "number" && size >= 24 ? 2 : 1)
       )}
     </span>
   );
@@ -97,8 +102,11 @@ export type AuthorLook = "face-name" | "name" | "face";
 /// Who sent a prompt, over its bubble: their face and name (the pick), the name alone, or the
 /// face alone with the name for screen readers. A link guest's name reads "<name> (guest)", as
 /// their held card does (IncomingMessageCard.tsx `PersonName`), so the owner still sees who wrote it
-/// once it is approved.
-/// `inline` draws it in a line of text (a queued prompt's row), ahead of the words.
+/// once it is approved. The face is a person's picture beside their name, at `--cv-author-face`
+/// (multiplayer.css: the header's person faces), so a guest's message reads as a person's, not a
+/// 14px mark (Leo, 2026-11-07: "as if the user sent it, but, like, with their profile avatar picture
+/// instead").
+/// `inline` draws it in a line of text (a queued prompt's row), ahead of the words, as a 16 mark.
 export function AuthorChip({
   author,
   look = "face-name",
@@ -112,7 +120,7 @@ export function AuthorChip({
   const Root = inline ? "span" : "div";
   return (
     <Root className={inline ? "cv-author cv-author--inline" : "cv-author"} data-look={look}>
-      {look !== "name" && <Face person={author} />}
+      {look !== "name" && <Face person={author} size={inline ? 16 : "var(--cv-author-face)"} />}
       <span className={look === "face" ? "cv-author__name cv-author__name--hidden" : "cv-author__name"}>
         {isGuest(author) ? t("multiplayer.guestName", { name: author.name }) : author.name}
       </span>

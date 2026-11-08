@@ -161,8 +161,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
                                                             symbol: descriptor.symbol, isOn: isOn)
         return RegistryPaletteRows.Face(
             title: shown.title,
-            // A disabled row says why (Chromium without a CEF runtime).
-            subtitle: recovery?.note ?? (isEnabled ? nil : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
+            // A disabled row says why (Chromium without a CEF runtime); one that runs, what it does when
+            // its title alone does not (``ActionDescriptor/hint``).
+            subtitle: recovery?.note ?? (isEnabled ? descriptor.hint : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
             accessory: entry.isBound || overridden ? nil : unbound,
             symbol: shown.symbol,
             isOn: isOn,

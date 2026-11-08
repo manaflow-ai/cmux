@@ -27,7 +27,7 @@ import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
 import { cleanText } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { useRowDisclosure } from "./transcriptDisclosure";
+import { useRowDisclosure } from "./transcriptDisclosureModel";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolDetail } from "./ToolDetail";

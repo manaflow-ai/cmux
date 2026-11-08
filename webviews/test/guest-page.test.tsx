@@ -349,6 +349,29 @@ test("a transcript chunk that fails to load says so; Retry loads it and the chat
   await page.unmount();
 });
 
+// The browser may keep a failed module fetch for the page's life (#38101 F1): a Retry whose load
+// fails too reloads the page instead of asking the same failed import again.
+test("a Retry whose load fails too reloads the page", async () => {
+  let reloads = 0;
+  const page = await mount({
+    guestId: "g1",
+    role: "talk",
+    openSocket: fakeRoom(joinFrames(workingRecords())),
+    loadTranscript: () => Promise.reject(new Error("offline")),
+    reloadPage: () => void (reloads += 1),
+  });
+  await roomFrames();
+  const alert = page.host.querySelector(".guest-live__transcript [role=alert]");
+  expect(alert?.textContent).toContain(translate("guest.live.loadFailed"));
+  expect(reloads).toBe(0);
+  await act(async () => {
+    alert!.querySelector("button")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  await roomFrames();
+  expect(reloads).toBe(1);
+  await page.unmount();
+});
+
 const signedIn = (avatarUrl?: string) => async () =>
   ({ signedIn: true, name: "Priya Raman", ...(avatarUrl ? { avatarUrl } : {}) }) as const;
 

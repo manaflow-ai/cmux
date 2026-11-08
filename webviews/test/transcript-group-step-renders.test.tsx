@@ -74,7 +74,8 @@ async function draw(items: AcpmuxActivity[], version: number) {
 }
 
 test("a streaming call draws again alone; its 12 siblings and the thoughts stay drawn", async () => {
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   const { stepProbe } = await import("../src/agent-session/acpmux/conversation/toolGroupRowModel");
   resetTranscriptDisclosure();
   // A leading thought, 13 commands, and two consecutive thoughts in the middle (merged into a new

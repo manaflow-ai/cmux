@@ -7,9 +7,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/Views/AccountsSectionView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/Views/PasteField.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityAppearance.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityColor.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabHostingView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabRowView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageService.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoRow.swift
@@ -36,9 +33,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneRowView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneShapes.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppIconView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppSectionFrame.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppSectionProvider.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditBubble.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorSheet.swift
@@ -88,13 +82,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedListView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedPromptSummary.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryCookieBackupsView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryFilterLayout.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageHostView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageRow.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHistory/StashPageHostView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHistory/StashPageView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupAvatar.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupContactRow.swift

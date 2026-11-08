@@ -101,7 +101,14 @@ pub(in crate::server) struct Bridge {
     /// Each share's guests' held prompts (share id, then guest id), kept across the share's host
     /// sockets and the guests' relays until the guest is kicked or the share ends.
     held: Mutex<HashMap<String, HashMap<String, relay::Held>>>,
+    /// This build's URL scheme when it is not the one a guest page asks by default
+    /// ([`DEFAULT_APP_SCHEME`]): a link made here names it (`?app=`), so a guest page opens this build.
+    app_scheme: Mutex<Option<String>>,
 }
+
+/// The app a guest page asks to open a link when the link names none (webviews `appLink.ts`): cmux NEXT
+/// ships as cmux NIGHTLY, which registers `cmux-nightly`.
+pub(super) const DEFAULT_APP_SCHEME: &str = "cmux-nightly";
 
 impl Drop for Bridge {
     fn drop(&mut self) {
@@ -186,7 +193,7 @@ impl Bridge {
         self.room().map(|room| room.timing).unwrap_or_default()
     }
 
-    fn runtime(&self) -> Option<&tokio::runtime::Runtime> {
+    pub(super) fn runtime(&self) -> Option<&tokio::runtime::Runtime> {
         let runtime = self.runtime.get_or_init(|| {
             let _ = rustls::crypto::ring::default_provider().install_default();
             let mut builder = tokio::runtime::Builder::new_multi_thread();
@@ -343,7 +350,7 @@ enum Put {
 const MAX_ROOM_RESPONSE_BYTES: usize = 64 * 1024;
 
 /// One HTTP call to the room with `bearer`: its status and bounded JSON body.
-async fn call(
+pub(super) async fn call(
     method: reqwest::Method,
     url: &str,
     bearer: &str,
@@ -449,7 +456,8 @@ pub(super) fn provision(
             }
             let secret =
                 created.get("secret").and_then(Value::as_str).unwrap_or_default().to_owned();
-            created.set("url", json!(format!("{url_base}#{secret}")));
+            let app = shares(mux).bridge.app_query();
+            created.set("url", json!(format!("{url_base}{app}#{secret}")));
             created.set("room", json!(room.url));
             host(mux, &share_id);
             Ok(created)
@@ -1241,6 +1249,39 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
 /// queued `DELETE`. A share a restart left provisioning never answered its create: it is revoked
 /// (a room it made without answering ends at the share's expiry: the owner's token, which its
 /// `DELETE` would need, is not kept).
+/// Names this build's URL scheme for the links it makes (`?app=<scheme>`), unless it is the default a guest
+/// page asks ([`DEFAULT_APP_SCHEME`]) or not a cmux build's scheme. Call before [`start_link_share_bridge`].
+impl Bridge {
+    /// `?app=<scheme>` naming the build that makes a link or invite (`set_link_share_app_scheme`), or nothing.
+    pub(super) fn app_query(&self) -> String {
+        let app = self.app_scheme.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        app.map(|scheme| format!("?app={scheme}")).unwrap_or_default()
+    }
+}
+
+/// Names the build in every `invite_url` of an answer (an invite's, and each listed share's), the way a link's
+/// `url` does, so an invite made by a DEV, tagged or RC build opens in that build.
+pub(super) fn name_app_in_invites(answer: &mut Value, app_query: &str) {
+    if app_query.is_empty() {
+        return;
+    }
+    let name = |value: &mut Value| {
+        if let Some(Value::String(url)) = value.get_mut("invite_url") {
+            url.push_str(app_query);
+        }
+    };
+    name(answer);
+    if let Some(Value::Array(shares)) = answer.get_mut("shares") {
+        shares.iter_mut().for_each(name);
+    }
+}
+
+pub fn set_link_share_app_scheme(mux: &Arc<Mux>, scheme: Option<&str>) {
+    let scheme = scheme.filter(|s| *s != DEFAULT_APP_SCHEME && super::link::is_cmux_scheme(s));
+    *shares(mux).bridge.app_scheme.lock().unwrap_or_else(|e| e.into_inner()) =
+        scheme.map(str::to_owned);
+}
+
 pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
     let shares = shares(mux);
     if !shares.bridge.configure(room, Timing::default()) {
