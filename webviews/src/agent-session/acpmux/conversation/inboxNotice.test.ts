@@ -137,3 +137,14 @@ test("an opened thread names each sender by its plain name, not the agent's word
   // A daemon from before `fromName`: its `from` as given.
   expect(inboxMessages([{ from: "lane-a", text: "hi" }])).toEqual([{ from: "lane-a", text: "hi" }]);
 });
+
+// Review of #37653: a sender record that says `authenticated: false` is unverified whatever else it
+// names; an acpmux that wrote no `verification` nor `labelDeclared` still said so.
+test("a sender record with authenticated false is unverified without labelDeclared", () => {
+  const [plain, proven] = inboxMessages([
+    { from: "lane-a", text: "hi", sender: { authenticated: false, label: "lane-a" } },
+    { from: "lane-b", text: "hi", sender: { authenticated: true, session: "s-b" } },
+  ]);
+  expect(plain?.unverified).toBe(true);
+  expect(proven?.unverified).toBeUndefined();
+});
