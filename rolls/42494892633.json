@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42494892633",
+  "recorded_at": "2026-11-08T15:35:53Z",
+  "reason": "cmux-tui 867a4205099d changes the image's cmux-tui (pinned 9ad25054af72)",
+  "dry_run": false,
+  "cmux_tui": "867a4205099d912c7b3c90d8144f35932e1d650d",
+  "fixes": [
+    {
+      "sha": "867a4205099d912c7b3c90d8144f35932e1d650d",
+      "mergedAt": "2026-11-08T15:09:30Z",
+      "subject": "relay: a resumed daemon's Ping is handed its unjoined circuits; fix the stale-daemon bench's Incoming handler (#38540)"
+    },
+    {
+      "sha": "a9c2d9d78085717d42e2a8af352675eff893120e",
+      "mergedAt": "2026-11-08T07:06:19-08:00",
+      "subject": "cmux-action-catalog: drop the playground's removed open argument (swift_parity red) (#38538)"
+    },
+    {
+      "sha": "9a8f98544359886b2ae03bf1a40f37001b72be17",
+      "mergedAt": "2026-11-08T07:05:08-08:00",
+      "subject": "cmux-tui: terminal run argv, one agent status vocabulary, quiet screen create, line-anchored --pattern, pane move, clearer errors (W4-J) (#38638)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T15:35:53Z",
+    "snapshot_id": "sh-c55bee83b6b74085b11873117859fafc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42494892633): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d18b139497326bbdb25e758c5461835dd038d80d",
+    "image": "cloud-native-auto-867a4205-42494892633-1",
+    "revision": "ci-42494892633-1",
+    "at": "2026-11-08T15:35:53Z"
+  },
+  "rolled_back": false
+}
