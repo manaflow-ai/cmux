@@ -656,8 +656,11 @@ fn a_crash_right_after_the_chat_goes_keeps_the_forks_history() {
     };
     let view = forked(open(journal.clone()), 30, 20, 2);
     assert!(view.wait_durable(std::time::Duration::from_secs(10)).unwrap(), "never durable");
+    // Each sync now takes a while: a delete that waits for none returns with its records unsynced.
+    journal.set_sync_delay(std::time::Duration::from_millis(500));
     view.delete("chat").unwrap();
     let crashed = journal.restart(Crash::Os);
+    crashed.set_sync_delay(std::time::Duration::ZERO);
     drop(view);
     let view = ForkView::new(open(crashed));
     assert!(view.load("fork").unwrap().unwrap().history_from.is_none(), "the reference came back");
