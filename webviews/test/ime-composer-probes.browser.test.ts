@@ -77,9 +77,10 @@ await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
       await dispatchImeKey(page, "ArrowDown", true);
       await dispatchImeKey(page, "Enter", true);
     }
-    // `insertText` fires the browser input event against the active contenteditable while
-    // MarkdownField's composition flag is set, matching the IME's committed DOM update.
-    await page.keyboard.insertText(committed);
+    // Trusted keyboard input updates the contenteditable while MarkdownField's composition flag is
+    // set, matching the IME's committed DOM update. A synthetic composition event does not make
+    // Playwright's `insertText` engage the browser's internal composition transaction.
+    await page.keyboard.type(committed);
     await page.evaluate((data) => {
       document.querySelector<HTMLElement>(".acpmux-md")!.dispatchEvent(
         new CompositionEvent("compositionend", { bubbles: true, data }),
@@ -102,6 +103,10 @@ await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
       await page.goto(stageURL());
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
       await compose(page, probe.preedit, probe.committed, probe.candidate);
+      await page.waitForFunction(
+        (expected) => document.querySelector(".acpmux-md")?.textContent === expected,
+        probe.committed,
+      );
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => {
         const log = (window as unknown as { cmuxGalleryLog: PromptCall[] }).cmuxGalleryLog;
