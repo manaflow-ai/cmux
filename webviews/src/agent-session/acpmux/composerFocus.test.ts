@@ -189,6 +189,11 @@ describe("composer click-away focus", () => {
       React.createElement("input", { id: "field" }),
       React.createElement(
         "div",
+        { role: "menu" },
+        React.createElement("button", { id: "menu-row", role: "menuitem" }, "row"),
+      ),
+      React.createElement(
+        "div",
         { className: "acpmux-composer-box" },
         React.createElement("div", { contentEditable: true, tabIndex: 0 }),
       ),
@@ -232,6 +237,29 @@ describe("composer click-away focus", () => {
       });
       expect(document.activeElement).toBe(kept);
     });
+
+  // A menu the pane left open closes after the window's blur and focuses its trigger again while
+  // the page lacks the keyboard; the trigger lets go, or it rings on the return.
+  test("a header tool that takes focus while the pane is away lets go of it", async () => {
+    const container = installDom();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(HeaderToolHarness));
+    });
+    const document = dom!.window.document;
+    const row = document.getElementById("menu-row")!;
+    row.focus();
+    await act(async () => {
+      dom!.window.dispatchEvent(new dom!.window.Event("blur"));
+    });
+    expect(document.activeElement).toBe(row);
+    document.hasFocus = () => false;
+    const tool = document.getElementById("tool")!;
+    await act(async () => {
+      tool.focus();
+    });
+    expect(document.activeElement).not.toBe(tool);
+  });
 
   // Two chats side by side (agent-pane.subagent-split-pair): each pane's activation claim fired
   // after the other pane had taken the keyboard, took it back, and the other's did the same, every

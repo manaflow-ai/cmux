@@ -161,6 +161,14 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       clearTimeout(settling);
       settling = undefined;
     };
+    // Focus that lands on a pressable control while the page lacks the keyboard is never the
+    // person's: a menu the pane left open closes after the window's blur and hands focus back to
+    // its trigger, which then rang on the return just as a clicked tool did. It lets go at once.
+    const onFocusIn = (event: FocusEvent) => {
+      const node = event.target as Node | null;
+      const target = node?.nodeType === 1 ? (node as Element) : null;
+      if (!document.hasFocus() && releasesFocusOnLeave(target)) (target as HTMLElement).blur();
+    };
     /// The pane became active (window focus, the host's focusContent): claim unless a click did it.
     /// A claim whose pane gave the keyboard away while it settled is dropped (onWindowBlur): it
     /// would take the keyboard back from the pane that has it now, whose own late claim then took
@@ -192,6 +200,7 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
     const first = requestAnimationFrame(claimIfIdle);
     window.addEventListener("focus", claimOnActivation);
     window.addEventListener("blur", onWindowBlur);
+    document.addEventListener("focusin", onFocusIn);
     window.addEventListener(COMPOSER_READY_EVENT, claimIfIdle);
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPress, true);
@@ -215,6 +224,7 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       clearTimeout(settling);
       window.removeEventListener("focus", claimOnActivation);
       window.removeEventListener("blur", onWindowBlur);
+      document.removeEventListener("focusin", onFocusIn);
       window.removeEventListener(COMPOSER_READY_EVENT, claimIfIdle);
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPress, true);
