@@ -78,9 +78,9 @@ await requireBrowserLane("cloud-environment-sheet-geometry.test.ts", async () =>
             timeout: 120_000,
           });
           await page.locator(".cloud-environment-sheet .env-secret").first().waitFor();
-          // Every header line that shows (a secret with hosts) is opened by a real click: Playwright's click
+          // Every secret's header line is opened by a real click: Playwright's click
           // refuses an element another one covers, such as the actions row.
-          const closed = page.locator('.env-fold[data-open] > .env-fold-body > .env-disclosure[aria-expanded="false"]');
+          const closed = page.locator('.env-secret > .env-disclosure[aria-expanded="false"]');
           while ((await closed.count()) > 0) await closed.first().click({ timeout: 10_000 });
           await settled(page);
           await page.evaluate(() => {
@@ -88,7 +88,7 @@ await requireBrowserLane("cloud-environment-sheet-geometry.test.ts", async () =>
             body.scrollTop = body.scrollHeight;
           });
 
-          const disclosure = await hit(page, ".env-fold[data-open] > .env-fold-body > .env-disclosure");
+          const disclosure = await hit(page, ".env-secret > .env-disclosure");
           const add = await hit(page, ".cloud-environment-sheet .env-add");
           console.log(
             `${variant} ${height}px: last disclosure ${JSON.stringify(disclosure)}, add ${JSON.stringify(add)}`,

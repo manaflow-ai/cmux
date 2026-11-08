@@ -154,23 +154,83 @@ test("without the service's support for secret routes, a secret row has no deliv
   }
 });
 
-test("a secret's Sent to hosts unfold its header, and an invalid host shows inline and blocks Save", async () => {
+test("a secret stored without hosts loads invalid and blocks Save; one host makes it valid", async () => {
   const mounted = await mount("secrets", { ...sample, secret_routes: true });
   try {
     const hosts = document.querySelector<HTMLInputElement>('input[aria-label="Sent to"]');
     expect(hosts?.value).toBe("");
-    const fold = document.querySelector(".env-secret > .env-fold");
-    expect(fold?.hasAttribute("data-open")).toBe(false);
-    expect(fold?.hasAttribute("inert")).toBe(true);
+    expect(hosts?.getAttribute("aria-invalid")).toBe("true");
+    const sentence = "A secret needs at least one host. For a value the machine reads itself, use a variable.";
+    expect(document.querySelector(".env-secret .env-error")?.textContent).toBe(sentence);
+    // Every secret has hosts, so its header line is always there, closed.
+    const disclosure = document.querySelector<HTMLButtonElement>(".env-secret > .env-disclosure");
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => {
+      button("Save changes")!.click();
+      await settle();
+    });
+    expect(mounted.writes).toEqual([]);
+    expect(mounted.store.getSnapshot().error).toBe("hostless");
+    expect(document.querySelectorAll(".env-error")).toHaveLength(2);
+    expect([...document.querySelectorAll(".env-error")].every((node) => node.textContent === sentence)).toBe(true);
+    // Not flagged while Sent to has focus: a half-typed list is not an error yet.
+    await act(async () => hosts!.focus());
+    expect(hosts?.getAttribute("aria-invalid")).toBeNull();
+    await act(async () => hosts!.blur());
     await act(async () => {
       mounted.store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "tok", hosts: "registry.example.com" }] });
     });
-    expect(fold?.hasAttribute("data-open")).toBe(true);
+    expect(hosts?.getAttribute("aria-invalid")).toBeNull();
+    expect(document.querySelector(".env-secret .env-error")).toBeNull();
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+test("a new blank secret row is not flagged yet; named without a host it is, and Save refuses it", async () => {
+  const stored = { name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z", hosts: ["registry.example.com"] };
+  const mounted = await mount("secrets", { ...sample, secret_routes: true, secrets: [stored] });
+  try {
+    await act(async () => document.querySelector<HTMLButtonElement>(".env-add")!.click());
+    const fields = () => document.querySelectorAll<HTMLInputElement>('input[aria-label="Sent to"]');
+    expect(fields()).toHaveLength(2);
+    expect(fields()[1]?.getAttribute("aria-invalid")).toBeNull();
+    await act(async () => {
+      mounted.store.edit({
+        secrets: [
+          { name: "PACKAGE_TOKEN", value: "", hosts: "registry.example.com" },
+          { name: "DEPLOY_KEY", value: "key" },
+        ],
+      });
+    });
+    expect(fields()[0]?.getAttribute("aria-invalid")).toBeNull();
+    expect(fields()[1]?.getAttribute("aria-invalid")).toBe("true");
+    await act(async () => {
+      button("Save changes")!.click();
+      await settle();
+    });
+    expect(mounted.writes).toEqual([]);
+    expect(mounted.store.getSnapshot().error).toBe("hostless");
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+test("a secret's header opens under its hosts, and an invalid host shows inline and blocks Save", async () => {
+  const mounted = await mount("secrets", { ...sample, secret_routes: true });
+  try {
+    const hosts = document.querySelector<HTMLInputElement>('input[aria-label="Sent to"]');
+    await act(async () => {
+      mounted.store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "tok", hosts: "registry.example.com" }] });
+    });
     expect(document.querySelector(".env-header-summary")?.textContent).toBe("authorization: Bearer {value}");
     const disclosure = document.querySelector<HTMLButtonElement>(".env-disclosure");
+    const fields = document.querySelector(".env-secret > .env-fold");
     expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(fields?.hasAttribute("inert")).toBe(true);
     await act(async () => disclosure!.click());
     expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
+    expect(fields?.hasAttribute("data-open")).toBe(true);
     expect(document.querySelector<HTMLInputElement>('input[aria-label="Header name"]')?.value).toBe("authorization");
     await act(async () => {
       mounted.store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "tok", hosts: "https://registry.example.com" }] });

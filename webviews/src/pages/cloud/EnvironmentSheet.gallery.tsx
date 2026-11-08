@@ -4,7 +4,15 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { CloudEnvironment, EnvironmentSection } from "./environmentModel";
 
-type Props = { section: EnvironmentSection; failure?: boolean; full?: boolean; delivery?: boolean; many?: boolean };
+type Props = {
+  section: EnvironmentSection;
+  failure?: boolean;
+  full?: boolean;
+  delivery?: boolean;
+  many?: boolean;
+  /** PACKAGE_TOKEN as stored before every secret needed a host: no hosts, so it loads invalid. */
+  legacy?: boolean;
+};
 const ready: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cloud-environment-sheet .env-fields"));
 };
@@ -16,7 +24,7 @@ const headerOpen: Play = async (ctx) => {
 };
 const invalidHost: Play = async (ctx) => {
   await ready(ctx);
-  await ctx.type("https://api.example.com/v1", hostsField(0));
+  await ctx.type(", https://api.example.com/v1", hostsField(0));
   await ctx.click({ selector: ".env-primary" });
   await ctx.waitFor(() => ctx.document.querySelector(".env-secret .env-error"));
 };
@@ -29,6 +37,14 @@ const deliveryEdit: Play = async (ctx) => {
     ),
   );
 };
+const newHostless: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.click({ selector: ".env-add" });
+  await ctx.type("DEPLOY_KEY", { selector: '.env-secret:last-of-type input[aria-label="Secret name"]' });
+  await ctx.type("deploy-key-value", { selector: '.env-secret:last-of-type input[type="password"]' });
+  await ctx.click({ selector: ".env-primary" });
+  await ctx.waitFor(() => ctx.document.querySelector(".env-secret:last-of-type .env-error"));
+};
 const firstHosts: Play = async (ctx) => {
   await ready(ctx);
   await ctx.type("registry.npmjs.org", hostsField(0));
@@ -37,8 +53,7 @@ const firstHosts: Play = async (ctx) => {
 };
 const manyExpanded: Play = async (ctx) => {
   await ready(ctx);
-  // Only the header lines of secrets with hosts; the folded-away one of a plain secret is inert.
-  const selector = '.env-fold[data-open] > .env-fold-body > .env-disclosure[aria-expanded="false"]';
+  const selector = '.env-secret > .env-disclosure[aria-expanded="false"]';
   const closed = () => ctx.document.querySelector(selector);
   while (closed()) await ctx.click({ selector });
   await ctx.waitFor(() => !closed());
@@ -64,7 +79,7 @@ export default componentEntry<Props>({
       import("../shared/i18n"),
       import("./generated/strings.json"),
     ]);
-    return function EnvironmentGallery({ section, failure, full, delivery, many }: Props) {
+    return function EnvironmentGallery({ section, failure, full, delivery, many, legacy }: Props) {
       const [strings] = useState(() => createStrings(table));
       const [store] = useState(() => {
         let environment: CloudEnvironment = {
@@ -78,7 +93,9 @@ export default componentEntry<Props>({
             { name: "LOG_LEVEL", value: "info" },
           ],
           secrets: [
-            { name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z" },
+            legacy
+              ? { name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z" }
+              : { name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z", hosts: ["registry.npmjs.org"] },
             ...(delivery
               ? [
                   // The default header (absent): Authorization: Bearer {value}.
@@ -177,7 +194,7 @@ export default componentEntry<Props>({
       play: ready,
     },
     "secret-hosts": {
-      note: "Secrets sent only to hosts: the default Authorization header, and a custom one; a plain env var above.",
+      note: "Secrets sent only to their hosts: the default Authorization header, and a custom one.",
       props: { section: "secrets", delivery: true },
       play: ready,
     },
@@ -196,9 +213,19 @@ export default componentEntry<Props>({
       props: { section: "secrets", delivery: true },
       play: deliveryEdit,
     },
-    "secret-first-hosts": {
-      note: "A stored plain secret given its first host: the row asks for its value again.",
+    "secret-no-hosts": {
+      note: "A secret stored before every secret needed a host: it loads invalid until it gets one.",
+      props: { section: "secrets", delivery: true, legacy: true },
+      play: ready,
+    },
+    "secret-new-no-hosts": {
+      note: "A new secret with a name and value but no host: the inline error, and Save refuses it.",
       props: { section: "secrets", delivery: true },
+      play: newHostless,
+    },
+    "secret-first-hosts": {
+      note: "A secret stored without hosts given its first host: the row asks for its value again.",
+      props: { section: "secrets", delivery: true, legacy: true },
       play: firstHosts,
     },
     "secret-many-expanded": {

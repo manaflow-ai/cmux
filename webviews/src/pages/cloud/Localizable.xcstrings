@@ -26276,127 +26276,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "بلا مضيفين: متغير بيئة"
+            "value": "المضيفون، مثل api.example.com"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bez hostova: varijabla okruženja"
+            "value": "Hostovi, npr. api.example.com"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen værter: en miljøvariabel"
+            "value": "Værter, f.eks. api.example.com"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine Hosts: eine Umgebungsvariable"
+            "value": "Hosts, z. B. api.example.com"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hosts: an environment variable"
+            "value": "Hosts, like api.example.com"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sin hosts: una variable de entorno"
+            "value": "Hosts, como api.example.com"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun hôte : une variable d’environnement"
+            "value": "Hôtes, comme api.example.com"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessun host: una variabile d’ambiente"
+            "value": "Host, come api.example.com"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホストなし: 環境変数"
+            "value": "ホスト（例: api.example.com）"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "គ្មានម៉ាស៊ីន៖ អថេរបរិស្ថាន"
+            "value": "ម៉ាស៊ីន ដូចជា api.example.com"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "호스트 없음: 환경 변수"
+            "value": "호스트(예: api.example.com)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen verter: en miljøvariabel"
+            "value": "Verter, f.eks. api.example.com"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bez hostów: zmienna środowiskowa"
+            "value": "Hosty, np. api.example.com"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sem hosts: uma variável de ambiente"
+            "value": "Hosts, como api.example.com"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Без хостов: переменная окружения"
+            "value": "Хосты, например api.example.com"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่มีโฮสต์: ตัวแปรสภาพแวดล้อม"
+            "value": "โฮสต์ เช่น api.example.com"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ana makine yok: bir ortam değişkeni"
+            "value": "Ana makineler, ör. api.example.com"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Без хостів: змінна середовища"
+            "value": "Хости, наприклад api.example.com"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không có máy chủ: một biến môi trường"
+            "value": "Máy chủ, ví dụ api.example.com"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无主机：作为环境变量"
+            "value": "主机，例如 api.example.com"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無主機：作為環境變數"
+            "value": "主機，例如 api.example.com"
           }
         }
       }
@@ -26408,127 +26408,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أضف مضيفين لإرسال السر إليهم فقط في ترويسة الطلب؛ لا تدخل قيمته الجهاز أبدًا. السر بلا مضيفين متغير بيئة."
+            "value": "يُرسَل السر إلى مضيفيه فقط في ترويسة الطلب؛ لا تدخل قيمته الجهاز أبدًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodajte hostove da se tajna šalje samo njima, u zaglavlju zahtjeva; njena vrijednost nikad ne ulazi u mašinu. Tajna bez hostova je varijabla okruženja."
+            "value": "Tajna se šalje samo njenim hostovima, u zaglavlju zahtjeva; njena vrijednost nikad ne ulazi u mašinu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tilføj værter for kun at sende en hemmelighed til dem i en anmodningsheader; dens værdi kommer aldrig ind på maskinen. En hemmelighed uden værter er en miljøvariabel."
+            "value": "En hemmelighed sendes kun til dens værter i en anmodningsheader; dens værdi kommer aldrig ind på maskinen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Füge Hosts hinzu, um ein Geheimnis nur an sie zu senden, in einem Anfrage-Header; sein Wert gelangt nie auf die Maschine. Ein Geheimnis ohne Hosts ist eine Umgebungsvariable."
+            "value": "Ein Geheimnis wird nur an seine Hosts gesendet, in einem Anfrage-Header; sein Wert gelangt nie auf die Maschine."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add hosts to send a secret only to them, in a request header; its value never enters the machine. A secret without hosts is an environment variable."
+            "value": "A secret is sent only to its hosts, in a request header; its value never enters the machine."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade hosts para enviar un secreto solo a ellos, en un encabezado de la solicitud; su valor nunca entra en la máquina. Un secreto sin hosts es una variable de entorno."
+            "value": "Un secreto se envía solo a sus hosts, en un encabezado de la solicitud; su valor nunca entra en la máquina."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoutez des hôtes pour n’envoyer un secret qu’à eux, dans un en-tête de requête ; sa valeur n’entre jamais dans la machine. Un secret sans hôte est une variable d’environnement."
+            "value": "Un secret n’est envoyé qu’à ses hôtes, dans un en-tête de requête ; sa valeur n’entre jamais dans la machine."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiungi host per inviare un segreto solo a loro, in un'intestazione della richiesta; il suo valore non entra mai nella macchina. Un segreto senza host è una variabile d’ambiente."
+            "value": "Un segreto viene inviato solo ai suoi host, in un'intestazione della richiesta; il suo valore non entra mai nella macchina."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホストを追加すると、シークレットはそのホストにだけリクエストヘッダーで送信され、値はマシンに入りません。ホストのないシークレットは環境変数です。"
+            "value": "シークレットはそのホストにだけリクエストヘッダーで送信され、値はマシンに入りません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បន្ថែមម៉ាស៊ីន ដើម្បីផ្ញើសម្ងាត់ទៅពួកវាតែប៉ុណ្ណោះ ក្នុងក្បាលសំណើ។ តម្លៃរបស់វាមិនដែលចូលម៉ាស៊ីនឡើយ។ សម្ងាត់ដែលគ្មានម៉ាស៊ីន គឺជាអថេរបរិស្ថាន។"
+            "value": "សម្ងាត់ត្រូវបានផ្ញើទៅម៉ាស៊ីនរបស់វាតែប៉ុណ្ណោះ ក្នុងក្បាលសំណើ។ តម្លៃរបស់វាមិនដែលចូលម៉ាស៊ីនឡើយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "호스트를 추가하면 시크릿은 요청 헤더에 담겨 그 호스트로만 전송되며, 값은 머신에 들어가지 않습니다. 호스트가 없는 시크릿은 환경 변수입니다."
+            "value": "시크릿은 요청 헤더에 담겨 해당 호스트로만 전송되며, 값은 머신에 들어가지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legg til verter for å sende en hemmelighet bare til dem, i en forespørselsheader; verdien kommer aldri inn på maskinen. En hemmelighet uten verter er en miljøvariabel."
+            "value": "En hemmelighet sendes bare til vertene sine, i en forespørselsheader; verdien kommer aldri inn på maskinen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodaj hosty, aby wysyłać sekret tylko do nich, w nagłówku żądania; jego wartość nigdy nie trafia na maszynę. Sekret bez hostów jest zmienną środowiskową."
+            "value": "Sekret jest wysyłany tylko do jego hostów, w nagłówku żądania; jego wartość nigdy nie trafia na maszynę."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicione hosts para enviar um segredo só a eles, em um cabeçalho da requisição; o valor nunca entra na máquina. Um segredo sem hosts é uma variável de ambiente."
+            "value": "Um segredo é enviado só aos seus hosts, em um cabeçalho da requisição; o valor nunca entra na máquina."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавьте хосты, чтобы секрет отправлялся только им в заголовке запроса; его значение никогда не попадает на машину. Секрет без хостов — переменная окружения."
+            "value": "Секрет отправляется только своим хостам в заголовке запроса; его значение никогда не попадает на машину."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพิ่มโฮสต์เพื่อส่งความลับไปยังโฮสต์เหล่านั้นเท่านั้นในส่วนหัวของคำขอ ค่าของความลับจะไม่เข้าสู่เครื่องเลย ความลับที่ไม่มีโฮสต์คือตัวแปรสภาพแวดล้อม"
+            "value": "ความลับจะถูกส่งไปยังโฮสต์ของมันเท่านั้นในส่วนหัวของคำขอ ค่าของความลับจะไม่เข้าสู่เครื่องเลย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir gizli bilgiyi yalnızca onlara, bir istek başlığında göndermek için ana makine ekleyin; değeri makineye hiç girmez. Ana makinesi olmayan gizli bilgi bir ortam değişkenidir."
+            "value": "Bir gizli bilgi yalnızca kendi ana makinelerine, bir istek başlığında gönderilir; değeri makineye hiç girmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Додайте хости, щоб секрет надсилався лише їм у заголовку запиту; його значення ніколи не потрапляє на машину. Секрет без хостів — це змінна середовища."
+            "value": "Секрет надсилається лише його хостам у заголовку запиту; його значення ніколи не потрапляє на машину."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thêm máy chủ để chỉ gửi bí mật đến chúng, trong một tiêu đề yêu cầu; giá trị của nó không bao giờ vào máy. Bí mật không có máy chủ là một biến môi trường."
+            "value": "Bí mật chỉ được gửi đến các máy chủ của nó, trong một tiêu đề yêu cầu; giá trị của nó không bao giờ vào máy."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "添加主机后，密钥只会通过请求头发送给这些主机，其值永远不会进入机器。没有主机的密钥是环境变量。"
+            "value": "密钥只会通过请求头发送给它的主机，其值永远不会进入机器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新增主機後，密鑰只會透過請求標頭傳送給這些主機，其值永遠不會進入機器。沒有主機的密鑰是環境變數。"
+            "value": "密鑰只會透過請求標頭傳送給它的主機，其值永遠不會進入機器。"
           }
         }
       }
@@ -27189,6 +27189,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "最多填寫 8 個主機名稱，例如 api.example.com，不含協定、連接埠、路徑或萬用字元。"
+          }
+        }
+      }
+    },
+    "environment.secretNoHosts": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج السر إلى مضيف واحد على الأقل. للقيمة التي يقرؤها الجهاز بنفسه، استخدم متغيرًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajni treba barem jedan host. Za vrijednost koju mašina sama čita koristite varijablu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighed skal have mindst én vært. Brug en variabel til en værdi, maskinen selv læser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Geheimnis braucht mindestens einen Host. Für einen Wert, den die Maschine selbst liest, nutze eine Variable."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A secret needs at least one host. For a value the machine reads itself, use a variable."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secreto necesita al menos un host. Para un valor que la máquina lee por sí misma, usa una variable."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secret a besoin d’au moins un hôte. Pour une valeur que la machine lit elle-même, utilisez une variable."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un segreto ha bisogno di almeno un host. Per un valore che la macchina legge da sé, usa una variabile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットには少なくとも 1 つのホストが必要です。マシン自身が読む値には変数を使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្ងាត់ត្រូវការម៉ាស៊ីនយ៉ាងហោចណាស់មួយ។ សម្រាប់តម្លៃដែលម៉ាស៊ីនអានដោយខ្លួនឯង សូមប្រើអថេរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시크릿에는 호스트가 하나 이상 필요합니다. 머신이 직접 읽는 값에는 변수를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighet trenger minst én vert. Bruk en variabel for en verdi maskinen leser selv."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekret potrzebuje co najmniej jednego hosta. Dla wartości, którą maszyna odczytuje sama, użyj zmiennej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um segredo precisa de pelo menos um host. Para um valor que a máquina lê sozinha, use uma variável."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрету нужен хотя бы один хост. Для значения, которое машина читает сама, используйте переменную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความลับต้องมีโฮสต์อย่างน้อยหนึ่งรายการ สำหรับค่าที่เครื่องอ่านเอง ให้ใช้ตัวแปร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir gizli bilginin en az bir ana makinesi olmalı. Makinenin kendisinin okuduğu bir değer için değişken kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрету потрібен принаймні один хост. Для значення, яке машина читає сама, використовуйте змінну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bí mật cần ít nhất một máy chủ. Với giá trị máy tự đọc, hãy dùng biến."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密钥至少需要一个主机。机器自己读取的值，请使用变量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密鑰至少需要一個主機。機器自己讀取的值，請使用變數。"
           }
         }
       }

@@ -20,11 +20,13 @@ export type CloudEnvironment = {
 /** The header a secret with `hosts` goes in; `format` holds `{value}`, which the edge replaces with the value. */
 export type SecretHeader = { name: string; format: string };
 /** A stored secret as GET answers it: never a value. `hosts` and `header` are its delivery targets (the
- *  vault's edge grants); a secret without `hosts` is a plain environment variable. Older platforms omit both. */
+ *  vault's edge grants). Every secret needs a host: its value never reaches the machine, so one stored
+ *  without hosts (from before) loads as invalid until it gets one. Older platforms omit both. */
 export type EnvironmentSecret = { name: string; updated_at: string; hosts?: string[]; header?: SecretHeader };
-/** A `set_secrets` entry. It always states where the secret goes in full: no `hosts` is a plain environment
- *  variable and no `header` is the default, never "unchanged". Only `value` may be left out, which keeps
- *  an existing secret's sealed value and changes where it goes. */
+/** A `set_secrets` entry. It always states where the secret goes in full: no `header` is the default, never
+ *  "unchanged", and `hosts` is left out only on a service that does not keep routes (the editor refuses a
+ *  secret without hosts everywhere else). Only `value` may be left out, which keeps an existing secret's
+ *  sealed value and changes where it goes. */
 export type SecretWrite = { name: string; value?: string; hosts?: string[]; header?: SecretHeader };
 /** A secret row being edited. `hosts` is the field's text as typed; `header` absent means the default. */
 export type SecretDraft = EnvironmentVariable & { hosts?: string; header?: SecretHeader };
@@ -86,12 +88,13 @@ export function headerIssue(header: SecretHeader | undefined): "header" | "route
 /** A value or format that goes into a request header: printable ASCII, spaces and tabs (no line break, control
  *  or non-ASCII character), as the platform requires (`cloud_environment.invalid_value`). */
 export const headerText = (text: string) => /^[\x20-\x7e\t]*$/.test(text);
-/** A stored plain secret getting its first hosts: the platform needs its value again, because a value-less
- *  entry only moves a secret that already has hosts, or makes one plain again. */
+/** A secret stored without hosts (from before every secret needed one) getting its first hosts: the platform
+ *  needs its value again, because a value-less entry only moves a secret that already has hosts. */
 export function secretNeedsValue(row: SecretDraft, stored: EnvironmentSecret | undefined): boolean {
   return !row.value && stored !== undefined && !stored.hosts?.length && secretHosts(row.hosts).length > 0;
 }
-/** Where a secret row goes, as the platform stores it: no hosts is an environment variable. */
+/** Where a secret row goes, as the platform stores it. A row without hosts states nothing: the editor refuses
+ *  it before Save wherever the service keeps routes (`validateEnvironment`). */
 export function secretDelivery(row: Pick<SecretDraft, "hosts" | "header">): Pick<SecretWrite, "hosts" | "header"> {
   const hosts = secretHosts(row.hosts);
   if (!hosts.length) return {};
@@ -158,9 +161,13 @@ export function environmentDraft(environment: CloudEnvironment): EnvironmentDraf
   };
 }
 
+/** The first thing that stops Save. `routes` is whether the service keeps where secrets go
+ *  (`secretRoutesSupported`): there every secret needs a host, because its value goes only to its hosts
+ *  through a vault edge grant and never to the machine. */
 export function validateEnvironment(
   draft: EnvironmentDraft,
-): "name" | "names" | "script" | "hosts" | "value" | "header" | "route" | undefined {
+  { routes = false }: { routes?: boolean } = {},
+): "name" | "names" | "script" | "hosts" | "hostless" | "value" | "header" | "route" | undefined {
   if (!draft.name.trim()) return "name";
   if (draft.script !== null && !scriptFits(draft.script)) return "script";
   for (const rows of [draft.variables, draft.secrets]) {
@@ -169,6 +176,7 @@ export function validateEnvironment(
       return "names";
   }
   if (draft.secrets.some((row) => !hostsValid(row.hosts))) return "hosts";
+  if (routes && draft.secrets.some((row) => !secretHosts(row.hosts).length)) return "hostless";
   for (const row of draft.secrets) {
     if (!secretHosts(row.hosts).length) continue;
     if (!headerText(row.value)) return "value";

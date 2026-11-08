@@ -4,6 +4,7 @@ import {
   environmentPatch,
   scriptFits,
   secretNeedsValue,
+  secretRoutesSupported,
   SETUP_SCRIPT_BYTES,
   storedEnvironment,
   validateEnvironment,
@@ -36,6 +37,7 @@ export type EnvironmentState = {
     | "secret"
     | "retype"
     | "hosts"
+    | "hostless"
     | "value"
     | "header"
     | "route"
@@ -142,7 +144,7 @@ export class EnvironmentStore {
   async save() {
     const { original, draft, saving } = this.state;
     if (!original || !draft || saving) return;
-    const invalid = validateEnvironment(draft);
+    const invalid = validateEnvironment(draft, { routes: secretRoutesSupported(original) });
     if (invalid) return this.error(invalid);
     if (draft.secrets.some((row) => !row.value && !original.secrets.some((secret) => secret.name === row.name)))
       return this.error("secret");

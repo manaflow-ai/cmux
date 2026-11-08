@@ -363,7 +363,7 @@ describe("secret delivery hosts and header", () => {
   const delivered = () =>
     environment({
       secrets: [
-        { name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z" },
+        { name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z", hosts: ["registry.example.com"] },
         { name: "GITHUB_TOKEN", updated_at: "2026-11-01T00:00:00Z", hosts: ["api.github.com"] },
         {
           name: "SEARCH_KEY",
@@ -373,6 +373,17 @@ describe("secret delivery hosts and header", () => {
         },
       ],
     });
+
+  /** `delivered` with PACKAGE_TOKEN as stored before every secret needed a host. */
+  const legacy = () => {
+    const base = delivered();
+    return {
+      ...base,
+      secrets: base.secrets.map((secret) =>
+        secret.name === "PACKAGE_TOKEN" ? { name: secret.name, updated_at: secret.updated_at } : secret,
+      ),
+    };
+  };
 
   test("hosts parse from commas and spaces, lowercased and deduplicated, and validate exact names", () => {
     expect(secretHosts(" API.github.com, uploads.github.com  api.github.com,")).toEqual([
@@ -405,7 +416,7 @@ describe("secret delivery hosts and header", () => {
     await store.open({ environmentId: "env_personal" });
     const secrets = store.getSnapshot().draft?.secrets;
     expect(secrets).toEqual([
-      { name: "PACKAGE_TOKEN", value: "" },
+      { name: "PACKAGE_TOKEN", value: "", hosts: "registry.example.com" },
       { name: "GITHUB_TOKEN", value: "", hosts: "api.github.com" },
       { name: "SEARCH_KEY", value: "", hosts: "search.example.com", header: { name: "x-api-key", format: "{value}" } },
     ]);
@@ -491,19 +502,17 @@ describe("secret delivery hosts and header", () => {
     });
   });
 
-  test("a custom header switched back to the default omits header; clearing hosts makes a plain env var", () => {
+  test("a custom header switched back to the default omits header; clearing every host is refused", () => {
     const original = delivered();
     const draft = environmentDraft(original);
     draft.secrets = draft.secrets.map((row) =>
-      row.name === "SEARCH_KEY"
-        ? { ...row, header: { name: "Authorization", format: "Bearer {value}" } }
-        : row.name === "GITHUB_TOKEN"
-          ? { ...row, hosts: "  " }
-          : row,
+      row.name === "SEARCH_KEY" ? { ...row, header: { name: "Authorization", format: "Bearer {value}" } } : row,
     );
     expect(environmentPatch(original, draft)).toEqual({
-      set_secrets: [{ name: "GITHUB_TOKEN" }, { name: "SEARCH_KEY", hosts: ["search.example.com"] }],
+      set_secrets: [{ name: "SEARCH_KEY", hosts: ["search.example.com"] }],
     });
+    draft.secrets = draft.secrets.map((row) => (row.name === "GITHUB_TOKEN" ? { ...row, hosts: "  " } : row));
+    expect(validateEnvironment(draft, { routes: true })).toBe("hostless");
   });
 
   test("a new secret without a value is blocked, and the platform's value_required maps to the same error", async () => {
@@ -604,8 +613,8 @@ describe("secret delivery hosts and header", () => {
     expect(plain.writes[0]?.patch.set_secrets).toEqual([{ name: "PACKAGE_TOKEN", value: "multi\nline caf\u00e9" }]);
   });
 
-  test("a stored plain secret's first hosts need its value; hosts-to-hosts and hosts-to-plain do not", async () => {
-    const { store, writes } = fake({ list: async () => [delivered()] });
+  test("a secret stored without hosts needs its value with its first hosts; hosts-to-hosts does not", async () => {
+    const { store, writes } = fake({ list: async () => [legacy()] });
     await store.open();
     const rows = store.getSnapshot().draft!.secrets;
     store.edit({
@@ -620,9 +629,7 @@ describe("secret delivery hosts and header", () => {
           ? { ...row, value: "npm-token", hosts: "registry.example.com" }
           : row.name === "GITHUB_TOKEN"
             ? { ...row, hosts: "uploads.github.com" }
-            : row.name === "SEARCH_KEY"
-              ? { ...row, hosts: "" }
-              : row,
+            : row,
       ),
     });
     await store.save();
@@ -630,9 +637,39 @@ describe("secret delivery hosts and header", () => {
       set_secrets: [
         { name: "PACKAGE_TOKEN", value: "npm-token", hosts: ["registry.example.com"] },
         { name: "GITHUB_TOKEN", hosts: ["uploads.github.com"] },
-        { name: "SEARCH_KEY" },
       ],
     });
+  });
+
+  test("where the service keeps routes, every secret needs a host: none blocks Save, one saves", async () => {
+    const { store, writes } = fake({ list: async () => [environment({ secret_routes: true, secrets: [] })] });
+    await store.open();
+    store.edit({ secrets: [{ name: "DEPLOY_KEY", value: "key" }] });
+    await store.save();
+    expect(store.getSnapshot()).toMatchObject({ open: true, error: "hostless" });
+    store.edit({ secrets: [{ name: "DEPLOY_KEY", value: "key", hosts: "   " }] });
+    await store.save();
+    expect(store.getSnapshot().error).toBe("hostless");
+    expect(writes).toEqual([]);
+    store.edit({ secrets: [{ name: "DEPLOY_KEY", value: "key", hosts: "deploy.example.com" }] });
+    await store.save();
+    expect(writes[0]?.patch.set_secrets).toEqual([{ name: "DEPLOY_KEY", value: "key", hosts: ["deploy.example.com"] }]);
+    expect(store.getSnapshot()).toMatchObject({ open: false });
+  });
+
+  test("a secret stored without hosts loads as it is, never dropped, and blocks Save until it gets one", async () => {
+    const { store, writes } = fake({ list: async () => [legacy()] });
+    await store.open();
+    const draft = store.getSnapshot().draft!;
+    expect(draft.secrets.find((row) => row.name === "PACKAGE_TOKEN")).toEqual({ name: "PACKAGE_TOKEN", value: "" });
+    expect(validateEnvironment(draft, { routes: true })).toBe("hostless");
+    // An unrelated edit still can't save around it.
+    store.edit({ name: "Renamed" });
+    await store.save();
+    expect(store.getSnapshot()).toMatchObject({ open: true, error: "hostless" });
+    expect(writes).toEqual([]);
+    // Without proof the service keeps routes there is no Sent to field, so the rule is not checked.
+    expect(validateEnvironment(draft)).toBeUndefined();
   });
 
   test("the platform's invalid_value maps to the value error", async () => {

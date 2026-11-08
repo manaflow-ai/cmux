@@ -55,6 +55,7 @@ export const L = {
   envSecretHeaderFormat: "environment.secretHeaderFormat",
   envSecretHeaderHint: "environment.secretHeaderHint",
   envInvalidHosts: "environment.invalidHosts",
+  envSecretNoHosts: "environment.secretNoHosts",
   envInvalidHeader: "environment.invalidHeader",
   envReservedHeader: "environment.reservedHeader",
   envInvalidValue: "environment.invalidValue",

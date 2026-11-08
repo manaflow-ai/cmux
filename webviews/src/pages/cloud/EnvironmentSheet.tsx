@@ -19,6 +19,7 @@ const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   copy: L.envCopyFailed,
   secret: L.envSecretRequired,
   hosts: L.envInvalidHosts,
+  hostless: L.envSecretNoHosts,
   header: L.envInvalidHeader,
   route: L.envReservedHeader,
   value: L.envInvalidValue,
