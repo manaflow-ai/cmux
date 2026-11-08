@@ -14,6 +14,7 @@ import { agentMessage } from "./agentMessages";
 import { dispatchCall, dispatchDestination, type DispatchCall } from "./dispatchCalls";
 import { subsessionCall } from "./subsessionCalls";
 import { argsSource, fieldsText, inputFields, opensToFields, requestText } from "./toolInputFields";
+import { fileCard, fileCardText } from "./fileResults";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
 import { callOutput, rowFailed, shellOutput, toolFailure } from "./toolFailure";
@@ -22,6 +23,8 @@ import { toolResult } from "./toolResult";
 import { withoutLinks } from "./webSourceList";
 import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
+import { rowsWithLiveOutput } from "../liveToolOutput";
+import { clearAdaptiveFind, paintAdaptiveFind, type FindColors } from "../../../ui/findPaint";
 
 export { foldFind };
 
@@ -44,6 +47,14 @@ export type FindMatchesResult = {
 /** The highlight names conversation.css styles. */
 export const FIND_HIGHLIGHT = "acpmux-find";
 export const FIND_ACTIVE_HIGHLIGHT = "acpmux-find-active";
+/// The theme's find highlight (conversation.css's fallback rules), fit to the surface under each
+/// match: a prompt's bubble, a card, a command's output, the transcript (ui/findPaint.ts; Leo
+/// 2026-11-07: "the inner highlight, I feel like needs to be a bit more, like distinguishable").
+const CHAT_FIND_COLORS: FindColors = {
+  match: "color-mix(in srgb, var(--agent-highlight, #f5c542) 40%, transparent)",
+  current: "var(--agent-highlight, #f5c542)",
+  currentInk: "var(--agent-highlight-text, #1d1d1f)",
+};
 /// Dispatched on the pane's shell when Find in Chat's bar opens (ChatFindBar.tsx): where the chat has
 /// no room for the bar beside Session Info, the panel steps aside (session-info/SessionInfo.tsx
 /// findBarCramped) instead of covering it.
@@ -106,6 +117,10 @@ function drawnText(item: AcpmuxActivity): string {
   const called = shell ? undefined : callOutput(tool);
   const raw = called && withoutLinks(tool, called);
   const result = shell || !raw ? undefined : toolResult(raw, cleanText, strip, tool);
+  // A finished read or file search draws its card: a read's lines, a search's files and matching
+  // lines, never its input fields (FileResultCard.tsx).
+  const card = shell || rowFailed(tool) ? undefined : fileCard(tool, result?.text);
+  if (card) return [tool.title, fileCardText(card)].filter(Boolean).join("\n");
   const output = shell
     ? shellOutput(tool)
     : !result
@@ -242,6 +257,10 @@ export type ChatFind = {
 /** What a find bar (ChatFindBar) reads: the chat's find, or another view's (the changes view). */
 export type FindBarState = Omit<ChatFind, "matches"> & { matches: readonly unknown[] };
 
+/// No matches while the bar is closed: one value, so the find a closed bar hands the transcript
+/// keeps its identity as the rows change (VirtualTranscript skips a render its props do not change).
+const NO_MATCHES: FindMatch[] = [];
+
 /** The find state of a transcript of `rows`. */
 export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const [open, setOpen] = useState(false);
@@ -250,8 +269,10 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const [focusRequest, setFocusRequest] = useState(0);
   const matchesCache = useRef<FindMatchesCache | undefined>(undefined);
   const matches = useMemo(() => {
-    if (!open) return [];
-    const result = findMatchesIncremental(rows, query, matchesCache.current);
+    if (!open) return NO_MATCHES;
+    // While Find is open the pane draws every output update (ChatFindScope.tsx); a running
+    // command's output from before it opened is in liveToolOutput.ts, not `rows`.
+    const result = findMatchesIncremental(rowsWithLiveOutput(rows), query, matchesCache.current);
     matchesCache.current = result.cache;
     return result.matches;
   }, [open, rows, query]);
@@ -292,7 +313,10 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   );
   const next = useCallback(() => step(1), [step]);
   const previous = useCallback(() => step(-1), [step]);
-  return { open, query, matches, active: current, show, hide, setQuery, next, previous, focusRequest };
+  return useMemo(
+    () => ({ open, query, matches, active: current, show, hide, setQuery, next, previous, focusRequest }),
+    [open, query, matches, current, show, hide, setQuery, next, previous, focusRequest],
+  );
 }
 
 /** The transcript row that draws the current match (`id` and whether it is an edited-files card)
@@ -319,9 +343,11 @@ export const findMemberRowId = (row: AcpmuxRow | undefined, target: string | und
     : undefined;
 
 /** Whether `row` draws match row `rowId` itself: the row, its copy in an open fold, or the run
- * that absorbed it (turns.ts `mergeShortNotes`). */
+ * that absorbed it (turns.ts `mergeShortNotes`). A closed fold's line with only the step's calls
+ * (`partial`) does not: the match may be in an edit it leaves to the edited-files card. */
 export const isFindRow = (row: AcpmuxRow, rowId: string) =>
-  (!row.ended && (row.id === rowId || Boolean(row.joined?.includes(rowId)))) || row.id === `${rowId}:fold`;
+  (!row.ended && (row.id === rowId || Boolean(row.joined?.includes(rowId)))) ||
+  (row.id === `${rowId}:fold` && !row.partial);
 
 /** Whether `row` is the edited-files card (turns.ts) that merges edit `rowId`. */
 const isCardOf = (row: AcpmuxRow, rowId: string) => Boolean(row.ended) && (row.merged ?? [row.id]).includes(rowId);
@@ -394,6 +420,7 @@ export function clearFindHighlights() {
   const highlights = registry();
   highlights?.delete(FIND_HIGHLIGHT);
   highlights?.delete(FIND_ACTIVE_HIGHLIGHT);
+  clearAdaptiveFind(FIND_HIGHLIGHT);
 }
 
 /**
@@ -478,5 +505,6 @@ export function paintFindHighlights(
   highlights.set(FIND_HIGHLIGHT, new Highlight(...all.filter((range) => range !== current)));
   if (current) highlights.set(FIND_ACTIVE_HIGHLIGHT, new Highlight(current));
   else highlights.delete(FIND_ACTIVE_HIGHLIGHT);
+  paintAdaptiveFind(root.ownerDocument, FIND_HIGHLIGHT, CHAT_FIND_COLORS, all, current ? [current] : []);
   return current;
 }

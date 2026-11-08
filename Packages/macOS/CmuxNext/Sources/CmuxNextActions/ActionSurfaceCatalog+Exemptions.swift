@@ -18,7 +18,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.toggleDockFloating", "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop",
         "window.toggleDockBottom", "window.toggleDockOrientation",
         // The window dock (user 2026-11-05).
-        "home.openChiefDock", "window.movePaneToDock", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
+        "home.openChiefDock", "home.undockChief", "window.movePaneToDock", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
         "window.dockEdgeLeft", "window.dockEdgeRight", "window.dockEdgeTop", "window.dockEdgeBottom",
         "help.showCrashLogs", "palette.mobileConnect", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
@@ -117,7 +117,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudEnrollMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
         "cloudFileMkdir", "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
         "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
-        "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudShareMachine", "cloudKillMachine", "cloudResizeMachine",
+        "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
         "cloudDiagnostics", "cloudPauseMachine", "cloudResumeMachine", "cloudSetIdlePause", "cloudSetNetworkAccess", "cloudOpenDesktop", "cloudDomainList", "cloudPublicationList", "cloudProvisionAPI", "cloudAPIKeyList", "cloudAPIKeyRevoke", "cloudListMachines", "palette.cloud.deleteSnapshot", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "palette.mobileConnect", "accounts.refresh",
         "accounts.reauthenticate", "accounts.connect", "accounts.remove", "accounts.githubConnect", "remote.connect", "remote.newGroup", "remote.removeGroup", "machine.reconnect", "remote.newWorkspace",
         "remote.openTerminalHere", "remote.openRemote", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",

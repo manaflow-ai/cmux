@@ -452,8 +452,17 @@ public final class SidebarModel {
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
         let next = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() }
         if writesRowsInPlace(next) { return }
+        // A set that only adds one loose workspace row (Cmd-N's stand-in, a scripted create): the list splices that row
+        // into the layout it shows (`rowInsertion`, SIDEBAR INSERT 2), no layout of every row.
+        let from = sectionsRevision
+        let added = filterText.isEmpty ? SidebarSection.looseInsertion(from: storedSections, to: next) : nil
         sections = next // the setter skips an unchanged list
+        rowInsertion = added.map { SidebarRowInsertion(from: from, to: sectionsRevision, content: contentRevision, section: storedSections[$0.section], node: $0.node) }
     }
+
+    /// The last structural set when it only added one loose workspace row (`setSections`); the list reads it at the
+    /// reload that shows that set (its `to` is the current `sectionsRevision`).
+    @ObservationIgnored public private(set) var rowInsertion: SidebarRowInsertion?
 
     /// Writes `next` when it changes only listed rows' content, every row in its place (a create's stand-in row
     /// becoming its workspace's row, SIDEBAR INSERT): in place and told to `onRowsPatched`, as `patchWorkspaces` does,

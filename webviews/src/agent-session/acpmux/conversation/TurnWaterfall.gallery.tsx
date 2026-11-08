@@ -3,10 +3,14 @@
 // their labels (chosen), labels over full-width bars, and one lane per kind of work. References:
 // cmux-design-references codex/live/status-work-session-edit-cards (elapsed work per step) and
 // aside/web/task-activity-timeline (steps in time order); no reference app draws a per-call
-// waterfall, so its grammar is a trace viewer's, in the transcript's tones.
+// waterfall, so its grammar is a trace viewer's, in the transcript's tones. The header row's corner,
+// left of the axis, says the turn's total (Leo, 2026-11-07: "The top left, there's nothing"), in four
+// wordings: the count and total (chosen), the total alone, "Turn" and the total, and the count with
+// the total in full ink. References: chatgpt/web/transcript-work-worked-for-browser-screenshot and
+// codex/live/transcript-worked-for-collapsed-summary (a turn's time as one short muted phrase).
 import { componentEntry } from "../../../gallery/format";
 import type { AcpmuxActivity } from "../model";
-import { TurnWaterfall, type WaterfallLook } from "./TurnWaterfall";
+import { TurnWaterfall, type WaterfallLook, type WaterfallSummary } from "./TurnWaterfall";
 import { TurnActionsContext } from "./turnActions";
 
 const START = Date.UTC(2026, 10, 5, 13, 10, 0);
@@ -49,17 +53,21 @@ const WORK: AcpmuxActivity[] = [
 ];
 const ROW = { at: START + 72_000, durationMs: 72_000 };
 
-function Waterfall({ look }: { look: WaterfallLook }) {
+function Waterfall({ look, summary }: { look: WaterfallLook; summary?: WaterfallSummary }) {
   return (
     <TurnActionsContext.Provider value={{ showCall: () => true }}>
       <div className="acpmux-shell" style={{ padding: 16 }}>
-        <TurnWaterfall row={ROW} work={WORK} look={look} />
+        {/* The shell is a flex row, and the Timeline is a size container with no width of its own:
+            a block around it gives it the pane's width, as the transcript's row does. */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <TurnWaterfall row={ROW} work={WORK} look={look} summary={summary} />
+        </div>
       </div>
     </TurnActionsContext.Provider>
   );
 }
 
-export default componentEntry<{ look: WaterfallLook }>({
+export default componentEntry<{ look: WaterfallLook; summary?: WaterfallSummary }>({
   id: "agent-pane.turn-waterfall",
   title: "Turn timeline (waterfall)",
   area: "Agent pane",
@@ -75,8 +83,20 @@ export default componentEntry<{ look: WaterfallLook }>({
   load: async () => Waterfall,
   variants: {
     bars: {
-      note: "Chosen: each call's label, its bar on the turn's axis and its time on one row; the slowest and failed calls tagged. At phone width the label goes over its bar.",
+      note: "Chosen: each call's label, its bar on the turn's axis and its time on one row; the slowest and failed calls tagged. At phone width the label goes over its bar. The header corner says \"10 calls · 1m 12s\": how much the turn did and how long it took, muted like the axis.",
       props: { look: "bars" },
+    },
+    "summary-total": {
+      note: 'Header corner: the total alone, "1m 12s total". Shortest, but it only repeats the axis\'s end.',
+      props: { look: "bars", summary: "total" },
+    },
+    "summary-turn": {
+      note: 'Header corner: "Turn · 1m 12s". Names what the total is, says nothing the axis doesn\'t.',
+      props: { look: "bars", summary: "turn" },
+    },
+    "summary-strong": {
+      note: "Header corner: the count, then the total in full ink. Reads first, but competes with the slowest row's bold time.",
+      props: { look: "bars", summary: "strong" },
     },
     stacked: {
       note: "Each label over a full-width bar: the axis has the whole width, but the list is twice as tall.",

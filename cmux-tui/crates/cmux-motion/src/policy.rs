@@ -118,3 +118,22 @@ impl MotionPolicy {
         self.animates_loops().then(|| token.period())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tab close slides on the `tabs` category alone: `ui.animations.newTab` off stops only a new
+    /// tab's growth, not the close (close case A follow-up, PR #37401).
+    #[test]
+    fn new_tab_off_stops_only_the_tab_open_tween() {
+        let policy = MotionPolicy::default()
+            .with_animations(AnimationSwitches::DEFAULT.with(MotionKind::NewTab, false));
+        assert_eq!(policy.tween(MotionTween::TabOpen), 0.);
+        assert!(
+            policy.tween(MotionTween::TabClose) > 0.,
+            "the close tween follows ui.animations.newTab"
+        );
+        assert!(policy.tween(MotionTween::TabMove) > 0.);
+    }
+}

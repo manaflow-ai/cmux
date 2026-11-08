@@ -2,7 +2,7 @@ import CmuxNextFeed
 import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 

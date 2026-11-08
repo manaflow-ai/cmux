@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """nightly.yml: the published build that the post-publication jobs describe.
 
-nightly-next has one push group (nightly-build-nightly-next-push): one run builds and the newest
-pushed head waits for the whole run, including what follows the feed. Those jobs (GitHub release,
-deltas, dSYMs, release notes, reel) held the group 17 to 35 minutes after the feed went live on
-the 7 runs before 2026-11-06, so a new push waited for them (run 42149108998: 20 of its 43 queued
-minutes). Now the push run ends at publish-nightly. dispatch-published-in uploads this record and
-dispatches nightly.yml (nightly_next_post_publish), whose published-build job checks it and hands it
-to those jobs, outside the push group. Main's nightly and RC run the same jobs in their own run, from the
-same record of that run's own jobs.
+nightly-next is one loop (Leo, 2026-11-06): one run at a time builds, signs, publishes and writes the
+GitHub release, whose body and tag the next run's decide reads, and the push group's newest head runs
+next. Then the loop run's dispatch-published-in uploads this record and dispatches nightly.yml
+(nightly_next_post_publish), whose published-build checks it and hands it to the deltas, notes, reel and
+PR comments, outside the push group. Main's nightly, RC and manual nightly-next runs run the whole tail
+in their own run, from the same record of that run's own jobs.
 
     nightly_published_build.py pack
         NEEDS (toJSON(needs)), RUN_ID, RUN_ATTEMPT, SHA: writes the record to RECORD_FILE, for this run's
@@ -163,7 +161,7 @@ def write_outputs() -> int:
         cross_run, comment = "true", comments(rec)
     else:
         rec, cross_run = from_env(), ""
-        comment = False
+        comment = comments(rec)  # nightly-next comments its PRs from the run that published
     values = {name: rec.get(name, "") for name in NAMES}
     values.update(cross_run=cross_run, comment="true" if comment else "false")
     # publish-nightly's downloads is a Markdown list: a value with a newline goes in a delimited block.

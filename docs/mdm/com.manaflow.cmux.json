@@ -22,6 +22,27 @@
       "title" : "Composer Ring",
       "type" : "string"
     },
+    "agentPane.dictationShortcut" : {
+      "default" : "",
+      "description" : "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default.",
+      "title" : "Dictation App Shortcut",
+      "type" : "string"
+    },
+    "agentPane.dictationSource" : {
+      "default" : "cmux",
+      "description" : "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut.",
+      "enum" : [
+        "cmux",
+        "macos",
+        "chatgpt",
+        "claude",
+        "gemini",
+        "wisprFlow",
+        "superwhisper"
+      ],
+      "title" : "Dictate With",
+      "type" : "string"
+    },
     "agentPane.display.code.family" : {
       "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
       "title" : "Chat Code Font",
@@ -415,6 +436,20 @@
       "title" : "Your Skills in Every Chat",
       "type" : "boolean"
     },
+    "agents.hiddenChats.discard" : {
+      "default" : false,
+      "description" : "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released.",
+      "title" : "Release Hidden Agent Chats",
+      "type" : "boolean"
+    },
+    "agents.hiddenChats.discardAfterMinutes" : {
+      "default" : 15,
+      "description" : "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner.",
+      "maximum" : 1440,
+      "minimum" : 1,
+      "title" : "Release Hidden Chats After",
+      "type" : "number"
+    },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
       "description" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
@@ -539,10 +574,9 @@
       "type" : "boolean"
     },
     "app.quitBehavior" : {
-      "default" : "ask",
+      "default" : "keep",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
       "enum" : [
-        "ask",
         "keep",
         "end-keep-layout",
         "end-everything"
@@ -957,7 +991,7 @@
       "type" : "string"
     },
     "appearance.chromeStyle" : {
-      "default" : "flat-sidebar-line",
+      "default" : "flat",
       "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
       "enum" : [
         "default",
@@ -968,7 +1002,8 @@
         "bare",
         "panes",
         "two-tone",
-        "floating"
+        "floating",
+        "blocks"
       ],
       "title" : "Window Style",
       "type" : "string"
@@ -1160,6 +1195,16 @@
       "minimum" : 0,
       "title" : "Hue",
       "type" : "number"
+    },
+    "appearance.iconTheme" : {
+      "default" : "default",
+      "description" : "The icon drawings used by cmux.",
+      "enum" : [
+        "default",
+        "neko"
+      ],
+      "title" : "Icon Theme",
+      "type" : "string"
     },
     "appearance.inactiveWindowDim" : {
       "default" : 0,
@@ -1672,6 +1717,12 @@
       "title" : "Offer to Import Cookies",
       "type" : "boolean"
     },
+    "browser.import.cookieSync" : {
+      "default" : true,
+      "description" : "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.",
+      "title" : "Keep Imported Cookies in Sync",
+      "type" : "boolean"
+    },
     "browser.import.enabled" : {
       "default" : true,
       "description" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -1873,6 +1924,12 @@
       "title" : "Open Links in cmux Browser",
       "type" : "boolean"
     },
+    "browser.openPullRequestsInGitHubPage" : {
+      "default" : true,
+      "description" : "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
+      "title" : "Open Pull Requests in cmux GitHub Page",
+      "type" : "boolean"
+    },
     "browser.openSignInPagesInCmux" : {
       "default" : true,
       "description" : "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.",
@@ -2010,11 +2067,28 @@
       "title" : "Wake Tabs on Hover",
       "type" : "boolean"
     },
+    "chat.on" : {
+      "default" : "",
+      "description" : "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here.",
+      "title" : "Default Chat Target",
+      "type" : "string"
+    },
     "chief.autoRouteSubagents" : {
       "default" : false,
       "description" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
       "title" : "Route Subagents to the Best Agent",
       "type" : "boolean"
+    },
+    "chief.permissionMode" : {
+      "default" : "bypassPermissions",
+      "description" : "How the Chief's own turns handle permissions. Bypass runs every command without asking. Auto lets a safety check decide each command. Manual refuses each change that would need approval. Applies from the next turn.",
+      "enum" : [
+        "bypassPermissions",
+        "auto",
+        "default"
+      ],
+      "title" : "Chief Permission Mode",
+      "type" : "string"
     },
     "chief.reactionClassifier.harness" : {
       "default" : "",
@@ -2830,7 +2904,7 @@
     },
     "home.chiefDock.edge" : {
       "default" : "left",
-      "description" : "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.",
+      "description" : "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick.",
       "enum" : [
         "left",
         "right",
@@ -2842,8 +2916,8 @@
     },
     "home.chiefDock.openBeside" : {
       "default" : true,
-      "description" : "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
-      "title" : "Keep Chief Docked When Opening Workspaces",
+      "description" : "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.",
+      "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
     },
     "home.chiefEngine" : {
@@ -4078,6 +4152,19 @@
       "title" : "Show Group Unread Count",
       "type" : "boolean"
     },
+    "sidebar.groupPalette" : {
+      "default" : "glass",
+      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+      "enum" : [
+        "glass",
+        "theme",
+        "wallpaper",
+        "grayscale",
+        "vibrant"
+      ],
+      "title" : "Group Colors",
+      "type" : "string"
+    },
     "sidebar.hoverCards.delay" : {
       "default" : 400,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
@@ -4955,6 +5042,17 @@
       "title" : "Native New Tab Page",
       "type" : "boolean"
     },
+    "tabs.newTabButtonPosition" : {
+      "default" : "end",
+      "description" : "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T).",
+      "enum" : [
+        "afterCurrent",
+        "end",
+        "start"
+      ],
+      "title" : "New Tab Position (+ Button)",
+      "type" : "string"
+    },
     "tabs.newTabNowPlaying" : {
       "default" : false,
       "description" : "A player for what is playing, on the New Tab page.",
@@ -4963,13 +5061,13 @@
     },
     "tabs.newTabPosition" : {
       "default" : "afterCurrent",
-      "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
+      "description" : "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
       "enum" : [
         "afterCurrent",
         "end",
         "start"
       ],
-      "title" : "New Tab Position",
+      "title" : "New Tab Position (Cmd-T)",
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
@@ -5094,7 +5192,7 @@
         "hover",
         "always"
       ],
-      "title" : "New Tab Button",
+      "title" : "+ Button Visibility",
       "type" : "string"
     },
     "tabs.swapCmdTAndCmdN" : {
@@ -5550,7 +5648,7 @@
       "type" : "number"
     },
     "workspaces.newPlacement" : {
-      "default" : "top",
+      "default" : "afterCurrent",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
       "enum" : [
         "top",

@@ -1,7 +1,7 @@
 // The Harnesses page's rows (cx-uj5g8): every harness the model catalog names and every one acpmux
 // found on this Mac, each with its state here. The installed ones first, then the rest, each in
 // the catalog's order: a sign-in check that answers later changes a row's state, never its place.
-import { type HarnessHealth, needsLogin } from "../HarnessHealthNotice";
+import { type HarnessHealth, needsLogin } from "../harnessHealthNoticeModel";
 import type { AcpmuxSnapshot } from "../model";
 import type { PickerCatalog } from "../modelCatalogData";
 
@@ -21,6 +21,7 @@ export const INSTALL_COMMANDS: Readonly<Record<string, string>> = {
   // No tty here: never ask to start Codex or to remove another install.
   codex: npmOrNative("@openai/codex", "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh"),
   opencode: npmOrNative("opencode-ai", "curl -fsSL https://opencode.ai/install | bash"),
+  gemini: npmOrNative("@google/gemini-cli", "brew install gemini-cli"),
 };
 
 export type HarnessRow = {

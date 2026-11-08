@@ -119,6 +119,7 @@ final class GroupHeaderRowView: SidebarRowView {
     var onUnpin: (() -> Void)?
 
     override var interactiveSubviews: [NSView] { [addButton, moreButton, pinButton] }
+    override var hoverPaintedControls: [NSView] { [addButton, moreButton, pinButton] }
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
@@ -132,6 +133,8 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         [glyph, name, count, pin, chevron, activitySlot, badge, machineMark, machineWords, addButton, moreButton, pinButton].forEach(addSubview)
+        // Hidden until a hover first shows them; from then on a hover sets their opacity only (`setHoverPainted`).
+        [addButton, moreButton, pinButton].forEach { $0.isHidden = true }
         // The header's label says the name, the count and (through AXExpanded) the chevron.
         moreButton.onPress = { [weak self] in self?.onEdit?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
@@ -295,12 +298,14 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
-    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz) and line layout (its joined
-    /// corner, `sidebar.groupLineLayout`); a change lays the header out and paints it again.
-    private var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
+    /// The Debug Settings look (`sidebar.groupHeader`, cx-7yywz), the group palette (`sidebar.groupPalette`, and the
+    /// Wallpaper palette's color) and line
+    /// layout (its joined corner, `sidebar.groupLineLayout`); a change lays the header out and paints it again.
+    private var look: (style: SidebarGroupHeaderStyle, palette: GroupPalette) {
         let read = {
-            _ = (SidebarStyle.groupLineLayout, SidebarGroupGlass.tunable.value)
-            return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme)
+            // The Wallpaper palette's color too: a new desktop picture repaints the header (`DesignSettings.groupWallpaperTint`).
+            _ = (SidebarStyle.groupLineLayout, SidebarGroupGlass.tunable.value, DesignSettings.shared.groupWallpaperTint)
+            return (SidebarGroupHeaderStyle.tunable.value, DesignSettings.shared.sidebarSections.groupPalette)
         }
         guard !observesLook else { return read() }
         observesLook = true
@@ -367,14 +372,14 @@ final class GroupHeaderRowView: SidebarRowView {
     /// specular rim (`GlassRimView`). The name is the theme's ink, held readable over the pane. Under Reduce
     /// Transparency the role's opaque fallback: the same pane composited over the sidebar's opaque background, a hairline.
     /// Hover and a drop step over the pane, as on the solid bar.
-    private func paintGlass(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool), _ glass: SidebarGroupGlass) {
+    private func paintGlass(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, palette: GroupPalette), _ glass: SidebarGroupGlass) {
         let opaque = ReduceTransparency.shared.isEnabled
         let role = FloatingGlassStyle.group.look(isDark: tokens.isDark)
         var steps: [ThemeRGB] = []
         if isHovered { steps.append(tokens.hoverFill) }
         if isDropTarget { steps.append(tokens.pressedFill) }
         // Leo's pane, held visible (Lawrence 2026-11-05), the one paint its members' line takes too.
-        let paint = GroupGlassPaint(tint: tint, themed: look.themed, glass: glass, tokens: tokens, steps: steps, opaque: opaque)
+        let paint = GroupGlassPaint(tint: tint, palette: look.palette, glass: glass, tokens: tokens, steps: steps, opaque: opaque)
         let fill = paint.fill
         let ink = paint.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
         name.textColor = ink
@@ -406,8 +411,8 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The quieter headers (cx-7yywz): the name in primary ink (`tinted`: in the group's color) with
     /// the group's color as the dot where its line starts; `wash` adds a faint tint behind the name.
     /// Hover and a drop take the row's own fill; the open editor lights its more button only.
-    private func paintQuiet(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool)) {
-        let line = tint.lineRGB(themed: look.themed)
+    private func paintQuiet(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, palette: GroupPalette)) {
+        let line = tint.lineRGB(palette: look.palette)
         // Every look keeps a visible background (Lawrence 2026-11-05): a faint wash of the group's color, neutral
         // for a group with no color; the name reads on it.
         let background = groupBackground(.wash, tokens, look)
@@ -442,9 +447,9 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The header's background in `look`. The quieter looks (`wash`, `line`, `tinted`) stay a solid wash unless
     /// `sidebar.groupHeader.background` is Glass: Leo's glass (#36225) is the band's.
     private func groupBackground(_ strength: GroupBackground.Strength, _ tokens: ThemeTokens,
-                                 _ look: (style: SidebarGroupHeaderStyle, themed: Bool), glass: Bool? = nil) -> GroupBackground {
+                                 _ look: (style: SidebarGroupHeaderStyle, palette: GroupPalette), glass: Bool? = nil) -> GroupBackground {
         GroupBackground(tint: tint, strength: strength, glass: glass ?? (backgroundStyle == .glass),
-                        themed: look.themed, tokens: tokens)
+                        palette: look.palette, wallpaper: DesignSettings.shared.groupWallpaperTint, tokens: tokens)
     }
 
     /// Paints `background` on the bar, with its hover and drop steps over it and glass's rim.
@@ -456,7 +461,7 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pill.borderColor = background.rim?.nsColor.cgColor
-        pill.borderWidth = background.rim == nil ? 0 : Metrics.dividerThickness
+        pill.borderWidth = background.rim == nil ? 0 : Metrics.lineWidth(Metrics.dividerThickness)
         CATransaction.commit()
     }
 
@@ -490,11 +495,12 @@ final class GroupHeaderRowView: SidebarRowView {
         // The more button sits left of the chevron.
         moreButton.frame = columns.trailingFrame(index: 1, centerY: b.midY, side: control)
         // Lawrence 2026-10-11: the + and more show only on hover, keyboard
-        // focus or while the editor is open. Hidden (not only clear): a click
-        // there collapses the group, and VoiceOver uses the header's custom
-        // actions. Lawrence 2026-10-20: no empty slots; the trailing items close
-        // up, so the spinner sits by the chevron at rest and moves aside for
-        // the buttons.
+        // focus or while the editor is open. Cleared by paint (HOVER COMMIT 2: a
+        // crossing changes no view tree): a clear one takes no click (a click
+        // there collapses the group), leaves the accessibility tree (VoiceOver
+        // uses the header's custom actions) and shows no tooltip. Lawrence
+        // 2026-10-20: no empty slots; the trailing items close up, so the
+        // spinner sits by the chevron at rest and moves aside for the buttons.
         let showsActions = (isHovered || isKeyboardFocused || isEditing) && !renaming
         // A loading spinner takes the column back when the hover ends: the controls clear at once, so it never draws
         // beside them as they fade (Leo 2026-10-28: "just don't show the spinner" while hovering).
@@ -503,18 +509,18 @@ final class GroupHeaderRowView: SidebarRowView {
         // Lawrence 2026-10-19 (u2397): a hover fades them in and out (opacity
         // only); focus, the editor and Reduce Motion show them at once.
         let fades = fadesNextHover && !onColumn
-        setHoverShown(moreButton, showsActions, fades: fades, token: .hoverReveal)
+        setHoverPainted(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
         addButton.frame = columns.trailingFrame(index: 2, centerY: b.midY, side: control)
         // An empty group offers its + too (user 17912, "empty workspace needs plus button"): New Workspace in Group
         // keeps a new group the editor would drop when it closes (`SidebarGroupFlow.performEditorItem`).
         let offersAdd = onAdd != nil
-        setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
+        setHoverPainted(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
         // A pinned group's Unpin sits left of the + (of the more when there is no +).
         let offersUnpin = pinned && onUnpin != nil
         pinButton.frame = columns.trailingFrame(index: offersAdd ? 3 : 2, centerY: b.midY, side: control)
-        setHoverShown(pinButton, offersUnpin && showsActions, fades: fades, token: .hoverReveal)
+        setHoverPainted(pinButton, offersUnpin && showsActions, fades: fades, token: .hoverReveal)
         pinButton.setAccessibilityElement(offersUnpin && showsActions)
         // Lawrence 2026-10-20: at rest a loading spinner takes the chevron's place, on the trailing
         // column every row's dot and spinner share (a296). Leo 2026-10-28: "If you're hovering over a

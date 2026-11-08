@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -109,6 +110,16 @@ public actor CmuxConfigFile {
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             return ""
         }
+    }
+
+    /// Writes `text` beside the file as `<file name>.<suffix>` (the record a launch migration keeps
+    /// of what it changed, so the person can see and undo it); nothing reads it back.
+    @discardableResult
+    public func writeBeside(suffix: String, text: String) throws -> URL {
+        let url = self.url.resolvingSymlinksInPath()
+        let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
+        try Data(text.utf8).blockingWrite(to: record, options: .atomic)
+        return record
     }
 
     /// The parsed document. A missing file is an empty object.

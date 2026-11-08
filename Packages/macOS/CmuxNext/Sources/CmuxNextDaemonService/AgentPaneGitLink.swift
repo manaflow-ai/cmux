@@ -94,6 +94,27 @@ public final class AgentPaneGitLink {
         }
     }
 
+    /// Session host mutation `operation` with `params` (a JSON object, as sent), under
+    /// `idempotencyKey`, on the write connection (the diff page's `diff.comments.save` and
+    /// `.delete`). Throws like ``write(_:in:)``; params that are no JSON object are `native.failed`.
+    public func mutate(_ operation: String, params: Data, idempotencyKey: String) async throws(AgentPaneGitFailure) -> Data {
+        guard let params = try? JSONDecoder().decode([String: JSONValue].self, from: params) else { throw AgentPaneGitFailure.failed }
+        let connection: DaemonConnection
+        do {
+            let writes = writeLink ?? AgentPaneGitLink(daemon: daemon, clientName: clientName + "-write")
+            writeLink = writes
+            connection = try await writes.connection()
+        } catch {
+            throw AgentPaneGitFailure.notConnected
+        }
+        do {
+            let result = try await GitResourceClient(connection: connection).write(operation, params: params, idempotencyKey: idempotencyKey)
+            return try await Self.encode(result)
+        } catch {
+            throw AgentPaneGitFailure(reading: error)
+        }
+    }
+
     /// Opens the connection on the first read; afterwards it reconnects by
     /// itself, finding a restarted daemon through the control connection's
     /// endpoint. A failed open is tried again by the next read.

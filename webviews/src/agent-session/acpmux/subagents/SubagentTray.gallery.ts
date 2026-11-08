@@ -21,7 +21,7 @@ import {
   tool,
   user,
 } from "../../../gallery/fixtures/acpmux";
-import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
+import { GALLERY_NOW, minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
@@ -43,8 +43,8 @@ function agent(
     name,
     task: name,
     state,
-    startedAt: minutesAgo(minutes),
-    ...(state !== "running" && { endedAt: minutesAgo(minutes - ran) }),
+    // What ended lingers in the hat only for its grace (trayLinger.ts): it ended just now.
+    ...(state === "running" ? { startedAt: minutesAgo(minutes) } : recentRun(minutes, ran)),
     ...rest,
   };
 }
@@ -445,6 +445,9 @@ const runningStopChat = chat(
   ],
   { isWorking: true },
 );
+
+/** A chat whose hat holds `agents`, for the row variants. */
+const rowsChat = (agents: Subagent[]) => chat([user("Fan the review out", 7), group(agents, 6.2)], { isWorking: true });
 
 export default agentPaneEntry({
   id: "agent-pane.subagent-tray",
@@ -946,6 +949,9 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
+        // Opening hands the header's words over (trayMotion.tsx Tick `slide`): read them once the
+        // leaving words are gone.
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__title .acpmux-tick__out"));
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
         if (title !== "1 subagent running · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
       },
@@ -1001,6 +1007,8 @@ export default agentPaneEntry({
     "dispatched-lane": {
       note: 'Leo, 2026-11-03, on a lane a coordinator dispatched showing as a running line: "like why is this even in the "running" in the first place?" The tray lists only the chat\'s own work: its subagent\'s line, never the lane (started with sessions new, tagged mux.parent, no startedBy), which is its own chat in the sidebar.',
       play: async (ctx) => {
+        // One item heads the hat folded (Leo, 2026-11-07): its header opens it to the line.
+        await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
         const lines = ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line");
         if (lines.length !== 1) throw new Error(`one line, the chat's own subagent; got ${lines.length}`);
@@ -1098,6 +1106,63 @@ export default agentPaneEntry({
         ],
         { isWorking: true, harness: "codex" },
       ),
+    },
+    // Leo, 2026-11-07, on the hat's rows: "instead of the done on the left, you can just put like a check
+    // mark right where this stop square would be", a title cut far before its time, and "me clicking
+    // this, the entire box, it just feels like, okay, I would be expanding this".
+    "row-running": {
+      note: "A running row: its task up to its ticking time, then its filled Stop square and its chevron.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        if (!ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line__stop-slot > button"))
+          throw new Error("a running row keeps its Stop");
+      },
+      snapshot: rowsChat([agent("Make autoland land again", 6.2, "running", { action: "Read land_ready.py" })]),
+    },
+    "row-finished-check": {
+      note: "A finished row beside a running one: its check sits in the Stop square's slot, after its time, the same size and column, so nothing moves when a row finishes; no Done on the left.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        if (
+          !ctx.document.querySelector(
+            '.acpmux-agent-line[data-status="done"] .acpmux-agent-line__stop-track [data-done-check]',
+          )
+        )
+          throw new Error("a finished row's check sits in Stop's slot");
+      },
+      snapshot: rowsChat([
+        agent("Make autoland land again", 6.2, "running", { action: "Read land_ready.py" }),
+        agent("Check the docs", 3, "completed", { ran: 0.6 }),
+      ]),
+    },
+    "row-long-title": {
+      note: "A long task runs right up to its time and cuts with an ellipsis only where it truly overflows.",
+      play: async (ctx) => {
+        await openTray(ctx);
+      },
+      snapshot: rowsChat([
+        agent(
+          "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
+          6.2,
+          "running",
+        ),
+        agent("Check the docs", 3, "completed", { ran: 0.6 }),
+      ]),
+    },
+    "row-expanded": {
+      note: "A row clicked: it expands in place under itself, on the hat's own fold, with its whole task, what it does now and an explicit Open chat; the click never jumps to the subagent.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray [data-line-detail]"));
+      },
+      snapshot: rowsChat([
+        agent("Make autoland land again", 6.2, "running", {
+          task: "Make autoland land again: find why next-autoland skips reviewed PRs and fix the preflight",
+          action: "Read land_ready.py",
+        }),
+        agent("Check the docs", 3, "completed", { ran: 0.6 }),
+      ]),
     },
     "many-folded": {
       note: "Five running: the tray starts folded to its header so it never takes the transcript's room; the chevron opens the list.",

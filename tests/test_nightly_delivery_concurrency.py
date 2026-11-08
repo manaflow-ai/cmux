@@ -79,10 +79,14 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
     # The nightly-next branch is the expression's first operand, so no other branch can win first. A
     # nightly-next push shares one group, so a waiting push run is replaced by a newer one and only the
     # newest head builds and signs (Leo, 2026-11-05: "why do multiple merges even build the f***ing
-    # nightlies anyway?"); every other nightly-next run stays run-scoped.
+    # nightlies anyway?"); the loop's own retry (nightly_next_loop_retry) joins it, and every other
+    # nightly-next run stays run-scoped, among them the tail a loop run dispatches after its GitHub release
+    # (nightly_next_post_publish), so nothing replaces that tail and it never holds the push group.
     assert re.match(r"nightly-build-\$\{\{[^}]*\}\}-\$\{\{ github\.ref == 'refs/heads/nightly-next' && "
-                    r"\(github\.event_name == 'push' && 'push' \|\| format\('run-\{0\}', github\.run_id\)\) \|\|",
+                    r"\(\(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch' && "
+                    r"inputs\.nightly_next_loop_retry != ''\) && 'push' \|\| format\('run-\{0\}', github\.run_id\)\) \|\|",
                     top), top
+    assert "nightly_next_post_publish" not in top, top
     assert document["concurrency"]["cancel-in-progress"] is False
     for name, job in document["jobs"].items():
         concurrency = job.get("concurrency")

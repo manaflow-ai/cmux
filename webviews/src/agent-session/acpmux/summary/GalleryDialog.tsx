@@ -4,7 +4,8 @@
 import { useMemo, useRef, useState } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
-import { canRender, RenderCard } from "../conversation/RenderCard";
+import { RenderCard } from "../conversation/RenderCard";
+import { canRender } from "../conversation/renderCardModel";
 import { ToolImages } from "../conversation/ToolRow";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { Close } from "../conversation/icons";

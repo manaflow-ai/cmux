@@ -17,12 +17,12 @@ import {
   resetSessionInfoState,
   setSessionInfoMore,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { OutputsSection } from "../src/agent-session/acpmux/session-info/OutputsSection";
 import {
   OUTPUTS_SHOWN,
-  OutputsSection,
   outputArtifacts,
   outputLinks,
-} from "../src/agent-session/acpmux/session-info/OutputsSection";
+} from "../src/agent-session/acpmux/session-info/outputsSectionModel";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
 import type { SessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";

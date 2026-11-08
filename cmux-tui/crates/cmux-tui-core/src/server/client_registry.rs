@@ -355,6 +355,8 @@ pub(crate) struct ClientRegistry {
     pub(super) agent_sessions: agent_session_attach::AgentSessions,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     pub(super) apps: crate::apps::AppsSlot,
+    /// The local Tasks owner link of the routed `tasks` namespace (tasks_link.rs).
+    pub(crate) tasks: crate::tasks_link::TasksLink,
     /// Script sessions by connection (`script-*`, crate::scripts).
     pub(crate) scripts: crate::scripts::ScriptsSlot,
     pub(super) origin_clock: crate::request_origin::OriginClock,
@@ -430,6 +432,7 @@ impl ClientRegistry {
             agent_sessions: agent_session_attach::AgentSessions::new(publishing),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
+            tasks: crate::tasks_link::TasksLink::default(),
             scripts: crate::scripts::ScriptsSlot::default(),
             origin_clock: Default::default(),
             browser_host: Default::default(),

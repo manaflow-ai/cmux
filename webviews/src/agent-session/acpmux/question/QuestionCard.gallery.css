@@ -34,7 +34,7 @@
 
 /* Leo 2026-11-05, of the pill, option rows and custom answer: "kind of ugly". Three looks of the
    restyle over the same card; "capsule" ships (styles.css, questionCard.css). Outline rings the
-   pill the way Claude desktop's live-line pill does and rules the rows full width with an underlined
+   pill the way the live-line pill does and rules the rows full width with an underlined
    custom answer; bare drops the pill's capsule to the dot and words, fills the chosen radio with the
    accent and keeps the custom answer as a soft filled row. */
 .acpmux-question-visual-gallery[data-question-look="outline"] .acpmux-question-status-pill {
