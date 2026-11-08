@@ -1672,17 +1672,18 @@
 .cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__body {
   --cv-code-corner-veil: 1;
 }
-/* It eases with the actions' own fade (above): out quickly, in after the same beat on hover. */
+/* It moves with the actions' own fade (above): out quickly at rest, in for as long as the pointer
+   stays, at once for keyboard focus. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-codeblock--corner .cv-codeblock__body {
-    transition: --cv-code-corner-veil var(--cv-actions-out) var(--cv-actions-ease);
+    transition: --cv-code-corner-veil var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-codeblock--corner:hover .cv-codeblock__body,
   .cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__body {
-    transition: --cv-code-corner-veil var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: --cv-code-corner-veil var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-codeblock--corner:focus-within .cv-codeblock__body {
-    transition: --cv-code-corner-veil var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 /* The gallery's other veils (CodeToolbarButtons.gallery.tsx `veil`): always on, a hard cut with no
@@ -1730,12 +1731,20 @@
       .cv-edit-diff__header > .cv-iconbtn,
       .cv-shell__actions
     ) {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   :root[data-code-actions="block-hover"] .cv-codeblock:hover .cv-codeblock__actions,
+  :root[data-code-actions="block-hover"] .cv-codeblock:has([data-popup-open]) .cv-codeblock__actions,
   :root[data-code-actions="block-hover"] .cv-edit-diff:hover .cv-edit-diff__header > .cv-iconbtn,
-  :root[data-code-actions="block-hover"] .cv-shell:hover .cv-shell__actions {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  :root[data-code-actions="block-hover"] .cv-edit-diff:has([data-popup-open]) .cv-edit-diff__header > .cv-iconbtn,
+  :root[data-code-actions="block-hover"] .cv-shell:hover .cv-shell__actions,
+  :root[data-code-actions="block-hover"] .cv-shell:has([data-popup-open]) .cv-shell__actions {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+  :root[data-code-actions="block-hover"] .cv-codeblock:focus-within .cv-codeblock__actions,
+  :root[data-code-actions="block-hover"] .cv-edit-diff:focus-within .cv-edit-diff__header > .cv-iconbtn,
+  :root[data-code-actions="block-hover"] .cv-shell:focus-within .cv-shell__actions {
+    transition: none;
   }
 }
 /* `strip`: one very faint shared strip behind the pair, no solid tint. */
