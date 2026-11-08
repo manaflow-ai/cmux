@@ -8,8 +8,13 @@ async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
     let (_commands, receiver) = mpsc::channel(COMMAND_DEPTH);
     let underlay =
         SocketPath::new(pair.client_socket, Some(pair.server_socket.local_addr().unwrap()));
-    let mut driver =
-        Driver::new(pair.client, Box::new(underlay), receiver, Arc::new(Notify::new())).unwrap();
+    let mut driver = Driver::new(
+        pair.client,
+        UltraUnderlay::new(Box::new(underlay), UltraMode::Off, Arc::default()),
+        receiver,
+        Arc::new(Notify::new()),
+    )
+    .unwrap();
     let (reply, pending) = oneshot::channel();
     driver.begin_connect(SocketAddr::new(pair.server_v6, 1337), reply);
     assert_eq!(driver.stack.conns.len(), 1);

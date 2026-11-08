@@ -76,7 +76,7 @@ fn narrower_policy(p: PermissionPolicy) -> Option<PermissionPolicy> {
         PermissionPolicy::ApproveAll => Some(PermissionPolicy::ApproveEdits),
         PermissionPolicy::ApproveEdits => Some(PermissionPolicy::ApproveReads),
         PermissionPolicy::ApproveReads => Some(PermissionPolicy::Ask),
-        PermissionPolicy::Ask => Some(PermissionPolicy::DenyAll),
+        PermissionPolicy::Ask | PermissionPolicy::Review => Some(PermissionPolicy::DenyAll),
         PermissionPolicy::DenyAll => None,
     }
 }
@@ -397,6 +397,7 @@ impl Hub {
         self: &Arc<Self>,
         p: &Value,
         control: crate::hub::Control,
+        sender: Option<crate::prompt_provenance::HandoffSender>,
     ) -> Result<Value, RpcError> {
         let id = required(p, "handoffId")?;
         let _id = self.handoffs.lock(format!("id:{id}")).await;
@@ -436,7 +437,7 @@ impl Hub {
                     r.cloud_mobile |= cloud_mobile;
                     self.handoffs.put(&r)?;
                 }
-                return self.handoff_deliver(r, true).await;
+                return self.handoff_deliver(r, true, sender).await;
             }
             State::Draft => {}
         }
@@ -469,7 +470,7 @@ impl Hub {
         // Recorded before the send, so a lost reply or a restart is
         // reconciled by promptId instead of sent again.
         self.handoffs.put(&r)?;
-        self.handoff_deliver(r, false).await
+        self.handoff_deliver(r, false, sender).await
     }
 
     /// `_acpmux/handoff_discard`: close the never-prompted target. The
@@ -533,6 +534,7 @@ impl Hub {
         self: &Arc<Self>,
         mut r: Record,
         retry: bool,
+        sender: Option<crate::prompt_provenance::HandoffSender>,
     ) -> Result<Value, RpcError> {
         let prompt_id = r.prompt_id.clone().unwrap_or_else(|| r.handoff_id.clone());
         let target = self.resolve(&r.target.session_id)?;
@@ -544,7 +546,7 @@ impl Hub {
         let (turn_id, outcome) = match found {
             Some(t) => (Some(t), "already_started"),
             None if retry && r.state == State::Started => (None, "already_started"),
-            None => match self.handoff_send(&target, &r, &prompt_id).await {
+            None => match self.handoff_send(&target, &r, &prompt_id, sender).await {
                 Ok(t) => (t, "started"),
                 Err(e) => {
                     // The target never recorded the prompt: back to draft,
@@ -588,6 +590,7 @@ impl Hub {
         target: &Arc<Session>,
         r: &Record,
         prompt_id: &str,
+        sender: Option<crate::prompt_provenance::HandoffSender>,
     ) -> Result<Option<String>, RpcError> {
         let mut blocks = vec![json!({"type": "text", "text": r.text})];
         if let Some(note) = references(r) {
@@ -595,6 +598,7 @@ impl Hub {
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
+            race_guard: None,
             cloud_turn: None,
             prompt_id: Some(prompt_id.to_owned()),
             message_id: None,
@@ -612,8 +616,12 @@ impl Hub {
             interrupt: false,
             steer_now: false,
             interrupt_turn: None,
-            provenance: None,
+            // The proven person's start is theirs (None); any other is unverified, never theirs.
+            provenance: sender.map(|s| {
+                crate::prompt_provenance::unverified(&target.id, s.transport, Default::default())
+            }),
             human_authenticated: false,
+            unproven_owner: false,
             agent: None,
             class: None,
             after_turn: None,
@@ -624,6 +632,7 @@ impl Hub {
             admitted: false,
             send_now: false,
             thread: None,
+            wake_or_fail: false,
             inbox: false,
         };
         let (hub, session) = (self.clone(), target.clone());

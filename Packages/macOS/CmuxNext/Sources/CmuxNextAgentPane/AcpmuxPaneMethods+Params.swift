@@ -32,7 +32,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         // `promptIndex`: the prompt rail's index of every turn (direct.ts readPromptIndex; acpmux
         // hub/paging.rs prompt_index, #34273). Refused, the rail never learns a long chat's turns.
-        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds", "promptIndex"], []),
+        // `subagent`: one subagent's own records, for its pane when the chat's page no longer holds
+        // it (subagents/subagentOwnLog.ts; acpmux hub/paging.rs EventFilter::of_subagent).
+        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds", "promptIndex", "subagent"], []),
         "_acpmux/attachment": (["sessionId", "id"], []),
         // The pane names the listed chat (its id or `HOST/id`) and takes acpmux's default bounds:
         // no `host`, `limit` or `maxBytes`.
@@ -69,6 +71,11 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/session/auth": (["sessionId", "target", "refresh"], []),
         // The running-limit stepper: `maxRunning` only, never `maxChildren` or `maxDepth`.
         "_acpmux/subsession/limits": (["sessionId", "maxRunning"], []),
+        "_acpmux/race/start": (["parent", "prompt", "candidates", "reviewer"], []),
+        "_acpmux/race/get": (["parent", "raceId"], []),
+        "_acpmux/race/list": (["parent"], []),
+        "_acpmux/race/cancel": (["parent", "raceId"], []),
+        "_acpmux/race/stats": (["parent"], []),
         // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
         "_acpmux/mcp/reconnect": (["sessionId", "server"], []),
         // `release`: a new chat's typing prewarm taken back (cleared prompt, closed unsent; newChatPrewarm.ts).
@@ -116,6 +123,8 @@ nonisolated extension AcpmuxPaneMethods {
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
         "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
+        // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
+        "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
         "_acpmux/context": (["sessionId"], []),
         // `text: null` removes the saved text; `partId`: a verified local preset prompt's id.
         "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),

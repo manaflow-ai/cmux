@@ -193,6 +193,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_layout_plan" => {
+                let request: cmux_layout_reducer::sidebar_layout_plan::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_layout_reducer::sidebar_layout_plan::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"auto_archive_plan" => {
                 use cmux_layout_reducer::auto_archive;
                 let request: auto_archive::Request =
@@ -214,6 +220,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_layout_reducer::group_hover_summary::summarize(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            b"new_placement" => {
+                use cmux_layout_reducer::new_placement;
+                let request: new_placement::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&new_placement::plan(&request)).map_err(|_| ERR_INVALID)?
             }
             b"optimistic" => {
                 let request: cmux_layout_reducer::optimistic::Request =

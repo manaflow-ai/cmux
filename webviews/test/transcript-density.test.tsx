@@ -70,7 +70,8 @@ const settledRow = (items: AcpmuxActivity[]): AcpmuxRow => ({
 async function render(row: AcpmuxRow) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   act(() => root?.unmount());
   root = createRoot(host);

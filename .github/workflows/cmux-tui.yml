@@ -120,8 +120,22 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      # cmux-tui runs are dispatch-only. A 502/504 at deps.files.ghostty.org failed
+      # every Linux job on 2026-11-08; the fetch's curl seed and retries carry a short
+      # outage. On Blacksmith, only this job restored a dispatch save in a later run
+      # (main run 42482435964), so only it saves there; elsewhere a job saves only on an
+      # owned mini, whose GitHub store restores per branch.
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: "true"
+
       - name: Install Rust 1.91
         run: rustup toolchain install 1.91.0 --profile minimal
+
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
 
       # Keep cargo's registry and the MSRV target dir between runs, as lint and test
       # do: without it every run checked the whole workspace from an empty target.
@@ -326,6 +340,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -497,6 +516,11 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -703,8 +727,12 @@ jobs:
           EXACT_COMMIT: ${{ inputs.commit }}
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
+      # On an owned Mac the Cargo target is kept per runner between jobs
+      # (scripts/ci/cmux-tui-warm-target.sh); elsewhere it is cmux-tui/target.
       - name: Use short temporary directory for macOS socket tests
-        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+        run: |
+          echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$(./scripts/ci/cmux-tui-warm-target.sh)" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty-next
@@ -724,6 +752,8 @@ jobs:
 
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -905,6 +935,10 @@ jobs:
           toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("cmux-tui/rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
           echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
 
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
+
       # Keep cargo's registry and the three target dirs this job builds (the
       # cmux-tui daemon, chief-turn and optchat-chief) between runs, as test and
       # lint do for cmux-tui. Its own job key: test's shared key holds a different
@@ -952,6 +986,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+
       - name: Build the cmux-tui daemon and CLI
         working-directory: cmux-tui
         run: cargo build --locked -p cmux-tui --bin cmux-tui
@@ -987,9 +1026,17 @@ jobs:
     name: test (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
-    # A green run takes ~40 min on a 32 vCPU runner (the workspace test step alone
-    # 36.6 min, run 40976799846); 40 cancelled the first all-green run.
-    timeout-minutes: 55
+    # A green run took ~40 min on a 32 vCPU runner (the workspace test step alone
+    # 36.6 min, run 40976799846); 40 cancelled the first all-green run. On the
+    # 16 vCPU pool at --test-threads=2 the suite has outgrown 55: every full run
+    # since 2026-11-08 06:11 was cut inside terminal_host_recovery.rs (run
+    # 42463005009: compile 5.7 min, acpmux tests 29 min, workspace step cut at
+    # 53 min with 23 of that binary's 257 tests left, the core and smoke steps
+    # still to run). A green 16 vCPU run is estimated at 67-72 min; 90 leaves
+    # room for the 8 vCPU overflow pool and for the cargo cache, which a
+    # cancelled job never saves (its post step is skipped), so the next run
+    # compiles cold.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -1024,6 +1071,11 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Ghostty VT cursor replay checks
         if: inputs.mode == 'full'
@@ -1167,6 +1219,12 @@ jobs:
         # (COLORTERM/NO_COLOR) and race each other under parallel test
         # threads, flaking test_parse_ansi_fg/bg intermittently.
         run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib -- --test-threads=1
+
+      - name: smoltcp patch tests
+        if: inputs.mode == 'full'
+        working-directory: cmux-tui
+        # vendor/smoltcp/CMUX_PATCH.md: the initial window is CUBIC's, so its tests run with it.
+        run: cargo test --manifest-path vendor/smoltcp/Cargo.toml --lib --features socket-tcp-cubic
 
       - name: TUI smoke test (scripted pty)
         if: inputs.mode == 'full'
@@ -1407,22 +1465,27 @@ jobs:
         with:
           engines: chromium
 
-      - name: Install pinned Playwright Chromium (Linux)
+      - name: Install system Chrome and chrome-headless-shell (Linux)
         if: runner.os == 'Linux'
         working-directory: web
         run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
-      - name: Resolve Playwright Chromium executable
+      # The step above installs no Playwright Chromium (a0c428bee: system Chrome only, CVE-2026-118306).
+      # Use the chrome-headless-shell it fetched (the engine Playwright's headless launches use), else
+      # the system Chrome it checked.
+      - name: Resolve Chromium executable
         id: chromium
-        working-directory: web
         shell: bash
         run: |
           set -euo pipefail
-          path="$(bun -e 'const { chromium } = require("@playwright/test"); process.stdout.write(chromium.executablePath())')"
+          path="${CMUX_CHROME_HEADLESS_SHELL:-}"
+          if [[ -z "$path" ]]; then
+            path="$(command -v google-chrome-stable || command -v google-chrome || true)"
+          fi
           test -n "$path"
           test -x "$path"
           printf 'path=%s\n' "$path" >> "$GITHUB_OUTPUT"
-          echo "Using Playwright Chromium at $path"
+          echo "Using Chromium at $path ($("$path" --version 2>/dev/null || echo 'version unknown'))"
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -1516,6 +1579,11 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

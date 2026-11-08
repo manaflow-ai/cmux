@@ -285,7 +285,10 @@ pub(super) fn name_message(accepted: &mut Value, message: &MessageContext) {
 }
 
 pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &str) {
-    if opts.provenance.is_some() {
+    // A peer's message names its sender here: it takes the place of an `unverified` mark.
+    if opts.provenance.is_some()
+        && !crate::prompt_provenance::is_unverified(opts.provenance.as_ref())
+    {
         return;
     }
     let Some(sender) = opts.message_sender.as_ref().and_then(Value::as_object) else { return };
@@ -293,6 +296,12 @@ pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &st
     let Some(name) = sender.get("name").and_then(Value::as_str) else { return };
     let mut provenance = crate::prompt_provenance::named_sender(name, target_id);
     provenance.set("sessionId", json!(id));
+    // It keeps how it came and who passed it on, as the daemon saw them.
+    for key in [crate::prompt_provenance::TRANSPORT, crate::prompt_provenance::FORWARDED_BY] {
+        if let Some(value) = opts.provenance.as_ref().and_then(|p| p.get(key)) {
+            provenance.set(key, value.clone());
+        }
+    }
     if let Some(label) = sender.get("label").and_then(Value::as_str) {
         provenance = crate::prompt_provenance::stamp_declared(provenance, Some(label));
     }

@@ -282,9 +282,16 @@ fn create_workspace(
     // `placement` names the new workspace's place in the sidebar order for
     // this create (an agent's workspace on top, #29875); absent: the
     // `workspaces.newPlacement` setting.
-    match create_placement(&request.fields)? {
+    // `created_by` (ask-48544d7525): an agent or script workspace goes
+    // below its creator instead.
+    let created_by = crate::state::created_by::CreatedBy::from_fields(&request.fields);
+    let create = || match create_placement(&request.fields)? {
         Some(placement) => placement.scoped(|| create_workspace_placed(mux, request)),
         None => create_workspace_placed(mux, request),
+    };
+    match created_by {
+        Some(created_by) => created_by.scoped(create),
+        None => create(),
     }
 }
 
@@ -356,6 +363,12 @@ fn dispatch_exact_topology_mutation(
         // Likewise a programmatic `workspace.create` opens in the background
         // unless the caller passes `focus: true`.
         fields.entry(crate::mux::WORKSPACE_CREATE_FOCUS_FIELD).or_insert(Value::Bool(false));
+    }
+    if operation == ResourceOperation::ScreenCreate {
+        // And `screen.create`: the focused screen stays, so an attached TUI
+        // does not jump to the new screen when it next follows the daemon's
+        // focus (a reconnect after `daemon restart`).
+        fields.entry(crate::mux::SCREEN_CREATE_FOCUS_FIELD).or_insert(Value::Bool(false));
     }
     let commit = mux
         .resource_topology_operation(

@@ -114,7 +114,7 @@ test("a list numbers only the images with no name of their own, naming the app w
 });
 
 test("Sources numbers pasted screenshots across the whole list, in the web and native rows alike", async () => {
-  const { sourceLabels } = await import("../src/agent-session/acpmux/session-info/SourcesSection");
+  const { sourceLabels } = await import("../src/agent-session/acpmux/session-info/sourcesSectionModel");
   const { sourcesSection } = await import("../src/agent-session/acpmux/session-info/native/sources");
   const { NativeInfoActions } = await import("../src/agent-session/acpmux/session-info/native/model");
   const hex = (n: number) => n.toString(16).repeat(64);
@@ -142,4 +142,22 @@ test("Sources numbers pasted screenshots across the whole list, in the web and n
   // Folded, the first four (SOURCES_SHOWN) keep the numbers they have unfolded.
   expect(section(false).rows.map((row) => row.title)).toEqual(expected.slice(0, 4));
   expect(section(true).rows.map((row) => row.title)).toEqual(expected);
+});
+
+// The summary card's own Sources list names them the same way, not "image.png" on every row.
+test("the summary card's Sources numbers pasted screenshots like Session Info's", async () => {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SummaryBody } = await import("../src/agent-session/acpmux/summary/SummaryBody");
+  const hex = (n: number) => n.toString(16).repeat(64);
+  const rows = [
+    prompt("u1", { images: [{ ...twin, id: hex(1) }] }),
+    { id: "a1", kind: "assistant", text: "see https://example.com/docs" } as AcpmuxRow,
+    prompt("u2", { images: [shot, { ...twin, id: hex(2), source: { name: "Safari" } }, { ...unnamed, id: hex(3) }] }),
+  ];
+  const summary = sessionSummary(rows);
+  const markup = renderToStaticMarkup(<SummaryBody summary={summary} />);
+  const { window } = new JSDOM(`<!doctype html><ul>${markup}</ul>`);
+  const texts = [...window.document.querySelectorAll(".acpmux-summary-text")].map((node) => node.textContent);
+  expect(texts).toEqual(["Screenshot 1", "example.com/docs", shot.name, "Safari screenshot 2", "Screenshot 3"]);
+  expect(markup).not.toContain("image.png");
 });

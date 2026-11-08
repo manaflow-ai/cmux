@@ -957,6 +957,7 @@ pub mod auto_archive;
 pub mod closing_panes;
 
 pub mod group_hover_summary;
+pub mod new_placement;
 pub mod optimistic;
 #[cfg(kani)]
 mod proofs;
@@ -969,3 +970,4 @@ pub mod sidebar_drop;
 pub mod sidebar_edits;
 pub mod sidebar_face;
 pub mod sidebar_layout;
+pub mod sidebar_layout_plan;

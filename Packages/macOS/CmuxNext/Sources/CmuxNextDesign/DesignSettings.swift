@@ -158,7 +158,16 @@ public final class DesignSettings {
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
-    public var sidebarSections = SidebarSectionsPreferences.defaults
+    public var sidebarSections = SidebarSectionsPreferences.defaults {
+        didSet {
+            // The Wallpaper and Pictorial group palettes need the desktop picture (`DesktopWallpaperWatch.samplesForGroups`).
+            let follows = sidebarSections.groupPalette.followsWallpaper
+            if follows != oldValue.groupPalette.followsWallpaper { BackdropImageStore.shared.desktop.samplesForGroups = follows }
+        }
+    }
+    /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
+    /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
+    public var groupWallpaperTint: WallpaperTint?
     /// `sidebar.hoverCards.enabled`: off, no hover card opens on hover (sidebar rows, tabs, and a
     /// user's custom card). A change posts `hoverCardsDidChange` so a shown card goes at once.
     public var hoverCardsEnabled = true {
@@ -167,6 +176,9 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
         }
     }
+    /// `developerTools.appPages`: cmux's own pages (an agent chat, Home, Markdown, Settings) offer
+    /// Inspect Element and open developer tools. On by default; browser tabs keep theirs either way.
+    public var pageDeveloperTools = true
     /// `ui.calm` (``CalmMode``): Reduce Motion behavior, no hover cards and no hover fills, and
     /// with `still` no animation at all. A change posts the motion, Reduce Motion and hover-card
     /// notifications, so cached motion values re-read and a shown card goes at once.

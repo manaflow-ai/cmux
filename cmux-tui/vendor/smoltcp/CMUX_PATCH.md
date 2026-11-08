@@ -15,6 +15,8 @@ The window counts the segments the socket actually sends: on every SYN the
 socket hands the controller `min(local, remote)` MSS, also when the peer sent no
 MSS option (536 bytes). `Socket::reset()` starts the next connection on a fresh
 controller of the same kind, so a reused socket gets the initial window again.
+A listening socket that an RST sends from SYN-RECEIVED back to LISTEN drops
+that peer's MSS and window the same way.
 
 The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
 each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;

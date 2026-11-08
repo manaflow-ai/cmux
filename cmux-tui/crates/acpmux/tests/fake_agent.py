@@ -166,7 +166,27 @@ def prompt_text(params):
     blocks = params.get("prompt", [])
     if os.environ.get("FAKE_ECHO_GUIDANCE") != "1":
         blocks = [b for b in blocks if not is_cmux_guidance(b)]
+    # Who wrote it (hub/prompt_attribution.rs): fixtures match the prompt, opt in to the marks.
+    if os.environ.get("FAKE_ECHO_ATTRIBUTION") != "1":
+        blocks = [unwrapped(b) for b in blocks if not is_attribution(b)]
     return "".join(b.get("text", "") for b in blocks)
+
+
+def unwrapped(block):
+    """A paste acpmux wrapped in its marks (attributionWrap), as the composer sent it."""
+    wrap = ((block.get("_meta") or {}).get("acpmux") or {}).get("attributionWrap") if isinstance(block, dict) else None
+    text = block.get("text", "") if isinstance(block, dict) else ""
+    if not wrap or not isinstance(text, str):
+        return block
+    head, tail = wrap.get("open", "") + "\n", "\n" + wrap.get("close", "")
+    if text.startswith(head) and text.endswith(tail):
+        return {**block, "text": text[len(head):len(text) - len(tail)]}
+    return block
+
+
+def is_attribution(block):
+    """A mark of who wrote the prompt, which acpmux adds ahead of or around its blocks."""
+    return isinstance(block, dict) and (block.get("_meta") or {}).get("acpmux", {}).get("attribution") is True
 
 
 # The hidden guidance blocks (`context_inventory::override_block`), and only those: the
@@ -625,6 +645,44 @@ def handle_prompt(rid, params):
         answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
         update(sid, {"sessionUpdate": "agent_message_chunk",
                      "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "questions: Q1 | Q2 | Q3" asks each Q at once as its own AskUserQuestion (subagents asking
+    # side by side), each with the options Yes and No, then streams each outcome as it lands and
+    # "all answered" once every one is settled (the composer hat's capture, question/HatQuestions.tsx).
+    if text.startswith("questions:"):
+        asks, ids = [], []
+        for index, question in enumerate(q.strip() for q in text[10:].split("<", 1)[0].split("|")):
+            if not question:
+                continue
+            with lock:
+                aid = next_id
+                next_id += 1
+            ev = threading.Event()
+            pending[aid] = [ev, None]
+            ids.append((aid, question))
+            asks.append({"jsonrpc": "2.0", "id": aid, "method": "session/request_permission", "params": {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": f"qs{index}", "title": "Question", "kind": "other", "status": "pending",
+                             "rawInput": {"questions": [{"question": question, "header": "Check-in",
+                                                         "multiSelect": False,
+                                                         "options": [{"label": "Yes"}, {"label": "No"}]}]},
+                             "_meta": {"claude": {"tool": "AskUserQuestion", "interactive": True}}},
+                "options": [
+                    {"optionId": "allow_once", "name": "Answer", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"},
+                ],
+            }})
+        if asks:
+            send_all(asks)
+        for aid, question in ids:
+            pending[aid][0].wait()
+            res = pending.pop(aid)[1] or {}
+            chosen = res.get("outcome", {}).get("optionId", res.get("outcome", {}).get("outcome"))
+            answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
+            update(sid, {"sessionUpdate": "agent_message_chunk",
+                         "content": {"type": "text", "text": f"{question}: {chosen} {json.dumps(answers, sort_keys=True)}\n"}})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "all answered"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "preview-question: Q" asks Q with an option preview (its text ends in a line break the
@@ -1109,6 +1167,12 @@ def handle_prompt(rid, params):
         threading.Thread(target=late, daemon=True).start()
         return
     # "codex-fail" reports a terminal Codex error in-band, then ends the turn.
+    # "usage-probe" answers with a Gemini-style ACP usage: its 100K input counts the 90K read from
+    # the prompt cache (its total is input plus output).
+    if text == "usage-probe":
+        usage = {"inputTokens": 100000, "cachedReadTokens": 90000, "outputTokens": 2000, "totalTokens": 102000}
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "usage": usage}})
+        return
     if text == "codex-fail":
         update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Error", "willRetry": False, "additionalDetails": "Selected model is at capacity.", "codexErrorInfo": {"serverOverloaded": {}}}}}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

@@ -1,13 +1,9 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
-import { type ComposerAttachment, type DroppedKind, inlineCopyId, inlineTokenIds } from "./attachments";
+import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  type MadeFile,
-  type PendingAttachment,
-} from "./composer/attachmentIntake";
+import { AttachmentStrip } from "./composer/attachmentIntake";
+import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -167,8 +163,24 @@ export function ComposerBox({
   );
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
+  /// Set while a file that stays in the strip is attached: its intake places it synchronously
+  /// (attachmentIntake.tsx), so `place` reads this in the same call.
+  const toStrip = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
-  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt, onPasteFile);
+  const pastedChips = usePastedChips(
+    attachmentsRef ?? ownAttachments,
+    setAttachments,
+    prompt,
+    onPasteFile &&
+      ((file, inText = true) => {
+        toStrip.current = !inText;
+        try {
+          onPasteFile(file);
+        } finally {
+          toStrip.current = false;
+        }
+      }),
+  );
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   const inline = useInlineAttachments({
@@ -186,6 +198,7 @@ export function ComposerBox({
       pastedChips.expand(id);
       prompt.current?.removeInline(id);
     },
+    ...(pastedChips.keepAsFile ? { keepFile: pastedChips.keepAsFile } : {}),
     placing: () => !fieldOverlay,
     codex,
     ...(originalFailures ? { originalFailures } : {}),
@@ -199,7 +212,7 @@ export function ComposerBox({
         plainPaste.current();
         prompt.current?.plainPaste();
       },
-      place: (chips, kind) => inline.place(chips, kind),
+      place: (chips, kind) => inline.place(chips, kind, toStrip.current),
       sent: (ids) => {
         inline.sent(ids);
         pastedChips.pastes.current = [];
@@ -208,7 +221,7 @@ export function ComposerBox({
     }),
     [inline, pastedChips.pastes],
   );
-  const placed = new Set(inlineTokenIds(field.value, inline.known));
+  const placed = inline.inText(field.value);
   const { onBeforeInput, onKeyDown } = field;
   // Select All selects the attachments with the text (Leo, 2026-11-01: "i wanna be able to select
   // all in composer which also selects all the attachments as the copy as well"): those placed in
@@ -298,6 +311,7 @@ export function ComposerBox({
           {...(originalFailures ? { originalFailures } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
           onExpand={inline.expand}
+          {...(pastedChips.keepAsFile ? { onKeepFile: inline.keepFile } : {})}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>

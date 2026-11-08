@@ -672,7 +672,7 @@
     ],
     "agent-pane.composer#agent-home-path": [],
     "agent-pane.composer#attach-screenshot": [],
-    "agent-pane.composer#attach-screenshot-too-large": [],
+    "agent-pane.composer#attach-screenshot-oversized": [],
     "agent-pane.composer#attach-window-cancelled": [],
     "agent-pane.composer#attachment-failed": [],
     "agent-pane.composer#attachment-inline-caret": [],

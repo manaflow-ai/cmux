@@ -1322,9 +1322,34 @@ body[data-loading="true"] #status::before {
 #comments-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-height: 30px;
   padding: 0 10px;
   color: var(--cmux-diff-text-muted);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+/* Send to agent: a compact accent button at the header's end. Both labels share one grid cell, so
+   the button keeps the wider one's width and the header never moves when it starts sending. */
+#comments-send {
+  display: inline-grid;
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--cmux-diff-ui-font-size);
+  white-space: nowrap;
+}
+#comments-send > span {
+  grid-area: 1 / 1;
+  text-align: center;
+}
+#comments-send > span[aria-hidden="true"] {
+  visibility: hidden;
+}
+#comments-send-error {
+  display: block;
+  padding: 0 12px 8px;
+  color: var(--cmux-diff-deletion-fg);
   font-size: var(--cmux-diff-ui-font-size);
 }
 #comments-list {
@@ -1478,11 +1503,16 @@ body[data-loading="true"] #status::before {
   display: inline-flex;
   gap: 2px;
   opacity: 0;
-  transition: opacity var(--cmux-motion-quick) ease;
+  transition: var(--cmux-hover-reveal-out-transition);
 }
 .comment-card:hover .comment-card-actions,
 .comment-card:focus-within .comment-card-actions {
   opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.comment-card:has(:focus-visible) .comment-card-actions {
+  transition: none;
 }
 .comment-card-action {
   padding: 1px 6px;

@@ -26,6 +26,18 @@ through `debug.cef_page_devtools`, a bench or DEV build), then the app settles a
 is sampled again as `purged-N` (one count per run, so `idle-N` is an unpurged app). The page keeps its DOM, scroll and state, as the
 "a page never reloads unless the person asks" design (#25791) requires.
 
+--release-hidden-chats MINUTES measures lossless discard of hidden agent chats (Leo, 2026-11-07:
+"if it really isn't being used after a while, can't things be more aggressive?"): the app runs with
+the app runs with discard off until the count's `idle-N` sample, then the bench sets
+`agents.hiddenChats.discardAfterMinutes` MINUTES and `agents.hiddenChats.discard` on through the
+app's `settings.set` (its own settings writer; the reply's values are kept in the sample), so the
+baseline holds no released chat. It waits for the hidden chats to be
+released, samples `released-N` with the live Chromium page count, then shows the --restore-chats oldest
+workspaces' chat tabs one at a time and times each chat back on screen with the app's own chat-open trace
+(`debug.chat_open_trace`: first content, first kept image, longest empty run). The trace binds only to
+a chat that loads again; a chat whose page stayed live shows at once and is counted as `live`, not
+timed. One count per run, like --purge-hidden.
+
 Two ways to run (macOS only, a fleet or capture mini, never a laptop):
   attach  --socket PATH --app-pid PID: an app someone else launched, for
           example by `capture-host launch` into a capture slot (capture
@@ -37,7 +49,8 @@ Usage:
   bench_memory.py --app BUNDLE [--socket PATH --app-pid PID]
       [--workspaces 1,10,30] [--mix terminal+chat,terminal+browser,terminal]
       [--settle 30] [--measure 0] [--churn-minutes 0] [--sample-minutes 5]
-      [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--purge-hidden] [--out FILE.json]
+      [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--purge-hidden]
+      [--release-hidden-chats MINUTES [--restore-chats 10]] [--out FILE.json]
   bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
 
 Prints a table per measurement (top processes by footprint, totals per
@@ -147,9 +160,23 @@ def owned(app_pid: int, bundle: str):
         if in_bundle(cmd, bundle) is not None:
             _run_pids.add(pid)
             found[pid] = (kind_of(cmd, bundle), cmd)
-        elif _responsible is not None and "com.apple.WebKit." in cmd and _responsible(pid) == app_pid:
+        elif _responsible is not None and "com.apple.WebKit." in cmd and webkit_owned(pid, app_pid):
             found[pid] = (kind_of(cmd, bundle), cmd)
     return found
+
+
+# A direct launch (CMUX_BENCH_LAUNCH=direct) makes the app a child of this script, so macOS holds the
+# script's own responsible process responsible for the app and for its WebKit processes too. Those
+# then count as the app's when they did not run before the launch (`launch` records the ones that did).
+_direct_launch = False
+_webkit_before: set[int] = set()
+
+
+def webkit_owned(pid: int, app_pid: int) -> bool:
+    owner = _responsible(pid)
+    if owner == app_pid:
+        return True
+    return _direct_launch and pid not in _webkit_before and owner == _responsible(app_pid)
 
 
 def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: float = 0):
@@ -278,6 +305,9 @@ class App:
 
 
 FAKE_AGENT_ID = "bench-memory-fake"
+# The first prompt of each --fake-agent chat (--chat-prompt); the fake agent echoes it back, so a
+# long one gives the chat a long history to hold.
+CHAT_PROMPT = ""
 
 
 class FakeChats:
@@ -294,8 +324,16 @@ class FakeChats:
         self.app = app
         # The app splits `args` into words like a shell: a fleet step's checkout is under
         # "/Library/Application Support/...", so the path is quoted or the agent never starts.
-        added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
-                        args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
+        for attempt in range(5):
+            added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
+                            args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
+            # The action answers "timeout" after 2 s while its work goes on (the harness is still added),
+            # most often just after launch: wait, then try again (it replaces the same id).
+            if "timeout" not in str(added.get("code") or added.get("error") or ""):
+                break
+            time.sleep(5)  # test script: the app is still starting; try again (5 tries)
+        else:
+            added = {}  # five timeouts: the work went on in the app; a missing harness fails `acp new` below
         if added.get("error") or added.get("code"):
             raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
         self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
@@ -316,21 +354,47 @@ class FakeChats:
             time.sleep(1)  # test script: waiting for the app's acpmux to listen
         raise SystemExit("bench-memory: the app's acpmux opened no socket within 90 s")
 
+    def workspace_ids(self) -> set[str]:
+        """The ids of the app's workspaces (`snapshot.get`)."""
+        found: set[str] = set()
+
+        def walk(node):
+            if isinstance(node, dict):
+                value = node.get("id")
+                if isinstance(value, str) and value.startswith("ws_"):
+                    found.add(value)
+                for child in node.values():
+                    walk(child)
+            elif isinstance(node, list):
+                for child in node:
+                    walk(child)
+        walk(self.app.call("snapshot.get", timeout=30))
+        return found
+
     def open(self, index: int) -> str | None:
         """A new workspace on a new answered chat; returns the workspace id."""
         made = subprocess.run([self.app.cli_path, "acp", "new", "--json", "-d", "-m", FAKE_AGENT_ID,
-                               f"memory bench chat {index}"],
+                               f"memory bench chat {index}" + (f"\n\n{CHAT_PROMPT}" if CHAT_PROMPT else "")],
                               capture_output=True, text=True, timeout=120, env=self.env)
         try:
             session = json.loads(made.stdout)["sessionId"]
         except (ValueError, KeyError):
             print(f"   acp new: {(made.stdout + made.stderr).strip()[:300]}", file=sys.stderr)
             return None
+        before = self.workspace_ids()
         response = self.app.action("agent.openSessionWorkspace", session=session)
         created = [item for item in response.get("created", []) if str(item).startswith("ws_")]
+        if not created and "in_progress" in json.dumps(response):
+            # The action answers "timeout" at its deadline while the open goes on (its state
+            # "in_progress"): the workspace it makes is the one that was not there before.
+            deadline = time.monotonic() + 60
+            while not created and time.monotonic() < deadline:
+                time.sleep(1)  # test script: waiting for the open that went on to make its workspace
+                created = sorted(self.workspace_ids() - before)
         if not created:
             print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
             return None
+        remember_chat_tab(created[0], response)
         return created[0]
 
 
@@ -354,6 +418,69 @@ def purge_hidden_pages(app: App) -> dict:
         errors = [error for error in pool.map(notify, hidden) if error]
     return {"pages": len(pages), "hidden": len(hidden), "notified": len(hidden) - len(errors),
             "errors": errors[:5]}
+
+
+# Each workspace's chat tab (from the `created` ids of the action that made it): a workspace shows the
+# tab it showed last, which the terminal+chat mix leaves on its terminal, so a restore shows the chat itself.
+CHAT_TABS: dict[str, str] = {}
+
+
+def remember_chat_tab(workspace: str, response: dict):
+    tab = next((str(item) for item in response.get("created", []) if str(item).startswith("tab_")), None)
+    if tab:
+        CHAT_TABS[workspace] = tab
+
+
+def cef_page_count(app: App) -> int | None:
+    """Live Chromium pages of cmux's own (`cmux-page://`), from `debug.cef_pages`."""
+    pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
+    if not isinstance(pages, list):
+        return None
+    return sum(1 for p in pages if str(p.get("origin", "")).startswith("cmux-page://"))
+
+
+def percentile(values: list[float], share: float) -> float | None:
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(share * len(ordered)))] if ordered else None
+
+
+def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
+    """Shows each of `workspaces[:count]` (oldest first: the least recently seen, released first) and
+    times its chat back on screen with the app's chat-open trace."""
+    opens = []
+    for workspace in workspaces[:count]:
+        tab = CHAT_TABS.get(workspace)
+        armed = app.call("debug.chat_open_trace", {"action": "arm"}, timeout=30)
+        if not isinstance(armed, dict) or armed.get("error"):
+            opens.append({"workspace": workspace, "error": f"arm: {armed}"})
+            continue
+        shown = app.action("goToWorkspace", focus=True, workspace=workspace)
+        if not shown.get("error"):
+            # No recorded id: the chat is the tab before the terminal the mix added last. The trace
+            # binds only when a chat loads, so a wrong guess reads as `live`, never as a restore time.
+            shown = app.run("tab.focus", target=tab) if tab else app.action("prevSurface")
+        trace = app.call("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000, "settle_ms": 300}, timeout=40) or {}
+        frames = trace.get("frames") or []
+        opens.append({
+            "workspace": workspace, "tab": tab or "prevSurface",
+            "error": shown.get("error") or trace.get("error"),
+            "timed_out": trace.get("timed_out"),
+            "first_content_ms": trace.get("first_content_ms"),
+            "first_image_ms": next((ms for ms, surface in frames if surface == "image"), None),
+            "longest_empty_ms": trace.get("longest_empty_ms"),
+        })
+    content = [o["first_content_ms"] for o in opens if isinstance(o.get("first_content_ms"), (int, float))]
+    empty = [o["longest_empty_ms"] for o in opens if isinstance(o.get("longest_empty_ms"), (int, float))]
+    errors = sum(1 for o in opens if o.get("error"))
+    live = sum(1 for o in opens if not o.get("error") and o.get("timed_out") and o.get("first_content_ms") is None)
+    return {"opens": opens, "n": len(content), "errors": errors, "live": live,
+            "first_content_p50_ms": percentile(content, 0.5), "first_content_p95_ms": percentile(content, 0.95),
+            "longest_empty_p50_ms": percentile(empty, 0.5), "longest_empty_p95_ms": percentile(empty, 0.95),
+            "with_image": sum(1 for o in opens if o.get("first_image_ms") is not None)}
+
+
+# The panes a workspace's recipe asked for that the app refused (the report's `pane_failures`).
+PANE_FAILURES: list[str] = []
 
 
 def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats | None = None):
@@ -390,10 +517,12 @@ def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats
             # Send (fleet minis carry no agent credentials either): --fake-agent
             # makes chats that answered.
             response = app.run("newTab.submit", text=f"memory bench chat {index}")
+            remember_chat_tab(workspace, response)
         else:
             raise SystemExit(f"bench-memory: unknown kind {kind!r} in --mix")
         if response.get("error") or response.get("code"):
             print(f"   {kind} in {workspace}: {response.get('message') or response.get('error')}", file=sys.stderr)
+            PANE_FAILURES.append(f"{kind} in {workspace}: {response.get('message') or response.get('error')}"[:200])
     return workspace
 
 
@@ -595,6 +724,8 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
            # builds only; a Release app ignores it (DownloadsFolder.swift).
            "CMUX_NEXT_DOWNLOADS_DIR": downloads_dir(scratch)}
     env.update(extra_env or {})
+    # A None in `extra_env` drops that default (CMUX_NEXT_NO_ACTIVATE for a bench that needs the keyboard).
+    env = {name: value for name, value in env.items() if value is not None}
     os.makedirs(env["TMPDIR"], exist_ok=True)
     os.makedirs(env["CMUX_NEXT_DOWNLOADS_DIR"], exist_ok=True)
     # Sparkle would otherwise download a newer nightly into the bundle under
@@ -604,6 +735,9 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     log_path = os.path.join(scratch, "app.log")
     launched_at = time.time()
     if direct:
+        global _direct_launch
+        _direct_launch = True
+        _webkit_before.update(p for p, _, cmd in process_table() if "com.apple.WebKit." in cmd)
         env.setdefault("CMUX_NEXT_TEST_WINDOW_FRAME", "40,40,1400,900")
         with open(log_path, "a") as log:
             child = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
@@ -729,12 +863,20 @@ def main():
                              "its turns end, as a chat's do after its reply")
     parser.add_argument("--purge-hidden", action="store_true",
                         help="after each count, purge hidden pages' renderers (no reload) and sample again")
+    parser.add_argument("--release-hidden-chats", type=float, default=0, metavar="MINUTES",
+                        help="run with agents.hiddenChats.discard after MINUTES; sample released chats and time their restore")
+    parser.add_argument("--restore-chats", type=int, default=10,
+                        help="--release-hidden-chats: how many released chats to show again and time")
+    parser.add_argument("--chat-prompt", default="",
+                        help="--fake-agent: text added to each chat's first prompt (echoed back: a chat with history)")
     parser.add_argument("--out")
     args = parser.parse_args()
-    if args.purge_hidden and len([n for n in args.workspaces.split(",") if n]) > 1:
+    global CHAT_PROMPT
+    CHAT_PROMPT = args.chat_prompt
+    if (args.purge_hidden or args.release_hidden_chats > 0) and len([n for n in args.workspaces.split(",") if n]) > 1:
         # A later count's idle sample would follow the earlier purge, not an unpurged app. Checked
         # before the launch, so a refused run leaves no app behind.
-        parser.error("--purge-hidden takes one --workspaces count; run each count on its own")
+        parser.error("--purge-hidden and --release-hidden-chats take one --workspaces count; run each count on its own")
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
     signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
@@ -748,7 +890,8 @@ def main():
         socket_path, app_pid = args.socket, args.app_pid
     else:
         extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
-        launched, socket_path, scratch = launch(bundle, json.loads(args.config), extra)
+        config = json.loads(args.config)
+        launched, socket_path, scratch = launch(bundle, config, extra)
         app_pid = launched
     app = App(bundle, socket_path)
     chats = None
@@ -761,7 +904,9 @@ def main():
     def settle_and_sample(label):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
         result = sample(app_pid, bundle, label, len(opened) + 1, args.measure)
+        result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
+        report["pane_failures"] = PANE_FAILURES[:20]
         print_sample(result, args.top)
         return result
 
@@ -793,6 +938,22 @@ def main():
                 purge = purge_hidden_pages(app)
                 print(f"== purge at {count}: {json.dumps(purge)}", flush=True)
                 settle_and_sample(f"purged-{count}")["purge"] = purge
+            if args.release_hidden_chats > 0:
+                before = cef_page_count(app)
+                applied = {}
+                for key, value in (("agents.hiddenChats.discardAfterMinutes", args.release_hidden_chats),
+                                   ("agents.hiddenChats.discard", True)):
+                    reply = app.call("settings.set", {"path": key, "value": value}, timeout=30) or {}
+                    applied[key] = reply.get("value") if not reply.get("error") else f"error: {reply.get('error')}"
+                print(f"== discard settings: {json.dumps(applied)}", flush=True)
+                # test script: the hidden chats come due after the setting's minutes (plus the planner's slack)
+                time.sleep(args.release_hidden_chats * 60 + 30)
+                result = settle_and_sample(f"released-{count}")
+                result["cef_pages"] = {"before": before, "after": cef_page_count(app)}
+                result["discard_settings"] = applied
+                print(f"== released at {count}: cmux pages {json.dumps(result['cef_pages'])}", flush=True)
+                report["restore"] = restore_chats(app, opened, args.restore_chats)
+                print(f"== restore: {json.dumps({k: v for k, v in report['restore'].items() if k != 'opens'})}", flush=True)
         if args.churn_minutes > 0:
             end = time.monotonic() + args.churn_minutes * 60
             next_sample = time.monotonic() + args.sample_minutes * 60

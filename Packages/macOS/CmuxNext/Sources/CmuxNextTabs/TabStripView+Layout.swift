@@ -355,7 +355,9 @@ extension TabStripView {
             if drag?.id == id || groups.isDragged(id) { TabStripMove.cancelPosition(cell.layer) }
             if let move { noteClosing(id, moved: moved, move: move) }
             cell.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(cell.frame, to: self))
-            trailing = max(trailing, place.maxX)
+            // The lifted tab can slide past the last slot (`dragTrailingLimit`): the + stays after the slots.
+            let liftedSlotEnd = drag?.id == id ? result.slot(id).map(\.maxX) : nil
+            trailing = max(trailing, liftedSlotEnd ?? place.maxX)
         }
         updateOcclusion()
         layoutPinnedDivider(mapping: mapping, tabY: tabY, tabHeight: tabHeight, pixel: pixel, move: move, scroll: scrollPart(isPinned: true))

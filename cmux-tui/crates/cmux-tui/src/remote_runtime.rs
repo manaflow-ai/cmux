@@ -69,6 +69,10 @@ const DAEMON_AUTH_LEASE_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
 const DAEMON_AUTH_LEASE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
 const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
+/// How often a client's startup wait looks at the shutdown flag, so SIGTERM or
+/// SIGINT ends a dial that is still connecting instead of waiting out its
+/// startup timeout (an ssh `ProxyCommand` must exit when ssh does).
+const STARTUP_SIGNAL_POLL: Duration = Duration::from_millis(100);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
 const DAEMON_SHUTDOWN_OUTCOME_VERSION: u32 = 1;
 const DAEMON_LIFECYCLE_FENCE_VERSION: u32 = 1;
@@ -668,20 +672,30 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
             result
         })
         .context("could not start remote client thread")?;
-    let ready = match ready_rx.recv_timeout(startup_timeout) {
-        Ok(Ok(ready)) => ready,
-        Ok(Err(error)) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(error));
-        }
-        Err(error) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(
-                "remote connection did not become ready within {}s: {error}",
-                startup_timeout.as_secs()
-            ));
+    let deadline = std::time::Instant::now() + startup_timeout;
+    let ready = loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match ready_rx.recv_timeout(left.min(STARTUP_SIGNAL_POLL)) {
+            Ok(Ok(ready)) => break ready,
+            Ok(Err(error)) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(error));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if crate::shutdown_requested() => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!("remote connection startup interrupted by a signal"));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if !left.is_zero() => {}
+            Err(error) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(
+                    "remote connection did not become ready within {}s: {error}",
+                    startup_timeout.as_secs()
+                ));
+            }
         }
     };
     Ok(ClientRuntimeHandle {
@@ -1114,7 +1128,14 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
                         session: self.options.session,
                         lane_policy: self.options.lane_policy,
                         limits: SessionLimits::default(),
-                        reconnect: self.options.reconnect,
+                        // `--reconnect-attempts` bounds the first connect
+                        // only. The established link redials in budgeted
+                        // bursts and parks between them instead of ending
+                        // the process, which made every layer above redial.
+                        reconnect: ReconnectPolicy {
+                            maximum_attempts: None,
+                            ..self.options.reconnect
+                        },
                     },
                     Some(reconnect_groups),
                 ),
@@ -2177,7 +2198,11 @@ async fn run_daemon(
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
         #[cfg(unix)]
-        let workspace = crate::machine_secrets::daemon_workspace_service(&auth, &state_dir);
+        let workspace = crate::machine_secrets::daemon_workspace_service(
+            &auth,
+            &state_dir,
+            options.carrier_grant_config.as_deref(),
+        );
         #[cfg(not(unix))]
         let workspace = cmux_remote::workspace::WorkspaceService::new();
         // The admin proof and service forwarding must use the same resolved
@@ -2385,10 +2410,22 @@ async fn run_daemon(
         pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeReadySend);
         let mut shutdown_failures = Vec::new();
         if ready.send(Ok(info)).is_ok() {
-            let services = DaemonServices::with_local_sockets(
+            // A Cloud machine's carrier (a grant config) also bridges the
+            // acpmux service to this user's acpmux carrier socket, in the
+            // home `cmux acp` resolves.
+            #[cfg(unix)]
+            let acpmux_socket = options
+                .carrier_grant_config
+                .as_ref()
+                .and_then(|_| crate::acp::daemon_acpmux_home())
+                .map(|home| cmux_remote::acpmux_bridge::socket_path(&home));
+            #[cfg(not(unix))]
+            let acpmux_socket = None;
+            let services = DaemonServices::with_carrier_sockets(
                 workspace,
                 Some(mux_socket),
                 options.local_sockets.clone(),
+                acpmux_socket,
             );
             services.run_with_shutdown(clients, shutdown).await;
         } else {
@@ -5618,6 +5655,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: None,
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: instrumented_test_timeout(Duration::from_secs(5)),
             state_dir: directory.path().join("client"),
@@ -5782,6 +5825,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: Duration::from_secs(2),
             state_dir: directory.path().join("client"),
@@ -5858,6 +5907,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: Duration::from_secs(1),
             state_dir: directory.path().join("client"),

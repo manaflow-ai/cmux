@@ -26,6 +26,7 @@ pub mod agent_guidance;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;
+pub mod agent_text;
 pub mod agent_tools;
 mod artifacts_fs;
 pub mod artifacts_sync;
@@ -89,6 +90,7 @@ pub mod launch_credential;
 pub mod launch_policy;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
+pub mod listener_record;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
@@ -119,6 +121,7 @@ pub mod peer_states;
 pub mod placement;
 #[cfg(not(unix))]
 mod platform;
+pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;
 pub mod prompt_cache_env;
@@ -144,6 +147,7 @@ pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
 pub mod self_command;
+pub mod sender_harness;
 pub mod server;
 pub mod session_env;
 pub mod session_identity;
@@ -154,6 +158,7 @@ pub mod session_search;
 pub mod session_status;
 pub mod sha256;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
+pub mod memory_inbox;
 pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]

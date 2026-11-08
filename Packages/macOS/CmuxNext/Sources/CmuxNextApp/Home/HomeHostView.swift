@@ -540,6 +540,8 @@ final class HomeHostView: PaneMotionFollowingView {
         loadAvatar()
         return await settingsView.debugEditPicture(source, zoom: zoom, save: save)
     }
+    /// `debug.home.drive` chief_name: the settings open with the keyboard in the name field (`close`: they close, as a click outside).
+    func debugEditChiefName(close: Bool) -> Bool { if close { settings.close(); return true }; return toggleChiefSettings(openOnly: true) && settingsView.beginEditingName() }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif
@@ -595,4 +597,4 @@ extension HomeHostView: PrimaryInputTarget {
         focusTargetShouldTakeKeyboard(from: responder)
     }
 }
-extension HomeHostView: ChiefPanelContent { var chiefIsAnswering: Bool { isWorking } }
+extension HomeHostView: ChiefPanelContent { var chiefIsAnswering: Bool { isWorking }; var chiefShowsThrough: Bool { get { transcript.clearsBackground } set { transcript.clearsBackground = newValue } } }

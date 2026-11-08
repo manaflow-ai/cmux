@@ -10,8 +10,9 @@ import Foundation
 import Testing
 
 /// cmux-ad m18/m29: during a person's divider or column-edge drag, the program in each terminal gets its new size while
-/// the drag moves, coalesced to the display refresh (`TerminalGridReportCoalescer`: the first new grid opens a window,
-/// later grids replace it, the newest goes at the next refresh, or after 25 ms when no refresh comes; RESIZE P0 6), and
+/// the drag moves, coalesced to the display refresh (`TerminalGridReportCoalescer`: the first new grid after a refresh goes at once
+/// (RESIZE P0 7), a later one in that refresh opens a window, later grids replace it, the newest goes at the next refresh,
+/// or after 25 ms when no refresh comes; RESIZE P0 6), and
 /// the release's grid goes when the release lands. Before
 /// (feat at 058a07e4ae1): one grid per drag, at the landing. A full-screen program (the alternate screen, which the
 /// reflow preview does not re-wrap) stayed at its start size for the whole drag, the terminal background beside it, then

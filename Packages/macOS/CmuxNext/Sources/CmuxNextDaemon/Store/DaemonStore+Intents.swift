@@ -68,6 +68,8 @@ extension DaemonStore {
     /// the visible state returns to the confirmed mirror (plus the others).
     public func rejectIntent(_ transaction: ClientTransactionID) {
         guard intentLog.contains(transaction) else { return }
+        // A rejected close leaves its tabs: no longer closed (`closedLately`), so a new tab's move waits for them again.
+        if case .closeTabs(let surfaces)? = intentLog.entries.first(where: { $0.transaction == transaction })?.kind { intentLog.forgetClosed(Set(surfaces)) }
         withOverlayLifted(writer: "intent rejection") { settleIntent(transaction, .rejected) }
     }
 

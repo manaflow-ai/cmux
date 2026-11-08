@@ -34,7 +34,7 @@ extension TerminalHostView: PaneResizeGestureFollowing {
 extension TerminalHostView: PaneMotionHoldFollowing {
     public func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?) {
         // The end of a followed hold: its last size drawn ahead goes at the final placement unless that placement takes it.
-        if hold == nil, followedHold != nil { dropsAheadAtRest = true }
+        if hold == nil, followedHold != nil { (dropsAheadAtRest, aheadOfKeyResize, aheadRestBasis) = (true, true, nil) }
         followedHold = hold.map { ($0, heldSize ?? bounds.size) }
         needsLayout = true
     }
@@ -63,13 +63,23 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     }
 
     /// Draw ahead of the follow (T-KEYS 3): a key press's first refresh hands this host its pane's hold at `nextHostSize`.
-    /// The surface asks Ghostty for the size it takes then, in the key's turn (render only), so the frame that shows the
-    /// press has it drawn. A follow that does not begin leaves it to the next placement at rest, which drops it unless it
-    /// takes it (``dropsAheadAtRest``).
-    public func drawAheadOfFollow(nextHostSize: CGSize) {
+    /// The surface asks Ghostty for the size it takes then, in the key's turn (a key press: with its grid to the program,
+    /// ``aheadOfKeyResize``; a snap: render only), so the frame that shows the press has it drawn. A follow that does not
+    /// begin leaves it to the next placement at rest, which drops it unless it takes it (``dropsAheadAtRest``).
+    public func drawAheadOfFollow(nextHostSize: CGSize, keyPress: Bool) {
         guard !surfaceFollowsArea, !isHidden, let current else { return }
+        aheadOfKeyResize = keyPress
         current.drawAhead(surfaceSize(forHostSize: nextHostSize))
         dropsAheadAtRest = true
+        aheadRestBasis = bounds.size
+    }
+
+    /// The snap this host's size was drawn ahead for showed: a size its placement did not take (the snap showed this host
+    /// at its old size) goes at the next layout.
+    public func aheadOfFollowShown() {
+        guard dropsAheadAtRest, aheadRestBasis != nil else { return }
+        aheadRestBasis = nil
+        needsLayout = true
     }
 
     /// Whether the host is in a content area that holds for a key resize and will hand it the follow in the area's next

@@ -28,7 +28,7 @@ import Testing
 
     @Test func theSessionCarriesTheDotsTheRowsAndTheChosenColor() throws {
         let session = GroupEditorSession(id: "s1", revision: 3, group: Self.group, items: Self.items)
-        let event = session.event(themed: false, icons: GroupEditorIcons())
+        let event = session.event(palette: .glass, icons: GroupEditorIcons())
         #expect(event["id"]?.stringValue == "s1")
         #expect(event["revision"]?.intValue == 3)
         #expect(event["name"]?.stringValue == "Work")
@@ -43,7 +43,7 @@ import Testing
 
         var none = Self.group
         none.tint = .none
-        let cleared = GroupEditorSession(id: "s2", revision: 1, group: none, items: []).event(themed: false, icons: GroupEditorIcons())
+        let cleared = GroupEditorSession(id: "s2", revision: 1, group: none, items: []).event(palette: .glass, icons: GroupEditorIcons())
         guard case let .array(dots)? = cleared["colors"] else { Issue.record("no colors"); return }
         #expect(dots.filter { $0["chosen"]?.boolValue == true }.compactMap { $0["id"]?.stringValue } == ["grey"],
                 "a group with no color shows the No color dot chosen")

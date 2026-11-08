@@ -148,14 +148,8 @@ const GROUPS: &[Group] = &[
                 "エージェントセッション（claude、codex など）を開始",
             ),
             verb(
-                "relay-chat",
-                "{target} --agent AGENT --prompt TEXT [--cwd DIR] [--prompt-id ID]",
-                "Send a prompt over the machine's relay and answer when the turn ends",
-                "マシンのリレー経由でプロンプトを送り、ターンの終了時に応答を返す",
-            ),
-            verb(
                 "open-desktop",
-                "{target} [--viewer rd|web]",
+                "{target} [--viewer rd]",
                 "Show the machine's desktop in a new workspace",
                 "マシンのデスクトップを新しいワークスペースに表示",
             ),
@@ -164,12 +158,6 @@ const GROUPS: &[Group] = &[
                 "{target} [--focus]",
                 "Set up git and GitHub on the machine",
                 "マシンに git と GitHub を設定",
-            ),
-            verb(
-                "enroll-machine",
-                "{target} [--ssh-key FILE] [--name HOST]",
-                "Make it an ssh host and acpmux peer of this Mac",
-                "この Mac の ssh ホストと acpmux ピアにする",
             ),
             verb(
                 "apply-machine-config",
@@ -520,7 +508,8 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
-usage: cmux cloud start-chat --prompt TEXT [--agent AGENT] [--cwd DIR]
+usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--cwd DIR]
+                             [--login pass|machine|none] [--environment ENV]
                              [--name MACHINE | --target machine:MACHINE_ID]
                              [--wait] [--timeout SECONDS] [--json]
 
@@ -529,23 +518,35 @@ The chat opens as a tab in the machine's workspace in the cmux app.
 This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
 older name; both run the same start.
 
-  --prompt TEXT      What to send (`-` reads it from stdin)
-  -- TEXT            The same, read as text even when it starts with `-`
+  --prompt TEXT      What to send (`-` reads it from stdin). Without it the
+                     chat starts and nothing is sent; the answer has ready_ms
+                     and follow_up.send for the first message
+  -- TEXT            The same as --prompt, read as text even when it starts
+                     with `-`
   --agent AGENT      claude (default), codex, ...
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
+  --login pass|machine|none
+                     The agent's login there: yours from this Mac, the
+                     machine's own, or none (default: the machine's login or
+                     your earlier choice)
   --name MACHINE     Use the machine with this name, or create it
   --target machine:MACHINE_ID
                      Use this machine (`cmux cloud list-machines`)
                      Neither: create a new small machine with a new name
-  --wait             Wait for the turn to end and print the reply
+  --environment ENV  Boot the new machine in this Cloud environment (its
+                     env_ id or its name); not with --target
+  --wait             Wait for the turn to end and print the reply (no
+                     prompt: the chat is ready, nothing to wait for)
   --timeout SECONDS  How long --wait waits (default 900)
 
 Answers machine_id, machine_name, session_id, workspace_id and tab_id,
-plus reply with --wait, and new_machine: true when this run made the machine.
+plus reply with --wait, or sent: false and ready_ms with no prompt, and
+new_machine: true when this run made the machine.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
+  cmux cloud start-chat --agent codex --login machine --json
 
 FOLLOW-UPS (SESSION_ID from the answer)
   cmux chat send SESSION_ID 'next prompt' --wait

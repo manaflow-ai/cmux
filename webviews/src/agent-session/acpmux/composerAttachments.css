@@ -245,6 +245,49 @@
 .acpmux-attachment-file.acpmux-attachment-pending {
   gap: 4px;
 }
+/* A loading image whose header gave its size (composer/attachmentIntakeModel.ts imageShape): the
+   width its thumbnail will have (`.acpmux-attachment-image img`: its height, its shape, 48 to
+   128px wide), so a wide or tall screenshot's picture arriving moves nothing (Leo, 2026-11-07: "they
+   go up top above and then they land to where they should be"). In the strip and in the text. */
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sized] {
+  width: auto;
+  min-width: 48px;
+  max-width: 128px;
+}
+/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, HEADER_WAIT_MS at most): held
+   zero wide and unseen, so its first frame shown is its final size, not a stand-in width. */
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sizing] {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+}
+.acpmux-md-inline > .acpmux-md-inline-chip[data-sizing] {
+  margin-inline-end: 0;
+}
+/* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
+   is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
+   (Leo, 2026-11-07: "can't we make this all "appear" a lot faster"). */
+:is(.acpmux-attachment, .acpmux-md-inline-chip) .acpmux-attachment-instant {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  outline: none;
+  pointer-events: none;
+}
+/* Over the loading glass's own `background` shorthand (below), which would reset its size. */
+.acpmux-attachment.acpmux-attachment-pending[data-instant] {
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+/* Positioned, and after the picture: it paints over it. */
+:is(.acpmux-attachment-spinner, .acpmux-md-inline-spinner) {
+  position: relative;
+}
 /* Its spinner says it is loading (Leo, 2026-10-24: "why don't you put a spinner on the attachment
    rather than this placeholder that doesn't do anything"); its × cancels it. */
 .acpmux-attachment-spinner {
@@ -453,12 +496,8 @@
   overflow: hidden;
   /* The width stays, the line is clear: the glass rim draws the one edge (.ui-glass). */
   border: var(--cmux-hairline, 0.5px) solid transparent;
-  border-radius: 12px;
   /* Glass, not the page color: a translucent window's page color is clear, so the chat read
-     through the viewer (as the Add project dialog, addProject.css). */
-  --glass-elevation: var(--elevation-2);
-  /* glass-opaque-allow: the Reduce Transparency fill only */
-  --glass-opaque: var(--surface-popup);
+     through the viewer (as the Add project dialog, addProject.css); the sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
@@ -604,6 +643,36 @@ button.acpmux-attachment-pasted-open:hover {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
 }
+/* An oversized paste's other way on: Keep as .txt, on its card's label row at the end, always shown
+   so both choices are on the card (a click on the card is the other). Either host: the strip's card
+   and the one placed in the prompt (composer/attachmentIntake.tsx KeepFileButton). */
+.acpmux-text-card {
+  position: relative;
+}
+/* Scoped to its card: `.acpmux-composer-box button { font: inherit }` comes later at one class and
+   one element, and set the prompt's copy at the composer's 14px, over its label (review of #37516). */
+.acpmux-text-card > .acpmux-attachment-keep-file {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--acpmux-base, Canvas);
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  line-height: var(--text-caption--line-height);
+}
+.acpmux-attachment-keep-file:hover {
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, Canvas));
+}
+.acpmux-attachment-keep-file:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
 /* The card's body, in either host: lines from the top, the label pinned to the bottom. */
 .acpmux-text-card .acpmux-attachment-pasted-open,
 .acpmux-text-card .acpmux-text-card__open {
@@ -644,8 +713,26 @@ button.acpmux-attachment-pasted-open:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.acpmux-text-card__label {
+/* The label row: the label, then the room an action over its end takes (TextAttachmentCard
+   `reserve`), so the label's ellipsis comes before Keep as .txt, never under it. */
+.acpmux-text-card__foot {
+  display: flex;
   flex: none;
+  gap: 8px;
+  min-width: 0;
+}
+.acpmux-text-card__reserve {
+  flex: none;
+  padding: 0 4px;
+  visibility: hidden;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  line-height: 14px;
+  white-space: nowrap;
+}
+.acpmux-text-card__label {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: var(--agent-muted);
   font-size: var(--text-caption);

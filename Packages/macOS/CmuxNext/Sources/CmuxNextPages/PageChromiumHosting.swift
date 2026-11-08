@@ -39,6 +39,12 @@ public protocol PageChromiumHosting: AnyObject {
     /// while `live`, so the live web loop (``WebDevOverride``) serves Chromium pages as it serves
     /// WebKit ones. Returns false when this Chromium cannot (its pages then open in WebKit).
     func setLivePages(_ live: Bool) -> Bool
+    /// Opens the developer tools of the cmux page `view` shows (a ``PageWebView``, or a page's own
+    /// `WKWebView`) and starts picking an element: Chromium DevTools for a page in Chromium, Web
+    /// Inspector for one in WebKit. The page's Inspect Element row calls it (``PageDeveloperTools``).
+    ///
+    /// - Parameter view: The page's view.
+    func inspectPage(_ view: NSView)
 }
 
 extension PageChromiumPage {
@@ -50,6 +56,8 @@ extension PageChromiumHosting {
     /// No focus model: the page keeps its keyboard itself.
     public func focusViewChanged(_ page: PageWebView) -> Bool { false }
     public func setLivePages(_ live: Bool) -> Bool { false }
+    /// No inspector: the row does nothing.
+    public func inspectPage(_ view: NSView) {}
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
