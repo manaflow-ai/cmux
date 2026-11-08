@@ -100,9 +100,10 @@ def strings(value):
 
 # Two independent read paths must name this exact terminal before any fixture
 # filesystem writes or project.observe mutation. The app mapper emits terminal_id
-# from the same daemon terminal model; terminal status returns its daemon record.
+# from the same daemon terminal model; terminal show returns its full daemon record.
+# terminal status only returns program-status records and does not carry identity.
 require(terminal_id in set(strings(rpc("snapshot.get"))), "Capture app does not own this terminal")
-require(terminal_id in set(strings(daemon("terminal", terminal_id, "status"))),
+require(terminal_id in set(strings(daemon("terminal", terminal_id, "show"))),
         "Explicit daemon route does not own the capture app terminal")
 
 
