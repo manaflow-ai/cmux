@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42482606784",
+  "recorded_at": "2026-11-08T13:08:32Z",
+  "reason": "cmux-tui 0ecfdb7e524a changes the image's cmux-tui (pinned d383f8521627)",
+  "dry_run": false,
+  "cmux_tui": "0ecfdb7e524ae3a41c1b7cffde567be63f248f31",
+  "fixes": [
+    {
+      "sha": "1db11641ad38c58afcfee34060b0a86011bfb47b",
+      "mergedAt": "2026-11-08T04:41:03-08:00",
+      "subject": "Agent chat: a reply's hover counts input once, split into cached and uncached, with the turn's context size (#38161)"
+    },
+    {
+      "sha": "e1d81757ac8ceaf55b5992c55689611153863190",
+      "mergedAt": "2026-11-08T12:38:40Z",
+      "subject": "acpmux: placement skips a registry-stopped host or a down peer; a refused remote start says \"refused by HOST\" first and last (#38451)"
+    },
+    {
+      "sha": "0aedf301d9b47aba433a481b78b890ceba74d437",
+      "mergedAt": "2026-11-08T12:38:14Z",
+      "subject": "relay: park a Connect past a stale daemon registration, and hand a dead daemon's circuits to the new one (#38382)"
+    },
+    {
+      "sha": "6cd2b63aadadaf965b07d36f9ee004d0ac3e4fe5",
+      "mergedAt": "2026-11-08T12:38:00Z",
+      "subject": "Cloud carrier: serve holds one session per machine, and the connect log gets per-step times (#38343)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T13:08:32Z",
+    "snapshot_id": "sh-44c4d10fd2f747e1ba34dca9fde5637d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42482606784): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a991f0e551510d035838ff9ac6bc14ac110b1947",
+    "image": "cloud-native-auto-0ecfdb7e-42482606784-1",
+    "revision": "ci-42482606784-1",
+    "at": "2026-11-08T13:08:32Z"
+  },
+  "rolled_back": false
+}
