@@ -36,6 +36,7 @@ import {
 } from "./inboxNotice";
 import { foldsThreads, useInboxNoticeLook } from "./inboxNoticeLook";
 import { Markdown } from "./Markdown";
+import { SentFromLine } from "./SentFromLine";
 import "./InboxNoticeCard.css";
 
 /// Reads a thread's messages, oldest first (App.tsx `readInboxThread`, `chat.inbox.thread`).
@@ -172,12 +173,20 @@ function InboxThreadLine({
               <Markdown githubRepository={repository} commits="quiet" messageAt={message.at ?? messageAt}>
                 {message.text}
               </Markdown>
+              {message.promptId && thread.sentFrom?.[message.promptId] && (
+                <SentFromLine from={thread.sentFrom[message.promptId]!} />
+              )}
             </section>
           ))
         ) : (
-          <Markdown githubRepository={repository} commits="quiet" messageAt={messageAt}>
-            {thread.preview || t("message.noText")}
-          </Markdown>
+          <>
+            <Markdown githubRepository={repository} commits="quiet" messageAt={messageAt}>
+              {thread.preview || t("message.noText")}
+            </Markdown>
+            {thread.promptIds.length === 1 && thread.sentFrom?.[thread.promptIds[0]!] && (
+              <SentFromLine from={thread.sentFrom[thread.promptIds[0]!]!} />
+            )}
+          </>
         )}
       </div>
     </DisclosureRow>

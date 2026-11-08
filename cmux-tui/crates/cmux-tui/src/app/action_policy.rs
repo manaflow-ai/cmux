@@ -45,6 +45,8 @@ pub(super) fn action_is_frontend_local(action: Action) -> bool {
             | Action::ScrollDown
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
+            | Action::NextAttention
+            | Action::AttentionList
     )
 }
 
@@ -94,6 +96,7 @@ pub(super) fn action_prepares_pty_release(action: Action) -> bool {
             | Action::ScrollDown
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
+            | Action::AttentionList
     )
 }
 

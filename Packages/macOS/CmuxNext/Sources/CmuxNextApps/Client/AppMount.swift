@@ -93,6 +93,17 @@ extension AppsClient {
         for mount in mounts.values { send(mount) }
     }
 
+    /// Mounts again each failed mount whose app the list shows: a local app's folder re-saved makes
+    /// the supervisor remove the app and add it back, failing its mounts ("removed") in between, and
+    /// a section that still shows the app must draw the new script, not that failure. A mount whose
+    /// script fails again just fails again; nothing retries without a list change.
+    func remountListedFailures() {
+        for mount in mounts.values {
+            guard case .failed = mount.model.status, app(mount.appID) != nil else { continue }
+            send(mount)
+        }
+    }
+
     private func send(_ mount: AppMount) {
         guard availability.isAvailable else {
             mount.model.status = .disconnected(AppsStrings.unavailable(unavailableReason ?? .notConnected))

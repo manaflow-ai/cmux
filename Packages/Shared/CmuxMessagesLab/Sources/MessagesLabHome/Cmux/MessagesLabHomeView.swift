@@ -764,8 +764,9 @@ public final class MessagesLabHomeView: NSView {
 
     /// Automation (DEBUG socket): opens picture `index` of the newest table card in the large picture viewer
     /// through the click's path (``ChatController/openTablePicture(_:at:width:)``); `compare` shows its row's
-    /// Before and After; `mark` draws a box, an arrow and a word on it. False when no table has a loaded picture.
-    public func debugOpenTablePicture(index: Int, compare: Bool, mark: Bool) -> Bool {
+    /// Before and After; `mark` draws a box, an arrow and a word on it; `style` and `show` (``HomePictureViewer/Key/before``
+    /// or `after`) set the comparison. False when no table has a loaded picture.
+    func debugOpenTablePicture(index: Int, compare: Bool, mark: Bool, style: HomePictureCompare.Style? = nil, show: HomePictureViewer.Key? = nil) -> Bool {
         guard let store = controller.store else { return false }
         for m in store.state.conversation.messages.reversed() {
             for part in m.parts {
@@ -781,6 +782,8 @@ public final class MessagesLabHomeView: NSView {
                     guard let viewer else { return }
                     await viewer.loaded()
                     if compare { viewer.handle(.compare) }
+                    if let style { viewer.showCompareStyle(style) }
+                    if let show { viewer.handle(show) }
                     if mark, let size = viewer.markedImage().map({ CGSize(width: $0.width, height: $0.height) }) {
                         viewer.addMark(.box(CGRect(x: size.width * 0.18, y: size.height * 0.2, width: size.width * 0.42, height: size.height * 0.36)))
                         viewer.addMark(.arrow(from: CGPoint(x: size.width * 0.86, y: size.height * 0.84), to: CGPoint(x: size.width * 0.62, y: size.height * 0.58)))
