@@ -213,6 +213,10 @@ pub struct TerminalPredictionEngine {
     /// engine stopped tracking when it last withdrew; matching it against keys
     /// typed since would misalign every later offset, so it only clears.
     untracked_echo_deadline: Option<Duration>,
+    /// When the newest keystroke the engine did not track was sent (behind a
+    /// barrier, or the one a withdrawal was for). A key sent right after it can
+    /// reach the remote in the same read and come back merged with it.
+    newest_untracked_keystroke: Option<Duration>,
 }
 
 impl Default for TerminalPredictionEngine {
@@ -243,6 +247,7 @@ impl TerminalPredictionEngine {
             recent_mispredictions: Vec::new(),
             suspended_until: None,
             untracked_echo_deadline: None,
+            newest_untracked_keystroke: None,
         }
     }
 
@@ -398,6 +403,7 @@ impl TerminalPredictionEngine {
         // can be placed. Its echo arrives after the barrier resolves, which
         // starts the untracked window that covers it.
         if self.has_barrier() {
+            self.newest_untracked_keystroke = Some(now);
             return expired;
         }
         let Some(byte) = byte.filter(|byte| (0x20..=0x7E).contains(byte)) else {
@@ -409,16 +415,29 @@ impl TerminalPredictionEngine {
         if self.entries.len() >= self.configuration.maximum_speculative_glyphs {
             return self.withdraw_all(false, now, true) || expired;
         }
-        if let Some(deadline) = self.untracked_echo_deadline
-            && now < deadline
+        let in_untracked_window =
+            self.untracked_echo_deadline.is_some_and(|deadline| now < deadline);
+        if in_untracked_window
+            && self
+                .newest_untracked_keystroke
+                .is_some_and(|untracked| now.saturating_sub(untracked) < self.coalescing_gap())
         {
-            // Readline and zle redraw pending input as one net change, so this
-            // key's echo may arrive merged with the untracked ones, or not at
-            // all when it undoes one of them; it is untracked too.
-            self.untracked_echo_deadline = Some(deadline.max(now + self.untracked_echo_settle()));
+            // Readline and zle redraw pending input as one net change, so a key
+            // sent right behind an untracked one may come back merged with it,
+            // or not at all when it undoes it; it is untracked too.
+            self.newest_untracked_keystroke = Some(now);
+            self.untracked_echo_deadline = self
+                .untracked_echo_deadline
+                .map(|deadline| deadline.max(now + self.untracked_echo_settle()));
             return expired;
         }
-        let display = self.status(now) == Status::Predicting;
+        // Any other key is tracked, also while older echoes may still be on
+        // their way: they arrive first, in order, and are told apart from this
+        // key's echo by when they come (`is_tracked_echo`). It is not drawn
+        // until the window closes; a key typed in it no longer pushes it out,
+        // so steady typing after Return or a Backspace predicts again within
+        // a round trip instead of once the user pauses.
+        let display = !in_untracked_window && self.status(now) == Status::Predicting;
         self.entries.push(Entry::new(Keystroke::Glyph(byte), now, display));
         display || expired
     }
@@ -440,6 +459,7 @@ impl TerminalPredictionEngine {
         }
         let expired = self.expire(now);
         if self.has_barrier() {
+            self.newest_untracked_keystroke = Some(now);
             return expired;
         }
         // Everything after the newest unretracted glyph is retracted glyphs and
@@ -478,6 +498,7 @@ impl TerminalPredictionEngine {
         }
         let expired = self.expire(now);
         if self.has_barrier() {
+            self.newest_untracked_keystroke = Some(now);
             return expired;
         }
         let mut changed = false;
@@ -597,12 +618,17 @@ impl TerminalPredictionEngine {
                 && signal != OutputSignal::Ignorable
                 && !matches!(signal, OutputSignal::AlternateScreen(_))
             {
-                // Possibly the echo of a keystroke already given up on. Drop
-                // what was typed since too: its echo is behind output this
-                // cannot account for.
-                return self.withdraw_all(false, now, false);
-            }
-            if now >= deadline {
+                if !self.is_tracked_echo(signal, now) {
+                    // Possibly the echo of a keystroke already given up on.
+                    // The keys tracked since echo after it, in order, so they
+                    // stay; the row it wrote is unknown, so the run starts over.
+                    self.end_run();
+                    return false;
+                }
+                // The first tracked key's echo: everything untracked was ahead
+                // of it in the stream, so it has all arrived.
+                self.untracked_echo_deadline = None;
+            } else if now >= deadline {
                 self.untracked_echo_deadline = None;
             }
         }
@@ -845,6 +871,8 @@ impl TerminalPredictionEngine {
                 .max()
         };
         if let Some(newest) = newest_untracked {
+            self.newest_untracked_keystroke =
+                Some(self.newest_untracked_keystroke.map_or(newest, |known| known.max(newest)));
             let deadline = newest + self.untracked_echo_settle();
             self.untracked_echo_deadline =
                 Some(self.untracked_echo_deadline.map_or(deadline, |d| d.max(deadline)));
@@ -942,6 +970,29 @@ impl TerminalPredictionEngine {
             None => self.configuration.speculative_lifetime,
             Some(latency) => self.configuration.speculative_lifetime.max(latency * 3),
         }
+    }
+
+    /// Whether output inside the untracked window is the echo of the oldest
+    /// key tracked since: the character it expects, arriving no sooner than
+    /// half a measured round trip after that key was sent. An older key's
+    /// echo, which comes first, was sent at least that much earlier.
+    fn is_tracked_echo(&self, signal: OutputSignal, now: Duration) -> bool {
+        let OutputSignal::Printable(byte) = signal else {
+            return false;
+        };
+        let Some((_, entry)) = self.first_speculative_entry() else {
+            return false;
+        };
+        let earliest = entry.typed_at
+            + self.smoothed_echo_latency.map_or(Duration::ZERO, |latency| latency / 2);
+        entry.keystroke == Keystroke::Glyph(byte) && now >= earliest
+    }
+
+    /// How soon after an untracked key another one may reach the remote in the
+    /// same read, so that a line editor answers both as one change.
+    fn coalescing_gap(&self) -> Duration {
+        let jitter = self.smoothed_echo_latency.map_or(Duration::ZERO, |latency| latency / 8);
+        Duration::from_millis(60) + jitter
     }
 
     /// How long after a withdrawal output may still belong to keystrokes the
