@@ -118,7 +118,7 @@ import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts } from "../savedPrompts";
-import { useNewChatStash } from "../composer/draftStash";
+import { NEW_TAB_STASH } from "../composer/draftStash";
 import { StashedChip } from "../composer/StashedChip";
 import { isStashKey, useDraftStash } from "../composer/useDraftStash";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
@@ -559,10 +559,11 @@ export function NewTabScreen(props: Props) {
       cancelHeldSend: holdForAttachments.cancel,
     },
   );
-  // Stash (composer/useDraftStash.ts), as in a chat's composer: ⌃S puts the draft aside on the
-  // tab's new-chat stack, and on an empty prompt brings the newest back. The location the page
-  // opens with is a suggestion, not a draft: it is never stashed.
-  const stashChat = useNewChatStash();
+  // Stash (composer/useDraftStash.ts), as in a chat's composer: ⌃S puts the draft aside, and on
+  // an empty prompt brings the newest back. Every New Tab page shares one stack, which never moves
+  // into a chat: a draft put aside here comes back on any New Tab, never in a chat it was not
+  // written for. The location the page opens with is a suggestion, not a draft: never stashed.
+  const stashChat = NEW_TAB_STASH;
   const {
     stashed,
     unstash,

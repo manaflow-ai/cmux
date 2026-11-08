@@ -191,6 +191,9 @@ const subscribeTab = (listener: () => void) => {
 };
 const ownKey = () => `new-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
 
+/// The New Tab page's stack, one for every New Tab: it never moves into a chat.
+export const NEW_TAB_STASH = "new-tab-page";
+
 /// The stash key of a composer's new chat (no session yet).
 export function useNewChatStash(): string {
   const [own] = useState(ownKey);

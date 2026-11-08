@@ -53,10 +53,14 @@ export function useDraftStash(chat: string, composer: StashedComposer) {
       (done) => done && showing(on) && stillHeld(held) && io.current.clear(),
     );
   };
+  // One restore at a time: a second pick while one is out would put both back and drop both, and
+  // the prompt would hold only the last.
+  const restoring = useRef(false);
   const unstash = (id?: string) => {
     const on = chat;
     const target = id ?? stashed[0]?.id;
-    if (!target) return;
+    if (!target || restoring.current) return;
+    restoring.current = true;
     void (async () => {
       // Read whole, and dropped only once this composer holds it again in the same chat.
       const entry = await readStashed(on, target);
@@ -81,7 +85,9 @@ export function useDraftStash(chat: string, composer: StashedComposer) {
       // closed or switched away first keeps the stashed copy.
       await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
       if (showing(on)) await dropStashed(on, entry.id);
-    })();
+    })().finally(() => {
+      restoring.current = false;
+    });
   };
   /// ⌃S: a draft is stashed (one acpmux does not take stays in the prompt); an empty prompt
   /// brings the newest stashed one back.

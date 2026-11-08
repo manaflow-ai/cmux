@@ -1185,8 +1185,8 @@ test.each(
   expect(creates).toEqual(kind === "chat" ? [] : [kind]);
 });
 
-test("⌃S on New Tab stashes the draft and empties the prompt; ⌃S on the empty prompt brings it back", async () => {
-  // acpmux's stash, in memory (draftStash.test.ts has the same fake).
+/// acpmux's stash, in memory (draftStash.test.ts has the same fake).
+function stashDaemon() {
   const daemon = new Map<string, { id: string; text: string; attachments: ComposerAttachment[]; at: number }[]>();
   let serial = 0;
   const fake: StashTransport = {
@@ -1205,6 +1205,22 @@ test("⌃S on New Tab stashes the draft and empties the prompt; ⌃S on the empt
       return { removed: true };
     },
   };
+  return { daemon, fake };
+}
+
+/// ⌃S on the prompt field, `turns` zero-delay turns after it (a restore's drop waits a frame).
+async function controlS(field: MarkdownFieldElement, turns = 5) {
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+  await act(async () => {
+    editor.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
+    );
+    for (let turn = 0; turn < turns; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+test("⌃S on New Tab stashes the draft and empties the prompt; ⌃S on the empty prompt brings it back", async () => {
+  const { daemon, fake } = stashDaemon();
   resetStashForTests(fake);
   try {
     await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} />));
@@ -1245,6 +1261,31 @@ test("⌃S on New Tab stashes the draft and empties the prompt; ⌃S on the empt
       for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(daemon.get(chat!)?.map((entry) => entry.text)).toEqual(["half a thought"]);
+  } finally {
+    resetStashForTests();
+  }
+});
+
+test("two ⌃S on an empty New Tab prompt at once bring back one draft, and the other stays stashed", async () => {
+  const { daemon, fake } = stashDaemon();
+  resetStashForTests(fake);
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} />));
+    let field = await typePrompt("one");
+    await controlS(field);
+    field = await typePrompt("two");
+    await controlS(field);
+    expect(promptValue()).toBe("");
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+    await act(async () => {
+      for (let press = 0; press < 2; press++)
+        editor.dispatchEvent(
+          new dom!.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
+        );
+      for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(promptValue()).toBe("two");
+    expect([...daemon.values()].flat().map((entry) => entry.text)).toEqual(["one"]);
   } finally {
     resetStashForTests();
   }
