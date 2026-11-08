@@ -3682,7 +3682,7 @@ esac
         place, client, tier = jobs["fast-tier-rerun-placement"], jobs["fast-tier-fleet"], jobs["fast-tier"]
         self.assertIn("fast-tier-rerun-placement", client["needs"])
         rerun = {**self.context(attempt=2), "github.triggering_actor": "someone", "inputs.same_tree_sha": "",
-                 "inputs.dev_daily": False, "vars.CI_COMPILE_CHECK_GATEWAY": gateway,
+                 "inputs.dev_daily": False, "vars.CI_COMPILE_CHECK_GATEWAY": gateway, "vars.CI_PR_POOL_OWNED": "1",
                  "needs.path_route.outputs.fast_tier": "true"}
         self.assertTrue(evaluate(place["if"], rerun))
         self.assertTrue(evaluate(place["if"], {**rerun, "github.run_attempt": 3}))
@@ -3692,6 +3692,10 @@ esac
                              ("the rescue's re-run: macos-placement places it",
                               {**rerun, "github.triggering_actor": "github-actions[bot]"}),
                              ("no gateway", {**rerun, "vars.CI_COMPILE_CHECK_GATEWAY": ""}),
+                             # Owned pools off (vars.CI_PR_POOL_OWNED, as macos-placement honours it): no owned
+                             # gateway route is placed, so the tier keeps its re-run route.
+                             ("owned pools off", {**rerun, "vars.CI_PR_POOL_OWNED": "0"}),
+                             ("owned pools unset", {**rerun, "vars.CI_PR_POOL_OWNED": ""}),
                              ("a fork", {**rerun, "github.event.pull_request.head.repo.full_name": "someone/cmux"}),
                              ("a pull request the route skips", {**rerun, "needs.path_route.outputs.fast_tier": "false"})):
             with self.subTest(why=why):
