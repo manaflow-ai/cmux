@@ -52,6 +52,9 @@
   min-width: 0;
   min-height: var(--ds-control-compact, 24px);
   box-sizing: border-box;
+  /* The field's padding sits in a matching negative margin, so typing into Other draws the field
+     without growing the row: nothing under it moves (gallery health's layout-shift row). */
+  margin-block: calc(-1 * var(--ds-space-1));
   padding: var(--ds-space-1) var(--ds-space-2);
   border: 0;
   border-radius: var(--ds-radius-control);
