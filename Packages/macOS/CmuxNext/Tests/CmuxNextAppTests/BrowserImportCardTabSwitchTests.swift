@@ -57,7 +57,7 @@ import Testing
         /// The card the browser offers now, as the import offer service shows it.
         func offer() -> NSView? {
             let offer = BrowserCookieImportOffer(icons: [], title: "Import bookmarks, history and passwords from Google Chrome",
-                                                 detail: "", importTitle: "Import…", notNowTitle: "Not Now")
+                                                 importTitle: "Import…", notNowTitle: "Not Now")
             chrome.showCookieImportOffer(offer) { _ in }
             pane.layoutSubtreeIfNeeded()
             return chrome.currentCookieImportCard
