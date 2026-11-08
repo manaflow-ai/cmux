@@ -1,6 +1,8 @@
 //! The roster's record of what the screen-detection plugin last saw on each
-//! terminal, and the rule that lets the screen end a hook-owned `blocked`
-//! row ([`AgentRoster::screen_clears_hook_blocker`]).
+//! terminal, and the rules that let the screen end a hook-owned `blocked`
+//! row ([`AgentRoster::screen_clears_hook_blocker`]), a `working` row whose
+//! turn ended without a hook, or a row whose agent exited
+//! ([`AgentRoster::screen_ends_hook_row`]).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -31,6 +33,18 @@ impl ScreenEvidence {
     }
 }
 
+/// What one plugin observation proves next to the same plugin's previous
+/// one on the terminal ([`AgentRoster::note_screen_evidence`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct ScreenNote {
+    /// It saw a blocker and now sees the agent working or idle.
+    pub(super) cleared_blocker: bool,
+    /// It saw the agent working and now sees its own idle prompt.
+    pub(super) ended_turn: bool,
+    /// It saw the agent and now sees its process gone.
+    pub(super) saw_exit: bool,
+}
+
 impl RosterEvent<'_> {
     /// The plugin saw the agent's own idle prompt (`native.visible.idle`,
     /// the screen detector's prompt-box rules): positive evidence that no
@@ -41,29 +55,64 @@ impl RosterEvent<'_> {
 }
 
 impl AgentRoster {
-    /// Record `producer`'s observation of `terminal_id` and return whether it
-    /// ends a blocker the same producer saw: its previous observation was
-    /// `blocked` and this one is `working` or `idle`. Repeated reports of the
-    /// same state change nothing, so the plugin's stable-blocker refreshes
-    /// keep the record at `blocked`.
+    /// Record `producer`'s observation of `terminal_id` and say what it
+    /// proves next to the same producer's previous one ([`ScreenNote`]).
+    /// Repeated reports of the same state change nothing, so the plugin's
+    /// stable-blocker refreshes keep the record at `blocked`.
     pub(super) fn note_screen_evidence(
         &mut self,
         terminal_id: &str,
         producer: &str,
         state: AgentState,
-    ) -> bool {
-        if state == AgentState::Done {
-            self.screen_evidence.remove(terminal_id);
-            return false;
+        visible_idle: bool,
+    ) -> ScreenNote {
+        let previous = if state == AgentState::Done {
+            self.screen_evidence.remove(terminal_id)
+        } else {
+            self.screen_evidence.insert(
+                terminal_id.to_string(),
+                ScreenEvidence {
+                    producer: producer.to_string(),
+                    state: state.as_str().to_string(),
+                },
+            )
+        };
+        let Some(previous) = previous.filter(|previous| previous.producer == producer) else {
+            return ScreenNote::default();
+        };
+        ScreenNote {
+            cleared_blocker: matches!(state, AgentState::Working | AgentState::Idle)
+                && previous.state == AgentState::Blocked.as_str(),
+            ended_turn: state == AgentState::Idle
+                && visible_idle
+                && previous.state == AgentState::Working.as_str(),
+            saw_exit: state == AgentState::Done,
         }
-        let previous = self.screen_evidence.insert(
-            terminal_id.to_string(),
-            ScreenEvidence { producer: producer.to_string(), state: state.as_str().to_string() },
-        );
-        matches!(state, AgentState::Working | AgentState::Idle)
-            && previous.is_some_and(|previous| {
-                previous.producer == producer && previous.state == AgentState::Blocked.as_str()
-            })
+    }
+
+    /// Whether a plugin observation ends a hook-owned `working` row even
+    /// while the hook is fresh, or removes a hook row. A turn's end and an
+    /// agent's exit can come with no hook: Claude Code fires no `Stop` when
+    /// the person interrupts the turn with Esc (manaflow-ai/cmux#36529), a
+    /// `Stop` that ran can be lost on its way (#21229), and a killed harness
+    /// sends no `SessionEnd` (#20874). The screen proves it, observed after
+    /// the hook's last report: the same plugin saw the turn run and now sees
+    /// the agent's own idle prompt (`ended_turn`), or saw the agent and now
+    /// sees its process gone (`saw_exit`; the detector confirms an exit
+    /// over six scans). A plain screen `idle`, or an exit another producer
+    /// reports, proves nothing.
+    pub(super) fn screen_ends_hook_row(
+        existing: &RosterEntry,
+        note: ScreenNote,
+        state: AgentState,
+        observed_at_ms: u64,
+    ) -> bool {
+        let ends = match state {
+            AgentState::Idle => note.ended_turn && existing.agent_state() == AgentState::Working,
+            AgentState::Done => note.saw_exit,
+            _ => false,
+        };
+        ends && observed_at_ms > existing.updated_at_ms
     }
 
     /// Whether a plugin observation replaces a hook-owned `blocked` row even

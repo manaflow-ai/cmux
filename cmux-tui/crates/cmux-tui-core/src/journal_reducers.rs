@@ -37,8 +37,11 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// journal head so fences exist for every retained lifecycle. Version 7 keeps
 /// each terminal's last screen observation, so a hook `blocked` row clears
 /// when the screen shows its dialog gone; the re-fold clears rows that stayed
-/// blocked after a dialog was dismissed with Esc.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 7;
+/// blocked after a dialog was dismissed with Esc. Version 8 lets the screen end
+/// a hook `working` row whose turn ended with no hook (Esc, a lost `Stop`) and
+/// remove a hook row whose agent exited; the re-fold clears rows that stayed
+/// working after either.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 8;
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -669,6 +672,8 @@ impl AgentRoster {
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
         // The screen proves that no dialog is up any more ([`Self::screen_clears_hook_blocker`]).
         let mut screen_cleared_blocker = false;
+        // What the screen proves about a turn's end or an exit ([`Self::screen_ends_hook_row`]).
+        let mut screen_note = ScreenNote::default();
         let (state, source, producer, producer_generation, session, agent, updated_at_ms) = if event
             .plugin_event()
         {
@@ -687,9 +692,11 @@ impl AgentRoster {
             let session = event.normalized("source_session").map(str::to_string);
             let agent = event.adapter_id().map(str::to_string);
             let state = if event_name == "session.ended" { AgentState::Done } else { state };
-            let saw_blocker_go = self.note_screen_evidence(terminal_id, event.producer_id, state);
+            let visible_idle = event.plugin_visible_idle();
+            screen_note =
+                self.note_screen_evidence(terminal_id, event.producer_id, state, visible_idle);
             screen_cleared_blocker =
-                saw_blocker_go || (state == AgentState::Idle && event.plugin_visible_idle());
+                screen_note.cleared_blocker || (state == AgentState::Idle && visible_idle);
             (
                 state,
                 AgentSource::Plugin,
@@ -781,6 +788,9 @@ impl AgentRoster {
         // live hook owns (fresher than STALE_HOOK_MS), and its exit removal
         // only applies to entries screen detection itself established.
         // Socket reports lose to both stronger sources.
+        // The screen ends a hook row no hook will end (Esc, a lost `Stop`, a
+        // killed harness): it wins over the fresh hook, and its exit removes it.
+        let mut screen_ended_hook_row = false;
         match source {
             AgentSource::Hook => {
                 if let Some(existing) = self.entries.get(terminal_id)
@@ -802,7 +812,12 @@ impl AgentRoster {
                             state,
                             updated_at_ms,
                         );
-                    if existing_source == AgentSource::Hook && !dialog_gone {
+                    screen_ended_hook_row = existing_source == AgentSource::Hook
+                        && Self::screen_ends_hook_row(existing, screen_note, state, updated_at_ms);
+                    if existing_source == AgentSource::Hook
+                        && !dialog_gone
+                        && !screen_ended_hook_row
+                    {
                         // The producer observation is the evidence clock. A
                         // delayed append must not turn an old screen read
                         // into fresh evidence just because the journal
@@ -899,7 +914,7 @@ impl AgentRoster {
                                 _ => false,
                             }))
             });
-            return if owned_by_event {
+            return if owned_by_event || screen_ended_hook_row {
                 self.entries.remove(terminal_id);
                 vec![RosterDelta::Remove { terminal_id: terminal_id.to_string(), source }]
             } else {
@@ -1050,7 +1065,7 @@ fn valid_decimal_generation(value: &str) -> bool {
 
 #[path = "journal_reducers_screen_evidence.rs"]
 mod screen_evidence;
-use screen_evidence::ScreenEvidence;
+use screen_evidence::{ScreenEvidence, ScreenNote};
 
 #[cfg(test)]
 #[path = "journal_reducers_blocker_tests.rs"]
