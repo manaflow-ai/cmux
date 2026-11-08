@@ -31,6 +31,17 @@ pub const DAEMON_OP_TIMEOUT: Duration = Duration::from_secs(30);
 /// The largest daemon answer line (a 16 MiB read in base64, plus framing).
 const MAX_ANSWER_BYTES: u64 = 24 * 1024 * 1024;
 
+/// What goes out first on each carrier stream: a daemon `ping`, whose answer
+/// shows the carrier's dial is up. `carrier serve` holds what its client
+/// writes while it still dials and forwards it once connected, even after
+/// the client shut the stream down (a deadline, a cancel), so the op's own
+/// line goes out only after this answer: an op cancelled while the carrier
+/// dials never reaches the daemon.
+const DIAL_PROBE: &[u8] = b"{\"id\":0,\"cmd\":\"ping\"}\n";
+
+/// The largest probe answer line.
+const MAX_PROBE_BYTES: u64 = 64 * 1024;
+
 /// The link ended after the request went out and before the daemon's whole
 /// answer line (EOF, a read error or the deadline): the op may have acted.
 /// Retryable only for a read; an `fs.write` reconciles with `fs.stat`
@@ -142,23 +153,38 @@ fn exchange(
     streams: &Streams,
     sent: &AtomicBool,
 ) -> Result<Vec<u8>, CloudError> {
-    let (mut stream, key) = open_upstream(&target.socket, streams).map_err(|refusal| {
+    let (stream, key) = open_upstream(&target.socket, streams).map_err(|refusal| {
         unavailable(format!(
             "the carrier refused: {}{}",
             refusal.code.as_str(),
             refusal.detail.map(|d| format!(" ({d})")).unwrap_or_default()
         ))
     })?;
+    // One reader for the probe's answer and the op's: nothing is lost
+    // between them.
+    let mut reader = BufReader::new(&stream);
+    let mut probe = Vec::new();
+    let probed = (&stream)
+        .write_all(DIAL_PROBE)
+        .and_then(|()| (&stream).flush())
+        .and_then(|()| reader.by_ref().take(MAX_PROBE_BYTES).read_until(b'\n', &mut probe));
+    if probed.is_err() || probe.last() != Some(&b'\n') {
+        // The dial never came up (refused, gone, the deadline, a cancel):
+        // only the probe went out.
+        end_stream(&stream, key, streams);
+        let why = probed.err().map(|e| format!(": {e}")).unwrap_or_default();
+        return Err(unavailable(format!("the carrier's dial did not come up{why}")));
+    }
     // The write side stays open until the answer: the carrier ends the
     // remote stream when its client half-closes, and the reply is lost.
-    let written = stream.write_all(line.as_bytes()).and_then(|()| stream.flush());
+    let written = (&stream).write_all(line.as_bytes()).and_then(|()| (&stream).flush());
     if let Err(e) = written {
         end_stream(&stream, key, streams);
         return Err(unavailable(format!("the daemon link closed: {e}")));
     }
     sent.store(true, Ordering::Release);
     let mut answer = Vec::new();
-    let read = BufReader::new(&stream).take(MAX_ANSWER_BYTES).read_until(b'\n', &mut answer);
+    let read = reader.take(MAX_ANSWER_BYTES).read_until(b'\n', &mut answer);
     end_stream(&stream, key, streams);
     read.map_err(|e| answer_lost(op, format!("the daemon link closed before the answer: {e}")))?;
     // EOF before the whole line (a line at the size bound is a bad answer).

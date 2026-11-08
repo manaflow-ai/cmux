@@ -135,6 +135,8 @@ public actor CloudCarrierServe {
                 }
             }
         }
+        // Another connect started a launch while this one awaited its token: join it, never a second child.
+        if let starting { return try await starting.value }
         let task = Task { try await self.launch(generation: mine) }
         starting = task
         defer { if mine == generation { starting = nil } }

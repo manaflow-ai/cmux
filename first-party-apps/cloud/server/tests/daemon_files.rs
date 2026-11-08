@@ -10,8 +10,9 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 
-/// A carrier socket in this test's own folder whose every connection runs
-/// `serve`, and the requests it read (one line each).
+/// A carrier socket in this test's own folder whose every connection answers
+/// the op's dial probe (a `ping`), then runs `serve`, and the requests it
+/// read (one line each, the probe left out).
 fn carrier(
     name: &str,
     serve: impl Fn(UnixStream, String) + Send + Sync + 'static,
@@ -27,8 +28,13 @@ fn carrier(
         for connection in listener.incoming().flatten() {
             let (sent, serve) = (sent.clone(), std::sync::Arc::clone(&serve));
             std::thread::spawn(move || {
+                let mut reader = BufReader::new(connection.try_clone().unwrap());
+                let mut probe = String::new();
+                let _ = reader.read_line(&mut probe);
+                assert_eq!(probe, "{\"id\":0,\"cmd\":\"ping\"}\n", "the probe goes first");
+                let _ = (&connection).write_all(b"{\"id\":0,\"ok\":true}\n");
                 let mut line = String::new();
-                let _ = BufReader::new(connection.try_clone().unwrap()).read_line(&mut line);
+                let _ = reader.read_line(&mut line);
                 let _ = sent.send(line.clone());
                 serve(connection, line);
             });
@@ -62,8 +68,24 @@ fn one_stream_sends_one_v12_line_and_reads_one_answer() {
 #[test]
 fn a_refused_dial_and_a_gone_carrier_are_typed() {
     // The app's carrier refused the dial: it closes the stream having
-    // written nothing. The request went out, so a read may run again.
-    let (target, _) = carrier("refused", |connection, _| drop(connection));
+    // written nothing, so the probe gets no answer and the op never went out.
+    let refused = std::env::temp_dir().join(format!("cx-files-refused-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&refused);
+    std::fs::create_dir_all(&refused).unwrap();
+    let socket = refused.join("carrier.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    std::thread::spawn(move || {
+        for connection in listener.incoming().flatten() {
+            drop(connection);
+        }
+    });
+    let err = LinkDaemonFiles
+        .call(&DialTarget { socket }, "fs.write", json!({ "path": "/a" }), &Cancel::default())
+        .unwrap_err();
+    assert_eq!(err.code, "cmux.cloud.link_down", "{err:?}");
+    assert!(err.retryable, "nothing went out: even a write may run again");
+    // The daemon went away after the request went out: a read may run again.
+    let (target, _) = carrier("lost", |connection, _| drop(connection));
     let err = LinkDaemonFiles
         .call(&target, "fs.stat", json!({ "path": "/a" }), &Cancel::default())
         .unwrap_err();
@@ -158,4 +180,34 @@ fn a_reply_slower_than_the_request_still_arrives() {
         .call(&target, "fs.stat", json!({ "path": "/a" }), &Cancel::default())
         .expect("the answer after the delay");
     assert_eq!(data, json!({ "entry": { "revision": "s3" } }));
+}
+
+#[test]
+fn an_op_cancelled_while_the_carrier_dials_never_goes_out() {
+    // A carrier that is still dialing: it accepts, reads nothing back for the
+    // probe, and records every byte it got until the client is gone.
+    let dir = std::env::temp_dir().join(format!("cx-files-dialing-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("carrier.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let (got, received) = channel();
+    std::thread::spawn(move || {
+        for connection in listener.incoming().flatten() {
+            let mut bytes = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut &connection, &mut bytes);
+            let _ = got.send(String::from_utf8_lossy(&bytes).into_owned());
+        }
+    });
+    let cancel = Cancel::default();
+    let worker_cancel = cancel.clone();
+    let worker = std::thread::spawn(move || {
+        LinkDaemonFiles.call(&DialTarget { socket }, "fs.delete", json!({ "path": "/a" }), &worker_cancel)
+    });
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    cancel.cancel();
+    let outcome = worker.join().expect("worker");
+    assert!(outcome.is_err(), "a cancelled op is an error");
+    let bytes = received.recv_timeout(std::time::Duration::from_secs(5)).expect("the stream ended");
+    assert_eq!(bytes, "{\"id\":0,\"cmd\":\"ping\"}\n", "only the probe went out, never the delete");
 }
