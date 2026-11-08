@@ -128,12 +128,23 @@ struct TabPinMotionTests {
         var path: [CGRect] = []
         var titles: [Float] = []
         var icons: [CGFloat] = []
+        var iconOverTitle = false
         for k in 0...ticks {
             let time = begin + Double(k) / 120
             let frame = shown(cell, at: time)
             path.append(frame)
             titles.append(opacity(cell.titleLayer, at: time))
             icons.append(frame.minX + MotionPath(cell.iconLayer, "position").value(at: time).x)
+            // The icon never draws over its own title while the title shows (the film: the centring icon passed over
+            // its fading title). Both in the cell's coordinates.
+            let iconCenter = MotionPath(cell.iconLayer, "position").value(at: time).x
+            let iconMaxX = iconCenter + MotionPath(cell.iconLayer, "bounds.size").value(at: time).x * (1 - cell.iconLayer.anchorPoint.x)
+            let titleMinX = MotionPath(cell.titleLayer, "position").value(at: time).x
+                - MotionPath(cell.titleLayer, "bounds.size").value(at: time).x * cell.titleLayer.anchorPoint.x
+            if !iconOverTitle, let titleOpacity = titles.last, titleOpacity > 0.05, iconMaxX > titleMinX + 0.5 {
+                iconOverTitle = true
+                failures.append("tick \(k): the icon draws \(iconMaxX - titleMinX) pt over its own title (opacity \(titleOpacity))")
+            }
             // Never clipped by the pinned band's edge: the unpinned tabs' layer clips at it.
             for (id, other) in strip.cells {
                 let shownFrame = shown(other, at: time)
