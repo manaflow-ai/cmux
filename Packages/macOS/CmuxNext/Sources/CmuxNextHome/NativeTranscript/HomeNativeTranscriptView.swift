@@ -566,14 +566,26 @@ public final class HomeNativeTranscriptView: NSView {
         applyTheme()
         // Opened, or returned to (its tab shown again, the docked Home shown again): the chat
         // rests at its newest message, wherever it was left (https://github.com/manaflow-ai/cmux/issues/34562).
-        transcript.showNewest()
+        // Not when the view only moves while it stays on screen (``keepingPlace(_:)``).
+        if Self.placeKeepingMoves == 0 { transcript.showNewest() }
     }
 
     /// Shown again in the same window (a hidden tab or container unhidden): at the newest message too.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        transcript.showNewest()
+        if Self.placeKeepingMoves == 0 { transcript.showNewest() }
     }
+
+    /// Moves of a chat that stays on screen while `body` runs keep the reader's place: the window's Chief
+    /// panel takes Home's chat beside a link it opened, and gives it back (`WindowController.syncChiefPanel`).
+    /// Every other arrival in a window, or showing again, rests at the newest message.
+    public static func keepingPlace<T>(_ body: () -> T) -> T {
+        placeKeepingMoves += 1
+        defer { placeKeepingMoves -= 1 }
+        return body()
+    }
+
+    private static var placeKeepingMoves = 0
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

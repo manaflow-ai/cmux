@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextLayout
 import CmuxNextSidebar
@@ -302,7 +303,7 @@ extension WindowController {
         let view = chiefPanelView ?? makeChiefPanelView()
         if view.superview !== root.contentHost { root.contentHost.addSubview(view) }
         if view.floating != (state.chiefPanel.dockedEdge == nil) { view.setFloating(state.chiefPanel.dockedEdge == nil) }
-        view.hold(chief)
+        HomeNativeTranscriptView.keepingPlace { view.hold(chief) }  // the chat stays on screen: its reader keeps their place
         return state.chiefPanel
     }
 
@@ -312,7 +313,7 @@ extension WindowController {
         let hadKeys = view.hasKeys
         let homeContent = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
         let panes = homeContent.map { Array($0.panes.values) } ?? []
-        if let chief = view.release() { for pane in panes where pane.view.content === chief { _ = pane.view.show(chief) } }
+        HomeNativeTranscriptView.keepingPlace { if let chief = view.release() { for pane in panes where pane.view.content === chief { _ = pane.view.show(chief) } } }
         view.removeFromSuperview()
         if hadKeys, homeContent !== content { frameFocusStage(toward: nil) }
     }
