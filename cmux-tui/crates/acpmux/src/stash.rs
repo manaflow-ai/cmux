@@ -224,9 +224,11 @@ pub fn remove(dir: &Path, chat: &str, id: &str) -> Result<bool, RpcError> {
     Ok(true)
 }
 
-/// Moves `from`'s stack onto `to`'s: one write of `to` with both, newest first and the oldest past
-/// [`STASH_LIMIT`] let go, then `from`'s file removed. A draft `to` already holds (a move a failed
-/// removal left behind) is not added again. How many drafts moved.
+/// Moves `from`'s stack onto `to`'s: one write of `to` with `from`'s drafts on top in their order
+/// (as pushing each would put them) and `to`'s own below, the oldest past [`STASH_LIMIT`] let go,
+/// then `from`'s file removed. A draft `to` already holds whole (a move a failed removal left
+/// behind) is not added again; one whose id `to` uses for another draft (ids start over with the
+/// daemon) gets a new id. How many drafts moved.
 pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<usize, RpcError> {
     if from == to {
         return Ok(0);
@@ -238,15 +240,19 @@ pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<usize, RpcError> {
         return Ok(0);
     }
     let to_path = chat_path(dir, to);
-    let mut drafts = load(&to_path).map_err(unreadable)?;
-    let mut moved = 0;
-    for draft in moving {
-        if !drafts.iter().any(|d| d.id == draft.id) {
-            drafts.push(draft);
-            moved += 1;
+    let own = load(&to_path).map_err(unreadable)?;
+    let mut drafts: Vec<Draft> = Vec::with_capacity(moving.len() + own.len());
+    for mut draft in moving {
+        if own.contains(&draft) {
+            continue;
         }
+        while own.iter().chain(&drafts).any(|d| d.id == draft.id) {
+            draft.id = format!("stash-{}-{}", draft.at, SERIAL.fetch_add(1, Ordering::Relaxed));
+        }
+        drafts.push(draft);
     }
-    drafts.sort_by_key(|d| std::cmp::Reverse(d.at));
+    let moved = drafts.len();
+    drafts.extend(own);
     drafts.truncate(STASH_LIMIT);
     write(&to_path, to, &drafts).map_err(not_saved)?;
     crate::config::refuse_lost_home(&from_path).map_err(io::Error::other).map_err(not_saved)?;
@@ -495,7 +501,7 @@ mod tests {
         assert_eq!(move_stack(&dir, "new", "session").unwrap(), 2);
         let kept = load(&chat_path(&dir, "session")).unwrap();
         let texts: Vec<&str> = kept.iter().map(|d| d.text.as_str()).collect();
-        assert_eq!(texts, ["newer", "the session's own", "older"]);
+        assert_eq!(texts, ["newer", "older", "the session's own"]);
         assert_eq!(kept[2].attachments[0]["data"], "AAA");
         assert!(!chat_path(&dir, "new").exists());
         // Nothing left to move: tried again, it changes nothing.
@@ -550,5 +556,40 @@ mod tests {
         let chip = &row["attachments"][0];
         assert_eq!(chip["name"], "a.mov");
         assert!(chip.get("frames").is_none() && chip.get("poster").is_none());
+    }
+
+    #[test]
+    fn a_move_onto_a_full_stack_keeps_the_moved_drafts_even_when_their_times_tie() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        for n in 0..STASH_LIMIT {
+            push(&dir, "session", &format!("own {n}"), Vec::new(), None, 7).unwrap();
+        }
+        push(&dir, "new", "moved", Vec::new(), None, 7).unwrap();
+        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 1);
+        let texts: Vec<String> =
+            load(&chat_path(&dir, "session")).unwrap().into_iter().map(|d| d.text).collect();
+        assert_eq!(texts, ["moved", "own 4", "own 3", "own 2", "own 1"]);
+    }
+
+    #[test]
+    fn a_moved_draft_whose_id_the_session_uses_is_kept_under_a_new_id() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        let own = push(&dir, "session", "the session's own", Vec::new(), None, 5).unwrap();
+        // A relaunched daemon gave the new chat's draft the same id.
+        let other = Draft {
+            id: own.id.clone(),
+            text: "written after".into(),
+            attachments: Vec::new(),
+            at: 6,
+        };
+        write(&chat_path(&dir, "new"), "new", &[other]).unwrap();
+        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 1);
+        let kept = load(&chat_path(&dir, "session")).unwrap();
+        let texts: Vec<&str> = kept.iter().map(|d| d.text.as_str()).collect();
+        assert_eq!(texts, ["written after", "the session's own"]);
+        assert_ne!(kept[0].id, kept[1].id);
+        assert!(!chat_path(&dir, "new").exists());
     }
 }

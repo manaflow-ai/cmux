@@ -698,7 +698,7 @@ export class MockAcpmuxSocket {
         if (from === to) return { moved: 0 };
         const kept = this.stash.get(to) ?? [];
         const moving = (this.stash.get(from) ?? []).filter((entry) => !kept.some((own) => own.id === entry.id));
-        this.stash.set(to, [...kept, ...moving].sort((a, b) => b.at - a.at).slice(0, 5));
+        this.stash.set(to, [...moving, ...kept].slice(0, 5));
         this.stash.delete(from);
         return { moved: moving.length };
       }

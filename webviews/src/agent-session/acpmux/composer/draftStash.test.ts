@@ -47,11 +47,12 @@ const fake: StashTransport = {
     );
     return { removed: true };
   },
-  // One write under acpmux's lock: newest first, none twice, at most five; then the source goes.
+  // One write under acpmux's lock: the moved drafts on top, none twice, at most five; then the
+  // source goes.
   move: async (chat, to) => {
     const kept = daemon.get(to) ?? [];
     const moving = (daemon.get(chat) ?? []).filter((row) => !kept.some((own) => own.id === row.id));
-    daemon.set(to, [...kept, ...moving].sort((a, b) => b.at - a.at).slice(0, 5));
+    daemon.set(to, [...moving, ...kept].slice(0, 5));
     daemon.delete(chat);
     return { moved: moving.length };
   },
