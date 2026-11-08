@@ -61,4 +61,18 @@ struct DaemonMoveIndexTests {
         #expect(moved.final == 4)
         #expect(moved.current == 1)
     }
+
+    /// A tab the person closed is closed lately (`closedLately`) through its close and after it settles, so a new tab's
+    /// move stops waiting for it to be listed (Leo 2026-11-05: "delete the proper thing"); a rejected close gives it back.
+    @Test func aClosedTabIsClosedLatelyUntilItsCloseIsRejected() throws {
+        let store = Self.store()
+        let tab = try #require(store.tab(surface: Self.surfaces[1]))
+        #expect(!store.closedLately(Self.surfaces[1]) && !store.closedLately(tab.id))
+        let close = try #require(store.intendClose([Self.surfaces[1]]))
+        #expect(store.closedLately(Self.surfaces[1]) && store.closedLately(tab.id))
+        #expect(!store.closedLately(Self.surfaces[2]), "only the closed tab")
+        store.rejectIntent(close)
+        #expect(store.tab(surface: Self.surfaces[1]) != nil, "the rejected close shows the tab again")
+        #expect(!store.closedLately(Self.surfaces[1]) && !store.closedLately(tab.id), "a rejected close leaves the tab open")
+    }
 }

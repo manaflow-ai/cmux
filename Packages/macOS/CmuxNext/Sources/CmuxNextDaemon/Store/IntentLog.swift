@@ -244,6 +244,12 @@ struct IntentLog {
         if closedTabs.count > Self.replacedStandInLimit { closedTabs.removeFirst(closedTabs.count - Self.replacedStandInLimit) }
     }
 
+
+    /// The tabs on `surfaces` are not closed after all (their close was rejected).
+    mutating func forgetClosed(_ surfaces: Set<SurfaceID>) {
+        closedTabs.removeAll { surfaces.contains($0.surface) }
+    }
+
     /// False when `transaction` is not pending.
     mutating func markCloseWhenCreated(_ transaction: ClientTransactionID) -> Bool {
         guard entries.modifyFirst(where: { $0.transaction == transaction }, { $0.closeWhenCreated = true }) else { return false }
