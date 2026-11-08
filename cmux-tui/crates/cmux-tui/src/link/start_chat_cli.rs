@@ -75,6 +75,7 @@ cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--proj
 cmux link start-chat import --entries JSON\n       \
 cmux link start-chat reserve|release --request JSON (the session credential on stdin)\n       \
 cmux link start-chat warm-spare --request JSON (the session credential, then the install token, on stdin)\n       \
+cmux link start-chat wait-copy --machine ID --provider claude|codex\n       \
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
 
 /// The error code a work root the machine's user cannot write answers with:
@@ -162,16 +163,20 @@ pub(super) fn run(args: &[String]) -> i32 {
         "release" => {
             reservations::run(&flags, reservations::Action::Release, &mut std::io::stdin().lock())
         }
-        "warm-spare" => spare_warm::run(
-            &flags,
-            ledger.parent().unwrap_or(&ledger),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
-                .unwrap_or_default(),
-            &mut std::io::stdin().lock(),
-            &spare_warm::post,
-        ),
+        "warm-spare" => match spare_warm::wait_request(&flags) {
+            Some(wait) => Some(wait_copy(&ledger, &wait.machine, &wait.provider)),
+            None => spare_warm::run(
+                &flags,
+                ledger.parent().unwrap_or(&ledger),
+                now_ms(),
+                &mut std::io::stdin().lock(),
+                &spare_warm::post,
+            ),
+        },
+        "wait-copy" => match (flags.one("--machine"), flags.one("--provider")) {
+            (Some(machine), Some(provider)) => Some(wait_copy(&ledger, machine, provider)),
+            _ => None,
+        },
         _ => None,
     };
     let Some(answer) = answer else {
@@ -180,6 +185,20 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     println!("{answer}");
     if answer["ok"] == json!(true) { 0 } else { 1 }
+}
+
+/// Milliseconds since 1970 by the wall clock.
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or_default()
+}
+
+/// A start's wait on a warm's copy (`spare_warm::wait_copy`), on the wall clock, rechecking every 250 ms.
+fn wait_copy(ledger: &std::path::Path, machine: &str, provider: &str) -> Value {
+    let pause = || std::thread::sleep(std::time::Duration::from_millis(250));
+    spare_warm::wait_copy(ledger.parent().unwrap_or(ledger), machine, provider, &now_ms, &pause)
 }
 
 /// The keys of the send `key` (lowercased: a retry may spell it in another case).

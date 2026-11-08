@@ -511,6 +511,7 @@ pub fn decide(d: &Inputs) -> Decision {
         skipped_team_machine: reason == Reason::GuestNotOwner && kind == Some("team"),
         warm_copy_conflict: reads_machine
             && step != Step::Refuse
+            && choice(d) != Some(Choice::Machine)
             && d.provider.is_some_and(warm_copies),
         summary: summary(d, step, reason),
     }

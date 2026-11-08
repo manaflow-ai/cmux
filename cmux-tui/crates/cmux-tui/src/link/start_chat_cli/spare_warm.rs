@@ -25,6 +25,13 @@ pub(super) const WARM_GAP_MS: u64 = 120_000;
 pub(super) const TEAM_UNRESOLVED: &str = "team_unresolved";
 /// The answer's code when the throttle's lock cannot be taken: no warm, no copy.
 pub(super) const THROTTLE_UNAVAILABLE: &str = "throttle_unavailable";
+/// How long a copy handed to the App counts as in flight when the App never reports it finished
+/// (it quit mid-copy): the platform call's 90 s and the copy's own budget.
+pub(super) const COPY_BUDGET_MS: u64 = 180_000;
+/// The longest a start waits on a warm's copy (inside the CLI verb's 95 s).
+pub(super) const WAIT_COPY_MS: u64 = 80_000;
+/// The provider whose login the warm copies: a start of any other never waits on it.
+const COPIED_PROVIDER: &str = "claude";
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +42,39 @@ pub(super) struct Request {
     /// record no longer counts as copied, so the next warm answers the copy again.
     #[serde(default)]
     pub(super) abandoned: Option<String>,
+    /// The machine of a copy that ended (installed, or given up for any other reason): no longer in
+    /// flight, so a start onto it stops waiting.
+    #[serde(default)]
+    pub(super) finished: Option<String>,
+    /// The App's active Stack team, its managed team and the Stack project: the warm's backend team
+    /// (`identity::mint_team`). With neither team the warm is the install token's own (personal) team.
+    #[serde(default)]
+    pub(super) active_team: Option<String>,
+    #[serde(default)]
+    pub(super) managed_team: Option<String>,
+    #[serde(default)]
+    pub(super) stack_project_id: Option<String>,
+    /// A start's question instead of a warm: wait for a warm's copy onto this machine.
+    #[serde(default)]
+    pub(super) wait_copy: Option<WaitCopy>,
+}
+
+/// `{"waitCopy": {"machine": M, "provider": P}}`: what `wait-copy --machine M --provider P` asks.
+#[derive(serde::Deserialize)]
+pub(super) struct WaitCopy {
+    pub(super) machine: String,
+    pub(super) provider: String,
+}
+
+/// A warm's login copy in flight: registered before the platform call (no machine yet, so a start
+/// onto any machine waits), given its machine when the answer hands the App a copy, and cleared
+/// when the App reports it finished, when the warm copies nothing, or after [`COPY_BUDGET_MS`].
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+struct Copying {
+    account: String,
+    team: String,
+    machine: Option<String>,
+    at: u64,
 }
 
 /// The last fresh warm of one account and team (one per pair).
@@ -69,6 +109,8 @@ struct State {
     warms: Vec<Record>,
     #[serde(default)]
     attempts: Vec<Attempt>,
+    #[serde(default)]
+    copies: Vec<Copying>,
 }
 
 /// The platform call: the request, the person's session credential, the backend team it acts in.
@@ -97,6 +139,24 @@ pub(super) fn post(
 /// token names no backend team: the warm is refused, never sent as personal.
 fn install_team(install_token: &str) -> Option<String> {
     identity::claims(install_token.trim()).team.filter(|team| identity::is_team(team))
+}
+
+/// The warm's team, decided here: the active Stack team's backend id (`identity::mint_team`, the
+/// managed-device rule included), else, with no team active, the install token's own team. None
+/// when neither resolves (a managed device off its team, no project, no claim): the warm is refused.
+fn warm_team(request: &Request, install_token: &str) -> Option<String> {
+    if request.active_team.is_none() && request.managed_team.is_none() {
+        return install_team(install_token);
+    }
+    identity::mint_team(
+        None,
+        request.active_team.as_deref(),
+        request.managed_team.as_deref(),
+        request.stack_project_id.as_deref()?,
+    )
+    .ok()
+    .flatten()
+    .filter(|team| identity::is_team(team))
 }
 
 /// The throttle's lock (`spare-warm.lock`, an exclusive `flock`), held from the record's read to
@@ -136,8 +196,9 @@ pub(super) fn run(
     if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
         return Some(refused("unauthorized", "no session credential on stdin"));
     }
-    let Some(team) = stdin.read_line(&mut install).ok().and_then(|_| install_team(&install)) else {
-        return Some(refused(TEAM_UNRESOLVED, "the install token names no team"));
+    let _ = stdin.read_line(&mut install);
+    let Some(team) = warm_team(&request, &install) else {
+        return Some(refused(TEAM_UNRESOLVED, "no backend team for the active team or the install token"));
     };
     let Some(_held) = lock(state) else {
         return Some(refused(
@@ -146,25 +207,33 @@ pub(super) fn run(
         ));
     };
     let path = state.join("spare-warm.json");
-    let mut file: State = std::fs::read(&path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default();
+    let mut file = read(state);
+    file.copies.retain(|copy| now_ms < copy.at.saturating_add(COPY_BUDGET_MS));
     // A record past its warm, or an attempt past the gap, is dropped: the file stays small.
     file.warms.retain(|record| record.warm_until > now_ms);
     file.attempts.retain(|attempt| now_ms < attempt.at.saturating_add(WARM_GAP_MS));
     let pair = |account: &str, other: Option<&str>| {
         account == request.account && other == Some(team.as_str())
     };
-    if let Some(machine) = &request.abandoned {
+    let ends = |copy: &Copying, machine: &str| {
+        pair(&copy.account, Some(copy.team.as_str())) && copy.machine.as_deref() == Some(machine)
+    };
+    if let Some(machine) = request.abandoned.as_deref().or(request.finished.as_deref()) {
+        let abandon = request.abandoned.is_some();
         let mut found = false;
         for record in &mut file.warms {
-            if pair(&record.account, record.team.as_deref()) && &record.machine == machine {
-                (record.copy_given, found) = (false, true);
+            if pair(&record.account, record.team.as_deref()) && record.machine == machine {
+                found = true;
+                record.copy_given &= !abandon;
             }
         }
+        let before = file.copies.len();
+        file.copies.retain(|copy| !ends(copy, machine));
+        found |= file.copies.len() != before;
         write(&path, &file);
-        return Some(json!({"ok": true, "abandoned": found}));
+        let mut answer = json!({"ok": true});
+        answer.set(if abandon { "abandoned" } else { "finished" }, json!(found));
+        return Some(answer);
     }
     let copy =
         |machine: &str| json!({"machine": machine, "account": request.account, "team": team});
@@ -176,13 +245,12 @@ pub(super) fn run(
     if let Some(last) = live {
         let mut answer = json!({"ok": true, "machine": last.machine, "warm_until": last.warm_until, "team": team, "fresh": false});
         // A copy abandoned since is answered again from the record: the machine is still warm.
-        let regiven = last.owner && !last.copy_given;
-        if regiven {
+        if last.owner && !last.copy_given {
             answer.set("fresh", json!(true));
             answer.set("copy", copy(&last.machine));
             last.copy_given = true;
-        }
-        if regiven {
+            let machine = Some(last.machine.clone());
+            file.copies.push(Copying { account: request.account.clone(), team: team.clone(), machine, at: now_ms });
             write(&path, &file);
         }
         return Some(answer);
@@ -194,7 +262,13 @@ pub(super) fn run(
         answer.set("throttled", json!(true));
         return Some(answer);
     }
-    let body = match transport(&request, credential.trim(), &team) {
+    // Registered before the platform call: a start that asks meanwhile waits for this warm's answer.
+    let pending = |copy: &Copying| copy.machine.is_none() && pair(&copy.account, Some(copy.team.as_str()));
+    file.copies.push(Copying { account: request.account.clone(), team: team.clone(), machine: None, at: now_ms });
+    write(&path, &file);
+    let body = transport(&request, credential.trim(), &team);
+    file.copies.retain(|copy| !pending(copy));
+    let body = match body {
         Ok(body) => body,
         Err(error) => {
             return Some(attempted(
@@ -222,6 +296,8 @@ pub(super) fn run(
     // Only the machine's owner gets a copy nobody asked for, never a team guest.
     if owner {
         answer.set("copy", copy(&machine));
+        let machine = Some(machine.clone());
+        file.copies.push(Copying { account: request.account.clone(), team: team.clone(), machine, at: now_ms });
     }
     file.warms.retain(|other| !pair(&other.account, other.team.as_deref()));
     file.attempts.retain(|other| !pair(&other.account, Some(other.team.as_str())));
@@ -258,33 +334,67 @@ fn attempted(
     answer
 }
 
+/// `spare-warm.json` as last written; empty when missing or unreadable.
+fn read(state: &Path) -> State {
+    std::fs::read(state.join("spare-warm.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
 /// A state that cannot be written only costs a second warm: the platform extends, never doubles.
+/// Written whole and renamed into place, so a start's unlocked read never sees half a file.
 fn write(path: &Path, file: &State) {
-    if let Ok(bytes) = serde_json::to_vec(file) {
-        let _ = std::fs::write(path, bytes);
+    let staged = path.with_extension("json.tmp");
+    if let Ok(bytes) = serde_json::to_vec(file)
+        && std::fs::write(&staged, bytes).is_ok()
+    {
+        let _ = std::fs::rename(&staged, path);
     }
 }
 
+/// Whether a warm's login copy onto `machine` is in flight at `now_ms`: a warm still waiting on the
+/// platform (its machine not known yet), or a copy of `machine` the App has not reported finished.
+pub(super) fn copy_in_flight(state: &Path, machine: &str, now_ms: u64) -> bool {
+    read(state).copies.iter().any(|copy| {
+        now_ms < copy.at.saturating_add(COPY_BUDGET_MS)
+            && copy.machine.as_deref().is_none_or(|other| other == machine)
+    })
+}
+
+/// `wait-copy --machine M --provider P` (or the warm request's `waitCopy`): a start whose Rust
+/// verdict races the warm's copy (`warm_copy_conflict`) waits here until no copy onto `machine` is
+/// in flight, at most [`WAIT_COPY_MS`]. A provider the warm does not copy never waits.
+pub(super) fn wait_copy(
+    state: &Path,
+    machine: &str,
+    provider: &str,
+    now: &dyn Fn() -> u64,
+    pause: &dyn Fn(),
+) -> Value {
+    if provider != COPIED_PROVIDER {
+        return json!({"ok": true, "waited": false});
+    }
+    let deadline = now().saturating_add(WAIT_COPY_MS);
+    let mut waited = false;
+    loop {
+        let at = now();
+        if !copy_in_flight(state, machine, at) {
+            return json!({"ok": true, "waited": waited});
+        }
+        if at >= deadline {
+            return json!({"ok": true, "waited": waited, "timed_out": true});
+        }
+        waited = true;
+        pause();
+    }
+}
+
+/// The wait a `warm-spare` request asks for instead of a warm (`waitCopy`), if any.
+pub(super) fn wait_request(flags: &Flags) -> Option<WaitCopy> {
+    serde_json::from_str::<Request>(flags.one("--request")?).ok()?.wait_copy
+}
+
+
 #[cfg(test)]
 mod tests;
-
-/// How long a copy handed to the App may run before a start stops waiting on it.
-pub(super) const COPY_BUDGET_MS: u64 = 180_000;
-/// The longest a start waits on a warm's copy.
-pub(super) const WAIT_COPY_MS: u64 = 80_000;
-
-/// Whether a warm's login copy onto `machine` is in flight.
-pub(super) fn copy_in_flight(_state: &Path, _machine: &str, _now_ms: u64) -> bool {
-    false
-}
-
-/// `wait-copy`: waits for a warm's copy onto `machine`.
-pub(super) fn wait_copy(
-    _state: &Path,
-    _machine: &str,
-    _provider: &str,
-    _now: &dyn Fn() -> u64,
-    _pause: &dyn Fn(),
-) -> Value {
-    json!({"ok": true, "waited": false})
-}

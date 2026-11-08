@@ -19,25 +19,20 @@ public import os
         self.gate = gate; self.dogfood = dogfood; self.logger = logger
     }
 
-    /// Starts the warm as a tracked task the caller never awaits (one per account and team, ``CloudSpareWarms``).
-    /// Rust's copy target is the only ownership check; the copy goes only there, while account and team are the warm's.
+    /// Fires the warm; the caller never awaits it. Rust decides everything around it: the team (from the active team),
+    /// the throttle, the copy target (the only ownership check) and the copy in flight a start waits on, which this
+    /// reports finished, or abandoned when the account or team switched mid-copy (Rust then answers it again).
     public func start() {
-        let warms = auth.spareWarms
         guard let userID = auth.user?.id else { return }
-        let teamID = auth.teamID
-        warms.start(auth.accountKey ?? "") { [self] in
+        let teams = CloudMoveCLI.SpareWarmTeams(active: auth.teamID, managed: auth.managedTeamID, project: auth.configuration.stackProjectID)
+        // task-owner: none; one bounded warm, its calls' own timeouts end it, and Rust's lock and throttle answer repeats.
+        Task { @MainActor [self] in
             guard let token = try? await auth.tokens().access, let install = try? await installIdentity.installToken(),
-                  auth.user?.id == userID, auth.teamID == teamID,
-                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install) else { return }
-            let still = { @MainActor @Sendable [auth, installIdentity] in
-                let token = try await installIdentity.installToken()
-                return copy.copyAllowed(account: auth.user?.id, team: MacInstallIdentity.team(ofToken: token)) && auth.teamID == teamID
-            }
-            let installed = await warms.copy(onto: copy.machineID) { await self.copyLogin(onto: copy.machineID, userID: userID, teamID: teamID, still: still) }.value
-            // A copy given up to an account or team switch is not done: Rust answers it again on the next warm.
-            if !installed, (try? await still()) != true {
-                _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, abandoned: copy.machineID)
-            }
+                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, teams: teams) else { return }
+            let still: @MainActor @Sendable () async throws -> Bool = { [auth] in auth.user?.id == userID && auth.teamID == teams.active }
+            let installed = await copyLogin(onto: copy.machineID, userID: userID, teamID: teams.active, still: still)
+            let end: CloudMoveCLI.SpareWarmEnd = installed || (try? await still()) == true ? .finished(copy.machineID) : .abandoned(copy.machineID)
+            _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, teams: teams, end: end)
         }
     }
 

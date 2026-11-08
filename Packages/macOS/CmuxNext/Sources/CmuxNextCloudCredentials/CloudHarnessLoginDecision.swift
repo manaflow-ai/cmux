@@ -178,10 +178,12 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     /// budget and spacing (``CloudCredentialTransfer/guestCheckTries``). A failed exec or any recorded kind ends it;
     /// every exec and pause counts against `budget`, slow ones included, and a read cut off by it keeps the last answer.
     /// A start onto `warmCopy`'s machine first waits for a spare warm's copy there only when its verdict races it
-    /// (``Verdict/warmCopyConflict``, ``CloudSpareWarms/waitForCopy(onto:conflicts:)``).
+    /// (``Verdict/warmCopyConflict``; Rust's `wait-copy` keeps the copy in flight).
     public mutating func readGuest(exec: @escaping @Sendable (String) async -> String?, pause: @escaping @Sendable () async throws -> Void,
-                                   budget: Duration = CloudCredentialTransfer.guestCheckBudget, warmCopy: (warms: CloudSpareWarms, machine: String)? = nil) async throws {
-        if let warmCopy, verdict.step != .refuse { await warmCopy.warms.waitForCopy(onto: warmCopy.machine, conflicts: verdict.warmCopyConflict == true) }
+                                   budget: Duration = CloudCredentialTransfer.guestCheckBudget, warmCopy: (cli: CloudMoveCLI, machine: String)? = nil) async throws {
+        if let warmCopy, verdict.step != .refuse, verdict.warmCopyConflict == true, let provider = verdict.transferProvider {
+            await warmCopy.cli.startChatWaitCopy(machine: warmCopy.machine, provider: provider.rawValue)
+        }
         try await readGuest(exec: exec, pause: pause, budget: budget, clock: ContinuousClock())
     }
 

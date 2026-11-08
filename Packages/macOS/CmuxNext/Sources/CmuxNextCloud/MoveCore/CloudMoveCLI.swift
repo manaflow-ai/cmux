@@ -144,26 +144,47 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public init(machineID: String, account: String, team: String) {
             (self.machineID, self.account, self.team) = (machineID, account, team)
         }
-
-        /// Whether the copy may still go: the signed-in account and the install token's team are the warm's.
-        public func copyAllowed(account current: String?, team currentTeam: String?) -> Bool {
-            current == account && currentTeam == team
-        }
     }
 
+    /// The App's team state a warm is asked in (Stack ids); Rust turns it into the backend team (`identity::mint_team`).
+    public struct SpareWarmTeams: Sendable, Equatable {
+        public var active: String?, managed: String?, project: String
+        public init(active: String?, managed: String?, project: String) { (self.active, self.managed, self.project) = (active, managed, project) }
+    }
+
+    /// How the App's login copy of a warm ended: done (or given up for good), or abandoned to an account or team switch.
+    public enum SpareWarmEnd: Sendable, Equatable { case finished(String), abandoned(String) }
+
     /// `cmux link start-chat warm-spare --request JSON`, the session `access` token then the `install` token on stdin:
-    /// the person's spare, warmed. Rust reads the team from the install token and refuses without one. Nil when there
-    /// is nothing to copy: an answer from the record, no spare, a machine they do not own, or a refusal. `abandoned` names
-    /// a copy the App gave up (the account or team switched): Rust's next warm answers it again.
-    public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, abandoned: String? = nil) async -> SpareWarm? {
+    /// the person's spare, warmed in the team Rust picks from `teams`. Nil when there is nothing to copy: an answer from
+    /// the record, no spare, a machine they do not own, or a refusal. With `end`, it reports the copy's end instead:
+    /// a start waiting on it goes on, and an abandoned copy is answered again by Rust's next warm.
+    public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, teams: SpareWarmTeams,
+                                   end: SpareWarmEnd? = nil) async -> SpareWarm? {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        guard let payload = try? JSONSerialization.data(withJSONObject: ["platform": platform.absoluteString, "account": account, "abandoned": abandoned].compactMapValues { $0 }, options: [.sortedKeys]),
+        var request: [String: Any] = ["platform": platform.absoluteString, "account": account, "stackProjectId": teams.project]
+        (request["activeTeam"], request["managedTeam"]) = (teams.active, teams.managed)
+        switch end {
+        case .finished(let machine): request["finished"] = machine
+        case .abandoned(let machine): request["abandoned"] = machine
+        case nil: break
+        }
+        guard let payload = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
                                         stdin: Data((access + "\n" + install + "\n").utf8)),
               let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
               let copy = reply["copy"] as? [String: Any], let machineID = copy["machine"] as? String,
               copy["account"] as? String == account, let team = copy["team"] as? String else { return nil }
         return SpareWarm(machineID: machineID, account: account, team: team)
+    }
+
+    /// A start's wait on a spare warm's login copy onto `machine` (Rust's `wait-copy`, at most 80 s): returns once no
+    /// copy of `provider`'s login onto it is in flight, at once for a provider the warm does not copy.
+    public func startChatWaitCopy(machine: String, provider: String) async {
+        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
+        let wait: [String: Any] = ["account": "wait", "waitCopy": ["machine": machine, "provider": provider]]
+        guard let payload = try? JSONSerialization.data(withJSONObject: wait, options: [.sortedKeys]) else { return }
+        _ = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil)
     }
 
     /// `cmux link start-chat plan --request JSON`, the cmux `access` token on stdin.
