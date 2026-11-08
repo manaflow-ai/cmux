@@ -376,6 +376,7 @@ import {
   type EditableTurns,
 } from "./conversation/editPrompt";
 import { isFindRow, type ChatFind } from "./conversation/chatFind";
+import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
   ACTIVITY_LINE,
@@ -1893,7 +1894,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// which row it asked for; undefined while this chat has no row for that message. Set below,
   /// where the chat's rows are.
   const showMessage = useRef<(messageId: string) => string | undefined>(() => undefined);
+  /// ``showMessage`` for a message the chats page found by its words (a `said:` reveal).
+  const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
   const reveal = (value: string) => {
+    // The command palette's chats page opens a chat at the message it found by what was said:
+    // the newest row of that kind holding the words, brought in as a `message=<id>` link's is.
+    const said = revealedSaid(value);
+    if (said !== undefined) {
+      return void revealMessageWhenShown(value, () => showSaid.current(said), document, {
+        chat: () => shownView.current,
+      });
+    }
     // A `message=<id>` link (schemas/deeplinks/agent-link.json): bring that message's row in
     // once the transcript has it, and leave the view alone when this session never saw it.
     const message = revealedMessage(value);
@@ -5196,9 +5207,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // running line's count does. The reveal lets go after a moment, as a count's does: it stands in
   // for Find's own target while it is set, and a target that never let go would scroll back to
   // this row whenever its id is drawn again.
-  showMessage.current = (messageId) => {
+  const showRows = (pick: (rows: readonly AcpmuxRow[]) => readonly string[]) => {
     const { sourceRows: rows, transcriptRows: shown } = counted.current;
-    const target = messageRevealTarget(rows, shown, directClient.current?.rowsOfMessage(messageId) ?? []);
+    const target = messageRevealTarget(rows, shown, pick(rows));
     if (target === undefined) return undefined;
     if (target.fold !== undefined) openFold(target.fold);
     if (target.run !== undefined) openFold(target.run);
@@ -5208,6 +5219,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
     return target.rowId;
   };
+  showMessage.current = (messageId) => showRows(() => directClient.current?.rowsOfMessage(messageId) ?? []);
+  showSaid.current = (said) => showRows((rows) => saidRows(rows, said));
   // A link waiting on replay retries against committed rows, without a polling timer.
   useLayoutEffect(() => notifyRevealRowsChanged(), [sourceRows, transcriptRows]);
   // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
