@@ -40,6 +40,7 @@ Steps (`do`):
 """
 import json
 import os
+import sys
 import time
 
 D = None
@@ -143,7 +144,60 @@ def _crash_reports(j, since):
     return found
 
 
+SCK_NOT_STARTED = "ScreenCaptureKit did not start"
+
+
 def step_video_start(j, step):
+    """video_start with one retry (lead 05:0xZ, CLOSE VARIANTS 3 step 0): on cmux21 replayd sometimes answers the first
+    capture start of a new app process with "getCallingConnectionClient: no client found" and makes no capture session,
+    so the film gets 0 frames. Then: one new start in the same app (a new SCStream); if that also gets no frames, one
+    relaunch of the app (a new process, the driver's relaunch step: Cmd-Q, open, the session comes back) and one more
+    start. Each try is logged as "sck_retry" (stderr, the step's result, j.sck_retry, the not-run reason). A start that
+    still fails stays not run. `sck_retry: false` turns this off (ext_pixel.start_film has its own retry)."""
+    if step.get("sck_retry") is False:
+        return _video_start_once(j, step)
+    log = j.__dict__.setdefault("sck_retry", [])
+    try:
+        return _video_start_once(j, step)
+    except D.NotRun as error:
+        if SCK_NOT_STARTED not in str(error):
+            raise
+        entry = {"name": step["name"], "first": str(error)[-300:], "tries": []}
+    log.append(entry)
+
+    def note(what):
+        entry["tries"].append(what)
+        print(f"sck_retry {step['name']}: {what}", file=sys.stderr, flush=True)
+
+    time.sleep(1.0)  # the app has stopped the failed start (record_stop / trace_stop above)
+    try:
+        reply = _video_start_once(j, step)
+        note("new stream: started")
+        return dict(reply, sck_retry=entry)
+    except D.NotRun as error:
+        if SCK_NOT_STARTED not in str(error):
+            note(f"new stream: not run, other reason: {str(error)[-200:]}")
+            raise D.NotRun(f"{error} (sck_retry: {json.dumps(entry)[:600]})")
+        note("new stream: no frames")
+    if not hasattr(j, "step_relaunch"):  # a test double of the journey: no app to relaunch
+        raise D.NotRun(f"video_start {step['name']}: {SCK_NOT_STARTED} twice (sck_retry: {json.dumps(entry)[:600]})")
+    try:
+        relaunch = j.step_relaunch({"how": "quit"})
+        note(f"relaunch: new pid {j.app.pid}")
+        entry["relaunch"] = {k: relaunch.get(k) for k in ("old_pid", "ended_after_s")} if isinstance(relaunch, dict) else None
+    except (D.StepError, OSError, ValueError) as error:
+        note(f"relaunch failed: {str(error)[-200:]}")
+        raise D.NotRun(f"video_start {step['name']}: {SCK_NOT_STARTED} twice, relaunch failed (sck_retry: {json.dumps(entry)[:600]})")
+    try:
+        reply = _video_start_once(j, step)
+        note("after relaunch: started")
+        return dict(reply, sck_retry=entry)
+    except D.NotRun as error:
+        note("after relaunch: not run")
+        raise D.NotRun(f"{error} (sck_retry: {json.dumps(entry)[:600]})")
+
+
+def _video_start_once(j, step):
     name = step["name"]
     if not hasattr(j, "video_t0_epoch"):
         j.video_t0_epoch = time.time()

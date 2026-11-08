@@ -616,7 +616,7 @@ def start_film(j, step):
     for attempt in range(START_ATTEMPTS):
         recorder["idle"].append(recorder_idle(j))
         try:
-            return V.step_video_start(j, dict(step, start_timeout=float(step.get("start_timeout", START_TIMEOUT)))), recorder
+            return V.step_video_start(j, dict(step, sck_retry=False, start_timeout=float(step.get("start_timeout", START_TIMEOUT)))), recorder
         except (D.NotRun, D.StepError) as error:
             retry = any(text in str(error) for text in RECORDER_RETRY)
             if not retry:
