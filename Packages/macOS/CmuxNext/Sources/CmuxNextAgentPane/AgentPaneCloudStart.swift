@@ -39,8 +39,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The Mac files this send's link chips may carry to the machine, set by the pane from what it
     /// authorized itself (``AgentPaneModel/cloudCarriedFiles(_:)``); never read from the page.
     public var carriedFiles: Set<String> = []
-    /// Those of ``carriedFiles`` this app saved under Chat Uploads (in `~/Library`, which the upload
-    /// CLI never reads from): cloned into the private paste folder first, as image copies are.
+    /// Those of ``carriedFiles`` where the upload CLI never reads (Chat Uploads, iCloud Drive and cloud
+    /// storage in `~/Library`, another volume): cloned into the private paste folder first, as image copies are.
     public var stagedFiles: Set<String> = []
 
     public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil, reservationKey: String? = nil, gestureTicket: String? = nil) {

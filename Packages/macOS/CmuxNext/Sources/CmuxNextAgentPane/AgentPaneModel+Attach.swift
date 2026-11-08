@@ -76,6 +76,7 @@ extension AgentPaneModel {
             return chip["saved"]?.boolValue == true ? (path, true) : nil
         }
         guard !asked.isEmpty else { return ([], []) }
+        let home = transport.homeFolder ?? NSHomeDirectory()
         return await Task.detached(priority: .userInitiated) {
             var files: Set<String> = [], saved: Set<String> = []
             for (path, _) in asked {
@@ -85,10 +86,22 @@ extension AgentPaneModel {
                 let under = root.map { Self.isSavedUpload(path, root: $0) } ?? false
                 guard linked.contains(path) || under else { continue }
                 files.insert(path)
-                if under { saved.insert(path) }
+                if under || Self.needsStaging(path, home: home) { saved.insert(path) }
             }
             return (files, saved)
         }.value
+    }
+
+    /// Whether a file the person dropped sits where the upload CLI never reads (only the home folder
+    /// outside `~/Library`): iCloud Drive and cloud-storage folders in `~/Library`, or another volume.
+    /// Such a file is cloned into the paste folder first.
+    nonisolated static func needsStaging(_ path: String, home: String) -> Bool {
+        let file = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+        let top = URL(fileURLWithPath: home).resolvingSymlinksInPath().standardizedFileURL.path
+        let library = top + "/Library/"
+        // A dot folder on the way (`.ssh`, `.aws`) is never staged: the CLI's own refusal stands.
+        guard !file.split(separator: "/").contains(where: { $0.hasPrefix(".") }) else { return false }
+        return file.hasPrefix("/Volumes/") || file.hasPrefix(library + "Mobile Documents/") || file.hasPrefix(library + "CloudStorage/")
     }
 
     /// Whether `path`, its links resolved, is a file under the Chat Uploads folder `root`.
