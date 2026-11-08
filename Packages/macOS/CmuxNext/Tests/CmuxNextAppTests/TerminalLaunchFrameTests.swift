@@ -182,6 +182,21 @@ import os
         #expect(Self.centerAlpha(shown) == 255, "the frame over the cap replaced the saved one")
     }
 
+    /// Review 7 of #38056 (P1, #38146): a frame at another scale (the window moved to a screen of another scale) that is
+    /// not written (over the cap) still removed the key's frame at the old scale, and the next launch had none. A key's
+    /// other files go only after its new file is written, in the keeper's write and in the quit's.
+    @Test func aSkippedFrameAtAnotherScaleKeepsTheOldScalesFrame() async throws {
+        let directory = try await Self.saved(["tab-1": Self.solid(Self.size, scale: 2, red: 0.9, green: 0.1, blue: 0.1)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let old = directory.appending(path: "tab-1@2x.jpg")
+        try #require(FileManager.default.fileExists(atPath: old.path))
+        let clear = try #require(Self.frame(Self.size, scale: 1).cgImage(forProposedRect: nil, context: nil, hints: nil))
+        TerminalLaunchFrames.writeOne(clear, key: "tab-1", scale: 1, to: directory, keeping: nil, maximumBytes: 64)
+        #expect(FileManager.default.fileExists(atPath: old.path), "the keeper's skipped write removed the old scale's frame")
+        await TerminalLaunchFrames(directory: directory).save(images: ["tab-1": Self.frame(Self.size, scale: 1)], maximumBytes: 64)
+        #expect(FileManager.default.fileExists(atPath: old.path), "the quit's skipped write removed the old scale's frame")
+    }
+
     /// The alpha at the center of `image` (0...255).
     static func centerAlpha(_ image: CGImage) -> UInt8? {
         guard let crop = image.cropping(to: CGRect(x: image.width / 2, y: image.height / 2, width: 1, height: 1)),

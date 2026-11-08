@@ -454,7 +454,7 @@ public final class TerminalLaunchFrames {
 
     /// Replaces the saved frames with `images` (by tab key, at their point size); the files of the keys in `keeping`
     /// stay as they are (terminals on screen with no new frame).
-    func save(images: [String: NSImage], keeping: Set<String> = []) async {
+    func save(images: [String: NSImage], keeping: Set<String> = [], maximumBytes: Int = maximumBytes) async {
         guard let directory else { return }
         // NSImage stays on the main actor; the encode (and its choice of PNG or JPEG) and the writes run detached.
         var frames: [String: CGImage] = [:]
@@ -467,7 +467,7 @@ public final class TerminalLaunchFrames {
             }
             frames["\(key)@\(max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded()))))x.jpg"] = frame
         }
-        await Task.detached { [keeping] in Self.write(frames, keeping: keeping, to: directory) }.value
+        await Task.detached { [keeping] in Self.write(frames, keeping: keeping, to: directory, maximumBytes: maximumBytes) }.value
     }
 
     /// Every saved frame in `directory`, decoded, with its point size and scale, by tab key (for each
@@ -489,7 +489,7 @@ public final class TerminalLaunchFrames {
         return frames
     }
 
-    private nonisolated static func write(_ frames: [String: CGImage], keeping: Set<String>, to directory: URL) {
+    private nonisolated static func write(_ frames: [String: CGImage], keeping: Set<String>, to directory: URL, maximumBytes: Int) {
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
@@ -499,7 +499,7 @@ public final class TerminalLaunchFrames {
         for (name, frame) in frames {
             let url = directory.appending(path: name)
             // A frame that does not encode within the read's cap is not written: its key keeps the file it had.
-            guard let data = encoded(frame), (try? data.write(to: url, options: [.atomic])) != nil else { continue }
+            guard let data = encoded(frame, maximumBytes: maximumBytes), (try? data.write(to: url, options: [.atomic])) != nil else { continue }
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
     }
