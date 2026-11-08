@@ -15,7 +15,7 @@
 .acpmux-return-brief__level[data-level="failed"], .acpmux-return-brief__level[data-level="unknown"],
 .acpmux-return-brief__level[data-level="inaccessible"] { color: var(--color-danger, #b64d52); opacity: 1; }
 .acpmux-return-brief__detail { min-width: 0; flex: 1; font-size: var(--text-caption); line-height: 1.45; opacity: .76; overflow-wrap: anywhere; }
-.acpmux-return-brief__go { appearance: none; background: none; border: 0; padding: 4px 0; font: inherit; font-size: var(--text-caption); font-weight: var(--weight-emphasis); color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.acpmux-return-brief__go { appearance: none; background: none; border: 0; padding: 4px 0; font: inherit; font-size: var(--text-caption); font-weight: var(--weight-emphasis); color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .acpmux-return-brief__go:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 4px; }
 .acpmux-return-brief__risks { border-top: 1px solid var(--border-subtle, rgba(127,127,127,.2)); padding-top: 12px; }
 .acpmux-return-brief__risks h3 { margin: 0; font-size: var(--text-detail); font-weight: var(--weight-emphasis); }

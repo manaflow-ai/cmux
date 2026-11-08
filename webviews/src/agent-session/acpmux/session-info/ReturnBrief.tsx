@@ -1,3 +1,4 @@
+// l10n-allow-file: gallery prototype, not shipped: only ReturnBrief.gallery.tsx imports it (HQ #6236 brief 17).
 // Read-only gallery prototype for HQ #6236 brief 17. Receipts come from owner adapters supplied by
 // the host; this component has no token, filesystem, network, run, approval or write authority.
 import type { ReactNode } from "react";

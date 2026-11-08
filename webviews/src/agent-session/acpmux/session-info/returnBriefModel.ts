@@ -1,3 +1,4 @@
+// l10n-allow-file: gallery prototype, not shipped: only ReturnBrief.gallery.tsx imports it (HQ #6236 brief 17).
 /** Gallery-only, read-only completion projection. The caller must fetch run/approval/PR receipts
  * from their owners, and re-read saved bytes through the authorized artifact owner. Agent prose
  * and transcript tool paths cannot produce any "verified" status here. */
