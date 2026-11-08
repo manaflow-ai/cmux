@@ -37,6 +37,13 @@ export type GitHubLayout = "split" | "rail" | "single";
  */
 export type ChecksPlacement = "top" | "rail";
 
+/**
+ * How much of the pane the page takes. `fill` (shipped): the whole pane less a gutter, so the
+ * description, its tables and the checks use the room (Leo, 2026-11-07: "it's just giving up way
+ * too much space"). `wide`: 94% of the pane up to 2200px. `column`: 84% up to 1560px, as before.
+ */
+export type PageWidth = "fill" | "wide" | "column";
+
 const STATES: Record<string, string> = {
   open: "github.state.open",
   draft: "github.state.draft",
@@ -98,12 +105,14 @@ export function GitHubPage({
   now = Date.now,
   layout = "split",
   checksPlacement = "top",
+  width = "fill",
 }: {
   store: GitHubStore;
   strings: Strings;
   now?: () => number;
   layout?: GitHubLayout;
   checksPlacement?: ChecksPlacement;
+  width?: PageWidth;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const { t } = strings;
@@ -151,7 +160,7 @@ export function GitHubPage({
   const reviewers = details && details.reviewers.length > 0 && <Reviewers details={details} strings={strings} />;
   const linked = details && details.linked.length > 0 && <Linked details={details} strings={strings} open={open} />;
   return (
-    <main className="gh" data-layout={layout} aria-busy={waitingFirst}>
+    <main className="gh" data-layout={layout} data-width={width} aria-busy={waitingFirst}>
       <Header snapshot={snapshot} store={store} strings={strings} now={now} waitingFirst={waitingFirst} />
       {pr && checksPlacement === "top" && <div className="gh-ci-band">{checks}</div>}
       {pr && (
