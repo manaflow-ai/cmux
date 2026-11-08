@@ -12,6 +12,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
+import urllib.parse
 import unittest.mock
 from pathlib import Path
 
@@ -3497,6 +3498,12 @@ def guard_log(*tests, file="tests/test_car_guards.py", exit_line=True):
     return log(GUARD, GUARD_STEP, *lines)
 
 
+def ship_comment(sha, verdict="SHIP", login="teamleaderleo", at="2026-11-08T17:20:00Z"):
+    """A trusted independent review receipt naming SHA, as risk_tier.py reads it."""
+    return {"body": f"Review (codex gpt-6-astra high): {verdict} at {sha}", "created_at": at,
+            "user": {"login": login, "type": "User"}, "author_association": "OWNER"}
+
+
 class FixedOnBaseGitHub(FakeGitHub):
     """The head's guard job red; the newest base run (20, at BASE_SHA, after the merge-base) passes it."""
 
@@ -3507,6 +3514,22 @@ class FixedOnBaseGitHub(FakeGitHub):
         self.logs = {1: guard_log(CAR_TEST), 2: ""}
         self.changed = list(changed)
         self.status = status
+        # The pull request at HEAD (fixed_on_base_pull): open, mergeable, not risk:high, an independent SHIP at the
+        # exact head, and the red job failed at the merge-base.
+        self.pull = {"number": 38700, "state": "open", "mergeable": True, "mergeable_state": "clean",
+                     "labels": [{"name": "risk:low"}], "user": {"login": "agent-author", "type": "User"},
+                     "author_association": "MEMBER", "body": "", "head": {"sha": HEAD},
+                     "base": {"ref": "feat-cmux-next"}}
+        self.comments = [ship_comment(HEAD)]
+        self.reviews: list[dict] = []
+        self.at_merge_base = "failure"  # the red job's conclusion at MERGE_BASE, None when it has no run there
+
+    @staticmethod
+    def pages(listed, paginate):
+        # GitHub.json(paginate=True)'s contract: the list of raw pages, one empty page for an empty list.
+        if not paginate:
+            return list(listed)
+        return [list(listed[start:start + 100]) for start in range(0, len(listed), 100)] or [[]]
 
     def json(self, route, *, paginate=False):
         if f"/compare/feat-cmux-next...{HEAD}" in route:
@@ -3515,6 +3538,23 @@ class FixedOnBaseGitHub(FakeGitHub):
         if f"/compare/{MERGE_BASE}...{BASE_SHA}" in route:
             self.routes.append(route)
             return {"status": self.status}
+        if route.endswith(f"/commits/{HEAD}/pulls?per_page=100"):
+            self.routes.append(route)
+            return [self.pull] if self.pull else []
+        if self.pull and route.endswith(f"/pulls/{self.pull['number']}"):
+            self.routes.append(route)
+            return copy.deepcopy(self.pull)
+        if self.pull and route.endswith(f"/issues/{self.pull['number']}/comments"):
+            self.routes.append(route)
+            return self.pages(self.comments, paginate)
+        if self.pull and route.endswith(f"/pulls/{self.pull['number']}/reviews"):
+            self.routes.append(route)
+            return self.pages(self.reviews, paginate)
+        if f"/commits/{MERGE_BASE}/check-runs?check_name=" in route:
+            self.routes.append(route)
+            name = urllib.parse.unquote(route.split("check_name=", 1)[1].split("&", 1)[0])
+            return {"check_runs": [] if self.at_merge_base is None else
+                    [{"name": name, "status": "completed", "conclusion": self.at_merge_base}]}
         return super().json(route, paginate=paginate)
 
 
@@ -3761,6 +3801,54 @@ class FixedOnBase(unittest.TestCase):
         self.assertIn(f"excused '{GUARD}': fixed on base (passes at {BASE_SHA[:12]}", text)
         self.assertIn("PR does not touch tests/test_car_guards.py, .github/, scripts/, tests/", text)
         self.assertIn(CAR_TEST, text)
+
+    def test_receipts_are_read_across_pages_as_the_real_reader_returns_them(self):
+        """GitHub.json(paginate=True) returns pages ([[comment, ...], ...]; no reviews is [[]]); a SHIP on the
+        second page still counts (cmux#38792 review)."""
+        github = FixedOnBaseGitHub()
+        filler = {"body": "noted", "created_at": "2026-11-08T17:00:00Z",
+                  "user": {"login": "someone", "type": "User"}, "author_association": "MEMBER"}
+        github.comments = [filler] * 100 + [ship_comment(HEAD)]
+        self.assertEqual(len(github.json(f"repos/{REPO}/issues/38700/comments", paginate=True)), 2)
+        self.assertEqual(github.json(f"repos/{REPO}/pulls/38700/reviews", paginate=True), [[]])
+        self.assertIn(f"#38700, SHIP at {HEAD[:12]}", self.judge(github))
+
+    def test_the_pull_request_gates_of_cmuxterm_hq_7948(self):
+        """A lane's land and next-autoland agree (cmuxterm-hq#7948): fixed on base also needs an independent SHIP at
+        the exact head, no conflict, not risk:high, and the job red at the PR's merge-base."""
+        text = self.judge(FixedOnBaseGitHub())
+        self.assertIn(f"#38700, SHIP at {HEAD[:12]}, red at the merge-base {MERGE_BASE[:12]}", text)
+        cases = []
+        github = FixedOnBaseGitHub()
+        github.comments = []
+        cases.append((github, "no independent SHIP at its exact head"))
+        github = FixedOnBaseGitHub()
+        github.comments = [ship_comment("d" * 40)]  # a SHIP at an older head only
+        cases.append((github, "no independent SHIP at its exact head"))
+        github = FixedOnBaseGitHub()
+        github.comments = [ship_comment(HEAD), ship_comment(HEAD, "BLOCK", at="2026-11-08T17:30:00Z")]
+        cases.append((github, "no independent SHIP at its exact head"))
+        github = FixedOnBaseGitHub()
+        github.pull["labels"] = [{"name": "risk:high"}]
+        cases.append((github, "is risk:high"))
+        for field, value in (("mergeable", False), ("mergeable_state", "dirty")):
+            github = FixedOnBaseGitHub()
+            github.pull[field] = value
+            cases.append((github, "conflicting"))
+        for conclusion in ("success", None, "cancelled"):
+            github = FixedOnBaseGitHub()
+            github.at_merge_base = conclusion
+            cases.append((github, "no red verdict at the merge-base"))
+        github = FixedOnBaseGitHub()
+        github.pull = None
+        cases.append((github, "no single pull request"))
+        for github, said in cases:
+            with self.subTest(said=said), self.assertRaisesRegex(excuse.Refused, said):
+                self.judge(github)
+        # A merged pull request (merge_audit) has no conflict to read.
+        github = FixedOnBaseGitHub()
+        github.pull.update(state="closed", mergeable=None, mergeable_state="unknown")
+        self.assertIn("fixed on base", self.judge(github))
 
     def test_a_pr_that_touches_the_test_file_is_not_excused(self):
         with self.assertRaisesRegex(excuse.Refused, "not fixed on base: .*tests/test_car_guards.py"):

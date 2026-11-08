@@ -5,13 +5,14 @@ public import Foundation
 
 extension PageDescriptor {
     /// The server cards (webviews/src/pages/server-cards): cmux-page://cmux.server-cards/, one card
-    /// per route in one floating ``WebCardPanel``. A new card adds its ops' prefix here.
+    /// per route in one floating ``WebCardPanel`` (and the server panel's routes in the menu bar
+    /// item's popover). A new card adds its ops' prefix here.
     /// SECURITY (cmux#37286): the page names and lays out its cards around the native click-only
     /// control, so it runs only the app's bundled script: no inline script (the strict policy's only
     /// other script source), no eval, no remote script, frame, connection or media, and it is never
     /// served by the dev server or a web-dev overlay (``PageDevServer/bundledOnlyPageIDs``).
     public static let serverCards = PageDescriptor(id: "cmux.server-cards", resource: "server-cards",
-                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.joinConsent."],
+                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.server.", "cmux.joinConsent."],
                                                    csp: PageCSP(inlineScript: false))
 }
 
@@ -105,7 +106,7 @@ public final class PairInviteCardProvider: WebCard {
         generation += 1
         stopSocket()
         // A result from this opening never greets the next one.
-        approver.perform(.cancel)
+        approver.dismissApproval()
         (mint, failure, invite, frames, arrivedCode, typedName) = (.idle, nil, nil, [], nil, nil)
         changed()
     }
@@ -119,7 +120,7 @@ public final class PairInviteCardProvider: WebCard {
         generation += 1
         let mine = generation
         // A new code starts clean: the last machine's result or refusal never shows on it.
-        approver.perform(.cancel)
+        approver.dismissApproval()
         (mint, failure, invite, frames, arrivedCode, typedName) = (.minting, nil, nil, [], nil, nil)
         changed()
         let result = await service.mint()

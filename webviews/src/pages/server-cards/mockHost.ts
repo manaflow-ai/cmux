@@ -1,20 +1,24 @@
 // l10n-allow-file: the browser dev loop's stand-in host, not shipped UI.
 // An in-memory server card host for the browser dev loop (`/server-cards/?mock#/pair-invite`): the
 // invite mints a moment after the card opens and a machine arrives a few seconds later. Confirm is
-// the app panel's native button, so the dev loop stops at the review. The join consent ask
-// (`#/join-consent`) answers from its own stand-in.
+// the app panel's native button, so the dev loop stops at the review. The server surfaces' ops
+// (`#/server-panel`, `#/add-server`) go to MockServerOwner; the join consent ask (`#/join-consent`)
+// answers from its own stand-in.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { CardOps } from "./host";
 import { MockJoinConsent } from "./join-consent/fixtures";
 import { JoinConsentOps } from "./join-consent/types";
 import { arrivedStatus, mintingStatus, showingStatus } from "./pairInvite/fixtures";
 import { PairInviteOps, type PairInviteStatus } from "./pairInvite/types";
+import { MockServerOwner } from "./server/mockOwner";
+import { ServerOps } from "./server/types";
 
 export class MockServerCardsHost implements PageClient {
   private status: PairInviteStatus = mintingStatus();
   private listeners = new Set<() => void>();
   private timers: ReturnType<typeof setTimeout>[] = [];
   private readonly joinConsent = new MockJoinConsent();
+  readonly server = new MockServerOwner();
 
   constructor(initial?: PairInviteStatus) {
     if (initial) this.status = initial;
@@ -23,6 +27,7 @@ export class MockServerCardsHost implements PageClient {
 
   async call<R>(op: string, params: unknown): Promise<R> {
     if (op.startsWith("cmux.joinConsent.")) return this.joinConsent.call(op) as R;
+    if (this.server.handles(op)) return (await this.server.call(op, params)) as R;
     switch (op) {
       case PairInviteOps.status:
         return this.status as R;
@@ -52,6 +57,10 @@ export class MockServerCardsHost implements PageClient {
     if (stream === JoinConsentOps.changes) {
       let seq = 0;
       return this.joinConsent.subscribe(() => onEvent({} as E, ++seq));
+    }
+    if (stream === ServerOps.changes) {
+      let seq = 0;
+      return this.server.onChange(() => onEvent({} as E, ++seq));
     }
     if (stream !== PairInviteOps.changes) throw pageError("cmux.op.unknown", stream);
     let seq = 0;

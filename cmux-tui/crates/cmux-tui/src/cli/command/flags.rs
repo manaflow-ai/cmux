@@ -8,6 +8,8 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `terminal <t> screen read --details`: the screen record's fields, not its text alone.
+    "details",
     // `cloud kill-machine --confirm`: without this it would swallow a following `--json`.
     "confirm",
     // `setup trust --dry-run`: plan only; without this it would swallow a following `--json`.

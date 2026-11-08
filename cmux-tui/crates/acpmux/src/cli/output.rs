@@ -138,6 +138,10 @@ pub(crate) fn arg_or_stdin(words: &[String]) -> Result<String> {
 pub(crate) const SUBAGENT_META: &str = "callerSubagent";
 /// `_meta.acpmux` key: refuse a message the receiver's inbox would hold without waking it.
 pub(crate) const WAKE_OR_FAIL_META: &str = "wakeOrFail";
+/// `_meta.acpmux` key: this call waits for the reply and gives it to its caller ([`collect_reply`]),
+/// so a lane's report of the turn does not reach the same session again
+/// (`hub/lane_report_reads.rs`).
+pub(crate) const READS_REPLY_META: &str = "readsReply";
 
 /// A client prompt id (`_meta.acpmux.promptId`). The daemon runs each id
 /// once, so the same prompt sent again after its connection closed answers
@@ -223,6 +227,15 @@ impl PromptId {
                 wake_or_fail: false,
             },
         }
+    }
+
+    /// The same prompt naming the Claude Code subagent in the caller's session that sends it,
+    /// when the Bash hook marked this process (`cli/sender.rs` `SUBAGENT_ENV`): `acpmux run` and
+    /// `acpmux new` with a prompt, which a subagent runs in its lead's session as it runs
+    /// `acpmux send`. The lane then reads that subagent as its sender, and its reports reach it.
+    pub(crate) fn naming_this_caller(mut self) -> Self {
+        self.subagent = crate::cli::sender::subagent_of_this_process().map(|s| s.to_value());
+        self
     }
 
     /// `session/prompt` params; `provenance` names the agent that sent it
@@ -1023,7 +1036,10 @@ async fn collect_once(
     )
     .await?;
     let c = client.clone();
-    let params = prompt.params(id, text, opts.steer, None);
+    let mut params = prompt.params(id, text, opts.steer, None);
+    if let Some(mux) = params.pointer_mut("/_meta/acpmux") {
+        mux.set(READS_REPLY_META, json!(true));
+    }
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, opts.steer);
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
