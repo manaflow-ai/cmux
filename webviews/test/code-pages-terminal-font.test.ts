@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 function hostSends(fontFamily: string | null) {
-  const terminal = { type: "dark", background: "#101018", foreground: "#e8e8f0", palette: {}, fontFamily };
+  const terminal = { type: "dark", background: "#101018", foreground: "#e8e8f0", palette: {}, fontFamily, fallbackFamilies: ["Custom Symbols"] };
   const payload = { variables: {}, colorScheme: "dark", scrollers: "overlay", terminal };
   (window as ThemeWindow).cmuxTheme = { current: payload };
   window.dispatchEvent(new window.CustomEvent("cmux-theme", { detail: payload }));
@@ -37,6 +37,7 @@ describe("code pages follow the terminal font", () => {
     expect(codeFamily().startsWith('"Fira Code",')).toBe(true);
     expect(codeFamily()).toContain('"Symbols Nerd Font Mono"');
     expect(codeFamily()).toContain('"Noto Sans Mono CJK JP"');
+    expect(codeFamily()).toContain('"Custom Symbols"');
     hostSends("JetBrains Mono");
     expect(codeFamily().startsWith('"JetBrains Mono",')).toBe(true);
     stop();

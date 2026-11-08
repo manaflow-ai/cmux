@@ -39,10 +39,12 @@ enum GhosttyConfigFontFamily {
         Task { // task-owner: one short file read per config load; a later load supersedes it by `loads`
             // After the load finished: the runtime's config is the one just loaded.
             let paths = GhosttyRuntime.shared.loadedConfigFiles
-            let family: String? = await Task.detached { Self.family(inFiles: paths) }.value
+            let families = await Task.detached { Self.families(inFiles: paths) }.value
+            let family = families.first
             guard load == loads else { return }
             let settings = DesignSettings.shared
             if family != settings.terminalConfigFontFamily { settings.terminalConfigFontFamily = family }
+            if families != settings.terminalConfigFontFamilies { settings.terminalConfigFontFamilies = families }
         }
     }
 
