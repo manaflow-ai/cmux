@@ -76,7 +76,7 @@ public final class TerminalSurfaceView: NSView {
         // CLOSE VARIANTS V6 (film only): the close owns the survivor's grid from this send to the landing at it, so the
         // growth's layout passes send nothing more (1 SIGWINCH). Any other selection: a newer final grid ends a snap's.
         frameOwnership.filmSnapGrid = DesignSettings.shared.filmClose.growsAndFades ? grid : nil
-        frameOwnership.filmSentEpoch = framePresenter?.currentEpoch
+        frameOwnership.filmSentEpoch = window.map(TerminalFramePresenter.forWindow)?.currentEpoch
         #endif
         guard surface != nil, let report = geometry.finalSized(grid) else { return }
         gridReports.now(report)
@@ -93,7 +93,7 @@ public final class TerminalSurfaceView: NSView {
               let report = geometry.viewSized(TerminalGridSize(columns: Int(columns), rows: Int(rows))) else { return }
         FilmCloseVariant.count("grid_sent")
         frameOwnership.filmSnapGrid = report
-        frameOwnership.filmSentEpoch = framePresenter?.currentEpoch
+        frameOwnership.filmSentEpoch = window.map(TerminalFramePresenter.forWindow)?.currentEpoch
         gridReports.now(report)
     }
 
