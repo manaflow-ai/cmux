@@ -1,0 +1,232 @@
+// l10n-allow-file: test fixtures (sample asks and chats), not shipped UI.
+// Waiting on you (queue/queueModel.ts, queue/historyPages.ts): acpmux's `_acpmux/review_queue`
+// read defensively and sorted by score, the keyboard map, the one-click answers each kind takes,
+// and answers sent through Needs you's own path (needsYou/useNeedsYou.ts `answerAnotherChat`,
+// `answerParams`), never a second one.
+import { expect, test } from "bun:test";
+import { answerAnotherChat, answerParams } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
+import { asksKey } from "../src/agent-session/acpmux/queue/historyPages";
+import {
+  auditEntries,
+  isOlderDaemon,
+  needsYouItem,
+  queueAnswers,
+  queueCommand,
+  queueReasons,
+  readQueue,
+  sortQueue,
+  verdictParams,
+  type QueueItem,
+} from "../src/agent-session/acpmux/queue/queueModel";
+
+const options = [
+  { optionId: "allow", name: "Allow", kind: "allow_once" },
+  { optionId: "always", name: "Always allow", kind: "allow_always" },
+  { optionId: "deny", name: "Deny", kind: "reject_once" },
+];
+
+function item(over: Partial<QueueItem> = {}): QueueItem {
+  return {
+    id: "acpmux:p1",
+    kind: "approval",
+    sessionId: "s1",
+    title: "Fix the upload test",
+    harness: "claude",
+    ask: "Run bun test",
+    at: 1_000,
+    impact: 1,
+    impactReasons: [],
+    score: 1,
+    options,
+    permissionId: "p1",
+    ...over,
+  };
+}
+
+test("a read keeps whole items only and sorts them by score, then the oldest ask", () => {
+  const reply = readQueue({
+    now: 10_000,
+    peersOmitted: ["studio", { name: "laptop" }, 3],
+    items: [
+      { id: "acpmux:a", kind: "approval", sessionId: "s1", title: "A", ask: "a", at: 5_000, score: 2, options },
+      { id: "acpmux:b", kind: "question", sessionId: "s2", title: "B", ask: "b", ageMs: 9_000, score: 2 },
+      { id: "acpmux:c", kind: "plan", sessionId: "s3", title: "C", ask: "c", at: 9_000, score: 7, host: "studio" },
+      { id: "pr:https://example.com/pull/1", kind: "pr", title: "PR", ask: "Review", at: 1, score: 1, prUrl: "https://example.com/pull/1" },
+      // Not shown: no id, an unknown kind, no chat for an ask.
+      { kind: "approval", sessionId: "s4", score: 9 },
+      { id: "x", kind: "mystery", sessionId: "s5", score: 9 },
+      { id: "y", kind: "approval", score: 9 },
+      "nonsense",
+    ],
+  });
+  expect(reply.items.map((each) => each.id)).toEqual([
+    "acpmux:c",
+    // Equal scores: the one asked first (b at now - ageMs = 1_000) before a (5_000).
+    "acpmux:b",
+    "acpmux:a",
+    "pr:https://example.com/pull/1",
+  ]);
+  expect(reply.items[1]!.at).toBe(1_000);
+  expect(reply.items[0]!.host).toBe("studio");
+  expect(reply.peersOmitted).toEqual(["studio", "laptop"]);
+  expect(reply.now).toBe(10_000);
+  expect(readQueue(undefined, 5).items).toEqual([]);
+});
+
+test("the order never shuffles between reads of the same items", () => {
+  const items = [item({ id: "b", score: 1, at: 1 }), item({ id: "a", score: 1, at: 1 }), item({ id: "c", score: 3 })];
+  expect(sortQueue(items).map((each) => each.id)).toEqual(["c", "a", "b"]);
+  expect(sortQueue([...items].reverse()).map((each) => each.id)).toEqual(["c", "a", "b"]);
+});
+
+test("the keyboard map: j/k and the arrows move, Return opens, a/d answer, numbers pick, x exports", () => {
+  expect(queueCommand({ key: "j" })).toEqual({ kind: "move", step: 1 });
+  expect(queueCommand({ key: "ArrowDown" })).toEqual({ kind: "move", step: 1 });
+  expect(queueCommand({ key: "k" })).toEqual({ kind: "move", step: -1 });
+  expect(queueCommand({ key: "ArrowUp" })).toEqual({ kind: "move", step: -1 });
+  expect(queueCommand({ key: "Enter" })).toEqual({ kind: "open" });
+  expect(queueCommand({ key: "a" })).toEqual({ kind: "allow" });
+  expect(queueCommand({ key: "d" })).toEqual({ kind: "deny" });
+  expect(queueCommand({ key: "1" })).toEqual({ kind: "choose", index: 0 });
+  expect(queueCommand({ key: "9" })).toEqual({ kind: "choose", index: 8 });
+  expect(queueCommand({ key: "x" })).toEqual({ kind: "export" });
+  expect(queueCommand({ key: "e" })).toEqual({ kind: "export" });
+  // A chord is the app's, and other keys do nothing.
+  expect(queueCommand({ key: "a", metaKey: true })).toBeUndefined();
+  expect(queueCommand({ key: "j", ctrlKey: true })).toBeUndefined();
+  expect(queueCommand({ key: "A", shiftKey: true })).toBeUndefined();
+  expect(queueCommand({ key: "0" })).toBeUndefined();
+  expect(queueCommand({ key: "z" })).toBeUndefined();
+});
+
+test("an approval answers allow once and deny once, never the lasting allow", () => {
+  expect(queueAnswers(item())).toEqual([
+    { id: "allow", label: "Allow", tone: "allow" },
+    { id: "deny", label: "Deny", tone: "deny" },
+  ]);
+  // A plan approval's options are the agent's own words.
+  const plan = item({
+    kind: "plan",
+    options: [
+      { optionId: "go", name: "Approve plan", kind: "allow_once" },
+      { optionId: "stay", name: "Keep planning", kind: "reject_once" },
+    ],
+  });
+  expect(queueAnswers(plan).map((each) => [each.id, each.tone])).toEqual([
+    ["go", "allow"],
+    ["stay", "deny"],
+  ]);
+});
+
+test("a question whose options are plain choices takes them by number; another machine's ask takes none", () => {
+  const question = item({
+    kind: "question",
+    options: [
+      { optionId: "one", name: "Use the cache" },
+      { optionId: "two", name: "Skip it" },
+    ],
+  });
+  expect(queueAnswers(question)).toEqual([
+    { id: "one", label: "Use the cache", tone: "choice" },
+    { id: "two", label: "Skip it", tone: "choice" },
+  ]);
+  // A question that came as an allow/deny permission, without its choices: answered in its chat.
+  expect(queueAnswers(item({ kind: "question" }))).toEqual([]);
+  expect(queueAnswers(item({ host: "studio" }))).toEqual([]);
+  expect(queueAnswers(item({ kind: "pr", prUrl: "https://example.com/pull/1" }))).toEqual([]);
+});
+
+test("an answer goes the way Needs you sends it: the same `chat.permission` params", () => {
+  const ask = needsYouItem(item());
+  expect(ask.sessionId).toBe("s1");
+  expect(ask.permissionId).toBe("p1");
+  expect(answerParams(ask, { id: "allow", label: "Allow", tone: "allow" })).toEqual({
+    method: "chat.permission",
+    params: { sessionId: "s1", permissionId: "p1", optionId: "allow" },
+  });
+});
+
+test("another chat's approval is answered by the host on the click; a peer's opens instead", async () => {
+  const calls: [string, unknown][] = [];
+  const call = async <T>(method: string, params?: Record<string, unknown>) => {
+    calls.push([method, params]);
+    return undefined as T;
+  };
+  const opened: string[] = [];
+  const allow = { id: "allow", label: "Allow", tone: "allow" as const };
+  const local = await answerAnotherChat(call, needsYouItem(item()), allow, { peer: false, open: () => opened.push("s1") });
+  expect(local).toBe("answered");
+  expect(calls).toEqual([["chat.asks.answer", { sessionId: "s1", permissionId: "p1", optionId: "allow" }]]);
+  expect(opened).toEqual([]);
+
+  const peer = await answerAnotherChat(call, needsYouItem(item({ host: "studio" })), allow, {
+    peer: true,
+    open: () => opened.push("peer"),
+  });
+  expect(peer).toBe("opened");
+  expect(calls.length).toBe(1);
+  expect(opened).toEqual(["peer"]);
+
+  // An item with no permission is no answer at all: a refusal, never a stuck row.
+  await expect(
+    answerAnotherChat(call, needsYouItem(item({ permissionId: undefined })), allow, { peer: false, open: () => {} }),
+  ).rejects.toThrow("unanswerable");
+});
+
+test("why an item ranks high, in words the page can say; unknown reasons are left out", () => {
+  expect(
+    queueReasons(item({ impactReasons: ["blocksTurn", "queuedPrompts:3", "costUsd:4.5", "subsessions:0", "age", "mystery:2", "queuedPrompts:x"] })),
+  ).toEqual([{ kind: "blocksTurn" }, { kind: "queuedPrompts", n: 3 }, { kind: "costUsd", usd: 4.5 }, { kind: "age" }]);
+});
+
+test("a pull request's verdict names the PR and its chat; other kinds and other machines' send none", () => {
+  const pr = item({ id: "pr:u", kind: "pr", prUrl: "https://example.com/pull/7", permissionId: undefined });
+  expect(verdictParams(pr, "accept")).toEqual({ prUrl: "https://example.com/pull/7", sessionId: "s1", verdict: "accepted" });
+  expect(verdictParams(pr, "changes", "  Split the commit  ")).toEqual({
+    prUrl: "https://example.com/pull/7",
+    sessionId: "s1",
+    verdict: "changes",
+    comment: "Split the commit",
+  });
+  expect(verdictParams(item(), "accept")).toBeUndefined();
+  // acpmux records a verdict on this Mac only, for a chat it has.
+  expect(verdictParams({ ...pr, host: "studio" }, "accept")).toBeUndefined();
+  expect(verdictParams({ ...pr, sessionId: "" }, "accept")).toBeUndefined();
+});
+
+test("an older acpmux, or a host whose relay does not list the method, reads as older", () => {
+  expect(isOlderDaemon({ code: -32601, message: "Method not found" })).toBe(true);
+  expect(isOlderDaemon({ code: "-32601" })).toBe(true);
+  expect(isOlderDaemon({ code: "transport.method_refused" })).toBe(true);
+  expect(isOlderDaemon(new Error("method not found: _acpmux/review_queue"))).toBe(true);
+  expect(isOlderDaemon(new Error("socket closed"))).toBe(false);
+  expect(isOlderDaemon(undefined)).toBe(false);
+});
+
+test("the audit export follows its cursor, and stops at its page cap", async () => {
+  const pages: Record<string, { entries: unknown[]; next?: string }> = {
+    "": { entries: [{ seq: 1 }, { seq: 2 }], next: 2 },
+    "2": { entries: [{ seq: 3 }], next: 3 },
+    "3": { entries: [{ seq: 4 }] },
+  };
+  const asked: unknown[] = [];
+  const read = async (params: Record<string, unknown>) => {
+    asked.push(params);
+    return pages[String(params.cursor ?? "")];
+  };
+  expect(await auditEntries(read, 10)).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }, { seq: 4 }]);
+  // The cursor is acpmux's `seq`, sent back as the number it is.
+  expect(asked).toEqual([{}, { cursor: 2 }, { cursor: 3 }]);
+  expect(await auditEntries(read, 2)).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }]);
+});
+
+test("the queue reads again exactly when an ask comes or goes", () => {
+  const ask = (permissionId: string) => ({
+    sessionId: "s1",
+    at: 1,
+    permission: { permissionId, pending: true, options: [] },
+  });
+  expect(asksKey([ask("p1"), ask("p2")])).toBe("p1,p2");
+  expect(asksKey([ask("p1")])).not.toBe(asksKey([ask("p1"), ask("p2")]));
+  expect(asksKey([])).toBe("");
+});
