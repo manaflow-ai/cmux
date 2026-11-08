@@ -174,3 +174,27 @@ test("a send under a ticket bound to no chat (a held prompt's) uploads nothing",
     pane.close?.();
   }
 });
+
+test("a send whose chat-bound ticket comes after the chat was left goes back to its sender", async () => {
+  const { pane, prompts } = await client();
+  try {
+    expect(pane.selectedSession).toBeTruthy();
+    let answer: (reply: { ticket: string }) => void = () => {};
+    setNativeHost(async (method) => {
+      if (method !== "transport.gesture") throw new Error("not in this test");
+      return new Promise((resolve) => (answer = resolve));
+    });
+    const before = prompts.length;
+    const sending = pane.send("just text").then(
+      () => "sent",
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    await Promise.resolve();
+    pane.leave();
+    answer({ ticket: "k-late" });
+    expect(await sending).not.toBe("sent");
+    expect(prompts.length).toBe(before);
+  } finally {
+    pane.close?.();
+  }
+});
