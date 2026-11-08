@@ -300,7 +300,7 @@ function colorString(value: unknown, fallback: string) {
 }
 
 /** Shared fallback faces keep private-use symbols and CJK in the same code/chat stack. */
-export const TERMINAL_FONT_FALLBACK_STACK = '"Symbols Nerd Font Mono", "Noto Sans Mono CJK JP", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+export const TERMINAL_FONT_FALLBACK_STACK = '"Symbols Nerd Font Mono", "Noto Sans Mono CJK JP", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 
 export function codeFontFamily(fontFamily: unknown) {
   const family = typeof fontFamily === "string" && fontFamily.trim() !== "" ? fontFamily.trim() : "Menlo";
