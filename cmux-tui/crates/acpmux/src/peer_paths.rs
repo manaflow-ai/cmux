@@ -343,7 +343,7 @@ impl Paths {
     pub fn dial_order(&self, now: u64) -> Vec<Via> {
         let rank = |via: Via| -> (u8, u64) {
             let health = self.health(via, now);
-            let rtt = self.rtt(via).map_or(u64::MAX, |rtt| millis(rtt));
+            let rtt = self.rtt(via).map_or(u64::MAX, millis);
             if Some(via) == self.active() {
                 (0, 0)
             } else if matches!(health, Some(Health::Alive | Health::Doubt)) {

@@ -1669,8 +1669,8 @@ impl Peer {
         self.start_probes();
         let heard = Some(opened.heard);
         let end = match opened.ws {
-            carriers::OpenedWs::Boxed(ws) => self.serve_heard(ws, out_rx, heard).await,
-            carriers::OpenedWs::Url(ws) => self.serve_heard(ws, out_rx, heard).await,
+            carriers::OpenedWs::Boxed(ws) => self.serve_heard(*ws, out_rx, heard).await,
+            carriers::OpenedWs::Url(ws) => self.serve_heard(*ws, out_rx, heard).await,
         };
         self.set_serving(None);
         let end = match (end, opened.ssh_errors) {

@@ -42,16 +42,15 @@ type UrlWs = tokio_tungstenite::WebSocketStream<
 
 /// An opened WebSocket of one path.
 pub(super) enum OpenedWs {
-    Boxed(BoxedWs),
-    Url(UrlWs),
+    Boxed(Box<BoxedWs>),
+    Url(Box<UrlWs>),
 }
 
 /// An ssh path probe's own `ssh -W` process (spawned `kill_on_drop`) and its stderr reader.
 type ProbeTunnel = (tokio::process::Child, ssh_errors::Capture);
 
-/// The WebSocket the cold connect opened, and on which path.
+/// The WebSocket the cold connect opened (its path comes back beside it from `race`).
 pub(super) struct Opened {
-    pub via: Via,
     pub ws: OpenedWs,
     pub heard: Heard,
     /// The peer token it presented (`Peer::presented`).
@@ -85,11 +84,11 @@ pub(super) async fn race<T, F>(
 where
     F: Future<Output = Result<T, String>>,
 {
-    fn tagged<T, F: Future<Output = Result<T, String>>>(
+    async fn tagged<T, F: Future<Output = Result<T, String>>>(
         via: Via,
         dial: F,
-    ) -> impl Future<Output = (Via, Result<T, String>)> {
-        async move { (via, dial.await) }
+    ) -> (Via, Result<T, String>) {
+        (via, dial.await)
     }
     let mut waiting = candidates.into_iter();
     let mut running = FuturesUnordered::new();
@@ -465,7 +464,12 @@ impl Peer {
         let (ws, _) = tokio::time::timeout(self.timings.connect, opening)
             .await
             .map_err(|_| connect_timed_out(self.timings.connect))??;
-        Ok(Opened { via, ws: OpenedWs::Boxed(ws), heard, presented: peer_token, ssh_errors: None })
+        Ok(Opened {
+            ws: OpenedWs::Boxed(Box::new(ws)),
+            heard,
+            presented: peer_token,
+            ssh_errors: None,
+        })
     }
 
     /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL.
@@ -509,13 +513,7 @@ impl Peer {
         let (ws, _) = tokio::time::timeout(self.timings.connect, connect)
             .await
             .map_err(|_| connect_timed_out(self.timings.connect))??;
-        Ok(Opened {
-            via: Via::Url,
-            ws: OpenedWs::Url(ws),
-            heard,
-            presented: None,
-            ssh_errors: None,
-        })
+        Ok(Opened { ws: OpenedWs::Url(Box::new(ws)), heard, presented: None, ssh_errors: None })
     }
 
     /// Open the peer's WebSocket over `ssh -W`, reading its tokens over ssh as needed.
@@ -599,8 +597,7 @@ impl Peer {
             let error = match upgraded {
                 Ok(ws) => {
                     return Ok(Opened {
-                        via: Via::Ssh,
-                        ws: OpenedWs::Boxed(ws),
+                        ws: OpenedWs::Boxed(Box::new(ws)),
                         heard,
                         presented: peer_token,
                         ssh_errors: Some(errors),
@@ -686,8 +683,8 @@ impl Peer {
                 _ = stopped.changed() => return,
             };
             match opened {
-                Ok(Ok((OpenedWs::Boxed(ws), tunnel))) => self.probe_link(via, ws, tunnel).await,
-                Ok(Ok((OpenedWs::Url(ws), tunnel))) => self.probe_link(via, ws, tunnel).await,
+                Ok(Ok((OpenedWs::Boxed(ws), tunnel))) => self.probe_link(via, *ws, tunnel).await,
+                Ok(Ok((OpenedWs::Url(ws), tunnel))) => self.probe_link(via, *ws, tunnel).await,
                 Ok(Err(error)) => {
                     tracing::debug!(peer = %self.name, via = via.as_str(), "path probe failed: {error}");
                     self.path_failed(via);
@@ -766,7 +763,7 @@ impl Peer {
                 )
                 .await
                 .map_err(|e| e.to_string())?;
-                Ok((OpenedWs::Boxed(ws), Some((child, errors))))
+                Ok((OpenedWs::Boxed(Box::new(ws)), Some((child, errors))))
             }
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
         }
