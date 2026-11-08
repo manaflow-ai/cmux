@@ -272,8 +272,9 @@ Perceive, act in logical groups, then verify:
    most 50000). It reads the accessibility tree only, with no screenshot, and
    returns the matching elements with fresh `element_token`s; a wait that runs
    out returns `timed_out: true` and the last count. A wait to appear matches
-   only elements you can act on (not `display_only`, not `enabled: false`;
-   `actionable: false` widens it). `gone` is reported only from a whole tree: a
+   only elements you can act on (an `element_index`, not `display_only`, and not
+   `enabled: false` where the helper reports `enabled`; `actionable: false`
+   widens it). `gone` is never reported from a tree known to be cut: a
    read bounded by `max_elements`/`max_depth` is checked again without them,
    and a `truncated` tree ends in `gone_unconfirmed: true`, not gone. A gone
    result says `tree: whole`, or `tree: unknown` when the helper did not report

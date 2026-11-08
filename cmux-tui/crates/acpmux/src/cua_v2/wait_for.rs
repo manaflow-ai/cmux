@@ -14,10 +14,12 @@
 //! `get_window_state` call.
 //!
 //! A wait for an element to appear counts only rows an agent can act on:
-//! an `element_index`, not `display_only`, not `enabled: false`. A wait for
+//! an `element_index`, not `display_only`, and not `enabled: false` when the
+//! helper reports `enabled` (the shipped helper does not, so a disabled
+//! control with an index still counts there). A wait for
 //! one to go away counts any row unless `actionable: true` asks otherwise.
 //!
-//! "Gone" is only claimed from a whole tree. A check that sees no match in a
+//! "Gone" is never claimed from a tree known to be cut. A check that sees no match in a
 //! tree the caller bounded (`max_elements`, `max_depth`) reads again at once
 //! without those bounds; one that is still `truncated` proves nothing, so the
 //! wait goes on and, at its deadline, says the absence was not confirmed.
@@ -59,7 +61,7 @@ const PASSED_ON: [&str; 4] = ["pid", "window_id", "max_depth", "max_elements"];
 pub fn definition() -> Value {
     json!({
         "name": TOOL,
-        "description": "Wait until an element appears in a window's accessibility tree (or, with gone: true, until none matches), instead of sleeping and taking another screenshot. Checks the tree with get_window_state (no screenshot) every interval_ms until timeout_ms. On a match it returns the matching elements in get_window_state's shape, with element_token values from the newest snapshot, ready for click or type_text. On timeout it returns isError with timed_out: true and the count the last check saw. Pass query (get_window_state's case-insensitive match on an element's role, label or value; like it, only indexed rows count, so a plain text or spinner with no element_index never matches), role, or both. A wait to appear matches only elements you can act on (an element_index, not disabled). gone is only reported from a whole tree: a bounded read (max_elements, max_depth) that sees no match is read again without the bounds, and a truncated tree never counts as gone (at the deadline the result says gone_unconfirmed: true); a gone result says tree: whole, or tree: unknown when the helper did not report whether its tree was whole.",
+        "description": "Wait until an element appears in a window's accessibility tree (or, with gone: true, until none matches), instead of sleeping and taking another screenshot. Checks the tree with get_window_state (no screenshot) every interval_ms until timeout_ms. On a match it returns the matching elements in get_window_state's shape, with element_token values from the newest snapshot, ready for click or type_text. On timeout it returns isError with timed_out: true and the count the last check saw. Pass query (get_window_state's case-insensitive match on an element's role, label or value; like it, only indexed rows count, so a plain text or spinner with no element_index never matches), role, or both. A wait to appear matches only elements you can act on (an element_index, not display_only, and not enabled: false where the helper reports enabled). gone is never reported from a tree known to be cut: a bounded read (max_elements, max_depth) that sees no match is read again without the bounds, and a truncated tree never counts as gone (at the deadline the result says gone_unconfirmed: true); a gone result says tree: whole, or tree: unknown when the helper did not report whether its tree was whole.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -68,7 +70,7 @@ pub fn definition() -> Value {
                 "query": {"type": "string", "description": "get_window_state's query: a case-insensitive match on an element's role, label or value."},
                 "role": {"type": "string", "description": "Only elements of this role, for example button or AXButton (case-insensitive; the AX prefix is optional)."},
                 "gone": {"type": "boolean", "description": "Wait until no element matches instead. Default false."},
-                "actionable": {"type": "boolean", "description": "Count only elements you can act on (an element_index, not display_only, not enabled: false). Default true for a wait to appear, false with gone."},
+                "actionable": {"type": "boolean", "description": "Count only elements you can act on (an element_index, not display_only, not enabled: false where the helper reports it). Default true for a wait to appear, false with gone."},
                 "timeout_ms": {"type": "integer", "minimum": 0, "maximum": MAX_TIMEOUT_MS, "description": "How long to wait in all. Default 10000; larger values are cut to 50000; 0 checks once."},
                 "interval_ms": {"type": "integer", "minimum": MIN_INTERVAL_MS, "maximum": MAX_INTERVAL_MS, "description": "The pause between checks. Default 200."},
                 "max_depth": {"type": "integer", "description": "Passed to get_window_state."},
