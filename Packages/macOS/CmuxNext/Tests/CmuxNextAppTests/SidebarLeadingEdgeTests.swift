@@ -6,8 +6,9 @@ import Testing
 
 /// Lawrence msg 19643 ("left alignment here is bad", screenshot of the sidebar's top): the pins, Home's house and a
 /// favicon started 1 to 5 pt right of the text-only titles ("Stripe…", "Pinning…"), each glyph centered in the 16 pt
-/// icon column at its own ink width, so the left edge was ragged in three places. The look contract: every row's
-/// first ink (a pin, Home's glyph, a favicon, an emoji, a symbol, or a text-only title) starts at the row inset; every
+/// icon column at its own ink width, so the left edge was ragged in three places. The look contract: every workspace
+/// row's first ink (a favicon, an emoji, a symbol, or a text-only title) starts at the row inset, while Home's glyph and
+/// the pins center in the icon column (https://github.com/manaflow-ai/cmux/issues/38061); every
 /// icon column box has one x and one width; a title after a leading glyph starts at one text x. A text-only row keeps
 /// its title at the inset (Lawrence msg 11405, `SidebarLookContractTests.titlesStartAsFarLeftAsTheRowAllows`).
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarLeadingEdgeTests {
@@ -106,8 +107,9 @@ import Testing
         list.frame(for: try #require(list.displayed.row(for: .workspace(stripe)))).minX + SidebarStyle.horizontalInset
     }
 
-    /// Every row's first ink starts at the row inset: the pins, Home's glyph, each workspace icon, and the text-only
-    /// titles ("Stripe…", "Pinning…").
+    /// Every workspace row's first ink starts at the row inset: each workspace icon and the text-only titles
+    /// ("Stripe…", "Pinning…"). Home's glyph and the pins center in the icon column instead
+    /// (https://github.com/manaflow-ai/cmux/issues/38061, `HomePinnedRowAlignmentTests`).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func everyRowsFirstInkStartsAtTheInset(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
@@ -115,12 +117,6 @@ import Testing
             defer { window.close() }
             let inset = try Self.inset(list)
             var starts: [(String, CGFloat)] = []
-            let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
-            starts.append(("Home's glyph", Self.x(list, try #require(home.glyphInkFrame, "Home drew no glyph").minX, in: home)))
-            for pin in Self.pins {
-                let row = try HomePinnedRowAlignmentTests.item(list, pin.id)
-                starts.append(("\(pin.id.rawValue)'s pin", Self.x(list, try #require(row.pinInkFrame, "no pin").minX, in: row)))
-            }
             for id in Self.iconRows {
                 let row = try HomePinnedRowAlignmentTests.row(list, id)
                 let ink = try #require(try Self.inkMinX(row.icon), "\(id.rawValue) drew no icon")

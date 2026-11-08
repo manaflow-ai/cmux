@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// "New Chief…": a name for another Chief and the engine it runs on (Claude, Codex or
 /// UniiChat, ``ChiefBackend``); the Chief gets its own conversation. The host's `onCreate`

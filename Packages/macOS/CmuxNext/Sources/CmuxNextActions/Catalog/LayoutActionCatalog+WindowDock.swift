@@ -1,6 +1,7 @@
 // The window dock (user 2026-11-05): a dock region of the window frame (plans/cmux-next/docked-workspace-DESIGN.md)
 // that any pane moves into and out of, with the Home Chief pane's no-tab-bar mode per dock. The Chief window dock
-// is one: Open Chief Dock (Cmd-I) docks Home's Chief at `home.chiefDock.edge` and focuses it. Titles live in
+// panel is apart from it: Show/Hide Chief (Cmd-I) shows or hides the Chief floating over the workspace (or docked,
+// once the person docked it), never over Home; Undock Chief floats a docked one (cmux#37372). Titles live in
 // LayoutActions.xcstrings.
 
 nonisolated extension LayoutActionCatalog {
@@ -8,10 +9,13 @@ nonisolated extension LayoutActionCatalog {
         let window: [ActionTargetKind] = [.window]
         let edgeKeywords = ["window", "dock", "edge", "move", "chief", "frame"]
         return [
-            row("home.openChiefDock", String(localized: "action.home.openChiefDock", defaultValue: "Open Chief Dock", table: "LayoutActions", bundle: .module),
+            row("home.openChiefDock", String(localized: "action.home.openChiefDock", defaultValue: "Show/Hide Chief", table: "LayoutActions", bundle: .module),
                 .window, "sidebar.left", cli: "home open-chief-dock",
-                keywords: ["chief", "dock", "window", "home", "chat", "side", "left", "focus", "open"], targets: window,
+                keywords: ["chief", "dock", "window", "home", "chat", "float", "panel", "show", "hide", "toggle", "focus", "open"], targets: window,
                 defaultShortcut: Shortcut("i", modifiers: [.command]), surfaces: [.palette, .keyboard]),
+            row("home.undockChief", String(localized: "action.home.undockChief", defaultValue: "Undock Chief", table: "LayoutActions", bundle: .module),
+                .window, "sidebar.left", cli: "home undock-chief",
+                keywords: ["chief", "dock", "undock", "unpin", "float", "panel", "window", "home", "chat", "side", "left"], targets: window),
             row("window.movePaneToDock", String(localized: "action.window.movePaneToDock", defaultValue: "Move Pane to Dock", table: "LayoutActions", bundle: .module),
                 .pane, "rectangle.lefthalf.inset.filled.arrow.left", cli: "pane move-to-dock",
                 keywords: ["pane", "dock", "window", "move", "pin", "side", "frame"], targets: [.pane]),

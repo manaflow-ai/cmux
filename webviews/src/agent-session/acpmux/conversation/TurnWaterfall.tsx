@@ -9,7 +9,7 @@ import { useT } from "../i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { toolLabel } from "../toolPaths";
 import { Clock } from "./icons";
-import { ROW_ICON } from "./MessageActions";
+import { ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext } from "./turnActions";
 import { isEmptyFooter } from "./turns";
 import { waterfall, WATERFALL_FIRST, type WaterfallSpan, type WaterfallTone } from "./waterfallSpans";
@@ -18,6 +18,12 @@ import "./TurnWaterfall.css";
 /// How the bars lay out: `bars` (label, then its bar on the shared axis), `stacked` (the label over
 /// a full-width bar) or `lanes` (one lane per kind of work, its bars side by side).
 export type WaterfallLook = "bars" | "stacked" | "lanes";
+
+/// What the header row's corner, left of the axis, says (Leo, 2026-11-07: "The top left, there's
+/// nothing. So you might as well just show that it's, like, okay, this is the total time taken for
+/// this turn"): `count` ("3 commands · 1m 30s", chosen), `total` ("1m 30s total"), `turn` ("Turn ·
+/// 1m 30s") or `strong` (the count, then the total in full ink). The others are gallery arms.
+export type WaterfallSummary = "count" | "total" | "turn" | "strong";
 
 /// A lane's name in the `lanes` look.
 const LANE_NAMES = {
@@ -46,6 +52,26 @@ function spanLabel(t: Translate, item: AcpmuxActivity): string {
     undefined,
     t("tools.ranUnnamed"),
   );
+}
+
+/// The header corner's words: how many calls the turn timed (commands when every one was a shell
+/// command), then its total in the axis's own format. A turn that only thought says its total.
+function summaryParts(
+  t: Translate,
+  spans: readonly WaterfallSpan[],
+  total: number,
+  summary: WaterfallSummary,
+): { lead?: string; time: string } {
+  const time = spanTime(t, total);
+  if (summary === "total") return { time: t("turn.timeline.summary.total", { time }) };
+  if (summary === "turn") return { lead: t("turn.timeline.summary.turn"), time };
+  const calls = spans.filter((span) => span.item.tool);
+  if (!calls.length) return { time };
+  const commands = calls.every((span) => span.tone === "shell");
+  return {
+    lead: t(commands ? "turn.timeline.summary.commands" : "turn.timeline.summary.calls", { n: calls.length }),
+    time,
+  };
 }
 
 /// The footer's Timeline toggle and, while it is open, the waterfall under the footer row. Null for
@@ -84,11 +110,13 @@ export function TurnWaterfall({
   row,
   work,
   look = "bars",
+  summary = "count",
 }: {
   id?: string;
   row: Pick<AcpmuxRow, "at" | "durationMs">;
   work: readonly AcpmuxActivity[];
   look?: WaterfallLook;
+  summary?: WaterfallSummary;
 }) {
   const t = useT();
   const { showCall } = useContext(TurnActionsContext);
@@ -96,6 +124,7 @@ export function TurnWaterfall({
   const [all, setAll] = useState(false);
   const shown = all || look === "lanes" ? chart.spans : chart.spans.slice(0, WATERFALL_FIRST);
   const rest = chart.spans.length - shown.length;
+  const corner = summaryParts(t, chart.spans, chart.total, summary);
   const slowest = chart.slowest === undefined ? undefined : chart.spans[chart.slowest];
   const place = (span: WaterfallSpan): CSSProperties =>
     ({
@@ -164,10 +193,17 @@ export function TurnWaterfall({
   }, [look, chart]);
   return (
     <section id={id} className={`cv-waterfall is-${look}`} aria-label={t("turn.timeline.label")} data-find-skip="">
-      <div className="cv-waterfall__axis" aria-hidden="true">
-        <span>{spanTime(t, 0)}</span>
-        <span>{spanTime(t, chart.total / 2)}</span>
-        <span>{spanTime(t, chart.total)}</span>
+      <div className="cv-waterfall__head">
+        <span className={`cv-waterfall__summary${summary === "strong" ? " is-strong" : ""}`}>
+          {corner.lead && <span>{corner.lead}</span>}
+          {corner.lead && <span aria-hidden="true">{" · "}</span>}
+          <span className="cv-waterfall__total">{corner.time}</span>
+        </span>
+        <div className="cv-waterfall__axis" aria-hidden="true">
+          <span>{spanTime(t, 0)}</span>
+          <span>{spanTime(t, chart.total / 2)}</span>
+          <span>{spanTime(t, chart.total)}</span>
+        </div>
       </div>
       {look === "lanes" ? (
         <ul className="cv-waterfall__rows">

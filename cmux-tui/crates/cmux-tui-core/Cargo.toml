@@ -34,9 +34,13 @@ cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
 cmux-conductor-import.workspace = true
+cmux-palette-ranker.workspace = true
 cmux-config.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true
+# The Tasks page link (tasks_link.rs): the owner socket protocol and its client.
+cmux-tasks.workspace = true
+cmux-tasks-core.workspace = true
 cmux-tui-cloud-conversations.workspace = true
 cmux-tui-platform.workspace = true
 cmux-tui-image-paste.workspace = true
@@ -49,6 +53,7 @@ cmux-terminal-sizing.workspace = true
 serde.workspace = true
 subsecond = { workspace = true, optional = true }
 serde_json.workspace = true
+toml.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 libc.workspace = true
@@ -84,6 +89,8 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# The Cloud API calls the daemon's cloud.* ops answer (server/cloud_api.rs).
+cmux-cloud-api.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
@@ -91,6 +98,10 @@ tokio.workspace = true
 # client the cmux-tui binary already links for cmux.wire/1.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+# The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.
+cmux-sdk = { path = "../../bindings/rust", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),

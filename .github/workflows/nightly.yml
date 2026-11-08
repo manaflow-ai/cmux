@@ -2432,7 +2432,7 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && steps.release-derived-data.outputs.mode == ''
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
-      # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
+      # The cmux-next web bundles (agent pane, pages, Activity,
       # webviews app) are built from this commit's sources, never taken from a
       # committed copy (cx-vn5). build-nightly-inputs builds them on Linux
       # beside this job with the same --force build; they are installed here,
@@ -5461,12 +5461,12 @@ jobs:
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
       # The appcasts this track publishes (decide): one on nightly-next, four on main.
-      NIGHTLY_FEEDS: &pub-feeds ${{ needs.decide.outputs.feeds }}
+      NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
       NIGHTLY_TRACK: ${{ needs.decide.outputs.track }}
-      CHANNEL: &pub-channel ${{ needs.decide.outputs.channel }}
+      CHANNEL: ${{ needs.decide.outputs.channel }}
       TRACK: ${{ needs.decide.outputs.track }}
-      CHANNEL_DMG_PREFIX: &pub-dmg ${{ needs.decide.outputs.dmg_prefix }}
-      CHANNEL_RELEASE_TAG: &pub-tag ${{ needs.decide.outputs.release_tag }}
+      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
+      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       # Publication tooling from this workflow's own commit (see the step below).
       PUBLISH_TOOLING: &pub-tooling ${{ github.workspace }}/.publish-tooling/scripts
@@ -6003,7 +6003,7 @@ jobs:
       actions: read # The published build's artifacts, from the run that published.
     # An upload holds the release App key but signs nothing. As an exclusive publisher on the one signer's mini it
     # holds the whole Mac while the next signs wait (run 41900945757); it still has nowhere safer to run.
-    runs-on: &pub-next-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
     # The two former jobs' limits added up: the uploads and the names each may wait out an hour of rate limits.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 480 || 240 }}
     outputs:
@@ -6040,12 +6040,10 @@ jobs:
 
       - *gh-app-install-tooling
 
-      - &wait-through-github-api-rate-l-3
-        name: Wait through GitHub API rate limits in this job's gh calls
+      - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
 
-      - &download-nightly-variant-artif
-        name: Download nightly variant artifacts
+      - name: Download nightly variant artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           # From the run that published (the dispatched run's published-build names it).
@@ -6075,8 +6073,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: nightly-out
 
-      - &download-the-published-feed
-        name: Download the published feed
+      - name: Download the published feed
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           # From the run that published (the dispatched run's published-build names it).

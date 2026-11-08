@@ -43,6 +43,7 @@ SHALLOW_CHECK = re.compile(r"is-shallow-repository|is_shallow|isShallow|shallow_
 OWN_REPOSITORY = {
     "cmux-tui/build-support/notices/fetch_crates.py": "fetches into a fresh `git init` cache directory",
     "scripts/ci/macos-cross.sh": "fetches into a directory it just ran `git init` in",
+    "images/cmux-vm/image-roll-record.sh": "fetches only into its own `git init` temp directory of the record branch",
     "scripts/pr-media.py": "fetches only into its own `git init --bare` cache clone of the media branch",
     "scripts/cmux-next/base-autofix-changed.sh": "fetches into a scratch `git init --bare` repository it just made",
     "scripts/cmux-next/base_autofix_pushed_exports.py":

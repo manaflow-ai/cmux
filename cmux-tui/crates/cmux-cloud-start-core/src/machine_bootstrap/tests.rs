@@ -4,12 +4,7 @@
 use super::*;
 
 fn repo() -> Repo {
-    Repo {
-        display: "o/r".into(),
-        directory: "work/r".into(),
-        record: "{\"dir\":\"~/work/r\"}".into(),
-        step: "#!/bin/sh\n# repo\n".into(),
-    }
+    Repo::new("o", "r")
 }
 
 const CLONE: &str = "/home/cmux/work/r";
@@ -262,8 +257,8 @@ fn a_start_uploads_into_its_own_folder_then_starts() {
     ));
     assert!(matches!(&plan.steps[2], Step::Write { text: Some(env), .. }
         if env == "export CMUX_MACHINE_NAME='lane-vm-1'\nexport LANE_VM_NAME='lane-vm-1'\n"));
-    assert!(matches!(&plan.steps[4], Step::Write { text: Some(r), .. } if *r == repo().record));
-    assert!(matches!(&plan.steps[5], Step::Write { text: Some(r), .. } if *r == repo().step));
+    assert!(matches!(&plan.steps[4], Step::Write { text: Some(r), .. } if *r == repo().record()));
+    assert!(matches!(&plan.steps[5], Step::Write { text: Some(r), .. } if *r == repo().step()));
     assert_eq!(
         plan.steps.last(),
         Some(&Step::Exec {

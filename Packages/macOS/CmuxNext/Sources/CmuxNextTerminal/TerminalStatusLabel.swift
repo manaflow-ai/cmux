@@ -60,18 +60,19 @@ final class TerminalStatusLabel {
             banner.hide()
             return true
         }
+        let inBetween = TerminalStatusBanner.isInBetween(status, stall: stall)
         if let banner, !banner.isHidden {
-            banner.show(text, fadeIn: false)
+            banner.show(text, inBetween: inBetween, fadeIn: false)
             return true
         }
         guard let delay = TerminalStatusBanner.revealDelay(for: status, stall: stall) else {
             endWait()
-            showNow(text, fadeIn: false)
+            showNow(text, inBetween: inBetween, fadeIn: false)
             return true
         }
         wait(.seconds(delay), text: text)
         // A label view built for a button above it takes the words now, still hidden, so its place does not move.
-        banner?.setText(text)
+        banner?.setText(text, inBetween: inBetween)
         return false
     }
 
@@ -82,7 +83,7 @@ final class TerminalStatusLabel {
         let made = TerminalStatusBanner()
         install(made)
         banner = made
-        if let waitingText { made.setText(waitingText) }
+        if let waitingText { made.setText(waitingText, inBetween: true) }
     }
 
     private func wait(_ delay: Duration, text: String) {
@@ -120,7 +121,7 @@ final class TerminalStatusLabel {
         guard let pending = waiting, pending.generation == ended, let text = waitingText else { return }
         waiting = nil
         waitingText = nil
-        showNow(text, fadeIn: true)
+        showNow(text, inBetween: true, fadeIn: true)
         didReveal()
     }
 
@@ -130,9 +131,9 @@ final class TerminalStatusLabel {
         waitingText = nil
     }
 
-    private func showNow(_ text: String, fadeIn: Bool) {
+    private func showNow(_ text: String, inBetween: Bool, fadeIn: Bool) {
         prepareView()
-        banner?.show(text, fadeIn: fadeIn)
+        banner?.show(text, inBetween: inBetween, fadeIn: fadeIn)
     }
 }
 

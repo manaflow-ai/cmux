@@ -44,6 +44,11 @@ and optionally:
     capture   fixture geometry RPC {"method": ..., "params": {...}, "scale": 2,
               "menu": false}; reads top-left window-point `capture` bounds after
               settling, crops the composited snapshot, and verifies real 2x pixels
+    collect   a file name (`sidebar-order.png`) for an image the step's `rpc`
+              writes itself, as debug.palette.capture does for the palette panel
+              the window shot leaves out: `{collect}` in the rpc's params is its
+              path, and the image is kept beside the step's shot as a "collected"
+              window; an rpc that writes none fails the step
 
 Screenshots are the DEV app's own drawing of its main window
 (`debug.window_snapshot`, which needs no grant), child windows it owns
@@ -90,7 +95,10 @@ from typing import Any
 
 MAX_SECONDS = 300
 
-STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows", "capture"}
+STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows", "capture",
+             "collect"}
+# A `collect` image's file name; it is kept as shots/NN-collect-<name>.png, a shot name publish.py takes.
+COLLECT_NAME = re.compile(r"([a-z0-9][a-z0-9-]{0,31})\.png")
 # Other windows a step shoots beside the main one (floating panels, popovers,
 # sheets), at most this many, each at least this big in points.
 MAX_OTHER_WINDOWS = 4
@@ -151,6 +159,17 @@ class TourError(Exception):
 
 def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "step"
+
+
+def fill_collect(value: Any, path: str) -> Any:
+    """`value` (an rpc's params) with every `{collect}` in its strings replaced by `path`."""
+    if isinstance(value, str):
+        return value.replace("{collect}", path)
+    if isinstance(value, list):
+        return [fill_collect(item, path) for item in value]
+    if isinstance(value, dict):
+        return {key: fill_collect(item, path) for key, item in value.items()}
+    return value
 
 
 def fill_repo(words: list[str], repo: str, where: str) -> list[str]:
@@ -216,6 +235,12 @@ def load_tour(path: Path) -> dict[str, Any]:
                                 or not isinstance(rpc.get("method"), str) or not rpc["method"].strip()
                                 or not isinstance(rpc.get("params", {}), dict)):
             raise TourError(f"{where}: `rpc` must be {{\"method\": name, \"params\": object}}")
+        collect = step.get("collect")
+        if collect is not None:
+            if not isinstance(collect, str) or not COLLECT_NAME.fullmatch(collect):
+                raise TourError(f"{where}: `collect` is a lowercase file name such as `palette.png`")
+            if rpc is None or "{collect}" not in json.dumps(rpc.get("params") or {}):
+                raise TourError(f"{where}: `collect` needs an `rpc` whose params name `{{collect}}`")
         if step.get("daemon") and command is None:
             raise TourError(f"{where}: `daemon` needs a `cmux` command")
         capture = step.get("capture")
@@ -1040,15 +1065,26 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
             if step.get("optional"):
                 result["detail"] += f" ({step['optional']})"
     rpc = step.get("rpc")
+    collected = shots / f"{index:02d}-collect-{step['collect'][:-4]}.png" if step.get("collect") else None
+    windows: list[dict[str, Any]] = []
     if rpc and result["status"] == "ok":
         result["rpc"] = rpc["method"]
+        params = rpc.get("params") or {}
+        if collected:
+            collected.unlink(missing_ok=True)
+            params = fill_collect(params, str(collected))
         try:
-            answer = app.request(rpc["method"], rpc.get("params") or {})
+            answer = app.request(rpc["method"], params)
             error = answer.get("error") if isinstance(answer, dict) else None
             # A method that answers but could not do it says so in its own `ok` (a bool, or
             # "false" from a method whose answer is all strings, as debug.hover_cards {gallery}).
             if not error and isinstance(answer, dict) and answer.get("ok") in (False, "false"):
                 error = "answered ok: false"
+            if not error and collected:
+                if collected.is_file() and collected.stat().st_size > 0:
+                    windows.append({"kind": "collected", "shot": f"shots/{collected.name}"})
+                else:
+                    error = f"wrote no image for `collect` {step['collect']}"
             result["output"] = json.dumps(answer)[-1500:]
         except (OSError, ValueError, TourError, socket.timeout) as problem:
             error = str(problem)
@@ -1092,11 +1128,12 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         else:
             result["shot"] = f"shots/{path.name}"
             if screen.app and step.get("windows", not step.get("display") and not step.get("capture")):
-                windows, problem = shoot_other_windows(app, path)
-                if windows:
-                    result["windows"] = windows
+                others, problem = shoot_other_windows(app, path)
+                windows += others
                 if problem:
                     result["windows_error"] = problem
+    if windows:
+        result["windows"] = windows
     result["seconds"] = round(time.monotonic() - started, 2)
     return result
 
