@@ -1074,6 +1074,11 @@ pub trait Store: Send + Sync {
     fn history_writer(&self, _id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         Ok(None)
     }
+    /// Where the approvals audit trail is kept (`hub/audit_log.rs`): `audit/` beside
+    /// `sessions/`, or none (in memory) for the memory store.
+    fn audit_dir(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// One record as [`Store::scan_heads`] passes it: the fields a log line holds before its `msg`,
@@ -2039,6 +2044,10 @@ impl Store for LocalStore {
 
     fn briefs_path(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("briefs.json"))
+    }
+
+    fn audit_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("audit"))
     }
 }
 

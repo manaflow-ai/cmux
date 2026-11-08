@@ -42,6 +42,8 @@ pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
+mod audit_entries;
+pub(crate) mod audit_log;
 mod bookmarks;
 pub(crate) mod cancel;
 mod catalog_reload;
@@ -66,6 +68,8 @@ mod peer_notice_cost_tests;
 mod prompt_accept_tests;
 #[cfg(test)]
 mod sender_claim_tests;
+#[cfg(test)]
+mod review_queue_tests;
 #[cfg(test)]
 mod shutdown_scan_tests;
 #[cfg(test)]
@@ -264,6 +268,7 @@ pub mod person;
 pub mod presence;
 mod processes;
 mod pull_requests;
+pub(crate) mod review_queue;
 pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
 mod remote_cwd;
@@ -630,6 +635,10 @@ pub struct Hub {
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
+    /// The sessions that may hold an ask, and those with pull requests (`review_queue.rs`).
+    pub(crate) review_index: review_queue::Index,
+    /// The approvals audit trail (`audit_log.rs`).
+    pub(crate) audit: audit_log::AuditLog,
     pub shutdown: Notify,
     /// Latched daemon restart and drain shared by TCP and embedded-tailnet listeners.
     pub(crate) ws_shutdown: crate::server::WsShutdown,
@@ -994,6 +1003,7 @@ impl Hub {
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
+        let audit = audit_log::AuditLog::open(store.audit_dir());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
@@ -1018,6 +1028,8 @@ impl Hub {
             list_guard: Default::default(),
             usage_stats: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
+            review_index: Default::default(),
+            audit,
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
@@ -1584,6 +1596,8 @@ impl Hub {
         });
         // Found by its tags from now on (`permissions/display.rs`).
         self.child_tags.note(&session);
+        // Its pull requests wait for a review verdict (`review_queue.rs`).
+        self.note_session_prs(&session);
         session
     }
 
@@ -2154,6 +2168,8 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
+            // The review queue's index and the audit trail: O(1), never blocking on a write.
+            self.observe_for_review(session, &record);
         }
         // A closed session's log is not held open: its last records (`status`,
         // then the agent's `stopped`) each close it again (`store.rs` Writers).
