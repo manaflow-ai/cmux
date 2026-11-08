@@ -87,7 +87,9 @@ pub(crate) const WRAPPED: &str = "attributionWrap";
 fn wrapped(mut block: Value, open: String) -> Value {
     let text = block.get("text").and_then(Value::as_str).unwrap_or_default();
     let whole = format!("{open}\n{text}\n{PASTED_END}");
-    block["text"] = json!(whole);
+    if let Some(fields) = block.as_object_mut() {
+        fields.insert("text".into(), json!(whole));
+    }
     if let Some(meta) = block.get_mut("_meta").and_then(Value::as_object_mut) {
         let mux = meta.entry("acpmux").or_insert_with(|| json!({}));
         if let Some(mux) = mux.as_object_mut() {

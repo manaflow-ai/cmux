@@ -838,14 +838,16 @@ pub(crate) fn prompt_text_parts(blocks: &[Value]) -> (String, Vec<Value>) {
         text.push_str(part);
         units += part.encode_utf16().count();
         if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
-            let mut range = json!({"start": start, "end": units});
+            let mut range = serde_json::Map::new();
+            range.insert("start".into(), json!(start));
+            range.insert("end".into(), json!(units));
             // A paste that reads as another agent's output names it (`agent_text.rs`), so a
             // client draws it as that agent's, never as the person's words.
             let found = crate::agent_text::detect(part);
             if found.agent() {
-                range["agent"] = agent_mark(&found);
+                range.insert("agent".into(), agent_mark(&found));
             }
-            pasted.push(range);
+            pasted.push(Value::Object(range));
         }
     }
     (text, pasted)
@@ -853,11 +855,12 @@ pub(crate) fn prompt_text_parts(blocks: &[Value]) -> (String, Vec<Value>) {
 
 /// `{from?, signals}`: what [`crate::agent_text::detect`] found, as a record names it.
 fn agent_mark(found: &crate::agent_text::Detected) -> Value {
-    let mut mark = json!({"signals": found.signals});
+    let mut mark = serde_json::Map::new();
+    mark.insert("signals".into(), json!(found.signals));
     if let Some(from) = &found.from {
-        mark["from"] = json!(from);
+        mark.insert("from".into(), json!(from));
     }
-    mark
+    Value::Object(mark)
 }
 
 /// `agentText` of a prompt record: what reads as another agent's output in the typed (unmarked)
