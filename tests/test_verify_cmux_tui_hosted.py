@@ -119,8 +119,9 @@ class Sandbox:
         (self.dir / "branch").write_text("verify-test", encoding="utf-8")
 
     def start(self, args: list[str], **env: str) -> subprocess.Popen[str]:
-        full_env = dict(self.env, CMUX_TUI_HOSTED_ROUND_SECONDS="1",
-                        CMUX_TUI_HOSTED_RESCUE_WINDOW_SECONDS="5", **env)
+        # Fast defaults a case may override.
+        full_env = {**self.env, "CMUX_TUI_HOSTED_ROUND_SECONDS": "1",
+                    "CMUX_TUI_HOSTED_RESCUE_WINDOW_SECONDS": "5", **env}
         process = subprocess.Popen(["bash", f"scripts/{SCRIPT.name}", *args], cwd=self.repo, env=full_env,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                    start_new_session=True)
