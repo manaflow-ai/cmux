@@ -45,6 +45,9 @@ public final class DictationMicrophoneClaims {
         previous?()
     }
 
+    /// Whether any of cmux's surfaces holds the microphone now.
+    public var isHeld: Bool { holder != nil }
+
     /// Whether `owner` holds the microphone now.
     public func isHeld(by owner: AnyObject) -> Bool { holder === owner }
 }

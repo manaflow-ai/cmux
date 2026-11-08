@@ -63,6 +63,9 @@ class SettingsSourceFromExportTests(unittest.TestCase):
                     if "choices" in source:
                         source["choices"] = [{"value": c["value"], "title": c["title"]} for c in source["choices"]]
                     drafted = DRAFT.draft_row(exported)
+                    if drafted.get("palette_shown") and source.get("page_hidden"):
+                        # The export does not carry the reason of a row the palette still offers.
+                        drafted["page_hidden"] = source["page_hidden"]
                     if "choices_from" in row:
                         # The source lists the leading choices; the Swift member lists the rest.
                         drafted["choices"] = drafted["choices"][:len(source["choices"])]

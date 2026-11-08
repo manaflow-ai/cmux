@@ -32,18 +32,14 @@ public nonisolated enum NewWorkspacePlacement: String, Hashable, Sendable, CaseI
 /// never named takes its front tab's name unless `workspaces.autoName` is
 /// off (hq#1957, `SidebarSectionsPreferences.autoNamesWorkspaces`).
 nonisolated extension CmuxConfigSnapshot {
-    public static let newWorkspacePlacementPath = ["workspaces", "newPlacement"]
-    public static let newWorkspacePlacementFallback: NewWorkspacePlacement = .afterCurrent
-    public static let groupByComputerPath = ["sidebar", "groupByComputer"]
-    public static let autoNameWorkspacesPath = ["workspaces", "autoName"]
-
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic. Runs after `sidebarSections` is parsed.
     static func parseWorkspaceList(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
-        snapshot.newWorkspacePlacement = ColumnLayoutSettings.choice(root, newWorkspacePlacementPath, fallback: newWorkspacePlacementFallback,
+        snapshot.newWorkspacePlacement = ColumnLayoutSettings.choice(root, newWorkspacePlacementPath, fallback: newWorkspacePlacementDefault,
                                                                      diagnostics: &snapshot.diagnostics)
-        if let flag = flag(root, groupByComputerPath, diagnostics: &snapshot.diagnostics) { snapshot.sidebarSections.groupsByComputer = flag }
-        if let flag = flag(root, autoNameWorkspacesPath, diagnostics: &snapshot.diagnostics) { snapshot.sidebarSections.autoNamesWorkspaces = flag }
+        snapshot.sidebarSections.groupsByComputer = flag(root, groupByComputerPath, diagnostics: &snapshot.diagnostics) ?? groupByComputerDefault
+        snapshot.sidebarSections.autoNamesWorkspaces = flag(root, autoNameWorkspacesPath, diagnostics: &snapshot.diagnostics)
+            ?? autoNameWorkspacesDefault
     }
 
     /// The boolean at `path`; nil when missing, or invalid (plus a diagnostic).
@@ -52,44 +48,5 @@ nonisolated extension CmuxConfigSnapshot {
         if let flag = value.boolValue { return flag }
         diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
         return nil
-    }
-}
-
-/// The three rows, in the General section's Sidebar group.
-nonisolated enum WorkspaceListSettingsSchema {
-    static var descriptors: [SettingDescriptor] {
-        let sidebar = SettingsText.keyed("settings.group.sidebar", "Sidebar")
-        return [
-            SettingDescriptor(
-                CmuxConfigSnapshot.newWorkspacePlacementPath, section: .general, group: sidebar,
-                title: SettingsText.keyed("settings.workspaces.newPlacement", "New Workspace Position"),
-                help: SettingsText.keyed("settings.workspaces.newPlacement.help",
-                                        "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."),
-                kind: .choice([
-                    SettingChoice(NewWorkspacePlacement.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
-                    SettingChoice(NewWorkspacePlacement.afterCurrent.rawValue,
-                                  SettingsText.keyed("settings.choice.afterCurrentWorkspace", "After Current Workspace")),
-                    SettingChoice(NewWorkspacePlacement.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
-                ]),
-                default: .string(CmuxConfigSnapshot.newWorkspacePlacementFallback.rawValue),
-                keywords: ["workspace", "new", "cmd-n", "position", "order", "top", "bottom", "after", "sidebar", "placement"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.groupByComputerPath, section: .general, group: sidebar,
-                title: SettingsText.keyed("settings.sidebar.groupByComputer", "Group Workspaces by Computer"),
-                help: SettingsText.keyed("settings.sidebar.groupByComputer.help",
-                                        "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer."),
-                kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.groupsByComputer),
-                keywords: ["sidebar", "computer", "machine", "cloud", "remote", "group", "section", "header", "flat", "list"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.autoNameWorkspacesPath, section: .general, group: sidebar,
-                title: SettingsText.keyed("settings.workspaces.autoName", "Name Workspaces from Tabs"),
-                help: SettingsText.keyed("settings.workspaces.autoName.help",
-                                        "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."),
-                kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.autoNamesWorkspaces),
-                keywords: ["workspace", "name", "rename", "auto", "title", "tab", "chat", "page", "folder", "sidebar"]
-            ),
-        ]
     }
 }

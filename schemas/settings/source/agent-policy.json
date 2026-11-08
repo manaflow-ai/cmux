@@ -80,6 +80,7 @@
         "sidebar.groupHeader.memberCount",
         "sidebar.groupHeader.unreadCount",
         "sidebar.groupHeader.background",
+        "sidebar.groupPalette",
         "sidebar.numbering",
         "sidebar.cmd9",
         "sidebar.stepping",
