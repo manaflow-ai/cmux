@@ -702,3 +702,34 @@ test("a Codex chat's older and marked turn_results count their cached input once
     client.close();
   }
 });
+
+// Claude Code behind the built-in `cmux` router profile (claude-stdio, family `claude`): an older
+// acpmux's unmarked record had its fresh input alone, as every Claude Code record did.
+test("a cmux router chat's older turn_result keeps its fresh input", async () => {
+  const daemon = fakeDaemon(
+    record([
+      prompt("fix the build"),
+      started,
+      [
+        "mux",
+        "turn_result",
+        {
+          status: "completed",
+          outputTokens: 23_702,
+          inputTokens: 112,
+          cacheReadTokens: 4_530_027,
+          cacheWriteTokens: 124_616,
+        },
+      ],
+    ]),
+    { harness: "cmux", family: "claude" },
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    const summary = () => snapshot().rows.find((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summary() !== undefined, "the turn's end");
+    expect(summary()?.tokens).toEqual({ output: 23_702, input: 112, cacheRead: 4_530_027, cacheWrite: 124_616 });
+  } finally {
+    client.close();
+  }
+});

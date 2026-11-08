@@ -34,24 +34,32 @@ export function callTokenSplit(update: any, output: number | undefined): TurnTok
   };
 }
 
-/// The chat a `turn_result` is from, as acpmux's session summary names it.
-export type ResultHarness = { harness?: string; family?: string };
+/// The chat a `turn_result` is from, as acpmux's session summary names it: its harness and family,
+/// and `backgroundsWork`, which acpmux sets for a chat running Claude Code over its stream
+/// (claude-stdio), whatever its profile is named (hub/processes.rs `backgrounds_work`).
+export type ResultHarness = { harness?: string; family?: string; backgroundsWork?: boolean };
 
 /// Whether a `turn_result`'s `inputTokens` is its fresh input alone. acpmux marks every record it
 /// writes so (`inputExcludesCache`, hub/turn_usage.rs). An older acpmux wrote no mark: its Claude
 /// records were fresh-only too (Claude names its input, cache reads and cache writes apart), but its
 /// ACP records (Codex's, Gemini's) counted the cache in the input, so a Codex turn of 314.9K fresh
-/// and 3M cached read "3.3M uncached". A Claude chat is one whose harness is a Claude (`claude`,
-/// `claude-acp`) or whose family is a Claude leaf (`claude-sr2`); plain family `claude` alone is
-/// not one, as opencode on a Claude model is filed under it with its own usage. With no chat named,
-/// the record's model names a Claude. A record that says none of it is read as counting its cache,
-/// the reading that can never count a token twice: at worst it shows a Claude turn's uncached input
+/// and 3M cached read "3.3M uncached". A Claude chat is told by how it runs where acpmux says
+/// (`backgroundsWork`: Claude Code over its stream), else by its names: a harness that is a Claude
+/// (`claude`, `claude-acp`), a Claude leaf family (`claude-sr2`), or the `cmux` model router's
+/// profile (harness `cmux`, family `claude`: Claude Code too). Plain family `claude` alone is not
+/// one, as opencode on a Claude model is filed under it with its own usage. With no chat named, the
+/// record's model names a Claude. A record that says none of it is read as counting its cache, the
+/// reading that can never count a token twice: at worst it shows a Claude turn's uncached input
 /// low, never a Codex turn's cached reads again as uncached.
 function inputIsFresh(msg: any, chat: ResultHarness | undefined): boolean {
   if (msg?.inputExcludesCache === true) return true;
+  if (chat?.backgroundsWork === true) return true;
   const harness = chat?.harness?.trim().toLowerCase();
   const family = chat?.family?.trim().toLowerCase();
-  if (harness || family) return !!harness?.startsWith("claude") || !!family?.startsWith("claude-");
+  if (harness || family)
+    return (
+      !!harness?.startsWith("claude") || !!family?.startsWith("claude-") || (harness === "cmux" && family === "claude")
+    );
   return typeof msg?.model === "string" && /claude|opus|sonnet|haiku/i.test(msg.model);
 }
 

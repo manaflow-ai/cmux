@@ -238,3 +238,39 @@ fn turn_usage_absent_from_an_old_session_json_still_loads() {
     let back = serde_json::to_value(&old).unwrap();
     assert!(back.get("totals").is_none(), "{back}");
 }
+
+/// An ACP harness whose input counts the prompt cache (Gemini's, Codex's): its record keeps the
+/// fresh input alone (marked `inputExcludesCache`), while a goal's token budget and the session's
+/// totals still add up the input as it reported it. A turn of 100K input (90K cached) and 2K
+/// output spends 102K of a 100K budget and stops the goal, as it always has, not 12K.
+#[tokio::test]
+async fn turn_usage_of_an_acp_turn_charges_a_goal_its_reported_input() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let goal = json!({"sessionId": id, "objective": "Make the suite pass",
+                      "doneWhen": "cargo test passes", "tokenBudget": 100_000});
+    c.request(method::MUX_GOAL_SET, goal).await.unwrap();
+
+    say(&mut c, &id, "usage-probe").await;
+    let turn = turn_results(&hub, &id).pop().unwrap();
+    assert_eq!(
+        spend(&turn),
+        json!({"inputTokens": 10_000, "outputTokens": 2_000, "cacheReadTokens": 90_000}),
+        "{turn}"
+    );
+    assert_eq!(turn["inputExcludesCache"], true, "{turn}");
+    // The session's totals keep the input as reported.
+    assert_eq!(saved(&hub, &id)["totals"]["inputTokens"], 100_000, "{}", saved(&hub, &id));
+    let mut goal = Value::Null;
+    for _ in 0..100 {
+        goal = c.request(method::MUX_GOAL_GET, json!({"sessionId": id})).await.unwrap();
+        if goal["tokensUsed"] != 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(goal["tokensUsed"], 102_000, "{goal}");
+    assert_eq!(goal["status"], "budgetLimited", "{goal}");
+    hub.shutdown_all().await;
+}

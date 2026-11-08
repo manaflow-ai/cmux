@@ -38,6 +38,8 @@ export default componentEntry<Props>({
   area: "Agent pane",
   pane: true,
   covers: ["agent-session/acpmux/conversation/TurnTokens.tsx", "agent-session/acpmux/tokenSplit.ts"],
+  // A narrow pane too: each row stays one count, its longest (the input) wrapping in the tooltip.
+  widths: { narrow: 320, normal: 760 },
   load: async () => {
     const { compactTokens, replyTimeDetail, tokenRows } = await import("./TurnTokens");
     const { useT, usePaneLanguage } = await import("../i18n");

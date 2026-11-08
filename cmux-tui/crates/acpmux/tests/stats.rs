@@ -7,7 +7,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use acpmux::config::Config;
 use acpmux::hub::Hub;
-use acpmux::stats::{StatsOptions, civil_date, summarize};
+use acpmux::stats::{StatsOptions, civil_date, summarize, summarize_with};
 use acpmux::store::{EventRecord, MemoryStore, SessionMeta, Store};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -789,6 +789,21 @@ fn stats_branches_count_an_older_codex_records_cached_input_once() {
     let mut opencode = session(&store, on("opencode", "opencode", "claude", "opencode"));
     opencode.turn(DAY0 + 5 * HOUR, DAY0 + 5 * HOUR + MIN, older);
 
+    // Claude Code behind the built-in `cmux` router profile (claude-stdio, family `claude`).
+    let mut router = session(&store, on("router", "cmux", "claude", "cmux-router"));
+    router.turn(DAY0 + 6 * HOUR, DAY0 + 6 * HOUR + MIN, claude.clone());
+    // Claude Code under any other profile name: it started a Claude conversation.
+    let mut named = on("named", "my-models", "claude", "claude-named");
+    named.claude_profile = Some("my-models".into());
+    let mut named = session(&store, named);
+    named.turn(DAY0 + 7 * HOUR, DAY0 + 7 * HOUR + MIN, claude.clone());
+    // The Claude ACP adapter under another name, told by its argv.
+    let mut adapter = on("adapter", "anthropic", "anthropic", "claude-adapter");
+    adapter.harness_argv =
+        vec!["npx".into(), "@agentclientprotocol/claude-agent-acp@0.101.0".into()];
+    let mut adapter = session(&store, adapter);
+    adapter.turn(DAY0 + 8 * HOUR, DAY0 + 8 * HOUR + MIN, claude.clone());
+
     let s = summarize(&store, &options(DAY0 + DAY, 1), &live_ids(&[])).unwrap();
     let v = serde_json::to_value(&s).unwrap();
     let input = |branch: &str| {
@@ -801,4 +816,16 @@ fn stats_branches_count_an_older_codex_records_cached_input_once() {
     assert_eq!(input("claude-stdio"), 112, "{v}");
     assert_eq!(input("claude-acp"), 112, "{v}");
     assert_eq!(input("opencode"), 314_899, "{v}");
+    assert_eq!(input("cmux-router"), 112, "{v}");
+    assert_eq!(input("claude-named"), 112, "{v}");
+    assert_eq!(input("claude-adapter"), 112, "{v}");
+
+    // A daemon that knows a profile runs Claude Code over its stream says so first, whatever the
+    // session's names: `opencode` here stands for a claude-stdio profile of that name.
+    let stdio = |meta: &SessionMeta| meta.harness == "opencode" || meta.input_excludes_cache();
+    let s = summarize_with(&store, &options(DAY0 + DAY, 1), &live_ids(&[]), &stdio).unwrap();
+    let v = serde_json::to_value(&s).unwrap();
+    let rows = v["branches"].as_array().unwrap();
+    let row = rows.iter().find(|row| row["branch"] == "opencode").unwrap();
+    assert_eq!(row["inputTokens"], 3_336_595, "{v}");
 }

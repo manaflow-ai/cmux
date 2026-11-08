@@ -1147,6 +1147,12 @@ def handle_prompt(rid, params):
         threading.Thread(target=late, daemon=True).start()
         return
     # "codex-fail" reports a terminal Codex error in-band, then ends the turn.
+    # "usage-probe" answers with a Gemini-style ACP usage: its 100K input counts the 90K read from
+    # the prompt cache (its total is input plus output).
+    if text == "usage-probe":
+        usage = {"inputTokens": 100000, "cachedReadTokens": 90000, "outputTokens": 2000, "totalTokens": 102000}
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "usage": usage}})
+        return
     if text == "codex-fail":
         update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Error", "willRetry": False, "additionalDetails": "Selected model is at capacity.", "codexErrorInfo": {"serverOverloaded": {}}}}}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

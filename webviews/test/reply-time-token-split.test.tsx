@@ -155,3 +155,14 @@ test("the reply time's tooltip: its time, then one count per row", () => {
   );
   expect(title).not.toContain("4.7M");
 });
+
+test("Claude Code behind the cmux router profile, or any profile acpmux says runs it, keeps its input", () => {
+  const { inputExcludesCache: _mark, ...older } = CLAUDE_58;
+  // The built-in `cmux` profile runs Claude Code over its stream with family `claude`.
+  expect(uncachedTokens(resultTokenSplit(older, { harness: "cmux", family: "claude" })!)).toBe(124_728);
+  // acpmux's `backgroundsWork` says a chat runs Claude Code, whatever its profile is named.
+  const named = { harness: "my-models", family: "claude", backgroundsWork: true };
+  expect(uncachedTokens(resultTokenSplit(older, named)!)).toBe(124_728);
+  // Neither makes an ACP harness's record fresh: opencode on a Claude model still has it taken out.
+  expect(uncachedTokens(resultTokenSplit(OLD_CODEX, { harness: "opencode", family: "claude" })!)).toBe(314_899);
+});

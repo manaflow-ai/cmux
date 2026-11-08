@@ -41,9 +41,11 @@ pub(super) const INPUT_EXCLUDES_CACHE: &str = "inputExcludesCache";
 
 /// The turn's `turn_result` fields for a prompt `result` (`model`, then any
 /// of `costUsd`, `inputTokens`, `outputTokens`, `cacheReadTokens` and
-/// `cacheWriteTokens`, added to the session's totals as they are taken, and
-/// `contextTokens`, `modelCalls` and `inputExcludesCache`, which are not).
-pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value> {
+/// `cacheWriteTokens`, added to the session's totals as the harness reported
+/// them (`as_reported`), and `contextTokens`, `modelCalls` and
+/// `inputExcludesCache`, which are not), and what the turn spent toward a
+/// goal's token budget: its reported input plus its output.
+pub(super) fn turn_usage(session: &Session, result: &Value) -> (Map<String, Value>, Option<u64>) {
     let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
     let mut fields = Map::new();
     if let Some(model) = current_model(&meta) {
@@ -86,10 +88,15 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value
         calls = None;
         generic_usage(result.get("usage"), meta.input_excludes_cache())
     };
+    let reported = as_reported(result, &turn);
+    let budget = [reported.input_tokens, reported.output_tokens]
+        .into_iter()
+        .flatten()
+        .reduce(u64::saturating_add);
     if turn.is_empty() {
-        return fields;
+        return (fields, budget);
     }
-    meta.totals.get_or_insert_with(TurnUsage::default).add(&turn);
+    meta.totals.get_or_insert_with(TurnUsage::default).add(&reported);
     if let Ok(Value::Object(spent)) = serde_json::to_value(&turn) {
         fields.extend(spent);
     }
@@ -105,7 +112,30 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value
     if let Some(calls) = calls.filter(|c| *c > 0) {
         fields.insert("modelCalls".into(), json!(calls));
     }
-    fields
+    (fields, budget)
+}
+
+/// The turn's spend with its input as its harness reported it: what the
+/// session's `totals` and a goal's token budget (`generic_goal::next_step`,
+/// input plus output) have always added up, so neither changes meaning with
+/// the record's. An ACP harness's input has the cache's reads in it where it
+/// counts them there (Codex, Gemini), while the record's `inputTokens` is the
+/// fresh part alone (`generic_usage`, `inputExcludesCache`). Claude Code's
+/// (`_meta.claude`) was always its fresh input.
+fn as_reported(result: &Value, turn: &TurnUsage) -> TurnUsage {
+    let mut reported = turn.clone();
+    if result.pointer("/_meta/claude").is_none() {
+        reported.input_tokens = result.get("usage").and_then(reported_input);
+    }
+    reported
+}
+
+/// An ACP usage's input as its harness reported it (`generic_usage` takes it
+/// from the same keys).
+fn reported_input(usage: &Value) -> Option<u64> {
+    ["inputTokens", "promptTokens", "input_tokens"]
+        .iter()
+        .find_map(|key| usage.get(*key).and_then(Value::as_u64))
 }
 
 /// Map ACP's provider-neutral prompt result usage to the durable cmux names.
@@ -122,7 +152,7 @@ fn generic_usage(usage: Option<&Value>, fresh_harness: bool) -> TurnUsage {
     let Some(usage) = usage else { return TurnUsage::default() };
     let number =
         |keys: &[&str]| keys.iter().find_map(|key| usage.get(*key).and_then(Value::as_u64));
-    let input = number(&["inputTokens", "promptTokens", "input_tokens"]);
+    let input = reported_input(usage);
     let output = number(&["outputTokens", "output_tokens"]).or_else(|| {
         number(&["totalTokens", "total_tokens"])
             .zip(input)

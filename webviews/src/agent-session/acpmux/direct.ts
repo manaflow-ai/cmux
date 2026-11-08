@@ -7399,7 +7399,11 @@ export class AcpmuxDirectClient {
         // An older acpmux's record is read by the chat's harness (tokenSplit.ts `inputIsFresh`).
         const resultTokens =
           event.kind === "turn_result"
-            ? resultTokenSplit(msg, { harness: this.summary?.harness, family: this.summary?.family })
+            ? resultTokenSplit(msg, {
+                harness: this.summary?.harness,
+                family: this.summary?.family,
+                backgroundsWork: this.summary?.backgroundsWork,
+              })
             : undefined;
         if (event.kind === "turn_result")
           this.rows.set(summaryId, {

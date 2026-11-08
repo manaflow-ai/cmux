@@ -165,13 +165,26 @@ pub fn summarize(
     options: &StatsOptions,
     live: &HashSet<String>,
 ) -> Result<StatsSummary> {
+    summarize_with(store, options, live, &SessionMeta::input_excludes_cache)
+}
+
+/// `summarize`, with `fresh_input` telling whether a session's harness counts
+/// its input apart from the prompt cache (`SessionMeta::input_excludes_cache`;
+/// the daemon asks its profile's kind first): an older record of one that
+/// does not has the cache taken out of its input (`branches::turn_usage`).
+pub fn summarize_with(
+    store: &dyn Store,
+    options: &StatsOptions,
+    live: &HashSet<String>,
+    fresh_input: &dyn Fn(&SessionMeta) -> bool,
+) -> Result<StatsSummary> {
     let mut fold = Fold::new(*options);
     for meta in store.list()? {
         // The streak looks back the longest range whatever range was asked.
         if meta.updated_at < fold.streak_since() {
             continue;
         }
-        let mut session = SessionFold::new(options, meta.input_excludes_cache());
+        let mut session = SessionFold::new(options, fresh_input(&meta));
         let scanned = store.scan(&meta.id, 0, &mut |record| {
             session.record(&record);
             true
