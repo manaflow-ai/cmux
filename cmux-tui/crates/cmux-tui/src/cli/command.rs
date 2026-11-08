@@ -27,6 +27,10 @@ pub(super) enum CommandPlan {
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
     Attention(super::attention::AttentionPlan),
+    /// `cmux identify`: where this process runs (`cli/pane_identify.rs`).
+    Identify,
+    /// `cmux skill show`: the agent guide (`cli/skill.rs`).
+    SkillShow,
 }
 
 #[derive(Clone, Debug)]

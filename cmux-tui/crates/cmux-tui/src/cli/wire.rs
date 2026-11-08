@@ -834,7 +834,7 @@ fn is_terminal_control(ch: char) -> bool {
 /// so multi-line values stay on one table row; every other control character,
 /// including TAB, becomes a placeholder so the cell-width padding stays
 /// correct. Width math must always use the sanitized string.
-fn sanitize_human_cell(value: &str) -> String {
+pub(super) fn sanitize_human_cell(value: &str) -> String {
     let mut sanitized = String::with_capacity(value.len());
     for ch in value.chars() {
         match ch {

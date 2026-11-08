@@ -7,8 +7,10 @@
 mod attention;
 mod command;
 mod lifecycle;
+mod pane_identify;
 mod raw;
 mod shorthand;
+mod skill;
 mod wire;
 
 use std::borrow::Cow;
@@ -251,6 +253,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
             CommandPlan::Attention(plan) => attention::run(global, plan),
+            CommandPlan::Identify => pane_identify::run(&global),
+            CommandPlan::SkillShow => skill::run(&global),
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
@@ -305,7 +309,10 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
+            Some(scope)
+                if matches!(scope.as_str(), "start" | "shorthands")
+                    || LOCAL_COMMANDS.contains(&scope.as_str()) =>
+            {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
@@ -313,6 +320,9 @@ fn parse_command(
             }
             Some(scope) => Err(unknown_scope(scope)),
         };
+    }
+    if let Some(parsed) = parse_local_command(&global, &command_args)? {
+        return Ok(parsed);
     }
     if has_help_option(&command_args) {
         return Ok(ParsedCommand::Help(help_topic(&command_args)));
@@ -327,6 +337,35 @@ fn parse_command(
     }
     let plan = command::parse(&command_args)?;
     Ok(ParsedCommand::Command { global, plan })
+}
+
+/// Commands this CLI answers itself, beside the resource scopes.
+const LOCAL_COMMANDS: &[&str] = &["identify", "skill"];
+
+/// `identify` and `skill [show]`, with `--help` as their own help topic;
+/// `None` for every other command.
+fn parse_local_command(
+    global: &GlobalArgs,
+    command_args: &[String],
+) -> Result<Option<ParsedCommand>, UsageError> {
+    let Some((first, rest)) = command_args.split_first() else { return Ok(None) };
+    let help = || rest.iter().any(|word| matches!(word.as_str(), "-h" | "--help"));
+    let plan = match first.as_str() {
+        "identify" if help() => return Ok(Some(ParsedCommand::Help(Some("identify".into())))),
+        "identify" if rest.is_empty() => CommandPlan::Identify,
+        "identify" => {
+            let message = crate::localization::catalog().pane_cli.identify_arguments;
+            return Err(UsageError::new(message.replace("{words}", &rest.join(" "))));
+        }
+        "skill" if help() => return Ok(Some(ParsedCommand::Help(Some("skill".into())))),
+        "skill" if rest.is_empty() || rest == ["show"] => CommandPlan::SkillShow,
+        "skill" => {
+            let message = crate::localization::catalog().pane_cli.skill_arguments;
+            return Err(UsageError::new(message.replace("{words}", &rest.join(" "))));
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(ParsedCommand::Command { global: global.clone(), plan }))
 }
 
 /// Help topic prefix for one action, followed by its catalog path.
@@ -516,7 +555,7 @@ fn set_output_mode(
 fn print_scope_help(scope: Option<&str>) {
     let text = scope
         .map(scope_help)
-        .unwrap_or_else(|| Cow::Owned(root_help(&crate::localization::catalog().local_server)));
+        .unwrap_or_else(|| Cow::Owned(root_help(crate::localization::catalog())));
     write_stdout(&text);
 }
 
@@ -559,7 +598,9 @@ fn scope_help_for(
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
-        _ => return Cow::Owned(root_help(&catalog.local_server)),
+        "identify" => Cow::Borrowed(catalog.pane_cli.identify_help),
+        "skill" => Cow::Borrowed(catalog.pane_cli.skill_help),
+        _ => return Cow::Owned(root_help(catalog)),
     };
     if scope == "server" || !PUBLIC_SCOPES.contains(&scope) {
         return help;
@@ -624,10 +665,14 @@ Run `cmux <scope> --help` for scope-specific paths, and add --help to an
 action for its options.
 ";
 
-fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
+fn root_help(catalog: &crate::localization::Catalog) -> String {
+    let messages = &catalog.local_server;
     format!(
-        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}",
-        messages.root_remote_usage, messages.root_server_usage, messages.root_server_scope,
+        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}{}",
+        messages.root_remote_usage,
+        messages.root_server_usage,
+        messages.root_server_scope,
+        catalog.pane_cli.root_agent_commands,
     )
 }
 
@@ -1002,7 +1047,7 @@ mod tests {
 
     #[test]
     fn startup_help_is_explicitly_discoverable() {
-        let help = root_help(&crate::localization::catalog_for_locale("en_US.UTF-8").local_server);
+        let help = root_help(crate::localization::catalog_for_locale("en_US.UTF-8"));
         assert!(help.contains("cmux help start"));
         assert!(help.starts_with("cmux - "));
         assert!(!help.contains("cmux-tui"));

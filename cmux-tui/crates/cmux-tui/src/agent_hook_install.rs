@@ -1938,7 +1938,10 @@ fn hook_command(provider: &str, event: &str) -> String {
 
 /// Codex's shared app-server may run hooks without the launching terminal's
 /// environment. Carry that route in the command, using the embedded helper
-/// so hosts deployed with only the cmux-tui binary work too.
+/// so hosts deployed with only the cmux-tui binary work too. SessionStart
+/// prints the helper's session context (cmux-tui-hook session_context.rs)
+/// and echoes `{}` only when the helper fails, so Codex reads one JSON
+/// object either way; every other event echoes `{}` after the helper.
 #[cfg(unix)]
 fn codex_contextual_hook_command(
     event: &str,
@@ -1946,8 +1949,9 @@ fn codex_contextual_hook_command(
     terminal: &str,
     launcher: &Path,
 ) -> String {
+    let reply = if event == "SessionStart" { "||echo {}" } else { "||:;echo {}" };
     format!(
-        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
+        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
         shell_quote(&socket.to_string_lossy()),
         shell_quote(terminal),
         shell_quote(&launcher.to_string_lossy()),
@@ -3424,6 +3428,36 @@ mod tests {
         let text = fs::read_to_string(&config_path).unwrap();
         assert!(text.contains("# personal codex config"));
         assert!(!text.contains(&format!("{}", context.home.join(".codex/hooks.json").display())));
+    }
+
+    /// The Codex wrapper's SessionStart hook prints the helper's session
+    /// context alone on success and the empty object when the helper fails:
+    /// one JSON object either way. Other events keep printing `{}` after it.
+    #[cfg(unix)]
+    #[test]
+    fn session_context_codex_launch_prints_one_json_object() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let helper = root.path().join("hook");
+        let run = |event: &str, script: &str| {
+            fs::write(&helper, script).unwrap();
+            fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+            let command =
+                codex_contextual_hook_command(event, Path::new("/unused"), "term_test", &helper);
+            let result = std::process::Command::new("sh").arg("-c").arg(&command).output().unwrap();
+            assert_eq!(result.status.code(), Some(0), "{command}");
+            serde_json::from_slice::<Value>(&result.stdout)
+                .unwrap_or_else(|error| panic!("{error}: {:?}", result.stdout))
+        };
+        let context =
+            "#!/bin/sh\necho '{\"hookSpecificOutput\":{\"additionalContext\":\"cmux\"}}'\n";
+        assert_eq!(
+            run("SessionStart", context),
+            json!({"hookSpecificOutput": {"additionalContext": "cmux"}})
+        );
+        assert_eq!(run("SessionStart", "#!/bin/sh\nexit 1\n"), json!({}));
+        assert_eq!(run("Stop", "#!/bin/sh\nexit 1\n"), json!({}));
+        assert_eq!(run("Stop", "#!/bin/sh\nexit 0\n"), json!({}));
     }
 
     #[test]

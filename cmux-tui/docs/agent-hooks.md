@@ -112,6 +112,31 @@ daemon's authorization for direct `cmux notify` calls.
 cmux-tui journal. Native cmux mirrors now subscribe to that transport for
 agent badges; the cmux-tui wrapper itself does not provide those badges.
 
+## Session context
+
+Claude Code and Codex started through the shims learn where they run when
+their session starts: that they run in a cmux-tui terminal, the ids of the
+session, workspace, screen, pane, tab and terminal, that `current` names the
+session's focused object rather than their own pane, and that `skill show`
+prints the agent guide. The text names the cmux-tui binary that spawned the
+pane by its absolute path (for example `/opt/cmux/cmux-tui skill show`),
+because the `cmux` on PATH can be another program, such as the cmux app's CLI
+when cmux-tui runs in a cmux app terminal. The text reaches the model as the
+`SessionStart` hook's `additionalContext`:
+
+- The Claude wrapper adds one more `SessionStart` hook after the session's
+  hook groups, `cmux-tui agent session-context`, run by the cmux-tui binary
+  that spawned the pane. A binary path that is not UTF-8 drops only this
+  hook; the session's other hooks stay.
+- The Codex wrapper's own `SessionStart` hook (the one that carries
+  `CMUX_TUI_HOOK_ROUTE=launch`) prints the context after it hands the event
+  to the journal, and prints `{}` only when the helper fails, so Codex reads
+  one JSON object.
+
+Hooks installed with `agent hook install` add no context, so no agent gets it
+twice. The read takes at most 1.5 s; a session that does not answer leaves
+only the terminal id in the text.
+
 ## Shell startup files and the shim
 
 The shim only works while its directory stays ahead of the real `claude` and
