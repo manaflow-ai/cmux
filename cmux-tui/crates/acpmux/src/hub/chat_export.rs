@@ -158,6 +158,11 @@ fn turns_from_events(events: &[EventRecord]) -> (Vec<PortableTurn>, Vec<Value>) 
     }
     for event in events {
         if event.kind == "user_message" {
+            for key in ["images", "attachments"] {
+                if let Some(items) = event.msg.get(key).and_then(Value::as_array) {
+                    attachments.extend(items.iter().cloned());
+                }
+            }
             if let Some(parts) = event.msg.get("parts").and_then(Value::as_array) {
                 attachments.extend(
                     parts
@@ -173,7 +178,43 @@ fn turns_from_events(events: &[EventRecord]) -> (Vec<PortableTurn>, Vec<Value>) 
             }
         }
     }
-    (turns, attachments)
+    let mut with_data = Vec::new();
+    for attachment in attachments {
+        let Some(id) = attachment.get("id").and_then(Value::as_str) else {
+            with_data.push(attachment);
+            continue;
+        };
+        let mut value = attachment;
+        if let Ok(bytes) = std::fs::read(crate::config::home().join("attachments").join(id)) {
+            use base64::Engine;
+            value["data"] = Value::String(base64::engine::general_purpose::STANDARD.encode(bytes));
+        }
+        with_data.push(value);
+    }
+    (turns, with_data)
+}
+
+fn restore_attachments(chat: &PortableChat) -> Result<Vec<PathBuf>> {
+    use base64::Engine;
+    let root = crate::config::home().join("attachments");
+    let mut created = Vec::new();
+    for attachment in &chat.attachments {
+        let Some(id) = attachment.get("id").and_then(Value::as_str) else { continue };
+        anyhow::ensure!(
+            id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()),
+            "invalid attachment id"
+        );
+        let Some(data) = attachment.get("data").and_then(Value::as_str) else { continue };
+        let path = root.join(id);
+        if path.is_file() {
+            continue;
+        }
+        let bytes = base64::engine::general_purpose::STANDARD.decode(data)?;
+        std::fs::create_dir_all(&root)?;
+        std::fs::write(&path, bytes)?;
+        created.push(path);
+    }
+    Ok(created)
 }
 
 pub fn from_session(session: &Arc<Session>, store: &dyn Store) -> Result<PortableChat> {
@@ -341,6 +382,16 @@ pub fn import_session_dir(root: &Path, chat: &PortableChat, harness: &str) -> Re
             }))?
         }
     };
+    anyhow::ensure!(super::transfer::is_plain_id(&meta.id), "invalid session id in chat bundle");
+    meta.harness = harness.to_owned();
+    if !meta.cwd.is_dir() {
+        meta.cwd = chat
+            .cwd
+            .as_deref()
+            .map(PathBuf::from)
+            .filter(|path| path.is_dir())
+            .unwrap_or_else(crate::config::home);
+    }
     let mut events = imported_events(chat, &meta.id);
     meta.last_seq = events.iter().map(|event| event.seq).max().unwrap_or(0);
     meta.transcript_seq = meta.last_seq;
@@ -455,7 +506,9 @@ pub fn export_value(
     let content = if format == "markdown" {
         Value::String(markdown(&bundle))
     } else {
-        serde_json::to_value(&bundle).map_err(|e| RpcError::internal(e.to_string()))?
+        Value::String(
+            serde_json::to_string_pretty(&bundle).map_err(|e| RpcError::internal(e.to_string()))?,
+        )
     };
     Ok(json!({"format": format, "content": content, "chatCount": bundle.chats.len()}))
 }
@@ -474,6 +527,8 @@ pub async fn import(hub: &Arc<Hub>, path: &Path) -> std::result::Result<Value, R
         .cloned()
         .ok_or_else(|| RpcError::invalid_params("no configured harness can host imported chats"))?;
     let mut imported = Vec::new();
+    let mut imported_sessions = Vec::new();
+    let mut restored_attachments = Vec::new();
     for chat in &bundle.chats {
         let harness = if configured.iter().any(|candidate| candidate == &chat.harness) {
             chat.harness.as_str()
@@ -482,9 +537,31 @@ pub async fn import(hub: &Arc<Hub>, path: &Path) -> std::result::Result<Value, R
         };
         let dir = import_session_dir(&root, chat, harness)
             .map_err(|e| RpcError::invalid_params(e.to_string()))?;
-        match hub.import(&dir, None).await {
-            Ok(session) => imported.push(hub.session_summary(&session)),
+        match restore_attachments(chat) {
+            Ok(attachments) => restored_attachments.extend(attachments),
             Err(error) => {
+                for session in imported_sessions {
+                    let _ = hub.kill(&session, true).await;
+                }
+                for path in restored_attachments {
+                    let _ = std::fs::remove_file(path);
+                }
+                let _ = std::fs::remove_dir_all(&root);
+                return Err(RpcError::invalid_params(format!("restore attachments: {error}")));
+            }
+        }
+        match hub.import(&dir, None).await {
+            Ok(session) => {
+                imported.push(hub.session_summary(&session));
+                imported_sessions.push(session);
+            }
+            Err(error) => {
+                for session in imported_sessions {
+                    let _ = hub.kill(&session, true).await;
+                }
+                for path in restored_attachments {
+                    let _ = std::fs::remove_file(path);
+                }
                 let _ = std::fs::remove_dir_all(&root);
                 return Err(error);
             }

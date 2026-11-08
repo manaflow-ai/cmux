@@ -8901,12 +8901,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const outcome = await saveDocumentNatively(markdown, snapshot.summary?.title ?? "", "markdown");
           if (outcome === "unavailable") ignoreFailure(copyText(markdown));
         }),
-      () =>
-        void (window.cmuxAcpmuxBridge?.conversationJson?.() ?? Promise.resolve(null)).then(async (bundle) => {
-          if (!bundle) return;
-          const outcome = await saveDocumentNatively(bundle, snapshot.summary?.title ?? "chat", "json");
-          if (outcome === "unavailable") ignoreFailure(copyText(bundle));
-        }),
+      () => {
+        if (!snapshot.sessionId) return;
+        void callNative("chats.export", { keys: [`acpmux:${snapshot.sessionId}`], format: "json", all: false });
+      },
     );
     const share: ChatMenuItem | undefined =
       snapshot.sessionId && hasNativeHost()

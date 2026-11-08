@@ -13,7 +13,7 @@ extension AgentPaneModel {
         do {
             var params: [String: any Sendable] = ["all": all, "format": format]
             if !keys.isEmpty { params["keys"] = keys }
-            let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/chat_export", params: params, deadline: nil)
+            let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/chat_export", params: params, deadline: nil, limit: 64 << 20)
             guard let text = result["content"] as? String, !text.isEmpty else {
                 return AgentPaneReply.failure(code: "export_failed", message: "The daemon returned no export")
             }
