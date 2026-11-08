@@ -1317,3 +1317,76 @@ fn w5r_send_to_a_hook_agent_that_never_leaves_idle_is_stalled() {
     assert_eq!(failure.failure.error["code"], "send.not_submitted", "{:?}", failure.failure.error);
     assert_eq!(failure.failure.error["details"]["reason"], "no_agent_report");
 }
+
+/// The stall rule on a fake clock: a hook agent's idle screen is no turn's
+/// end before it reported the prompt; at the limit with no report it is
+/// stalled; one report (the prompt submit hook) lets the screen decide again.
+#[test]
+fn w5r_settle_stalls_a_silent_hook_agent_at_the_limit_only() {
+    let start = Instant::now();
+    let at = |ms| start + Duration::from_millis(ms);
+    let stall = Duration::from_secs(10);
+    let mut settle =
+        Settle::new(Wait::Idle, Duration::from_millis(100), start).expecting_report(stall);
+    assert_eq!(settle.observe(&idle_sample("1"), at(0)), Verdict::Pending);
+    assert_eq!(
+        settle.observe(&idle_sample("1"), at(3_000)),
+        Verdict::Pending,
+        "silent, before the limit"
+    );
+    assert_eq!(settle.observe(&idle_sample("1"), at(10_000)), Verdict::Stalled);
+
+    let mut settle =
+        Settle::new(Wait::Idle, Duration::from_millis(100), start).expecting_report(stall);
+    let reported = Sample { agent_reported: true, busy: true, ..idle_sample("2") };
+    assert_eq!(settle.observe(&reported, at(900)), Verdict::Pending, "working");
+    assert_eq!(settle.observe(&idle_sample("3"), at(4_000)), Verdict::Pending);
+    assert_eq!(settle.observe(&idle_sample("3"), at(12_000)), Verdict::Done(AgentState::Idle));
+    assert!(settle.reported());
+
+    // A dialog and an exit still end the wait at once.
+    let mut settle =
+        Settle::new(Wait::Idle, Duration::from_millis(100), start).expecting_report(stall);
+    let dialog = Sample { waiting_for_input: true, ..idle_sample("4") };
+    assert_eq!(settle.observe(&dialog, at(200)), Verdict::Done(AgentState::WaitingForInput));
+    let exited = Sample { exited: true, ..idle_sample("4") };
+    assert_eq!(settle.observe(&exited, at(300)), Verdict::Exited);
+}
+
+/// A local command of the harness (`/cost`) runs no hook: it is no stall.
+#[test]
+fn w5r_send_of_a_slash_command_to_a_hook_agent_is_not_stalled() {
+    let mut hooked = snapshot();
+    if let Some(terminal) = hooked.pointer_mut("/terminals/0") {
+        terminal["extra"] = json!({"agent": "claude", "agent_session_id": "5b0e7c1e-0d6c"});
+    }
+    let daemon = FakeDaemon::new(hooked, &[(1, RESUMED_EMPTY), (2, RESUMED_EMPTY)]);
+    let request = SendRequest {
+        stall: Duration::from_millis(50),
+        timeout: Duration::from_secs(5),
+        ..quick("/cost")
+    };
+    let receipt = send::run(&daemon, None, &request).expect("a local command is sent");
+    assert_eq!(receipt["state"], "idle");
+}
+
+/// The terminal keeps its agent's session id after the agent quit (W3-H, for
+/// resume); a send to the shell there is no hook agent's prompt.
+#[test]
+fn w5r_send_after_the_agent_quit_is_not_stalled() {
+    let mut quit = snapshot();
+    if let Some(terminal) = quit.pointer_mut("/terminals/0") {
+        terminal["extra"] = json!({"agent": "claude", "agent_session_id": "5b0e7c1e-0d6c"});
+    }
+    if let Some(agents) = quit.pointer_mut("/agents") {
+        *agents = json!([]);
+    }
+    let daemon = FakeDaemon::new(quit, &[(1, "$ "), (2, "$ echo hi\nhi\n$ ")]);
+    let request = SendRequest {
+        stall: Duration::from_millis(50),
+        timeout: Duration::from_secs(5),
+        ..quick("echo hi")
+    };
+    let receipt = send::run(&daemon, None, &request).expect("a shell send");
+    assert_eq!(receipt["state"], "idle");
+}
