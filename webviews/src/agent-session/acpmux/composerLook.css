@@ -133,10 +133,13 @@
 .acpmux-composer[data-composer-look="codex"] .acpmux-composer-foot .acpmux-context-ring {
   margin-inline-end: 4px;
 }
+/* The box stands 16 px over the pane's bottom (was 8; Leo 2026-11-08: "the composer simply doesn't
+   have so little space at the bottom"): in his screenshots the reference's box sits about twice as
+   high over the window's edge as ours. */
 .acpmux-main[data-dock="float"]
   > .acpmux-dock
   > .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot) {
-  padding-bottom: 8px;
+  padding-bottom: 16px;
 }
 /* The look dots ride over the middle of that row (the box's bottom is the host's line). */
 .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot)

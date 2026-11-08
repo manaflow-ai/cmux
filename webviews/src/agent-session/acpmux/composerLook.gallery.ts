@@ -274,7 +274,7 @@ const ALT_PLAIN_GLYPH = `
 /// so tall maybe but also put the context ring to the left of the model picker and also have more
 /// padding on the bottom aka the composer simply doesn't have so little space at the bottom"). Each
 /// arm sets the prompt's top, the prompt-to-row gap and the room under the row (composerLook.css
-/// tokens), all on the 4 px grid; `codex-height-balanced` is what ships. Refs
+/// tokens), all on the 4 px grid; `codex-height-floor-16` (balanced, 16 px under the box) is what ships. Refs
 /// codex/live/composer-codex-empty-input-controls and chatgpt/live/composer-empty-placeholder-plus-button.
 const codexSpacing = (top: number, gap: number, bottom: number, floor?: number) => `
 .acpmux-composer[data-composer-look="codex"] {
@@ -420,7 +420,7 @@ export default agentPaneEntry({
     "codex-chat-spacing-balanced": {
       note: "Spacing B (#34709's pick, replaced by codex-height-balanced): 24px after the prompt, 16px above it, + and the trailing actions 8px from the lower edges. Reference: chatgpt/live/composer-empty-placeholder-plus-button.",
       snapshot: startedChat(),
-      play: (ctx) => look(ctx, "codex", codexSpacing(16, 24, 8)),
+      play: (ctx) => look(ctx, "codex", codexSpacing(16, 24, 8, 8)),
     },
     "codex-chat-spacing-airy": {
       note: "Spacing C: 32px after the prompt. More empty space than the reference without improving the control row's separation.",
@@ -430,7 +430,7 @@ export default agentPaneEntry({
     "codex-height-before": {
       note: "Replaced: the empty box 98.75 px tall, the prompt 16 px under the top, 24 px to the row and the row 8 px over the bottom edge (#34709). Leo 2026-11-08: too tall, too little room at the bottom.",
       snapshot: startedChat(),
-      play: (ctx) => look(ctx, "codex", codexSpacing(16, 24, 8)),
+      play: (ctx) => look(ctx, "codex", codexSpacing(16, 24, 8, 8)),
     },
     "codex-height-tight": {
       note: "Arm A: 12 px top, 12 px to the row, 12 px under it (86.75 px). Shortest, but the placeholder crowds the row it heads.",
@@ -438,9 +438,9 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex", codexSpacing(12, 12, 12)),
     },
     "codex-height-balanced": {
-      note: "Arm B (the pick, shipped): 12 px top, 16 px to the row, 12 px under it (90.75 px, 8 px shorter). The row has as much room under it as the prompt over it, and the prompt still reads as its own line.",
+      note: "Arm B: 12 px top, 16 px to the row, 12 px under it (90.75 px, 8 px shorter), the box 8 px over the pane's bottom as before. The row has as much room under it as the prompt over it, and the prompt still reads as its own line.",
       snapshot: startedChat(),
-      play: (ctx) => look(ctx, "codex"),
+      play: (ctx) => look(ctx, "codex", codexSpacing(12, 16, 12, 8)),
     },
     "codex-height-roomy": {
       note: "Arm C: 12 px top, 20 px to the row, 16 px under it (98.75 px, as tall as before). The most room under the row, but no shorter.",
@@ -448,9 +448,9 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex", codexSpacing(12, 20, 16)),
     },
     "codex-height-floor-16": {
-      note: "Arm D: arm B with a 16 px floor under the box (was 8), the other reading of \"space at the bottom\": the reference's box stands about 17 px over its window's edge.",
+      note: "Arm D (the pick, shipped): arm B with the box 16 px over the pane's bottom (was 8): the reference's box stands about twice as high over its window's edge as ours did.",
       snapshot: startedChat(),
-      play: (ctx) => look(ctx, "codex", codexSpacing(12, 16, 12, 16)),
+      play: (ctx) => look(ctx, "codex"),
     },
     "codex-ring-alt-after-model": {
       note: 'Replaced: the ring after the model, before the mic. Leo 2026-11-08: "put the context ring to the left of the model picker".',
