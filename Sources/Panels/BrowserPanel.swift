@@ -10593,11 +10593,19 @@ enum BrowserDataImporter {
     ) async -> CookieImportResult {
         let fileManager = FileManager.default
         let parser = SafariBinaryCookiesParser()
+        let now = Date()
         var cookies: [HTTPCookie] = []
+        var expiredCount = 0
         var warnings: [String] = []
 
         for profile in sourceProfiles {
-            guard let storeURL = safariCookieStoreURL(for: profile, fileManager: fileManager) else {
+            let storeURL: URL
+            let data: Data
+            switch loadSafariCookieStore(for: profile, fileManager: fileManager) {
+            case .loaded(let url, let contents):
+                storeURL = url
+                data = contents
+            case .missing:
                 warnings.append(
                     String(
                         format: String(
@@ -10608,13 +10616,8 @@ enum BrowserDataImporter {
                     )
                 )
                 continue
-            }
-
-            let data: Data
-            do {
-                data = try Data(contentsOf: storeURL)
-            } catch {
-                warnings.append(safariCookiesReadWarning(for: error, storeURL: storeURL))
+            case .unreadable(let url, let error):
+                warnings.append(safariCookiesReadWarning(for: error, storeURL: url))
                 continue
             }
 
@@ -10637,6 +10640,10 @@ enum BrowserDataImporter {
             for record in records {
                 guard !record.name.isEmpty else { continue }
                 guard domainMatches(host: record.domain, filters: domainFilters) else { continue }
+                if let expiresDate = record.expiresDate, expiresDate <= now {
+                    expiredCount += 1
+                    continue
+                }
                 if let cookie = safariHTTPCookie(from: record) {
                     cookies.append(cookie)
                 }
@@ -10647,15 +10654,23 @@ enum BrowserDataImporter {
         let importedCount = await setCookiesInStore(dedupedCookies, destinationProfileID: destinationProfileID)
         return CookieImportResult(
             importedCount: importedCount,
-            skippedCount: max(0, dedupedCookies.count - importedCount),
+            skippedCount: expiredCount + max(0, dedupedCookies.count - importedCount),
             warnings: warnings
         )
     }
 
-    /// The cookie store a Safari source profile reads from, or `nil` when no
-    /// candidate file exists. The default profile prefers the sandbox container
-    /// and falls back to the pre-sandbox location.
-    private static func safariCookieStoreURL(for profile: InstalledBrowserProfile, fileManager: FileManager) -> URL? {
+    private enum SafariCookieStoreLoad {
+        case loaded(URL, Data)
+        case missing
+        case unreadable(URL, any Error)
+    }
+
+    /// Reads the cookie store a Safari source profile owns. The default profile
+    /// tries the sandbox container first and the pre-sandbox location second;
+    /// a candidate is skipped only when it is confirmed absent, so a store that
+    /// exists but cannot be read (Full Disk Access) is reported instead of
+    /// silently falling through to an older copy or to "not found".
+    private static func loadSafariCookieStore(for profile: InstalledBrowserProfile, fileManager: FileManager) -> SafariCookieStoreLoad {
         let candidates: [URL]
         if profile.isDefault {
             let home = fileManager.homeDirectoryForCurrentUser
@@ -10669,7 +10684,33 @@ enum BrowserDataImporter {
         } else {
             candidates = [profile.rootURL.appendingPathComponent("Cookies.binarycookies", isDirectory: false)]
         }
-        return candidates.first { fileManager.fileExists(atPath: $0.path) }
+        for candidate in candidates {
+            do {
+                return .loaded(candidate, try Data(contentsOf: candidate))
+            } catch {
+                if isMissingFile(error) { continue }
+                return .unreadable(candidate, error)
+            }
+        }
+        return .missing
+    }
+
+    /// Whether a read failed because the path does not exist, as opposed to a
+    /// file that is present but denied or damaged.
+    private static func isMissingFile(_ error: any Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain,
+           nsError.code == CocoaError.fileReadNoSuchFile.rawValue || nsError.code == CocoaError.fileNoSuchFile.rawValue {
+            return true
+        }
+        if nsError.domain == NSPOSIXErrorDomain, nsError.code == Int(ENOENT) {
+            return true
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSPOSIXErrorDomain, underlying.code == Int(ENOENT) {
+            return true
+        }
+        return false
     }
 
     /// A permission failure names the setting to change; any other read error
