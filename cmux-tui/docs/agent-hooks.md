@@ -12,6 +12,11 @@ cmux agent hook install claude
 cmux agent hook status
 ```
 
+Hook reports outrank the screen-detection plugin for 30 s, with one
+exception: a blocked state ends when the screen showed the dialog and then
+shows it gone. Claude Code sends no hook when a permission dialog is dismissed
+with Esc, so the screen is the only evidence that the agent stopped waiting.
+
 ## Agents in a tmux session started elsewhere
 
 An agent can run in a tmux session whose server was started outside

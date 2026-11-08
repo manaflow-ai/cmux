@@ -34,8 +34,11 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Version 6 folds hook events through the same per-terminal session fence as
 /// the hook projector, so a late event from an ended or superseded session
 /// cannot change a later session's roster state. The bump re-folds from the
-/// journal head so fences exist for every retained lifecycle.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 6;
+/// journal head so fences exist for every retained lifecycle. Version 7 keeps
+/// each terminal's last screen observation, so a hook `blocked` row clears
+/// when the screen shows its dialog gone; the re-fold clears rows that stayed
+/// blocked after a dialog was dismissed with Esc.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 7;
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -548,6 +551,18 @@ struct PluginExitFence {
     untagged_exit_at_ms: Option<u64>,
 }
 
+/// The last state a userland plugin saw on a terminal's screen, kept whether
+/// or not that observation won source arbitration. A hook cannot say that a
+/// dialog went away without an answer (Claude Code fires no hook when the
+/// person dismisses a permission dialog with Esc), so the roster keeps the
+/// screen's own record of the dialog: [`AgentRoster::note_screen_evidence`]
+/// keeps it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ScreenEvidence {
+    producer: String,
+    state: String,
+}
+
 impl RosterEntry {
     /// When the agent entered its state; `updated_at_ms` for an older entry.
     pub(crate) fn since_ms(&self) -> u64 {
@@ -590,6 +605,10 @@ pub(crate) struct AgentRoster {
     /// change a later session's roster state.
     #[serde(default)]
     hook_fences: HashMap<String, HookFence>,
+    /// The last plugin screen observation per terminal public id
+    /// ([`ScreenEvidence`]).
+    #[serde(default)]
+    screen_evidence: HashMap<String, ScreenEvidence>,
 }
 
 impl AgentRoster {
@@ -660,6 +679,8 @@ impl AgentRoster {
             return Vec::new();
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
+        // The screen showed a blocker and now shows something else.
+        let mut screen_cleared_blocker = false;
         let (state, source, producer, producer_generation, session, agent, updated_at_ms) = if event
             .plugin_event()
         {
@@ -677,8 +698,11 @@ impl AgentRoster {
                 .map(|value| value.to_string());
             let session = event.normalized("source_session").map(str::to_string);
             let agent = event.adapter_id().map(str::to_string);
+            let state = if event_name == "session.ended" { AgentState::Done } else { state };
+            screen_cleared_blocker =
+                self.note_screen_evidence(terminal_id, event.producer_id, state);
             (
-                if event_name == "session.ended" { AgentState::Done } else { state },
+                state,
                 AgentSource::Plugin,
                 Some(event.producer_id.to_string()),
                 producer_generation,
@@ -780,7 +804,16 @@ impl AgentRoster {
             AgentSource::Plugin => {
                 if let Some(existing) = self.entries.get(terminal_id) {
                     let existing_source = existing.agent_source();
-                    if existing_source == AgentSource::Hook {
+                    // The dialog a hook announced is gone from the screen,
+                    // and no hook will say so: the screen's state wins.
+                    let dialog_gone = existing_source == AgentSource::Hook
+                        && Self::screen_clears_hook_blocker(
+                            existing,
+                            screen_cleared_blocker,
+                            state,
+                            updated_at_ms,
+                        );
+                    if existing_source == AgentSource::Hook && !dialog_gone {
                         // The producer observation is the evidence clock. A
                         // delayed append must not turn an old screen read
                         // into fresh evidence just because the journal
@@ -919,7 +952,52 @@ impl AgentRoster {
     pub(crate) fn retire_terminal(&mut self, terminal_id: &str) -> bool {
         let entry = self.entries.remove(terminal_id).is_some();
         let fence = self.hook_fences.remove(terminal_id).is_some();
-        entry || fence
+        let evidence = self.screen_evidence.remove(terminal_id).is_some();
+        entry || fence || evidence
+    }
+
+    /// Record `producer`'s observation of `terminal_id` and return whether it
+    /// ends a blocker the same producer saw: its previous observation was
+    /// `blocked` and this one is `working` or `idle`. Repeated reports of the
+    /// same state change nothing, so the plugin's stable-blocker refreshes
+    /// keep the record at `blocked`.
+    fn note_screen_evidence(
+        &mut self,
+        terminal_id: &str,
+        producer: &str,
+        state: AgentState,
+    ) -> bool {
+        if state == AgentState::Done {
+            self.screen_evidence.remove(terminal_id);
+            return false;
+        }
+        let previous = self.screen_evidence.insert(
+            terminal_id.to_string(),
+            ScreenEvidence { producer: producer.to_string(), state: state.as_str().to_string() },
+        );
+        matches!(state, AgentState::Working | AgentState::Idle)
+            && previous.is_some_and(|previous| {
+                previous.producer == producer && previous.state == AgentState::Blocked.as_str()
+            })
+    }
+
+    /// Whether a plugin observation replaces a hook-owned `blocked` row even
+    /// while the hook is fresh. Blocked is the one hook state whose end can
+    /// come without a hook: a dialog dismissed with Esc interrupts the turn,
+    /// so neither the tool's completion nor the turn's end is reported. The
+    /// screen must have shown the blocker and then shown it gone
+    /// (`cleared_blocker`), after the hook reported the block, so a hook
+    /// question the screen rules do not recognize stays blocked.
+    fn screen_clears_hook_blocker(
+        existing: &RosterEntry,
+        cleared_blocker: bool,
+        state: AgentState,
+        observed_at_ms: u64,
+    ) -> bool {
+        cleared_blocker
+            && existing.agent_state() == AgentState::Blocked
+            && matches!(state, AgentState::Working | AgentState::Idle)
+            && observed_at_ms > existing.updated_at_ms
     }
 
     fn record_plugin_exit_fence(
@@ -973,6 +1051,14 @@ impl AgentRoster {
             .values()
             .all(|fence| !fence.session_id.is_empty() && !fence.session_id.contains('\0'))
         {
+            return None;
+        }
+        if !roster.screen_evidence.values().all(|evidence| {
+            evidence.producer != AGENT_HOOK_PRODUCER_ID
+                && valid_component(&evidence.producer)
+                && agent_state_from_str(&evidence.state)
+                    .is_some_and(|state| state != AgentState::Done)
+        }) {
             return None;
         }
         if !roster.plugin_exit_fences.iter().all(|(plugin_id, fence)| {

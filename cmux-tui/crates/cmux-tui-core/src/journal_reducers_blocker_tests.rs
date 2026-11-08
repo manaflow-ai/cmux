@@ -102,3 +102,69 @@ fn a_dismissed_dialog_stays_cleared_after_a_restart() {
     let restored = AgentRoster::restore(&roster.snapshot().to_string()).unwrap();
     assert_eq!(state(&restored), "idle");
 }
+
+#[test]
+fn the_next_hook_after_a_dismissed_dialog_owns_the_terminal_again() {
+    let mut roster = denied_with_esc();
+    apply_hook(&mut roster, 8, 16_000, "UserPromptSubmit", "");
+    assert_eq!(state(&roster), "working");
+    assert_eq!(roster.entries[TERMINAL].source, "hook");
+}
+
+#[test]
+fn an_approved_dialog_runs_on_through_the_screen_and_the_turn_ends_by_hook() {
+    let mut roster = AgentRoster::default();
+    apply_hook(&mut roster, 1, 10_000, "UserPromptSubmit", "");
+    apply_screen(&mut roster, 2, 12_000, "blocked");
+    apply_hook(&mut roster, 3, 12_150, "PermissionRequest", "Bash");
+    // Approved: the dialog goes and the tool runs.
+    apply_screen(&mut roster, 4, 13_000, "working");
+    assert_eq!(state(&roster), "working");
+    apply_hook(&mut roster, 5, 13_500, "PostToolUse", "Bash");
+    assert_eq!(state(&roster), "working");
+    apply_hook(&mut roster, 6, 14_000, "Stop", "");
+    assert_eq!(state(&roster), "idle");
+    assert_eq!(roster.entries[TERMINAL].source, "hook");
+}
+
+#[test]
+fn a_hook_block_the_screen_never_showed_stays_blocked() {
+    // A question whose UI the screen rules do not recognize: the screen keeps
+    // reporting idle, which proves nothing about the hook's block.
+    let mut roster = AgentRoster::default();
+    apply_hook(&mut roster, 1, 10_000, "UserPromptSubmit", "");
+    apply_screen(&mut roster, 2, 10_400, "working");
+    apply_hook(&mut roster, 3, 12_000, "StopFailure", "");
+    assert_eq!(state(&roster), "blocked");
+    apply_screen(&mut roster, 4, 13_000, "idle");
+    assert_eq!(state(&roster), "blocked");
+    assert_eq!(roster.entries[TERMINAL].source, "hook");
+}
+
+#[test]
+fn a_screen_blocker_seen_by_another_plugin_does_not_clear_a_hook_block() {
+    let mut roster = AgentRoster::default();
+    apply_hook(&mut roster, 1, 10_000, "UserPromptSubmit", "");
+    apply_screen(&mut roster, 2, 12_000, "blocked");
+    apply_hook(&mut roster, 3, 12_150, "PermissionRequest", "Bash");
+    // A second producer that never saw the blocker reports idle.
+    let subjects = vec![JournalSubject { kind: "terminal".into(), id: TERMINAL.into() }];
+    let mut payload = plugin_payload("idle", 13_000);
+    payload["plugin"]["id"] = json!("other-detector");
+    roster.apply(&RosterEvent {
+        producer_id: "other-detector",
+        kind: "plugin.other-detector.agent.state.changed",
+        subjects: &subjects,
+        payload: &payload,
+        sequence: 4,
+        committed_at_ms: 13_000,
+    });
+    assert_eq!(state(&roster), "blocked");
+}
+
+#[test]
+fn a_retired_terminal_forgets_its_screen_evidence() {
+    let mut roster = denied_with_esc();
+    assert!(roster.retire_terminal(TERMINAL));
+    assert!(roster.screen_evidence.is_empty());
+}
