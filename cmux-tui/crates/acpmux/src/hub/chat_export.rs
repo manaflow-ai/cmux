@@ -11,6 +11,8 @@ use anyhow::{Context, Result};
 use cmux_chat_index::{IndexedChat, transcript::Turn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -251,16 +253,104 @@ pub fn write(path: &Path, bundle: &PortableBundle) -> Result<()> {
     Ok(())
 }
 
-pub fn import_session_dir(root: &Path, chat: &PortableChat) -> Result<PathBuf> {
-    let meta = chat
-        .session
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("chat {} has no acpmux session metadata", chat.key))?;
+fn imported_id(chat: &PortableChat) -> String {
+    let mut hasher = DefaultHasher::new();
+    chat.key.hash(&mut hasher);
+    format!("imported-{:016x}", hasher.finish())
+}
+
+fn imported_events(chat: &PortableChat, id: &str) -> Vec<EventRecord> {
+    if !chat.events.is_empty() {
+        return chat.events.clone();
+    }
+    let mut events = Vec::new();
+    let mut seq = 0;
+    for turn in &chat.turns {
+        seq += 1;
+        let mut parts = Vec::new();
+        if !turn.prompt.is_empty() {
+            parts.push(json!({"type": "text", "text": turn.prompt}));
+        }
+        parts.extend(chat.attachments.iter().cloned());
+        events.push(EventRecord {
+            seq,
+            at: turn.prompt_at.unwrap_or(0),
+            dir: "mux".into(),
+            kind: "user_message".into(),
+            msg: json!({"sessionId": id, "parts": parts}),
+            host_seq: None,
+        });
+        for call in &turn.tool_calls {
+            seq += 1;
+            events.push(EventRecord {
+                seq,
+                at: turn.prompt_at.unwrap_or(0),
+                dir: "in".into(),
+                kind: "tool_call".into(),
+                msg: json!({"method": "session/update", "params": {"update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": call.get("id").and_then(Value::as_str).unwrap_or("imported-tool"),
+                    "title": call.get("title").cloned().unwrap_or_else(|| Value::String("Tool call".into())),
+                    "kind": call.get("kind").cloned().unwrap_or(Value::Null),
+                    "status": call.get("status").cloned().unwrap_or(Value::Null),
+                    "rawInput": call.get("detail").cloned().unwrap_or(Value::Null),
+                }}}),
+                host_seq: None,
+            });
+        }
+        if !turn.answer.is_empty() {
+            seq += 1;
+            events.push(EventRecord {
+                seq,
+                at: turn.answer_at.or(turn.prompt_at).unwrap_or(0),
+                dir: "in".into(),
+                kind: "agent_message_chunk".into(),
+                msg: json!({"method": "session/update", "params": {"update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": turn.answer},
+                }}}),
+                host_seq: None,
+            });
+        }
+    }
+    events
+}
+
+pub fn import_session_dir(root: &Path, chat: &PortableChat, harness: &str) -> Result<PathBuf> {
+    let mut meta = match chat.session.clone() {
+        Some(meta) => meta,
+        None => {
+            let now = crate::store::now_ms();
+            let cwd = chat
+                .cwd
+                .as_deref()
+                .map(PathBuf::from)
+                .filter(|path| path.is_dir())
+                .unwrap_or_else(crate::config::home);
+            serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA,
+                "id": imported_id(chat),
+                "name": chat.title.clone().unwrap_or_else(|| format!("Imported {} chat", chat.harness)),
+                "harness": harness,
+                "cwd": cwd,
+                "status": "idle",
+                "createdAt": chat.created_at.unwrap_or(now),
+                "updatedAt": chat.updated_at.unwrap_or(now),
+                "title": chat.title.clone(),
+                "modelRequest": chat.model.clone(),
+            }))?
+        }
+    };
+    let events = imported_events(chat, &meta.id);
+    meta.last_seq = events.iter().map(|event| event.seq).max().unwrap_or(0);
+    meta.transcript_seq = meta.last_seq;
+    meta.event_count = events.len() as u64;
+    meta.turn_count = chat.turns.len() as u64;
     let dir = root.join(&meta.id);
     std::fs::create_dir_all(dir.join("events"))?;
     std::fs::write(dir.join("session.json"), serde_json::to_vec_pretty(&meta)?)?;
-    let mut events = chat.events.clone();
     events.sort_by_key(|event| event.seq);
+    let event_count = events.len();
     let mut text = String::new();
     for event in events {
         text.push_str(&serde_json::to_string(&event)?);
@@ -270,7 +360,7 @@ pub fn import_session_dir(root: &Path, chat: &PortableChat) -> Result<PathBuf> {
     std::fs::write(
         dir.join("manifest.json"),
         serde_json::to_vec_pretty(
-            &json!({"schema": "acpmux.bundle.v1", "id": meta.id, "eventCount": chat.events.len(), "lastSeq": meta.last_seq}),
+            &json!({"schema": "acpmux.bundle.v1", "id": meta.id, "eventCount": event_count, "lastSeq": meta.last_seq}),
         ),
     )?;
     Ok(dir)
@@ -372,11 +462,20 @@ pub async fn import(hub: &Arc<Hub>, path: &Path) -> std::result::Result<Value, R
         .join("bundles")
         .join(format!(".chat-import-{}", crate::store::now_ms()));
     std::fs::create_dir_all(&root).map_err(|e| RpcError::internal(e.to_string()))?;
+    let configured: Vec<String> = hub.config.read().await.harnesses.keys().cloned().collect();
+    let fallback = configured
+        .first()
+        .cloned()
+        .ok_or_else(|| RpcError::invalid_params("no configured harness can host imported chats"))?;
     let mut imported = Vec::new();
     for chat in &bundle.chats {
-        let Some(_) = chat.session else { continue };
-        let dir =
-            import_session_dir(&root, chat).map_err(|e| RpcError::invalid_params(e.to_string()))?;
+        let harness = if configured.iter().any(|candidate| candidate == &chat.harness) {
+            chat.harness.as_str()
+        } else {
+            fallback.as_str()
+        };
+        let dir = import_session_dir(&root, chat, harness)
+            .map_err(|e| RpcError::invalid_params(e.to_string()))?;
         match hub.import(&dir, None).await {
             Ok(session) => imported.push(hub.session_summary(&session)),
             Err(error) => {
@@ -386,9 +485,7 @@ pub async fn import(hub: &Arc<Hub>, path: &Path) -> std::result::Result<Value, R
         }
     }
     let _ = std::fs::remove_dir_all(&root);
-    Ok(
-        json!({"schema": SCHEMA, "imported": imported, "skipped": bundle.chats.len().saturating_sub(imported.len())}),
-    )
+    Ok(json!({"schema": SCHEMA, "imported": imported, "skipped": 0}))
 }
 
 #[cfg(test)]
