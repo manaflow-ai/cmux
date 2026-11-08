@@ -977,8 +977,7 @@ mod tests {
         let mut inbox = vec![(forged, peer)];
         inbox.extend([0, 1, 3].map(|i| (sent[i].clone(), peer)));
         inbox.push((parity[0].clone(), peer));
-        let (_, out, _) =
-            receive(UltraMode::Fec { group: 4, parity: 1 }, Some(peer), inbox, &sent);
+        let (_, out, _) = receive(UltraMode::Fec { group: 4, parity: 1 }, Some(peer), inbox, &sent);
         assert_eq!(out.last(), Some(&sent[2]), "the lost member is still rebuilt: {out:?}");
     }
 
