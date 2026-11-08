@@ -165,9 +165,13 @@ export async function dropStashed(chat: string, id: string): Promise<boolean> {
   return dropped;
 }
 
-/// Moves not yet done, by the chat they go to: tried again when that chat shows or acpmux
-/// connects again, so a move that failed leaves no draft where no composer looks.
-const moves = new Map<string, Set<string>>();
+/// Moves not yet done, by the chat they go to, each with the drafts it is to bring: tried again
+/// when that chat shows or acpmux connects again, so a move that failed leaves no draft where no
+/// composer looks. A move is done only once the chat's stack lists every one of its drafts (or is
+/// full, the oldest let go): another acpmux (another machine), which holds none of them and moves
+/// none, leaves it waiting for the one that does.
+type PendingMove = { ids: Set<string>; read: boolean };
+const moves = new Map<string, Map<string, PendingMove>>();
 const moving = new Set<string>();
 
 /// A new chat's stack follows it once it has a session. acpmux moves it in one write under its
@@ -175,7 +179,9 @@ const moving = new Set<string>();
 /// tried again adds none twice.
 export async function moveStash(from: string, to: string): Promise<void> {
   if (from === to) return;
-  moves.set(to, (moves.get(to) ?? new Set()).add(from));
+  const sources = moves.get(to) ?? new Map<string, PendingMove>();
+  if (!sources.has(from)) sources.set(from, { ids: new Set(), read: false });
+  moves.set(to, sources);
   await moveNow(from, to);
 }
 
@@ -183,30 +189,39 @@ async function moveNow(from: string, to: string): Promise<void> {
   const link = transport;
   if (!link || moving.has(from)) return;
   moving.add(from);
-  changed(from);
-  changed(to);
   try {
-    const done = await link.move(from, to).then(
-      () => true,
-      () => false,
-    );
-    if (done && link === transport) {
-      const sources = moves.get(to);
-      sources?.delete(from);
-      if (!sources?.size) moves.delete(to);
+    // The drafts this acpmux holds for the new chat now, read on this connection.
+    const pending = moves.get(to)?.get(from);
+    if (pending && (await refreshStash(from))) {
+      pending.read = true;
+      for (const entry of stacks.get(from) ?? NONE) pending.ids.add(entry.id);
+    }
+    changed(from);
+    changed(to);
+    await link.move(from, to).catch(() => undefined);
+    changed(from);
+    changed(to);
+    await Promise.all([refreshStash(from), refreshStash(to)]);
+    const brought = new Set((stacks.get(to) ?? NONE).map((entry) => entry.id));
+    const sources = moves.get(to);
+    const whole =
+      link === transport &&
+      !!pending?.read &&
+      !(stacks.get(from) ?? NONE).length &&
+      (brought.size >= STASH_LIMIT || [...pending.ids].every((id) => brought.has(id)));
+    if (whole && sources) {
+      sources.delete(from);
+      if (!sources.size) moves.delete(to);
     }
   } finally {
     moving.delete(from);
-    changed(from);
-    changed(to);
   }
-  await Promise.all([refreshStash(from), refreshStash(to)]);
 }
 
 /// The moves into `chat` a failure left unfinished, tried again (as `chat` shows, and as acpmux
 /// connects again).
 export function retryMoves(chat: string): Promise<void> {
-  return Promise.all([...(moves.get(chat) ?? [])].map((from) => moveNow(from, chat))).then(() => undefined);
+  return Promise.all([...(moves.get(chat)?.keys() ?? [])].map((from) => moveNow(from, chat))).then(() => undefined);
 }
 
 const subscribe = (listener: () => void) => {

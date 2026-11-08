@@ -52,8 +52,6 @@ pub const REPLY_SLACK: usize = 64 * 1024;
 
 /// Every read-modify-write holds this, so two pushes at once never lose one.
 static WRITES: Mutex<()> = Mutex::new(());
-/// The last part of a draft's id; it starts over with the daemon.
-static SERIAL: AtomicU64 = AtomicU64::new(0);
 
 /// One stashed draft.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -100,6 +98,12 @@ struct ChatFile {
     version: u32,
     chat: String,
     drafts: Vec<Draft>,
+}
+
+/// A new draft's id: a UUIDv7 (its time and 74 random bits), unique across chats and daemon
+/// relaunches, so a restore, a drop or a move never takes one draft for another.
+fn new_id() -> String {
+    format!("stash-{}", uuid::Uuid::now_v7().simple())
 }
 
 /// The stash folder: `stash` in acpmux's home.
@@ -172,8 +176,7 @@ pub fn push(
     if text.trim().is_empty() && attachments.is_empty() {
         return Err(RpcError::invalid_params("the draft is empty"));
     }
-    let next_id = || format!("stash-{now_ms}-{}", SERIAL.fetch_add(1, Ordering::Relaxed));
-    let mut draft = Draft { id: next_id(), text: text.to_owned(), attachments, at: now_ms };
+    let draft = Draft { id: new_id(), text: text.to_owned(), attachments, at: now_ms };
     // Only a draft `stash_get` can answer whole is kept.
     let whole = serde_json::to_vec(&draft).map_err(|e| RpcError::internal(e.to_string()))?.len();
     if whole + REPLY_SLACK > crate::rpc::MAX_MESSAGE_BYTES {
@@ -185,11 +188,6 @@ pub fn push(
     let _held = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let path = chat_path(dir, chat);
     let mut drafts = load(&path).map_err(unreadable)?;
-    // The serial starts over with the daemon: a relaunch in the same millisecond as a kept draft's
-    // stash must not give the new one its id (a restore or drop would take the wrong draft).
-    while drafts.iter().any(|d| d.id == draft.id) {
-        draft.id = next_id();
-    }
     if let Some(replaces) = replaces {
         drafts.retain(|d| d.id != replaces);
     }
@@ -226,9 +224,8 @@ pub fn remove(dir: &Path, chat: &str, id: &str) -> Result<bool, RpcError> {
 
 /// Moves `from`'s stack onto `to`'s: one write of `to` with `from`'s drafts on top in their order
 /// (as pushing each would put them) and `to`'s own below, the oldest past [`STASH_LIMIT`] let go,
-/// then `from`'s file removed. A draft `to` already holds (the same time, text and chips: a move a
-/// failed removal left behind, renumbered or not) is not added again; one whose id `to` uses for another draft (ids start over with the
-/// daemon) gets a new id. How many drafts moved.
+/// then `from`'s file removed. A draft `to` already holds (a move a failed removal left behind) is
+/// not added again. How many drafts moved.
 pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<usize, RpcError> {
     if from == to {
         return Ok(0);
@@ -241,20 +238,10 @@ pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<usize, RpcError> {
     }
     let to_path = chat_path(dir, to);
     let own = load(&to_path).map_err(unreadable)?;
-    let mut drafts: Vec<Draft> = Vec::with_capacity(moving.len() + own.len());
-    for mut draft in moving {
-        // The same draft whatever its id: a retry after a move that renumbered it adds it once.
-        let same = |d: &Draft| {
-            d.at == draft.at && d.text == draft.text && d.attachments == draft.attachments
-        };
-        if own.iter().any(same) {
-            continue;
-        }
-        while own.iter().chain(&drafts).any(|d| d.id == draft.id) {
-            draft.id = format!("stash-{}-{}", draft.at, SERIAL.fetch_add(1, Ordering::Relaxed));
-        }
-        drafts.push(draft);
-    }
+    // Ids are unique across chats and relaunches (`new_id`): one `to` holds is a draft an
+    // earlier move put there before its removal failed.
+    let mut drafts: Vec<Draft> =
+        moving.into_iter().filter(|draft| !own.iter().any(|d| d.id == draft.id)).collect();
     let moved = drafts.len();
     drafts.extend(own);
     drafts.truncate(STASH_LIMIT);
@@ -463,26 +450,15 @@ mod tests {
     }
 
     #[test]
-    fn a_relaunched_daemon_never_gives_a_kept_draft_id_to_a_new_draft() {
+    fn draft_ids_are_unique_across_chats_in_one_millisecond() {
         let home = tempfile::tempdir().unwrap();
         let dir = home.path().join(DIR);
-        // A stack written by an earlier daemon in the same millisecond, holding every id this
-        // daemon's serial would give next.
-        let next = SERIAL.load(Ordering::Relaxed);
-        let kept: Vec<Draft> = (next..next + 1000)
-            .map(|n| Draft {
-                id: format!("stash-7-{n}"),
-                text: format!("kept {n}"),
-                attachments: Vec::new(),
-                at: 7,
-            })
-            .collect();
-        write(&chat_path(&dir, "chat"), "chat", &kept).unwrap();
-        let draft = push(&dir, "chat", "new", Vec::new(), None, 7).unwrap();
-        assert!(kept.iter().all(|d| d.id != draft.id), "{}", draft.id);
-        let stack = load(&chat_path(&dir, "chat")).unwrap();
-        assert_eq!(stack[0], draft);
-        assert_eq!(stack[1].text, format!("kept {next}"));
+        let mut ids = std::collections::HashSet::new();
+        for n in 0..200 {
+            let chat = format!("chat {}", n % 3);
+            let draft = push(&dir, &chat, "same", Vec::new(), None, 7).unwrap();
+            assert!(ids.insert(draft.id), "a repeated id");
+        }
     }
 
     #[test]
@@ -577,34 +553,15 @@ mod tests {
     }
 
     #[test]
-    fn a_moved_draft_whose_id_the_session_uses_is_kept_under_a_new_id() {
+    fn a_move_keeps_a_draft_equal_to_one_the_session_holds_but_its_own() {
         let home = tempfile::tempdir().unwrap();
         let dir = home.path().join(DIR);
-        let own = push(&dir, "session", "the session's own", Vec::new(), None, 5).unwrap();
-        // A relaunched daemon gave the new chat's draft the same id.
-        let other = Draft {
-            id: own.id.clone(),
-            text: "written after".into(),
-            attachments: Vec::new(),
-            at: 6,
-        };
-        write(&chat_path(&dir, "new"), "new", &[other]).unwrap();
+        push(&dir, "session", "same", Vec::new(), None, 5).unwrap();
+        push(&dir, "new", "same", Vec::new(), None, 5).unwrap();
         assert_eq!(move_stack(&dir, "new", "session").unwrap(), 1);
         let kept = load(&chat_path(&dir, "session")).unwrap();
-        let texts: Vec<&str> = kept.iter().map(|d| d.text.as_str()).collect();
-        assert_eq!(texts, ["written after", "the session's own"]);
+        assert_eq!(kept.len(), 2);
         assert_ne!(kept[0].id, kept[1].id);
         assert!(!chat_path(&dir, "new").exists());
-        // The source stayed (a removal that failed): tried again, the renumbered draft is not
-        // added twice.
-        let again = Draft {
-            id: own.id.clone(),
-            text: "written after".into(),
-            attachments: Vec::new(),
-            at: 6,
-        };
-        write(&chat_path(&dir, "new"), "new", &[again]).unwrap();
-        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 0);
-        assert_eq!(load(&chat_path(&dir, "session")).unwrap(), kept);
     }
 }

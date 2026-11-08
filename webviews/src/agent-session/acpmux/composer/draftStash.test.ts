@@ -215,6 +215,31 @@ describe("draft stash", () => {
     expect(texts("session-1")).toEqual(["kept"]);
   });
 
+  test("a move another acpmux answers stays waiting, and finishes on the first one's reconnect", async () => {
+    await stashDraft("new-a", "kept", []);
+    setStashTransport({
+      ...fake,
+      move: async () => {
+        throw new Error("lost the connection");
+      },
+    });
+    await moveStash("new-a", "session-1");
+    // Another machine's acpmux: it holds nothing for the new chat and moves none.
+    const elsewhere = new Map<string, Row[]>();
+    setStashTransport({
+      ...fake,
+      list: async (chat) => ({ drafts: elsewhere.get(chat) ?? [] }),
+      move: async () => ({ moved: 0 }),
+    });
+    await retryMoves("session-1");
+    expect(daemon.get("new-a")?.map((row) => row.text)).toEqual(["kept"]);
+    // The first acpmux again, on a new connection: the move finishes.
+    setStashTransport({ ...fake });
+    await retryMoves("session-1");
+    expect(texts("session-1")).toEqual(["kept"]);
+    expect(daemon.get("new-a")).toBeUndefined();
+  });
+
   test("an answer that is not a stack reads as none", () => {
     expect(draftsFrom(undefined)).toEqual([]);
     expect(draftsFrom({ drafts: [{ id: 1 }, "x", null] })).toEqual([]);
