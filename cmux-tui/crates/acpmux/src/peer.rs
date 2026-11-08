@@ -2140,7 +2140,35 @@ impl Peer {
             oneshot::Sender<Result<Value, RpcError>>,
         )> = None;
         let mut pipelined_settled = false;
-        let result = loop {
+        // GitHub actions the peer asked for after the held watch reply: the peer asks only after
+        // sending that answer (`hub/github_owner.rs`), so they wait for the handshake to settle
+        // it, and are admitted or refused then, in order. At most `OWNER_SLOTS` wait; any more
+        // are judged at once, as they would be anyway.
+        let mut deferred_github: Vec<(Value, Option<Value>)> = Vec::new();
+        // A request from the peer for a GitHub action, admitted or refused on this link now.
+        macro_rules! github_request {
+            // `$link` is the reader loop's label, named at the call (labels are hygienic).
+            ($link:lifetime, $id:expr, $params:expr) => {{
+                let (id, params): (Value, Option<Value>) = ($id, $params);
+                // Refused here, before anything is spawned, unless this Mac lends the peer
+                // GitHub, the handshake on this link finished, and a slot is free.
+                let admitted = crate::github_broker::admit_owner(&self.name, self.github_ready(link), &self.github_slots);
+                match admitted {
+                    Ok(slot) => self.serve_github_action(id, params.unwrap_or(Value::Null), slot, link),
+                    Err(e) => {
+                        // Bounded like any frame: a peer that asks and never reads cannot hold
+                        // this loop.
+                        let refusal = Frame::Text(Message::err(id, e).to_value().to_string().into());
+                        match tokio::time::timeout(budget, sink.send(refusal)).await {
+                            Ok(Ok(())) => {}
+                            Ok(Err(e)) => break $link Err(e.to_string()),
+                            Err(_) => break $link Err(stopped_reading(budget)),
+                        }
+                    }
+                }
+            }};
+        }
+        let result = 'link: loop {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(LinkEnd::Stopped);
             }
@@ -2158,6 +2186,9 @@ impl Peer {
                         && kept == Ok(true)
                     {
                         watch_reply!(key, reply, tx);
+                    }
+                    for (id, params) in std::mem::take(&mut deferred_github) {
+                        github_request!('link, id, params);
                     }
                 }
                 // Once only: a finished oneshot is not polled again.
@@ -2338,22 +2369,16 @@ impl Peer {
                             { *last = (*last).max(seq); }
                         }
                         Message::Request { id, method: m, params } if m == method::MUX_GITHUB_ACTION => {
-                            // Refused here, before anything is spawned, unless this Mac lends the
-                            // peer GitHub, the handshake on this link finished, and a slot is free.
-                            let admitted = crate::github_broker::admit_owner(&self.name, self.github_ready(link), &self.github_slots);
-                            match admitted {
-                                Ok(slot) => self.serve_github_action(id, params.unwrap_or(Value::Null), slot, link),
-                                Err(e) => {
-                                    // Bounded like any frame: a peer that asks and never reads
-                                    // cannot hold this loop.
-                                    let refusal = Frame::Text(Message::err(id, e).to_value().to_string().into());
-                                    match tokio::time::timeout(budget, sink.send(refusal)).await {
-                                        Ok(Ok(())) => {}
-                                        Ok(Err(e)) => break Err(e.to_string()),
-                                        Err(_) => break Err(stopped_reading(budget)),
-                                    }
-                                }
+                            // Asked after the watch reply the handshake holds: it waits for that
+                            // reply to be settled (`deferred_github`).
+                            if pipelined.is_some()
+                                && !pipelined_settled
+                                && deferred_github.len() < crate::github_broker::OWNER_SLOTS
+                            {
+                                deferred_github.push((id, params));
+                                continue;
                             }
+                            github_request!('link, id, params);
                         }
                         Message::Request { id, .. } => {
                             // Any other request from the peer: the broker's is the only one.
