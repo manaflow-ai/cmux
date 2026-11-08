@@ -18,6 +18,7 @@ pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod adopt;
 pub mod adopt_live;
+pub mod claude_peers;
 pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;

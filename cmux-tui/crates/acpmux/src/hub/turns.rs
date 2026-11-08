@@ -156,6 +156,10 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
+        if let Some(answer) = self.bridged_prompt(session, &blocks, &mut opts).await {
+            return answer;
+        }
         // A prompt the daemon sends for a session (a workflow's step, its nudge) names that
         // session: with no provenance its record would read as the person's own.
         if opts.provenance.is_none()

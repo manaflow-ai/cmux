@@ -104,7 +104,7 @@ fn claude_holder(config: &Path, id: &str) -> Option<LiveUse> {
 /// where its start time can be read, started no later than the entry's
 /// `startedAt` (milliseconds since the epoch), so a pid reused by a later
 /// process does not stand in for the ended one.
-fn registered_runs(pid: u32, started_at_ms: Option<u64>) -> bool {
+pub(crate) fn registered_runs(pid: u32, started_at_ms: Option<u64>) -> bool {
     /// Clock granularity between the process start and the time it records.
     const SLACK_MS: u64 = 1_000;
     if !pid_exists(pid) {
