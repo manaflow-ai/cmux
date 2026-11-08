@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7cf0bbe1fdc7bd30769aabb11f653fbba0df0bb42dd01b16153d07d320ec1d16.
+// cmux-tui mux protocol 12, IR e7af6076daff4eb4abb7391170e60058b9981e9e9de358d6bb23d5c14eb08d37.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -73,6 +73,9 @@ pub struct AgentRecord {
     pub since_ms: Option<u64>,
     pub source: AgentSource,
     pub state: AgentState,
+    /// What the person sees: \`working\`, \`blocked\`, \`done\` (the agent finished a turn and no client has shown its tab since; \`state\` is \`idle\` then), \`idle\` or \`unknown\`; null for an ended session (\`state\` \`done\`). Reading never clears \`done\`; a frontend's tab acknowledgement does. Absent from older daemons: use \`state\`.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub status: Optional<AgentState>,
     pub surface: Id,
     pub updated_at_ms: u64,
 }

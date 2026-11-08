@@ -4,6 +4,7 @@ use crate::cli::{ParsedCommand, Surface};
 const TERM: &str = "term_0123456789abcdef0123456789abcdef";
 const PANE: &str = "pane_0123456789abcdef0123456789abcdef";
 const TAB: &str = "tab_0123456789abcdef0123456789abcdef";
+const WS: &str = "ws_0123456789abcdef0123456789abcdef";
 
 /// Shell words with single quotes, the only quoting the recipes use.
 fn words(command: &str) -> Vec<String> {
@@ -38,7 +39,11 @@ fn words(command: &str) -> Vec<String> {
 
 /// The recipe's argv after `cmux`, with real-looking ids for the placeholders.
 fn argv(command: &str) -> Vec<String> {
-    let command = command.replace("<term>", TERM).replace("<pane>", PANE).replace("<tab>", TAB);
+    let command = command
+        .replace("<term>", TERM)
+        .replace("<pane>", PANE)
+        .replace("<tab>", TAB)
+        .replace("<ws>", WS);
     let mut words = words(&command);
     assert_eq!(words.remove(0), "cmux", "a recipe runs cmux: {command}");
     words
@@ -70,6 +75,49 @@ fn every_recipe_command_parses_with_this_cli() {
                     let flags = words[3..].to_vec();
                     if let Err(error) = crate::cli::terminal_talk::parse_send(target, &flags) {
                         panic!("{command}: {error}");
+                    }
+                }
+                ["terminal", target, "run", ..] => {
+                    let flags = words[3..].to_vec();
+                    if let Err(error) = crate::cli::terminal_talk::parse_run(target, &flags) {
+                        panic!("{command}: {error}");
+                    }
+                }
+                ["workspace", "create", flags @ ..] if flags.contains(&"--worktree") => {
+                    let flags = words[2..].to_vec();
+                    if let Err(error) = crate::cli::worktree_workspace::parse_create(&flags) {
+                        panic!("{command}: {error}");
+                    }
+                }
+                ["workspace", target, "close", flags @ ..]
+                    if flags.contains(&"--remove-worktree") =>
+                {
+                    let flags = words[3..].to_vec();
+                    if let Err(error) = crate::cli::worktree_workspace::parse_close(target, &flags)
+                    {
+                        panic!("{command}: {error}");
+                    }
+                }
+                ["pane", target, "move", ..] => {
+                    let flags = words[3..].to_vec();
+                    if let Err(error) = crate::cli::pane_move::parse(target, &flags) {
+                        panic!("{command}: {error}");
+                    }
+                }
+                ["agents", "events", ..] => {
+                    if let Err(error) = crate::cli::agents::command(&words[1..]) {
+                        panic!("{command}: {}", error.0);
+                    }
+                }
+                ["events", ..] => match crate::cli::app::parse(&words) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => panic!("{command}: not an app command"),
+                    Err(error) => panic!("{command}: {}", error.0),
+                },
+                ["agent", "start" | "resume", ..] | ["terminal", _, "resume", ..] => {
+                    match crate::cli::agent_start::parse(&words) {
+                        Some(Ok(_)) => {}
+                        other => panic!("{command}: {other:?}"),
                     }
                 }
                 ["terminal", _, "wait", ..] => {

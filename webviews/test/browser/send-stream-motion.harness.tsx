@@ -15,8 +15,10 @@
 // of wall time), so its frames are a 120 Hz display's. Each frame is sampled after its layout, before
 // it paints (a ResizeObserver on a sentinel the frame callback resizes): the thread's visual top (its
 // box with the follow motion's `translate`), that translate, the scroll offset and how far it rests
-// from the end. The URL picks the follow motion's arm (`?arm=`) and the host's motion switch
-// (`?motion=off`).
+// from the end. The URL picks the follow motion's arm (`?arm=`), the host's motion switch
+// (`?motion=off`) and the frames' own clock for the page (`?clock=frames`, frameClock.ts).
+// First: with `?clock=frames` the page's timers and clock follow the drawn frames (frameClock.ts).
+import "./frameClock";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";

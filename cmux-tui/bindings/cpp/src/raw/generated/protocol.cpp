@@ -168,6 +168,11 @@ Result<Json> Codec<AgentRecord>::encode(const AgentRecord& value) {
     auto encoded_state = encode_value(value.state);
     if (!encoded_state) return std::move(encoded_state).error();
     object.emplace("state", std::move(encoded_state).value());
+    if (!value.status.is_absent()) {
+        auto encoded = encode_value(value.status);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("status", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -247,6 +252,16 @@ Result<AgentRecord> Codec<AgentRecord>::decode(const Json& value) {
         auto decoded = decode_value<AgentState>(*field_state);
         if (!decoded) return std::move(decoded).error();
         result.state = std::move(decoded).value();
+    }
+    const Json* field_status = value.find("status");
+    if (field_status) {
+        if (field_status->is_null()) {
+            result.status = Field<AgentState>::null();
+        } else {
+            auto decoded = decode_value<AgentState>(*field_status);
+            if (!decoded) return std::move(decoded).error();
+            result.status = Field<AgentState>(std::move(decoded).value());
+        }
     }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
@@ -28194,6 +28209,11 @@ Result<Json> Codec<PasteImageRequest>::encode(const PasteImageRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("data", std::move(encoded).value());
     }
+    if (!value.filename.is_absent()) {
+        auto encoded = encode_value(value.filename);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("filename", std::move(encoded).value());
+    }
     auto encoded_lease = encode_value(value.lease);
     if (!encoded_lease) return std::move(encoded_lease).error();
     object.emplace("lease", std::move(encoded_lease).value());
@@ -28239,6 +28259,16 @@ Result<PasteImageRequest> Codec<PasteImageRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_data);
             if (!decoded) return std::move(decoded).error();
             result.data = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_filename = value.find("filename");
+    if (field_filename) {
+        if (field_filename->is_null()) {
+            result.filename = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_filename);
+            if (!decoded) return std::move(decoded).error();
+            result.filename = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_lease = value.find("lease");
@@ -43719,6 +43749,9 @@ constexpr std::array<CommandFieldRequirement, 4> kCommand176FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand179FieldRequirements{{
     {"source", 12U, "notification-source-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand184FieldRequirements{{
+    {"filename", 0U, "terminal-file-paste-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand194FieldRequirements{{
     {"hosting", 0U, "browser-provider-native-hosting-v1"},
 }};
@@ -44002,7 +44035,7 @@ constexpr std::array<CommandMetadata, 295> kCommands{{
     {"pairing-response", "local-admin", 7U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"pane-neighbor", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"park-tabs", "control", 12U, "tab-park-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"paste-image", "control", 12U, "terminal-image-paste-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"paste-image", "control", 12U, "terminal-image-paste-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand184FieldRequirements)},
     {"pin-workspace", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"ping", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"process-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},

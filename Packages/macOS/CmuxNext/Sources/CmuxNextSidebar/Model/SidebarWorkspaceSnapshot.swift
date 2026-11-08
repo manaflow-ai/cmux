@@ -111,7 +111,8 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
             icon = "emoji:" + text
             tint = chip?.rawValue
         // Off a page row, a favicon is the workspace's own image or SVG icon: its loading symbol keeps the column.
-        case .favicon? where ws.kind != .browser: icon = "symbol:photo"
+        // A row whose focused tab is a page (beside a chat or terminal) shows that page's favicon.
+        case .favicon? where ws.kind != .browser && !Self.focusesPage(ws): icon = "symbol:photo"
         case .favicon?, .pagePlaceholder?: icon = Self.pageIcon
         case nil: break
         }
@@ -161,6 +162,12 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
 
     /// The saved icon of a row that showed a page's favicon or its placeholder globe.
     static let pageIcon = "page:"
+
+    /// Whether `row`'s focused tab is a page, whose favicon is then the row's icon (`SidebarMapping.faceRow`).
+    static func focusesPage(_ row: SidebarWorkspace) -> Bool {
+        guard let focused = row.focusedTab else { return false }
+        return row.tabs.first { $0.id == focused }?.kind == .browser
+    }
 
     private static func icon(_ value: String, tint: String?) -> WorkspaceIcon? {
         if value == pageIcon { return .pagePlaceholder }

@@ -758,6 +758,7 @@ impl Hub {
                     // session there (`hub/no_session.rs`).
                     if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
                         p.rows_ready.store(true, std::sync::atomic::Ordering::SeqCst);
+                        p.note_rows_applied();
                     }
                     // The link takes requests again: messages waiting for a peer go now, not
                     // after the rest of their retry delay (`server/outbox.rs` `deliver`).

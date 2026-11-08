@@ -57,8 +57,8 @@
     },
     {
       "path": "AgentRecord.java",
-      "sha256": "6b92f6f86a3e23879109db7f03ba27df6dd5ddda1312fc0afb97547c901b143d",
-      "size": 8266
+      "sha256": "832f6d3cbca97bf64f6901090730ab32c08bc7ad4964efbe4a833d2165162a90",
+      "size": 9217
     },
     {
       "path": "AgentReportSource.java",
@@ -762,8 +762,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "09bf7a5ddadedfadd03728c71c8111809f4c63f40c4377160a86a38a05b8e56f",
-      "size": 81211
+      "sha256": "83ae11b47de38e4dad9872b2712f35d21cf63b93c50b444fd903c4f4df223056",
+      "size": 81265
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -2132,8 +2132,8 @@
     },
     {
       "path": "PasteImageRequest.java",
-      "sha256": "b2cd5720ea9a2eea4d6037e236527196cfdd1a15e940acac9f4fc4f31af5a09f",
-      "size": 7500
+      "sha256": "24ce6149f42a72bec01feb67c2bd8055e3ddfeeaca6ad2818d21dcea4d4dc212",
+      "size": 8217
     },
     {
       "path": "PasteImageResult.java",
@@ -2182,7 +2182,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9db1e40847e1d596094267e19282656adfbfda9cd13a26b1f2db846fc0a05200",
+      "sha256": "a5b2d27f97d0e8f57c919330f430a562db4dbe68b9707a6e49bf90c75df6469f",
       "size": 7838
     },
     {
@@ -3582,7 +3582,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "7cf0bbe1fdc7bd30769aabb11f653fbba0df0bb42dd01b16153d07d320ec1d16",
+  "ir_sha256": "e7af6076daff4eb4abb7391170e60058b9981e9e9de358d6bb23d5c14eb08d37",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

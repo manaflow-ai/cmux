@@ -33,6 +33,8 @@ export function newTabScreenActions(deps: {
   startsHere?(): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
+  clearError?(): void;
+  showError?(error: unknown): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -122,6 +124,29 @@ export function newTabScreenActions(deps: {
           else start(picked);
         } else start(deps.chatCwd);
       });
+    },
+    onFixFromLink: (url, selectedCwd, harness, model) => {
+      const current = deps.startScope?.(false) ?? (() => true);
+      deps.clearError?.();
+      return callNative("chat.fix_from_link", {
+        url,
+        ...(selectedCwd ? { cwd: selectedCwd } : {}),
+        ...(harness ? { harness } : {}),
+        ...(model ? { model } : {}),
+      })
+        .then((result) => {
+          if (!current()) throw startCancelled();
+          const sessionId =
+            result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"
+              ? (result as { sessionId: string }).sessionId
+              : undefined;
+          // l10n-allow: internal transport shape failure; the user sees the host error surface.
+          if (!sessionId) throw new Error("fix-from-link did not return a session");
+          deps.selectSession(sessionId);
+        })
+        .catch((error) => {
+          if (!isStartCancelled(error)) deps.showError?.(error);
+        });
     },
     savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {

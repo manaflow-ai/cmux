@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7cf0bbe1fdc7bd30769aabb11f653fbba0df0bb42dd01b16153d07d320ec1d16";
+pub const ir_sha256 = "e7af6076daff4eb4abb7391170e60058b9981e9e9de358d6bb23d5c14eb08d37";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -65,6 +65,8 @@ pub const AgentRecord = struct {
     since_ms: ?u64 = null,
     source: AgentSource,
     state: AgentState,
+    /// What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`.
+    status: wire.Field(AgentState) = .absent,
     surface: Id,
     updated_at_ms: u64,
 
@@ -7861,6 +7863,7 @@ pub fn parkTabs(client: anytype, request: ParkTabsRequest) !wire.Decoded(ParkTab
 
 pub const PasteImageRequest = struct {
     data: wire.Field([]const u8) = .absent,
+    filename: wire.Field([]const u8) = .absent,
     lease: []const u8,
     mime: wire.Field([]const u8) = .absent,
     offset: wire.Field(u64) = .absent,
@@ -7883,6 +7886,9 @@ pub fn pasteImage(client: anytype, request: PasteImageRequest) !wire.Decoded(Pas
             .authority = "control",
             .since = 12,
             .capability = "terminal-image-paste-v1",
+            .fields = &.{
+                .{ .name = "filename", .since = null, .capability = "terminal-file-paste-v1" },
+            },
         },
         request,
     );

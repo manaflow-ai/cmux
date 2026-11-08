@@ -1,11 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
+use cmux_link::carrier_grant::CarrierGrant;
 use cmux_remote_protocol::{Lane, REMOTE_PROTOCOL_VERSION, Service, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -239,13 +241,17 @@ pub struct AuthRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceAuthority {
     services: Box<[Service]>,
+    /// The carrier grant that admitted the session, if one did: the only
+    /// source of who the person is ([`Service::Acpmux`] names them to acpmux
+    /// from it).
+    grant: Option<Arc<CarrierGrant>>,
 }
 
 impl ServiceAuthority {
     /// Refuse every service. Callers add authority deliberately rather than
     /// inheriting access when the protocol gains a new service.
     pub fn none() -> Self {
-        Self { services: Box::new([]) }
+        Self { services: Box::new([]), grant: None }
     }
 
     /// Preserve the service access held by devices before service-scoped
@@ -261,6 +267,7 @@ impl ServiceAuthority {
                 Service::TcpTunnel,
                 Service::ComputerUse,
             ]),
+            grant: None,
         }
     }
 
@@ -272,12 +279,23 @@ impl ServiceAuthority {
                 unique.push(service);
             }
         }
-        Self { services: unique.into_boxed_slice() }
+        Self { services: unique.into_boxed_slice(), grant: None }
+    }
+
+    /// This authority, held by the session `grant` admitted.
+    pub fn with_grant(mut self, grant: CarrierGrant) -> Self {
+        self.grant = Some(Arc::new(grant));
+        self
     }
 
     /// Whether this grant may open the service.
     pub fn allows(&self, service: Service) -> bool {
         self.services.contains(&service)
+    }
+
+    /// The carrier grant that admitted the session, if one did.
+    pub fn grant(&self) -> Option<&Arc<CarrierGrant>> {
+        self.grant.as_ref()
     }
 }
 

@@ -27,7 +27,7 @@ final class AppSceneEmptyStateNSView: AppSceneNodeNSView {
         message.isHidden = message.stringValue.isEmpty
     }
 
-    override func updateLayer() {
+    override func paint() {
         performWithTheme {
             glyph.contentTintColor = Palette.textTertiary
             title.textColor = Palette.textSecondary

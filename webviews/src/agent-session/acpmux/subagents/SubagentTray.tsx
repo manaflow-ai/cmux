@@ -124,10 +124,11 @@ import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
-import { hatChevronLook, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
-import { DoneMark } from "./DoneMark";
+import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
+import { DoneCheck, DoneMark } from "./DoneMark";
 import { Tick } from "./trayMotion";
 import { useTrayMotion } from "./trayMotionModel";
+import { useTraySeen } from "./traySeen";
 import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
@@ -178,6 +179,7 @@ export const SubagentTray = memo(function SubagentTray({
   onTuck,
   tuckSide = "middle",
   onHold,
+  onSeen,
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -234,6 +236,10 @@ export const SubagentTray = memo(function SubagentTray({
   /// (trayLinger.ts) expires no finished line while it is, and resumes when it lets go. Reported on
   /// a change only (never per pointer move), and false when the hat unmounts.
   onHold?: (held: boolean) => void;
+  /// The hat could be seen: on screen, in a page that shows, in a focused window (traySeen.ts).
+  /// App.tsx's linger counts a finished line's grace only while it could. Reported on a change only,
+  /// and false when the hat stops drawing.
+  onSeen?: (seen: boolean) => void;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -277,6 +283,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [latestAt] = useState(() => experimentArm(trayLatestLook));
   const [chevronAt] = useState(() => experimentArm(hatChevronLook));
   const [doneLook] = useState(() => experimentArm(hatDoneLook));
+  const [checkPlace] = useState(() => experimentArm(hatDoneCheckPlace));
   const [rowMotion] = useState(() => experimentArm(hatRowMotionLook));
   const showLatest = latestAt !== "tooltip";
   const latestPlacement = latestAt === "tooltip" ? undefined : latestAt;
@@ -381,6 +388,7 @@ export const SubagentTray = memo(function SubagentTray({
     },
     [],
   );
+  useTraySeen(trayNode, headed, onSeen);
   // A line that joins the open list grows in from 0 height and a line that leaves keeps its node and
   // folds to 0 height (`TrayRow`, on the shared fold), so the lines around it move with it, never a
   // pop or a jump (Leo, 2026-11-07: "the things coming, they shouldn't just, like, pop in, burst in,
@@ -634,7 +642,13 @@ export const SubagentTray = memo(function SubagentTray({
           aria-controls={open && opensPanel !== "header" ? listId : undefined}
           onClick={toggle}
         >
-          {(head === "stack" || lone) && drawnMarks.length > 0 ? (
+          {loneEnd?.status === "done" && doneLook === "check" && checkPlace === "leading" ? (
+            // The `leading` arm (hatParts.experiment.ts `hatDoneCheckPlace`): a lone finished item's check
+            // in the lines' glyph column; its time ends the row alone.
+            <span className="acpmux-lineage__icon" data-state="done" style={{ width: ROW_ICON }} aria-hidden="true">
+              <DoneCheck />
+            </span>
+          ) : (head === "stack" || lone) && drawnMarks.length > 0 ? (
             // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
             // as the sidebar's status row stacks them before "8 done".
             <span className="acpmux-running-tray__stack" data-tray-stack aria-hidden="true">
@@ -701,7 +715,7 @@ export const SubagentTray = memo(function SubagentTray({
             // header is all that says so.
             <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneEnd.status}>
               {loneEnd.status === "done" ? (
-                <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot />
+                <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot place={checkPlace} />
               ) : loneEnd.status === "running" && !loneEnd.retry && loneEnd.time !== undefined ? (
                 loneEnd.time
               ) : (

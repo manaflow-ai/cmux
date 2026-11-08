@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 857,
-    "mcp": 771
+    "verbs": 858,
+    "mcp": 772
   },
   "nouns": [
     {
@@ -601,6 +601,13 @@
           "id": "app.install",
           "mcp": true,
           "mcpTool": "app_apps_install"
+        },
+        {
+          "command": "cmux apps reload",
+          "title": "Reload Custom Views",
+          "id": "app.reloadCustomViews",
+          "mcp": true,
+          "mcpTool": "app_apps_reload"
         },
         {
           "command": "cmux apps remove",

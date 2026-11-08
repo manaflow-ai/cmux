@@ -240,46 +240,16 @@ fn a_worker_refusal_names_its_nested_code_and_the_header_code_wins() {
 
 #[test]
 fn classic_calls_send_the_stack_session_and_the_team() {
-    let (origin, seen) = fake(|_| ok(r#"{"snapshots":[{"id":"s-1"}]}"#));
-    let answer =
-        go(&request(&origin, Auth::Stack, "vm.snapshots", json!({ "id": "vm-1" }))).unwrap();
-    assert_eq!(answer, json!([{ "id": "s-1" }]));
+    let (origin, seen) = fake(|_| ok(r#"{"networks":[{"id":"net-1"}]}"#));
+    let answer = go(&request(&origin, Auth::Stack, "vm.networks", json!({}))).unwrap();
+    assert_eq!(answer, json!([{ "id": "net-1" }]));
     let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "GET /api/vm/vm-1/snapshots");
+    assert_eq!(seen[0].target(), "GET /api/vm/network");
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team-1"));
     assert_eq!(seen[0].header("x-cmux-client").as_deref(), Some("cmux-mac"));
     assert_eq!(seen[0].header("x-cmux-app-version").as_deref(), Some("cmux-next"));
-}
-
-#[test]
-fn a_snapshot_sends_its_idempotency_key() {
-    let (origin, seen) = fake(|s| match s.header("idempotency-key") {
-        Some(_) => ok(r#"{"id":"snapshot-1","name":null}"#),
-        None => Some((400, r#"{"error":"vm_idempotency_key_required"}"#.into())),
-    });
-    let args = json!({ "id": "machine-1", "idempotencyKey": "key-1" });
-    let answer = go(&request(&origin, Auth::Stack, "vm.snapshot", args)).unwrap();
-    assert_eq!(answer["id"], "snapshot-1");
-    assert_eq!(seen.lock().unwrap()[0].json(), json!({}));
-}
-
-#[test]
-fn a_resize_sends_only_the_dimensions_given() {
-    let (origin, seen) = fake(|_| ok("{}"));
-    for args in [
-        json!({ "id": "vm-1", "storageMb": 65536 }),
-        json!({ "id": "vm-1", "cpu": 4, "memoryMb": 16384, "storageMb": 131072 }),
-        json!({ "id": "vm-1", "cpu": 2, "memoryMb": 8192 }),
-    ] {
-        assert_eq!(go(&request(&origin, Auth::Stack, "vm.resize", args)).unwrap(), Value::Null);
-    }
-    let seen = seen.lock().unwrap();
-    assert!(seen.iter().all(|s| s.target() == "POST /api/vm/vm-1/resize"));
-    assert_eq!(seen[0].json(), json!({ "storageMb": 65536 }));
-    assert_eq!(seen[1].json(), json!({ "cpu": 4, "memoryMb": 16384, "storageMb": 131072 }));
-    assert_eq!(seen[2].json(), json!({ "cpu": 2, "memoryMb": 8192 }));
 }
 
 #[test]

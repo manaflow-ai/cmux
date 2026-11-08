@@ -56,6 +56,27 @@ pub(crate) fn session_dir(id: &str) -> Option<PathBuf> {
     plain.then(|| root().join(id))
 }
 
+/// Whether `file`, opened at `path` below the resolved folder `dir` and with more than one name,
+/// is one of that chat's uploads whose other names are the store's (`store`): `dir` is a chat's
+/// own uploads folder (a direct child of the uploads root), and the record of the file's folder
+/// names stored bytes that are this very file. A reader that refuses a file with another name
+/// (`media_read.rs`) accepts this one; a link anywhere else (a chat's folder, `/tmp`, home), or
+/// one whose record names other bytes, stays refused.
+#[cfg(unix)]
+pub(crate) fn is_stored_upload(dir: &Path, path: &Path, file: &std::fs::File) -> bool {
+    let root = root();
+    let real = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
+    dir.parent() == Some(real.as_path())
+        && path.starts_with(dir)
+        && store::is_stored_link(&root, path, file)
+}
+
+/// No store links off unix: every file with another name stays refused.
+#[cfg(not(unix))]
+pub(crate) fn is_stored_upload(_: &Path, _: &Path, _: &std::fs::File) -> bool {
+    false
+}
+
 /// Deletes session `id`'s uploads: the chat was deleted. Blocking: run it off the runtime.
 pub(crate) fn remove_session(id: &str) {
     let Some(dir) = session_dir(id) else { return };

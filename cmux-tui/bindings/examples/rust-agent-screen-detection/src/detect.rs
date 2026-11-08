@@ -53,7 +53,19 @@ pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 
 /// Recent PTY output is a working signal for a screen source. It upgrades an
 /// otherwise idle screen and expires through one deterministic re-evaluation.
+/// A read of the agent's own idle prompt (`visible_idle`) is held only
+/// through [`QUIESCENCE_DEBOUNCE_MS`]: the prompt with no spinner is positive
+/// evidence, so an interrupted turn shows idle within a second of its last
+/// redraw (manaflow-ai/cmux#36529), not 1.5 s after it. A working agent's
+/// spinner redraws far more often than that.
 pub(crate) const WORKING_ACTIVITY_WINDOW_MS: u64 = 1_500;
+
+/// Whether output last seen at `at` still counts as activity at `now`, for an
+/// idle read that did (`visible_idle`) or did not match the agent's prompt.
+fn output_within(at: Instant, now: Instant, visible_idle: bool) -> bool {
+    let age = now.duration_since(at).as_millis() as u64;
+    if visible_idle { age < QUIESCENCE_DEBOUNCE_MS } else { age <= WORKING_ACTIVITY_WINDOW_MS }
+}
 
 /// Herdr confirms a plain idle screen several times before replacing a
 /// working state. This avoids a single redraw frame making a live turn look
@@ -240,6 +252,8 @@ struct TrackedTerminal {
     /// The last evaluation used output activity to upgrade idle to working.
     /// This creates one expiry re-evaluation even when the screen is unchanged.
     evaluated_with_activity: bool,
+    /// That upgraded read was the agent's own idle prompt ([`output_within`]).
+    activity_on_visible_idle: bool,
     /// Agent the foreground process matched on the previous scan; identity
     /// edges trigger immediate evaluation, before any quiescence.
     foreground_agent: Option<String>,
@@ -302,9 +316,9 @@ impl ScreenDetectTracker {
             entry.quiet_since = Some(now);
             entry.last_output_at = Some(now);
         }
-        let output_active = entry.last_output_at.is_some_and(|at| {
-            now.duration_since(at).as_millis() as u64 <= WORKING_ACTIVITY_WINDOW_MS
-        });
+        let output_active = entry
+            .last_output_at
+            .is_some_and(|at| output_within(at, now, entry.activity_on_visible_idle));
         let activity_expired = entry.evaluated_with_activity && !output_active;
         let pending_idle_due = entry.pending_idle.active()
             && entry.last_evaluated_at.is_none_or(|at| {
@@ -357,7 +371,12 @@ impl ScreenDetectTracker {
         if entry.evaluated_with_activity
             && let Some(output) = entry.last_output_at
         {
-            deadlines.push(output + Duration::from_millis(WORKING_ACTIVITY_WINDOW_MS + 1));
+            let window = if entry.activity_on_visible_idle {
+                QUIESCENCE_DEBOUNCE_MS
+            } else {
+                WORKING_ACTIVITY_WINDOW_MS + 1
+            };
+            deadlines.push(output + Duration::from_millis(window));
         }
         if entry.pending_idle.active() {
             deadlines.push(now + Duration::from_millis(PENDING_IDLE_RECHECK_MS));
@@ -365,19 +384,27 @@ impl ScreenDetectTracker {
         deadlines.into_iter().min().map(|deadline| deadline.max(now))
     }
 
-    /// Mark that the last screen evaluation used flowing PTY output to
-    /// upgrade an idle state. The tracker then owes an expiry evaluation.
-    pub(crate) fn note_activity_upgrade(&mut self, terminal_id: &str) {
-        if let Some(entry) = self.terminals.get_mut(terminal_id) {
-            entry.evaluated_with_activity = true;
+    /// Flowing PTY output is a working signal for the screen source: an idle
+    /// read of `terminal_id` taken while output is recent
+    /// ([`WORKING_ACTIVITY_WINDOW_MS`]) becomes working, and the tracker then
+    /// owes one expiry re-evaluation. Hooks still win in the core roster
+    /// reducer.
+    pub fn apply_output_activity(
+        &mut self,
+        terminal_id: &str,
+        detection: &mut Detection,
+        now: Instant,
+    ) {
+        if detection.skip_state_update || detection.state != ScreenState::Idle {
+            return;
         }
-    }
-
-    /// True while PTY output has advanced within the activity window.
-    pub(crate) fn output_active(&self, terminal_id: &str, now: Instant) -> bool {
-        self.terminals.get(terminal_id).and_then(|entry| entry.last_output_at).is_some_and(|at| {
-            now.duration_since(at).as_millis() as u64 <= WORKING_ACTIVITY_WINDOW_MS
-        })
+        let Some(entry) = self.terminals.get_mut(terminal_id) else { return };
+        if !entry.last_output_at.is_some_and(|at| output_within(at, now, detection.visible_idle)) {
+            return;
+        }
+        detection.state = ScreenState::Working;
+        entry.evaluated_with_activity = true;
+        entry.activity_on_visible_idle = detection.visible_idle;
     }
 
     /// Return whether generic OSC metadata may be attributed to the current

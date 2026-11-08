@@ -11,25 +11,49 @@ import CmuxNextDesign
 /// makes views for new nodes and drops the views of removed ones. A change is noticed by Observation
 /// (no polling) while the view is in a window, and any layout pass draws a pending one; ``onContentSizeChange`` tells the host when the
 /// height may have changed. Loading draws nothing; a failed or disconnected mount draws one quiet row
-/// with the reason. Use ``AppScene/isNativelyRenderable`` to choose this renderer.
+/// with the reason. Every node type of the kit has an AppKit view here, so no scene falls back to
+/// SwiftUI.
 final class AppSceneNativeView: NSView {
     let model: AppSceneModel
+    /// The app bundle's folder: `Image` nodes read their `src` from it.
+    let bundleDirectory: URL?
     /// Runs after a redraw that may have changed ``preferredHeight(width:)``.
     var onContentSizeChange: (() -> Void)?
     private var views: [String: AppSceneNodeNSView] = [:]
     private var rootView: AppSceneNodeNSView?
+    /// A failed mount's card: the reason, the script line it names, and Reload (``AppScriptFailure``).
     private let failure = ChromeLabel(wrappingLabelWithString: "")
+    private let failureLocation = ChromeLabel(labelWithString: "")
+    private lazy var reloadButton: NSButton = {
+        let button = NSButton(title: AppsStrings.reload, target: self, action: #selector(reloadScript))
+        button.isBordered = false
+        button.setButtonType(.momentaryChange)
+        button.toolTip = AppsStrings.reloadHelp
+        button.setAccessibilityLabel(AppsStrings.reloadHelp)
+        return button
+    }()
     private var drawnRevision = -1
     private var drawnStatus: AppSceneModel.Status?
 
-    init(model: AppSceneModel) {
+    init(model: AppSceneModel, bundleDirectory: URL? = nil) {
         self.model = model
+        self.bundleDirectory = bundleDirectory
         super.init(frame: .zero)
         wantsLayer = true
         failure.font = Typography.caption
-        failure.maximumNumberOfLines = 3
+        // The whole reason: a clipped syntax error hides the part that says what to fix.
+        failure.maximumNumberOfLines = 12
+        failure.isSelectable = true
+        failure.focusRingType = .none
         failure.isHidden = true
         addSubview(failure)
+        failureLocation.font = Typography.system(.monospaced, size: Typography.caption.pointSize)
+        failureLocation.isSelectable = true
+        failureLocation.focusRingType = .none
+        failureLocation.isHidden = true
+        addSubview(failureLocation)
+        reloadButton.isHidden = true
+        addSubview(reloadButton)
         needsLayout = true
     }
 
@@ -79,14 +103,22 @@ final class AppSceneNativeView: NSView {
     private func reconcile() {
         switch model.status {
         case .failed(let reason), .disconnected(let reason):
-            failure.stringValue = reason
+            let parsed = AppScriptFailure(reason: reason)
+            failure.stringValue = parsed.message
             failure.isHidden = false
+            failureLocation.stringValue = parsed.location ?? ""
+            failureLocation.isHidden = parsed.location == nil
+            // A disconnected mount comes back with its connection; only a failed one offers Reload.
+            if case .failed = model.status { reloadButton.isHidden = false } else { reloadButton.isHidden = true }
+            updateReloadTitle()
             rootView?.removeFromSuperview()
             rootView = nil
             views.removeAll()
             return
         case .loading, .ready:
             failure.isHidden = true
+            failureLocation.isHidden = true
+            reloadButton.isHidden = true
         }
         var live = Set<String>()
         let next = model.scene.root.flatMap { view(for: $0, live: &live) }
@@ -109,6 +141,7 @@ final class AppSceneNativeView: NSView {
         } else {
             view = Self.make(id: id, node: node)
             view.model = model
+            view.bundleDirectory = bundleDirectory
             view.configure(node)
             views[id] = view
         }
@@ -120,7 +153,7 @@ final class AppSceneNativeView: NSView {
 
     private static func isContainer(_ type: AppSceneNodeType) -> Bool {
         switch type {
-        case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack, .panel, .button: true
+        case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack, .zStack, .panel, .button: true
         default: false
         }
     }
@@ -130,14 +163,21 @@ final class AppSceneNativeView: NSView {
         case .row: AppSceneRowNSView(id: id, node: node)
         case .text: AppSceneTextNSView(id: id, node: node)
         case .icon: AppSceneIconNSView(id: id, node: node)
+        case .image: AppSceneImageNSView(id: id, node: node)
         case .badge: AppSceneBadgeNSView(id: id, node: node)
         case .emptyState: AppSceneEmptyStateNSView(id: id, node: node)
         case .divider: AppSceneDividerNSView(id: id, node: node)
         case .spacer: AppSceneSpacerNSView(id: id, node: node)
         case .button: AppSceneButtonNSView(id: id, node: node)
+        case .menu: AppSceneMenuNSView(id: id, node: node)
         case .panel: AppScenePanelNSView(id: id, node: node)
-        // Stacks, and any type the support check let through by mistake, lay out as a vertical stack.
-        default: AppSceneStackNSView(id: id, node: node)
+        case .toggle: AppSceneToggleNSView(id: id, node: node)
+        case .slider: AppSceneSliderNSView(id: id, node: node)
+        case .textField: AppSceneTextFieldNSView(id: id, node: node)
+        case .progressView: AppSceneProgressNSView(id: id, node: node)
+        case .circle, .capsule, .rectangle, .roundedRectangle: AppSceneShapeNSView(id: id, node: node)
+        case .zStack: AppSceneZStackNSView(id: id, node: node)
+        case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack: AppSceneStackNSView(id: id, node: node)
         }
     }
 
@@ -150,7 +190,7 @@ final class AppSceneNativeView: NSView {
     /// The scene's height laid out `width` points wide.
     func preferredHeight(width: CGFloat) -> CGFloat {
         redrawIfNeeded()
-        if !failure.isHidden { return ceil(failure.size(forWidth: max(0, width - 2 * failureInset)).height) + 2 * Metrics.space2 }
+        if !failure.isHidden { return failureFrames(width: width).height }
         return ceil(rootView?.height(width: width) ?? 0)
     }
 
@@ -160,19 +200,59 @@ final class AppSceneNativeView: NSView {
 
     private var failureInset: CGFloat { Metrics.space4 }
 
+    /// The failure card's lines, top to bottom at `width`: message, location, Reload; and its height.
+    private func failureFrames(width: CGFloat) -> (message: CGRect, location: CGRect, reload: CGRect, height: CGFloat) {
+        let inner = max(0, width - 2 * failureInset)
+        var y = Metrics.space2
+        let message = CGRect(x: failureInset, y: y, width: inner, height: ceil(failure.size(forWidth: inner).height))
+        y = message.maxY
+        var location = CGRect.zero
+        if !failureLocation.isHidden {
+            y += Metrics.space1
+            location = CGRect(x: failureInset, y: y, width: inner, height: ceil(failureLocation.size(forWidth: inner).height))
+            y = location.maxY
+        }
+        var reload = CGRect.zero
+        if !reloadButton.isHidden {
+            y += Metrics.space1
+            let size = reloadButton.fittingSize
+            reload = CGRect(x: failureInset, y: y, width: ceil(size.width), height: ceil(size.height))
+            y = reload.maxY
+        }
+        return (message, location, reload, y + Metrics.space2)
+    }
+
+    /// Reload in the accent color at caption size: one quiet text action under the error.
+    private func updateReloadTitle() {
+        reloadButton.attributedTitle = NSAttributedString(string: AppsStrings.reload, attributes: [
+            .font: Typography.caption, .foregroundColor: Palette.accent,
+        ])
+    }
+
+    @objc private func reloadScript() {
+        model.reload()
+    }
+
     override func layout() {
         redrawIfNeeded()
         super.layout()
         if !failure.isHidden {
-            let height = ceil(failure.size(forWidth: max(0, bounds.width - 2 * failureInset)).height)
-            failure.frame = CGRect(x: failureInset, y: Metrics.space2, width: max(0, bounds.width - 2 * failureInset), height: height)
+            let frames = failureFrames(width: bounds.width)
+            failure.frame = frames.message
+            failureLocation.frame = frames.location
+            reloadButton.frame = frames.reload
         }
         guard let rootView else { return }
-        rootView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: rootView.height(width: bounds.width))
+        let width = min(rootView.naturalWidth ?? bounds.width, bounds.width)
+        rootView.frame = CGRect(x: 0, y: 0, width: width, height: rootView.height(width: width))
     }
 
     override func updateLayer() {
-        performWithTheme { failure.textColor = Palette.textSecondary }
+        performWithTheme {
+            failure.textColor = Palette.textSecondary
+            failureLocation.textColor = Palette.textTertiary
+            updateReloadTitle()
+        }
     }
 
     nonisolated override var wantsUpdateLayer: Bool { true }

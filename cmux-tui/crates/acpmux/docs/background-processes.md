@@ -95,6 +95,7 @@ Process {
                 // or acpmux did after a minute in the foreground)
   outputBytes   // the output file's length when listed; null with no file
   outputFile?   // the file the harness writes its output to
+  preview?      // {url, port}: the dev server it runs, while it runs
 }
 ```
 
@@ -102,6 +103,20 @@ As built (#20724), `subagentSessionId` names the subagent whose call started
 it, and a task id a later harness reuses gets `-2`, `-3`. Each change is
 logged once as a mux `process_update` record, which is how a daemon rebuilds
 the table.
+
+`preview` is the local server a running process serves, so the chat can
+offer it as a link (`hub/process_preview.rs`). When a process with an output
+file runs, the daemon reads the file's last 64 KiB 0.5, 1.5, 3.5, 7.5, 15.5,
+31.5 and 59.5 s after, strips its terminal escapes, and takes the loopback
+URLs it names (`localhost:5173`, `127.0.0.1:3000`, `0.0.0.0:8080`; the
+`cmux-local-url` crate the daemon's `terminal-ports` uses too), newest first.
+The first whose port accepts a TCP connect on 127.0.0.1 or ::1 is logged as
+`preview: {url, port}` in one `process_update`, and the checks stop; they
+also stop once the process ends, and after the last. A wildcard host reads
+`localhost`, and an API path (`/api`, `/v1`, `/graphql`, `/rpc`, `/health`)
+reads `/`. A process that ends drops its preview. Only the chat's own output
+files are read: no process scanning, no ports table. Codex names no output
+file, so its processes have no preview.
 
 `lost` means the process ended without anyone seeing how, for example when the
 harness itself exited. Its last output is kept and its command is shown with

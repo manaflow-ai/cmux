@@ -11,10 +11,12 @@ struct AgentSenderIcon: View {
     let harness: String?
     /// The key the tone comes from: the sender's session id, else its name.
     let identity: String
+    /// The tone the chat assigned the sender (`AgentTones`), else `identity`'s hash.
+    var assignedTone: Int?
     var size: CGFloat = 16
 
     var body: some View {
-        let tone = Self.toneColor(Self.hashTone(identity))
+        let tone = Self.toneColor(assignedTone ?? Self.hashTone(identity))
         let badge = (size * 0.58).rounded()
         Group {
             if AgentBrandCatalog.spec(forAgent: Self.family(harness)) != nil {
@@ -56,12 +58,8 @@ struct AgentSenderIcon: View {
         return harness.split(whereSeparator: { "-_/".contains($0) }).first.map(String.init)
     }
 
-    /// The Mac's `hashTone`: FNV-1a of the UTF-16 units, modulo the five tones.
-    static func hashTone(_ id: String) -> Int {
-        var hash: UInt32 = 0x811c9dc5
-        for unit in id.utf16 { hash = (hash ^ UInt32(unit)) &* 0x01000193 }
-        return Int(hash % 5)
-    }
+    /// The Mac's `hashTone`: FNV-1a of the UTF-16 units, modulo the five tones (`AgentTones`).
+    static func hashTone(_ id: String) -> Int { AgentTones.hashTone(id) }
 
     /// The tones' colors: the Mac's own terminal-color fallbacks (subagents.css `[data-agent-tone]`),
     /// so a session reads in the same hue on both.

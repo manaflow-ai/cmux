@@ -584,6 +584,31 @@ impl Tickets for PlatformTickets {
     }
 }
 
+/// The node key, read only with this machine's WireGuard key lock (`cmux_link::key_holder`): the
+/// WireGuard transport's when it runs (`held`, one lock per process), else the carrier's own.
+/// While another process holds it (the cmux link), the carrier is off; ssh and the relay go on.
+fn node_key(
+    state_dir: &std::path::Path,
+    held: Option<Arc<cmux_link::key_holder::KeyHolder>>,
+) -> Result<(Arc<cmux_link::key_holder::KeyHolder>, zeroize::Zeroizing<[u8; 32]>), String> {
+    use cmux_link::key_holder::{KeyHolder, KeyHolderError};
+    let holder = match held {
+        Some(holder) => holder,
+        None => match KeyHolder::acquire(state_dir) {
+            Ok(holder) => Arc::new(holder),
+            Err(KeyHolderError::KeyHeld { pid }) => {
+                let holder =
+                    pid.map_or_else(|| "another process".into(), |pid| format!("process {pid}"));
+                return Err(format!("{holder} holds this machine's WireGuard key"));
+            }
+            Err(KeyHolderError::Io(e)) => return Err(format!("WireGuard key lock: {e}")),
+        },
+    };
+    let (_, private) = crate::cli::mesh_node_key::load_or_create_held(state_dir, &holder)
+        .map_err(|e| format!("no node key: {e:#}"))?;
+    Ok((holder, private))
+}
+
 /// The daemon's hub carrier: on when config.json names a mesh hub with the joined machine
 /// credential (`meshRelay.credential: "join"`) and this home is not a copy. It serves at once;
 /// peers find it through `hub.hub_carrier`.
@@ -591,6 +616,7 @@ pub async fn start_configured(
     hub: &Arc<crate::hub::Hub>,
     state_dir: &std::path::Path,
     websocket: Option<SocketAddr>,
+    held: Option<Arc<cmux_link::key_holder::KeyHolder>>,
 ) -> Option<HubServe> {
     let config = hub.config.read().await.mesh_relay.clone()?;
     if config.credential.as_deref() != Some("join") {
@@ -611,10 +637,10 @@ pub async fn start_configured(
             return None;
         }
     };
-    let keys = match crate::cli::mesh_node_key::load_or_create_at(state_dir) {
-        Ok(keys) => keys,
-        Err(e) => {
-            tracing::warn!("hub carrier off: no node key: {e:#}");
+    let (holder, private) = match node_key(state_dir, held) {
+        Ok(key) => key,
+        Err(why) => {
+            tracing::warn!("hub carrier off: {why}");
             return None;
         }
     };
@@ -627,15 +653,44 @@ pub async fn start_configured(
         return None;
     }
     let home = state_dir.to_path_buf();
+    // The check lives as long as the carrier, and so does the lock it keeps.
     let check: KeyCheck = Arc::new(move |public: &[u8; 32]| {
+        let _held = &holder;
         crate::cli::mesh_node_key::public_key_at(&home).is_some_and(|now| now == *public)
     });
     let carrier = HubCarrier::with_key_check(
         Arc::new(PlatformTickets { hub: client }),
-        *keys.private_key(),
+        *private,
         Timings::default(),
         check,
     );
     hub.hub_carrier.set(carrier.clone());
     Some(carrier.serve(websocket))
+}
+
+#[cfg(test)]
+mod key_lock_tests {
+    use super::*;
+    use cmux_link::key_holder::KeyHolder;
+
+    /// Another holder of the lock (the cmux link) turns the carrier off without a key read; the
+    /// WireGuard transport's own holder is shared, and so is the key it reads.
+    #[test]
+    fn the_carrier_reads_the_node_key_only_under_the_lock() {
+        let home = tempfile::tempdir().unwrap();
+        let link = KeyHolder::acquire(home.path()).unwrap();
+        let refused = node_key(home.path(), None).unwrap_err();
+        assert!(refused.contains(&format!("process {}", std::process::id())), "{refused}");
+        assert!(crate::cli::mesh_node_key::public_key_at(home.path()).is_none(), "a key was read");
+        let shared = Arc::new(link);
+        let (holder, private) = node_key(home.path(), Some(shared.clone())).unwrap();
+        assert!(Arc::ptr_eq(&holder, &shared));
+        let public = crate::cli::mesh_node_key::public_key_at(home.path()).unwrap();
+        assert_eq!(
+            public,
+            x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(*private)).to_bytes()
+        );
+        drop((holder, shared));
+        assert!(node_key(home.path(), None).is_ok(), "the lock outlived its holders");
+    }
 }
