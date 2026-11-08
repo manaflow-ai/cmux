@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCloudUI
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -133,7 +134,7 @@ struct CloudTransferLocal {
     private static func newFolder(named name: String) async -> String {
         let base = CloudTransferLocalStrings.folderName, home = NSHomeDirectory()
         return await Task.detached(priority: .userInitiated) {
-            CloudTransferRules.newFolder(named: name, base: base, home: home) { FileManager.default.fileExists(atPath: $0) }
+            CloudTransferRules.newFolder(named: name, base: base, home: home) { FileManager.checked.fileExists(atPath: $0) }
         }.value
     }
 
