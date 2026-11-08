@@ -361,6 +361,13 @@ final class TerminalFramePresenter {
         if watch, requests[id] == nil { watched[id] = Watch(view: view) } else if !watch { commits[id] = Watch(view: view) }
         // Outside the lock span: what follows the new size and reads Ghostty under the terminal's lock.
         view.frameDidLand()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // ZOOM VARIANTS 6 (never merged): a Z4 unzoom swaps its old picture for this live frame in this same commit.
+        if let landed = view.filmFrameLanded {
+            view.filmFrameLanded = nil
+            landed()
+        }
+        #endif
         // A frame that landed late in a spring: the size drawn ahead for the next refresh goes after this pass
         // (``applyAheads()``), not the size wanted now, whose frame could only show a refresh late, and so on for every
         // later frame (review of 5840aea3a603, P1 #1). The next refresh's layout takes the size drawn ahead.
