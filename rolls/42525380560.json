@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42525380560",
+  "recorded_at": "2026-11-08T21:38:12Z",
+  "reason": "cmux-tui cfb3ae5949df changes the image's cmux-tui (pinned fc7f522de581)",
+  "dry_run": false,
+  "cmux_tui": "cfb3ae5949df84a7dd53053892f160223d0e0e80",
+  "fixes": [
+    {
+      "sha": "cfb3ae5949df84a7dd53053892f160223d0e0e80",
+      "mergedAt": "2026-11-08T21:12:15Z",
+      "subject": "cmux-host: pin the ssh backup carrier to the relay carrier's daemon (V0 item 3 S5) (#38834)"
+    },
+    {
+      "sha": "0252545df0620a9738aced808ccdc2d4b9d90994",
+      "mergedAt": "2026-11-08T13:11:37-08:00",
+      "subject": "acpmux tests: the race fixture reads its task after the sender line (#38856)"
+    },
+    {
+      "sha": "cd7d5d7b59f07cd13b12f68bce56278446ebc06a",
+      "mergedAt": "2026-11-08T21:11:23Z",
+      "subject": "cmux-action-catalog: Space keys are Ctrl-Opt-Cmd-H / L, as in the app (#38713)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T21:38:12Z",
+    "snapshot_id": "sh-686901e2dc1042f79dea867abab4d031",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42525380560): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2cfc50085eb2c7d0c26ca6167dbef8b3bc076362",
+    "image": "cloud-native-auto-cfb3ae59-42525380560-1",
+    "revision": "ci-42525380560-1",
+    "at": "2026-11-08T21:38:12Z"
+  },
+  "rolled_back": false
+}
