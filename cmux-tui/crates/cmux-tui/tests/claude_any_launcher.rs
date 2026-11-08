@@ -127,7 +127,6 @@ fn write_executable(path: &Path, contents: &str) {
 struct Daemon {
     child: Child,
     socket: PathBuf,
-    session: String,
     terminals: Vec<(String, String)>,
     surfaces: Vec<(String, u64)>,
 }
@@ -173,13 +172,7 @@ impl Daemon {
             assert!(Instant::now() < deadline, "{session} never served {}", socket.display());
             std::thread::sleep(Duration::from_millis(25));
         }
-        Self {
-            child,
-            socket,
-            session: session.to_owned(),
-            terminals: Vec::new(),
-            surfaces: Vec::new(),
-        }
+        Self { child, socket, terminals: Vec::new(), surfaces: Vec::new() }
     }
 
     fn request(&self, value: serde_json::Value) -> serde_json::Value {
@@ -230,9 +223,9 @@ impl Daemon {
     fn agent_row(&self, exe: &Path, env: &[(&str, &Path)], terminal: &str) -> serde_json::Value {
         let mut command = Command::new(exe);
         command
-            .args(["--json", "agent", "list", "--terminal", terminal, "--session", &self.session])
-            .arg("--socket")
+            .args(["--json", "--socket"])
             .arg(&self.socket)
+            .args(["agent", "list"])
             .env("LC_ALL", "C")
             .env_remove("CMUX_TUI_SOCKET")
             .env_remove("CMUX_MUX_SOCKET")
@@ -249,7 +242,11 @@ impl Daemon {
         }
         let listed: serde_json::Value =
             serde_json::from_slice(&output.stdout).unwrap_or(serde_json::Value::Null);
-        find_row(&listed, terminal).cloned().unwrap_or(serde_json::Value::Null)
+        find_row(&listed, terminal).cloned().unwrap_or_else(|| {
+            serde_json::Value::String(format!(
+                "no row for {terminal} in the session's agent list: {listed}"
+            ))
+        })
     }
 }
 
