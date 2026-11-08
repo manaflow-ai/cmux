@@ -62,10 +62,7 @@ impl Drop for TestStateRoot {
     }
 }
 
-fn connect_after_runtime_start(
-    socket_path: &Path,
-    state_root: &Path,
-) -> ProviderMachineRuntime {
+fn connect_after_runtime_start(socket_path: &Path, state_root: &Path) -> ProviderMachineRuntime {
     ProviderMachineRuntime::connect_in_state_root(socket_path, token(), state_root).unwrap()
 }
 
@@ -208,10 +205,7 @@ fn serve_initial_snapshot_on_stream(
 
     let request: protocol::RequestEnvelope = read_frame(&mut reader);
     assert!(matches!(request.request, protocol::ProviderRequest::Snapshot(_)));
-    write_frame(
-        &mut stream,
-        &protocol::ResponseEnvelope::success(request.id, snapshot.clone()),
-    );
+    write_frame(&mut stream, &protocol::ResponseEnvelope::success(request.id, snapshot.clone()));
     serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &snapshot);
     (stream, reader)
 }
@@ -310,10 +304,7 @@ fn serve_initial_durable_snapshot(
 
     let request: protocol::RequestEnvelope = read_frame(&mut reader);
     assert!(matches!(request.request, protocol::ProviderRequest::Snapshot(_)));
-    write_frame(
-        &mut stream,
-        &protocol::ResponseEnvelope::success(request.id, snapshot.clone()),
-    );
+    write_frame(&mut stream, &protocol::ResponseEnvelope::success(request.id, snapshot.clone()));
     serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &snapshot);
     (stream, reader, params.consumer_id)
 }
@@ -489,10 +480,7 @@ impl AcceptedMutationKind {
     ];
 }
 
-fn accepted_mutation_request(
-    kind: AcceptedMutationKind,
-    machine: MachineKey,
-) -> MachineRequest {
+fn accepted_mutation_request(kind: AcceptedMutationKind, machine: MachineKey) -> MachineRequest {
     match kind {
         AcceptedMutationKind::CreateMachine => MachineRequest::Create,
         AcceptedMutationKind::RenameMachine => MachineRequest::RenameManagedMachine {
@@ -558,10 +546,9 @@ fn serve_accepted_mutation(
                 ),
             );
         }
-        (
-            AcceptedMutationKind::RenameMachine,
-            protocol::ProviderRequest::RenameMachine(params),
-        ) if params.display_name == "Renamed" => {
+        (AcceptedMutationKind::RenameMachine, protocol::ProviderRequest::RenameMachine(params))
+            if params.display_name == "Renamed" =>
+        {
             write_frame(
                 stream,
                 &protocol::ResponseEnvelope::success(
@@ -579,10 +566,7 @@ fn serve_accepted_mutation(
             );
         }
         (AcceptedMutationKind::DeleteMachine, protocol::ProviderRequest::DeleteMachine(_))
-        | (
-            AcceptedMutationKind::RestoreMachine,
-            protocol::ProviderRequest::RestoreMachine(_),
-        )
+        | (AcceptedMutationKind::RestoreMachine, protocol::ProviderRequest::RestoreMachine(_))
         | (AcceptedMutationKind::PurgeMachine, protocol::ProviderRequest::PurgeMachine(_)) => {
             write_frame(
                 stream,
@@ -623,10 +607,7 @@ fn serve_accepted_mutation(
             AcceptedMutationKind::RestoreWorkspace,
             protocol::ProviderRequest::RestoreWorkspace(_),
         )
-        | (
-            AcceptedMutationKind::PurgeWorkspace,
-            protocol::ProviderRequest::PurgeWorkspace(_),
-        ) => {
+        | (AcceptedMutationKind::PurgeWorkspace, protocol::ProviderRequest::PurgeWorkspace(_)) => {
             write_frame(
                 stream,
                 &protocol::ResponseEnvelope::success(
@@ -674,8 +655,7 @@ fn every_accepted_provider_mutation_survives_followup_refresh_failure() {
     let server_catalog = catalog;
     let server_workspace = workspace;
     let server = thread::spawn(move || {
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_catalog.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_catalog.clone());
         serve_workspace_snapshot(&mut stream, &mut reader, &server_workspace);
         for kind in AcceptedMutationKind::ALL {
             serve_runtime_refresh(
@@ -786,15 +766,9 @@ fn accepted_create_selection_survives_workspace_refresh_failure() {
     let server_initial = initial.clone();
     let server_created = created.clone();
     let server = thread::spawn(move || {
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_initial.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_initial.clone());
         serve_workspace_snapshot(&mut stream, &mut reader, &initial_workspace);
-        serve_runtime_refresh(
-            &mut stream,
-            &mut reader,
-            &server_initial,
-            Some(&initial_workspace),
-        );
+        serve_runtime_refresh(&mut stream, &mut reader, &server_initial, Some(&initial_workspace));
 
         let create: protocol::RequestEnvelope = read_frame(&mut reader);
         assert!(matches!(create.request, protocol::ProviderRequest::CreateMachine(_)));
@@ -838,8 +812,7 @@ fn accepted_create_selection_survives_workspace_refresh_failure() {
             ),
         );
 
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_created.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_created.clone());
         serve_workspace_snapshot(&mut stream, &mut reader, &initial_workspace);
         serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &server_created);
         serve_workspace_snapshot(&mut stream, &mut reader, &created_workspace);
@@ -850,8 +823,7 @@ fn accepted_create_selection_survives_workspace_refresh_failure() {
     assert_eq!(result.ui.request, Some(MachineRequest::ReconnectProvider));
     assert_eq!(runtime.snapshot, initial, "failed install mixed provider state");
     assert!(result.ui.notice.as_deref().is_some_and(|notice| {
-        notice.contains("create accepted")
-            && notice.contains("created workspace refresh failed")
+        notice.contains("create accepted") && notice.contains("created workspace refresh failed")
     }));
     assert_eq!(
         runtime
@@ -903,8 +875,7 @@ fn accepted_action_selection_and_messages_survive_scope_refresh_failure() {
     let server_personal = personal.clone();
     let server_team = team.clone();
     let server = thread::spawn(move || {
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_personal.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_personal.clone());
         serve_workspace_snapshot(&mut stream, &mut reader, &personal_workspace);
         serve_runtime_refresh(
             &mut stream,
@@ -1002,8 +973,7 @@ fn accepted_open_machine_delete_retires_session_when_refresh_fails() {
     let catalog = snapshot(1, "Deleted machine", protocol::MachineStatus::Running);
     let server_catalog = catalog;
     let server = thread::spawn(move || {
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_catalog.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_catalog.clone());
         serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
 
         let delete: protocol::RequestEnvelope = read_frame(&mut reader);
@@ -1076,15 +1046,9 @@ fn accepted_scope_selection_survives_lifecycle_refresh_failure() {
     let server_catalog = catalog;
     let server_workspace = workspace;
     let server = thread::spawn(move || {
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_catalog.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_catalog.clone());
         serve_workspace_snapshot(&mut stream, &mut reader, &server_workspace);
-        serve_runtime_refresh(
-            &mut stream,
-            &mut reader,
-            &server_catalog,
-            Some(&server_workspace),
-        );
+        serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, Some(&server_workspace));
 
         let select: protocol::RequestEnvelope = read_frame(&mut reader);
         assert!(matches!(
@@ -1141,8 +1105,7 @@ fn assert_accepted_workspace_mutation_survives_refresh_error(delete: bool) {
     let server_catalog = catalog;
     let server_workspace = workspace;
     let server = thread::spawn(move || {
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_catalog.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_catalog.clone());
         serve_workspace_snapshot(&mut stream, &mut reader, &server_workspace);
 
         let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
@@ -1273,17 +1236,12 @@ fn legacy_v1_provider_connects_without_receiving_lifecycle_requests() {
 
         let request: protocol::RequestEnvelope = read_frame(&mut reader);
         assert!(matches!(request.request, protocol::ProviderRequest::Snapshot(_)));
-        let mut legacy_snapshot =
-            snapshot(1, "Legacy machine", protocol::MachineStatus::Running);
-        legacy_snapshot.machines[0].workspace_create =
-            protocol::WorkspaceCreatePolicy::Provider {
-                default_mode: protocol::WorkspaceCreateMode::Isolated,
-                modes: vec![protocol::WorkspaceCreateMode::Isolated],
-            };
-        write_frame(
-            &mut stream,
-            &protocol::ResponseEnvelope::success(request.id, legacy_snapshot),
-        );
+        let mut legacy_snapshot = snapshot(1, "Legacy machine", protocol::MachineStatus::Running);
+        legacy_snapshot.machines[0].workspace_create = protocol::WorkspaceCreatePolicy::Provider {
+            default_mode: protocol::WorkspaceCreateMode::Isolated,
+            modes: vec![protocol::WorkspaceCreateMode::Isolated],
+        };
+        write_frame(&mut stream, &protocol::ResponseEnvelope::success(request.id, legacy_snapshot));
 
         stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
         let mut unexpected = String::new();
@@ -1389,8 +1347,7 @@ fn targeted_actions_are_negotiated_before_the_initial_snapshot() {
         );
 
         let negotiation: protocol::RequestEnvelope = read_frame(&mut reader);
-        let protocol::ProviderRequest::NegotiateClientCapabilities(params) =
-            negotiation.request
+        let protocol::ProviderRequest::NegotiateClientCapabilities(params) = negotiation.request
         else {
             panic!("client capability negotiation did not immediately follow hello");
         };
@@ -1525,13 +1482,8 @@ fn negotiated_external_connect_routes_opaque_input_to_provider_selection_path() 
     );
     let result = controller.perform_request(provider_connect("PAIR 4J7K;$(opaque)")).unwrap();
 
-    let paired = result
-        .ui
-        .snapshot
-        .machines
-        .iter()
-        .find(|machine| machine.id == "paired-machine")
-        .unwrap();
+    let paired =
+        result.ui.snapshot.machines.iter().find(|machine| machine.id == "paired-machine").unwrap();
     assert_eq!(result.ui.snapshot.active, Some(paired.key));
     assert_eq!(result.ui.request, Some(MachineRequest::Switch(paired.key)));
     assert_eq!(result.ui.notice.as_deref(), Some("Paired machine enrolled"));
@@ -1666,8 +1618,7 @@ fn retryable_external_connect_error_reuses_mutation_id() {
         );
         serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
         let first: protocol::RequestEnvelope = read_frame(&mut reader);
-        let protocol::ProviderRequest::ConnectExternalMachine(first_params) = first.request
-        else {
+        let protocol::ProviderRequest::ConnectExternalMachine(first_params) = first.request else {
             panic!("first request was not external connect");
         };
         write_frame(
@@ -1684,8 +1635,7 @@ fn retryable_external_connect_error_reuses_mutation_id() {
 
         serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
         let retry: protocol::RequestEnvelope = read_frame(&mut reader);
-        let protocol::ProviderRequest::ConnectExternalMachine(retry_params) = retry.request
-        else {
+        let protocol::ProviderRequest::ConnectExternalMachine(retry_params) = retry.request else {
             panic!("retry request was not external connect");
         };
         assert_eq!(retry_params.specifier, first_params.specifier);
@@ -1732,8 +1682,7 @@ fn selecting_provider_scope_cancels_ambiguous_external_connect() {
     team.selected_scope_id = id("team-1");
     let server_personal = personal.clone();
     let server = thread::spawn(move || {
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_personal.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_personal.clone());
         serve_runtime_refresh(&mut stream, &mut reader, &server_personal, None);
 
         let select: protocol::RequestEnvelope = read_frame(&mut reader);
@@ -1838,8 +1787,7 @@ fn ambiguous_protocol_failure_reuses_external_connect_mutation_id_after_reconnec
             );
             serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
             let request: protocol::RequestEnvelope = read_frame(&mut reader);
-            let protocol::ProviderRequest::ConnectExternalMachine(params) = request.request
-            else {
+            let protocol::ProviderRequest::ConnectExternalMachine(params) = request.request else {
                 panic!("first request was not external connect");
             };
             assert_eq!(params.specifier.expose(), "PAIR 4J7K");
@@ -1895,8 +1843,7 @@ fn ambiguous_protocol_failure_reuses_external_connect_mutation_id_after_reconnec
             localization::catalog().sidebar.machine_provider_external_connect_ambiguous
         );
     }
-    let Err(retry_while_disconnected) =
-        controller.perform_request(provider_connect("PAIR 4J7K"))
+    let Err(retry_while_disconnected) = controller.perform_request(provider_connect("PAIR 4J7K"))
     else {
         panic!("ambiguous connect retry was rerouted while its provider was disconnected");
     };
@@ -2011,10 +1958,7 @@ fn unnegotiated_external_connect_preserves_client_local_validation() {
         panic!("unnegotiated provider unexpectedly handled local connect input");
     };
 
-    assert_eq!(
-        error.to_string(),
-        "machine address must be a host or user@host without whitespace"
-    );
+    assert_eq!(error.to_string(), "machine address must be a host or user@host without whitespace");
     controller.close();
     server.join().unwrap();
 }
@@ -2052,10 +1996,7 @@ fn disconnected_provider_external_connect_never_reaches_local_ssh() {
         panic!("disconnected provider unexpectedly completed external connect");
     };
 
-    assert_eq!(
-        error.to_string(),
-        localization::catalog().sidebar.machine_provider_disconnected
-    );
+    assert_eq!(error.to_string(), localization::catalog().sidebar.machine_provider_disconnected);
     controller.close();
 }
 
@@ -2085,10 +2026,7 @@ fn provider_disconnect_during_external_connect_refresh_fails_closed() {
         panic!("refresh-disconnected provider unexpectedly handled external connect");
     };
 
-    assert_eq!(
-        error.to_string(),
-        localization::catalog().sidebar.machine_provider_disconnected
-    );
+    assert_eq!(error.to_string(), localization::catalog().sidebar.machine_provider_disconnected);
     controller.close();
     server.join().unwrap();
 }
@@ -2173,8 +2111,7 @@ fn provider_reconnect_replacement_commits_as_provider_active() {
             &listener,
             snapshot(1, "Before reconnect", protocol::MachineStatus::Running),
         );
-        let mut disconnected =
-            snapshot(2, "After reconnect", protocol::MachineStatus::Sleeping);
+        let mut disconnected = snapshot(2, "After reconnect", protocol::MachineStatus::Sleeping);
         disconnected.machines.clear();
         disconnected.selected_machine_id = None;
         let (_second_stream, _second_reader) = serve_initial_snapshot(&listener, disconnected);
@@ -2358,12 +2295,8 @@ fn local_overlay_switches_to_a_real_client_local_mux() {
             } else {
                 Value::Null
             };
-            writeln!(
-                peer.get_mut(),
-                "{}",
-                json!({"id": request["id"], "ok": true, "data": data})
-            )
-            .unwrap();
+            writeln!(peer.get_mut(), "{}", json!({"id": request["id"], "ok": true, "data": data}))
+                .unwrap();
         }
         local_stopped.recv_timeout(Duration::from_secs(2)).unwrap();
     });
@@ -2373,9 +2306,7 @@ fn local_overlay_switches_to_a_real_client_local_mux() {
                 id: "mini".into(),
                 name: "Mini".into(),
                 subtitle: "local".into(),
-                target: crate::config::MachineTargetConfig::Unix {
-                    socket: local_socket.clone(),
-                },
+                target: crate::config::MachineTargetConfig::Unix { socket: local_socket.clone() },
             },
             MachineConfig {
                 id: "offline".into(),
@@ -2454,10 +2385,7 @@ fn workspace_policy_translation_preserves_provider_order_and_default() {
     let mut snapshot = snapshot(1, "Machine", protocol::MachineStatus::Running);
     snapshot.machines[0].workspace_create = protocol::WorkspaceCreatePolicy::Provider {
         default_mode: protocol::WorkspaceCreateMode::Isolated,
-        modes: vec![
-            protocol::WorkspaceCreateMode::Host,
-            protocol::WorkspaceCreateMode::Isolated,
-        ],
+        modes: vec![protocol::WorkspaceCreateMode::Host, protocol::WorkspaceCreateMode::Isolated],
     };
     let keys = Arc::new(Mutex::new(KeyRegistry {
         by_id: HashMap::new(),
@@ -2509,8 +2437,7 @@ fn workspace_snapshot_translation_preserves_stable_identity_and_capabilities() {
     }));
 
     let machine_lifecycle = machine_lifecycle_snapshot(&snapshot);
-    let ui =
-        machine_ui_state(&snapshot, &machine_lifecycle, Some(&lifecycle), &keys, true, false);
+    let ui = machine_ui_state(&snapshot, &machine_lifecycle, Some(&lifecycle), &keys, true, false);
 
     assert_eq!(
         ui.managed_workspaces(),
@@ -2605,15 +2532,11 @@ fn switching_to_a_lifecycle_tombstone_disables_the_placeholder_session() {
     let server_lifecycle = lifecycle.clone();
     let (finish, finished) = mpsc::channel();
     let server = thread::spawn(move || {
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_catalog.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_catalog.clone());
 
         let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
         assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
-        write_frame(
-            &mut stream,
-            &protocol::ResponseEnvelope::success(refresh.id, server_catalog),
-        );
+        write_frame(&mut stream, &protocol::ResponseEnvelope::success(refresh.id, server_catalog));
 
         let lifecycle_request: protocol::RequestEnvelope = read_frame(&mut reader);
         assert!(matches!(
@@ -2736,17 +2659,13 @@ fn non_switch_provider_action_preserves_the_open_machine_transport() {
     let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
     install_test_connection(&mut runtime, "keep-open", "machine-1", true);
 
-    let result = runtime
-        .perform_request(MachineRequest::SelectProviderScope("personal".into()))
-        .unwrap();
+    let result =
+        runtime.perform_request(MachineRequest::SelectProviderScope("personal".into())).unwrap();
 
     assert!(result.replacement.is_none());
     assert!(result.ui.session_available);
     assert_eq!(result.ui.notice.as_deref(), Some("scope selected"));
-    assert_eq!(
-        runtime.open.as_ref().map(|open| open.connection_id.as_str()),
-        Some("keep-open")
-    );
+    assert_eq!(runtime.open.as_ref().map(|open| open.connection_id.as_str()), Some("keep-open"));
     drop(runtime);
     server.join().unwrap();
 }
@@ -2909,8 +2828,7 @@ fn persistent_snapshot_notice_is_not_repeated_by_refresh() {
     let server_catalog = catalog;
     let (finish, finished) = mpsc::channel();
     let server = thread::spawn(move || {
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_catalog.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_catalog.clone());
         let mut second = server_catalog.clone();
         second.revision = 2;
         serve_runtime_refresh(&mut stream, &mut reader, &second, None);
@@ -2949,8 +2867,7 @@ fn failed_candidate_open_preserves_the_current_machine_transport() {
     });
     let server_catalog = catalog.clone();
     let server = thread::spawn(move || {
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_catalog.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_catalog.clone());
 
         let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
         assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
@@ -3028,8 +2945,7 @@ fn rejected_candidate_authority_preserves_the_current_transport_and_selection() 
     });
     let server_catalog = catalog.clone();
     let server = thread::spawn(move || {
-        let (mut stream, mut reader) =
-            serve_initial_snapshot(&listener, server_catalog.clone());
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_catalog.clone());
 
         let close_candidate: protocol::RequestEnvelope = read_frame(&mut reader);
         assert!(matches!(
@@ -3081,14 +2997,12 @@ fn rejected_candidate_authority_preserves_the_current_transport_and_selection() 
         default_mode: protocol::WorkspaceCreateMode::Isolated,
         modes: vec![protocol::WorkspaceCreateMode::Isolated],
     };
-    let candidate_open =
-        cache_test_connection(&mut runtime, "reject-second", "machine-2", true);
+    let candidate_open = cache_test_connection(&mut runtime, "reject-second", "machine-2", true);
     runtime.stage_connection(Some(candidate_open), Some(rollback)).unwrap();
     let candidate = crate::session::test_remote_session_without_provider_authority();
     let candidate_ui = runtime.ui_state(true);
 
-    let error =
-        crate::machine::validate_machine_session(&candidate, &candidate_ui).unwrap_err();
+    let error = crate::machine::validate_machine_session(&candidate, &candidate_ui).unwrap_err();
     runtime.abort_replacement();
 
     assert!(error.to_string().contains("did not supply workspace mirror authority"));
@@ -3123,10 +3037,7 @@ fn durable_notice_bypasses_a_blocked_authoritative_refresh() {
         assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
         refresh_started.send(()).unwrap();
         refresh_release.recv().unwrap();
-        write_frame(
-            &mut stream,
-            &protocol::ResponseEnvelope::success(refresh.id, catalog.clone()),
-        );
+        write_frame(&mut stream, &protocol::ResponseEnvelope::success(refresh.id, catalog.clone()));
         serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &catalog);
     });
 
@@ -3160,8 +3071,7 @@ fn snapshot_change_burst_does_not_disconnect_or_starve_durable_notice() {
     let (release_refresh, refresh_release) = mpsc::channel();
     let server = thread::spawn(move || {
         let catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
-        let (mut stream, mut reader, _) =
-            serve_initial_durable_snapshot(&listener, catalog, None);
+        let (mut stream, mut reader, _) = serve_initial_durable_snapshot(&listener, catalog, None);
         let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
         assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
         refresh_started.send(()).unwrap();
@@ -3281,10 +3191,7 @@ fn initial_current_warning_remains_visible_without_a_durable_replay() {
     });
 
     let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
-    assert_eq!(
-        runtime.ui_state_for_open_connection().notice.as_deref(),
-        Some("Usage reached 50%")
-    );
+    assert_eq!(runtime.ui_state_for_open_connection().notice.as_deref(), Some("Usage reached 50%"));
     finish.send(()).unwrap();
     drop(runtime);
     server.join().unwrap();
@@ -3298,8 +3205,7 @@ fn durable_provider_suppresses_later_legacy_snapshot_warning_updates() {
     let (finish, finished) = mpsc::channel();
     let server = thread::spawn(move || {
         let catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
-        let (mut stream, mut reader, _) =
-            serve_initial_durable_snapshot(&listener, catalog, None);
+        let (mut stream, mut reader, _) = serve_initial_durable_snapshot(&listener, catalog, None);
         triggered.recv().unwrap();
         let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
         assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
@@ -3418,8 +3324,7 @@ fn legacy_provider_does_not_require_notice_identity_state() {
         true
     });
 
-    let runtime =
-        ProviderMachineRuntime::connect_in_state_root(&socket.path, token(), &state.path);
+    let runtime = ProviderMachineRuntime::connect_in_state_root(&socket.path, token(), &state.path);
     release.send(()).unwrap();
     assert!(
         server.join().unwrap(),
@@ -3467,10 +3372,9 @@ fn unavailable_notice_identity_preserves_localized_context_after_durable_handsha
     std::fs::set_permissions(&identity_parent, std::fs::Permissions::from_mode(0o755)).unwrap();
     let server = thread::spawn(move || negotiate_durable_then_expect_disconnect(&listener));
 
-    let error =
-        ProviderMachineRuntime::connect_in_state_root(&socket.path, token(), &state.path)
-            .err()
-            .expect("permissive identity state unexpectedly connected");
+    let error = ProviderMachineRuntime::connect_in_state_root(&socket.path, token(), &state.path)
+        .err()
+        .expect("permissive identity state unexpectedly connected");
     assert!(
         server.join().unwrap(),
         "durable capability was not negotiated before identity state was accessed"
@@ -3480,8 +3384,7 @@ fn unavailable_notice_identity_preserves_localized_context_after_durable_handsha
         localization::catalog().sidebar.provider_notice_identity_unavailable
     );
     assert!(
-        format!("{error:?}")
-            .contains("provider notice identity directory must not be accessible")
+        format!("{error:?}").contains("provider notice identity directory must not be accessible")
     );
 }
 
@@ -3566,11 +3469,8 @@ fn runtime_identity_lease_blocks_a_second_cursor_and_reuses_it_after_release() {
     let blocked_root = first_root.path.clone();
     let (blocked_result, blocked_outcome) = mpsc::channel();
     let blocked = thread::spawn(move || {
-        let result = ProviderMachineRuntime::connect_in_state_root(
-            blocked_socket,
-            token(),
-            &blocked_root,
-        );
+        let result =
+            ProviderMachineRuntime::connect_in_state_root(blocked_socket, token(), &blocked_root);
         blocked_result
             .send(match result {
                 Ok(runtime) => {
@@ -3585,10 +3485,7 @@ fn runtime_identity_lease_blocks_a_second_cursor_and_reuses_it_after_release() {
         .recv_timeout(Duration::from_secs(2))
         .expect("second runtime did not fail before subscribing")
         .expect_err("second runtime unexpectedly acquired the shared notice cursor");
-    assert_eq!(
-        blocked_error,
-        localization::catalog().sidebar.provider_connection_already_running
-    );
+    assert_eq!(blocked_error, localization::catalog().sidebar.provider_connection_already_running);
     blocked.join().unwrap();
     assert!(consumer_ids.try_recv().is_err());
 
@@ -3728,9 +3625,10 @@ fn subscription_refreshes_after_an_event_published_before_registration() {
     drop(runtime);
     server.join().unwrap();
 
-    let update = expect_ui_update(received.expect(
-        "subscription must perform an authoritative refresh after registering for events",
-    ));
+    let update =
+        expect_ui_update(received.expect(
+            "subscription must perform an authoritative refresh after registering for events",
+        ));
     assert_eq!(update.snapshot.machines[0].name, "After subscription");
     assert_eq!(update.snapshot.machines[0].status, MachineStatus::Sleeping);
 }
@@ -3740,9 +3638,7 @@ fn provider_update_failure_uses_selected_locale() {
     const CHILD_ENV: &str = "CMUX_PROVIDER_UPDATE_LOCALE_CHILD";
     if std::env::var_os(CHILD_ENV).is_none() {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .arg(
-                "machine_provider_runtime::tests::provider_update_failure_uses_selected_locale",
-            )
+            .arg("machine_provider_runtime::tests::provider_update_failure_uses_selected_locale")
             .arg("--exact")
             .arg("--nocapture")
             .env(CHILD_ENV, "1")
