@@ -30,7 +30,7 @@ if [[ ${#variants[@]} -eq 0 ]]; then
   variants=(
     "base="
     "no-spare-renderer=disable-features=SpareRendererForSitePerProcess"
-    "network-in-process=enable-features=NetworkServiceInProcess"
+    "network-in-process=enable-features=NetworkServiceInProcess2"
     "no-bfcache=disable-features=BackForwardCache"
     "no-background-networking=disable-background-networking"
     "v8-optimize-for-size=js-flags=--optimize-for-size"
