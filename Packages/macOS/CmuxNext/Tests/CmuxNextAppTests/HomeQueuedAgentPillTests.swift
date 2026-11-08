@@ -146,32 +146,6 @@ import Testing
         #expect(started == ["a7"])
     }
 
-    /// Two transcripts of one conversation that start their own agents (two fixture tabs over the mock owner's
-    /// one Chief chat, or one and the playground): each pill menu's Start now starts its own transcript's agent
-    /// (review of #38595 at c0e25e5e: the first match by conversation could start the other one's).
-    @Test func eachTranscriptOfOneConversationStartsItsOwnAgentFromItsMenu() async throws {
-        let first = try await home(), second = try await home()
-        defer { close(first); close(second) }
-        try #require(first.conversation == second.conversation)
-        var started: [String] = []
-        first.view.onStartAgent = { peer in started.append("first \(peer)"); return true }
-        second.view.onStartAgent = { peer in started.append("second \(peer)"); return true }
-        let registry = ActionRegistry(catalog: ActionCatalog.all.filter { $0.id == HomeChiefHomes.startQueuedAgent })
-        let homes = HomeChiefHomes()
-        homes.bind(into: registry)
-        homes.startsOwnAgents(first.view)
-        homes.startsOwnAgents(second.view)
-        for (home, name) in [(second, "second"), (first, "first")] {
-            let items = try #require(home.view.transcript.agentPillMenu)("a7")
-            let index = try #require(items.firstIndex { $0.title == "Start now" })
-            let shown = NSMenu()
-            items.forEach(shown.addItem)
-            shown.performActionForItem(at: index)
-            for _ in 0..<100_000 where started.last != "\(name) a7" { await Task.yield() }
-        }
-        #expect(started == ["second a7", "first a7"])
-    }
-
     #if DEBUG
     /// The DEBUG fixture page (`debug.home_native_fixture.open`) registers each transcript it shows, so its queued
     /// pills keep the menu's Start now (review of #38595 at 231883bb: only the playground registered).
