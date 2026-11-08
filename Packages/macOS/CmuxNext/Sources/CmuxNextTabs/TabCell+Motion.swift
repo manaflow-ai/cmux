@@ -146,7 +146,10 @@ enum TabOcclusion {
                 cell.occlude(visible: visible(frame: cell.frame, cover: pill(cover.frame)))
                 continue
             }
-            let times = MotionPath.times(from: now, to: end, count: MotionPath.sampleCount(seconds: end - now))
+            // On the newest move's frame grid: each frame the render server draws shows the mask exactly under the pill.
+            let anchor = [coverPath.position.lastBegin, coverPath.size.lastBegin, path.position.lastBegin, path.size.lastBegin]
+                .compactMap(\.self).max()
+            let times = MotionPath.frameTimes(from: now, to: end, anchor: anchor)
             var crossed = false
             let parts = times.enumerated().map { index, time -> Visible in
                 let last = index == times.count - 1

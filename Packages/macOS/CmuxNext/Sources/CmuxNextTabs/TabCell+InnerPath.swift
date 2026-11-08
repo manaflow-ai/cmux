@@ -38,7 +38,8 @@ extension TabCell {
         // The first sample is laid out in the new state (a tab that lost its selection has no x
         // there), so it is not the start form.
         let shownNow = Set((layer.sublayers ?? []).filter { ($0.presentation() ?? $0).opacity > 0.001 }.map(ObjectIdentifier.init))
-        let times = MotionPath.times(from: now, to: end, count: MotionPath.sampleCount(seconds: end - now))
+        // On the width move's frame grid, so every drawn frame shows the parts at that frame's width (`frameTimes`).
+        let times = MotionPath.frameTimes(from: now, to: end, anchor: path.lastBegin)
         let modelWidth = layer.bounds.width
         // Each sample's width in device pixels; the last is the model width.
         let keys = times.indices.map { index in
@@ -124,7 +125,7 @@ extension TabCell {
     /// Chromium lays a pinned tab out in its new look at once and lets BoundsAnimator move the bounds; here the look
     /// rides the same tween as the bounds instead (cmux-ad m70: "translate properly").
     private func retimePin(_ path: MotionPath, from: TabChromeVisibility, now: CFTimeInterval, end: CFTimeInterval) {
-        let times = MotionPath.times(from: now, to: end, count: MotionPath.sampleCount(seconds: end - now))
+        let times = MotionPath.frameTimes(from: now, to: end, anchor: path.lastBegin)
         let modelWidth = layer.bounds.width
         let widths = times.indices.map { index in index == times.count - 1 ? modelWidth : max(0, path.value(at: times[index]).x) }
         let startWidth = widths.first ?? modelWidth

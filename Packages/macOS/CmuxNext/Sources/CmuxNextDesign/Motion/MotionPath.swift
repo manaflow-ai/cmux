@@ -128,6 +128,29 @@ public struct MotionPath {
         return (0...count).map { start + (end - start) * Double($0) / Double(count) }
     }
 
+    /// Media times to sample a path from `now` to `end` on the frame grid of the move that carries it: `now`, every
+    /// 1 / `framesPerSecond` from `anchor` (the move's begin, a begin-frame time: `MotionFrameClock`) between them, and
+    /// `end`. Keyframes made from these samples are exact on every frame the render server draws, as the move itself
+    /// is: samples evenly spaced from `now` fall between two frames, and the linear step between them is off the
+    /// curve by up to half a frame's travel (a passed tab's mask under the flying pill was 7 pt off on the first
+    /// frame, TabPinMotionTests at 2a479812). No `anchor` (nothing moves the path): `times(from:to:count:)`.
+    public static func frameTimes(from now: CFTimeInterval, to end: CFTimeInterval, anchor: CFTimeInterval?,
+                                  framesPerSecond: Double = 120) -> [CFTimeInterval] {
+        let step = 1 / framesPerSecond
+        guard let anchor, end - now > step / 100 else {
+            return times(from: now, to: end, count: sampleCount(seconds: end - now, framesPerSecond: framesPerSecond))
+        }
+        var result = [now]
+        var frame = ((now - anchor) / step).rounded(.down) + 1
+        while anchor + frame * step < end - step / 100 {
+            let time = anchor + frame * step
+            if time - now > step / 100 { result.append(time) }
+            frame += 1
+        }
+        result.append(end)
+        return result
+    }
+
     /// Samples for a path that runs `seconds`: one per frame of the fastest display.
     public static func sampleCount(seconds: CFTimeInterval, framesPerSecond: Double = 120) -> Int {
         max(1, Int((seconds * framesPerSecond).rounded(.up)))
