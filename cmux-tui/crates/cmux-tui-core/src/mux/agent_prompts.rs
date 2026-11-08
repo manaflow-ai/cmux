@@ -253,7 +253,7 @@ mod w3h_last_reply_tests {
             "last-reply".to_owned(),
             SurfaceOptions::default(),
             registry,
-            crate::mux::ProviderWorkspaceState::default(),
+            ProviderWorkspaceState::default(),
             true,
         )
         .unwrap();

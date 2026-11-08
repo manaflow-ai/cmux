@@ -146,7 +146,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     }
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
-    let caller_route = socket::routes_to_caller_session(global);
+    let caller_route = routes_to_caller_session(global);
     // An agent's terminal with no place goes beside its chat (beside.rs).
     #[cfg(unix)]
     match super::beside::run_cli(
@@ -913,7 +913,7 @@ fn last_command_line(last: &Value) -> String {
 /// `terminal <t> screen read` as plain text: the screen's rows as they show,
 /// without trailing blank rows, then one newline.
 fn print_screen_text(text: &str) -> i32 {
-    let mut stdout = std::io::stdout().lock();
+    let mut stdout = io::stdout().lock();
     let shown = text.trim_end_matches(['\n', ' ']);
     match writeln!(stdout, "{shown}").and_then(|()| stdout.flush()) {
         Ok(()) => 0,

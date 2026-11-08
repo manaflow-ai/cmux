@@ -495,8 +495,9 @@ fn session_record(records: &Value) -> Option<(&Value, String)> {
         .as_array()?
         .iter()
         .filter_map(|record| {
-            let id = record["extra"]["agent_session_id"]
-                .as_str()
+            let id = record
+                .pointer("/extra/agent_session_id")
+                .and_then(Value::as_str)
                 .or_else(|| record["agent_session_id"].as_str())?;
             Some((record, id.to_owned()))
         })
@@ -653,7 +654,7 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
     let argv: Vec<String> = daemon
         .request(None, plan(&["terminal", &exited.terminal, "process", "show"])?)
         .ok()
-        .and_then(|process| process["argv"].as_array().cloned())
+        .and_then(|process| process.get("argv").and_then(Value::as_array).cloned())
         .unwrap_or_default()
         .iter()
         .filter_map(|word| word.as_str().map(str::to_owned))
@@ -662,7 +663,7 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
     let harness = options
         .harness
         .clone()
-        .or_else(|| record["extra"]["agent"].as_str().map(harness_name))
+        .or_else(|| record.pointer("/extra/agent").and_then(Value::as_str).map(harness_name))
         .or_else(|| recorded.as_ref().and_then(|launch| launch::harness_of(&launch.launcher)))
         .or_else(|| options.cmd.as_deref().and_then(launch::harness_of))
         .ok_or_else(|| {

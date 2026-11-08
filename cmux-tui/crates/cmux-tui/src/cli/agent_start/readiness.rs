@@ -129,7 +129,8 @@ const DIALOG_ROWS: usize = 16;
 /// agent whose output says "update now" is not held by a dialog.
 pub(in crate::cli) fn startup_dialog(screen: &str) -> Option<Dialog> {
     let rows: Vec<&str> = screen.lines().filter(|row| !row.trim().is_empty()).collect();
-    let bottom = rows[rows.len().saturating_sub(DIALOG_ROWS)..].join("\n");
+    let bottom = rows.iter().skip(rows.len().saturating_sub(DIALOG_ROWS)).copied();
+    let bottom = bottom.collect::<Vec<_>>().join("\n");
     if composer_visible(&bottom) {
         return None;
     }
@@ -325,10 +326,10 @@ where
         // An older daemon without agent records leaves the screen to decide.
         let records = daemon.request(None, reads.agents.clone()).unwrap_or(Value::Null);
         let shown = daemon.request(None, reads.screen.clone())?;
-        let screen = shown["text"].as_str().unwrap_or_default();
+        let screen = shown.get("text").and_then(Value::as_str).unwrap_or_default();
         let look = Look {
             screen,
-            exited: terminal["lifecycle"] == "exited",
+            exited: terminal.get("lifecycle").is_some_and(|lifecycle| lifecycle == "exited"),
             hook_state: fresh_hook_state(&records, options.since_ms),
         };
         let last = assess(&look);

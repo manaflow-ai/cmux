@@ -976,15 +976,14 @@ fn w3h_socket_start_lock_pauses_between_reopens_of_a_changing_path() {
     let dir = TestSocketDir::create("start-lock-backoff");
     let lock = dir.path().join("mux.sock.spawn-lock");
     let checks = std::cell::Cell::new(0_u32);
-    let never_at_path = |_: &std::fs::File, _: &std::path::Path| {
-        checks.set(checks.get() + 1);
-        false
-    };
     let outcome = SocketStartLock::acquire_with(
         &lock,
         Instant::now() + Duration::from_millis(200),
         &mut || {},
-        &never_at_path,
+        &|_, _| {
+            checks.set(checks.get() + 1);
+            false
+        },
     );
     let error = outcome.map(drop).expect_err("a path that keeps changing must time out");
     assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);

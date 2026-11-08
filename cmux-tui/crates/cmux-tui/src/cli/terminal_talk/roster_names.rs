@@ -42,7 +42,7 @@ pub(in crate::cli) fn facts(snapshot: &Value) -> HashMap<String, TabFacts> {
     let replies: HashMap<&str, String> = list("agents")
         .iter()
         .filter_map(|agent| {
-            Some((agent["terminal_id"].as_str()?, text(&agent["extra"]["last_reply"])?))
+            Some((agent["terminal_id"].as_str()?, text(agent.pointer("/extra/last_reply")?)?))
         })
         .collect();
     list("terminals")

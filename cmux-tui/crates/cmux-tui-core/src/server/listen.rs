@@ -379,7 +379,7 @@ fn reopen_pause(reopens: u32, deadline: Instant) -> std::io::Result<()> {
 }
 
 /// The start lock file of `socket`: `<socket>.spawn-lock` beside it.
-pub fn socket_start_lock_path(socket: &Path) -> std::path::PathBuf {
+pub fn socket_start_lock_path(socket: &Path) -> PathBuf {
     let mut name = socket.file_name().unwrap_or_default().to_os_string();
     name.push(".spawn-lock");
     socket.with_file_name(name)

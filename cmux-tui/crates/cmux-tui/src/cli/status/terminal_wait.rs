@@ -198,7 +198,7 @@ fn wait(global: &GlobalArgs, selector: &str, until: Until, timeout: Option<Durat
             let mut reader = BufReader::new(stream);
             let route = SocketRoute::new(&socket, derived, global);
             // `terminal current wait` waits on the caller's own terminal.
-            let caller_route = super::super::wire::routes_to_caller_session(global);
+            let caller_route = wire::routes_to_caller_session(global);
             resolve::apply(&mut reader, &mut plan, caller_route, &route)?;
             let params = plan.params.as_object().cloned().ok_or_else(|| {
                 Failure::Transport("cmux: request params are not an object".into())

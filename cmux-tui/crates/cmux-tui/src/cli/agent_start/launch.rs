@@ -111,10 +111,12 @@ pub(in crate::cli) fn resume_args(harness: &str, id: &str) -> Option<Vec<String>
 /// resumed agent does not pile up `--resume` arguments.
 pub(in crate::cli) fn strip_resume(harness: &str, args: &[String]) -> Vec<String> {
     let Some(shape) = resume_args(harness, "") else { return args.to_vec() };
-    let fixed = &shape[..shape.len() - 1];
-    let tail = fixed.len() + 1;
-    if args.len() >= tail && args[args.len() - tail..args.len() - 1] == *fixed {
-        return args[..args.len() - tail].to_vec();
+    // The tail is the shape's fixed words, then one session id.
+    let Some((_, fixed)) = shape.split_last() else { return args.to_vec() };
+    if let Some((_, rest)) = args.split_last()
+        && let Some(kept) = rest.strip_suffix(fixed)
+    {
+        return kept.to_vec();
     }
     args.to_vec()
 }

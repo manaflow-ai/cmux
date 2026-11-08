@@ -132,8 +132,9 @@ fn runs_agent(terminal: &Value, agents: &[Value]) -> bool {
     });
     match recorded {
         Some(record) => record["state"] != "done",
-        None => terminal["extra"]["program_status"]
-            .as_array()
+        None => terminal
+            .pointer("/extra/program_status")
+            .and_then(Value::as_array)
             .is_some_and(|records| records.iter().any(|record| record["app"].is_string())),
     }
 }
@@ -291,12 +292,10 @@ pub(in crate::cli) fn targets(words: &[String]) -> Vec<Target> {
     }
     let mut positional: Vec<(usize, String)> = Vec::new();
     let mut flagged = Vec::new();
-    let mut index = 0;
-    while index < words.len() && words[index] != "--" {
-        let word = &words[index];
+    let mut scan = words.iter().enumerate().take_while(|(_, word)| *word != "--");
+    while let Some((index, word)) = scan.next() {
         let Some(flag) = word.strip_prefix("--") else {
             positional.push((index, word.clone()));
-            index += 1;
             continue;
         };
         let (name, inline) = match flag.split_once('=') {
@@ -304,13 +303,12 @@ pub(in crate::cli) fn targets(words: &[String]) -> Vec<Target> {
             None => (flag, None),
         };
         if super::command::is_boolean_flag(name) {
-            index += 1;
             continue;
         }
         let (value_index, value) = match inline {
             Some(value) => (index, value.to_owned()),
-            None => match words.get(index + 1) {
-                Some(value) => (index + 1, value.clone()),
+            None => match scan.next() {
+                Some((at, value)) => (at, value.clone()),
                 None => break,
             },
         };
@@ -332,7 +330,6 @@ pub(in crate::cli) fn targets(words: &[String]) -> Vec<Target> {
                 inline,
             });
         }
-        index = value_index + 1;
     }
     let mut found = Vec::new();
     // A shorthand (`tab new terminal`, `tab rename`) names no selector.
@@ -445,7 +442,11 @@ fn daemon_finds(global: &super::GlobalArgs, target: &Target) -> bool {
         let params = plan.params.as_object().cloned().unwrap_or_default();
         resolve::read(&mut reader, target.scope.get(), params)
     });
-    !matches!(found, Err(Failure::Resource(error)) if error["code"] == "selector.not_found")
+    !matches!(
+        found,
+        Err(Failure::Resource(error))
+            if error.get("code").is_some_and(|code| code == "selector.not_found")
+    )
 }
 
 /// How long the selector probe waits for the daemon.
@@ -480,19 +481,29 @@ pub(in crate::cli) fn args_with_words(
     rewritten: &[String],
 ) -> Option<Vec<String>> {
     let mut result = args.to_vec();
-    for (index, (old, new)) in words.iter().zip(rewritten).enumerate() {
-        if old == new {
-            continue;
+    let mut expected = words.to_vec();
+    let changes = words.iter().zip(rewritten).enumerate().filter(|(_, (old, new))| old != new);
+    for (index, (old, new)) in changes {
+        if let Some(slot) = expected.get_mut(index) {
+            slot.clone_from(new);
         }
-        let mut expected = words.to_vec();
-        expected[..=index].clone_from_slice(&rewritten[..=index]);
         let end = result.iter().position(|word| word == "--").unwrap_or(result.len());
-        let position = (0..end).filter(|&at| result[at] == *old).find(|&at| {
-            let mut tried = result.clone();
-            tried[at] = new.clone();
-            super::parse_globals(&tried).is_ok_and(|(_, words)| words == expected)
-        })?;
-        result[position] = new.clone();
+        let position = result
+            .iter()
+            .take(end)
+            .enumerate()
+            .filter(|(_, word)| *word == old)
+            .map(|(at, _)| at)
+            .find(|&at| {
+                let mut tried = result.clone();
+                if let Some(slot) = tried.get_mut(at) {
+                    slot.clone_from(new);
+                }
+                super::parse_globals(&tried).is_ok_and(|(_, words)| words == expected)
+            })?;
+        if let Some(slot) = result.get_mut(position) {
+            slot.clone_from(new);
+        }
     }
     Some(result)
 }
