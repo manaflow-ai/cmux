@@ -100,6 +100,7 @@ fn script(path: &Path, text: &str) {
 
 /// A hub whose `claude` and `codex` harnesses are the stand-ins, keeping
 /// their sign-ins under `d`, and whose `/etc/cmux` is `d/root/etc/cmux`.
+#[cfg(unix)]
 fn hub(d: &Path) -> Arc<Hub> {
     let bin = d.join("bin");
     script(&bin.join("claude"), FAKE_CLAUDE);

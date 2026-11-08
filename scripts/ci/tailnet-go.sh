@@ -8,25 +8,28 @@ ensure_tailnet_go() {
   local root=${1:?checkout root}
   export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS=
   export GOPATH="$root/.build/go-path" GOMODCACHE="$root/.build/go-path/pkg/mod" GOCACHE="$root/.build/go-cache"
-  local arch sum dir="$root/.build/go-1.27.1" tmp
+  local os arch sum dir="$root/.build/go-1.27.1" tmp
   local installed=""
   if command -v go >/dev/null 2>&1; then installed="$(go version 2>/dev/null || true)"; fi
   if [[ ! "$installed" =~ go1\.(2[1-9]|[3-9][0-9])([.[:space:]]|$) ]]; then
-    if [[ "$(uname -s)" != Darwin ]]; then
-      echo "error: install Go 1.21 or later in the build job before building libtailscale" >&2
-      return 3
-    fi
-    case "$(uname -m)" in
-      arm64) arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
-      x86_64) arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
-      *) echo "error: no pinned Go for $(uname -m)" >&2; return 3 ;;
+    # Linux fleet builders cross-build the macOS acpmux (build-acpmux.sh) with no Go on the image.
+    case "$(uname -s)-$(uname -m)" in
+      Darwin-arm64) os=darwin arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
+      Darwin-x86_64) os=darwin arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
+      Linux-x86_64) os=linux arch=amd64; sum=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445 ;;
+      Linux-aarch64|Linux-arm64) os=linux arch=arm64; sum=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec ;;
+      *) echo "error: no pinned Go for $(uname -s) $(uname -m); install Go 1.21 or later in the build job" >&2; return 3 ;;
     esac
     if [[ ! -x "$dir/go/bin/go" ]]; then
       # Extract beside the target and rename, so a cut-off extract never looks complete.
       tmp="$dir.partial"
       rm -rf "$dir" "$tmp" && mkdir -p "$tmp" || return 3
-      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go1.27.1.darwin-$arch.tar.gz" || return 3
-      echo "$sum  $tmp/go.tgz" | shasum -a 256 -c - || return 3
+      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go1.27.1.$os-$arch.tar.gz" || return 3
+      if command -v shasum >/dev/null 2>&1; then
+        echo "$sum  $tmp/go.tgz" | shasum -a 256 -c - || return 3
+      else
+        echo "$sum  $tmp/go.tgz" | sha256sum -c - || return 3
+      fi
       tar -xzf "$tmp/go.tgz" -C "$tmp" && rm -f "$tmp/go.tgz" && mv "$tmp" "$dir" || return 3
     fi
     export PATH="$dir/go/bin:$PATH"

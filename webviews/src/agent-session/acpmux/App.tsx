@@ -10227,6 +10227,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // attached) draws no new chat's folder and environment strip.
             chatKnown={paneKnowsNewChat({ handshaken, newSession }, composerSnapshot)}
             chips={ComposerChips}
+            // The quiet row's Reconnect asks acpmux to reconnect the chat's peer.
+            onReconnectMachine={(link) => reconnectPeer(link.machine)}
             // The context card's Details opens Session Info on Context, unfolded and lit (main's).
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
             draft={draft}
