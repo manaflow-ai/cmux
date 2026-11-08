@@ -12,13 +12,13 @@
     },
     {
       "path": "generated_metadata.go",
-      "sha256": "3b5ae55cdb437d39bb71fa04f713258fc2a741feed68f144081264ed77783f86",
-      "size": 129168
+      "sha256": "94565ab7d6e1674a333ee0716bea90e31aa5f45fa83256bc7db17baac5e82c54",
+      "size": 129204
     },
     {
       "path": "generated_presence_test.go",
-      "sha256": "f769e40ca021f9e56790d967e6327bca0e7e1acc409ce9a164d76e58b84a13b7",
-      "size": 2744163
+      "sha256": "dc5386402937712a7928deaed68204361f74d5db0c65924d9cb72888c3f58ca3",
+      "size": 2744177
     },
     {
       "path": "generated_types.go",

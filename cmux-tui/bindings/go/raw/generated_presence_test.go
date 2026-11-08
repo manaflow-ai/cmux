@@ -60553,7 +60553,7 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount = 1666
+	generatedFieldShapeCount               = 1666
 	generatedOptionalNullableFieldCount    = 1198
 	generatedRequiredNullableFieldCount    = 159
 	generatedOptionalNonnullableFieldCount = 309
