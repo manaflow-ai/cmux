@@ -1030,6 +1030,16 @@ fn ensure_worktree_under(
             let listed = listed_worktree(folder, &root).ok_or_else(|| {
                 format!("{} exists but is not a worktree of this repository", root.display())
             })?;
+            if let Some(requested) = explicit_branch
+                && listed.as_deref() != Some(requested)
+            {
+                return Err(format!(
+                    "{} already uses branch {:?}, not requested {:?}",
+                    root.display(),
+                    listed.as_deref().unwrap_or("(detached)"),
+                    requested
+                ));
+            }
             let branch = listed.unwrap_or_else(|| branch.clone());
             let base =
                 git(folder, &["config", &format!("branch.{branch}.cmuxBase")]).unwrap_or_default();

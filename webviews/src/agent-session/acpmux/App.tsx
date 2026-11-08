@@ -7725,6 +7725,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             await persistSession(started);
             return started;
           },
+          "chat.fix_from_link": ({ url }) => client.fixFromLink(String(url ?? ""), newTab?.cwd),
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
           // The picker's Refresh models: acpmux probes every agent again, then the catalog re-reads.
@@ -11475,6 +11476,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         if (cwd) setProjectDraft(cwd);
                         shellRuns.start(command, cwd ? { cwd } : {});
                       },
+                      showError: (error) => directClient.current?.notice(errorMessage(error) || String(error)),
                     }),
                   )}
                 />
