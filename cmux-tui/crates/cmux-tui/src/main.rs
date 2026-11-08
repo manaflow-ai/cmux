@@ -117,6 +117,7 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod sidebar_status;
 #[cfg(unix)]
 mod staged_update;
 // The staged swap probes builds through cmux-remote, a unix-only dependency:

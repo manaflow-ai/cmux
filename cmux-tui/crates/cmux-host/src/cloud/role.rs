@@ -1119,10 +1119,15 @@ impl Worker {
         if self.activity.unsupported || self.live.is_none() {
             return;
         }
-        let attempt = daemon_socket(&self.paths)
+        let paths = self.paths.clone();
+        let mut identified = None;
+        let attempt = daemon_socket(&paths)
             .ok_or_else(|| io::Error::other("no daemon socket"))
             .and_then(|socket| {
                 let identify = query_identify(&socket, Duration::from_secs(2))?;
+                // The running session host's block, not the bake's (Session::daemon_identified).
+                identified =
+                    Some(with_desktop(&paths, daemon_info_from_identify(&identify, false)));
                 let caps = identify.field("capabilities").as_array().cloned().unwrap_or_default();
                 if !caps.iter().any(|c| c == DAEMON_ACTIVITY_CAPABILITY) {
                     return Ok(None);
@@ -1132,6 +1137,13 @@ impl Worker {
                 stream.set_nonblocking(true)?;
                 Ok(Some(stream))
             });
+        if let Some(daemon) = identified {
+            let now = self.now();
+            if let Some(live) = self.live.as_mut() {
+                let reqs = live.session.daemon_identified(&daemon, now);
+                self.drive(reqs);
+            }
+        }
         match attempt {
             Ok(Some(stream)) => self.activity.stream = Some(stream),
             Ok(None) => {

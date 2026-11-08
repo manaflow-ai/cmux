@@ -12,6 +12,8 @@ protocol HomeAgentThreadReading: AnyObject {
     func sendToAgent(_ text: String, peer: String, in conversation: ConversationID)
     /// Where agent `peer` runs, as last followed by its session id; nil before a read placed it.
     func agentSession(_ peer: String, in conversation: ConversationID) -> HomeAgentSessionRef?
+    /// The agents of `conversation` waiting for a free slot, in the order the Chief starts them.
+    func queuedAgents(in conversation: ConversationID) -> [String]
     /// Reads where agents `peers` run now and re-attaches each that moved (a higher epoch).
     func followAgentSessions(_ peers: [String], in conversation: ConversationID) async -> Bool
 }
