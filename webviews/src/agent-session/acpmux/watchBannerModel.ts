@@ -13,3 +13,9 @@ export function bridgedWatch(
 ): boolean {
   return summary?.watching === "claude" && summary.tags?.bridge === "claude";
 }
+
+/// A bridged reply acpmux refused as read-only: the app no longer runs the session (or the bridge
+/// was turned off since the chat was listed), so the reply takes the chat over as any other does.
+export function bridgeGone(error: unknown): boolean {
+  return (error as { reason?: unknown } | null)?.reason === "watch.read_only";
+}

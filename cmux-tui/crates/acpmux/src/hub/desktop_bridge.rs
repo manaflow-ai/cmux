@@ -75,16 +75,19 @@ impl Hub {
     /// A watched chat for `peer`, unless a chat already shows its conversation.
     async fn list_desktop_session(self: &Arc<Self>, peer: &Peer) -> Result<(), String> {
         let stores = super::adoption::store_families(&*self.config.read().await);
-        let shown = {
+        let (shown, name) = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            super::adoption::adopted_in(&sessions, &stores, "claude", &peer.session_id).is_some()
+            let shown =
+                super::adoption::adopted_in(&sessions, &stores, "claude", &peer.session_id).is_some();
+            let taken = |n: &str| sessions.values().any(|s| s.meta().name == n);
+            (shown, unique_name(peer, taken))
         };
         if shown {
             return Ok(());
         }
         let req = super::NewRequest {
             harness: Some("claude".to_owned()),
-            name: Some(name_of(peer)),
+            name: Some(name),
             cwd: peer.cwd.clone(),
             adopt: Some(crate::adopt::AdoptRequest {
                 harness: Some("claude".to_owned()),
@@ -119,6 +122,13 @@ fn name_of(peer: &Peer) -> String {
         .map(|f| f.to_string_lossy().into_owned())
         .unwrap_or_else(|| "chat".to_owned());
     format!("desktop {folder}")
+}
+
+/// [`name_of`], with the app's pid after it when another chat has that name already (two
+/// desktop sessions in one folder, or a chat named like the session), so each is addressed alone.
+fn unique_name(peer: &Peer, taken: impl Fn(&str) -> bool) -> String {
+    let name = name_of(peer);
+    if taken(&name) { format!("{name} ({})", peer.pid) } else { name }
 }
 
 /// Provenance tags, from the registry entry the session wrote.
@@ -157,6 +167,12 @@ mod tests {
         assert_eq!(name_of(&peer(Some("fix the sidebar"))), "fix the sidebar");
         assert_eq!(name_of(&peer(None)), "desktop cmux");
         assert_eq!(name_of(&peer(Some("  "))), "desktop cmux");
+    }
+
+    #[test]
+    fn a_name_another_chat_has_gets_the_pid() {
+        assert_eq!(unique_name(&peer(None), |_| false), "desktop cmux");
+        assert_eq!(unique_name(&peer(None), |n| n == "desktop cmux"), "desktop cmux (42)");
     }
 
     #[test]

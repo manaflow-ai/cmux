@@ -5,18 +5,22 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 #[test]
-fn only_text_blocks_are_carried() {
+fn only_an_all_text_prompt_is_carried() {
     let blocks = [
         json!({"type": "text", "text": "one"}),
         json!({"type": "image", "data": "..."}),
         json!({"type": "text", "text": "two"}),
     ];
-    assert_eq!(text_of(&blocks), "one\n\ntwo");
+    assert_eq!(text_of(&blocks), None, "an image would be lost: refused, not cut");
+    let texts = [json!({"type": "text", "text": "one"}), json!({"type": "text", "text": "two"})];
+    assert_eq!(text_of(&texts).as_deref(), Some("one\n\ntwo"));
+    assert_eq!(text_of(&[json!({"type": "text", "text": "  "})]), None);
 }
 
 #[test]
 fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
-    let rx = deliveries().insert("u-find".into(), "s1", "p1", "hi");
+    let rx = deliveries().claim("u-find".into(), "s1", "p1", "hi").unwrap();
+    assert!(deliveries().claim("u-other".into(), "s1", "p1", "hi").is_err(), "one id, one send");
     assert_eq!(delivered("s1", "u-find"), Some(("p1".into(), "hi".into())));
     assert_eq!(delivered("s2", "u-find"), None);
     answered("s1", "p1", "t1");

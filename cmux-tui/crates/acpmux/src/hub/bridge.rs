@@ -53,13 +53,18 @@ fn deliveries() -> std::sync::MutexGuard<'static, Deliveries> {
 }
 
 impl Deliveries {
-    fn insert(
+    /// The delivery of `prompt_id`, claimed under one lock: a new one (`Ok`) to send as `uuid`, or
+    /// the one a resend of the same id finds (`Err`), whose turn it answers with.
+    fn claim(
         &mut self,
         uuid: String,
         session_id: &str,
         prompt_id: &str,
         text: &str,
-    ) -> watch::Receiver<Option<String>> {
+    ) -> Result<watch::Receiver<Option<String>>, watch::Receiver<Option<String>>> {
+        if let Some((_, p)) = self.of_prompt(session_id, prompt_id) {
+            return Err(p.turn.subscribe());
+        }
         let (turn, rx) = watch::channel(None);
         self.next += 1;
         let pending = Pending {
@@ -80,7 +85,7 @@ impl Deliveries {
             let Some(oldest) = oldest else { break };
             self.by_uuid.remove(&oldest);
         }
-        rx
+        Ok(rx)
     }
 
     fn of_prompt(&self, session_id: &str, prompt_id: &str) -> Option<(&String, &Pending)> {
@@ -111,14 +116,18 @@ async fn turn_of(mut rx: watch::Receiver<Option<String>>) -> Option<String> {
     tokio::time::timeout(ANSWER_WAIT, wait).await.ok()?.ok()?.clone()
 }
 
-/// The text of a prompt's content blocks; images and other blocks are not carried.
-fn text_of(blocks: &[Value]) -> String {
+/// The text of a prompt's content blocks, when they are all text: an image or a file would not
+/// reach the app (its inbox takes text), so such a prompt is refused rather than cut.
+fn text_of(blocks: &[Value]) -> Option<String> {
     blocks
         .iter()
-        .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
-        .filter_map(|b| b.get("text").and_then(Value::as_str))
-        .collect::<Vec<_>>()
-        .join("\n\n")
+        .map(|b| match b.get("type").and_then(Value::as_str) {
+            Some("text") => b.get("text").and_then(Value::as_str),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()
+        .map(|texts| texts.join("\n\n"))
+        .filter(|text| !text.trim().is_empty())
 }
 
 impl Hub {
@@ -135,6 +144,13 @@ impl Hub {
             return None;
         }
         let agent_session_id = session.meta().agent_session_id?;
+        // A resend of a prompt id that went answers with its turn, whether or not the app still runs.
+        if let Some(id) = opts.prompt_id.clone() {
+            let kept = deliveries().of_prompt(&session.id, &id).map(|(_, p)| p.turn.subscribe());
+            if let Some(rx) = kept {
+                return Some(Ok(resent(session, &id, rx, opts).await));
+            }
+        }
         let config = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).claude.clone();
         let lookup = (config.clone(), agent_session_id.clone());
         let peer = tokio::task::spawn_blocking(move || {
@@ -144,33 +160,21 @@ impl Hub {
         })
         .await
         .ok()??;
-        let text = text_of(blocks);
-        if text.trim().is_empty() {
+        let Some(text) = text_of(blocks) else {
             return Some(Err(RpcError::invalid_params(
-                "only text reaches a Claude Code session another app runs",
+                "only text reaches a Claude Code session another app runs: send it without attachments, or take the chat over",
             )));
-        }
+        };
         let prompt_id = opts.prompt_id.clone().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
-        // The same prompt id again (a resend) is not delivered twice: it answers with the first.
-        let resent =
-            deliveries().of_prompt(&session.id, &prompt_id).map(|(_, p)| p.turn.subscribe());
-        if let Some(rx) = resent {
-            if let Some(f) = opts.on_accepted.take() {
-                f(json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true}));
-            }
-            let turn_id = turn_of(rx).await;
-            return Some(Ok(reply(&prompt_id, turn_id.as_deref(), &peer)));
-        }
         let uuid = uuid::Uuid::now_v7().to_string();
-        let rx = deliveries().insert(uuid.clone(), &session.id, &prompt_id, &text);
+        // Claimed under one lock: two sends of one id never both go.
+        let rx = match deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text) {
+            Ok(rx) => rx,
+            Err(rx) => return Some(Ok(resent(session, &prompt_id, rx, opts).await)),
+        };
         let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
         let from = crate::claude_peers::from_address(&sender);
-        let (target, msg_uuid) = (peer.clone(), uuid.clone());
-        let sent = tokio::task::spawn_blocking(move || {
-            crate::claude_peers::deliver(&config, &target, &text, &msg_uuid, &from)
-        })
-        .await
-        .unwrap_or_else(|e| Err(e.to_string()));
+        let sent = crate::claude_peers::deliver(&config, &peer, &text, &uuid, &from).await;
         if let Err(e) = sent {
             deliveries().by_uuid.remove(&uuid);
             return Some(Err(RpcError::new(-32000, format!("bridge.undelivered: {e}"))
@@ -188,18 +192,33 @@ impl Hub {
             );
         }
         let turn_id = turn_of(rx).await;
-        Some(Ok(reply(&prompt_id, turn_id.as_deref(), &peer)))
+        Some(Ok(reply(&prompt_id, turn_id.as_deref(), Some(&peer))))
     }
 }
 
-fn reply(prompt_id: &str, turn_id: Option<&str>, peer: &crate::claude_peers::Peer) -> Value {
+/// A resend's answer: accepted as a duplicate, then the first delivery's turn.
+async fn resent(
+    session: &Session,
+    prompt_id: &str,
+    rx: watch::Receiver<Option<String>>,
+    opts: &mut PromptOptions,
+) -> Value {
+    if let Some(f) = opts.on_accepted.take() {
+        f(json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true}));
+    }
+    let turn_id = turn_of(rx).await;
+    reply(prompt_id, turn_id.as_deref(), None)
+}
+
+fn reply(prompt_id: &str, turn_id: Option<&str>, peer: Option<&crate::claude_peers::Peer>) -> Value {
+    let bridged = peer.map(|p| json!({"pid": p.pid, "entrypoint": p.entrypoint}));
     json!({
         "stopReason": "end_turn",
         "_meta": {"acpmux": {
             "promptId": prompt_id,
             "turnId": turn_id,
             "answered": turn_id.is_some(),
-            "bridged": {"pid": peer.pid, "entrypoint": peer.entrypoint},
+            "bridged": bridged.unwrap_or(json!(true)),
         }},
     })
 }

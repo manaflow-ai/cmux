@@ -20,7 +20,6 @@
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -96,6 +95,11 @@ fn read_entry(path: &Path) -> Option<Peer> {
     if path.extension()?.to_str()? != "json" || !stem.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
+    // A stale entry (its pid gone) is skipped before it is read: a busy machine keeps thousands.
+    let pid: u32 = stem.parse().ok()?;
+    if !crate::adopt_live::registered_runs(pid, None) {
+        return None;
+    }
     if std::fs::metadata(path).ok()?.len() > MAX_FILE {
         return None;
     }
@@ -169,19 +173,22 @@ pub fn from_address(sender: &str) -> String {
     format!("acpmux:{clean}")
 }
 
-/// Delivers `text` into `peer`'s inbox as message `uuid`. Blocking.
+/// Delivers `text` into `peer`'s inbox as message `uuid`: connecting and writing take at most
+/// [`IO_TIMEOUT`] together.
 #[cfg(unix)]
-pub fn deliver(
+pub async fn deliver(
     config: &Path,
     peer: &Peer,
     text: &str,
     uuid: &str,
     from: &str,
 ) -> Result<(), String> {
+    use tokio::io::AsyncWriteExt;
     let socket = peer.socket.as_deref().ok_or("the session has no messaging socket")?;
     let key = key_file(config, peer.pid, socket);
     // Claude Code drops what comes without its token: with no readable key, nothing is sent.
-    let token = std::fs::read(&key)
+    let token = tokio::fs::read(&key)
+        .await
         .ok()
         .filter(|bytes| bytes.len() as u64 <= MAX_FILE)
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
@@ -189,18 +196,25 @@ pub fn deliver(
         .ok_or_else(|| {
             format!("the session's inbox key {} is missing or unreadable", key.display())
         })?;
-    let mut stream = std::os::unix::net::UnixStream::connect(socket)
-        .map_err(|e| format!("could not reach the session's inbox {}: {e}", socket.display()))?;
-    stream.set_write_timeout(Some(IO_TIMEOUT)).map_err(|e| e.to_string())?;
-    stream
-        .write_all(frames(Some(&token), text, uuid, from).as_bytes())
-        .map_err(|e| format!("could not write to the session's inbox: {e}"))?;
-    let _ = stream.shutdown(std::net::Shutdown::Write);
-    Ok(())
+    let frames = frames(Some(&token), text, uuid, from);
+    let send = async {
+        let mut stream = tokio::net::UnixStream::connect(socket).await.map_err(|e| {
+            format!("could not reach the session's inbox {}: {e}", socket.display())
+        })?;
+        stream
+            .write_all(frames.as_bytes())
+            .await
+            .map_err(|e| format!("could not write to the session's inbox: {e}"))?;
+        let _ = stream.shutdown().await;
+        Ok(())
+    };
+    tokio::time::timeout(IO_TIMEOUT, send).await.unwrap_or_else(|_| {
+        Err(format!("the session's inbox {} did not answer in time", socket.display()))
+    })
 }
 
 #[cfg(not(unix))]
-pub fn deliver(_: &Path, _: &Peer, _: &str, _: &str, _: &str) -> Result<(), String> {
+pub async fn deliver(_: &Path, _: &Peer, _: &str, _: &str, _: &str) -> Result<(), String> {
     Err("delivering to a Claude Code session is Unix-only".into())
 }
 

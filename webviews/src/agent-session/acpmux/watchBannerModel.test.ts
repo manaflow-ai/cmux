@@ -1,7 +1,7 @@
 // A watched Claude desktop session acpmux delivers into takes a reply where it runs; every other
 // watched chat is taken over by a reply, as before.
 import { describe, expect, test } from "bun:test";
-import { bridgedWatch } from "./watchBannerModel";
+import { bridgeGone, bridgedWatch } from "./watchBannerModel";
 
 describe("bridgedWatch", () => {
   test("a watched Claude chat the desktop bridge listed", () => {
@@ -14,5 +14,14 @@ describe("bridgedWatch", () => {
     expect(bridgedWatch({ watching: "codex", tags: { bridge: "claude" } })).toBe(false);
     expect(bridgedWatch({ watching: null, tags: { bridge: "claude" } })).toBe(false);
     expect(bridgedWatch(undefined)).toBe(false);
+  });
+});
+
+describe("bridgeGone", () => {
+  test("only a read-only refusal sends the reply to Take Over", () => {
+    expect(bridgeGone({ reason: "watch.read_only" })).toBe(true);
+    expect(bridgeGone({ reason: "bridge.undelivered" })).toBe(false);
+    expect(bridgeGone(new Error("x"))).toBe(false);
+    expect(bridgeGone(null)).toBe(false);
   });
 });

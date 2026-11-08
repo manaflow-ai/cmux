@@ -88,8 +88,8 @@ fn entrypoints_default_to_the_desktop_app() {
 }
 
 #[cfg(unix)]
-#[test]
-fn deliver_authenticates_and_writes_the_message_to_the_inbox() {
+#[tokio::test]
+async fn deliver_authenticates_and_writes_the_message_to_the_inbox() {
     use std::io::Read;
     let dir = scratch("deliver");
     let sock = dir.join("inbox.sock");
@@ -114,7 +114,7 @@ fn deliver_authenticates_and_writes_the_message_to_the_inbox() {
         conn.read_to_string(&mut got).unwrap();
         got
     });
-    deliver(&dir, &peer, "hello desk", "u-9", "acpmux:test").unwrap();
+    deliver(&dir, &peer, "hello desk", "u-9", "acpmux:test").await.unwrap();
     let got = reader.join().unwrap();
     let lines: Vec<Value> = got.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines[0]["token"], "0123456789abcdef0123456789abcdef");
@@ -123,8 +123,8 @@ fn deliver_authenticates_and_writes_the_message_to_the_inbox() {
 }
 
 #[cfg(unix)]
-#[test]
-fn deliver_sends_nothing_without_a_key_and_names_an_inbox_it_cannot_reach() {
+#[tokio::test]
+async fn deliver_sends_nothing_without_a_key_and_names_an_inbox_it_cannot_reach() {
     let dir = scratch("unreachable");
     let peer = Peer {
         pid: 1,
@@ -136,11 +136,11 @@ fn deliver_sends_nothing_without_a_key_and_names_an_inbox_it_cannot_reach() {
         version: None,
         socket: Some(dir.join("gone.sock")),
     };
-    let err = deliver(&dir, &peer, "x", "u", "f").unwrap_err();
+    let err = deliver(&dir, &peer, "x", "u", "f").await.unwrap_err();
     assert!(err.contains("missing or unreadable"), "no key, nothing sent: {err}");
     let key = key_file(&dir, 1, &dir.join("gone.sock"));
     std::fs::write(key, json!({"peerToken": "0123456789abcdef0123456789abcdef"}).to_string())
         .unwrap();
-    let err = deliver(&dir, &peer, "x", "u", "f").unwrap_err();
+    let err = deliver(&dir, &peer, "x", "u", "f").await.unwrap_err();
     assert!(err.contains("could not reach"), "{err}");
 }
