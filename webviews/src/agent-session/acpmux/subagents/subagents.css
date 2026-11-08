@@ -1379,9 +1379,13 @@ div.cv-subagent-done[data-toggle-line]::before {
   cursor: default;
   pointer-events: auto;
 }
-/* Pointing anywhere on the line but its name lifts the chevron, the line's toggle; only the chevron
-   itself takes the fill. */
-.cv-subagent-done-row:hover:not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > .cv-subagent-done__disclose {
+/* Pointing anywhere on the line but its name lifts its words and the chevron to the text color, so
+   the line reads as one that opens (Lucas, 2026-11-08: "hovering the Subagent finished text should
+   turn it white"); only the chevron itself takes the fill, and the name chip keeps its own hover. */
+.cv-subagent-done-row:hover:not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > .cv-subagent-done__disclose,
+.cv-subagent-done-row:hover:not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
+  > div.cv-subagent-done[data-toggle-line]
+  .cv-agent-activity__sentence {
   color: var(--cv-text);
 }
 .cv-subagent-done-row > .cv-subagent-done__disclose:hover {
