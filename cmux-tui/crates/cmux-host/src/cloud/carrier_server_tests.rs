@@ -299,6 +299,11 @@ struct Live {
     mint_gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
     /// While set, a bearer mint is held here (a slow auth at the bind).
     token_gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// While set, the next ticket request alone is held here, up to 20 s
+    /// (one on a pooled connection that died in a pause).
+    ticket_gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// Ticket requests that came back.
+    answered: Mutex<u64>,
 }
 
 impl Live {
@@ -341,6 +346,12 @@ impl Http for LiveHttp {
             *tickets += 1;
             *tickets
         };
+        let gate = self.0.ticket_gate.lock().unwrap().take();
+        if let Some((entered, gate)) = gate {
+            let _ = entered.send(());
+            let _ = gate.recv_timeout(Duration::from_secs(20));
+        }
+        *self.0.answered.lock().unwrap() += 1;
         Ok((
             200,
             json!({ "ok": true, "value": { "relay": "relay+do://relay.example", "slot": "slot_0123456789abcdefghijkl", "ticket": format!("t-{n}"), "expires_at": wall_now() / 1000 + self.0.life_s } }),
@@ -349,6 +360,10 @@ impl Http for LiveHttp {
 
     fn reset(&self) {
         *self.0.resets.lock().unwrap() += 1;
+    }
+
+    fn fresh(&self) -> Option<Self> {
+        Some(self.clone())
     }
 }
 
@@ -521,5 +536,83 @@ fn a_45_s_ticket_asked_for_an_ask_is_handed_out_on_the_first_fetch() {
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(reply["ticket"], "t-1", "{reply}");
     assert_eq!(live.tickets(), 1, "the ticket asked for the ask was thrown away and asked again");
+    drop(server);
+}
+
+/// Holds the next ticket request (a slow one, up to 20 s) until the returned
+/// sender is dropped or sends; the receiver says it started.
+fn hold_next_ticket(live: &Live) -> (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>) {
+    let (entered, reached) = std::sync::mpsc::channel();
+    let (release, gate) = std::sync::mpsc::channel();
+    *live.ticket_gate.lock().unwrap() = Some((entered, gate));
+    (release, reached)
+}
+
+/// #38329's review (F1): the ticket asked for at the bind hangs (a pooled
+/// connection that died in the pause, 20 s to its bound) when the machine
+/// resumes. The resume does not wait for it: a fresh ticket is asked for on a
+/// transport of its own, the first ask after the resume gets it well inside
+/// the ask wait, and the late reply from before the pause is never handed
+/// out.
+#[test]
+fn a_resume_during_a_slow_ticket_fetch_asks_again_at_once_and_drops_the_late_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let ask_wait = Duration::from_secs(5);
+    let (server, path, live, resumes) = live_server(&dir, 300, ask_wait);
+    let (release, reached) = hold_next_ticket(&live);
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    reached.recv_timeout(Duration::from_secs(10)).expect("the bind did not ask for a ticket");
+    resumes.note();
+    let started = Instant::now();
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    let took = started.elapsed();
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["ticket"], "t-2", "the ticket asked for after the resume: {reply}");
+    assert!(
+        took < Duration::from_secs(2),
+        "waited {took:?} behind the fetch from before the pause"
+    );
+    // The fetch from before the pause comes back late; its ticket is dropped.
+    release.send(()).unwrap();
+    wait_for("the late reply", || *live.answered.lock().unwrap() == 2);
+    std::thread::sleep(Duration::from_millis(100));
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_ne!(reply["ticket"], "t-1", "the ticket from before the pause was handed out");
+    drop(server);
+}
+
+/// The earlier follow-up, folded into F1: a ticket asked for an ask before a
+/// resume is not handed out after it. The asker waiting on it gets the
+/// ticket asked for after the resume instead, inside its wait.
+#[test]
+fn a_ticket_asked_for_an_ask_before_a_resume_is_not_handed_out_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let ask_wait = Duration::from_secs(5);
+    let (server, path, live, resumes) = live_server(&dir, 300, ask_wait);
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    let (release, reached) = hold_next_ticket(&live);
+    let asking = {
+        let path = path.clone();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            (ask(&path, r#"{"carrier_ticket": {}}"#), started.elapsed())
+        })
+    };
+    reached.recv_timeout(Duration::from_secs(10)).expect("the ask did not ask for a ticket");
+    resumes.note();
+    let (reply, took) = asking.join().unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["ticket"], "t-2", "the ticket asked for after the resume: {reply}");
+    assert!(
+        took < Duration::from_secs(2),
+        "waited {took:?} behind the fetch from before the pause"
+    );
+    release.send(()).unwrap();
+    wait_for("the late reply", || *live.answered.lock().unwrap() == 2);
+    std::thread::sleep(Duration::from_millis(100));
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_ne!(reply["ticket"], "t-1", "the ticket from before the pause was handed out");
     drop(server);
 }
