@@ -82,16 +82,45 @@ export function leaveLayerOnScreen(layer: HTMLElement, event: KeyboardEvent | Re
   focusWithRing(target, { preventScroll: true, focusVisible: true });
 }
 
+/// Whether `element` lies wholly above or below what `region` (a scroller) shows in the window:
+/// scrolled out of view, so focusing it would scroll. A control in view with no box of its own
+/// (inside text collapsed until focus opens it) is not.
+function scrolledOut(element: HTMLElement, region: HTMLElement): boolean {
+  const box = element.getBoundingClientRect();
+  const view = region.getBoundingClientRect();
+  const top = Math.max(view.top, 0);
+  const bottom = Math.min(view.bottom, element.ownerDocument.defaultView?.innerHeight ?? view.bottom);
+  return box.bottom <= top || box.top >= bottom;
+}
+
 /// Tab or Shift-Tab, from anywhere in the document, whose next stop would be a control in `region`
-/// that is not on screen goes on to the nearest stop on screen in that direction instead. The
+/// scrolled out of its view goes on to the nearest stop in view in that direction instead. The
 /// transcript's virtual list mounts rows a little past each edge of the view, and each row's
 /// controls are tab stops: from the composer (Shift-Tab), from the control above the rows (Tab),
 /// or from the last row in view, the browser's next stop was such a row, and focusing it scrolled
-/// the reader away from where they were reading (#38090). With nothing on screen that way, the
-/// browser moves focus as usual. A layer that already took the press (the toast deck, Jump to
-/// latest) is left alone. Returns the cleanup.
+/// the reader away from where they were reading (#38090). A stop in `region` counts while it is
+/// inside the view and nothing outside the region is drawn over it, clipped or not, so Tab still
+/// opens a sent message's collapsed text by reaching its controls. A stop outside it counts when
+/// it is on screen. With nothing that way, the browser
+/// moves focus as usual. A layer that already took the press (the toast deck, Jump to latest) is
+/// left alone. Returns the cleanup.
 export function keepTabOnScreen(region: HTMLElement): () => void {
   const doc = region.ownerDocument;
+  // In the region: inside its view and not under something drawn over the region (the composer's
+  // dock, a toast, Jump to latest). Clipping inside the region does not count against it: a sent
+  // message's code controls sit in text collapsed until focus opens it, and Tab must reach them.
+  const inView = (stop: HTMLElement) => {
+    if (!region.contains(stop)) return onScreen(stop);
+    if (scrolledOut(stop, region)) return false;
+    const box = stop.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return true;
+    const view = doc.defaultView;
+    const x = box.left + box.width / 2;
+    const y = box.top + box.height / 2;
+    if (!view || x < 0 || y < 0 || x >= view.innerWidth || y >= view.innerHeight) return false;
+    const hit = doc.elementFromPoint(x, y);
+    return hit === null || region.contains(hit);
+  };
   const key = (event: KeyboardEvent) => {
     if (event.key !== "Tab" || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
     const from = doc.activeElement as HTMLElement | null;
@@ -101,10 +130,10 @@ export function keepTabOnScreen(region: HTMLElement): () => void {
     if (at < 0) return;
     const step = event.shiftKey ? -1 : 1;
     const next = stops[at + step];
-    if (!next || !region.contains(next) || onScreen(next)) return;
+    if (!next || !region.contains(next) || inView(next)) return;
     for (let index = at + step; index >= 0 && index < stops.length; index += step) {
       const stop = stops[index]!;
-      if (!onScreen(stop)) continue;
+      if (!inView(stop)) continue;
       event.preventDefault();
       focusWithRing(stop, { preventScroll: true, focusVisible: true });
       return;
